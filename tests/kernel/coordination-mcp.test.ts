@@ -289,7 +289,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     let boundBeforeFirstCall: boolean | undefined
     const scope = {
       signal: new AbortController().signal,
-      view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
+      view: { root: 'mcp-fixture', nodes: [], inFlight: 0 },
     } as Scope<unknown>
     const mcp = await serveCoordinationMcp({
       scope,
@@ -329,7 +329,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     const calls: unknown[] = []
     const scope = {
       signal: new AbortController().signal,
-      view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
+      view: { root: 'mcp-fixture', nodes: [], inFlight: 0 },
     } as Scope<unknown>
     const mcp = await serveCoordinationMcp({
       scope,
@@ -378,7 +378,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
       serveCoordinationMcp({
         scope: {
           signal: new AbortController().signal,
-          view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
+          view: { root: 'mcp-fixture', nodes: [], inFlight: 0 },
         } as Scope<unknown>,
         blobs: new InMemoryResultBlobStore(),
         makeWorkerAgent: () => deliveringLeaf('unused', {}),
@@ -401,7 +401,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
       serveCoordinationMcp({
         scope: {
           signal: new AbortController().signal,
-          view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
+          view: { root: 'mcp-fixture', nodes: [], inFlight: 0 },
         } as Scope<unknown>,
         blobs: new InMemoryResultBlobStore(),
         makeWorkerAgent: () => deliveringLeaf('unused', {}),
@@ -1436,7 +1436,7 @@ async function withMethodTool<T>(
   const { handle: mcp, controls } = await serveCoordinationMcpForManager({
     scope: {
       signal: new AbortController().signal,
-      view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
+      view: { root: 'mcp-fixture', nodes: [], inFlight: 0 },
       next: async () => null,
       nextResolved: async () => null,
     } as unknown as Scope<unknown>,
@@ -1627,7 +1627,7 @@ async function withSlowCheck<T>(
   const { handle: mcp, controls } = await serveCoordinationMcpForManager({
     scope: {
       signal: new AbortController().signal,
-      view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
+      view: { root: 'mcp-fixture', nodes: [], inFlight: 0 },
       next: async () => null,
       nextResolved: async () => null,
     } as unknown as Scope<unknown>,

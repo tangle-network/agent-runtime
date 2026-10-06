@@ -667,7 +667,6 @@ describe('coordination tools', () => {
             },
           ],
           inFlight: 0,
-          waiting: 0,
         },
         waits: [],
         keys: new Map(),

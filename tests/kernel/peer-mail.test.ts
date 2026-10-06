@@ -418,7 +418,6 @@ function stubScope(
             }) as unknown as NodeSnapshot,
         ),
         inFlight: nodes.length,
-        waiting: 0,
       }
     },
     send: (nodeId: string, message: unknown) => {

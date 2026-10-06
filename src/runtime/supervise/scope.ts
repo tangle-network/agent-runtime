@@ -171,21 +171,10 @@ import type {
   TreeView,
   UnconfirmedTeardown,
   UsageEvent,
-  WaitOpts,
   WorkerInteractiveSession,
   WorkerInteractiveUnavailableReason,
   WorkerTraceEvidence,
 } from './types'
-import {
-  assertWaitWithinDeadline,
-  type PendingWait,
-  runWait,
-  validateWaitSpec,
-  type WaitOutcome,
-  type WaitProbeRegistry,
-  type WaitRejection,
-  type WaitSpec,
-} from './wait'
 import { writeWorkerInteractiveBinding } from './worker-interactive'
 import {
   createWorkerSlots,
@@ -212,11 +201,6 @@ export interface ScopeArgs {
   readonly blobs: ResultBlobStore
   /** The open executor resolver (BYO → router/inline → registered harness factory). */
   readonly executors: ExecutorRegistry
-  /** Predicate resolver for `poll` wait-states. Absent ⇒ `wait` refuses a `poll` with
-   *  `unknown-probe`; `timer` waits never touch it. */
-  readonly probes?: WaitProbeRegistry
-  /** Injected sleeper for wait-states — a test drives a week-long timer in microseconds. */
-  readonly waitSleep?: (ms: number, signal: AbortSignal) => Promise<void>
   /** Per-spawn executor-construction seams (sandbox client, router config, cli bin). */
   readonly seams: Readonly<Record<string, unknown>>
   /** This scope's recursion depth (root = 0). */
@@ -292,11 +276,6 @@ export interface ScopeArgs {
     readonly maxSpawnOrdinal: number
     /** Highest cursor `seq` already journaled; new settlements start at `+1`. */
     readonly maxCursorSeq: number
-    /** Highest `waiting` ordinal already journaled; new waits start at `+1`. */
-    readonly maxWaitOrdinal: number
-    /** Waits journaled as armed but never woken — re-armed (same node id, same absolute deadline)
-     *  when `wait` is called again with the SAME label. */
-    readonly waits: ReadonlyArray<PendingWait>
     /** Keyed assignments from the prior journal — what a keyed re-spawn resolves against. */
     readonly keys: ReadonlyMap<string, ResumedKeyState<unknown>>
     /** Prior committed spend summed off the journal (settled child work + metered inference). */
@@ -674,8 +653,7 @@ interface LiveChild {
   readonly confirmTeardown?: () => Promise<void>
   /** Every teardown Runtime sends this child's executor, single-flight: while one request is
    *  still running, another ask awaits it instead of sending a second (see
-   *  `singleFlightTeardown`). Unbounded itself; each caller bounds its wait. Absent on a
-   *  wait-state node, which holds no executor. */
+   *  `singleFlightTeardown`). Unbounded itself; each caller bounds its wait. */
   readonly askTeardown?: (grace: number | 'brutalKill' | 'infinity') => Promise<TeardownAnswer>
   /** The executor's `heldEnvironments` read, captured at spawn: what a sweeper must delete when
    *  this child's teardown stays unconfirmed. */
@@ -706,19 +684,9 @@ interface LiveChild {
    *  including one that implements no progress read at all — has an observable liveness signal. */
   readonly startedAt: number
   lastActivityAt: number
-  /** Present ONLY on a wait-state node. Its presence is what routes the settle path to the
-   *  `woken` journal event instead of `settled`, and what keeps a wait out of `inFlight`. */
-  readonly wait?: {
-    readonly spec: WaitSpec
-    readonly armedAt: number
-    readonly label: string
-    armCommitted: boolean
-  }
 }
 
-/** A child's terminal settlement before the cursor stamps the monotonic `seq`. A wait-state's
- *  `done` carries a `WaitOutcome` as its `out` and a zero `spent` — waiting is free by type, not
- *  by measurement. */
+/** A child's terminal settlement before the cursor stamps the monotonic `seq`. */
 export type PreSeqSettled =
   | {
       kind: 'done'
@@ -915,24 +883,14 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   // On a resumed scope, continue both monotonic namespaces PAST the recorded maxima so a
   // freshly-spawned child or settlement never reuses a journaled `seq` (the per-tree
   // uniqueness guard would otherwise fail loud). On a fresh scope both start at 0.
-  //  - `waitOrdinal` is a THIRD namespace for wait-states (`${parent}:w${ordinal}`, stamping the
-  //    `waiting` event's `seq`), separate from the spawn ordinal so a wait and a worker can never
-  //    mint the same node id.
   let spawnOrdinal = args.resumeFrom ? args.resumeFrom.maxSpawnOrdinal + 1 : 0
   let cursorSeq = args.resumeFrom ? args.resumeFrom.maxCursorSeq + 1 : 0
-  let waitOrdinal = args.resumeFrom ? args.resumeFrom.maxWaitOrdinal + 1 : 0
   let meterSeq = 0
   // The owner's own turns, so its lead reads a manager that takes turns as active.
   let ownerTurns = 0
   let ownerLastTurnAt = 0
   let progressSeq = 0
   const now = args.now ?? Date.now
-  // Waits the journal shows as armed but never woken, keyed by label. `wait` RE-ADOPTS one instead
-  // of arming a fresh countdown — that is what makes a resumed deadline the ORIGINAL deadline.
-  const unclaimedWaits = new Map<string, PendingWait>(
-    (args.resumeFrom?.waits ?? []).map((w) => [w.label, w]),
-  )
-
   // The semantic-key registry (`SpawnOpts.key`): every keyed assignment's current state, seeded
   // from the prior journal on resume and updated live as keyed children spawn and settle. This is
   // what makes a keyed spawn idempotent per key across process lifetimes: `done` returns the
@@ -1983,179 +1941,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     return true
   }
 
-  /**
-   * Arm a wait-state node. Deliberately NOT a `spawn` with a sleeping executor: it resolves no
-   * `AgentSpec`, constructs no `Executor`, and — the point of the whole mechanic — reserves NOTHING
-   * from the conserved pool, so a week-long wait costs zero tokens and zero dollars and cannot
-   * starve a worker of budget.
-   *
-   * Fail-closed admission, mirroring `spawn`'s typed outcome. The deadline check is the one that
-   * matters: a wait may not silently sleep past the pool's hard wall-clock ceiling, and it may not
-   * extend that ceiling either (that would make a wait override a budget guard).
-   */
-  function wait(
-    spec: WaitSpec,
-    opts: WaitOpts,
-  ): { ok: true; handle: Handle<WaitOutcome> } | { ok: false; reason: WaitRejection } {
-    if (args.signal.aborted) return { ok: false, reason: 'deadline-exceeded' }
-    if (validateWaitSpec(spec) !== null) return { ok: false, reason: 'invalid-spec' }
-    if (spec.kind === 'poll' && args.probes?.resolve(spec.probe) === undefined) {
-      return { ok: false, reason: 'unknown-probe' }
-    }
-
-    // Re-adopt a journaled, still-unfired wait with this label: same node id, same spec, same
-    // ORIGINAL arm instant. The caller passes the spec it would have used fresh; the journaled one
-    // wins, so a restart cannot slide the deadline forward.
-    const adopted = unclaimedWaits.get(opts.label)
-    if (adopted) unclaimedWaits.delete(opts.label)
-    const effectiveSpec = adopted?.spec ?? spec
-    const armedAt = adopted?.armedAt ?? now()
-
-    if (!assertWaitWithinDeadline(effectiveSpec, args.pool.readout().deadlineMs)) {
-      return { ok: false, reason: 'deadline-exceeded' }
-    }
-
-    const id: NodeId = adopted ? adopted.id : `${args.parentId}:w${waitOrdinal}`
-    const ordinal = adopted ? adopted.ordinal : waitOrdinal
-    if (!adopted) waitOrdinal += 1
-
-    const waitAbort = new AbortController()
-    const cascadeAbort = () => waitAbort.abort()
-    if (args.signal.aborted) waitAbort.abort()
-    else args.signal.addEventListener('abort', cascadeAbort, { once: true })
-
-    const handle: Handle<WaitOutcome> = {
-      id,
-      label: opts.label,
-      get status(): NodeStatus {
-        return children.get(id)?.status ?? 'cancelled'
-      },
-      abort(reason?: string): void {
-        waitAbort.abort(reason)
-      },
-    }
-
-    const live: LiveChild = {
-      id,
-      status: 'waiting',
-      runtime: 'wait',
-      abortChild: (reason?: unknown): void => waitAbort.abort(reason),
-      // A wait's recorded budget is zero on every channel — nothing was reserved, so nothing may
-      // be reconciled, and a journal reader sums it as the zero it truly is.
-      budget: { maxIterations: 0, maxTokens: 0 },
-      label: opts.label,
-      spent: zeroSpend(),
-      settled: undefined as unknown as Promise<PreSeqSettled>,
-      delivered: false,
-      executorDone: false,
-      cleanupConfirmed: true,
-      teardownAttempts: 0,
-      executionBindings: [],
-      startedAt: armedAt,
-      lastActivityAt: now(),
-      wait: {
-        spec: effectiveSpec,
-        armedAt,
-        label: opts.label,
-        armCommitted: adopted !== undefined,
-      },
-    }
-    children.set(id, live)
-
-    // Only a FRESH arm journals `waiting`; an adopted one already has its record (re-writing it
-    // would duplicate the wait ordinal in the journal's per-tree guard). A fresh wait may not
-    // start racing its timer/probe until this identity record is durable: otherwise a zero-delay
-    // wait can journal `woken` before `waiting`, or disappear entirely if this append fails.
-    const armCommitted = adopted
-      ? Promise.resolve()
-      : args.journal.appendEvent(args.root, {
-          kind: 'waiting',
-          id,
-          parent: args.parentId,
-          label: opts.label,
-          spec: effectiveSpec,
-          armedAt,
-          seq: ordinal,
-          at: new Date(now()).toISOString(),
-        })
-
-    const settled = armCommitted
-      .then(() => {
-        if (live.wait) live.wait.armCommitted = true
-        notifyRuntimeHookEvent(
-          args.hooks,
-          {
-            id: `${id}:waiting`,
-            runId: args.root,
-            target: 'agent.spawn',
-            phase: 'after',
-            timestamp: now(),
-            stepIndex: ordinal,
-            parentId: args.parentId,
-            payload: {
-              childId: id,
-              label: opts.label,
-              runtime: 'wait',
-              wait: effectiveSpec,
-              armedAt,
-              resumed: adopted !== undefined,
-            },
-          },
-          { signal: args.signal },
-        )
-        return runWait({
-          spec: effectiveSpec,
-          label: opts.label,
-          armedAt,
-          resumed: adopted !== undefined,
-          signal: waitAbort.signal,
-          ...(args.probes ? { probes: args.probes } : {}),
-          now,
-          ...(args.waitSleep ? { sleep: args.waitSleep } : {}),
-        })
-      })
-      .then(async (resolution): Promise<PreSeqSettled> => {
-        live.executorDone = true
-        live.lastActivityAt = now()
-        if (resolution.kind === 'cancelled') {
-          return {
-            kind: 'down',
-            reason: resolution.reason,
-            infra: false,
-            trace: { status: 'unavailable', reason: 'not-an-executor' },
-          }
-        }
-        const outRef = contentAddress(resolution.outcome)
-        await args.blobs.put(outRef, resolution.outcome)
-        return {
-          kind: 'done',
-          out: resolution.outcome,
-          outRef,
-          spent: zeroSpend(),
-          trace: { status: 'unavailable', reason: 'not-an-executor' },
-        }
-      })
-      .catch((err): PreSeqSettled => {
-        live.executorDone = true
-        return {
-          kind: 'down',
-          reason: errMessage(err),
-          infra: true,
-          trace: { status: 'unavailable', reason: 'not-an-executor' },
-        }
-      })
-      .then((s) => {
-        live.resolved = s
-        return s
-      })
-      .finally(() => {
-        args.signal.removeEventListener('abort', cascadeAbort)
-      })
-    ;(live as { settled: Promise<PreSeqSettled> }).settled = settled
-
-    return { ok: true, handle }
-  }
-
   function progress(
     nodeId: NodeId,
     opts: { now?: number; stallAfterMs?: number } = {},
@@ -2227,8 +2012,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   function interactive(nodeId: NodeId): WorkerInteractiveSession {
     const child = children.get(nodeId)
     if (!child) return noInteractiveSession('unknown-node')
-    // A wait-state node holds no executor, and a settled one holds no process.
-    if (child.wait || child.executorDone || isTerminalNodeStatus(child.status)) {
+    // A settled child holds no process.
+    if (child.executorDone || isTerminalNodeStatus(child.status)) {
       return noInteractiveSession('not-live')
     }
     const session = readInteractiveSession(child)
@@ -2310,7 +2095,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     ? {
         settled: args.resumeFrom.settled as ReadonlyArray<Settled<Out>>,
         view: args.resumeFrom.view,
-        waits: args.resumeFrom.waits,
         keys: args.resumeFrom.keys as ReadonlyMap<string, ResumedKeyState<Out>>,
         priorSpend: args.resumeFrom.priorSpend,
       }
@@ -2321,7 +2105,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     next,
     nextResolved,
     send,
-    wait,
     progress,
     traceSource,
     interactive,
@@ -3385,10 +3168,6 @@ async function finalizeSettlement<Out>(
   now: () => number,
 ): Promise<Settled<Out>> {
   const handle = frozenHandle<Out>(child)
-  // A wait-state settles into the `woken` cursor event, not `settled` — kept distinct so any
-  // journal reader can separate zero-cost waiting from paid work without inspecting payloads
-  // (`spentFromJournal` therefore sums waits as the zero they are, with no special case).
-  if (child.wait) return finalizeWait<Out>(child, settlement, seq, args, now, handle)
   const nestedScope = child.readNestedScope?.()
   const subtree = nestedScope === undefined ? undefined : subtreeSummaryOf(nestedScope)
   if (subtree !== undefined) child.subtree = subtree
@@ -3554,80 +3333,6 @@ async function finalizeSettlement<Out>(
     trace: settlement.trace,
     ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
     ...(subtree === undefined ? {} : { subtree }),
-    settledAt,
-    seq,
-  }
-}
-
-/** Journal a wait-state's settlement as a `woken` event and project it onto the same `Settled`
- *  the driver branches on. `by` names WHY it woke — `fired` / `timeout` / `cancelled` — which is
- *  the fact a resumed reader needs and cannot recover from a payload it may never fetch. */
-async function finalizeWait<Out>(
-  child: LiveChild,
-  settlement: PreSeqSettled,
-  seq: number,
-  args: ScopeArgs,
-  now: () => number,
-  handle: Handle<Out>,
-): Promise<Settled<Out>> {
-  const settledAt = now()
-  child.settledAt = settledAt
-  const at = new Date(settledAt).toISOString()
-  if (settlement.kind === 'down') {
-    child.status = 'cancelled'
-    // A failed fresh `waiting` append means this node never existed durably. Do not leave a
-    // terminal `woken` record with no arm record for replay to attach it to.
-    if (child.wait?.armCommitted) {
-      await args.journal.appendEvent(args.root, {
-        kind: 'woken',
-        id: child.id,
-        by: 'cancelled',
-        seq,
-        at,
-      })
-    }
-    return {
-      kind: 'down',
-      handle,
-      reason: settlement.reason,
-      ...(settlement.infra === undefined ? {} : { infra: settlement.infra }),
-      trace: settlement.trace,
-      settledAt,
-      seq,
-    }
-  }
-  child.status = 'done'
-  child.outRef = settlement.outRef
-  const out = settlement.out as WaitOutcome
-  await args.journal.appendEvent(args.root, {
-    kind: 'woken',
-    id: child.id,
-    by: out.settled,
-    outRef: settlement.outRef,
-    seq,
-    at,
-  })
-  notifyRuntimeHookEvent(
-    args.hooks,
-    {
-      id: `${child.id}:woken`,
-      runId: args.root,
-      target: 'agent.child',
-      phase: 'after',
-      timestamp: settledAt,
-      stepIndex: seq,
-      parentId: args.parentId,
-      payload: { childId: child.id, status: 'done', wait: out },
-    },
-    { signal: args.signal },
-  )
-  return {
-    kind: 'done',
-    handle,
-    out: settlement.out as Out,
-    outRef: settlement.outRef,
-    spent: settlement.spent,
-    trace: settlement.trace,
     settledAt,
     seq,
   }
@@ -4103,8 +3808,6 @@ export function settledToIteration<Out>(settled: Settled<Out>): Iteration<unknow
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
-/** Summarize one scope's children and everything below them, listing the best direct children
- *  and counting the rest. Wait-states are not agents and are left out. */
 /** The live team a child manager leads, read through the nested scope it owns. */
 function liveTeamOf(child: LiveChild): LiveTeam | undefined {
   let nested: Scope<unknown> | undefined
@@ -4146,7 +3849,6 @@ function readLiveTeam(
   let down = 0
   let lastActivityAt = ownerLastTurnAt
   for (const child of children) {
-    if (child.wait) continue
     agents += 1
     lastActivityAt = Math.max(
       lastActivityAt,
@@ -4190,7 +3892,6 @@ function summarizeTeam(children: Iterable<LiveChild>): SubtreeSummary | undefine
   let members = 0
   const results: Array<SubtreeResult & { readonly order: number }> = []
   for (const child of children) {
-    if (child.wait) continue
     members += 1
     const below = child.subtree
     agents += 1 + (below?.agents ?? 0)
@@ -4273,7 +3974,6 @@ function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView 
     inFlight: nodes.filter(
       (n) => n.status === 'running' || n.status === 'acquiring' || n.status === 'queued',
     ).length,
-    waiting: nodes.filter((n) => n.status === 'waiting').length,
   }
 }
 

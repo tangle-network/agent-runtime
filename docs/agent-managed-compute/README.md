@@ -117,6 +117,17 @@ This table tracks the existing documents that materially overlap this plan.
 
 This work must not turn `agent-runtime` into a machine scheduler.
 
+Each durable fact has one owner:
+
+| Fact | Owner | Not owned here |
+|---|---|---|
+| Accepted run, turn and child identity; the orchestration journal; the run's owner lease and fencing generation; budgets, deadlines and keyed admission; the one accepted result | Runtime (`SpawnJournal`, `createFencedSqlRunContext`, `Scope`) | workspace bytes, processes, native transcripts |
+| Named instance and project identity across host replacement and snapshot restore; the workspace (live, retained stopped, confirmed snapshot); the harness process; the native harness session and its resume | Sandbox: Orchestrator and Sidecar, with the harness session contract in Agent Dev Container `packages/cli-agent-registry/src/native-session-contracts.ts` | run identity, budgets, results |
+| Waits for time, a human or an external event; suspensions; the workflow outbox | Platform workflows: the run, suspension, timer and outbox stores. Runtime holds no timers. | executing agent work |
+| Placement: which compute runs an admitted action | Platform `selectPlacement`, once, at admission | moving a live process, or changing the admitted harness or model |
+
+Runtime keeps coordinates and receipts from the Sandbox, never a second copy of its state. A retained child records its environment and native session identifiers so recovery can reattach to the same execution, or report that execution as uncertain when that is impossible. Captured transcripts and workspace archives are evaluation evidence, not a recovery store.
+
 Use existing provider systems for compute allocation and process lifecycle.
 
 This work must not put knowledge policy into the runtime.

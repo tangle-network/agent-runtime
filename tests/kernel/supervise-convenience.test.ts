@@ -1357,17 +1357,6 @@ describe('supervise — the code-valued options are nameable, so a run configura
     ).toThrow(/opts\.finalizer = "count-delivered".*no opts\.registry\.finalizers/s)
   })
 
-  it('names the probes option in its own resolution failure', () => {
-    expect(() =>
-      supervise(rootProfile(), 't', {
-        budget,
-        makeWorkerAgent: () => deliveringLeaf('w', {}),
-        probes: 'file-exists',
-        registry: { probes: table({ 'dir-exists': { resolve: () => undefined } }) },
-      }),
-    ).toThrow(/opts\.probes = "file-exists" is not in opts\.registry\.probes/)
-  })
-
   it('a registry table is a resolver PORT: it is asked only for the names a run uses', async () => {
     const asked: string[] = []
     const lazy: SuperviseRegistryTable<SupervisorFinalizer> = {

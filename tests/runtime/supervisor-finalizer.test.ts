@@ -54,7 +54,7 @@ function driverProfile(): AgentProfile {
   }
 }
 
-const emptyTree: TreeView = { root: 'r', nodes: [], inFlight: 0, waiting: 0 }
+const emptyTree: TreeView = { root: 'r', nodes: [], inFlight: 0 }
 const poolReadout: Scope<unknown>['budget'] = {
   tokensLeft: budget.maxTokens,
   usdLeft: 0,

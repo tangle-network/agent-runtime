@@ -179,7 +179,6 @@ const viewOf = (overrides: Partial<ProgressView> = {}): ProgressView => ({
   settlesSinceImprovement: 0,
   workers: [],
   inFlight: 0,
-  waiting: 0,
   ...overrides,
 })
 
@@ -231,9 +230,6 @@ describe('stop rules — the primitives', () => {
     const byTime = noProgressFor({ ms: 5_000 })
     expect(byTime(viewOf({ settles: 1, lastSettleAt: 6_000 })).stop).toBe(false)
     expect(byTime(viewOf({ settles: 1, lastSettleAt: 4_000 })).stop).toBe(true)
-    // A tree with ARMED WAITS is not stalled — it is waiting on the world. Killing it there would
-    // defeat the wait-state mechanic, so the time bound is suppressed.
-    expect(byTime(viewOf({ settles: 1, lastSettleAt: 4_000, waiting: 1 })).stop).toBe(false)
 
     // Every stop carries a reason — an unexplained early stop is indistinguishable from a bug.
     const d = flat(viewOf({ settles: 4, curve: [0.5, 0.5, 0.5, 0.5], best: 0.5 }))
@@ -263,9 +259,6 @@ describe('stop rules — the primitives', () => {
     expect(rule(viewOf({ workers: [stalled('a', true)] })).stop).toBe(false) // below minWorkers
     expect(rule(viewOf({ workers: [stalled('a', true), stalled('b', false)] })).stop).toBe(false)
     expect(rule(viewOf({ workers: [stalled('a', true), stalled('b', true)] })).stop).toBe(true)
-    expect(
-      rule(viewOf({ workers: [stalled('a', true), stalled('b', true)], waiting: 1 })).stop,
-    ).toBe(false)
   })
 
   it('anyOf stops on the first rule; allOf needs corroboration from every rule', () => {
@@ -505,8 +498,7 @@ describe('ProgressView reads the live worker feed off the scope', () => {
       signal: new AbortController().signal,
       now: () => 0,
     })
-    // One never-settling worker plus one armed wait: the view must report them as different
-    // things — one is in flight and burning, the other is waiting and free.
+    // One never-settling worker: the view reports it in flight and stalled.
     const hanging: Executor<unknown> = {
       runtime: 'router',
       execute: (_t, signal) =>
@@ -528,14 +520,12 @@ describe('ProgressView reads the live worker feed off the scope', () => {
       },
     } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
     scope.spawn(leaf, 't', { budget: perUnit, label: 'hang' })
-    scope.wait({ kind: 'timer', untilMs: 60_000 }, { label: 'later' })
 
     const tracker = createProgressTracker({ now: () => 1_000 })
     const view = tracker.view(scope, { stallAfterMs: 100 })
     expect(view.workers.map((w) => w.id.endsWith(':s0'))).toEqual([true])
     expect(view.workers[0]?.stalled).toBe(true)
     expect(view.inFlight).toBe(1)
-    expect(view.waiting).toBe(1)
   })
 })
 

@@ -11,7 +11,7 @@
  * A stop rule reads the run's own PROGRESS and decides. Three signals feed it:
  *   - the objective curve over settled work (best-so-far, from `anytime.ts` — see below),
  *   - the LIVE worker feed (`WorkerProgress`: `idleMs`, `stalled`, `turns`, `tokens`),
- *   - tree-level shape (how many are in flight, how many are waiting, when the last settle landed).
+ *   - tree-level shape (how many are in flight, when the last settle landed).
  *
  * ── Two boundaries this module holds deliberately ───────────────────────────────────────────────
  *
@@ -79,9 +79,6 @@ export interface ProgressView {
   readonly workers: ReadonlyArray<WorkerProgress>
   /** Nodes running or acquiring. */
   readonly inFlight: number
-  /** Armed wait-state nodes — deliberately separate from `inFlight`: a tree whose only remaining
-   *  nodes are waits is NOT stalled, it is waiting on the world. */
-  readonly waiting: number
 }
 
 /** A stop rule's answer. `reason` is required when stopping — a run that ends must be able to say
@@ -165,10 +162,6 @@ export function createProgressTracker(opts: ProgressTrackerOptions = {}): Progre
       if (scope && treeView) {
         for (const node of treeView.nodes) {
           if (isTerminalNodeStatus(node.status)) continue
-          // A wait-state is not a worker. It produces no metered activity by design, so including
-          // it here would make every waiting tree read as a fleet of stalled workers — the exact
-          // false positive `allWorkersStalled` exists to avoid. It is counted in `waiting` instead.
-          if (node.status === 'waiting') continue
           const p = scope.progress(
             node.id,
             viewOpts?.stallAfterMs !== undefined
@@ -192,7 +185,6 @@ export function createProgressTracker(opts: ProgressTrackerOptions = {}): Progre
           lastImprovementIdx < 0 ? recorded.length : recorded.length - 1 - lastImprovementIdx,
         workers,
         inFlight: treeView?.inFlight ?? 0,
-        waiting: treeView?.waiting ?? 0,
       }
     },
     evaluate(rule, scope, viewOpts) {
@@ -258,7 +250,7 @@ export function noProgressFor(opts: NoProgressForOptions): StopRule {
         reason: `no-progress: ${v.settlesSinceImprovement} settles with no improvement (limit ${opts.settles}), best=${v.best}`,
       }
     }
-    if (opts.ms !== undefined && v.waiting === 0 && v.lastSettleAt > 0) {
+    if (opts.ms !== undefined && v.lastSettleAt > 0) {
       const idle = v.now - v.lastSettleAt
       if (idle >= opts.ms) {
         return {
@@ -331,7 +323,6 @@ export interface AllWorkersStalledOptions {
 export function allWorkersStalled(opts: AllWorkersStalledOptions = {}): StopRule {
   const minWorkers = opts.minWorkers ?? 1
   return (v) => {
-    if (v.waiting > 0) return CONTINUE
     if (v.workers.length < minWorkers) return CONTINUE
     if (!v.workers.every((w) => w.stalled)) return CONTINUE
     const worst = Math.max(...v.workers.map((w) => w.idleMs))
