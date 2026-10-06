@@ -54,7 +54,7 @@ Durable work breaks into six separate questions. Each has one owner.
 | Workflow engine durability (`workflow_engine_trees`, `workflow_engine_journal`, `workflow_engine_blobs`, `workflow_runs` claim epoch) | orchestration journal, ownership | production | One current cursor checkpoint per run, fenced by its claim epoch. It composes Runtime's `SpawnEvent` and `ResultBlobStore` instead of a second journal format |
 | `workflow_agent_operations` | effect ledger | production | One row per `(run, action, operation key)` with a request digest and commit time |
 | `hub_exec_idempotency` | effect idempotency | production | One leased, request-hashed result per Hub execution idempotency key |
-| Hub line outbox (`lib/lines/outbox.ts`) | effect outbox | production | One message per line and idempotency key, with reminder consent, quiet hours and STOP. A provider send that lost its result is `uncertain` and is not resent |
+| Hub line outbox (`lib/lines/outbox.ts`) | effect outbox | production | One message per line and idempotency key, with reminder consent, quiet hours and STOP. A send that lost its result is `uncertain` and is replayed under the same key; a definitive 4xx drops it |
 | Workflow suspensions (`wait.event`, `wait.timer`, `workflow.run`, decisions) | durable wait and timer | production | The only sleeping wait since #1622. A delivery wakes one parked run, and a concurrent duplicate falls through unconsumed |
 
 ### Agent App (`@tangle-network/agent-app`)
@@ -158,10 +158,9 @@ Agent App's recovery manager shows the user which of these is available. It does
 - Platform's workflow operation keys, `wf_<run>_a<step>`, used by `integration.invoke`, `line.send` and `notify` alike;
 - the provider's own idempotency key where one exists.
 
-An effect without provider idempotency is reconciled, not assumed exactly-once. A lost acknowledgement leaves it in an explicit uncertain state, and the owner refuses to repeat it:
-- an `uncertain` Hub line message or product outbox row;
-- a Hub write or a notify that was in flight at a crash;
-- an `in-doubt` Runtime spawn.
+An effect without provider idempotency is reconciled, not assumed exactly-once. A lost acknowledgement leaves an explicit uncertain state:
+- Where the provider honours the key, the owner replays under it. An `uncertain` Hub line send is retried with the same key.
+- Where it does not, the owner refuses to repeat the effect. This covers a Hub write or a notify in flight at a crash, an `uncertain` product outbox row, and an `in-doubt` Runtime spawn.
 
 A notify retry repeats only the POST, under the same `Idempotency-Key`. It never re-runs the agent action before it. The product stores that remain are listed above.
 
