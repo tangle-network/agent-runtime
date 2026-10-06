@@ -310,14 +310,6 @@ export function enforceTokenLimits(
   return { requested: limits, applied: {} }
 }
 
-/** The receipt form of one path's ceilings: what was asked for, and what was sent. */
-export function tokenLimitReceipt(decision: TokenLimitDecision): {
-  readonly requested: ProfileTokenLimits
-  readonly applied: AppliedTokenLimits
-} {
-  return { requested: decision.requested, applied: decision.applied }
-}
-
 function finiteNumber(value: unknown, context: string): number | undefined {
   if (value === undefined) return undefined
   if (typeof value !== 'number' || !Number.isFinite(value)) {

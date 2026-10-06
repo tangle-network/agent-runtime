@@ -17,13 +17,3 @@ export function assertRuntimeTimestamp(value: unknown, label: string): asserts v
     throw new Error(`${label} must be a valid ISO timestamp`, { cause: error })
   }
 }
-
-/** Return whether a value satisfies the public runtime timestamp contract. */
-export function isRuntimeTimestamp(value: unknown): value is string {
-  try {
-    assertRuntimeTimestamp(value, 'occurredAt')
-    return true
-  } catch {
-    return false
-  }
-}

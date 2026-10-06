@@ -16,7 +16,6 @@ import type {
   AgentCandidateKnowledgeRef,
   AgentCandidateKnowledgeStateScope,
   AgentCandidateMaterializationReceipt,
-  AgentCandidateMemoryReceipt,
   AgentCandidateModelAccessNetwork,
   AgentCandidateModelSettlementCall,
   AgentCandidateOciPlatform,
@@ -618,5 +617,3 @@ export const CANDIDATE_TRACE_ENV = {
   materializationReceiptDigest: 'TANGLE_CANDIDATE_MATERIALIZATION_RECEIPT_DIGEST',
   traceRunId: 'TANGLE_TRACE_RUN_ID',
 } as const
-
-export type PreparedMemoryReceipt = AgentCandidateMemoryReceipt

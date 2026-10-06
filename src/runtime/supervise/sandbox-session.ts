@@ -567,10 +567,3 @@ function readFinalText(event: SandboxEvent): string | undefined {
   const alt = (data as { text?: unknown }).text
   return typeof alt === 'string' ? alt : undefined
 }
-
-/** Fail loud on a steering config that cannot work, before any box is created. */
-export function assertSteerable(client: SandboxClient | undefined): void {
-  if (!client || typeof client.create !== 'function') {
-    throw new ValidationError('steerable sandbox worker: SandboxSeam.sandboxClient.create required')
-  }
-}
