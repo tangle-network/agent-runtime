@@ -390,7 +390,6 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       blobs: blobStore,
       executors: executorRegistry,
       recoverExecutor,
-      probes,
       maxDepth,
       workerSlots,
       reservationPolicy,
@@ -465,7 +464,6 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       blobs: persistence.blobs,
       executors: executorRegistry,
       ...(recoverExecutor ? { recoverExecutor } : {}),
-      ...(probes === undefined ? {} : { probes }),
       ...(suppliedNow === undefined ? {} : { now: suppliedNow }),
       ...(signal === undefined ? {} : { signal }),
       ...(hooks === undefined ? {} : { hooks }),
@@ -666,7 +664,6 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
               },
             }
           : {}),
-        ...(opts.probes ? { probes: opts.probes } : {}),
         ...(opts.workerTrace ? { workerTrace: opts.workerTrace } : {}),
         ...(opts.workerTraceUnpropagated
           ? { workerTraceUnpropagated: opts.workerTraceUnpropagated }
@@ -1254,12 +1251,7 @@ async function drainLiveChildren(
   controller: AbortController,
   settleGraceMs: number | null = 0,
 ): Promise<ReadonlyArray<UnconfirmedTeardown>> {
-  // Armed wait-states count here even though they are deliberately excluded from `inFlight`: a
-  // wait holds no executor, but it DOES hold a live timer, so a run that returns without
-  // cancelling one would leave the process pinned to a deadline nobody is reading anymore.
-  const view = scope.view
-  const hasLive = view.inFlight > 0 || view.waiting > 0
-  if (!hasLive) {
+  if (scope.view.inFlight === 0) {
     // Another cursor reader may have marked a child settled while its append is still pending.
     await drainCursor(scope)
     return unconfirmedTeardowns(scope)
@@ -1285,10 +1277,9 @@ async function drainLiveChildren(
     clearGraceTimer?.()
   }
   const after = scope.view
-  if (after.inFlight > 0 || after.waiting > 0) {
+  if (after.inFlight > 0) {
     throw new RuntimeRunStateError(
-      `supervisor: cleanup ended with ${after.inFlight} running, ${after.waiting} waiting, and ` +
-        describeUnconfirmed(scope),
+      `supervisor: cleanup ended with ${after.inFlight} running and ` + describeUnconfirmed(scope),
     )
   }
   return unconfirmedTeardowns(scope)

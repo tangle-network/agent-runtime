@@ -365,7 +365,7 @@ function poolStarved(
   preserveOwnerTurns = false,
 ): boolean {
   const b = scope.budget
-  if (scope.view.inFlight > 0 || scope.view.waiting > 0) return false
+  if (scope.view.inFlight > 0) return false
   const tokenStarved = preserveOwnerTurns ? b.tokensLeft <= 0 : b.tokensLeft < perWorker.maxTokens
   const iterationStarved = b.iterationsLeft <= 0
   const usdStarved =
@@ -1104,18 +1104,6 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               signal: scope.signal,
               ...(opts.controlScope === 'subtree' ? {} : { deliverRoot: inbox.deliver }),
             })
-      // Resume-first: re-establish the prior process's supervision state BEFORE the first brain
-      // turn — its armed-but-never-woken waits become live again on their ORIGINAL deadlines
-      // (they settle through the same cursor a wake drains). Fail loud on a wait that
-      // cannot be re-armed: silently dropping supervision state is worse than stopping.
-      for (const w of scope.resume?.waits ?? []) {
-        const rearmed = scope.wait(w.spec, { label: w.label })
-        if (!rearmed.ok) {
-          throw new RuntimeRunStateError(
-            `driverAgent: cannot re-arm resumed wait '${w.label}' (${rearmed.reason})`,
-          )
-        }
-      }
       const byName = new Map<string, McpToolDescriptor>(modelTools.map((tool) => [tool.name, tool]))
       const toolSpecs: ToolSpec[] = selectedTools.map((selected) =>
         selected.kind === 'descriptor'
@@ -1559,13 +1547,6 @@ function resumeBrief(
       '',
       'Keys whose prior attempt FAILED (settled down) — spawn_worker with the same key retries:',
       ...failed.map(([k, v]) => `- ${k} (prior attempt ${v.id}, ${v.label})`),
-    )
-  }
-  if (resume.waits.length > 0) {
-    lines.push(
-      '',
-      'Pending waits RE-ARMED on their original deadlines (they settle into your next wake):',
-      ...resume.waits.map((w) => `- ${w.label} (${w.spec.kind})`),
     )
   }
   appendPriorCoordination(lines, prior)

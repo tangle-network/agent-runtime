@@ -1171,7 +1171,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`label`](#label-22)
+[`NodeSnapshot`](#nodesnapshot).[`label`](#label-21)
 
 ##### status
 
@@ -7737,10 +7737,9 @@ shape: `parent`/`children` are the actual spawn edges the run took, not a planne
 
 ##### status
 
-> `readonly` **status**: `"failed"` \| `"cancelled"` \| `"pending"` \| `"done"` \| `"waiting"`
+> `readonly` **status**: `"failed"` \| `"cancelled"` \| `"pending"` \| `"done"`
 
-Terminal status the journal recorded for this node. `'waiting'` is a wait-state node that was
- armed and never woken — the journal's record of a run that died mid-wait.
+Terminal status the journal recorded for this node.
 
 ##### ownSpend
 
@@ -18507,19 +18506,6 @@ Durable steer directory when it differs from the run-control directory.
 
 [`SuperviseOptions`](#superviseoptions).[`steerDir`](#steerdir-1)
 
-##### probes?
-
-> `readonly` `optional` **probes?**: `string` \| [`WaitProbeRegistry`](#waitproberegistry)
-
-Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so the
- wait survives a restart; this is what the name resolves against. Unset ⇒ `poll` waits are
- refused `unknown-probe` and `timer` waits still work. A `string` names an entry in
- `registry.probes`.
-
-###### Inherited from
-
-[`SuperviseOptions`](#superviseoptions).[`probes`](#probes-3)
-
 ##### stopRule?
 
 > `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1) \| \{ `plateau`: [`PlateauOptions`](#plateauoptions); \}
@@ -21874,33 +21860,6 @@ Content-addressed result store backing `outRef` rehydration.
 
 The open executor resolver (BYO → router/inline → registered harness factory).
 
-##### probes?
-
-> `readonly` `optional` **probes?**: [`WaitProbeRegistry`](#waitproberegistry)
-
-Predicate resolver for `poll` wait-states. Absent ⇒ `wait` refuses a `poll` with
- `unknown-probe`; `timer` waits never touch it.
-
-##### waitSleep?
-
-> `readonly` `optional` **waitSleep?**: (`ms`, `signal`) => `Promise`\<`void`\>
-
-Injected sleeper for wait-states — a test drives a week-long timer in microseconds.
-
-###### Parameters
-
-###### ms
-
-`number`
-
-###### signal
-
-`AbortSignal`
-
-###### Returns
-
-`Promise`\<`void`\>
-
 ##### seams
 
 > `readonly` **seams**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
@@ -22028,19 +21987,6 @@ Highest `spawned` ordinal already journaled; new spawns start at `+1`.
 > `readonly` **maxCursorSeq**: `number`
 
 Highest cursor `seq` already journaled; new settlements start at `+1`.
-
-###### maxWaitOrdinal
-
-> `readonly` **maxWaitOrdinal**: `number`
-
-Highest `waiting` ordinal already journaled; new waits start at `+1`.
-
-###### waits
-
-> `readonly` **waits**: readonly [`PendingWait`](#pendingwait)[]
-
-Waits journaled as armed but never woken — re-armed (same node id, same absolute deadline)
- when `wait` is called again with the SAME label.
 
 ###### keys
 
@@ -22325,13 +22271,6 @@ Live read of every non-terminal worker (the `Scope.progress` feed). Empty when t
 
 Nodes running or acquiring.
 
-##### waiting
-
-> `readonly` **waiting**: `number`
-
-Armed wait-state nodes — deliberately separate from `inFlight`: a tree whose only remaining
- nodes are waits is NOT stalled, it is waiting on the world.
-
 ***
 
 ### ProgressTracker
@@ -22525,9 +22464,9 @@ Idle time that counts as stalled, passed through to the live progress read. Omit
 
 ### SuperviseRegistryTable
 
-A name→value table, in this package's resolver-port shape (the same one `WaitProbeRegistry`
- uses): construction stays the caller's, lookup stays lazy, and a table backed by a file, a
- plugin loader, or a plain object all satisfy one interface.
+A name→value table in this package's resolver-port shape: construction stays the caller's,
+ lookup stays lazy, and a table backed by a file, a plugin loader, or a plain object all
+ satisfy one interface.
 
 #### Type Parameters
 
@@ -22555,7 +22494,7 @@ A name→value table, in this package's resolver-port shape (the same one `WaitP
 
 > `optional` **names**(): readonly `string`[]
 
-The names the table holds. The four code-valued tables may omit it, because a caller names
+The names the table holds. The three code-valued tables may omit it, because a caller names
  their entries from data it already has. The profiles table must list them, because a
  director can choose only from a menu it can read.
 
@@ -22567,10 +22506,10 @@ readonly `string`[]
 
 ### SuperviseRegistry
 
-The name→value tables that make the four CODE-valued options expressible as run DATA, and the
+The name→value tables that make the three CODE-valued options expressible as run DATA, and the
 profiles a director may spawn by name.
 
-`deliverable` / `finalizer` / `analysts` / `probes` are functions and registries, so a recorded
+`deliverable` / `finalizer` / `analysts` are functions and registries, so a recorded
 run configuration (a JSON row, a campaign spec, a resumed run's options) cannot carry them — and
 a run with no `deliverable` cannot return a `winner` at all outside the sandbox backend, because
 the finalizer keeps only children whose oracle passed and nothing else writes that verdict. A
@@ -22596,10 +22535,6 @@ and nothing about the run changes: `spawn_worker` keeps its object-only `profile
 ##### analysts?
 
 > `readonly` `optional` **analysts?**: [`SuperviseRegistryTable`](#superviseregistrytable)\<[`AnalystRegistry`](#analystregistry)\>
-
-##### probes?
-
-> `readonly` `optional` **probes?**: [`SuperviseRegistryTable`](#superviseregistrytable)\<[`WaitProbeRegistry`](#waitproberegistry)\>
 
 ##### profiles?
 
@@ -23298,15 +23233,6 @@ Durable steer directory when it differs from the run-control directory.
 
 Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
  with `blobs` — a journal whose result payloads live in a different store cannot replay.
-
-##### probes?
-
-> `readonly` `optional` **probes?**: `string` \| [`WaitProbeRegistry`](#waitproberegistry)
-
-Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so the
- wait survives a restart; this is what the name resolves against. Unset ⇒ `poll` waits are
- refused `unknown-probe` and `timer` waits still work. A `string` names an entry in
- `registry.probes`.
 
 ##### stopRule?
 
@@ -24790,20 +24716,6 @@ catches a loop the online consecutive detector interleaves past.
 > `readonly` **toolWaste**: `ToolWasteReport`
 
 Wasted-vs-total tool-call ratio for the run.
-
-***
-
-### WaitOpts
-
-Options for `Scope.wait`. `label` is the wait's identity within its parent scope — it is what
- a resumed run matches to re-adopt a journaled, still-unfired wait, so it must be stable across
- processes (a label derived from wall-clock would resume as a NEW wait).
-
-#### Properties
-
-##### label
-
-> `readonly` **label**: `string`
 
 ***
 
@@ -26410,41 +26322,6 @@ is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an M
 
 `boolean`
 
-##### wait()
-
-> **wait**(`spec`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](#handle-3)\<[`WaitOutcome`](#waitoutcome)\>; \} \| \{ `ok`: `false`; `reason`: [`WaitRejection`](#waitrejection); \}
-
-Arm a WAIT-STATE node: a first-class tree node that waits on wall-clock time (`timer`) or on
-a named external predicate (`poll`) and settles through THIS scope's `next()` cursor like any
-other child — but holds no executor, no sandbox, and no conserved budget. Waiting costs zero
-tokens and zero dollars by construction.
-
-It is journaled (`waiting` → `woken`) with its ABSOLUTE deadline, so a run that dies mid-wait
-resumes still waiting: the supervisor surfaces the un-woken waits on `Scope.resume.waits`, and
-re-arming the same `label` adopts the recorded node id and original instant instead of
-restarting the countdown.
-
-Fail-closed admission, mirroring `spawn`: `invalid-spec`, `unknown-probe` (a `poll` naming a
-predicate this run's registry cannot resolve), or `deadline-exceeded` (the wait would outlive
-the pool's hard wall-clock ceiling — a wait never extends a budget guard).
-
-NOT a manager's wake: that is an in-run rendezvous on the coordination bus in a process that
-must stay up, and nothing about it survives a restart. See `supervise/wait.ts`.
-
-###### Parameters
-
-###### spec
-
-[`WaitSpec`](#waitspec)
-
-###### opts
-
-[`WaitOpts`](#waitopts)
-
-###### Returns
-
-\{ `ok`: `true`; `handle`: [`Handle`](#handle-3)\<[`WaitOutcome`](#waitoutcome)\>; \} \| \{ `ok`: `false`; `reason`: [`WaitRejection`](#waitrejection); \}
-
 ##### progress()
 
 > **progress**(`nodeId`, `opts?`): [`WorkerProgress`](#workerprogress) \| `undefined`
@@ -26645,15 +26522,6 @@ resume-aware `act` reads `scope.resume?.settled` to pick up where the crashed ru
 ##### view
 
 > `readonly` **view**: [`TreeView`](#treeview)
-
-##### waits
-
-> `readonly` **waits**: readonly [`PendingWait`](#pendingwait)[]
-
-Wait-state nodes the journal shows as ARMED but never woken — the run died mid-wait. Each
-carries the ORIGINAL arm instant and absolute deadline, so re-arming the same `label` through
-`Scope.wait` resumes the countdown instead of restarting it. Empty on a fresh run and on a
-resumed run that was not waiting.
 
 ##### keys
 
@@ -26887,14 +26755,6 @@ The live tree — what `scope.view` / `RootHandle.view()` materialize for a view
 > `readonly` **inFlight**: `number`
 
 Count of nodes in `queued`, `acquiring`, or `running` — the "what's in flow?" answer.
-
-##### waiting
-
-> `readonly` **waiting**: `number`
-
-Count of nodes in `waiting` — armed wait-states. Deliberately NOT folded into `inFlight`:
- a wait burns no executor and no budget, so counting it as flow would misreport both idle
- capacity and how much work is actually running.
 
 ***
 
@@ -27162,14 +27022,6 @@ Executor resolution — the open registry mapping `AgentSpec` → `Executor`.
 > `readonly` `optional` **recoverExecutor?**: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
 
 Reconstruct configured executors for interrupted children before resuming the driver.
-
-##### probes?
-
-> `readonly` `optional` **probes?**: [`WaitProbeRegistry`](#waitproberegistry)
-
-Predicate resolution for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so
- the wait can be journaled and re-armed by a later process; this is what the name resolves
- against. Unset ⇒ `poll` waits are refused (`unknown-probe`); `timer` waits are unaffected.
 
 ##### maxDepth?
 
@@ -27816,126 +27668,6 @@ The first pause, doubling per consecutive refusal. Default 15000ms.
 
 Ceiling on the doubling. Default 300000ms, so a long outage costs at most twelve turns an
  hour.
-
-***
-
-### WaitProbeRegistry
-
-Resolves a `poll` spec's `probe` name to its predicate. Threaded through `SupervisorOpts` so
- the SAME registry a fresh run used is what a resumed run re-resolves against.
-
-#### Methods
-
-##### resolve()
-
-> **resolve**(`name`): [`WaitProbe`](#waitprobe) \| `undefined`
-
-###### Parameters
-
-###### name
-
-`string`
-
-###### Returns
-
-[`WaitProbe`](#waitprobe) \| `undefined`
-
-***
-
-### WaitOutcome
-
-The `out` a settled wait node delivers through `Scope.next()`. `settled` is the outcome the
- caller branches on: `'fired'` = the timer reached its instant or the predicate flipped;
- `'timeout'` = a bounded poll gave up. A timeout is a first-class ANSWER, not a failure — a
- wait only settles `down` when it is cancelled or aborted.
-
-#### Properties
-
-##### waitOutcome
-
-> `readonly` **waitOutcome**: `true`
-
-Tag for `isWaitOutcome` — a wait outcome arrives on the same cursor as worker outputs.
-
-##### kind
-
-> `readonly` **kind**: `"token"` \| `"poll"` \| `"timer"`
-
-##### settled
-
-> `readonly` **settled**: `"timeout"` \| `"fired"`
-
-##### label
-
-> `readonly` **label**: `string`
-
-##### untilMs?
-
-> `readonly` `optional` **untilMs?**: `number`
-
-The absolute instant this wait was armed for (timer `untilMs` / poll `timeoutAtMs`); absent
- for an unbounded poll.
-
-##### armedAt
-
-> `readonly` **armedAt**: `number`
-
-Epoch ms the wait was FIRST armed — preserved across a resume, so `wokenAt - armedAt` is
- the true end-to-end wait even when it spanned several processes.
-
-##### wokenAt
-
-> `readonly` **wokenAt**: `number`
-
-##### polls
-
-> `readonly` **polls**: `number`
-
-Predicate checks performed in the process that settled it (a resume restarts this count).
-
-##### probeErrors
-
-> `readonly` **probeErrors**: `number`
-
-Probe checks that threw (counted, not fatal).
-
-##### resumed
-
-> `readonly` **resumed**: `boolean`
-
-True when a later process re-armed this wait from the journal instead of creating it.
-
-***
-
-### PendingWait
-
-A wait recorded in the journal that never woke — what a resumed run re-arms.
-
-#### Properties
-
-##### id
-
-> `readonly` **id**: `string`
-
-##### label
-
-> `readonly` **label**: `string`
-
-##### spec
-
-> `readonly` **spec**: [`WaitSpec`](#waitspec)
-
-##### armedAt
-
-> `readonly` **armedAt**: `number`
-
-The ORIGINAL arm instant. A re-armed wait keeps it, so its deadline never slides.
-
-##### ordinal
-
-> `readonly` **ordinal**: `number`
-
-The wait ordinal in its parent scope, so a resumed scope continues past it.
 
 ***
 
@@ -32902,7 +32634,7 @@ Resolve an external harness for one exact Runtime-owned manager identity.
 
 ### WorkerTraceUnavailableReason
 
-> **WorkerTraceUnavailableReason** = `"execution-did-not-start"` \| `"executor-did-not-expose-trace-source"` \| `"trace-source-unavailable"` \| `"no-tool-spans-captured"` \| `"invalid-tool-spans"` \| `"trace-collection-failed"` \| `"trace-persistence-failed"` \| `"legacy-settlement-without-trace-evidence"` \| `"not-an-executor"`
+> **WorkerTraceUnavailableReason** = `"execution-did-not-start"` \| `"executor-did-not-expose-trace-source"` \| `"trace-source-unavailable"` \| `"no-tool-spans-captured"` \| `"invalid-tool-spans"` \| `"trace-collection-failed"` \| `"trace-persistence-failed"` \| `"legacy-settlement-without-trace-evidence"`
 
 Why Runtime cannot provide structured tool-call evidence for one settled execution.
 
@@ -33325,15 +33057,12 @@ construction args without pre-instantiating; it never bypasses exact-profile val
 
 ### NodeStatus
 
-> **NodeStatus** = `"pending"` \| `"queued"` \| `"acquiring"` \| `"running"` \| `"waiting"` \| `"done"` \| `"failed"` \| `"cancelled"`
+> **NodeStatus** = `"pending"` \| `"queued"` \| `"acquiring"` \| `"running"` \| `"done"` \| `"failed"` \| `"cancelled"`
 
 `'queued'` is an admitted child that holds its budget slice and waits for a worker slot
  (`workerSlots`); it runs nothing until the allocator grants one. `'acquiring'` is first-class
  (M1): a node spends real time + reaps an orphan box during sandbox acquire BEFORE it is
  `running`, so abort must be defined over it.
- `'waiting'` is first-class for the opposite reason: a wait-state node holds NO executor, NO
- box, and no conserved budget — it is neither in flight nor settled, so neither `inFlight` nor
- a terminal status describes it (see `Scope.wait`).
 
 ***
 
@@ -33576,7 +33305,7 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-8); `parent?`: [`NodeId`](#nodeid-8); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-8); `budget`: [`Budget`](#budget-16); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-8); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-8); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-8); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-8); `outRef`: `string`; `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-8); `outRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-8); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-8); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-8); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-8); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-8); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-8); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-8); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-8); `parent?`: [`NodeId`](#nodeid-8); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-8); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-8); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-8); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-8); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-8); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-8); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-8); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-8); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-8); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-8); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-8); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-8); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-8); `parent?`: [`NodeId`](#nodeid-8); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-8); `budget`: [`Budget`](#budget-16); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-8); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-8); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-8); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-8); `outRef`: `string`; `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-8); `outRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-8); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-8); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-8); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-8); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-8); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-8); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-8); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-8); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-8); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-8); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-8); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-8); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-8); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-8); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-8); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-8); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-8); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-8); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
 
 #### Union Members
 
@@ -34182,88 +33911,6 @@ GRAPH ENGINE fold input: one join release — which gating edges produced it and
 > **instance**: `string`
 
 The instance this release entered (`<node>#<visit>`).
-
-###### seq
-
-> **seq**: `number`
-
-###### at
-
-> **at**: `string`
-
-***
-
-##### Type Literal
-
-\{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-8); `parent?`: [`NodeId`](#nodeid-8); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \}
-
-###### kind
-
-> **kind**: `"waiting"`
-
-A wait-state node was ARMED. Lives in the SPAWN-ORDINAL namespace (`seq` is the wait
- ordinal within its parent scope), exactly like `spawned` — it creates a node, it does not
- settle one. It carries the whole `spec` and the original `armedAt` so a brand-new process
- re-arms the identical wait with the identical ABSOLUTE deadline.
-
-###### id
-
-> **id**: [`NodeId`](#nodeid-8)
-
-###### parent?
-
-> `optional` **parent?**: [`NodeId`](#nodeid-8)
-
-###### label
-
-> **label**: `string`
-
-###### spec
-
-> **spec**: [`WaitSpec`](#waitspec)
-
-###### armedAt
-
-> **armedAt**: `number`
-
-###### seq
-
-> **seq**: `number`
-
-###### at
-
-> **at**: `string`
-
-***
-
-##### Type Literal
-
-\{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-8); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \}
-
-###### kind
-
-> **kind**: `"woken"`
-
-A wait-state node SETTLED — the cursor-namespace twin of `settled`, kept distinct so a
- reader can tell zero-cost waiting apart from paid work without inspecting payloads. A
- wait carries no `spent` (it is free by construction, not by measurement); `outRef`
- rehydrates its `WaitOutcome`, absent when the wait was cancelled.
-
-###### id
-
-> **id**: [`NodeId`](#nodeid-8)
-
-###### by
-
-> **by**: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`
-
-`expired`: a graph suspension whose `onExpire: 'fail'` deadline passed — distinct from
- `timeout` (a poll wait's own deadline), so a consumer can tell "the human never
- answered" from "the probe never fired".
-
-###### outRef?
-
-> `optional` **outRef?**: `string`
 
 ###### seq
 
@@ -35470,135 +35117,6 @@ Out-of-band message to a running root. Open by intent — a client extends it.
 
 ***
 
-### WaitSpec
-
-> **WaitSpec** = \{ `kind`: `"timer"`; `untilMs`: `number`; \} \| \{ `kind`: `"token"`; `token`: `string`; `expiresAtMs?`: `number`; `onExpire`: `"wait"` \| `"fail"` \| `"default"`; `defaultRef?`: `string`; \} \| \{ `kind`: `"poll"`; `probe`: `string`; `intervalMs`: `number`; `timeoutAtMs?`: `number`; `args?`: `Record`\<`string`, `unknown`\>; \}
-
-What a wait node is waiting for. Both variants carry ABSOLUTE epoch-ms instants so a wait
- re-armed by a later process keeps the deadline the first process set.
-
-#### Union Members
-
-##### Type Literal
-
-\{ `kind`: `"timer"`; `untilMs`: `number`; \}
-
-###### kind
-
-> `readonly` **kind**: `"timer"`
-
-###### untilMs
-
-> `readonly` **untilMs**: `number`
-
-Absolute epoch ms to wake at. A past instant fires immediately.
-
-***
-
-##### Type Literal
-
-\{ `kind`: `"token"`; `token`: `string`; `expiresAtMs?`: `number`; `onExpire`: `"wait"` \| `"fail"` \| `"default"`; `defaultRef?`: `string`; \}
-
-###### kind
-
-> `readonly` **kind**: `"token"`
-
-A graph-engine suspension: the host holds the content-addressed token and wakes it via
- `resume`/`expire`; the engine owns the transition table (agent-runtime#976).
-
-###### token
-
-> `readonly` **token**: `string`
-
-###### expiresAtMs?
-
-> `readonly` `optional` **expiresAtMs?**: `number`
-
-Absent ⇒ `onExpire: 'wait'` (never expires).
-
-###### onExpire
-
-> `readonly` **onExpire**: `"wait"` \| `"fail"` \| `"default"`
-
-###### defaultRef?
-
-> `readonly` `optional` **defaultRef?**: `string`
-
-`onExpire: 'default'`: the pre-admitted payload the expiry resolves with.
-
-***
-
-##### Type Literal
-
-\{ `kind`: `"poll"`; `probe`: `string`; `intervalMs`: `number`; `timeoutAtMs?`: `number`; `args?`: `Record`\<`string`, `unknown`\>; \}
-
-###### kind
-
-> `readonly` **kind**: `"poll"`
-
-###### probe
-
-> `readonly` **probe**: `string`
-
-Name of the predicate in the run's `WaitProbeRegistry`. Named (not a closure) so a
- resumed process can re-resolve it — see the module header.
-
-###### intervalMs
-
-> `readonly` **intervalMs**: `number`
-
-How often to re-run the predicate, in ms. Must be > 0.
-
-###### timeoutAtMs?
-
-> `readonly` `optional` **timeoutAtMs?**: `number`
-
-Absolute epoch ms after which an unfired poll settles `timeout`. Omit = no timeout
- (then the run's own deadline is the only bound, and a run WITH a deadline refuses an
- unbounded poll — see `assertWaitWithinDeadline`).
-
-###### args?
-
-> `readonly` `optional` **args?**: `Record`\<`string`, `unknown`\>
-
-Opaque JSON handed to the probe on every check. Journaled with the spec, so a resumed
- probe gets the same arguments.
-
-***
-
-### WaitProbe
-
-> **WaitProbe** = (`args`, `signal`) => `boolean` \| `Promise`\<`boolean`\>
-
-A named predicate a `poll` node re-checks. Returns true when the condition it watches has
-flipped. A throw is treated as "not yet" (an unreachable CI endpoint is not a settled answer),
-and is counted in the outcome's `probeErrors` so a probe that never works is visible rather
-than silently polling forever.
-
-#### Parameters
-
-##### args
-
-`Record`\<`string`, `unknown`\> \| `undefined`
-
-##### signal
-
-`AbortSignal`
-
-#### Returns
-
-`boolean` \| `Promise`\<`boolean`\>
-
-***
-
-### WaitRejection
-
-> **WaitRejection** = `"invalid-spec"` \| `"unknown-probe"` \| `"deadline-exceeded"`
-
-Reject reasons for `Scope.wait`, mirroring `Scope.spawn`'s fail-closed admission shape.
-
-***
-
 ### WorkerInteractiveBinding
 
 > **WorkerInteractiveBinding** = \{ `schemaVersion`: `1`; `workerId`: `string`; `label`: `string`; `journalRoot`: `string`; `recordedAt`: `string`; `status`: `"available"`; `ref`: `AgentInteractiveSessionRef`; `refDigest`: `` `sha256:${string}` ``; \} \| \{ `schemaVersion`: `1`; `workerId`: `string`; `label`: `string`; `journalRoot`: `string`; `recordedAt`: `string`; `status`: `"unavailable"`; `reason`: [`WorkerInteractiveUnavailableReason`](#workerinteractiveunavailablereason); \}
@@ -36304,26 +35822,6 @@ matches the recorded cursor. It does not recover live executors or driver state 
 #### Returns
 
 [`TreeView`](#treeview)
-
-***
-
-### pendingWaits()
-
-> **pendingWaits**(`events`): [`PendingWait`](#pendingwait)[]
-
-The waits a journaled tree shows as ARMED but never woken — what a resumed run re-arms with the
-ORIGINAL absolute deadline. Reading it from the journal (rather than from any live state) is
-what makes "SIGKILL a waiting tree, a new process keeps waiting to the same instant" true.
-
-#### Parameters
-
-##### events
-
-[`SpawnEvent`](#spawnevent)[]
-
-#### Returns
-
-[`PendingWait`](#pendingwait)[]
 
 ***
 
@@ -42858,138 +42356,6 @@ the worker starts in matches the source WORKING TREE, not just its history.
 #### Returns
 
 [`Workspace`](#workspace-2)
-
-***
-
-### timerAt()
-
-> **timerAt**(`ms`, `now`): [`WaitSpec`](#waitspec)
-
-Build a `timer` spec from a DURATION. The instant is resolved once, at arm time — a resumed
- wait re-uses the journaled instant, never a fresh `now + ms`.
-
-#### Parameters
-
-##### ms
-
-`number`
-
-##### now
-
-`number`
-
-#### Returns
-
-[`WaitSpec`](#waitspec)
-
-***
-
-### pollFor()
-
-> **pollFor**(`probe`, `opts`, `now`): [`WaitSpec`](#waitspec)
-
-Build a bounded `poll` spec from a duration.
-
-#### Parameters
-
-##### probe
-
-`string`
-
-##### opts
-
-###### intervalMs
-
-`number`
-
-###### timeoutMs?
-
-`number`
-
-###### args?
-
-`Record`\<`string`, `unknown`\>
-
-##### now
-
-`number`
-
-#### Returns
-
-[`WaitSpec`](#waitspec)
-
-***
-
-### createWaitProbes()
-
-> **createWaitProbes**(`entries`): [`WaitProbeRegistry`](#waitproberegistry)
-
-Registry over a plain name→predicate record.
-
-#### Parameters
-
-##### entries
-
-`Record`\<`string`, [`WaitProbe`](#waitprobe)\>
-
-#### Returns
-
-[`WaitProbeRegistry`](#waitproberegistry)
-
-***
-
-### isWaitOutcome()
-
-> **isWaitOutcome**(`value`): `value is WaitOutcome`
-
-Narrow a settlement's `out` to a wait outcome — a wait settles on the SAME cursor as workers,
- so a driver that mixes them tags them apart with this.
-
-#### Parameters
-
-##### value
-
-`unknown`
-
-#### Returns
-
-`value is WaitOutcome`
-
-***
-
-### waitUntil()
-
-> **waitUntil**(`spec`): `number` \| `undefined`
-
-The absolute instant a spec is bounded by, or `undefined` for an unbounded wait.
-
-#### Parameters
-
-##### spec
-
-[`WaitSpec`](#waitspec)
-
-#### Returns
-
-`number` \| `undefined`
-
-***
-
-### validateWaitSpec()
-
-> **validateWaitSpec**(`spec`): `string` \| `null`
-
-Structural validation, independent of the run. Returns null when the spec is usable.
-
-#### Parameters
-
-##### spec
-
-[`WaitSpec`](#waitspec)
-
-#### Returns
-
-`string` \| `null`
 
 ***
 

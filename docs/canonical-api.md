@@ -4,11 +4,11 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.303.1.**
+> **Version 0.304.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.203.0 <0.206.0`.
+> `agent-eval` must satisfy `>=0.209.1 <0.210.0`.
 > `sandbox` must satisfy `>=0.58.4 <0.61.0`.
-> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.19.0`.
+> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^3.0.0`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
 >
@@ -196,6 +196,7 @@ A thrown parent check reports a validation error through the existing driver fai
 | Address a supervisor run's durable state on disk, or steer a live worker from another process | `supervisorRunsRoot(root)` / `supervisorRunDir(root, id)` / `writeWorkerSteer(root, runId, workerId, { operationId, message, ... })` / `readWorkerSteerAcknowledgement(eventDir, operationId)`: `/kernel` — one caller-owned operation id admits one canonical request; an identical retry replays it, changed content conflicts, and the runtime records one delivery acknowledgement. Delivery does not establish model consumption or behavioral effect. `readWorkerSteerRequests(...)` lists admitted work. The `<root>/.agent/supervisor/<id>` path remains the contract `traces analyze --supervisor-run-dir` reads (`legacySupervisorRunDir` names the pre-rename `.loops` location for readers only). | inventing a run-dir layout, joining `.agent/supervisor` by hand, retrying a steer under a new operation id, or treating a queued request as delivered before its acknowledgement |
 | Cancel one worker from another process and read the acknowledged effect | `cancelWorker(eventDir, worker, operationId)` / `readWorkerCancellation(eventDir, operationId)`: `/kernel` — retry-safe by `operationId` lookup; the owning manager applies the abort to exactly that worker's subtree and records `cancel_requested` → `cancelled` / `not_live` (reusing `RetainedRunEffect`), with the `terminated` set naming every node proven dead since the abort was issued. An exact node id is addressable at ANY depth (the manager that parents it owns it); a label or profile name is resolved by the root manager against its own children. Run end expires every open request: `not_live` when it was never applied, `unknown` when the abort went out but the settle was not observed | writing an unread cancel file and calling it done, minting a second four-state cancellation vocabulary, killing the worker's process from outside, giving two managers one request to race on, or treating a missing worker as a successful cancel |
 | Cancel a WHOLE supervisor run from another process and read the acknowledged effect | `cancelRun(eventDir, operationId)` / `readRunCancellation(eventDir, operationId)`: `/kernel` — the root manager uses the run's existing cascade controller. The run observes filesystem notifications through descendant drain, regardless of director type. Router managers also check at turn boundaries. Every external manager checks durable cancellation before each attempt, including nested retries. Explicit cancellation produces `reason: 'cancelled'` with its source and operation ID. The first abort cause wins. `deadlineMs` sets an observation target; acknowledgements report `appliedAfterMs` and `deadlineExceeded`. The observer always cascades eagerly. Its shared 100 ms fallback scan covers missed filesystem notifications. Acknowledgements name the actual applying path. Scheduler delays can exceed the target; it does not guarantee remote cleanup. `supervise()` records `cancelled` for confirmed termination, `unknown` with affected node IDs for unconfirmed teardown, or `not_live` when it settled independently. Retained child deliveries remain in the journal. | an unread cancel file, a separate cancellation execution path, deleting delivered evidence, or treating a queued request as a cancelled run |
+| Wait for wall-clock time, a human, or an external event without holding a process or a box | a Platform workflow `wait.*` action (Agent Dev Container `products/platform`): Platform's run, suspension, timer and outbox stores own the sleep and wake the run. Runtime keeps no timers: a manager that ends its turn with work open is woken in-process by its own children's settlements (`wake`). | a sleeping node in the supervise tree, a timer or poll loop in the supervisor process, or a second scheduler beside Platform's |
 | Give a worker's clone the source workspace's untracked build artifacts | `withUntrackedArtifacts(ws, sourceDir)` wrapping the `Workspace`: `/kernel` | a post-materialize `cp -r`, a hardlink farm, or accepting that a bare `git clone` cannot build |
 | Expose what a settled worker shows the brain (failing verify tail + diff head + note, bounded) | `composeWorkerEvidence(...)` + `settledWorkerOut(...)` + `closingWorkerNote(...)`: `/kernel` | re-rolling truncation caps per consumer, or settling with bare counters the brain cannot act on |
 | Loop a worker over one evolving artifact, K rounds, stop-when-good | `loopUntil(seed, spec)` as the `shape`: `/kernel` | a `while(!done){runWorker();decide()}` hand-loop or "multi-attempt refine driver" |
@@ -483,7 +484,7 @@ An event delivered to a turn that failed stays unacknowledged, and the next re-e
 Closure is a runtime rule.
 `submit_result` and `stop` refuse with `error: 'open-work'` while a worker still runs, or while a settled result, finding, or lead message waits for the next wake, until the deadline notice has been delivered.
 The refusal names the running workers and the waiting events, and nothing is checked or stopped.
-Questions keep their own `questionPolicy` rule, and a wait-state node holds no work.
+Questions keep their own `questionPolicy` rule.
 
 `report_blocked({ tool, arguments, error })` replaces a voluntary `stop` for a director that believes a dependency failed.
 The coordinator calls the named tool again with the same arguments, under the director's own grants.

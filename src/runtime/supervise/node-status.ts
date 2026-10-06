@@ -1,12 +1,6 @@
 import type { NodeStatus } from './types'
 
-/**
- * Which {@link NodeStatus} values mean the node is finished.
- *
- * `'waiting'` is deliberately NOT terminal: a wait-state node holds no executor, no box and no
- * conserved budget, so it is neither in flight nor settled. Callers that must also exclude it say
- * so at their own site, because "finished" and "not a live worker" are different questions.
- */
+/** Which {@link NodeStatus} values mean the node is finished. */
 const terminalNodeStatuses: ReadonlySet<NodeStatus> = new Set<NodeStatus>([
   'done',
   'failed',

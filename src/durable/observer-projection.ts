@@ -205,7 +205,6 @@ export interface PursuitNodeProjection {
   /** Each channel on which the settled spend exceeded the node's reservation. The status is the
    *  node's own outcome: a `done` node that overspent still delivered its output. */
   readonly budgetViolation?: BudgetViolation
-  readonly wait?: unknown
   readonly firstSequence: number
   readonly lastSequence: number
   readonly firstObservedAt: number
@@ -290,7 +289,6 @@ type MutableNode = {
   retainedPendingCause?: RetainedPendingCause
   releasedAt?: number
   budgetViolation?: BudgetViolation
-  wait?: unknown
   firstSequence: number
   lastSequence: number
   firstObservedAt: number
@@ -562,7 +560,6 @@ function projectNodeActivity(nodes: Map<string, MutableNode>, record: ObserverRe
   if (releasedAt !== undefined) node.releasedAt = releasedAt
   const budgetViolation = budgetViolationField(payload)
   if (budgetViolation) node.budgetViolation = budgetViolation
-  if (payload && Object.hasOwn(payload, 'wait')) node.wait = payload.wait
   attachSettlementEvidence(node, payload)
 }
 

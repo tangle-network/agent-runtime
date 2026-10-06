@@ -1068,10 +1068,6 @@ When a final settlement closed a retained node's slot; absent while it is `'pend
 Each channel on which the settled spend exceeded the node's reservation. The status is the
  node's own outcome: a `done` node that overspent still delivered its output.
 
-##### wait?
-
-> `readonly` `optional` **wait?**: `unknown`
-
 ##### firstSequence
 
 > `readonly` **firstSequence**: `number`
@@ -2743,19 +2739,6 @@ Override the spawn journal directly (advanced; `runDir` is the ordinary durable 
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`journal`](runtime.md#journal-5)
-
-##### probes?
-
-> `readonly` `optional` **probes?**: `string` \| [`WaitProbeRegistry`](runtime.md#waitproberegistry)
-
-Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so the
- wait survives a restart; this is what the name resolves against. Unset ⇒ `poll` waits are
- refused `unknown-probe` and `timer` waits still work. A `string` names an entry in
- `registry.probes`.
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`probes`](runtime.md#probes-3)
 
 ##### stopRule?
 

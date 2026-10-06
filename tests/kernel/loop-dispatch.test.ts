@@ -559,7 +559,6 @@ describe('superviseDispatch', () => {
             ]
           : [],
         inFlight: 0,
-        waiting: 0,
       },
       spentTotal: spend,
       rootProviderModel,
