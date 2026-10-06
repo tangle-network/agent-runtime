@@ -49,6 +49,6 @@ Include the pinned target, source, clean setup, reference files and command, exp
 
 ## Then consider
 
-- `calibrate-before-measure` before running a larger search comparison.
+- `eval-engineering` (its pre-spend calibration) before running a larger search comparison.
 - `eval-engineering` when the target is a production agent capability rather than fresh API recall.
 - `verify` before publishing a generated task set.
