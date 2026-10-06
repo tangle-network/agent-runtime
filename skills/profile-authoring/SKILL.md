@@ -176,6 +176,8 @@ A tool name must be one the harness publishes, and a refused name fails the same
 `ls`, `list` and `find` are not tool names; select paths with a glob tool and search contents with a grep tool.
 Inspect materialized permissions and served tools before relying on a restriction.
 Distinguish exact Runtime grants from harness-native defaults, which may expose additional tools.
+List in `tools` every harness tool a child's assignment needs, even where the harness serves its defaults anyway: a map of coordination tools alone reads in the record as removing the rest, and a harness that honors the map will not serve them.
+Before spawning a revision or a treatment, compare its tools with the profile it changes, and state the reason for any tool it no longer lists.
 Keep file access within the actual permission boundary.
 Use the execution owner's supported cancellation and recovery procedures for a wedged parent.
 Compare Runtime's materialization receipt and served tool set with what you authored before a large run.
