@@ -43,7 +43,7 @@ Hold back the acceptance check.
 It is a stricter superset, run from the delivered packet in a fresh environment, by a party outside the authoring lineage.
 Grade only outputs that the rerun reproduces.
 A parent that promotes children on proxy passes alone selects for the gap; have the referee attack a result before anyone builds on it.
-Keep the headline gate fixed for the whole task; report a stricter bar as a second line.
+Keep the headline gate fixed for the whole task; report a stricter bar as a second line. When a run's own evidence shows a repeated internal check pattern that improved coverage, state that pattern explicitly in the profile as a staffing or acceptance preference, so later spawned profiles can inherit it unchanged.
 
 ## 4. Choose roles and a model for each
 
@@ -51,7 +51,7 @@ Proposers: cheap, high-throughput models where an exact checker exists, with an 
 Referee: a skeptic from another model family, holding the artifact itself and its own instrument.
 An instrument is exact recomputation, execution, a literature search, or an attempt to build a counter-case.
 A change of family alone is weak, because models share many errors.
-A referee can reject a claim; only the held-back check accepts one. When a run uses blind re-derivation, require the blind page and the reconciliation page to name the concrete claim(s) that changed, narrowed, or stayed the same, so the re-derivation becomes auditable rather than only procedural.
+A referee can reject a claim; only the held-back check accepts one.
 Monitor: reads the journal and live notes during the run, flags drift or proxy gaming, and steers or reports; it never scores.
 Choose each model from measured cost and quality on this kind of work, and state its dollars.
 Admit the referee's model in `allowedModels`; Runtime refuses a model outside that list at spawn.
