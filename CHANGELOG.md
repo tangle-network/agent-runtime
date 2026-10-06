@@ -1,3 +1,21 @@
+## 0.304.0
+
+Durability now has one owner per job, documented in `docs/durability.md`.
+
+Removed, after an org-wide search found no consumers:
+- From the root: the `ConversationJournal` family (`ConversationJournal`, `ConversationJournalEntry`, `FileConversationJournal`, `InMemoryConversationJournal`, `SqlConversationJournal`), the `runConversation({ journal })` option and the `conversation_resumed` event. `runConversation` is now in-process only. Durable chat turns belong to Agent App's turn store; durable supervised work belongs to `supervise` with `runDir` or `createFencedSqlRunContext`.
+- From `./kernel`: the single-writer `SqlSpawnJournal`, `SqlResultBlobStore` and `SqlStatements`. Use `createFencedSqlRunContext` for shared SQL.
+- From `./kernel`: the run-directory layout helpers `CONTINUATIONS_DIR`, `workerInteractiveBindingFile`, `workerInteractiveBindingsDir`, `workerInteractiveAdmissionFile`, `readWorkerInteractiveAdmissions`, `DEFAULT_WAKE_DEBOUNCE_MS`, `DEFAULT_WAKE_HEARTBEAT_MS` and `composeContinuationNote`.
+- From `./durable`: `FAILURE_RECORD_FILE`, `SETTLE_RECORD_FILE`, `RUN_DIRECTORY_LOCK_FILE`, `REVIEW_DIR`, `PURSUIT_OBSERVER_DELIVERY_PATH`, `FORK_PARENT_UNCERTAIN_NODES_KEY`, `pursuitVersionsLedgerPath`, `settleRecordJson`, `deliverPursuitObserver` and `createFileObserverHooks`.
+
+`SqlAdapter` and `d1ToSqlAdapter` keep their root exports.
+
+`recoverRetainedRun`'s `recovered` outcome now carries `via: 'reattached' | 'resumed'`. `reattached` means the provider self-identified the original session. `resumed` means a pre-create intent was replayed through the exact create and dispatch.
+
+Runtime moves to the agent-interface 3 cohort: `@tangle-network/agent-interface` `^3.0.0`, `@tangle-network/agent-core` `>=0.10.3 <0.11.0`, `@tangle-network/agent-eval` `>=0.209.1 <0.210.0` and `@tangle-network/agent-knowledge` `^20.0.0`. agent-core 0.10.3 requires agent-interface 3, so a consumer on the 2.x line installed two agent-interface copies. agent-interface 3.0.0 removed only exports nothing imported; Runtime used none of them.
+
+Test-only: two more cases keep their order of events with margins a starved self-hosted publish runner meets. No runtime behavior changes.
+
 ## 0.303.1
 
 Test-only: the publish verify passes on loaded self-hosted runners. A timed-out exact-process case finalizes its evidence within a 2 s task timeout instead of 100 ms, and the SQL run-context cases are formatted. No runtime behavior changes.
