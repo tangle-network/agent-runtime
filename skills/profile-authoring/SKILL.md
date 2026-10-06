@@ -49,9 +49,9 @@ Keep the headline gate fixed for the whole task; report a stricter bar as a seco
 
 Proposers: cheap, high-throughput models where an exact checker exists, with an occasional strong model.
 Referee: a skeptic from another model family, holding the artifact itself and its own instrument.
-An instrument is exact recomputation, execution, a literature search, or an attempt to build a counter-case. If the claim can change a recommendation, the instrument should be blind first and then reconciled, so the blind result becomes an intermediate artifact rather than a late afterthought.
+An instrument is exact recomputation, execution, a literature search, or an attempt to build a counter-case.
 A change of family alone is weak, because models share many errors.
-A referee can reject a claim; only the held-back check accepts one.
+A referee can reject a claim; only the held-back check accepts one. When a run uses blind re-derivation, require the blind page and the reconciliation page to name the concrete claim(s) that changed, narrowed, or stayed the same, so the re-derivation becomes auditable rather than only procedural.
 Monitor: reads the journal and live notes during the run, flags drift or proxy gaming, and steers or reports; it never scores.
 Choose each model from measured cost and quality on this kind of work, and state its dollars.
 Admit the referee's model in `allowedModels`; Runtime refuses a model outside that list at spawn.
