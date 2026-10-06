@@ -115,13 +115,6 @@ export {
   plateauLength,
   renderAnytimeTable,
 } from './anytime'
-export {
-  type AuditIntentInput,
-  type AuditIntentOptions,
-  auditIntent,
-  defaultAuditorInstruction,
-  type IntentAudit,
-} from './audit-intent'
 // The domain-agnostic benchmark report engine: a fleet of `RunRecord`s → a ranked leaderboard, the full
 // profile×axis score matrix, and embeddable SVG/HTML charts (the hosted-leaderboard surface). Reads only
 // the universal `RunRecord` currency, so it reports ANY benchmark in ANY domain.

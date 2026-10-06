@@ -1564,7 +1564,7 @@ Present on terminal executor nodes; legacy records carry an explicit unavailable
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`trace`](#trace-3)
+[`NodeSnapshot`](#nodesnapshot).[`trace`](#trace-2)
 
 ##### budgetViolation?
 
@@ -3224,107 +3224,6 @@ Area under the per-shot anytime curve, normalized to [0,1].
 > **perStrategy**: [`AnytimeStrategySummary`](#anytimestrategysummary)[]
 
 One summary per (strategy, target) pair — the COCO-style multi-target view.
-
-***
-
-### AuditIntentInput
-
-#### Properties
-
-##### declaredIntent
-
-> **declaredIntent**: `string`
-
-The declared intent: the task text / acceptance criteria the agent was given.
-
-##### trace
-
-> **trace**: readonly `unknown`[]
-
-The trajectory so far — tool calls + results + assistant turns (any event shapes).
-
-##### userIntent?
-
-> `optional` **userIntent?**: `string`
-
-The principal's actual intent when it differs from the literal task (the contract).
-
-##### metaIntent?
-
-> `optional` **metaIntent?**: `string`
-
-The loop-level purpose (meta-intent): what the WHOLE run is for — lets the auditor
- flag locally-sensible work that serves the wrong larger objective.
-
-##### runId?
-
-> `optional` **runId?**: `string`
-
-***
-
-### AuditIntentOptions
-
-#### Properties
-
-##### profile
-
-> **profile**: `AgentProfile`
-
-Exact auditor identity.
-
-##### executor
-
-> **executor**: [`ExecutorConfig`](#executorconfig)
-
-Execution substrate. All behavior comes from the profile.
-
-##### maxTraceLines?
-
-> `optional` **maxTraceLines?**: `number`
-
-Cap trace lines fed to the auditor. Default 80.
-
-##### signal?
-
-> `optional` **signal?**: `AbortSignal`
-
-***
-
-### IntentAudit
-
-#### Properties
-
-##### revealedIntent
-
-> **revealedIntent**: `string`
-
-What the agent's actions reveal it is actually optimizing — one sentence.
-
-##### verdict
-
-> **verdict**: `"aligned"` \| `"drifting"` \| `"diverged"`
-
-##### evidence
-
-> **evidence**: `string`
-
-Trajectory-grounded evidence for the verdict (specific calls/patterns).
-
-##### recommendation
-
-> **recommendation**: `"abort"` \| `"continue"` \| `"steer"`
-
-The single recommended intervention.
-
-##### steer?
-
-> `optional` **steer?**: `string`
-
-When recommendation is 'steer': the corrective instruction to inject.
-
-##### confidence
-
-> **confidence**: `number`
 
 ***
 
@@ -18513,7 +18412,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-28)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-27)
 
 ##### execution?
 
@@ -24367,7 +24266,7 @@ in code (see [CoordinationVerbs](#coordinationverbs)).
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-22)
+[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-21)
 
 ##### runNamespace
 
@@ -24431,7 +24330,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-22)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-21)
 
 ##### task
 
@@ -26183,7 +26082,7 @@ Per-spawn factory carrying caller configuration. Constructed only after admissio
 
 ##### executor?
 
-> `readonly` `optional` **executor?**: [`Executor`](#executor-3)\<`unknown`\>
+> `readonly` `optional` **executor?**: [`Executor`](#executor-2)\<`unknown`\>
 
 Bring-your-own executor: highest routing precedence after exact-profile intake validation.
 
@@ -28264,7 +28163,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-2).[`signal`](#signal-34)
+[`RootHandle`](#roothandle-2).[`signal`](#signal-33)
 
 ##### abort()
 
@@ -33915,7 +33814,7 @@ Exact admitted profile used to validate the stable effective identity at publica
 
 ### ExecutorFactory
 
-> **ExecutorFactory**\<`Out`\> = (`spec`, `ctx`) => [`Executor`](#executor-3)\<`Out`\>
+> **ExecutorFactory**\<`Out`\> = (`spec`, `ctx`) => [`Executor`](#executor-2)\<`Out`\>
 
 Builds a fresh `Executor` for one spawn from the resolved, immutable spec. Per-spawn (not shared)
 so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a user supply
@@ -33939,7 +33838,7 @@ construction args without pre-instantiating; it never bypasses exact-profile val
 
 #### Returns
 
-[`Executor`](#executor-3)\<`Out`\>
+[`Executor`](#executor-2)\<`Out`\>
 
 ***
 
@@ -36410,14 +36309,6 @@ Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.
 
 ## Variables
 
-### defaultAuditorInstruction
-
-> `const` **defaultAuditorInstruction**: `string`
-
-Default system instruction for intent-auditor agents: diagnose diverged/drifting trajectories.
-
-***
-
 ### mcpSecretEnvMetadataKey
 
 > `const` **mcpSecretEnvMetadataKey**: `"secretEnv"` = `'secretEnv'`
@@ -37140,28 +37031,6 @@ One row per (strategy, satisficing target): the shareable time-to-satisfactory t
 #### Returns
 
 `string`
-
-***
-
-### auditIntent()
-
-> **auditIntent**(`input`, `opts`): `Promise`\<[`IntentAudit`](#intentaudit)\>
-
-The route-rigor analyst: compare declared vs revealed vs user intent over a trajectory and return aligned / drifting / diverged with evidence and one recommended intervention.
-
-#### Parameters
-
-##### input
-
-[`AuditIntentInput`](#auditintentinput)
-
-##### opts
-
-[`AuditIntentOptions`](#auditintentoptions)
-
-#### Returns
-
-`Promise`\<[`IntentAudit`](#intentaudit)\>
 
 ***
 
@@ -40937,7 +40806,7 @@ In-memory, process-local conversation store with detached reads and writes.
 
 ### chatTransportExecutor()
 
-> **chatTransportExecutor**(`opts`): [`Executor`](#executor-3)\<`string`\>
+> **chatTransportExecutor**(`opts`): [`Executor`](#executor-2)\<`string`\>
 
 Build one exact profile-driven chat executor through `createExecutor`.
 Prefer `chatWorkerSeam` for supervised work because it supplies trusted node identity.
@@ -40950,7 +40819,7 @@ Prefer `chatWorkerSeam` for supervised work because it supplies trusted node ide
 
 #### Returns
 
-[`Executor`](#executor-3)\<`string`\>
+[`Executor`](#executor-2)\<`string`\>
 
 ***
 
@@ -41023,7 +40892,7 @@ supervisor node cannot be put in code mode through node config today.
 
 ### gateOnDeliverable()
 
-> **gateOnDeliverable**\<`Out`\>(`inner`, `deliverable`): [`Executor`](#executor-3)\<`Out`\>
+> **gateOnDeliverable**\<`Out`\>(`inner`, `deliverable`): [`Executor`](#executor-2)\<`Out`\>
 
 Wrap an `Executor` so its settlement `valid` reflects the deliverable check, not the
 inner verdict. Handles both `execute` shapes (one-shot `Promise<ExecutorResult>` and
@@ -41040,7 +40909,7 @@ executor has produced its output. The inner `score` is preserved; only `valid` i
 
 ##### inner
 
-[`Executor`](#executor-3)\<`Out`\>
+[`Executor`](#executor-2)\<`Out`\>
 
 ##### deliverable
 
@@ -41048,13 +40917,13 @@ executor has produced its output. The inner `score` is preserved; only `valid` i
 
 #### Returns
 
-[`Executor`](#executor-3)\<`Out`\>
+[`Executor`](#executor-2)\<`Out`\>
 
 ***
 
 ### mapExecutorResult()
 
-> **mapExecutorResult**\<`In`, `Out`\>(`inner`, `map`): [`Executor`](#executor-3)\<`Out`\>
+> **mapExecutorResult**\<`In`, `Out`\>(`inner`, `map`): [`Executor`](#executor-2)\<`Out`\>
 
 Transform a Runtime executor's terminal artifact without losing its private
 profile-materialization attestation or altering its measured spend. This is
@@ -41075,7 +40944,7 @@ must not rebuild an Executor around a model transport merely to change `out`.
 
 ##### inner
 
-[`Executor`](#executor-3)\<`In`\>
+[`Executor`](#executor-2)\<`In`\>
 
 ##### map
 
@@ -41083,7 +40952,7 @@ must not rebuild an Executor around a model transport merely to change `out`.
 
 #### Returns
 
-[`Executor`](#executor-3)\<`Out`\>
+[`Executor`](#executor-2)\<`Out`\>
 
 ***
 
@@ -41703,7 +41572,7 @@ traversal is ledgered and journaled.
 
 ### createInPlaceCliExecutor()
 
-> **createInPlaceCliExecutor**(`options`): [`Executor`](#executor-3)\<[`InPlaceHarnessResult`](#inplaceharnessresult)\>
+> **createInPlaceCliExecutor**(`options`): [`Executor`](#executor-2)\<[`InPlaceHarnessResult`](#inplaceharnessresult)\>
 
 **`Experimental`**
 
@@ -41724,7 +41593,7 @@ not an existing directory throws before the harness launches. `resultArtifact()`
 
 #### Returns
 
-[`Executor`](#executor-3)\<[`InPlaceHarnessResult`](#inplaceharnessresult)\>
+[`Executor`](#executor-2)\<[`InPlaceHarnessResult`](#inplaceharnessresult)\>
 
 ***
 
@@ -44044,7 +43913,7 @@ forward and delegates every other surface to it.
 
 ### retryPreSpawnRefusals()
 
-> **retryPreSpawnRefusals**\<`Out`\>(`inner`, `policy`, `hooks?`): [`Executor`](#executor-3)\<`Out`\>
+> **retryPreSpawnRefusals**\<`Out`\>(`inner`, `policy`, `hooks?`): [`Executor`](#executor-2)\<`Out`\>
 
 Re-enter `execute` on one executor while a pre-spawn refusal keeps proving nothing ran.
 
@@ -44061,7 +43930,7 @@ without reimplementing the two proofs.
 
 ##### inner
 
-[`Executor`](#executor-3)\<`Out`\>
+[`Executor`](#executor-2)\<`Out`\>
 
 ##### policy
 
@@ -44073,7 +43942,7 @@ without reimplementing the two proofs.
 
 #### Returns
 
-[`Executor`](#executor-3)\<`Out`\>
+[`Executor`](#executor-2)\<`Out`\>
 
 ***
 
@@ -44163,7 +44032,7 @@ exists (the W3C grammar requires one); the legacy pair still carries a lone trac
 
 ### createWorktreeCliExecutor()
 
-> **createWorktreeCliExecutor**(`options`): [`Executor`](#executor-3)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
+> **createWorktreeCliExecutor**(`options`): [`Executor`](#executor-2)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
 
 **`Experimental`**
 
@@ -44183,7 +44052,7 @@ without a configured prompt throws before a worktree is created. `resultArtifact
 
 #### Returns
 
-[`Executor`](#executor-3)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
+[`Executor`](#executor-2)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
 
 ***
 
@@ -44227,7 +44096,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-37), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-36), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 
