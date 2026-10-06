@@ -42,7 +42,7 @@ Give agents a development check they can run; hiding every check also blocks hon
 Hold back the acceptance check.
 It is a stricter superset, run from the delivered packet in a fresh environment, by a party outside the authoring lineage.
 Grade only outputs that the rerun reproduces.
-A parent that promotes children on proxy passes alone selects for the gap; have the referee attack a result before anyone builds on it.
+A parent that promotes children on proxy passes alone selects for the gap; have the referee attack a result before anyone builds on it. When the run's goal is a decision account rather than a theorem, require at least one descendant to produce a boundary or narrowing claim that can be reused by later directors, not only a pass/fail judgment.
 Keep the headline gate fixed for the whole task; report a stricter bar as a second line.
 
 ## 4. Choose roles and a model for each
