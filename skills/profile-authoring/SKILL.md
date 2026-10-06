@@ -51,7 +51,7 @@ Proposers: cheap, high-throughput models where an exact checker exists, with an 
 Referee: a skeptic from another model family, holding the artifact itself and its own instrument.
 An instrument is exact recomputation, execution, a literature search, or an attempt to build a counter-case.
 A change of family alone is weak, because models share many errors.
-A referee can reject a claim; only the held-back check accepts one. When the task uses blind re-derivation, make the re-deriver's output a first-class artifact: require a named reconciliation page, with the specific claim IDs it changed, before a recommendation-changing claim may be treated as ready for the final account.
+A referee can reject a claim; only the held-back check accepts one.
 Monitor: reads the journal and live notes during the run, flags drift or proxy gaming, and steers or reports; it never scores.
 Choose each model from measured cost and quality on this kind of work, and state its dollars.
 Admit the referee's model in `allowedModels`; Runtime refuses a model outside that list at spawn.
@@ -156,7 +156,7 @@ A profile with no Runtime coordination tool is a leaf; any coordination tool mak
 Prove recursive execution through actual child-to-grandchild edges.
 Record harness-native children separately from Runtime children.
 Group retries of the same assignment into one lineage when comparing teams.
-Grant `submit_result` only when Runtime gives that node an independent check; otherwise its settlement stays unassessed.
+Grant `submit_result` only when Runtime gives that node an independent check; otherwise its settlement stays unassessed. A child that returns without a structured validity verdict should be treated as unresolved in the parent’s comparison instead of silently counted with the settled set.
 Grant only the observation, steering and journal tools that the assignment needs.
 Set `harness`, `model.default` and `model.provider` explicitly, and validate against the current `agentProfileSchema`.
 State the node's role in `prompt.appendSystemPrompt`: it is added after the harness's own system prompt, which stays in force.
