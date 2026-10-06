@@ -2734,13 +2734,59 @@ Normalized spend reported for one Runtime improvement run.
 
 > **totalCostUsd**: `number`
 
+Dollars every settled call reported or priced.
+
 ##### accountingComplete
 
 > **accountingComplete**: `boolean`
 
+Every call's cost and usage is known.
+
 ##### incompleteReasons
 
 > **incompleteReasons**: `string`[]
+
+##### costBound?
+
+> `optional` **costBound?**: `object`
+
+A search's accounting when it is incomplete only because some calls' cost is
+unknown under a maximum each declared before it ran, such as a call that
+failed with no receipt. Each counts at that maximum, so the work cost at
+most `totalMaximumUsd`. Absent when the accounting is complete or has any
+other gap.
+
+###### unknownCalls
+
+> **unknownCalls**: `number`
+
+###### unknownMaximumUsd
+
+> **unknownMaximumUsd**: `number`
+
+###### totalMaximumUsd
+
+> **totalMaximumUsd**: `number`
+
+***
+
+### SearchPromotion
+
+A search's claim as a `SuperviseRegistry.profiles` promotion: list it beside the
+shipped profile, `{ profile: result.candidate.profile, promotion }`. The sealed
+experiment names the root as control and every finalist the claim tested as a
+treatment, by exact profile digest; the decision is Eval's paired decision the
+claim made for the shipped finalist.
+
+#### Properties
+
+##### experiment
+
+> `readonly` **experiment**: `SealedExperiment`
+
+##### decision
+
+> `readonly` **decision**: `PairedPromotionDecision`
 
 ***
 
@@ -3122,7 +3168,8 @@ Optimizer ancestry used when sealing a candidate experiment.
 > **decision**: `"ship"` \| `"hold"`
 
 `ship` only when the claim shipped, its verification re-derived it, the
-cost accounting is complete, and the test lower bound exceeds `minimumLift`.
+cost accounting is complete or bounded within `costCeiling` (see
+`ImproveCost.costBound`), and the test lower bound exceeds `minimumLift`.
 
 ###### Overrides
 
@@ -3179,6 +3226,12 @@ Paired final-test confidence interval for method-based profile runs.
 > **searchHistory**: `SearchHistoryReceipt`
 
 The search ledger, closed and verified from its bytes.
+
+##### promotion?
+
+> `optional` **promotion?**: [`SearchPromotion`](#searchpromotion)
+
+Present exactly when `decision` is `ship`.
 
 #### Methods
 
@@ -3897,6 +3950,131 @@ readonly `string`[] \| `Promise`\<readonly `string`[]\>
 
 The longest surface text the proposer returns, in characters; a longer
 reply proposes nothing. Default 12,000.
+
+***
+
+### DecideSearchImprovementOptions
+
+#### Properties
+
+##### searchDir
+
+> **searchDir**: `string`
+
+The closed search's directory, `<runDir>/search/<searchId>`: its
+`ledger.jsonl`, `blobs/` and, unless `costLedger` is given, `cost-ledger.jsonl`.
+
+##### minimumLift?
+
+> `optional` **minimumLift?**: `number`
+
+The `minimumLift` the search ran with. Default 0, as in `improve()`.
+
+##### costLedger?
+
+> `optional` **costLedger?**: `CostLedgerHandle`
+
+The cost ledger the search recorded into, when `improve()` was given one.
+
+##### storage?
+
+> `optional` **storage?**: `CampaignStorage`
+
+***
+
+### SearchImprovementDecision
+
+#### Extends
+
+- `SearchShipDecision`
+
+#### Properties
+
+##### decision
+
+> **decision**: `"ship"` \| `"hold"`
+
+###### Inherited from
+
+`SearchShipDecision.decision`
+
+##### reason
+
+> **reason**: `string`
+
+The claim's reason, the Runtime rule that held a statistical ship, and any
+cost bound the decision relied on.
+
+###### Inherited from
+
+`SearchShipDecision.reason`
+
+##### lift?
+
+> `optional` **lift?**: `number`
+
+The shipped finalist's test delta against the root, when the claim tested it.
+
+###### Inherited from
+
+`SearchShipDecision.lift`
+
+##### liftInterval?
+
+> `optional` **liftInterval?**: `object`
+
+###### low
+
+> **low**: `number`
+
+###### high
+
+> **high**: `number`
+
+###### Inherited from
+
+`SearchShipDecision.liftInterval`
+
+##### promotion?
+
+> `optional` **promotion?**: [`SearchPromotion`](#searchpromotion)
+
+Present exactly when `decision` is `ship`: the sealed claim and Eval's
+paired decision, ready for `SuperviseRegistry.profiles` beside the shipped
+profile.
+
+###### Inherited from
+
+`SearchShipDecision.promotion`
+
+##### searchId
+
+> **searchId**: `string`
+
+##### claim
+
+> **claim**: `SearchClaim`
+
+##### claimVerification
+
+> **claimVerification**: `SearchClaimVerification`
+
+##### cost
+
+> **cost**: [`ImproveCost`](#improvecost)
+
+##### baseline
+
+> **baseline**: `AgentProfile`
+
+The root's exact profile.
+
+##### candidate
+
+> **candidate**: `AgentProfile`
+
+The profile the search keeps: the shipped finalist, else the claim's
+selection, else the root.
 
 ***
 
@@ -10114,6 +10292,27 @@ Persist a detached policy under the profile extension without mutating the input
 #### Returns
 
 `AgentProfile`
+
+***
+
+### decideSearchImprovement()
+
+> **decideSearchImprovement**(`options`): `Promise`\<[`SearchImprovementDecision`](#searchimprovementdecision)\>
+
+Decide a closed search from its directory, under the current ship rule, with
+no model call: the claim verified from the ledger, the cost from its cost
+ledger, and the promotion when it ships. Use it to cite a finished search as
+a registry promotion, or to re-decide one that an earlier rule held.
+
+#### Parameters
+
+##### options
+
+[`DecideSearchImprovementOptions`](#decidesearchimprovementoptions)
+
+#### Returns
+
+`Promise`\<[`SearchImprovementDecision`](#searchimprovementdecision)\>
 
 ***
 

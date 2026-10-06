@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.302.0` and `@tangle-network/agent-eval@0.205.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.303.0` and `@tangle-network/agent-eval@0.208.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 309 exports.
+Import from `@tangle-network/agent-runtime` — 313 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -45,6 +45,7 @@ Import from `@tangle-network/agent-runtime` — 309 exports.
 | `createSupervisedKnowledgeUpdater` | function | Create an `improveKnowledgeBase` update callback backed by runtime supervision. |
 | `d1ToSqlAdapter` | function | Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1 |
 | `decideKnowledgeReadiness` | function | Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / `caveat`) the runtime, route handlers, and UI shells all switch on. |
+| `decideSearchImprovement` | function | Decide a closed search from its directory, under the current ship rule, with |
 | `dedicatedLane` | function | Cells that each run in their own environment, `capacity` at once. The lane cannot bound a |
 | `defaultBuildPrompt` | function | Turn proposal findings into a concrete coder task — |
 | `defineConversation` | function | Validate and define a conversation before execution. |
@@ -158,6 +159,7 @@ Import from `@tangle-network/agent-runtime` — 309 exports.
 | `SearchCellContext` | interface | What the agent of one attempt knows about where and as what it runs. |
 | `SearchLane` | interface | An execution lane: slots that share one cost rule, and the profiles they cannot run. |
 | `SearchLaneOptions` | interface | Options every lane builder takes. |
+| `SearchPromotion` | interface | A search's claim as a `SuperviseRegistry.profiles` promotion: list it beside the |
 | `SharedBoxSearchLane` | interface | A lane of workers packed into shared Sandbox boxes. Close `placement` when the run settles. |
 | `SqlAdapter` | interface | Minimal SQL driver shape. Implementations forward to whichever client the |
 | `VerifyResult` | interface | Outcome of verifying a candidate worktree. |
@@ -190,7 +192,7 @@ Import from `@tangle-network/agent-runtime` — 309 exports.
 | `Verifier` | type | Verifies the edited worktree. Sync or async; throws only on a setup fault |
 | `WorktreeCheckRunner` | type | The single shell-command-in-worktree runner seam (replaces the per-executor copies). |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgenticGeneratorShotReceipt`, `AgentKnowledgeProvider`, `AgentKnowledgeReadinessCheckOptions`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `ChatModelCandidate`, `CheckpointServingPort`, `ControlBudget`, `ControlEvalResult`, `ControlledTrainingCommand`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationJournalEntry`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `CreateKnowledgeImprovementActivationExecutorOptions`, `CreateProfileImprovementHarnessOptions`, `D1StmtLike`, `DataAcquisitionPlan`, `DelegatedLoopResult`, `HaltContext`, `HaltSignal`, `ImproveCodeBaseOptions`, `ImproveCodeResult`, `ImproveCustomCodeGeneratorOptions`, `ImprovementCodeCandidate`, `ImprovementProfileCandidate`, `ImproveMethodContext`, `ImproveMethodResult`, `ImproveRuntimeCodeGeneratorOptions`, `ImproveSearchResult`, `ImproveSkillsOptions`, `ImproveTrainingOptions`, `KnowledgeImprovementActivationExecutor`, `KnowledgeImprovementCandidatePair`, `KnowledgeImprovementExperimentBundles`, `KnowledgeImprovementJobMeasurement`, `KnowledgeImprovementJobResult`, `KnowledgeReadinessCheckInput`, `KnowledgeReadinessDecision`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `McpServeSpec`, `OfficialSensitiveCandidateInput`, `OtelAttribute`, `OtelExportConfig`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `ProfileTrainerRequest`, `RawTraceDistillerOptions`, `ReflectiveGeneratorOptions`, `ReflectiveProfileProposerOptions`, `ReflectiveProposerReply`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolvedChatModel`, `RunAgentTaskOptions`, `RunAgentTaskStreamOptions`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunKnowledgeImprovementJobOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeEventOtelOptions`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunCompleteInput`, `RuntimeRunCost`, `RuntimeRunHandle`, `RuntimeRunOptions`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSession`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeStreamEventSummary`, `RuntimeTelemetryOptions`, `SanitizedKnowledgeReadinessReport`, `SanitizedKnowledgeRequirement`, `SearchMethodOptions`, `ServerSentEventOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `TrainingDatasetDocument`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgenticGeneratorExecutorForWorktree`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ChatModelValidation`, `ControlDecision`, `ConversationStreamEvent`, `DeepReadonly`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `HaltPredicate`, `HaltReason`, `ImproveCodeOptions`, `ImprovementCandidate`, `ImproveMethodSource`, `ImproveOptimizationRunOptions`, `ImproveProfileSurface`, `ImproveResult`, `ImproveTrainingResult`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `ProfileImprovementHarnessRunOptions`, `ProfileImprovementHarnessTrainOptions`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeRunStatus`, `RuntimeStreamEvent`, `RuntimeStreamEventSink`, `SupervisedKnowledgeUpdater`, `TrainingBoundaryResult`, `TurnOrder`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgenticGeneratorShotReceipt`, `AgentKnowledgeProvider`, `AgentKnowledgeReadinessCheckOptions`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `ChatModelCandidate`, `CheckpointServingPort`, `ControlBudget`, `ControlEvalResult`, `ControlledTrainingCommand`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationJournalEntry`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `CreateKnowledgeImprovementActivationExecutorOptions`, `CreateProfileImprovementHarnessOptions`, `D1StmtLike`, `DataAcquisitionPlan`, `DecideSearchImprovementOptions`, `DelegatedLoopResult`, `HaltContext`, `HaltSignal`, `ImproveCodeBaseOptions`, `ImproveCodeResult`, `ImproveCustomCodeGeneratorOptions`, `ImprovementCodeCandidate`, `ImprovementProfileCandidate`, `ImproveMethodContext`, `ImproveMethodResult`, `ImproveRuntimeCodeGeneratorOptions`, `ImproveSearchResult`, `ImproveSkillsOptions`, `ImproveTrainingOptions`, `KnowledgeImprovementActivationExecutor`, `KnowledgeImprovementCandidatePair`, `KnowledgeImprovementExperimentBundles`, `KnowledgeImprovementJobMeasurement`, `KnowledgeImprovementJobResult`, `KnowledgeReadinessCheckInput`, `KnowledgeReadinessDecision`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `McpServeSpec`, `OfficialSensitiveCandidateInput`, `OtelAttribute`, `OtelExportConfig`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `ProfileTrainerRequest`, `RawTraceDistillerOptions`, `ReflectiveGeneratorOptions`, `ReflectiveProfileProposerOptions`, `ReflectiveProposerReply`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolvedChatModel`, `RunAgentTaskOptions`, `RunAgentTaskStreamOptions`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunKnowledgeImprovementJobOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeEventOtelOptions`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunCompleteInput`, `RuntimeRunCost`, `RuntimeRunHandle`, `RuntimeRunOptions`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSession`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeStreamEventSummary`, `RuntimeTelemetryOptions`, `SanitizedKnowledgeReadinessReport`, `SanitizedKnowledgeRequirement`, `SearchImprovementDecision`, `SearchMethodOptions`, `ServerSentEventOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `TrainingDatasetDocument`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgenticGeneratorExecutorForWorktree`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ChatModelValidation`, `ControlDecision`, `ConversationStreamEvent`, `DeepReadonly`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `HaltPredicate`, `HaltReason`, `ImproveCodeOptions`, `ImprovementCandidate`, `ImproveMethodSource`, `ImproveOptimizationRunOptions`, `ImproveProfileSurface`, `ImproveResult`, `ImproveTrainingResult`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `ProfileImprovementHarnessRunOptions`, `ProfileImprovementHarnessTrainOptions`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeRunStatus`, `RuntimeStreamEvent`, `RuntimeStreamEventSink`, `SupervisedKnowledgeUpdater`, `TrainingBoundaryResult`, `TurnOrder`.
 
 ### Vertical agent — manifest + surface proposal source
 
@@ -1852,7 +1854,7 @@ Import from `@tangle-network/agent-eval` — 59 exports.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
-Import from `@tangle-network/agent-eval/campaign` — 529 exports.
+Import from `@tangle-network/agent-eval/campaign` — 531 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1970,9 +1972,11 @@ Import from `@tangle-network/agent-eval/campaign` — 529 exports.
 | `scoreUserStory` | function | Score one story's produced state against its requirements. Thin wrapper over |
 | `searchCellId` | function | Deterministic cell id: one node on one task in one split at one repeat. |
 | `searchCellSetDigest` | function | Digest of the cells an estimate reads, with the contrast they serve. Cells |
+| `searchClaimDecision` | function | The paired decision a closed search's claim made for one finalist it |
 | `searchClaimReserveUsd` | function | The claim reserve a search needs: the root and 3 finalists on every test |
 | `searchDivergence` | function | The divergence rule: a node whose train mean rose over its parent's on the |
 | `searchEdgeId` | function | Deterministic edge id: one proposal of one child within one search. |
+| `searchEstimateMethod` | function | The method a paired sample of `pairs` units supports: the one staging |
 | `searchExpansionIndex` | function | The expansion index a kernel operation id encodes, or null. |
 | `searchHistoryCoverageRow` | function | Classify one producer's history without treating malformed evidence as absence. |
 | `searchModelIdentity` | function | A provider-reported model: a snapshot when its name pins one, else a moving alias. |
