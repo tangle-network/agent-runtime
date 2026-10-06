@@ -3,7 +3,6 @@ import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { FileConversationJournal } from '../../conversation/journal'
 import { FileCoordinationLog } from '../../runtime/supervise/coordination-log'
 import {
   createRootStreamSink,
@@ -202,17 +201,10 @@ describe('durable consumers share streaming reads', () => {
         )
         .join('\n'),
     )
-    const conversation = new FileConversationJournal(join(root, 'conversation.jsonl'))
-    await conversation.beginRun('conversation', '2026-01-01T00:00:00Z')
     vi.mocked(fs.readFile).mockImplementation(async () => {
       throw new Error('whole-file read')
     })
     expect((await new FileCoordinationLog(path).load('run', 'A')).findings).toEqual([{ id: 'A' }])
-    expect(await conversation.loadRun('conversation')).toMatchObject({
-      runId: 'conversation',
-      turns: [],
-    })
-    expect(await conversation.loadRun('missing')).toBeUndefined()
   })
 
   it('hashes exact root-stream bytes, including an uncommitted non-UTF8 tail', async () => {

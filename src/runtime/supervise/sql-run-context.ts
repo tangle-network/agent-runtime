@@ -1,4 +1,4 @@
-import type { SqlAdapter } from '../../conversation/journal-sql'
+import type { SqlAdapter } from '../../durable/sql-adapter'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
 import {
   openSqlRunStore,

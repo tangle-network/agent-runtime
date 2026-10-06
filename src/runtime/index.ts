@@ -37,13 +37,6 @@ export {
   type SpawnForestNode,
   type SpawnForestTree,
 } from '../durable/spawn-journal'
-// The SQL-backed durable stores — the same begin/append/load contract over the SqlStatements
-// seam SqlConversationJournal takes. @experimental (draft): single-writer by convention.
-export {
-  SqlResultBlobStore,
-  SqlSpawnJournal,
-  type SqlStatements,
-} from '../durable/spawn-journal-sql'
 export {
   openSqlRunStore,
   type SqlRunLease,
@@ -759,7 +752,6 @@ export {
   CheckUnavailableError,
   type CheckVerdict,
   CONTINUATION_FACTS,
-  CONTINUATIONS_DIR,
   type ContinuationAppend,
   type ContinuationContext,
   type ContinuationEntry,
@@ -770,7 +762,6 @@ export {
   type ContinuationPolicy,
   type ContinuationProfile,
   checkVerdictOf,
-  composeContinuationNote,
   distillFindings,
   expandQuestions,
   failedItems,
@@ -915,9 +906,7 @@ export {
   type PeerInboxMessage,
 } from './supervise/inbox'
 export {
-  readWorkerInteractiveAdmissions,
   type WorkerInteractiveAdmission,
-  workerInteractiveAdmissionFile,
 } from './supervise/interactive-admission'
 /** Provider-backed native interactive workers. Runtime owns admission and control identity; the
  * provider owns the environment and process. */
@@ -1311,8 +1300,6 @@ export {
 // How a manager that ended its turn with work open is woken: heartbeat, debounce, deadline notice.
 export {
   DEFAULT_DEADLINE_WARNING_MS,
-  DEFAULT_WAKE_DEBOUNCE_MS,
-  DEFAULT_WAKE_HEARTBEAT_MS,
   type ManagerWakePolicy,
 } from './supervise/wake'
 // The bounded settle-evidence block a worker exposes so the brain's next decision is not authored
@@ -1335,8 +1322,6 @@ export {
   readWorkerInteractiveBinding,
   type WorkerInteractiveBinding,
   type WorkerInteractiveProviderSource,
-  workerInteractiveBindingFile,
-  workerInteractiveBindingsDir,
 } from './supervise/worker-interactive'
 // Worker-spawn persistence: the same second chance for a LEAF whose spawn a saturated executor
 // refused before it ran. Fail-closed on two proofs of zero work — a pre-spawn signature in the

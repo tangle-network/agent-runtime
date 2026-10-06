@@ -1,39 +1,29 @@
 /**
- * Turn-lifecycle helpers for `@tangle-network/agent-runtime`.
+ * `/durable` — the chat turn envelope and the records of a supervised run
+ * directory. It does not own execution recovery.
  *
- * Long-running execution, reconnect, replay, and duplicate-dispatch
- * protection live in `@tangle-network/sandbox` and its orchestrator.
- * agent-runtime owns:
+ * - Turn envelope: `handleChatTurn` frames one chat turn (NDJSON, `session.run.*`,
+ *   persist / post-process / trace-flush hook order) and `deriveExecutionId`
+ *   names it. Agent App's `/chat-routes` composes both and owns buffered turn
+ *   events, replay, running-turn claims and route persistence.
+ * - Run directory: `supervisePursuit` is the operator entrypoint that owns one
+ *   directory for a `supervise()` run. It holds `supervise.lock`
+ *   (`acquireRunDirectoryLock`), writes `result.json` or `failure.json`
+ *   (`readSettleRecord`, `readFailureRecord`), and gives the run a cross-run
+ *   pursuit identity, `fork` lineage and judged `versions`. Products do not use
+ *   it for durability; they use Agent App turns.
+ * - Observation: `FileObserverJournal` is the tamper-evident third-person
+ *   history of one execution, and `projectPursuit` is a rebuildable read model
+ *   over it. It carries identities, usage, cost provenance, timing and receipts.
+ *   It owns no execution or coordination semantics.
+ * - `discoverDurableSupervisionRun` and `readRootStream` read an existing
+ *   directory without knowing its identities.
  *
- *   - `handleChatTurn`: framework-neutral turn lifecycle with NDJSON framing,
- *     `session.run.*` envelope, persist / post-process / trace-flush
- *     hook ordering.
- *   - `deriveExecutionId`: convention helper for the stable id products
- *     persist and pass as both execution and turn identity on dispatch.
- *   - `discoverDurableSupervisionRun`: inspect a durable supervision directory
- *     without already knowing the root/run identities written inside it.
- *   - `FileObserverJournal`: tamper-evident, append-only third-person history
- *     for one concrete Runtime execution.
- *   - `projectPursuit`: a rebuildable operator read model over that history;
- *     it owns no execution or coordination semantics. This is the stable execution
- *     tree: every node carries its identifiers, usage by token class, cost with
- *     provenance, timing, and materialization and execution-binding receipts, and
- *     each run carries inclusive and exclusive totals. A client reads totals from
- *     here, not from the experimental `TopSnapshot` in `/tui`, which is an operator
- *     view over on-disk run state and carries no model-call identity.
- *   - `supervisePursuit`: one-call adapter over canonical `supervise()` that
- *     gives each isolated run a stable cross-run pursuit identity, holds the run
- *     directory's `supervise.lock` for the call, and leaves the directory's terminal
- *     record beside the journal: `result.json` at settle, `failure.json` on a throw.
- *   - `supervisePursuit({ fork })`: start a run as a version of a settled run, with the parent's
- *     recorded root inputs plus one `AgentProfileDiff`, recorded in the root's correlation.
- *   - `supervisePursuit({ versions })`: continue a pursuit across versions. An outside judge
- *     scores each settled version, the next forks from the best one, and a stop rule with a
- *     patience, a version cap, a dollar cap and a wall clock ends the chain.
- *   - `readRootStream` / `readRootStreamReceipt`: the root manager's own provider stream,
- *     `root-stream.jsonl`, journaled as it arrives and referenced from both terminal records.
+ * Execution recovery belongs to `/kernel`. That covers retained provider runs
+ * (`startRetainedRun`, `recoverRetainedRun`, `reconnectRetainedRun`), the spawn
+ * journal that `supervise` replays, and shared-SQL ownership
+ * (`createFencedSqlRunContext`). See `docs/durability.md` for the full owner map.
  */
-
 export {
   ROOT_STREAM_FILE,
   type RootStreamReceipt,
@@ -52,7 +42,6 @@ export type {
 export { handleChatTurn } from './chat-engine'
 export { deriveExecutionId } from './execution-handle'
 export {
-  createFileObserverHooks,
   FileObserverJournal,
   type ObserverJournal,
   type ObserverRecord,
@@ -75,13 +64,6 @@ export {
   projectPursuit,
 } from './observer-projection'
 export {
-  deliverPursuitObserver,
-  PURSUIT_OBSERVER_DELIVERY_PATH,
-  type PursuitObserverDelivery,
-  type PursuitObserverDeliveryOutcome,
-  type PursuitObserverState,
-} from './pursuit-observer-delivery'
-export {
   assertPursuitVersions,
   type JudgedPursuitVersion,
   type NextPursuitVersion,
@@ -89,20 +71,16 @@ export {
   type PursuitVersionChain,
   type PursuitVersionStop,
   type PursuitVersions,
-  pursuitVersionsLedgerPath,
-  REVIEW_DIR,
   type SettledPursuitVersion,
   type VersionJudge,
   type VersionVerdict,
 } from './pursuit-versions'
 export {
-  FORK_PARENT_UNCERTAIN_NODES_KEY,
   type PursuitFork,
   RUN_FORK_CORRELATION_KEYS,
 } from './run-fork'
 export {
   acquireRunDirectoryLock,
-  RUN_DIRECTORY_LOCK_FILE,
   type RunDirectoryHolderLiveness,
   type RunDirectoryLock,
   RunDirectoryLockedError,
@@ -112,12 +90,9 @@ export {
 } from './run-lock'
 export {
   type DurableFailureRecord,
-  FAILURE_RECORD_FILE,
   readFailureRecord,
   readSettleRecord,
-  SETTLE_RECORD_FILE,
   SettledRunDirectoryError,
-  settleRecordJson,
 } from './settle-record'
 export {
   type SupervisedPursuitResult,

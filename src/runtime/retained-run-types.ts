@@ -301,19 +301,26 @@ export interface RecoverRetainedRunOptions {
 }
 
 /**
- * Outcome of one recovery attempt from pre-dispatch admission coordinates.
+ * Outcome of one recovery attempt.
  *
- * `not_found`: the provider no longer holds the environment; nothing remains
- * to destroy. `recovered`: the provider self-identified the session with a
- * strict exact reference matching the recorded coordinates. `unverifiable`:
- * the environment exists but the provider cannot self-identify the session;
- * never destroy on this outcome — keep the environment, retry
- * `reconnectRetainedRun` with a dispatched admission record, or inspect it
- * with provider-native tools.
+ * `recovered` with `via: 'reattached'`: the provider self-identified the
+ * original session with a strict exact reference matching the recorded
+ * environment coordinates. `recovered` with `via: 'resumed'`: a pre-create
+ * intent was replayed through the exact, idempotent create and dispatch; the
+ * handle controls the admitted run, whether this call or the crashed one
+ * dispatched it. `not_found`: the provider no longer holds the environment;
+ * nothing remains to destroy. `unverifiable`: the environment exists but the
+ * provider cannot self-identify the session. Never destroy on this outcome:
+ * keep the environment, retry `reconnectRetainedRun` with a dispatched
+ * admission record, or inspect it with provider-native tools.
  *
  * @stable
  */
 export type RecoverRetainedRunResult =
-  | { readonly outcome: 'recovered'; readonly handle: RetainedRunHandle }
+  | {
+      readonly outcome: 'recovered'
+      readonly via: 'reattached' | 'resumed'
+      readonly handle: RetainedRunHandle
+    }
   | { readonly outcome: 'not_found' }
   | { readonly outcome: 'unverifiable'; readonly environment: AgentEnvironment }
