@@ -180,7 +180,7 @@ Passing `journal`, `blobs` and `resume` directly is an advanced test seam, not a
 |---|---|---|
 | Coordinator killed before or after dispatch, mid-turn, before or after commit, before or after an effect | Runtime `tests/durability/sql-run-context.test.ts` and the `runDir` graph kill matrix | Real OS processes; synthetic retained provider |
 | Two contenders, a stale owner (SIGSTOP, then SIGCONT), lease expiry and takeover | Runtime fenced SQL suite | Real OS processes, SQLite |
-| Coordinator killed during a session resume | Runtime `tests/durability/session-reattach.test.ts`; harness conformance case 8 kills the CLI during a resume turn | Synthetic sessions; real Claude Code, Codex, OpenCode and Pi |
+| Kill during a session resume | Harness conformance case 8 kills the CLI during a resume turn, and the session continues. In the `host-loss` restore scenario, a coordinator is killed during recovery, before the director's session resumes; the next coordinator resumes that same session. Runtime `tests/durability/session-reattach.test.ts` covers kills mid-session with re-attach | Real Claude Code, Codex, OpenCode and Pi; end to end; synthetic sessions |
 | CLI killed mid-tool, then resumed | Harness conformance case 7 | Real CLIs, scripted model |
 | Host loss, end to end | Harness conformance `host-loss`, restore scenario | Runtime supervisor, sidecar and Claude Code in Docker; shim control plane |
 | Coordinator killed during a workspace restore | `host-loss`, restore scenario: the next coordinator joins the in-flight restore, and each box is restored once | Same |
