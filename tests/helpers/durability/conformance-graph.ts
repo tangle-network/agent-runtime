@@ -116,6 +116,12 @@ export interface LeafSeamOptions {
   readonly dir: string
   readonly phase: string
   readonly kill: KillSwitch
+  /** Whether a node's worker may return its artifact. The workers run concurrently, but each
+   *  returns only once the planner has read its spawn and every earlier node's settle, so each
+   *  settle reaches the planner in its own wake and the driver's turns, and with them the
+   *  `driver:turn:<n>` kill labels, are the same in every run. Without it, a loaded host batches
+   *  settles into fewer wakes and a label the reference run had never occurs. */
+  readonly maySettle?: (node: WorkerNode) => boolean
 }
 
 /** Which worker-node executions RAN in one phase — the "no step lost / no step repeated" proof. */
@@ -143,7 +149,7 @@ export function readExecLog(dir: string, phase: string): string[] {
  * own key (`resumed: "retried"`) rather than refusing it in-doubt.
  */
 export function instrumentedLeafSeam(opts: LeafSeamOptions): MakeWorkerAgent {
-  const { dir, phase, kill } = opts
+  const { dir, phase, kill, maySettle } = opts
   const attempts = new Map<string, number>()
   return (profile) => {
     const name = (profile.name ?? 'leaf') as WorkerNode
@@ -162,6 +168,15 @@ export function instrumentedLeafSeam(opts: LeafSeamOptions): MakeWorkerAgent {
         kill(`worker:${name}:mid`)
         await delay(25)
         kill(`worker:${name}:after`)
+        if (maySettle) {
+          const deadline = Date.now() + 60_000
+          while (!maySettle(name)) {
+            if (Date.now() > deadline) {
+              throw new Error(`leaf ${name}: the planner never read the earlier settles`)
+            }
+            await delay(5)
+          }
+        }
         artifact = {
           outRef: `conf:${name}:${attempt}`,
           out: { node: name, built: true },
@@ -454,6 +469,16 @@ export class ConductorPlanner {
     return { content: 'done', toolCalls: [] }
   }
 
+  /** A node may settle once this planner has read its spawn and every earlier node's settle. */
+  maySettle(node: WorkerNode): boolean {
+    const index = this.nodes.findIndex((state) => state.node === node)
+    return (
+      index >= 0 &&
+      this.nodes[index]!.status !== 'pending' &&
+      this.nodes.slice(0, index).every((state) => state.status === 'done')
+    )
+  }
+
   report(): PlannerReport {
     return {
       escalations: this.escalations,
@@ -510,7 +535,12 @@ export async function runGraphPhase(dir: string, phase: string, killAt?: string)
     wake: { heartbeatMs: 1_000 },
     perWorker: { maxIterations: 60, maxTokens: 500_000 },
     brain,
-    makeLeafAgent: instrumentedLeafSeam({ dir, phase, kill }),
+    makeLeafAgent: instrumentedLeafSeam({
+      dir,
+      phase,
+      kill,
+      maySettle: (node) => planner.maySettle(node),
+    }),
     extraTools: [sideEffectToolSpec()],
     executeExtraTool: async (name, args) => {
       if (name !== SIDE_EFFECT_TOOL_NAME) return null
