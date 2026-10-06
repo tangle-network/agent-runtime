@@ -905,9 +905,7 @@ export {
   type InboxMessage,
   type PeerInboxMessage,
 } from './supervise/inbox'
-export {
-  type WorkerInteractiveAdmission,
-} from './supervise/interactive-admission'
+export type { WorkerInteractiveAdmission } from './supervise/interactive-admission'
 /** Provider-backed native interactive workers. Runtime owns admission and control identity; the
  * provider owns the environment and process. */
 export {

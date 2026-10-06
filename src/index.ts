@@ -55,7 +55,12 @@ export {
   runPersonaDispatch,
   type TurnOrder,
 } from './conversation'
-export { type D1DatabaseLike, type D1StmtLike, d1ToSqlAdapter, type SqlAdapter } from './durable/sql-adapter'
+export {
+  type D1DatabaseLike,
+  type D1StmtLike,
+  d1ToSqlAdapter,
+  type SqlAdapter,
+} from './durable/sql-adapter'
 // ── Errors ───────────────────────────────────────────────────────────
 export {
   AgentEvalError,
