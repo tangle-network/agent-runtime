@@ -28,6 +28,7 @@
 
 import { ValidationError } from '../errors'
 import type { LoopTraceEmitter } from '../runtime/types'
+import { fnv1a32Hex } from '../runtime/util'
 import {
   DelegationPersistenceError,
   type DelegationStore,
@@ -811,13 +812,7 @@ export function hashIdempotencyInput(value: unknown): string {
   } catch {
     str = String(value)
   }
-  // FNV-1a 32-bit
-  let h = 0x811c9dc5
-  for (let i = 0; i < str.length; i += 1) {
-    h ^= str.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
-  }
-  return (h >>> 0).toString(16).padStart(8, '0')
+  return fnv1a32Hex(str)
 }
 
 function canonicalize(value: unknown): unknown {

@@ -38,6 +38,7 @@ import { dirname, join } from 'node:path'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { assertBoxlessPromptOptions } from './prompt-options'
 import type { SandboxClient } from './types'
+import { isAsyncIterable } from './util'
 
 /** Context handed to each `onPrompt` call. */
 export interface InProcessPromptCtx {
@@ -86,10 +87,6 @@ export interface InProcessSandboxClientOptions {
    * tags, so set it when a demo's output reads on a meaningful sandbox id.
    */
   id?: string | ((seq: number) => string)
-}
-
-function isAsyncIterable(v: unknown): v is AsyncIterable<SandboxEvent> {
-  return typeof v === 'object' && v !== null && Symbol.asyncIterator in v
 }
 
 /**
@@ -174,7 +171,7 @@ export function inProcessSandboxClient(options: InProcessSandboxClientOptions): 
         }
         round += 1
         const produced = await behavior(prompt, ctx)
-        if (isAsyncIterable(produced)) {
+        if (isAsyncIterable<SandboxEvent>(produced)) {
           for await (const ev of produced) yield ev
         } else {
           for (const ev of produced) yield ev

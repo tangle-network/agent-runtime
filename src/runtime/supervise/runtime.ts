@@ -76,6 +76,7 @@ import type {
 import {
   addTokenUsage,
   cloneTokenUsage,
+  isAsyncIterable,
   promptCacheTokenClasses,
   roundBoxMinutes,
   unmeteredSpend,
@@ -1988,14 +1989,6 @@ function bridgeOutputText(out: unknown): string {
   } catch {
     return String(out)
   }
-}
-
-function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
-  )
 }
 
 // ── cli-worktree executor (authored profile → harness CLI on a git worktree) ────

@@ -27,6 +27,7 @@ import {
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
 import { applyAgentCandidateWorkspacePlan } from '@tangle-network/agent-profile-materialize'
+import { errorMessage } from '../runtime/util'
 import {
   readMaterializedWorkspaceFiles,
   readVerifiedArtifact,
@@ -1079,8 +1080,4 @@ function exactProfileExecutorFiles(
 
 function profileFileIdentity(root: 'agent' | 'workspace' | undefined, relPath: string): string {
   return `${root ?? 'workspace'}\0${relPath}`
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

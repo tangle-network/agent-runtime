@@ -3,6 +3,7 @@ import { readRootStreamReceipt } from '../runtime/supervise/root-stream'
 import { supervisorRunDir } from '../runtime/supervise/run-layout'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
+import { errorMessage } from '../runtime/util'
 import { composeRuntimeHooks, type RuntimeHookEvent, withPursuitContext } from '../runtime-hooks'
 import { createFileObserverHooks } from './observer-journal'
 import { type PursuitProjection, projectPursuit } from './observer-projection'
@@ -301,10 +302,6 @@ function rootEvent(
     timestamp,
     ...(payload ? { payload: Object.freeze({ ...payload }) } : {}),
   })
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function errorName(error: unknown): string {

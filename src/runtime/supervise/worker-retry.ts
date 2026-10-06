@@ -35,7 +35,7 @@
 
 import { ValidationError } from '../../errors'
 import type { MakeWorkerAgent } from '../../mcp/tools/coordination'
-import { sleep } from '../util'
+import { isAsyncIterable, sleep } from '../util'
 import { teardownSurfaces } from './deadline'
 import { inheritRuntimeOwnedExecutorAttestation } from './materialization'
 import type {
@@ -270,7 +270,7 @@ export function retryPreSpawnRefusals<Out>(
     execute(task, signal) {
       const first = inner.execute(task, signal)
       const restart = () => inner.execute(task, signal)
-      return isAsyncIterable(first)
+      return isAsyncIterable<UsageEvent>(first)
         ? retryStream(first, restart, signal)
         : retryOneShot(first, restart, signal)
     },
@@ -300,7 +300,7 @@ export function retryPreSpawnRefusals<Out>(
         report(error, attempt, waitMs)
         await sleep(waitMs, signal)
         const next = restart()
-        if (!isAsyncIterable(next)) {
+        if (!isAsyncIterable<UsageEvent>(next)) {
           // An executor keeps one execution shape for the life of one spawn. A re-entry that
           // changed shape would silently drop the event stream the conserved pool folds, so it is
           // named here rather than absorbed.
@@ -331,7 +331,7 @@ export function retryPreSpawnRefusals<Out>(
         report(error, attempt, waitMs)
         await sleep(waitMs, signal)
         const next = restart()
-        if (isAsyncIterable(next)) {
+        if (isAsyncIterable<UsageEvent>(next)) {
           throw new ValidationError(
             'retryPreSpawnRefusals: executor changed execution shape between attempts',
           )
@@ -353,14 +353,6 @@ function interactiveOf<Out>(inner: Executor<Out>): WorkerInteractiveSession {
     )
   }
   return inner.interactive()
-}
-
-function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    typeof (value as AsyncIterable<UsageEvent>)[Symbol.asyncIterator] === 'function'
-  )
 }
 
 /** The wait stays REF'd: a worker waiting out a saturated executor is live work, and an unref'd

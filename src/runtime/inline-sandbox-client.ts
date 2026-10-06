@@ -18,10 +18,7 @@ import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangl
 import { assertBoxlessPromptOptions } from './prompt-options'
 import type { AgentSpec, Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
 import type { SandboxClient } from './types'
-
-function isAsyncIterable(v: unknown): v is AsyncIterable<unknown> {
-  return typeof v === 'object' && v !== null && Symbol.asyncIterator in v
-}
+import { isAsyncIterable } from './util'
 
 /** Drive a (possibly streaming) executor to its terminal artifact. */
 async function settle(
@@ -30,7 +27,7 @@ async function settle(
   signal: AbortSignal,
 ): Promise<ExecutorResult<unknown>> {
   const r = exec.execute(task, signal)
-  if (isAsyncIterable(r)) {
+  if (isAsyncIterable<unknown>(r)) {
     for await (const _ of r) {
       // streaming executors meter as they run; the artifact is read after drain.
     }

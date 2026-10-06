@@ -5,7 +5,7 @@ import { request as httpsRequest } from 'node:https'
 import { Readable } from 'node:stream'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { BackendTransportError, ValidationError } from '../../errors'
-import { sleep } from '../util'
+import { errorMessage, sleep } from '../util'
 import { runAbortable } from './abortable'
 import {
   type BridgeSeam,
@@ -869,10 +869,6 @@ export async function cancelBridgeRunToTerminal(
     if (deadline !== undefined && Date.now() >= deadline) return false
     await new Promise<void>((resolve) => setTimeout(resolve, 10))
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /** Read only the Router-owned one-sided field from an error body. */
