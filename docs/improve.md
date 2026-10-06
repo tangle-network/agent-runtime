@@ -224,6 +224,27 @@ const result = await improve(baseProfile, {
 })
 ```
 
+The proposer is a `SurfaceProposer`.
+For a profile's text surfaces (a system prompt, instructions, a skill, or named text components), use Runtime's `reflectiveProfileProposer`:
+
+```ts
+import { reflectiveProfileProposer } from '@tangle-network/agent-runtime'
+
+const proposer = reflectiveProfileProposer({
+  model: 'deepseek/deepseek-v4.1-flash',
+  chat: ({ messages, maxOutputTokens, callId, signal }) => callRouter(messages, maxOutputTokens, callId, signal),
+  pricing: { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2 },
+  frame: 'You improve the system prompt of an analyst agent scored against published answers.',
+  evidence: ({ surface, trainCells }) => trainArtifactsBesideTruth(surface, trainCells),
+})
+```
+
+Each proposal is one call under `optimizerMethod`: the model reads the parents the policy chose, their train cells, your `evidence` for each parent, and the search's train summary, and returns one complete replacement surface with a label and a hypothesis.
+`evidence` is your train-only view of the parent's artifacts, such as each train task's expected answer beside the parent's answer; it must never read selection or test data.
+`chat` makes the call with your client; forward `callId` as the provider's idempotency key and return the reply text and the billed tokens, or `usage: null` when the provider reported none.
+Runtime runs it as a paid call on the proposal's cost ledger with a declared maximum (every prompt byte as a token plus `maxOutputTokens`, at `pricing`), so a failed call counts at that bound.
+A reply without a usable surface proposes nothing.
+
 The defaults are Eval's `aide()` policy and `asha()` allocator.
 `aide()` drafts 5 alternatives from the baseline, then debugs a node whose cells fail as defects or improves a parent drawn by Thompson sampling over each node's posterior.
 A lineage whose improvements stop raising its best posterior mean forks from the best node.

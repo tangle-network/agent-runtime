@@ -117,6 +117,13 @@ export {
 } from './raw-trace-distiller'
 export { type ReflectiveGeneratorOptions, reflectiveGenerator } from './reflective-generator'
 export {
+  type ReflectiveProfileProposerOptions,
+  type ReflectiveProposerChat,
+  type ReflectiveProposerParent,
+  type ReflectiveProposerReply,
+  reflectiveProfileProposer,
+} from './reflective-profile-proposer'
+export {
   applyRolloutPolicyToProfile,
   normalizeRolloutPolicy,
   parseRolloutPolicy,
