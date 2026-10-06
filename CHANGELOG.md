@@ -1,3 +1,7 @@
+## 0.303.1
+
+Test-only: the publish verify passes on loaded self-hosted runners. A timed-out exact-process case finalizes its evidence within a 2 s task timeout instead of 100 ms, and the SQL run-context cases are formatted. No runtime behavior changes.
+
 ## 0.303.0
 
 A `supervisePursuit` version chain stops before proposing when its last `stop.identicalFailures` versions (default 3) ended `driver-failed` with the same normalized error or were unscored by the judge, and `versions.identicalFailures` names the failure. The rule is part of the chain's process revision, so a chain opened under an earlier release is a different search and is refused on resume.
