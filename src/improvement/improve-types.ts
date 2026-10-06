@@ -1,4 +1,9 @@
-import type { MaximumCharge, ProposalFinding, RunRecord } from '@tangle-network/agent-eval'
+import type {
+  MaximumCharge,
+  PairedPromotionDecision,
+  ProposalFinding,
+  RunRecord,
+} from '@tangle-network/agent-eval'
 import type {
   CampaignCellResult,
   CampaignScenarioIdentity,
@@ -24,7 +29,7 @@ import type {
   SelfImproveOptions,
   SelfImproveProposerResult,
 } from '@tangle-network/agent-eval/contract'
-import type { EvaluationClaim } from '@tangle-network/agent-eval/experiment'
+import type { EvaluationClaim, SealedExperiment } from '@tangle-network/agent-eval/experiment'
 import type {
   AgentImprovementSurface,
   AgentProfile,
@@ -363,9 +368,35 @@ export type ImprovementCandidate = ImprovementProfileCandidate | ImprovementCode
 
 /** Normalized spend reported for one Runtime improvement run. */
 export interface ImproveCost {
+  /** Dollars every settled call reported or priced. */
   totalCostUsd: number
+  /** Every call's cost and usage is known. */
   accountingComplete: boolean
   incompleteReasons: string[]
+  /**
+   * A search's accounting when it is incomplete only because some calls' cost is
+   * unknown under a maximum each declared before it ran, such as a call that
+   * failed with no receipt. Each counts at that maximum, so the work cost at
+   * most `totalMaximumUsd`. Absent when the accounting is complete or has any
+   * other gap.
+   */
+  costBound?: {
+    unknownCalls: number
+    unknownMaximumUsd: number
+    totalMaximumUsd: number
+  }
+}
+
+/**
+ * A search's claim as a `SuperviseRegistry.profiles` promotion: list it beside the
+ * shipped profile, `{ profile: result.candidate.profile, promotion }`. The sealed
+ * experiment names the root as control and every finalist the claim tested as a
+ * treatment, by exact profile digest; the decision is Eval's paired decision the
+ * claim made for the shipped finalist.
+ */
+export interface SearchPromotion {
+  readonly experiment: SealedExperiment
+  readonly decision: PairedPromotionDecision
 }
 
 /** Redacted task evidence retained for every optimizer-visible partition. */
@@ -448,7 +479,8 @@ export interface ImproveSearchResult extends ImproveResultBase<ImprovementProfil
   method: string
   lineage: ImproveMethodLineage
   /** `ship` only when the claim shipped, its verification re-derived it, the
-   * cost accounting is complete, and the test lower bound exceeds `minimumLift`. */
+   * cost accounting is complete or bounded within `costCeiling` (see
+   * `ImproveCost.costBound`), and the test lower bound exceeds `minimumLift`. */
   decision: 'ship' | 'hold'
   /** Why: the claim's reason, or the Runtime rule that held a statistical ship. */
   reason: string
@@ -461,6 +493,8 @@ export interface ImproveSearchResult extends ImproveResultBase<ImprovementProfil
   liftInterval?: { low: number; high: number }
   /** The search ledger, closed and verified from its bytes. */
   searchHistory: SearchHistoryReceipt
+  /** Present exactly when `decision` is `ship`. */
+  promotion?: SearchPromotion
 }
 
 export interface ImproveCodeResult<TScenario extends Scenario, TArtifact>

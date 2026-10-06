@@ -14,8 +14,9 @@
  * one without running anything.
  *
  * The claim is made once, on the sealed test split, by the kernel. Runtime
- * ships only a claim that shipped, re-derives from the ledger, has complete
- * cost accounting, and clears `minimumLift` with its test lower bound.
+ * ships only a claim that shipped, re-derives from the ledger, has complete or
+ * bounded cost accounting, and clears `minimumLift` with its test lower bound
+ * (`search-decision.ts`).
  */
 
 import type { ProposalFinding } from '@tangle-network/agent-eval'
@@ -40,7 +41,6 @@ import {
   type SearchArtifactCodec,
   type SearchArtifactRef,
   type SearchCellResult,
-  type SearchClaim,
   type SearchExecutionIdentity,
   type SearchPolicy,
   type SearchProposerPort,
@@ -71,7 +71,6 @@ import {
 import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
 import { privateValuePaths } from './candidate-validation'
-import { copyImproveCost } from './improve-result'
 import type {
   ImprovementProfileCandidate,
   ImproveSearchMethod,
@@ -79,6 +78,7 @@ import type {
   ImproveSearchResult,
 } from './improve-types'
 import { type PreparedProfileImprovement, prepareProfileImprovement } from './profile-improvement'
+import { decideClosedSearch, improveSearchCost } from './search-decision'
 import {
   assertSearchLanes,
   isSearchEnvironmentFault,
@@ -181,7 +181,9 @@ export function isImproveSearchMethod(value: unknown): value is ImproveSearchMet
 
 /**
  * The rules `runSearchImprovement` adds to the kernel's. Its digest is the
- * process revision every searchMethod ledger records.
+ * process revision every searchMethod ledger records. The ship rule is not here:
+ * it decides a closed ledger and writes nothing to it, so a changed ship rule
+ * re-decides the same search instead of starting another.
  */
 const SEARCH_METHOD_DEFINITION = {
   name: 'agent-runtime.search-method.2026-09',
@@ -194,7 +196,6 @@ const SEARCH_METHOD_DEFINITION = {
     'a hard lane refuses a paid call that declares no priced maximum or would take the cell past its cellUsd; an environment fault settles errored and retryable; a subscription seat reports no tokens and charges no dollars',
   proposer:
     'a SurfaceProposer reads the parents, the train view and the train summary; paid calls it makes are its operation accounting',
-  ship: 'the claim shipped, re-derives from the ledger, cost accounting is complete, and the shipped finalist test lower bound exceeds minimumLift',
 } as const
 
 const SEARCH_METHOD_SOURCE: SearchSourceRef = {
@@ -595,31 +596,29 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
     value: kept.surface,
     profile: kept.profile,
   })
-  const cost = copyImproveCost(costLedger.summary())
-  const shipped = claimResult.finalists.find(
-    (finalist) => finalist.nodeId === claimResult.selected && finalist.test !== null,
-  )
-  const { decision, reason } = runtimeShipDecision({
+  const cost = improveSearchCost(costLedger)
+  const decided = await decideClosedSearch({
+    state,
     claim: claimResult,
-    verified: result.claimVerification.status === 'verified',
-    accountingComplete: cost.accountingComplete,
-    lowerBound: shipped?.test?.interval[0] ?? null,
+    claimVerification: result.claimVerification,
+    cost,
+    costCeiling,
     minimumLift: prepared.minimumLift,
+    profileOf(nodeId) {
+      const node = state.node(nodeId)
+      const loaded = node ? codec.load(recorder, node) : null
+      if (!loaded?.profile)
+        throw new Error(`improve(): search ${searchId} node ${nodeId} holds no profile`)
+      return loaded.profile
+    },
   })
   return {
     mode: 'search',
     method: method.name,
     candidate,
-    decision,
-    reason,
+    ...decided,
     claim: claimResult,
     claimVerification: result.claimVerification,
-    ...(shipped?.test
-      ? {
-          lift: shipped.test.delta,
-          liftInterval: { low: shipped.test.interval[0], high: shipped.test.interval[1] },
-        }
-      : {}),
     searchHistory: recorder.receipt({ producerId: method.name, runId: searchId }),
     cost,
     durationMs: Date.now() - startedAt,
@@ -634,39 +633,6 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
     }),
     async dispose() {},
   }
-}
-
-/** Runtime's ship rule over the kernel's statistical claim (design §6.5 step 5), shared by
- * `searchMethod` and `runStrategyEvolution`. */
-export function runtimeShipDecision(input: {
-  claim: SearchClaim
-  verified: boolean
-  accountingComplete: boolean
-  lowerBound: number | null
-  minimumLift: number
-}): { decision: 'ship' | 'hold'; reason: string } {
-  const { claim } = input
-  if (claim.decision !== 'ship') return { decision: 'hold', reason: claim.reason }
-  if (!input.verified) {
-    return {
-      decision: 'hold',
-      reason:
-        'the claim shipped, but it does not re-derive from the ledger under this rule revision',
-    }
-  }
-  if (!input.accountingComplete) {
-    return {
-      decision: 'hold',
-      reason: 'the claim shipped, but the search cost accounting is incomplete',
-    }
-  }
-  if (input.lowerBound === null || !(input.lowerBound > input.minimumLift)) {
-    return {
-      decision: 'hold',
-      reason: `the claim shipped, but its test lower bound ${input.lowerBound} does not exceed minimumLift ${input.minimumLift}`,
-    }
-  }
-  return { decision: 'ship', reason: claim.reason }
 }
 
 /** Profiles as search artifacts: nodes by profile digest, edges by profile diffs. */

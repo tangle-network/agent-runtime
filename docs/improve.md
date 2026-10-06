@@ -148,6 +148,7 @@ const optimizer = {
 
 `costCeiling` is the total limit for optimizer calls, candidate runs, judges, and final scoring.
 Runtime returns `hold` when any part of that cost is unknown.
+A native search is the exception for calls whose cost is unknown under a maximum they declared before running (see [Native search](#native-search)).
 Runtime rejects a reported total above the limit.
 
 ## Official optimizers
@@ -259,13 +260,32 @@ A refused candidate stays in the ledger as an invalid node.
 
 The claim is made once, on the sealed test split, by the kernel.
 It runs the power check, tests at most 3 finalists against the root at Bonferroni confidence, and records the result as `result.claim`.
-`result.decision` is `ship` only when the claim shipped, the claim re-derives from the ledger, cost accounting is complete, and the shipped finalist's test lower bound exceeds `minimumLift`.
+`result.decision` is `ship` only when the claim shipped, the claim re-derives from the ledger, the cost accounting is complete or bounded within `costCeiling`, and the shipped finalist's test lower bound exceeds `minimumLift`.
 Otherwise `result.reason` says which rule held it.
 `result.candidate` is the claim's selection, or the baseline when nothing shipped.
 `result.searchHistory` is the closed ledger.
 
+A call that ends with no receipt, such as a request that failed in transit, leaves its cost unknown.
+When every such call declared a priced maximum before it ran, `result.cost.costBound` counts each at that maximum: `unknownCalls`, `unknownMaximumUsd`, and `totalMaximumUsd`, the most the search can have cost.
+The search ships when that total fits `costCeiling`, and `result.reason` states the bound.
+A call of unknown cost with no declared maximum, unknown usage on a priced call, or a call above its own maximum still holds the search.
+
+When the search ships, `result.promotion` is `{ experiment, decision }`, ready for a [profiles table](canonical-api.md) entry beside the shipped profile:
+
+```ts
+const entry: SuperviseProfileEntry = { profile: result.candidate.profile, promotion: result.promotion! }
+```
+
+The sealed experiment names the root as control and every finalist the claim tested as a treatment, each by its exact profile digest; the claim fixed those arms before any test cell ran.
+Its seal is dated by the search's close, so one ledger always yields one promotion.
+The decision is Eval's `searchClaimDecision`: the paired decision the claim made for the shipped finalist, made again from the ledger.
+An entry needs `profile.name` equal to its table name, and the shipped profile carries the baseline's name, so list it under that name rather than renaming it: a renamed profile has another digest, which no arm names.
+
 The ledger is the only checkpoint.
-Call `improve()` again with the same inputs to continue an interrupted search; a closed search returns without running anything.
+Call `improve()` again with the same inputs to continue an interrupted search; a closed search returns without running anything, decided under the current ship rule.
+`decideSearchImprovement({ searchDir })` decides a closed search from its directory alone, with no model call: pass the `minimumLift` it ran with, and `costLedger` when `improve()` was given one.
+It returns the decision, the reason, the cost, the promotion, and the baseline and kept profiles.
+The ship rule is not part of a search's identity, so a search an earlier rule held is decided again rather than run again.
 
 ### Lanes
 
