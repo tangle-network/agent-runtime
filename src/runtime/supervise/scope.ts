@@ -2929,6 +2929,25 @@ async function publishOwnerMaterialization(
     state.publishedThisProcess = true
     return
   }
+  if (state.receipt !== undefined && state.receipt.status !== 'known') {
+    // The committed receipt is `unknown`: an attempt ended before its agent reported, and
+    // finalization recorded that (finalizeOwnerMaterialization). It attests no backend, model, plan
+    // or execution identity, so a report that arrives later cannot have changed one. Refusing it
+    // as "changed mid-run: status" killed owners that had already done their work: a retained
+    // owner whose pending executor publishes at result time loses the race to the scope's
+    // finalization, and an owner whose first attempt failed before reporting dies on the attempt
+    // that succeeds. Measured on Discovery 2026-10-01..05: 20 such refusals, classified terminal,
+    // after 5 to 96 minutes of each node's work. The committed record stays `unknown`; an attempt
+    // not yet bound binds its transport to it, and an attempt finalization already bound keeps
+    // that binding, because the journal holds one binding per attempt.
+    if (!state.bindingPublished) {
+      const boundToCommitted = knownExecutionBindingReceipt(state.receipt, bindingInput)
+      await appendOwnerBinding(state, boundToCommitted)
+      state.onReceipt?.(state.receipt, boundToCommitted)
+    }
+    state.publishedThisProcess = true
+    return
+  }
   if (state.receipt !== undefined) {
     // A root driver may be re-entered inside one process after a transient executor failure
     // (`runDriverWithRetry`, #741). That attempt publishes the SAME materialization with a NEW

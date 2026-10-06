@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
 import { createBudgetPool } from './budget'
 import { createExecutorRegistry } from './runtime'
-import { beginScopeOwnerAttempt, createScope, recordScopeOwnerMaterialization } from './scope'
+import {
+  beginScopeOwnerAttempt,
+  createScope,
+  finalizeScopeOwnerMaterialization,
+  recordScopeOwnerMaterialization,
+} from './scope'
 import type { ExecutorMaterialization, SpawnEvent } from './types'
 
 /**
@@ -148,6 +153,43 @@ describe('scope owner materialization across driver attempts', () => {
     // this test pins. Both moved fields appear, in the receipt's own vocabulary.
     expect(message).toContain('backend')
     expect(message).toContain('materializationPlanDigest')
+  })
+
+  // An `unknown` receipt records only that an attempt ended before its agent reported. Measured
+  // 2026-10-01..05 on Discovery: 20 owners were killed as "changed mid-run; differ: status" after 5
+  // to 96 minutes of work, when their report arrived after that record (wait-cost-smoke-20261005b-wake
+  // on Runtime 0.301.0: unknown committed at 23:12:10, the owner's report refused at 23:14:00).
+  it('accepts a report on a later attempt after an earlier attempt was finalized unknown', async () => {
+    const { scope, journal } = await scopeUnderTest()
+    await finalizeScopeOwnerMaterialization(scope)
+    const second = beginScopeOwnerAttempt(scope, 2)
+    await publish(scope, second as string, declaration('sandbox-second'))
+
+    const materialized = await kinds(journal, 'materialized')
+    expect(materialized).toHaveLength(1)
+    expect(
+      materialized[0]?.kind === 'materialized' ? materialized[0].receipt.status : undefined,
+    ).toBe('unknown')
+    const bindings = await kinds(journal, 'execution-bound')
+    expect(
+      bindings.map((event) =>
+        event.kind === 'execution-bound'
+          ? [event.binding.attemptId, event.binding.status]
+          : undefined,
+      ),
+    ).toEqual([
+      ['root:attempt:1', 'unknown'],
+      [second, 'known'],
+    ])
+  })
+
+  it('accepts a report that arrives after its own attempt was finalized unknown, writing nothing', async () => {
+    const { scope, journal } = await scopeUnderTest()
+    await finalizeScopeOwnerMaterialization(scope)
+    await publish(scope, 'root:attempt:1', declaration('sandbox-first'))
+
+    expect(await kinds(journal, 'materialized')).toHaveLength(1)
+    expect(await kinds(journal, 'execution-bound')).toHaveLength(1)
   })
 
   it('appends only a binding when the same attempt republishes the same environment', async () => {
