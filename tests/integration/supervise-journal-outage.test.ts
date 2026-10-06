@@ -32,7 +32,9 @@ describe.skipIf(process.platform !== 'linux')(
             RUNTIME_KERNEL_MODULE: new URL('../../src/runtime/index.ts', import.meta.url).href,
             RUNTIME_DURABLE_MODULE: new URL('../../src/durable/index.ts', import.meta.url).href,
           },
-          timeout: 30_000,
+          // The consumer compiles the Runtime source through tsx before it starts; on a loaded
+          // runner that alone has taken longer than 30 s.
+          timeout: 120_000,
         })
         const receipt = JSON.parse(await readFile(join(directory, 'receipt.json'), 'utf8'))
         expect(receipt).toMatchObject({
@@ -48,7 +50,7 @@ describe.skipIf(process.platform !== 'linux')(
           committedPrefixPreserved: true,
         })
       },
-      35_000,
+      150_000,
     )
   },
 )
