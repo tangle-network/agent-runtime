@@ -3891,7 +3891,7 @@ Trusted immutable source refs this manager may read using its granted observe_ag
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-18)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-16)
 
 ##### onStop?
 

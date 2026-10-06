@@ -65,7 +65,7 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-18)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-16)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -538,7 +538,7 @@ The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT â€” need
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`analysts`](runtime.md#analysts-1)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`analysts`](runtime.md#analysts)
 
 ##### registry?
 
@@ -800,7 +800,7 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 ###### budget
 
-[`Budget`](runtime.md#budget-18)
+[`Budget`](runtime.md#budget-16)
 
 ###### label
 
@@ -845,7 +845,7 @@ The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`router`](runtime.md#router-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`router`](runtime.md#router-4)
 
 ##### profileGuidance?
 
@@ -1123,7 +1123,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-18)
+> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-16)
 
 The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
  of the part of the pool children may reserve (the pool less any owner share). A nested
@@ -1147,7 +1147,7 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 ##### workerSlots?
 
-> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-7)
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-6)
 
 Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
@@ -1157,7 +1157,7 @@ Bound on concurrently WORKING agents across the whole recursive tree: a number, 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`workerSlots`](runtime.md#workerslots-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`workerSlots`](runtime.md#workerslots-4)
 
 ##### watchWorkers?
 
@@ -1441,13 +1441,13 @@ Whole-run persistence and ownership. SQL contexts are acquired before replay and
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](runtime.md#budget-18)
+> `readonly` **budget**: [`Budget`](runtime.md#budget-16)
 
 The conserved compute pool for the whole run.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-16)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-14)
 
 ##### rootHandle?
 
@@ -1692,7 +1692,7 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 ###### budget
 
-[`Budget`](runtime.md#budget-18)
+[`Budget`](runtime.md#budget-16)
 
 ###### label
 
@@ -1759,7 +1759,7 @@ The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`router`](runtime.md#router-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`router`](runtime.md#router-4)
 
 ##### rootDriverFromBackend?
 
@@ -2122,7 +2122,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-18)
+> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-16)
 
 The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
  of the part of the pool children may reserve (the pool less any owner share). A nested
@@ -2146,7 +2146,7 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 ##### workerSlots?
 
-> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-7)
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-6)
 
 Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
@@ -2156,7 +2156,7 @@ Bound on concurrently WORKING agents across the whole recursive tree: a number, 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`workerSlots`](runtime.md#workerslots-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`workerSlots`](runtime.md#workerslots-4)
 
 ##### analysts?
 
@@ -2168,7 +2168,7 @@ Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset â†
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`analysts`](runtime.md#analysts-3)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`analysts`](runtime.md#analysts-2)
 
 ##### analyzeOnSettle?
 
@@ -2545,7 +2545,7 @@ Product authorization for every down-leg continuation to a child.
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-18)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-16)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -2643,7 +2643,7 @@ Router substrate for a router-brained supervisor (`harness` omitted or `cli-base
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`router`](runtime.md#router-6)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`router`](runtime.md#router-5)
 
 ##### driveHarness?
 
@@ -2831,7 +2831,7 @@ Analyst lenses available to the driver (both arms). Required for `analyzeOnSettl
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`analysts`](runtime.md#analysts-4)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`analysts`](runtime.md#analysts-3)
 
 ##### escalateQuestion?
 

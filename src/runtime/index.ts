@@ -1385,19 +1385,11 @@ export {
   type WorktreeFanoutOptions,
   worktreeFanout,
 } from './supervise/worktree-fanout'
-// `supervise()` specialized for a graded `AgenticSurface` task: workers each `runAgentic` over the surface
-// (refine by default), settle on the surface's own check, and feed the driver a self-improvement lens (the
-// failing tests, by default) so the next spawn targets them. One capability over `supervise` + `runAgentic`.
 export {
   type AnalystAuthoring,
   analystsFromRegistry,
   failuresAnalyst,
-  type SuperviseSurfaceOptions,
-  type SuperviseSurfaceResult,
-  type SurfaceWorkerConfig,
-  type SurfaceWorkerOut,
-  superviseSurface,
-} from './supervise-surface'
+} from './supervise-analysts'
 export {
   type BoxSurfaceReaderOptions,
   boxSurfaceReader,

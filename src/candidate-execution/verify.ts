@@ -151,19 +151,6 @@ export async function verifiedArtifactBytes(
   return bytes
 }
 
-export function verifiedResourceBytes(
-  candidate: VerifiedAgentCandidate,
-  resource: AgentCandidateResourceRef,
-): Uint8Array {
-  const bytes = getVerifiedCandidateState(candidate).resourceBytes.get(resourceKey(resource))
-  if (!bytes) {
-    throw new Error(
-      `candidate resource was not verified: ${resource.name ?? (resource.kind === 'github' ? resource.path : '<unnamed>')}`,
-    )
-  }
-  return Uint8Array.from(bytes)
-}
-
 export function verifiedResourceTextByDigest(
   candidate: VerifiedAgentCandidate,
 ): ReadonlyMap<Sha256Digest, string> {

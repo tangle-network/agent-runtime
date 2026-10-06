@@ -2,7 +2,7 @@ import { type AnalystContext, CostLedger } from '@tangle-network/agent-eval'
 import { AnalystRegistry } from '@tangle-network/agent-eval/analyst'
 import { describe, expect, it } from 'vitest'
 import { shotLoop } from '../../examples/graphs/shot-loop'
-import { analystsFromRegistry } from '../../src/runtime/supervise-surface'
+import { analystsFromRegistry } from '../../src/runtime/supervise-analysts'
 import { runBrainLoop } from '../../src/runtime/tool-loop'
 import { runGraphWithTestBrain } from '../../src/testing'
 

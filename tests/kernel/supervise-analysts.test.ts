@@ -11,77 +11,28 @@ import {
 import { describe, expect, it } from 'vitest'
 import type { AnalystRegistryLike } from '../../src/analyst-loop/types'
 import type { AuthoredAnalystDefinition } from '../../src/mcp/tools/coordination'
-import type { AgenticSurface, AgenticTask } from '../../src/runtime/strategy'
-import {
-  analystsFromRegistry,
-  failuresAnalyst,
-  traceSurfaceCalls,
-} from '../../src/runtime/supervise-surface'
+import { analystsFromRegistry, failuresAnalyst } from '../../src/runtime/supervise-analysts'
 
-const task: AgenticTask = {
-  id: 'surface-trace-test',
-  systemPrompt: 'Fix every failing test.',
-  userPrompt: 'Make the suite pass.',
-}
-
-function fakeSurface(): AgenticSurface {
-  let testRuns = 0
-  return {
-    name: 'trace-test',
-    open: async () => ({ id: 'artifact-1', surface: 'trace-test' }),
-    tools: async () => [],
-    async call(_handle, name) {
-      if (name === 'run_tests') {
-        testRuns += 1
-        return testRuns === 1
-          ? '2/5 tests passed. FAILING: stale_failure'
-          : '3/5 tests passed. FAILING: test_alpha, test_beta'
-      }
-      if (name === 'explode') throw new Error('tool exploded')
-      return 'Worker prose claims FAILING: fabricated_from_prose'
-    },
-    score: async () => ({ passes: 3, total: 5, errored: 0 }),
-    close: async () => undefined,
-  }
-}
-
-describe('superviseSurface trace evidence', () => {
-  it('records real surface-call success/error spans and derives exact failures from run_tests only', async () => {
-    const traced = traceSurfaceCalls(fakeSurface())
-    const handle = await traced.surface.open(task)
-
-    await traced.surface.call(handle, 'read_file', { path: 'tests.ts' })
-    await traced.surface.call(handle, 'run_tests', {})
-    await traced.surface.call(handle, 'run_tests', {})
-    await expect(traced.surface.call(handle, 'explode', { reason: 'test' })).rejects.toThrow(
-      'tool exploded',
-    )
-
-    const spans = await traced.traceSource.collect()
-    expect(
-      spans.map((span) => ({
-        toolName: span.toolName,
-        status: span.status,
-        result: span.result,
-      })),
-    ).toEqual([
-      {
-        toolName: 'read_file',
-        status: 'ok',
-        result: 'Worker prose claims FAILING: fabricated_from_prose',
-      },
-      {
-        toolName: 'run_tests',
-        status: 'ok',
-        result: '2/5 tests passed. FAILING: stale_failure',
-      },
-      {
-        toolName: 'run_tests',
-        status: 'ok',
-        result: '3/5 tests passed. FAILING: test_alpha, test_beta',
-      },
-      { toolName: 'explode', status: 'error', result: 'ERROR: tool exploded' },
-    ])
+describe('failuresAnalyst reads structured test evidence', () => {
+  it('reads the latest run_tests span and ignores prose and failed calls', async () => {
+    const span = (id: string, toolName: string, result: string, status: 'ok' | 'error' = 'ok') => ({
+      spanId: id,
+      runId: 'surface-worker',
+      kind: 'tool' as const,
+      name: toolName,
+      toolName,
+      args: {},
+      result,
+      status,
+      startedAt: Number(id.slice(-1)),
+      endedAt: Number(id.slice(-1)) + 1,
+    })
+    const spans = [
+      span('s1', 'read_file', 'Worker prose claims FAILING: fabricated_from_prose'),
+      span('s2', 'run_tests', '2/5 tests passed. FAILING: stale_failure'),
+      span('s3', 'run_tests', '3/5 tests passed. FAILING: test_alpha, test_beta'),
+      span('s4', 'explode', 'ERROR: tool exploded', 'error'),
+    ]
 
     const result = (await failuresAnalyst().run(
       'failures',
