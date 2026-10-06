@@ -2,7 +2,12 @@ import { mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CostLedger } from '@tangle-network/agent-eval'
-import type { SearchClaim, SurfaceProposer } from '@tangle-network/agent-eval/campaign'
+import {
+  incumbent,
+  type SearchClaim,
+  type SurfaceProposer,
+  uniform,
+} from '@tangle-network/agent-eval/campaign'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import { type EvaluationClaim, verifySealedExperiment } from '@tangle-network/agent-eval/experiment'
 import {
@@ -104,12 +109,16 @@ async function runSearch(runDir: string, failOnce: readonly string[], costCeilin
     method: searchMethod({
       proposer,
       maxExpansions: 1,
-      lanes: [routerLane({ capacity: 4, cellUsd: CALL_USD })],
+      // The hill climb runs the child on every train and selection task, so it can be a finalist.
+      policy: incumbent(),
+      allocation: uniform(),
+      lanes: [routerLane({ capacity: 8, cellUsd: CALL_USD })],
     }),
     claim,
-    trainScenarios: tasks('train', 2),
-    selectionScenarios: tasks('selection', 8),
-    testScenarios: tasks('test', 24),
+    trainScenarios: tasks('train', 1),
+    selectionScenarios: tasks('selection', 6),
+    // A continuous paired test needs 20 units to resolve.
+    testScenarios: tasks('test', 20),
     judges: [judge],
     agent,
     costCeiling,
@@ -127,7 +136,7 @@ describe('a search whose calls failed with no receipt', () => {
     const runDir = mkdtempSync(join(tmpdir(), 'search-decision-'))
     const result = await runSearch(runDir, ['selection-1', 'test-3', 'test-7'], 1)
 
-    expect(result.claim.decision).toBe('ship')
+    expect(result.claim.decision, result.claim.reason).toBe('ship')
     expect(result.cost.accountingComplete).toBe(false)
     expect(result.cost.costBound).toEqual({
       unknownCalls: 3,
@@ -139,7 +148,7 @@ describe('a search whose calls failed with no receipt', () => {
 
     // The promotion is what SuperviseRegistry.profiles accepts beside the shipped profile.
     const promotion = result.promotion!
-    const digest = canonicalAgentProfileDigest(result.candidate.profile)
+    const digest = canonicalAgentProfileDigest(result.candidate.profile as AgentProfile)
     expect(await verifySealedExperiment(promotion.experiment)).toBe(true)
     expect(promotion.decision.promote).toBe(true)
     expect(
@@ -170,7 +179,7 @@ describe('a search whose calls failed with no receipt', () => {
     expect(rerun.decision).toBe('ship')
     expect(rerun.promotion).toEqual(promotion)
     expect(readFileSync(costLedger, 'utf8')).toBe(before)
-  }, 60_000)
+  }, 240_000)
 })
 
 describe('runtimeShipDecision', () => {
