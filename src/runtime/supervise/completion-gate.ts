@@ -21,6 +21,7 @@
  * @experimental
  */
 
+import { isAsyncIterable } from '../util'
 import { type CheckVerdict, checkVerdictOf } from './continuation'
 import { teardownSurfaces } from './deadline'
 import { inheritRuntimeOwnedExecutorAttestation } from './materialization'
@@ -113,7 +114,7 @@ export function gateOnDeliverable<Out>(
       : {}),
     execute(task, signal) {
       const r = inner.execute(task, signal)
-      if (isAsyncIterable(r)) {
+      if (isAsyncIterable<UsageEvent>(r)) {
         // Streaming: pass the usage events through (the conserved-pool fold consumes them),
         // then gate the verdict from the settled artifact.
         return (async function* () {
@@ -212,7 +213,7 @@ export function mapExecutorResult<In, Out>(
       : {}),
     execute(task, signal) {
       const execution = inner.execute(task, signal)
-      if (isAsyncIterable(execution)) {
+      if (isAsyncIterable<UsageEvent>(execution)) {
         return (async function* () {
           for await (const event of execution) yield event
           await settle(inner.resultArtifact(), task)
@@ -228,11 +229,4 @@ export function mapExecutorResult<In, Out>(
     },
   }
   return inheritRuntimeOwnedExecutorAttestation(inner, wrapped)
-}
-
-function isAsyncIterable(v: unknown): v is AsyncIterable<UsageEvent> {
-  return (
-    v != null &&
-    typeof (v as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
-  )
 }

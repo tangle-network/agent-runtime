@@ -504,3 +504,27 @@ export async function mapWithConcurrency<T, R>(
   }
   return results
 }
+
+/** The message of a thrown value: an `Error`'s own message, anything else stringified. */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** True for an object whose `Symbol.asyncIterator` is callable, so `for await` can consume it. */
+export function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
+  )
+}
+
+/** 32-bit FNV-1a over a string's UTF-16 code units, as eight lowercase hex digits. */
+export function fnv1a32Hex(text: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0).toString(16).padStart(8, '0')
+}

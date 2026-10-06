@@ -197,6 +197,13 @@ export {
   reflectiveGenerator,
 } from './improvement/reflective-generator'
 export {
+  type ReflectiveProfileProposerOptions,
+  type ReflectiveProposerChat,
+  type ReflectiveProposerParent,
+  type ReflectiveProposerReply,
+  reflectiveProfileProposer,
+} from './improvement/reflective-profile-proposer'
+export {
   applyRolloutPolicyToProfile,
   normalizeRolloutPolicy,
   parseRolloutPolicy,

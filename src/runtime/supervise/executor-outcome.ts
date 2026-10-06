@@ -1,5 +1,6 @@
 import { AgentTurnResultSchema } from '@tangle-network/agent-interface'
 import { z } from 'zod'
+import { fnv1a32Hex } from '../util'
 import type { ExecutorResult } from './types'
 
 const outcomeSchema = AgentTurnResultSchema.pick({ success: true, error: true })
@@ -109,10 +110,5 @@ export function contentRef(prefix: string, value: unknown): string {
   } catch {
     str = String(value)
   }
-  let h = 0x811c9dc5
-  for (let i = 0; i < str.length; i += 1) {
-    h ^= str.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
-  }
-  return `${prefix}:${(h >>> 0).toString(16).padStart(8, '0')}`
+  return `${prefix}:${fnv1a32Hex(str)}`
 }

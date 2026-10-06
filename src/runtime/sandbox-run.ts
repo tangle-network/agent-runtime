@@ -41,7 +41,7 @@ import { probeSandboxCapabilities } from './sandbox-capabilities'
 import { notifySandboxEventObserver } from './sandbox-events'
 import { createSandboxLineage, type SandboxLineageHandle } from './sandbox-lineage'
 import type { AgentRunSpec, SandboxClient } from './types'
-import { isAbortError, randomSuffix } from './util'
+import { errorMessage, isAbortError, randomSuffix } from './util'
 
 /**
  * How a typed deliverable `Out` is materialized from a finished turn.
@@ -460,8 +460,4 @@ function hashText(value: string): string {
     hash = Math.imul(hash, 16777619)
   }
   return (hash >>> 0).toString(16).padStart(8, '0')
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

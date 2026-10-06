@@ -70,6 +70,11 @@ function inheritedStdioEnv(source: NodeJS.ProcessEnv = process.env): Record<stri
   return env
 }
 
+/** How long a stdin write failure waits for the server's exit, which reports its stderr. A
+ * dying server closes within milliseconds; a live server that dropped its stdin is failed after
+ * it, well inside any handshake timeout. */
+const STDIN_FAILURE_GRACE_MS = 250
+
 export interface StdioMcpServerSpec {
   /** Command that starts the MCP server (stdio transport). */
   command: string
@@ -158,12 +163,19 @@ export async function connectStdioMcp(spec: StdioMcpServerSpec): Promise<StdioMc
   })
   // Pipe failures normally arrive asynchronously, OUTSIDE send()'s try/catch —
   // a server that closes stdin mid-handshake (EPIPE) must fail the pending
-  // request immediately with the same wording as a synchronous write failure,
-  // not wait out the handshake timeout.
+  // request with the same wording as a synchronous write failure, not wait out
+  // the handshake timeout. EPIPE usually means the server exited, and it can
+  // arrive before the server's stderr is read: the 'close' handler below then
+  // fails the request with the complete stderr. Only a server that stays alive
+  // with its stdin closed is failed here, after that grace.
   child.stdin.on('error', (err) => {
-    failAllPending(
-      new Error(redactReason(`writing to MCP server stdin failed: ${err.message}${stderrTail()}`)),
-    )
+    const fail = () =>
+      failAllPending(
+        new Error(
+          redactReason(`writing to MCP server stdin failed: ${err.message}${stderrTail()}`),
+        ),
+      )
+    setTimeout(fail, STDIN_FAILURE_GRACE_MS).unref()
   })
   // 'close' (not 'exit'): it fires after stdio flushes, so the stderr tail in
   // the failure message is complete. After our own SIGKILL in close(), pending

@@ -30,6 +30,7 @@ import {
   createExecutor,
   type ExecutorConfig,
 } from './supervise/runtime'
+import { errorMessage } from './util'
 
 /** Profile-exact adapter for packages that consume agent-eval's ChatClient contract.
  * Every call still enters Runtime through createExecutor -> streamAgentTurn, and every
@@ -556,8 +557,4 @@ function optimizerTokenCount(value: unknown, label: string): number | undefined 
     throw new Error(`profile optimizer ${label} must be a non-negative integer`)
   }
   return value as number
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

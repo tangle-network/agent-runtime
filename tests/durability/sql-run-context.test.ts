@@ -8,11 +8,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { contentAddress } from '../../src/durable/content-address'
 import { createFencedSqlRunContext } from '../../src/runtime/supervise/sql-run-context'
 import { EXPECTED_OUT, RUN_ID, WORKER_NODES } from '../helpers/durability/conformance-graph'
-import { openSql } from '../helpers/durability/sql-adapter'
+import { openSql, TEST_LEASE } from '../helpers/durability/sql-adapter'
 
 const roots: string[] = []
 const children = new Set<ChildProcess>()
-const leaseOptions = { leaseMs: 400, heartbeatMs: 60 }
+const leaseOptions = TEST_LEASE
 const childFile = fileURLToPath(
   new URL('../helpers/durability/sql-run-context-child.ts', import.meta.url),
 )

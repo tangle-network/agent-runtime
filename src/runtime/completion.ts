@@ -24,6 +24,7 @@
  */
 
 import type { Iteration } from './types'
+import { fnv1a32Hex } from './util'
 
 /** Trace-derived evidence for a completion claim — an artifact (output) or a verifier metric,
  *  never the judge's own verdict. Mirrors the steer-firewall's provenance discipline. */
@@ -73,12 +74,7 @@ export function completionAuthorizes(v: CompletionVerdict, policy?: CompletionPo
  * emit it VERBATIM when it judges itself done. Unguessable enough that content never trips it.
  */
 export function stopSentinel(seed: string): string {
-  let h = 0x811c9dc5
-  for (let i = 0; i < seed.length; i += 1) {
-    h ^= seed.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
-  }
-  return `<<<{{STOP:${(h >>> 0).toString(16).padStart(8, '0')}}}>>>`
+  return `<<<{{STOP:${fnv1a32Hex(seed)}}}>>>`
 }
 
 /**
