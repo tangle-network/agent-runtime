@@ -2,8 +2,11 @@
 
 > This is a dated audit record, not the current package manifest.
 > Check `package.json` and the generated API docs for the release in your checkout.
-> The retained recovery and authenticated MCP implementation now supersedes findings 1 and 3 below.
-> See [reliability.md](./reliability.md) for current support and limits.
+> Findings 1, 3, 4, 10, 11 and 12 are closed: supervised trees resume from their journal, the coordination MCP authenticates,
+> the coordination side-log is durable, the fenced SQL context is the multi-process owner, `ConversationJournal` was deleted,
+> and `tests/durability/` kills real processes. Finding 5 is narrowed to `SpawnJournal` plus delegation status.
+> Finding 2 (delegation idempotency is process-local) and finding 7 for delegation cancellation remain open.
+> See [durability.md](../durability.md) for the current owner map and [reliability.md](./reliability.md) for limits.
 > The original observations remain unchanged as historical evidence.
 
 ## Tested Baseline

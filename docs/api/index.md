@@ -8,429 +8,6 @@
 
 ## Classes
 
-### SqlConversationJournal
-
-SQL-backed ConversationJournal. Two tables — runs (one row per runId, holds
-start/halt timestamps + halt reason) and turns (one row per committed turn,
-payload is the ConversationTurn JSON). Replays the turns table on
-`loadRun` and writes append-only per `appendTurn`.
-
-#### Implements
-
-- [`ConversationJournal`](#conversationjournal)
-
-#### Constructors
-
-##### Constructor
-
-> **new SqlConversationJournal**(`db`, `table?`): [`SqlConversationJournal`](#sqlconversationjournal)
-
-###### Parameters
-
-###### db
-
-[`SqlAdapter`](#sqladapter)
-
-SQL adapter (D1, postgres, sqlite, libSQL — all work)
-
-###### table?
-
-`string` = `'agent_runtime_journal'`
-
-Table-name prefix; the journal creates `${table}_runs` and
-             `${table}_turns`. Lets multiple journals share a database
-             without colliding (e.g. one per product surface).
-
-###### Returns
-
-[`SqlConversationJournal`](#sqlconversationjournal)
-
-#### Methods
-
-##### migrate()
-
-> **migrate**(): `Promise`\<`void`\>
-
-Create the journal's tables if absent. Idempotent. Call once at deploy
-(or at app boot) — running on every request is harmless but adds latency.
-
-###### Returns
-
-`Promise`\<`void`\>
-
-##### loadRun()
-
-> **loadRun**(`runId`): `Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
-
-Load any prior state for `runId`. Returns `undefined` for a fresh run.
-Implementations MUST NOT mutate the returned object — the runner clones
-before continuing — but the runtime treats absence and emptiness
-identically, so a journal with zero turns is equivalent to "fresh."
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### Returns
-
-`Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
-
-###### Implementation of
-
-[`ConversationJournal`](#conversationjournal).[`loadRun`](#loadrun-1)
-
-##### beginRun()
-
-> **beginRun**(`runId`, `startedAt`): `Promise`\<`void`\>
-
-Initialise journal state for a fresh run. Called once per run, before any
-`appendTurn`. Idempotent: calling with an existing runId is a no-op if
-the entry already exists with the same `startedAt`.
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### startedAt
-
-`string`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`ConversationJournal`](#conversationjournal).[`beginRun`](#beginrun-1)
-
-##### appendTurn()
-
-> **appendTurn**(`runId`, `turn`): `Promise`\<`void`\>
-
-Append a committed turn. The runner only calls this AFTER the turn's
-backend stream completed and the credit total has been updated, so an
-appended turn is observed-committed and never speculative.
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### turn
-
-[`ConversationTurn`](#conversationturn)
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`ConversationJournal`](#conversationjournal).[`appendTurn`](#appendturn-1)
-
-##### recordHalt()
-
-> **recordHalt**(`runId`, `halt`, `endedAt`): `Promise`\<`void`\>
-
-Record the run's terminal halt reason + end time. Once called, the run
-is observed-final; subsequent `loadRun` returns the same halt.
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### halt
-
-[`HaltReason`](#haltreason)
-
-###### endedAt
-
-`string`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`ConversationJournal`](#conversationjournal).[`recordHalt`](#recordhalt-1)
-
-***
-
-### InMemoryConversationJournal
-
-In-memory `ConversationJournal` — suitable for testing and single-process runs.
-
-#### Implements
-
-- [`ConversationJournal`](#conversationjournal)
-
-#### Constructors
-
-##### Constructor
-
-> **new InMemoryConversationJournal**(): [`InMemoryConversationJournal`](#inmemoryconversationjournal)
-
-###### Returns
-
-[`InMemoryConversationJournal`](#inmemoryconversationjournal)
-
-#### Methods
-
-##### loadRun()
-
-> **loadRun**(`runId`): `Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
-
-Load any prior state for `runId`. Returns `undefined` for a fresh run.
-Implementations MUST NOT mutate the returned object — the runner clones
-before continuing — but the runtime treats absence and emptiness
-identically, so a journal with zero turns is equivalent to "fresh."
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### Returns
-
-`Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
-
-###### Implementation of
-
-[`ConversationJournal`](#conversationjournal).[`loadRun`](#loadrun-1)
-
-##### beginRun()
-
-> **beginRun**(`runId`, `startedAt`): `Promise`\<`void`\>
-
-Initialise journal state for a fresh run. Called once per run, before any
-`appendTurn`. Idempotent: calling with an existing runId is a no-op if
-the entry already exists with the same `startedAt`.
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### startedAt
-
-`string`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`ConversationJournal`](#conversationjournal).[`beginRun`](#beginrun-1)
-
-##### appendTurn()
-
-> **appendTurn**(`runId`, `turn`): `Promise`\<`void`\>
-
-Append a committed turn. The runner only calls this AFTER the turn's
-backend stream completed and the credit total has been updated, so an
-appended turn is observed-committed and never speculative.
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### turn
-
-[`ConversationTurn`](#conversationturn)
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`ConversationJournal`](#conversationjournal).[`appendTurn`](#appendturn-1)
-
-##### recordHalt()
-
-> **recordHalt**(`runId`, `halt`, `endedAt`): `Promise`\<`void`\>
-
-Record the run's terminal halt reason + end time. Once called, the run
-is observed-final; subsequent `loadRun` returns the same halt.
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### halt
-
-[`HaltReason`](#haltreason)
-
-###### endedAt
-
-`string`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`ConversationJournal`](#conversationjournal).[`recordHalt`](#recordhalt-1)
-
-***
-
-### FileConversationJournal
-
-JSONL on disk. One line per record; first line is the `begin`, subsequent
-lines are `turn` records, terminal line is `halt`. Replays the whole file
-on `loadRun` — cheap for the conversation sizes this is designed for
-(thousands of turns, not millions). For huge runs, plug in a real DB
-adapter; the interface is small.
-
-Reads and appends over the shared append-only spine (`durable/jsonl-file`): each
-`appendTurn` / `recordHalt` finishes a short write and calls `fsync`, so a process
-crash between writes never loses an acknowledged turn, and a crash DURING one leaves
-an uncommitted final line that the next read skips and the next append truncates.
-
-#### Implements
-
-- [`ConversationJournal`](#conversationjournal)
-
-#### Constructors
-
-##### Constructor
-
-> **new FileConversationJournal**(`path`): [`FileConversationJournal`](#fileconversationjournal)
-
-###### Parameters
-
-###### path
-
-`string`
-
-###### Returns
-
-[`FileConversationJournal`](#fileconversationjournal)
-
-#### Methods
-
-##### loadRun()
-
-> **loadRun**(`runId`): `Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
-
-Load any prior state for `runId`. Returns `undefined` for a fresh run.
-Implementations MUST NOT mutate the returned object — the runner clones
-before continuing — but the runtime treats absence and emptiness
-identically, so a journal with zero turns is equivalent to "fresh."
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### Returns
-
-`Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
-
-###### Implementation of
-
-[`ConversationJournal`](#conversationjournal).[`loadRun`](#loadrun-1)
-
-##### beginRun()
-
-> **beginRun**(`runId`, `startedAt`): `Promise`\<`void`\>
-
-Initialise journal state for a fresh run. Called once per run, before any
-`appendTurn`. Idempotent: calling with an existing runId is a no-op if
-the entry already exists with the same `startedAt`.
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### startedAt
-
-`string`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`ConversationJournal`](#conversationjournal).[`beginRun`](#beginrun-1)
-
-##### appendTurn()
-
-> **appendTurn**(`runId`, `turn`): `Promise`\<`void`\>
-
-Append a committed turn. The runner only calls this AFTER the turn's
-backend stream completed and the credit total has been updated, so an
-appended turn is observed-committed and never speculative.
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### turn
-
-[`ConversationTurn`](#conversationturn)
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`ConversationJournal`](#conversationjournal).[`appendTurn`](#appendturn-1)
-
-##### recordHalt()
-
-> **recordHalt**(`runId`, `halt`, `endedAt`): `Promise`\<`void`\>
-
-Record the run's terminal halt reason + end time. Once called, the run
-is observed-final; subsequent `loadRun` returns the same halt.
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### halt
-
-[`HaltReason`](#haltreason)
-
-###### endedAt
-
-`string`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`ConversationJournal`](#conversationjournal).[`recordHalt`](#recordhalt-1)
-
-***
-
 ### BackendTransportError
 
 **`Stable`**
@@ -1148,252 +725,6 @@ Circuit breaker that opens after N consecutive failures per participant.
 
 ***
 
-### SqlAdapter
-
-Minimal SQL driver shape. Implementations forward to whichever client the
-deployment already uses; agent-runtime takes no opinion on which.
-
-Parameter placeholders MUST be `?` (positional). All adapters listed in the
-file header accept this convention.
-
-#### Methods
-
-##### exec()
-
-> **exec**(`sql`, `params?`): `Promise`\<\{ `rowsAffected`: `number`; \}\>
-
-Execute a write statement (INSERT/UPDATE/DELETE/DDL).
-
-###### Parameters
-
-###### sql
-
-`string`
-
-###### params?
-
-readonly `unknown`[]
-
-###### Returns
-
-`Promise`\<\{ `rowsAffected`: `number`; \}\>
-
-##### query()
-
-> **query**\<`TRow`\>(`sql`, `params?`): `Promise`\<`TRow`[]\>
-
-Execute a read statement (SELECT). Returns rows as plain objects.
-
-###### Type Parameters
-
-###### TRow
-
-`TRow` = `Record`\<`string`, `unknown`\>
-
-###### Parameters
-
-###### sql
-
-`string`
-
-###### params?
-
-readonly `unknown`[]
-
-###### Returns
-
-`Promise`\<`TRow`[]\>
-
-***
-
-### D1DatabaseLike
-
-Structural type matching the surface of `D1Database` we depend on, so the
-SDK never imports `@cloudflare/workers-types`. Consumers pass their real
-`D1Database` from `env.DB` and TS structural compatibility lines it up.
-
-#### Methods
-
-##### prepare()
-
-> **prepare**(`sql`): [`D1StmtLike`](#d1stmtlike)
-
-###### Parameters
-
-###### sql
-
-`string`
-
-###### Returns
-
-[`D1StmtLike`](#d1stmtlike)
-
-***
-
-### D1StmtLike
-
-#### Methods
-
-##### bind()
-
-> **bind**(...`params`): [`D1StmtLike`](#d1stmtlike)
-
-###### Parameters
-
-###### params
-
-...`unknown`[]
-
-###### Returns
-
-[`D1StmtLike`](#d1stmtlike)
-
-##### run()
-
-> **run**(): `Promise`\<`unknown`\>
-
-###### Returns
-
-`Promise`\<`unknown`\>
-
-##### all()
-
-> **all**\<`TRow`\>(): `Promise`\<\{ `results?`: `TRow`[]; \}\>
-
-###### Type Parameters
-
-###### TRow
-
-`TRow` = `unknown`
-
-###### Returns
-
-`Promise`\<\{ `results?`: `TRow`[]; \}\>
-
-***
-
-### ConversationJournalEntry
-
-#### Properties
-
-##### runId
-
-> **runId**: `string`
-
-##### startedAt
-
-> **startedAt**: `string`
-
-##### halted?
-
-> `optional` **halted?**: [`HaltReason`](#haltreason)
-
-Set when the run reaches a terminal state.
-
-##### endedAt?
-
-> `optional` **endedAt?**: `string`
-
-##### turns
-
-> **turns**: [`ConversationTurn`](#conversationturn)[]
-
-***
-
-### ConversationJournal
-
-#### Methods
-
-##### loadRun()
-
-> **loadRun**(`runId`): `Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
-
-Load any prior state for `runId`. Returns `undefined` for a fresh run.
-Implementations MUST NOT mutate the returned object — the runner clones
-before continuing — but the runtime treats absence and emptiness
-identically, so a journal with zero turns is equivalent to "fresh."
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### Returns
-
-`Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
-
-##### beginRun()
-
-> **beginRun**(`runId`, `startedAt`): `Promise`\<`void`\>
-
-Initialise journal state for a fresh run. Called once per run, before any
-`appendTurn`. Idempotent: calling with an existing runId is a no-op if
-the entry already exists with the same `startedAt`.
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### startedAt
-
-`string`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-##### appendTurn()
-
-> **appendTurn**(`runId`, `turn`): `Promise`\<`void`\>
-
-Append a committed turn. The runner only calls this AFTER the turn's
-backend stream completed and the credit total has been updated, so an
-appended turn is observed-committed and never speculative.
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### turn
-
-[`ConversationTurn`](#conversationturn)
-
-###### Returns
-
-`Promise`\<`void`\>
-
-##### recordHalt()
-
-> **recordHalt**(`runId`, `halt`, `endedAt`): `Promise`\<`void`\>
-
-Record the run's terminal halt reason + end time. Once called, the run
-is observed-final; subsequent `loadRun` returns the same halt.
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### halt
-
-[`HaltReason`](#haltreason)
-
-###### endedAt
-
-`string`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-***
-
 ### RunPersonaConversationOptions
 
 #### Properties
@@ -1921,10 +1252,10 @@ First message kicking off the conversation. Routes to the first speaker.
 
 > `optional` **runId?**: `string`
 
-Optional run identifier for cross-participant trace correlation. Auto-
-generated when omitted. Reusing a runId against the same `journal`
-resumes the prior run — the runner replays the persisted transcript and
-continues from the first un-recorded turn.
+Optional run identifier for cross-participant trace correlation and
+deterministic turn ids. Auto-generated when omitted. A conversation is
+in-process: durable multi-turn work belongs to Agent App's turn store or
+to `supervise` with a run context.
 
 ##### signal?
 
@@ -1951,22 +1282,12 @@ without waiting for the conversation to finish.
 
 `void` \| `Promise`\<`void`\>
 
-##### journal?
-
-> `optional` **journal?**: [`ConversationJournal`](#conversationjournal)
-
-Optional durable transcript. When set, the runner persists every
-committed turn before yielding `turn_end`. Reusing the same `runId`
-against the same journal resumes from the last committed turn — so a
-driver process crash mid-run loses zero acknowledged turns.
-
 ##### sessionStore?
 
 > `optional` **sessionStore?**: [`RuntimeSessionStore`](#runtimesessionstore)
 
 Stores each participant's backend session. The runner keeps an in-memory
-store for one invocation when omitted. Reuse a durable store with the same
-`runId` and journal after a process restart. Backends implementing `resume`
+store for one invocation when omitted. Backends implementing `resume`
 continue their provider session; other backends receive the full transcript.
 
 ##### propagatedHeaders?
@@ -2034,6 +1355,130 @@ so trace stitching survives nested orchestration.
 ##### endedAt
 
 > **endedAt**: `string`
+
+***
+
+### SqlAdapter
+
+Minimal SQL driver shape. Implementations forward to whichever client the
+deployment already uses; agent-runtime takes no opinion on which.
+
+Parameter placeholders MUST be `?` (positional). All adapters listed in the
+file header accept this convention.
+
+#### Methods
+
+##### exec()
+
+> **exec**(`sql`, `params?`): `Promise`\<\{ `rowsAffected`: `number`; \}\>
+
+Execute a write statement (INSERT/UPDATE/DELETE/DDL).
+
+###### Parameters
+
+###### sql
+
+`string`
+
+###### params?
+
+readonly `unknown`[]
+
+###### Returns
+
+`Promise`\<\{ `rowsAffected`: `number`; \}\>
+
+##### query()
+
+> **query**\<`TRow`\>(`sql`, `params?`): `Promise`\<`TRow`[]\>
+
+Execute a read statement (SELECT). Returns rows as plain objects.
+
+###### Type Parameters
+
+###### TRow
+
+`TRow` = `Record`\<`string`, `unknown`\>
+
+###### Parameters
+
+###### sql
+
+`string`
+
+###### params?
+
+readonly `unknown`[]
+
+###### Returns
+
+`Promise`\<`TRow`[]\>
+
+***
+
+### D1DatabaseLike
+
+Structural type matching the surface of `D1Database` we depend on, so the
+SDK never imports `@cloudflare/workers-types`. Consumers pass their real
+`D1Database` from `env.DB` and TS structural compatibility lines it up.
+
+#### Methods
+
+##### prepare()
+
+> **prepare**(`sql`): [`D1StmtLike`](#d1stmtlike)
+
+###### Parameters
+
+###### sql
+
+`string`
+
+###### Returns
+
+[`D1StmtLike`](#d1stmtlike)
+
+***
+
+### D1StmtLike
+
+#### Methods
+
+##### bind()
+
+> **bind**(...`params`): [`D1StmtLike`](#d1stmtlike)
+
+###### Parameters
+
+###### params
+
+...`unknown`[]
+
+###### Returns
+
+[`D1StmtLike`](#d1stmtlike)
+
+##### run()
+
+> **run**(): `Promise`\<`unknown`\>
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### all()
+
+> **all**\<`TRow`\>(): `Promise`\<\{ `results?`: `TRow`[]; \}\>
+
+###### Type Parameters
+
+###### TRow
+
+`TRow` = `unknown`
+
+###### Returns
+
+`Promise`\<\{ `results?`: `TRow`[]; \}\>
 
 ***
 
@@ -2900,7 +2345,7 @@ Upstream optimizer run when reported, otherwise this Runtime optimization invoca
 
 ###### Inherited from
 
-[`ImproveLineage`](#improvelineage).[`runId`](#runid-3)
+[`ImproveLineage`](#improvelineage).[`runId`](#runid-2)
 
 ##### developmentSplitDigest
 
@@ -7927,7 +7372,7 @@ A persona that drives the conversation: either a full driver `AgentProfile`
 
 ### ConversationStreamEvent
 
-> **ConversationStreamEvent** = \{ `type`: `"conversation_start"`; `runId`: `string`; `participants`: readonly `string`[]; `seed`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"conversation_resumed"`; `runId`: `string`; `participants`: readonly `string`[]; `transcript`: readonly [`ConversationTurn`](#conversationturn)[]; `timestamp`: `string`; \} \| \{ `type`: `"turn_start"`; `runId`: `string`; `index`: `number`; `speaker`: `string`; `turnId`: `string`; `attempt`: `number`; `timestamp`: `string`; \} \| \{ `type`: `"turn_text_delta"`; `runId`: `string`; `index`: `number`; `speaker`: `string`; `turnId`: `string`; `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"turn_retry"`; `runId`: `string`; `index`: `number`; `speaker`: `string`; `turnId`: `string`; `attempt`: `number`; `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"turn_end"`; `runId`: `string`; `turn`: [`ConversationTurn`](#conversationturn); `timestamp`: `string`; \} \| \{ `type`: `"conversation_end"`; `runId`: `string`; `result`: [`ConversationResult`](#conversationresult); `timestamp`: `string`; \}
+> **ConversationStreamEvent** = \{ `type`: `"conversation_start"`; `runId`: `string`; `participants`: readonly `string`[]; `seed`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"turn_start"`; `runId`: `string`; `index`: `number`; `speaker`: `string`; `turnId`: `string`; `attempt`: `number`; `timestamp`: `string`; \} \| \{ `type`: `"turn_text_delta"`; `runId`: `string`; `index`: `number`; `speaker`: `string`; `turnId`: `string`; `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"turn_retry"`; `runId`: `string`; `index`: `number`; `speaker`: `string`; `turnId`: `string`; `attempt`: `number`; `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"turn_end"`; `runId`: `string`; `turn`: [`ConversationTurn`](#conversationturn); `timestamp`: `string`; \} \| \{ `type`: `"conversation_end"`; `runId`: `string`; `result`: [`ConversationResult`](#conversationresult); `timestamp`: `string`; \}
 
 **`Stable`**
 
@@ -9641,26 +9086,6 @@ Validate and define a conversation before execution.
 
 ***
 
-### d1ToSqlAdapter()
-
-> **d1ToSqlAdapter**(`db`): [`SqlAdapter`](#sqladapter)
-
-Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1
-consumers don't have to write the wrapper themselves; the runtime never
-imports `@cloudflare/workers-types` directly (peer-style typing).
-
-#### Parameters
-
-##### db
-
-[`D1DatabaseLike`](#d1databaselike)
-
-#### Returns
-
-[`SqlAdapter`](#sqladapter)
-
-***
-
 ### runConversation()
 
 > **runConversation**(`conversation`, `options`): `Promise`\<[`ConversationResult`](#conversationresult)\>
@@ -9753,6 +9178,26 @@ axis is the persona, and the runner is the cell. Meters the worker through
 #### Returns
 
 `ProfileDispatchFn`\<`TScenario`, `TArtifact`\>
+
+***
+
+### d1ToSqlAdapter()
+
+> **d1ToSqlAdapter**(`db`): [`SqlAdapter`](#sqladapter)
+
+Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1
+consumers don't have to write the wrapper themselves; the runtime never
+imports `@cloudflare/workers-types` directly (peer-style typing).
+
+#### Parameters
+
+##### db
+
+[`D1DatabaseLike`](#d1databaselike)
+
+#### Returns
+
+[`SqlAdapter`](#sqladapter)
 
 ***
 

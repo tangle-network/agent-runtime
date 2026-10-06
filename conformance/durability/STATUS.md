@@ -9,14 +9,16 @@ Regenerate the evidence: `pnpm run conformance:durability`
 
 ## Verdict
 
+> **2026-10-06 (#1585):** the single-writer `SqlSpawnJournal` / `SqlResultBlobStore` pair and the
+> `ConversationJournal` family were deleted with zero org-wide consumers. Their matrices (the
+> incumbent SQL matrix and the two conversation matrices) were removed with them. Shared-SQL
+> durability is the fenced context row below; file durability is the `runDir` rows. The totals
+> further down are the historical synthesis-run counts. See [`docs/durability.md`](../../docs/durability.md).
+
 | Surface | Backend | Cases | Result |
 | --- | --- | --- | --- |
 | `runGraph` (driver + 3 delegate steps, keyed side-effect tool) | file run context (`FileSpawnJournal` + `FileResultBlobStore` + `FileCoordinationLog` via `runDir`) | 23 kill points (every driver-turn boundary, each worker's before/mid/after, the tool's before/after-effect) + reference | **PASS** — after the fix below; every case resumed to the same winner, no step lost, no committed step repeated, side effect exactly once, journal resume-contract clean |
 | `runGraph` with session-backed workers (re-attach arm, `recoverExecutor`) | file run context | 23 kill points (mid-session steps + driver boundaries + tool) + reference | **PASS** — interrupted sessions are RECOVERED and re-attached: every session step runs exactly once across processes, interrupted keys are never reminted, side effect exactly once |
-| `runGraph` | `SqlSpawnJournal` + `SqlResultBlobStore` over real sqlite (`node:sqlite`), `resume: true` | 23 kill points (every driver-turn boundary, worker before/mid/after, tool before/after-effect) + reference | **PASS** — the killed process resumes from the database alone: same winner, committed nodes never re-executed, one key per assignment, effect exactly once, journal resume-contract clean |
-| `runConversation` (6 turns, 2 participants, keyed per-turn effect) | `FileConversationJournal` | 18 kill points (turn start / backend-done-before-commit / turn-committed) + reference + halt-replay | **PASS** |
-| `runConversation` | `SqlConversationJournal` over real sqlite (`node:sqlite`) | same 18 + reference | **PASS** |
-| `runGraph` | `FileConversationJournal` / `SqlConversationJournal` | — | **N/A — capability gap**: `runGraph`'s durable layer is the `SpawnJournal` family; `ConversationJournal` is a different interface on a different subsystem. A graph run cannot take these backends. |
 | `runGraph` | `createFencedSqlRunContext` over real SQLite plus an independently retained provider | 26 kill boundaries, reference, SIGKILL takeover, SIGSTOP/SIGCONT fencing, and store invariants | **PASS** — SQL-only orchestration persistence, one live owner, same contender takes over, stale writes/releases rejected, original keys only, one physical create/dispatch per worker and one keyed effect |
 
 Totals from the synthesis run: **159/159 green, zero expected failures**. The inline matrix (24),
@@ -135,7 +137,6 @@ spawn journal.
 | `tests/durability/graph-rundir-journal.test.ts` | `runDir` actually journals to the file stores; no `runDir` writes nothing |
 | `tests/durability/graph-kill-resume.test.ts` | the 23-point SIGKILL matrix over `runGraph` (driver turns, worker before/mid/after, tool before/after-effect), including the interrupted-inline-key auto-retry assertions |
 | `tests/durability/session-reattach.test.ts` | the 23-point matrix over session-backed workers: mid-session kills recover, re-attach, and continue — every session step exactly once |
-| `tests/durability/conversation-kill-resume.test.ts` | the 18-point matrix × both conversation backends + halted-run replay |
 | `tests/durability/known-defects.test.ts` | the two autopsy signatures: both now guarded and green (08-11 journal cleanliness; 09-16 re-entry contract) |
 
 ## Inotify: instances-per-run, measured before and after consideration of a shared watcher

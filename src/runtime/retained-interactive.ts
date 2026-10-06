@@ -161,7 +161,13 @@ export async function startRetainedInteractiveRun(
   return createRetainedInteractiveRunHandle(environment, ref, capabilities, request)
 }
 
-/** Retry one exact start after its provider response may have been lost. @stable */
+/**
+ * Retry one exact start after its provider response may have been lost.
+ *
+ * Resolves to the handle of the admitted process (resumed through the exact,
+ * idempotent start request), or `null` when the provider no longer holds the
+ * environment (not found; nothing remains to stop). @stable
+ */
 export async function recoverRetainedInteractiveRun(
   options: RecoverRetainedInteractiveRunOptions,
 ): Promise<RetainedInteractiveRunHandle | null> {

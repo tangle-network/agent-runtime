@@ -107,7 +107,9 @@
         },
         {
           "file": "src/runtime/retained-run.test.ts",
-          "cases": ["keeps an environment after dispatch becomes uncertain, but cleans an unused one"]
+          "cases": [
+            "keeps an environment after dispatch becomes uncertain, but cleans an unused one"
+          ]
         }
       ]
     },
@@ -144,32 +146,12 @@
           ]
         },
         {
-          "file": "tests/durability/conversation-kill-resume.test.ts",
-          "cases": [
-            "reference run (file backend) completes with the expected transcript",
-            "reference run (sqlite backend) completes with the expected transcript",
-            "file journal: SIGKILL at turn:2:after-backend → resume completes, nothing lost or repeated",
-            "sqlite journal: SIGKILL at turn:4:committed → resume completes, nothing lost or repeated",
-            "a journal that already recorded a halt replays its final state instead of re-running"
-          ]
-        },
-        {
           "file": "tests/durability/session-reattach.test.ts",
           "cases": [
             "the reference run completes, running every session step exactly once",
             "SIGKILL at session:builder:step-2 → resume re-attaches the sessions, nothing lost or repeated",
             "SIGKILL at driver:turn:2:after → resume re-attaches the sessions, nothing lost or repeated",
             "SIGKILL at tool:commit:after-effect → resume re-attaches the sessions, nothing lost or repeated"
-          ]
-        },
-        {
-          "file": "tests/durability/sql-kill-resume.test.ts",
-          "cases": [
-            "the reference run completes with the expected outcome",
-            "SIGKILL at driver:turn:1:before → resume completes, loses nothing, repeats no committed step",
-            "SIGKILL at worker:builder:after → resume completes, loses nothing, repeats no committed step",
-            "SIGKILL at tool:commit:after-effect → resume completes, loses nothing, repeats no committed step",
-            "SIGKILL at driver:turn:6:after → resume completes, loses nothing, repeats no committed step"
           ]
         },
         {

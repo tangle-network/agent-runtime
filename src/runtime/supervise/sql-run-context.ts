@@ -1,5 +1,5 @@
-import type { SqlAdapter } from '../../conversation/journal-sql'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
+import type { SqlAdapter } from '../../durable/sql-adapter'
 import {
   openSqlRunStore,
   SqlRunOwnershipError,

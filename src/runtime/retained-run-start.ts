@@ -520,7 +520,7 @@ export async function recoverRetainedRun(
       onAdmission: options.onAdmission,
       now: options.now,
     })
-    return { outcome: 'recovered', handle }
+    return { outcome: 'recovered', via: 'resumed', handle }
   }
   assertStableText(options.environmentId, 'retained environment id')
   assertStableText(options.sessionId, 'retained session id')
@@ -560,6 +560,7 @@ export async function recoverRetainedRun(
   const exact = exactSession(environment, controlRef)
   return {
     outcome: 'recovered',
+    via: 'reattached',
     handle: createRetainedRunHandle(
       environment,
       exact.session,

@@ -30,8 +30,6 @@ export {
   type CircuitBreakerConfig,
   type Conversation,
   type ConversationDriveState,
-  type ConversationJournal,
-  type ConversationJournalEntry,
   type ConversationParticipant,
   type ConversationPolicy,
   type ConversationResult,
@@ -39,16 +37,11 @@ export {
   type ConversationTurn,
   createConversationBackend,
   createProfileExecutionBackend,
-  type D1DatabaseLike,
-  type D1StmtLike,
-  d1ToSqlAdapter,
   defineConversation,
-  FileConversationJournal,
   type HaltContext,
   type HaltPredicate,
   type HaltReason,
   type HaltSignal,
-  InMemoryConversationJournal,
   type PersonaConversationResult,
   type PersonaDriver,
   type RetryableErrorPredicate,
@@ -60,10 +53,14 @@ export {
   runConversationStream,
   runPersonaConversation,
   runPersonaDispatch,
-  type SqlAdapter,
-  SqlConversationJournal,
   type TurnOrder,
 } from './conversation'
+export {
+  type D1DatabaseLike,
+  type D1StmtLike,
+  d1ToSqlAdapter,
+  type SqlAdapter,
+} from './durable/sql-adapter'
 // ── Errors ───────────────────────────────────────────────────────────
 export {
   AgentEvalError,

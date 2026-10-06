@@ -2013,7 +2013,7 @@ export type SpawnEvent =
     }
 
 /**
- * The spawn-tree event source (mirrors `ConversationJournal`'s begin/append/load shape).
+ * The spawn-tree event source (begin/append/load).
  * `loadTree` returns events for inspection and completed-settlement replay, not live process
  * recovery; `appendEvent` runs only AFTER the event is observed-committed (never speculative).
  */

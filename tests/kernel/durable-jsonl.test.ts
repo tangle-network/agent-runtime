@@ -2,7 +2,6 @@ import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { FileConversationJournal } from '../../src/conversation/journal'
 import { writeAllBytes } from '../../src/durable/jsonl-file'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal'
 import type { CoordinationEvent } from '../../src/mcp/tools/coordination'
@@ -108,42 +107,6 @@ describe('durable append-only JSONL', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
-  it('recovers only an invalid unterminated final conversation record', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'conversation-jsonl-tail-'))
-    try {
-      const path = join(dir, 'conversation.jsonl')
-      const journal = new FileConversationJournal(path)
-      await journal.beginRun('run', '2026-08-21T00:00:00.000Z')
-      await journal.appendTurn('run', {
-        turnId: 'run:0:agent',
-        index: 0,
-        speaker: 'agent',
-        content: 'hello',
-      })
-      await appendFile(path, '{"kind":"turn","runId":"run"')
-
-      // The uncommitted tail is skipped, not fatal: a crash mid-append must not make every later
-      // read of an acknowledged transcript throw.
-      await expect(journal.loadRun('run')).resolves.toMatchObject({
-        runId: 'run',
-        turns: [{ turnId: 'run:0:agent' }],
-      })
-      await journal.appendTurn('run', {
-        turnId: 'run:1:user',
-        index: 1,
-        speaker: 'user',
-        content: 'again',
-      })
-      const resumed = await journal.loadRun('run')
-      expect(resumed?.turns.map((turn) => turn.turnId)).toEqual(['run:0:agent', 'run:1:user'])
-
-      await writeFile(path, '{bad}\n')
-      await expect(journal.loadRun('run')).rejects.toThrow(/malformed JSONL record at line 1/)
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
-  })
-
   it('recovers only an invalid unterminated final corpus record', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'corpus-jsonl-tail-'))
     try {

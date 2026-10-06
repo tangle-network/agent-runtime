@@ -3086,20 +3086,6 @@ Where and how a node's execution was placed, read off its execution-binding rece
 
 ***
 
-### PursuitObserverState
-
-> **PursuitObserverState** = `"running"` \| `"done"` \| `"failed"`
-
-The execution state Runtime reports. It never claims the pursuit's semantic success.
-
-***
-
-### PursuitObserverDeliveryOutcome
-
-> **PursuitObserverDeliveryOutcome** = \{ `succeeded`: `true`; `status`: `number`; \} \| \{ `succeeded`: `false`; `reason`: `string`; \}
-
-***
-
 ### NextPursuitVersion
 
 > **NextPursuitVersion** = (`input`, `signal`) => `AgentProfileDiff` \| `Promise`\<`AgentProfileDiff`\>
@@ -3151,23 +3137,6 @@ The 1-based drive attempt of the root that produced it: a driver retry or re-pro
 
 ## Variables
 
-### PURSUIT\_OBSERVER\_DELIVERY\_PATH
-
-> `const` **PURSUIT\_OBSERVER\_DELIVERY\_PATH**: `"/v1/ingest/pursuit-observer"` = `'/v1/ingest/pursuit-observer'`
-
-The Intelligence route that persists a delivered projection on its run spine.
-
-***
-
-### REVIEW\_DIR
-
-> `const` **REVIEW\_DIR**: `"inputs/review/"` = `'inputs/review/'`
-
-Where `'review-of-best'` mounts a review: `inputs/review/version-<n>.md`. One review lives in
- a profile at a time.
-
-***
-
 ### RUN\_FORK\_CORRELATION\_KEYS
 
 > `const` **RUN\_FORK\_CORRELATION\_KEYS**: readonly \[`"forkParentRunId"`, `"forkParentSettleDigest"`, `"forkProfileDiffId"`, `"lineageRootRunId"`\]
@@ -3175,38 +3144,6 @@ Where `'review-of-best'` mounts a review: `inputs/review/version-<n>.md`. One re
 The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that
 supplies one is refused. `lineageRootRunId` is the first run of the chain of parents, so the
 spend of every version of one lineage groups under one id.
-
-***
-
-### FORK\_PARENT\_UNCERTAIN\_NODES\_KEY
-
-> `const` **FORK\_PARENT\_UNCERTAIN\_NODES\_KEY**: `"forkParentUncertainNodes"` = `'forkParentUncertainNodes'`
-
-The correlation key an accepted uncertain parent adds: its uncertain node ids, comma-joined.
-
-***
-
-### RUN\_DIRECTORY\_LOCK\_FILE
-
-> `const` **RUN\_DIRECTORY\_LOCK\_FILE**: `"supervise.lock"` = `'supervise.lock'`
-
-The lock file `supervisePursuit` holds inside a run directory for the life of one call.
-
-***
-
-### SETTLE\_RECORD\_FILE
-
-> `const` **SETTLE\_RECORD\_FILE**: `"result.json"` = `'result.json'`
-
-The settle record: the returned `SupervisedResult` as canonical JSON, written once.
-
-***
-
-### FAILURE\_RECORD\_FILE
-
-> `const` **FAILURE\_RECORD\_FILE**: `"failure.json"` = `'failure.json'`
-
-The failure record: the most recent throw, replaced by a later throw.
 
 ***
 
@@ -3332,36 +3269,6 @@ Compute the canonical SHA-256 digest for an unsigned observer record.
 
 ***
 
-### createFileObserverHooks()
-
-> **createFileObserverHooks**(`path`, `pursuitId`): `object`
-
-Build the canonical durable observer hook in one call.
-
-#### Parameters
-
-##### path
-
-`string`
-
-##### pursuitId
-
-`string`
-
-#### Returns
-
-`object`
-
-##### journal
-
-> `readonly` **journal**: [`FileObserverJournal`](#fileobserverjournal)
-
-##### hooks
-
-> `readonly` **hooks**: [`RuntimeHooks`](index.md#runtimehooks)
-
-***
-
 ### projectPursuit()
 
 > **projectPursuit**(`records`): [`PursuitProjection`](#pursuitprojection)
@@ -3392,50 +3299,6 @@ readonly [`ObserverRecord`](#observerrecord)[]
 #### Returns
 
 [`PursuitProjection`](#pursuitprojection)
-
-***
-
-### deliverPursuitObserver()
-
-> **deliverPursuitObserver**(`delivery`, `state`, `projection`): `Promise`\<[`PursuitObserverDeliveryOutcome`](#pursuitobserverdeliveryoutcome)\>
-
-POST one projection. Never throws; the outcome says whether Intelligence accepted it.
-
-#### Parameters
-
-##### delivery
-
-[`PursuitObserverDelivery`](#pursuitobserverdelivery)
-
-##### state
-
-[`PursuitObserverState`](#pursuitobserverstate)
-
-##### projection
-
-[`PursuitProjection`](#pursuitprojection)
-
-#### Returns
-
-`Promise`\<[`PursuitObserverDeliveryOutcome`](#pursuitobserverdeliveryoutcome)\>
-
-***
-
-### pursuitVersionsLedgerPath()
-
-> **pursuitVersionsLedgerPath**(`runDir`): `string`
-
-The chain's directory beside the first version's: the ledger and its content blobs.
-
-#### Parameters
-
-##### runDir
-
-`string`
-
-#### Returns
-
-`string`
 
 ***
 
@@ -3536,26 +3399,6 @@ guard and refuses atomically.
 #### Returns
 
 `Promise`\<[`RunDirectoryHolderLiveness`](#rundirectoryholderliveness)\>
-
-***
-
-### settleRecordJson()
-
-> **settleRecordJson**(`result`): `string`
-
-The exact bytes `result.json` holds for a result: its JSON value serialized as RFC 8785
-canonical JSON. Throws `UnrecordableSettleValueError` before any byte is written when the
-result carries a value JSON would misstate.
-
-#### Parameters
-
-##### result
-
-`unknown`
-
-#### Returns
-
-`string`
 
 ***
 

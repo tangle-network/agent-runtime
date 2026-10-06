@@ -4,7 +4,7 @@
  * Multi-agent conversation primitive. `defineConversation` + `runConversation`
  * + `createConversationBackend` compose any reachable agent endpoints into a
  * driven dialogue with turn-order policy, halting policy, hard credit ceiling,
- * deterministic turn ids, optional durable journal, per-turn deadline +
+ * deterministic turn ids, per-turn deadline +
  * retry + circuit breaker, and cross-gateway header propagation.
  *
  * Backends are unchanged from `runAgentTaskStream`, so the same driver works
@@ -39,19 +39,6 @@ export {
   type PropagatedHeaders,
   readDepth,
 } from './headers'
-export {
-  type ConversationJournal,
-  type ConversationJournalEntry,
-  FileConversationJournal,
-  InMemoryConversationJournal,
-} from './journal'
-export {
-  type D1DatabaseLike,
-  type D1StmtLike,
-  d1ToSqlAdapter,
-  type SqlAdapter,
-  SqlConversationJournal,
-} from './journal-sql'
 export { runConversation, runConversationStream } from './run-conversation'
 export {
   type PersonaConversationResult,
