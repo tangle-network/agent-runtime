@@ -3782,6 +3782,124 @@ Receipt attribution phase supplied alongside `costLedger`.
 
 ***
 
+### ReflectiveProposerReply
+
+#### Properties
+
+##### content
+
+> `readonly` **content**: `string`
+
+The model's visible reply.
+
+##### usage
+
+> `readonly` **usage**: \{ `inputTokens`: `number`; `outputTokens`: `number`; `reasoningTokens?`: `number`; `cachedTokens?`: `number`; \} \| `null`
+
+Billed tokens as the provider reported them, or null when it reported none:
+the call's cost is then unknown and counts at its declared maximum.
+
+##### model?
+
+> `readonly` `optional` **model?**: `string`
+
+The model the provider says served the call. Default `model`.
+
+***
+
+### ReflectiveProposerParent
+
+One parent, as `evidence` receives it.
+
+#### Properties
+
+##### nodeId
+
+> `readonly` **nodeId**: `string` \| `null`
+
+The parent's node; null for a proposal outside a search.
+
+##### surface
+
+> `readonly` **surface**: `MutableSurface`
+
+##### trainCells
+
+> `readonly` **trainCells**: readonly `SearchScoredCell`[]
+
+The parent's scored train cells. Unscored cells are absent, never zero.
+
+***
+
+### ReflectiveProfileProposerOptions
+
+#### Properties
+
+##### kind?
+
+> `readonly` `optional` **kind?**: `string`
+
+Names the proposer in the search's identity and its receipts. Default
+`reflective-profile`.
+
+##### model
+
+> `readonly` **model**: `string`
+
+The model `chat` calls, recorded on its receipt.
+
+##### chat
+
+> `readonly` **chat**: [`ReflectiveProposerChat`](#reflectiveproposerchat)
+
+##### pricing
+
+> `readonly` **pricing**: `CustomTokenPricing`
+
+Rates that price the call and its declared maximum.
+
+##### maxOutputTokens?
+
+> `readonly` `optional` **maxOutputTokens?**: `number`
+
+Output tokens the call may bill. Default 16,000.
+
+##### frame
+
+> `readonly` **frame**: `string`
+
+What the surface is and how it is measured, as the model should read it:
+the agent, its task, the score, and what transfers to unseen tasks. Runtime
+adds the method, the operator, the parents and the output contract.
+
+##### evidence?
+
+> `readonly` `optional` **evidence?**: (`parent`) => readonly `string`[] \| `Promise`\<readonly `string`[]\>
+
+The caller's train-only evidence for one parent: for example each train
+task, its expected answer, the parent's answer and its error. Return text
+sections; Runtime places them under the parent. Never read selection or
+test data here. Default: each scored train unit and its score.
+
+###### Parameters
+
+###### parent
+
+[`ReflectiveProposerParent`](#reflectiveproposerparent)
+
+###### Returns
+
+readonly `string`[] \| `Promise`\<readonly `string`[]\>
+
+##### maxSurfaceChars?
+
+> `readonly` `optional` **maxSurfaceChars?**: `number`
+
+The longest surface text the proposer returns, in characters; a longer
+reply proposes nothing. Default 12,000.
+
+***
+
 ### SearchLane
 
 An execution lane: slots that share one cost rule, and the profiles they cannot run.
@@ -3964,7 +4082,7 @@ estimate lane until it has settled enough cells to estimate its own.
 
 ###### Overrides
 
-[`SearchLane`](#searchlane).[`kind`](#kind-2)
+[`SearchLane`](#searchlane).[`kind`](#kind-3)
 
 ##### placement
 
@@ -8357,6 +8475,40 @@ Complete immutable profile value used during measured execution.
 
 ***
 
+### ReflectiveProposerChat
+
+> **ReflectiveProposerChat** = (`request`) => `Promise`\<[`ReflectiveProposerReply`](#reflectiveproposerreply)\>
+
+One chat completion, made by the caller's client.
+
+#### Parameters
+
+##### request
+
+###### messages
+
+`ReadonlyArray`\<\{ `role`: `"system"` \| `"user"`; `content`: `string`; \}\>
+
+###### maxOutputTokens
+
+`number`
+
+###### callId
+
+`string`
+
+Forward it as the provider's idempotency key, so a retried request is not billed twice.
+
+###### signal
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<[`ReflectiveProposerReply`](#reflectiveproposerreply)\>
+
+***
+
 ### SearchLaneKind
 
 > **SearchLaneKind** = `"shared-box"` \| `"dedicated"` \| `"subscription"` \| `"router"`
@@ -9847,6 +9999,24 @@ Cheap no-sandbox `CandidateGenerator` (the `shots=1` setting): draft surface edi
 #### Returns
 
 [`CandidateGenerator`](#candidategenerator)
+
+***
+
+### reflectiveProfileProposer()
+
+> **reflectiveProfileProposer**(`options`): `SurfaceProposer`\<`ProposalFinding`\>
+
+Build the maintained reflective proposer for a profile text surface.
+
+#### Parameters
+
+##### options
+
+[`ReflectiveProfileProposerOptions`](#reflectiveprofileproposeroptions)
+
+#### Returns
+
+`SurfaceProposer`\<`ProposalFinding`\>
 
 ***
 

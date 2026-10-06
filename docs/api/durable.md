@@ -1288,6 +1288,15 @@ The chain's wall clock, from its first version's start. A running version is abo
 A version takes the lead when its score beats the kept version's by more than this.
  Default 0.
 
+##### identicalFailures?
+
+> `readonly` `optional` **identicalFailures?**: `number`
+
+Stop after this many versions in a row failed identically: each run ended `driver-failed`
+with the same error, or the judge could not score it. Such a failure repeats whatever the
+next change is (a refused workspace file, a broken credential), so neither patience nor a
+version cap should be what stops it. Default 3.
+
 ***
 
 ### VersionJudge
@@ -1585,6 +1594,21 @@ The chain as its search ledger records it, returned beside the kept version's re
 
 Why the chain stopped: the kernel's close reason (`patience`, `max-nodes`, `budget`,
  `deadline` or `converged`).
+
+##### identicalFailures?
+
+> `readonly` `optional` **identicalFailures?**: `object`
+
+Present when the chain stopped because its last `versions` versions failed identically
+ (`stop.identicalFailures`); `reason` is then `converged`.
+
+###### versions
+
+> `readonly` **versions**: `number`
+
+###### failure
+
+> `readonly` **failure**: `string`
 
 ##### best
 
