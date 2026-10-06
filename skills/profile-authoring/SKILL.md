@@ -225,5 +225,5 @@ Research directors also require the research authoring reference named above.
 ## Then consider
 
 - `supervise` to drive the tree once its profiles exist.
-- `calibrate-before-measure` when a judge or checker has no calibration yet.
-- `arena-experiment` when the claim compares arms.
+- `eval-engineering` (its pre-spend calibration) when a judge or checker has no calibration yet.
+- `pursue` (its controlled architecture comparison) when the claim compares arms.
