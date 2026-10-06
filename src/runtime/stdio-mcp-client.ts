@@ -70,8 +70,10 @@ function inheritedStdioEnv(source: NodeJS.ProcessEnv = process.env): Record<stri
   return env
 }
 
-/** How long a stdin write failure waits for the server's exit, which reports its stderr. */
-const STDIN_FAILURE_GRACE_MS = 1_000
+/** How long a stdin write failure waits for the server's exit, which reports its stderr. A
+ * dying server closes within milliseconds; a live server that dropped its stdin is failed after
+ * it, well inside any handshake timeout. */
+const STDIN_FAILURE_GRACE_MS = 250
 
 export interface StdioMcpServerSpec {
   /** Command that starts the MCP server (stdio transport). */
