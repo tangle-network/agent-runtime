@@ -1,9 +1,11 @@
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { captureMaterializedWorkspace } from '../../src/candidate-execution/artifacts'
 import {
   assertDeclaredCheck,
   checkProgramDigest,
@@ -128,6 +130,55 @@ console.log('reading the result')
 const values = Object.values(dimensions)
 console.log(JSON.stringify({ dimensions, composite: values.reduce((a, b) => a + b, 0) / values.length, notes: notes.join('\\n') }))
 `
+
+describe('a check program digest', () => {
+  let dir: string
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'check-program-'))
+    await mkdir(join(dir, 'overlay', 'tests'), { recursive: true })
+    await writeFile(join(dir, 'tb_check.py'), 'def verdict(n):\n    return 1 if n > 2 else 0\n')
+    await writeFile(
+      join(dir, 'check.py'),
+      'import sys\nimport tb_check\nprint(tb_check.verdict(len(sys.argv)))\n',
+    )
+    await writeFile(
+      join(dir, 'overlay', 'tests', 'test_outputs.py'),
+      'def test_ok():\n    assert True\n',
+    )
+    await writeFile(join(dir, 'tasks.json'), '{"tasks":["session-window-debug"]}\n')
+  })
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('is the digest of the committed files, and running the program does not move it', async () => {
+    // A record sealed over a clean directory keeps its digest: the clean capture is unchanged.
+    const sealed = canonicalCandidateDigest((await captureMaterializedWorkspace(dir)).manifest)
+    expect(await checkProgramDigest(dir)).toBe(sealed)
+
+    // Running the program writes bytecode caches the way an operator's run or a test does.
+    execFileSync('python3', ['check.py', 'a', 'b'], { cwd: dir })
+    execFileSync('python3', [
+      '-c',
+      'import compileall,sys; compileall.compile_dir(sys.argv[1], quiet=1)',
+      join(dir, 'overlay'),
+    ])
+    await writeFile(join(dir, 'stray.pyc'), 'bytecode outside a cache directory')
+    expect(await readdir(join(dir, '__pycache__'))).toEqual([
+      expect.stringMatching(/^tb_check\.cpython-\d+\.pyc$/),
+    ])
+
+    // A digest over every file moves with the caches, and could not be reproduced elsewhere: each
+    // .pyc header carries its source's modification time. The program digest does not move.
+    const everyFile = canonicalCandidateDigest((await captureMaterializedWorkspace(dir)).manifest)
+    expect(everyFile).not.toBe(sealed)
+    expect(await checkProgramDigest(dir)).toBe(sealed)
+
+    // A source edit still moves it.
+    await writeFile(join(dir, 'tb_check.py'), 'def verdict(n):\n    return 1\n')
+    expect(await checkProgramDigest(dir)).not.toBe(sealed)
+  })
+})
 
 describe('a declared check', () => {
   let root: string
