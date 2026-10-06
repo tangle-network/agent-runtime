@@ -71,9 +71,11 @@ describe('prepared candidate disposal', () => {
       fixture.ports,
     )
 
-    await expect(
-      disposePreparedAgentCandidateExecution(prepared, { cleanupTimeoutMs: 25 }),
-    ).rejects.toThrow(/disposal failed/)
+    // The first disposal fails on the gateway, not on a 25 ms deadline a loaded runner can spend
+    // before the settlement is even attempted.
+    await expect(disposePreparedAgentCandidateExecution(prepared)).rejects.toThrow(
+      /disposal failed/,
+    )
     await expect(disposePreparedAgentCandidateExecution(prepared)).resolves.toEqual({
       disposed: true,
     })
