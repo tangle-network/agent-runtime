@@ -11,7 +11,7 @@ import { createFencedSqlRunContext } from '../../../src/runtime/supervise/sql-ru
 import { durableRetainedProvider } from '../durable-retained-provider'
 import { ConductorPlanner, conformanceGraph, RUN_ID, WORKER_NODES } from './conformance-graph'
 import { openSideEffectSite, SIDE_EFFECT_TOOL_NAME, sideEffectToolSpec } from './side-effect'
-import { openSql, type SqlBoundary } from './sql-adapter'
+import { openSql, type SqlBoundary, TEST_LEASE } from './sql-adapter'
 
 const [shared, mode = 'run', checkpoint = ''] = process.argv.slice(2)
 if (!shared) throw new Error('shared SQL/provider directory is required')
@@ -127,10 +127,7 @@ const provider: AgentEnvironmentProvider = {
 }
 
 async function phase() {
-  const context = await createFencedSqlRunContext(store.adapter, RUN_ID, {
-    leaseMs: 400,
-    heartbeatMs: 60,
-  })
+  const context = await createFencedSqlRunContext(store.adapter, RUN_ID, TEST_LEASE)
   const planner = new ConductorPlanner({ forbidInDoubt: true })
   const site = openSideEffectSite(shared!)
   const result = await runGraph(conformanceGraph(), {
@@ -214,10 +211,7 @@ async function phase() {
 
 try {
   if (mode === 'lease') {
-    const context = await createFencedSqlRunContext(store.adapter, RUN_ID, {
-      leaseMs: 400,
-      heartbeatMs: 60,
-    })
+    const context = await createFencedSqlRunContext(store.adapter, RUN_ID, TEST_LEASE)
     const lease = await context.acquire()
     const write = new Promise<void>((resolve) => process.once('message', () => resolve()))
     process.send!({ type: 'owned' })

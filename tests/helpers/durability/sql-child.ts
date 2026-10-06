@@ -66,7 +66,12 @@ const result = await runGraph(conformanceGraph(), {
   journal,
   blobs,
   brain,
-  makeLeafAgent: instrumentedLeafSeam({ dir, phase, kill }),
+  makeLeafAgent: instrumentedLeafSeam({
+    dir,
+    phase,
+    kill,
+    maySettle: (node) => planner.maySettle(node),
+  }),
   extraTools: [sideEffectToolSpec()],
   executeExtraTool: async (name, args) => {
     if (name !== SIDE_EFFECT_TOOL_NAME) return null
