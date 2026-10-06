@@ -218,4 +218,4 @@ Limits by capability:
 | `probeSandboxCapabilities`, `SandboxCapabilities`, `SandboxClient.criuStatus` and the checkpoint-fork lineage path (#1623), and the sandbox CLI's `criuStatus` forward (agent-dev-container#9496) | the box's `branch(count)` | none: the SDK dropped `criuStatus()` in agent-dev-container#5227 | `branch(count)` | Runtime vitest |
 | Prime's copy of the ACP session client (agent-dev-container#9491) | `AcpProviderAdapterBase` in `sdk-provider-cli-base` | Prime, ACP | the shared base | provider tests |
 
-Runtime's measured surface went from 2,166 public exports to 2,138: `/durable` from 74 to 62, `/kernel` from 1,059 to 1,048, and the root from 313 to 308. Slices D to I removed 5,158 lines and added 1,585 across #1622, #1623 and agent-dev-container#9491. Line counts for each pull request are recorded on #1585.
+Runtime's measured surface went from 2,166 public exports to 2,138: `/durable` from 74 to 62, `/kernel` from 1,059 to 1,048, and the root from 313 to 308. Slices D to I removed 5,157 lines and added 1,595 across #1622, #1623 and agent-dev-container#9491, as GitHub counts them. Line counts for each pull request are recorded on #1585.
