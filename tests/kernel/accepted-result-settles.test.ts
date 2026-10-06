@@ -472,9 +472,11 @@ describe('an accepted submit_result settles its node', () => {
   }, 40_000)
 
   it('settles a director done with its output when its deadline falls while the accepted turn ends', async () => {
+    // The director's accepted submission must land before its deadline even on a loaded runner,
+    // and its turn must end well after the deadline.
     const tree = await acceptedTree('accepted-deadline', {
-      perWorkerDeadlineMs: 1_500,
-      directorTurnEndsAfterMs: 3_000,
+      perWorkerDeadlineMs: 5_000,
+      directorTurnEndsAfterMs: 10_000,
     })
     const result = await tree.settling
     const settled = ofKind(await tree.rootEvents(), 'settled').find(
@@ -484,7 +486,7 @@ describe('an accepted submit_result settles its node', () => {
     expect(await tree.blobs.get(settled!.outRef!)).toEqual(ACCEPTED)
     // The deadline fell before the accepted turn ended, and the node waited for it.
     const dispatched = momentOf(tree.moments, 'dispatched', 'director')
-    expect(Date.parse(settled!.at)).toBeGreaterThan(dispatched + 2_500)
+    expect(Date.parse(settled!.at)).toBeGreaterThan(dispatched + 9_500)
     expect(result).toMatchObject({ kind: 'winner', out: ACCEPTED })
     const { events: nested } = await tree.directorTree()
     const metered = ofKind(nested, 'metered')
