@@ -1437,6 +1437,144 @@ describe('environment provider adapters', () => {
     )
   })
 
+  it('meters Claude response receipts before an interrupted provider stream fails', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'claude-usage-fixture',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield {
+              type: 'raw',
+              data: {
+                type: 'raw',
+                backend: 'claude-code',
+                event: {
+                  type: 'assistant.usage',
+                  message_id: 'response-1',
+                  usage: {
+                    input_tokens: 2,
+                    cache_read_input_tokens: 22_229,
+                    cache_creation_input_tokens: 19_090,
+                    output_tokens: 278,
+                  },
+                },
+              },
+            }
+            throw new Error('Claude usage limit')
+          },
+        })
+      },
+    }
+    const signal = new AbortController().signal
+    const executor = providerAsExecutor(provider)(
+      { profile: { name: 'claude-worker', harness: 'claude-code' }, harness: null },
+      { signal, seams: {} },
+    )
+    const received: UsageEvent[] = []
+    await expect(async () => {
+      for await (const event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+        received.push(event)
+      }
+    }).rejects.toThrow('Claude usage limit')
+    expect(received).toContainEqual({
+      kind: 'tokens',
+      mode: 'cumulative',
+      input: 41_321,
+      output: 278,
+      cacheRead: 22_229,
+      cacheWrite: 19_090,
+      freshInput: 2,
+    })
+  })
+
+  it('uses a terminal Claude total instead of adding its response receipt twice', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'claude-terminal-usage-fixture',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield {
+              type: 'raw',
+              data: {
+                type: 'raw',
+                backend: 'claude-code',
+                event: {
+                  type: 'assistant.usage',
+                  message_id: 'response-1',
+                  usage: {
+                    input_tokens: 2,
+                    cache_read_input_tokens: 22_229,
+                    cache_creation_input_tokens: 19_090,
+                    output_tokens: 278,
+                  },
+                },
+              },
+            }
+            yield {
+              type: 'done',
+              data: {
+                finalText: 'done',
+                tokenUsage: { inputTokens: 41_321, outputTokens: 278 },
+              },
+            }
+          },
+        })
+      },
+    }
+    const signal = new AbortController().signal
+    const executor = providerAsExecutor(provider)(
+      { profile: { name: 'claude-worker', harness: 'claude-code' }, harness: null },
+      { signal, seams: {} },
+    )
+    const received = await collect(executor.execute('task', signal) as AsyncIterable<UsageEvent>)
+    expect(received.filter((event) => event.kind === 'tokens')).toEqual([
+      { kind: 'tokens', mode: 'cumulative', input: 41_321, output: 278, cacheBreakdownKnown: false },
+    ])
+    expect(executor.resultArtifact().spent.tokens.input).toBe(41_321)
+  })
+
+  it('keeps malformed Claude response usage unknown', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'claude-malformed-usage-fixture',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield {
+              type: 'raw',
+              data: {
+                type: 'raw',
+                backend: 'claude-code',
+                event: {
+                  type: 'assistant.usage',
+                  message_id: 'response-1',
+                  usage: { input_tokens: 2, output_tokens: 278 },
+                },
+              },
+            }
+            yield { type: 'done', data: { finalText: 'done' } }
+          },
+        })
+      },
+    }
+    const signal = new AbortController().signal
+    const executor = providerAsExecutor(provider)(
+      { profile: { name: 'claude-worker', harness: 'claude-code' }, harness: null },
+      { signal, seams: {} },
+    )
+    const received = await collect(executor.execute('task', signal) as AsyncIterable<UsageEvent>)
+    expect(received).toContainEqual({
+      kind: 'tokens',
+      mode: 'cumulative',
+      input: 0,
+      output: 0,
+      tokensKnown: false,
+    })
+    expect(executor.resultArtifact().spent.tokensKnown).toBe(false)
+  })
+
   // The two absences are different facts and an operator acts differently on each: a child that
   // never got a box has nothing to recover, a child that ran for twenty seconds does.
   it('separates a child that never started from one whose transcript went unread', async () => {

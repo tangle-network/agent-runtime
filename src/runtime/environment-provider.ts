@@ -2095,6 +2095,9 @@ async function* streamProviderExecutor(
       handCaptureToOwner(settledResult, outcome, true)
     }
   } catch (error) {
+    // A limit or transport stop may omit the terminal aggregate. Credit completed native
+    // response receipts before the failed attempt is journaled, without replaying the turn.
+    yield* creditUsage(usageLedger.settleTurn(args.profile.name ?? 'agent'))
     failure = source.retained ? new RetainedExecutionPendingError(error) : error
     failed = true
     // A failed or cancelled stream has no ProviderLeafOut for the caller to retrieve. Keep the
