@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   package:
-    runs-on: [self-hosted, ci-public]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
       version: ${{ steps.release.outputs.version }}
@@ -92,7 +92,7 @@ jobs:
   contract:
     name: ${{ matrix.check }}
     needs: package
-    runs-on: [self-hosted, ci-public]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false

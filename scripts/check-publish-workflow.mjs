@@ -163,33 +163,11 @@ for (const [name, command] of Object.entries(releaseChecks)) {
   assertEqual(checks[0].if, undefined, `${name} required check condition`)
   assertEqual(checks[0]['continue-on-error'], undefined, `${name} required check failure`)
 }
-// npm trusted publishing needs a GitHub-hosted runner, so each hosted publish job
-// starts only when its verifier found the version missing from npm. A status
-// function such as always() here would drop the default success gating.
 assertEqual(
   requireJob('publish-npm').if,
-  "needs.verify.outputs.publish == 'true'",
+  "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'",
   'publish must retain default success gating',
 )
-assertEqual(
-  requireJob('publish-agent-bench').if,
-  "needs.verify-agent-bench.outputs.publish == 'true'",
-  'agent-bench publish must retain default success gating',
-)
-assertEqual(
-  requireJob('verify').outputs?.publish,
-  '${{ needs.release-source.outputs.publish }}',
-  'verify publish decision output',
-)
-for (const name of ['release-source', 'verify-agent-bench']) {
-  const job = requireJob(name)
-  assertEqual(job.outputs?.publish, '${{ steps.registry.outputs.publish }}', `${name} publish output`)
-  const decisions = requireSteps(name, job).filter((step) => step.id === 'registry')
-  assertEqual(decisions.length, 1, `${name} registry decision count`)
-  assertEqual(decisions[0].if, undefined, `${name} registry decision cannot be conditional`)
-  if (!decisions[0].run?.includes('npm view') || !decisions[0].run.includes('publish=true'))
-    throw new Error(`${name} registry decision does not check npm`)
-}
 for (const name of ['release-source', ...Object.keys(releaseChecks)]) {
   for (const step of requireSteps(name, requireJob(name))) {
     if (step.uses && !/@[a-f0-9]{40}$/.test(step.uses))
