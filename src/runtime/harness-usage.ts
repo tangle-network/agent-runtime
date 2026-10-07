@@ -166,6 +166,39 @@ const decodeCodexTurnUsage: HarnessUsageDecoder = (event) => {
   }
 }
 
+/** Claude's adapter forwards one delta per response snapshot, keyed and deduplicated there. */
+const decodeClaudeAssistantUsage: HarnessUsageDecoder = (event) => {
+  if (String(event.type ?? '') !== 'raw') return undefined
+  const envelope = plainRecord(event.data)
+  const data =
+    envelope?.type === 'raw' && plainRecord(envelope.event) !== undefined
+      ? plainRecord(envelope.event)
+      : envelope
+  if (data?.type !== 'assistant.usage') return undefined
+  if (typeof data.message_id !== 'string' || data.message_id.length === 0) {
+    throw new ValidationError('claude assistant.usage: missing response identity')
+  }
+  const usage = plainRecord(data.usage)
+  if (!usage) throw new ValidationError('claude assistant.usage: usage must be an object')
+  const fresh = naturalNumber(usage.input_tokens, 'input_tokens', 'claude assistant.usage')
+  const cachedInput = naturalNumber(
+    usage.cache_read_input_tokens,
+    'cache_read_input_tokens',
+    'claude assistant.usage',
+  )
+  const cacheWriteInput = naturalNumber(
+    usage.cache_creation_input_tokens,
+    'cache_creation_input_tokens',
+    'claude assistant.usage',
+  )
+  const output = naturalNumber(usage.output_tokens, 'output_tokens', 'claude assistant.usage')
+  const input = fresh + cachedInput + cacheWriteInput
+  if (!Number.isSafeInteger(input)) {
+    throw new ValidationError('claude assistant.usage: total input tokens exceed a safe integer')
+  }
+  return { harness: 'claude-code', input, output, cachedInput, cacheWriteInput }
+}
+
 /**
  * The harness → usage-decoder registry. Add a harness by adding one entry.
  *
@@ -175,6 +208,7 @@ const decodeCodexTurnUsage: HarnessUsageDecoder = (event) => {
  */
 const harnessUsageDecoders: Partial<Record<HarnessType, HarnessUsageDecoder>> = {
   codex: decodeCodexTurnUsage,
+  'claude-code': decodeClaudeAssistantUsage,
 }
 
 /**
