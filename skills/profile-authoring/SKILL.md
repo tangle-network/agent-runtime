@@ -127,6 +127,8 @@ Record each new trap where the next author reads it, in the same change as its f
 
 Hard limits live in Runtime options and per-assignment budgets: `budget`, `workerSlots`, `maxDepth`, `allowedModels`, `continuation`.
 Prompt text enforces no limit.
+A spawn's `deadlineMs` is a time box, not a kill: at the box Runtime tells the child to record its state and submit what it has, and stops it only once it then makes no progress (`deadlineCheckIn`).
+Let the root choose each assignment's check-in cadence from the work; do not write a fixed milestone length or a fixed specialist deadline into a brief, and register a fixed box only as an arm against the root's own cadence.
 `maxTokens` is settled after the work: an overspent child keeps its output and carries a `budgetViolation`.
 A child's total counts input tokens on every turn, so reserve turns times context.
 For paid calls, use the execution owner's named credential and enforceable dollar limit.

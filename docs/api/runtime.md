@@ -18541,6 +18541,19 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 [`SuperviseOptions`](#superviseoptions).[`reservationPolicy`](#reservationpolicy-2)
 
+##### deadlineCheckIn?
+
+> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](#deadlinecheckin)
+
+What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default: a check-in;
+ the child is told to save its state and submit what it has, and is stopped only once it then
+ makes no progress for 30 min. `false` stops it at the time box. The run's own deadline always
+ stops every node. See `deadline.ts` `DeadlineCheckIn`.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`deadlineCheckIn`](#deadlinecheckin-3)
+
 ##### workerSlots?
 
 > `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
@@ -22067,6 +22080,13 @@ Optional policy that keeps part of each manager's budget for its own inference.
 
 The budget from which this scope's owner-share floor is derived.
 
+##### deadlineCheckIn?
+
+> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](#deadlinecheckin)
+
+What a steerable child's own time box does: a check-in by default (`deadline.ts`
+ `DeadlineCheckIn`); `false` stops the child at its time box. Nested scopes inherit it.
+
 ##### signal
 
 > `readonly` **signal**: `AbortSignal`
@@ -23407,6 +23427,15 @@ The root's default slice for a child whose manager names no `budget`. Defaults t
 Opt-in owner share: every manager, the root included, keeps this fraction of its own slice
  free of its children's reservations, so its own turns keep budget. Default slices shrink to fit
  beside it. Default: off.
+
+##### deadlineCheckIn?
+
+> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](#deadlinecheckin)
+
+What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default: a check-in;
+ the child is told to save its state and submit what it has, and is stopped only once it then
+ makes no progress for 30 min. `false` stops it at the time box. The run's own deadline always
+ stops every node. See `deadline.ts` `DeadlineCheckIn`.
 
 ##### workerSlots?
 
@@ -27434,6 +27463,14 @@ The bound on concurrently working agents across the whole tree, as a number or a
 
 Opt in to keeping each manager's inference share free of its children's slices. A resumed
  run must use the same policy.
+
+##### deadlineCheckIn?
+
+> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](#deadlinecheckin)
+
+What a child's own time box does. Default: a check-in (the child is told to save its state and
+ submit what it has, and is stopped only once it then makes no progress for 30 min); `false`
+ stops it at the time box. See `deadline.ts` `DeadlineCheckIn`.
 
 ##### maxRestarts?
 
@@ -32473,6 +32510,24 @@ the same `receiptId` has an unknown outcome after a crash and is never replayed.
 
 ***
 
+### DeadlineCheckIn
+
+> **DeadlineCheckIn** = `false` \| \{ `idleMs?`: `number`; \}
+
+What a steerable child's own time box does: a check-in, not a kill. At the child's deadline its
+lead's scope delivers [DEADLINE\_CHECK\_IN\_MESSAGE](#deadline_check_in_message) to the child's inbox and keeps it
+running; the child is stopped (reason `child deadline exceeded`) only once it then makes no
+progress for `idleMs`. The run's own deadline, the budgets and cancellation still stop it at once.
+`false` restores the hard kill at the time box. A child that exposes no inbox cannot be told,
+so it is stopped at its time box as before.
+
+Measured 2026-10-07 on Discovery run terraform-dc-tokens-20261007e-codex1: four of 42 directors
+were killed at the 90-minute boxes their root set, three of them mid-turn, losing 27, 6 and 91
+minutes since their last recorded page, and each successor spent 12 to 19 minutes re-reading
+before its first page.
+
+***
+
 ### DispatchStopReason
 
 > **DispatchStopReason** = `"drained"` \| `"not-admitted"` \| `"stopped"` \| `"aborted"`
@@ -36383,6 +36438,22 @@ Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minim
 > `const` **CONTINUATION\_FACTS**: readonly \[`"composite"`, `"threshold"`, `"failed"`, `"total"`, `"reads"`, `"owed"`, `"settled"`, `"delivered"`, `"continuation"`\]
 
 The facts a profile template may name.
+
+***
+
+### DEFAULT\_CHECK\_IN\_IDLE\_MS
+
+> `const` **DEFAULT\_CHECK\_IN\_IDLE\_MS**: `number`
+
+How long a checked-in child may go without progress before it is stopped: 30 min.
+
+***
+
+### DEADLINE\_CHECK\_IN\_MESSAGE
+
+> `const` **DEADLINE\_CHECK\_IN\_MESSAGE**: `string`
+
+The check-in a child receives at its own time box.
 
 ***
 

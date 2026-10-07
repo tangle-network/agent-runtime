@@ -2165,6 +2165,10 @@ export interface SupervisorOpts {
   /** Opt in to keeping each manager's inference share free of its children's slices. A resumed
    *  run must use the same policy. */
   readonly reservationPolicy?: RecursiveReservationPolicy
+  /** What a child's own time box does. Default: a check-in (the child is told to save its state and
+   *  submit what it has, and is stopped only once it then makes no progress for 30 min); `false`
+   *  stops it at the time box. See `deadline.ts` `DeadlineCheckIn`. */
+  readonly deadlineCheckIn?: import('./deadline').DeadlineCheckIn
   /**
    * OTP intensity breaker: more than `maxRestarts` child restarts within `withinMs`
    * trips the supervisor to `no-winner` rather than restarting forever.
