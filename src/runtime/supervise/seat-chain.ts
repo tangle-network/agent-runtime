@@ -25,13 +25,6 @@ export interface SeatSegment {
   readonly reason?: 'usage-limit' | 'completed' | 'failed' | 'cancelled' | 'paused'
 }
 
-/** A private, durable first-turn instruction backed by the exact restored checkpoint. */
-export interface SeatNativeResume {
-  readonly harness: 'claude-code' | 'codex'
-  readonly nativeSessionId: string
-  readonly sourceCheckpointId: string
-}
-
 export interface SeatSelectionInput {
   readonly profile: AgentProfile
   readonly nodeId: string
@@ -39,13 +32,22 @@ export interface SeatSelectionInput {
   readonly stageIndex: number
   readonly segmentIndex: number
   readonly excludedSeatIds: readonly string[]
-  readonly previous?: Pick<SeatSegment, 'seat' | 'provider' | 'model'>
+  readonly previous?: Pick<SeatSegment, 'seat' | 'harness' | 'provider' | 'model'>
+  /** Last admitted environment without a confirmed destroy receipt. Check live capability before reuse. */
+  readonly retainedEnvironmentId?: string
+  /** This selection must grant a different credential on the retained native session. */
+  readonly requiresNativeTurnGrant: boolean
   /** Rebind the exact prior seat after coordinator restart, never choose another implicitly. */
   readonly resumeSeatId?: string
 }
 
 export type SeatSelection =
-  | { readonly seat: string; readonly backend: Extract<ExecutorConfig, { backend: 'provider' }> }
+  | {
+      readonly seat: string
+      readonly backend: Extract<ExecutorConfig, { backend: 'provider' }>
+      /** Lab verified that this backend can grant the selected seat on an existing native session. */
+      readonly nativeTurnGrant?: true
+    }
   | { readonly resumeAt: string }
 
 /** The caller owns account eligibility and credential resolution; Runtime owns the chain order. */
@@ -66,9 +68,9 @@ export interface ActiveSeat {
   readonly segmentIndex: number
   readonly stage: SeatStage
   readonly backend: Extract<ExecutorConfig, { backend: 'provider' }>
+  readonly nativeTurnGrant?: true
   /** The completed predecessor, if this segment changed a seat. */
-  readonly previous?: Pick<SeatSegment, 'seat' | 'provider' | 'model'>
-  readonly nativeResume?: SeatNativeResume
+  readonly previous?: Pick<SeatSegment, 'seat' | 'harness' | 'provider' | 'model'>
 }
 
 /** One logical node's durable chain. The spawn journal is the sole transition authority. */
@@ -88,17 +90,40 @@ export class SeatChain {
     ) => Promise<void>,
     private readonly beforeStart?: (
       selection: ActiveSeat,
-      previous?: Pick<SeatSegment, 'seat' | 'provider' | 'model'>,
-    ) => Promise<SeatNativeResume | undefined>,
+      previous?: Pick<SeatSegment, 'seat' | 'harness' | 'provider' | 'model'>,
+    ) => Promise<void>,
   ) {}
 
   async next(afterUsageLimit = false, afterRecheck = false): Promise<ActiveSeat> {
     const stages = authoredSeatStages(this.profile)
     if (!stages) throw new ValidationError('SeatChain requires authored AgentProfile.seats')
-    const events = ((await this.journal.loadTree(this.rootId)) ?? []).filter(
+    const allEvents = (await this.journal.loadTree(this.rootId)) ?? []
+    const events = allEvents.filter(
       (event): event is Extract<SpawnEvent, { kind: 'seat-segment' }> =>
         event.kind === 'seat-segment' && event.id === this.nodeId,
     )
+    const destroyed = new Set(
+      allEvents
+        .filter(
+          (event): event is Extract<SpawnEvent, { kind: 'environment-teardown' }> =>
+            event.kind === 'environment-teardown' && event.id === this.nodeId && event.destroyed,
+        )
+        .map((event) => event.environmentId),
+    )
+    let admittedEnvironmentId: string | undefined
+    for (const event of allEvents) {
+      if (
+        event.kind === 'execution-admitted' &&
+        event.id === this.nodeId &&
+        event.admission.phase === 'environment'
+      ) {
+        admittedEnvironmentId = event.admission.environmentId
+      }
+    }
+    const retainedEnvironmentId =
+      admittedEnvironmentId !== undefined && !destroyed.has(admittedEnvironmentId)
+        ? admittedEnvironmentId
+        : undefined
     await this.reconcile(events)
     const starts = events.filter((event) => event.phase === 'started')
     const last = starts.at(-1)
@@ -120,9 +145,17 @@ export class SeatChain {
           ? undefined
           : {
               seat: last.seat,
+              harness: last.harness,
               provider: last.provider,
               model: last.model,
             }
+      const preceding = resume ? starts.at(-2) : last
+      const requiresNativeTurnGrant = Boolean(
+        preceding &&
+          preceding.provider === stage.provider &&
+          preceding.harness === stage.harness &&
+          (!resume || preceding.seat !== last.seat),
+      )
       const selection = checkedSeatSelection(
         stage,
         await this.select({
@@ -132,6 +165,8 @@ export class SeatChain {
           stageIndex,
           segmentIndex,
           excludedSeatIds,
+          requiresNativeTurnGrant,
+          ...(retainedEnvironmentId === undefined ? {} : { retainedEnvironmentId }),
           ...(prior === undefined ? {} : { previous: prior }),
           ...(resume ? { resumeSeatId: last.seat } : {}),
         }),
@@ -148,26 +183,37 @@ export class SeatChain {
       if (excludedSeatIds.includes(selection.seat)) {
         throw new ValidationError('selectSeat: selected an exhausted seat')
       }
-      const preceding = resume ? starts.at(-2) : last
+      if (
+        preceding &&
+        preceding.seat !== selection.seat &&
+        preceding.provider === stage.provider &&
+        preceding.harness === stage.harness &&
+        selection.nativeTurnGrant !== true
+      ) {
+        throw new ValidationError(
+          'selectSeat: same-environment seat requires a verified native turn grant',
+        )
+      }
       const active: ActiveSeat = {
         seat: selection.seat,
         stageIndex,
         segmentIndex,
         stage,
         backend: selection.backend,
+        ...(selection.nativeTurnGrant === true ? { nativeTurnGrant: true } : {}),
         ...(preceding === undefined
           ? {}
           : {
               previous: {
                 seat: preceding.seat,
+                harness: preceding.harness,
                 provider: preceding.provider,
                 model: preceding.model,
               },
             }),
-        ...(resume && last?.nativeResume ? { nativeResume: last.nativeResume } : {}),
       }
       if (!resume) {
-        const nativeResume = await this.beforeStart?.(active, prior)
+        await this.beforeStart?.(active, prior)
         const at = new Date(this.now()).toISOString()
         await this.journal.appendEvent(this.rootId, {
           kind: 'seat-segment',
@@ -179,7 +225,6 @@ export class SeatChain {
           harness: stage.harness,
           provider: stage.provider,
           model: stage.model,
-          ...(nativeResume === undefined ? {} : { nativeResume }),
           seq: segmentIndex,
           at,
         })
@@ -194,7 +239,7 @@ export class SeatChain {
           'started',
         )
         this.observedThrough = events.length
-        return nativeResume === undefined ? active : { ...active, nativeResume }
+        return active
       }
       return active
     }

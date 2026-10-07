@@ -61,7 +61,7 @@ import {
 } from '../../mcp/tools/coordination'
 import { COORDINATION_CLIENT_TOOL_TIMEOUT_MS } from '../../mcp/tools/coordination-request-context'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
-import { type ProviderLeafOut, resolveAgentEnvironmentProvider } from '../environment-provider'
+import { resolveAgentEnvironmentProvider } from '../environment-provider'
 import { agentHarness, harnessRunsAgent } from '../harness-role'
 import {
   type HarnessTranscriptCapture,
@@ -170,7 +170,6 @@ import {
   authoredSeatStages,
   SeatChain,
   SeatChainExhaustedError,
-  type SeatNativeResume,
   type SeatSegment,
   type SelectSeat,
   seatExecutionProfile,
@@ -939,27 +938,6 @@ function driveHarnessFromBackend(
   // The manager's own harness session, as the newest attempt captured it.
   let managerTranscript: HarnessTranscriptCapture | undefined
   let managerArtifact: ExecutorResult<unknown> | undefined
-  const nativeSessionFromCommittedTurn = (
-    artifact: ExecutorResult<unknown> | undefined,
-    sourceEnvironmentId: string,
-  ): string | undefined => {
-    const out = artifact?.out as ProviderLeafOut | undefined
-    const capture = out?.workspaceCapture
-    if (
-      capture?.coverageComplete === true &&
-      capture.environmentId === sourceEnvironmentId &&
-      typeof capture.nativeSessionId === 'string' &&
-      capture.nativeSessionId.length > 0
-    )
-      return capture.nativeSessionId
-    const retained = managerTranscript
-    return retained?.status === 'retained' &&
-      retained.descriptor.source.coverageComplete &&
-      retained.descriptor.source.environmentId === sourceEnvironmentId &&
-      retained.descriptor.source.nativeSessionId
-      ? retained.descriptor.source.nativeSessionId
-      : undefined
-  }
   const committedTranscriptDigest = (artifact: ExecutorResult<unknown> | undefined): string => {
     if (artifact === undefined)
       return 'Prior committed transcript: no bounded turn content was captured.'
@@ -1027,27 +1005,14 @@ function driveHarnessFromBackend(
         (segment, phase) => seatSelection.onSegment(scope.view.root, segment, phase),
         async (selection, previous) => {
           if (previous && previous.seat !== selection.seat) {
-            const checkpoint = await prepareScopeRetainedOwnerSeatSwitch(scope)
-            switchedProviderCheckpointAt = checkpoint.checkpointAt
-            if (previous.provider === selection.stage.provider) {
-              const nativeSessionId = nativeSessionFromCommittedTurn(
-                priorCommittedArtifact,
-                checkpoint.sourceEnvironmentId,
-              )
-              if (
-                !nativeSessionId ||
-                (selection.stage.harness !== 'claude-code' && selection.stage.harness !== 'codex')
-              ) {
-                throw new ValidationError(
-                  'same-provider seat switch requires a verified native session',
-                )
-              }
-              return {
-                harness: selection.stage.harness,
-                nativeSessionId,
-                sourceCheckpointId: checkpoint.checkpointId,
-              }
-            }
+            const sameEnvironment =
+              previous.provider === selection.stage.provider &&
+              previous.harness === selection.stage.harness
+            const checkpoint = await prepareScopeRetainedOwnerSeatSwitch(
+              scope,
+              sameEnvironment ? 'same-environment' : 'replace-environment',
+            )
+            if (!sameEnvironment) switchedProviderCheckpointAt = checkpoint.checkpointAt
           }
         },
       )
@@ -1134,15 +1099,28 @@ function driveHarnessFromBackend(
               workspace: 'restored',
               checkpointAt: switchedProviderCheckpointAt,
             }
+      if (
+        activeSeat?.previous &&
+        activeSeat.previous.seat !== activeSeat.seat &&
+        activeSeat.previous.provider === activeSeat.stage.provider &&
+        activeSeat.previous.harness === activeSeat.stage.harness &&
+        (continuity.session !== 'continued' || continuity.environment !== 'same')
+      ) {
+        throw new ValidationError('same-provider seat continuation lost its native environment')
+      }
       reentry.onContinuity?.(continuity)
       driveTask = reentry.compose(continuity)
-      if (activeSeat?.previous && activeSeat.previous.provider !== activeSeat.stage.provider) {
+      if (
+        activeSeat?.previous &&
+        (activeSeat.previous.provider !== activeSeat.stage.provider ||
+          activeSeat.previous.harness !== activeSeat.stage.harness)
+      ) {
         driveTask = [
           String(driveTask),
           '',
-          '## Provider handoff',
+          '## Harness handoff',
           '',
-          'This is the same logical agent on a different provider. Read the restored workspace,',
+          'This is the same logical agent in a different harness or provider. Read the restored workspace,',
           'especially its STATE, NEXT, and RESULT pages and knowledge pages, before acting.',
           'A prior tool call may have executed. Check its committed output or workspace effect',
           'before repeating it.',
@@ -1239,39 +1217,6 @@ function driveHarnessFromBackend(
     }
     let factory = baseFactory
     if (boundBackend.backend === 'provider') {
-      let nativeResume: SeatNativeResume | undefined
-      if (activeSeat?.nativeResume !== undefined && seatSelection !== undefined) {
-        const events =
-          (await seatSelection.journal.loadTree(
-            scopeRetainedOwnerJournalRoot(scope) ?? seatSelection.rootId,
-          )) ?? []
-        let start = -1
-        for (let index = events.length - 1; index >= 0; index -= 1) {
-          const event = events[index]!
-          if (
-            event.kind === 'seat-segment' &&
-            event.id === scope.view.root &&
-            event.phase === 'started' &&
-            event.segmentIndex === activeSeat.segmentIndex
-          ) {
-            start = index
-            break
-          }
-        }
-        const settled =
-          start >= 0 &&
-          events
-            .slice(start + 1)
-            .some((event) => event.kind === 'execution-result' && event.id === scope.view.root)
-        if (!settled) nativeResume = activeSeat.nativeResume
-      }
-      if (
-        nativeResume !== undefined &&
-        (boundBackend.promptOptions as { nativeResume?: unknown } | undefined)?.nativeResume !==
-          undefined
-      ) {
-        throw new ValidationError('selected seat backend cannot override Runtime native resume')
-      }
       const credentialName = 'AGENT_RUNTIME_COORDINATION_TOKEN'
       const authorization = coordinationMcpHeaders?.Authorization
       if (!authorization?.startsWith('Bearer ')) {
@@ -1298,14 +1243,6 @@ function driveHarnessFromBackend(
       }
       factory = createExecutor({
         ...boundBackend,
-        ...(nativeResume === undefined
-          ? {}
-          : {
-              promptOptions: {
-                ...boundBackend.promptOptions,
-                nativeResume,
-              } as NonNullable<typeof boundBackend.promptOptions>,
-            }),
         defaults: {
           ...(boundBackend.defaults ?? {}),
           env: {

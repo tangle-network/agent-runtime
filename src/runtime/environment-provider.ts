@@ -3285,17 +3285,6 @@ function turnInputFromPrompt(
   message: string | PromptInputPart[],
   options?: PromptOptions,
 ): AgentTurnInput {
-  const nativeResume = (
-    options as
-      | (PromptOptions & {
-          nativeResume?: {
-            harness: 'claude-code' | 'codex'
-            nativeSessionId: string
-            sourceCheckpointId: string
-          }
-        })
-      | undefined
-  )?.nativeResume
   return {
     ...(typeof message === 'string' ? { prompt: message } : { parts: message }),
     ...(options?.sessionId ? { sessionId: options.sessionId } : {}),
@@ -3307,7 +3296,6 @@ function turnInputFromPrompt(
     ...(options?.detach !== undefined ? { detach: options.detach } : {}),
     ...(options?.context ? { context: options.context } : {}),
     ...(options?.runControlRef ? { controlRef: options.runControlRef } : {}),
-    ...(nativeResume === undefined ? {} : { nativeResume }),
     ...(options?.backend?.interactions ? { interactions: options.backend.interactions } : {}),
     ...(options?.signal ? { signal: options.signal } : {}),
     ...(options?.backend ? { providerOptions: { backend: options.backend } } : {}),

@@ -1966,12 +1966,6 @@ export type SpawnEvent =
       harness: string
       provider: string
       model: string
-      /** Internal first-turn native resume coordinate; observer segment projection omits it. */
-      nativeResume?: {
-        harness: 'claude-code' | 'codex'
-        nativeSessionId: string
-        sourceCheckpointId: string
-      }
       reason?: 'usage-limit' | 'completed' | 'failed' | 'cancelled' | 'paused'
       seq: number
       at: string

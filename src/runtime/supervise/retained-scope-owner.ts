@@ -413,10 +413,11 @@ export function scopeRetainedOwnerCheckpointing(scope: Scope<unknown>): Promise<
   return owners.get(scope)?.checkpointing
 }
 
-/** A new subscription seat must create a new credential-bearing environment after the prior
- * turn committed. Its workspace checkpoint makes that handoff restorable. */
+/** A committed turn is the seat boundary. Keep its native home for a same-harness provider
+ * continuation; only a provider/harness change needs a new environment. */
 export async function prepareScopeRetainedOwnerSeatSwitch(
   scope: Scope<unknown>,
+  mode: 'same-environment' | 'replace-environment',
 ): Promise<{
   readonly checkpointAt: string
   readonly checkpointId: string
@@ -426,19 +427,52 @@ export async function prepareScopeRetainedOwnerSeatSwitch(
   if (!state?.acceptedRef || !state.acceptedConsumed) {
     throw new ValidationError('seat switch requires a committed owner turn')
   }
+  const accepted = state.acceptedRef
   await scopeRetainedOwnerTurnEnded(scope)
   await state.checkpointing
   await checkpointOwnerWorkspace(scope, state)
-  await retireSeatEnvironment(scope, state)
-  const point = await scopeRetainedOwnerRestorePoint(scope)
-  if (!point) {
-    throw new ValidationError('seat switch requires a restorable workspace checkpoint')
+  const owned = ((await state.args.journal.loadTree(state.args.rootId)) ?? []).filter(
+    (event) => event.id === state.args.nodeId,
+  )
+  const acceptedIndex = owned.findIndex(
+    (event) =>
+      event.kind === 'execution-result' &&
+      event.seq === accepted.seq &&
+      event.outRef === accepted.outRef,
+  )
+  if (acceptedIndex < 0)
+    throw new ValidationError('seat switch has no committed result in its journal')
+  const source = owned
+    .slice(0, acceptedIndex)
+    .reverse()
+    .find((event) => event.kind === 'execution-admitted' && event.admission.phase === 'environment')
+  const sourceEnvironmentId =
+    source?.kind === 'execution-admitted' && source.admission.phase === 'environment'
+      ? source.admission.environmentId
+      : undefined
+  const checkpoint =
+    sourceEnvironmentId !== undefined
+      ? owned
+          .slice(acceptedIndex + 1)
+          .reverse()
+          .find(
+            (event) =>
+              event.kind === 'workspace-checkpoint' && event.environmentId === sourceEnvironmentId,
+          )
+      : undefined
+  if (checkpoint?.kind !== 'workspace-checkpoint') {
+    throw new ValidationError(
+      'seat switch requires a checkpoint of the committed source environment',
+    )
   }
-  state.forceNewSession = true
+  if (mode === 'replace-environment') {
+    await retireSeatEnvironment(scope, state)
+    state.forceNewSession = true
+  }
   return {
-    checkpointAt: point.takenAt,
-    checkpointId: point.checkpointId,
-    sourceEnvironmentId: point.sourceEnvironmentId,
+    checkpointAt: checkpoint.at,
+    checkpointId: checkpoint.checkpoint.checkpointId,
+    sourceEnvironmentId: checkpoint.environmentId,
   }
 }
 
@@ -1115,9 +1149,7 @@ async function restoreCapable(provider: AgentEnvironmentProvider | undefined): P
  * re-entered director is told: the checkpoint's time, or undefined when there is nothing to
  * restore.
  */
-export async function scopeRetainedOwnerRestorePoint(
-  scope: Scope<unknown>,
-): Promise<
+export async function scopeRetainedOwnerRestorePoint(scope: Scope<unknown>): Promise<
   | {
       readonly checkpointId: string
       readonly takenAt: string

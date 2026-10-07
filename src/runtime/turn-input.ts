@@ -33,9 +33,6 @@ export function freshTurnInput(
     ...(input.context === undefined ? {} : { context: input.context }),
     ...(input.interactions === undefined ? {} : { interactions: input.interactions }),
     ...(input.providerOptions === undefined ? {} : { providerOptions: input.providerOptions }),
-    ...((input as AgentTurnInput & { nativeResume?: unknown }).nativeResume === undefined
-      ? {}
-      : { nativeResume: (input as AgentTurnInput & { nativeResume: unknown }).nativeResume }),
     ...(input.signal === undefined ? {} : { signal: input.signal }),
     turnId: runtime.turnId,
     detach: runtime.detach,
@@ -54,15 +51,6 @@ export function promptFromAgentTurnInput(input: AgentTurnInput): string | Prompt
 
 /** Project canonical turn controls onto the Sandbox prompt options once. */
 export function promptOptionsFromAgentTurnInput(input: AgentTurnInput): PromptOptions {
-  const nativeResume = (
-    input as AgentTurnInput & {
-      nativeResume?: {
-        harness: 'claude-code' | 'codex'
-        nativeSessionId: string
-        sourceCheckpointId: string
-      }
-    }
-  ).nativeResume
   const providerBackend =
     input.providerOptions?.backend &&
     typeof input.providerOptions.backend === 'object' &&
@@ -91,7 +79,6 @@ export function promptOptionsFromAgentTurnInput(input: AgentTurnInput): PromptOp
   return {
     ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
     ...(input.model === undefined ? {} : { model: input.model }),
-    ...(nativeResume === undefined ? {} : { nativeResume }),
     ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
     ...(input.context === undefined ? {} : { context: input.context }),
     ...(input.signal === undefined ? {} : { signal: input.signal }),

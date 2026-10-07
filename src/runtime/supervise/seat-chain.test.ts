@@ -148,7 +148,7 @@ describe('authored subscription seat chain', () => {
     ).toHaveLength(1)
   })
 
-  it('replays the same native resume coordinate after a crash before dispatch', async () => {
+  it('reuses a committed same-provider segment after a crash before dispatch', async () => {
     const authored = profile([
       {
         harness: 'claude-code',
@@ -162,12 +162,9 @@ describe('authored subscription seat chain', () => {
     const select = async (request: SeatSelectionInput): Promise<SeatSelection> => ({
       seat: request.excludedSeatIds.length === 0 ? 'claude-a' : 'claude-b',
       backend,
+      ...(request.excludedSeatIds.length === 0 ? {} : { nativeTurnGrant: true }),
     })
-    const nativeResume = {
-      harness: 'claude-code' as const,
-      nativeSessionId: 'native-1',
-      sourceCheckpointId: 'checkpoint-1',
-    }
+    let preparations = 0
     const first = new SeatChain(
       authored,
       'run',
@@ -176,12 +173,15 @@ describe('authored subscription seat chain', () => {
       select,
       () => 1_000,
       undefined,
-      async (selection) => (selection.seat === 'claude-b' ? nativeResume : undefined),
+      async (selection) => {
+        if (selection.seat === 'claude-b') preparations++
+      },
     )
     await first.next()
-    expect((await first.next(true)).nativeResume).toEqual(nativeResume)
+    expect((await first.next(true)).seat).toBe('claude-b')
     const resumed = new SeatChain(authored, 'run', 'run', journal, select, () => 2_000)
-    expect((await resumed.next()).nativeResume).toEqual(nativeResume)
+    expect((await resumed.next()).seat).toBe('claude-b')
+    expect(preparations).toBe(1)
   })
 
   it('replays an observer boundary lost after the committed journal append', async () => {

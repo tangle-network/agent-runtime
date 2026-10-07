@@ -42,17 +42,4 @@ describe('typed turn profile transport', () => {
       }),
     ).toThrow('conflicting AgentProfiles')
   })
-
-  it('keeps an exact native resume coordinate through a fresh provider turn', () => {
-    const nativeResume = {
-      harness: 'claude-code',
-      nativeSessionId: 'native-1',
-      sourceCheckpointId: 'checkpoint-1',
-    }
-    const fresh = freshTurnInput(
-      { prompt: 'Continue', nativeResume } as Parameters<typeof freshTurnInput>[0],
-      { turnId: 'next-turn', detach: true },
-    )
-    expect(promptOptionsFromAgentTurnInput(fresh)).toMatchObject({ nativeResume })
-  })
 })
