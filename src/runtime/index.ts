@@ -1229,6 +1229,8 @@ export type {
   RetainedPendingCause,
   RootHandle,
   RootMaterialization,
+  RootModel,
+  RootModelChange,
   RootProviderModelEvidence,
   RootSignal,
   RootStreamReceipt,

@@ -307,6 +307,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'wake',
   'runDir',
   'resume',
+  'modelChange',
   'runContext',
   'steerDir',
   'stopRule',

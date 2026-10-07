@@ -223,6 +223,36 @@ function rootExecutionBindingReceipt(
   }
 }
 
+/** Append one `model-changed` record when the root's model differs from the one it last ran. The
+ *  last record's `to`, or the recorded profile's model when there is none, is what it last ran, so
+ *  every later entry on the same model appends nothing. */
+async function recordRootModelChange(
+  opts: SupervisorOpts,
+  events: readonly SpawnEvent[],
+  at: string,
+): Promise<void> {
+  const change = opts.rootModelChange
+  if (change === undefined) return
+  if (typeof change.reason !== 'string' || change.reason.trim().length === 0) {
+    throw new ValidationError(`supervisor: run '${opts.runId}' model change needs a reason`)
+  }
+  const changes = events.filter(
+    (event): event is Extract<SpawnEvent, { kind: 'model-changed' }> =>
+      event.kind === 'model-changed' && event.id === opts.runId,
+  )
+  const last = changes.at(-1)?.to ?? change.from
+  if (contentAddress(last) === contentAddress(change.to)) return
+  await opts.journal.appendEvent(opts.runId, {
+    kind: 'model-changed',
+    id: opts.runId,
+    from: last,
+    to: change.to,
+    reason: change.reason,
+    seq: changes.length,
+    at,
+  })
+}
+
 function sameOptionalIdentity(
   recorded: SpawnedEvent['identity'],
   requested: SpawnedEvent['identity'],
@@ -265,7 +295,7 @@ function describeIdentityMismatch(
   // key, a different key order the address is sensitive to). Say that rather than nothing.
   if (differing.length === 0)
     return 'the identity objects differ in shape while every known field matches'
-  return `${differing.join('; ')} — use a new runId to change any of these`
+  return `${differing.join('; ')} — use a new runId to change any of these; a resume may change only the root model (modelChange)`
 }
 
 /** Validate caller-supplied root identity before any journal access. Fresh runs may omit identity,
@@ -384,6 +414,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
     const {
       budget,
       rootIdentity,
+      rootModelChange,
       rootMaterialization,
       runId,
       journal: journalStore,
@@ -414,6 +445,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           budget,
           runId,
           ...(rootIdentity === undefined ? {} : { rootIdentity }),
+          ...(rootModelChange === undefined ? {} : { rootModelChange }),
           ...(rootMaterialization === undefined ? {} : { rootMaterialization }),
           ...(maxDepth === undefined ? {} : { maxDepth }),
           ...(typeof workerSlots === 'number' ? { workerSlots } : {}),
@@ -526,7 +558,15 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         resumeFrom = restored.resumeFrom
         prior = [...resumeFrom.events]
         pool = createBudgetPool(opts.budget, runEpochMs, restored.poolRestore)
+        if (opts.rootModelChange !== undefined) {
+          await recordRootModelChange(opts, prior, runStartedAt)
+        }
       } else {
+        if (opts.rootModelChange !== undefined) {
+          throw new RuntimeRunStateError(
+            `supervisor: run '${opts.runId}' has no recorded root to change the model of; a new run takes its model from its profile`,
+          )
+        }
         pool = createBudgetPool(opts.budget, runStartedAtMs)
         // Fresh run: begin the tree and journal the root as its own `spawned` node (parent-less, the
         // spawn-ordinal-0 marker), so a journal-based reader — `trajectoryReport`, `replaySpawnTree`,

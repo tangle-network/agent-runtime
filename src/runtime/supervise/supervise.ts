@@ -19,6 +19,7 @@ import {
   agentProfileSchema,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
+  type ReasoningEffort,
   type Sha256Digest,
   validateAgentProfileSecurity,
 } from '@tangle-network/agent-interface'
@@ -214,6 +215,7 @@ import type {
   RecursiveReservationPolicy,
   ResultBlobStore,
   RootHandle,
+  RootModel,
   RootProviderModelEvidence,
   RootStreamReceipt,
   Scope,
@@ -2408,6 +2410,19 @@ export interface SuperviseOptions {
    * context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
    * reused id without it. Ignored when `runDir` is also set — the file context owns the flag. */
   readonly resume?: boolean
+  /**
+   * Resume this run with the root on another model. `profile` stays the root profile the run
+   * recorded, so its identity, coordination owner and settled children resume unchanged; the root
+   * executes that profile with `model.default`, and `model.reasoningEffort` when given, replaced.
+   * When the model differs from the one the run last ran, the journal gains one `model-changed`
+   * record with the time and `reason`. Nothing else about the profile changes this way, and a
+   * fresh run refuses it: a new run takes its model from its profile.
+   */
+  readonly modelChange?: {
+    readonly model: string
+    readonly reasoningEffort?: ReasoningEffort
+    readonly reason: string
+  }
   /** Durable steer directory when it differs from the run-control directory. */
   readonly steerDir?: string
   /** Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
@@ -2558,6 +2573,7 @@ const superviseOptionKeys = [
   'router',
   'runDir',
   'resume',
+  'modelChange',
   'runContext',
   'runId',
   'signal',
@@ -3313,6 +3329,42 @@ export function superviseRootProfile(
   return freezeDetachedProfile(compose ? compose(parsedProfile.data) : parsedProfile.data)
 }
 
+/** The model a root runs on, as a `model-changed` record names it. */
+function rootModelOf(profile: AgentProfile): RootModel {
+  return {
+    ...(profile.model?.default === undefined ? {} : { model: profile.model.default }),
+    ...(profile.model?.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffort: profile.model.reasoningEffort }),
+  }
+}
+
+/** The recorded root profile with only its model, and its reasoning effort when given, replaced. */
+function withRootModel(
+  profile: AgentProfile,
+  change: NonNullable<SuperviseOptions['modelChange']>,
+): AgentProfile {
+  if (typeof change.model !== 'string' || change.model.trim().length === 0) {
+    throw new ValidationError('supervise: modelChange.model must name a model')
+  }
+  if (typeof change.reason !== 'string' || change.reason.trim().length === 0) {
+    throw new ValidationError('supervise: modelChange.reason must say why the model changed')
+  }
+  return superviseRootProfile(
+    {
+      ...profile,
+      model: {
+        ...profile.model,
+        default: change.model,
+        ...(change.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: change.reasoningEffort }),
+      },
+    },
+    undefined,
+  )
+}
+
 function superviseWithContext(
   profile: SupervisorProfile,
   task: unknown,
@@ -3369,7 +3421,12 @@ function superviseInternal(
   // Fail loud before any compute: every configured model must be in the allowed subset (no-op
   // when allowedModels is unset). The backend seam carries its own model on most backends.
   const composeSpawnProfile = profileGuidanceComposer(options.profileGuidance)
-  const canonicalProfile = superviseRootProfile(profile, options.profileGuidance)
+  // The recorded root profile fixes the run's identity; a model change only alters what it executes.
+  const registeredProfile = superviseRootProfile(profile, options.profileGuidance)
+  const canonicalProfile =
+    options.modelChange === undefined
+      ? registeredProfile
+      : withRootModel(registeredProfile, options.modelChange)
   assertExecutableAgentProfile(canonicalProfile, 'supervise root')
   if (authoredSeatStages(canonicalProfile) !== undefined && options.selectSeat === undefined) {
     throw new ValidationError('supervise: AgentProfile.seats requires selectSeat before execution')
@@ -3418,7 +3475,7 @@ function superviseInternal(
     }
   }
   const rootExecution = canonicalExecution(
-    canonicalProfile,
+    registeredProfile,
     canonicalTask,
     options.execution,
     'supervise root',
@@ -4302,6 +4359,15 @@ function superviseInternal(
         ? { recoverExecutor: options.recoverExecutor ?? recoveryFactories.get(workerFactory) }
         : {}),
       rootIdentity: rootExecution.identity,
+      ...(options.modelChange === undefined
+        ? {}
+        : {
+            rootModelChange: {
+              from: rootModelOf(registeredProfile),
+              to: rootModelOf(canonicalProfile),
+              reason: options.modelChange.reason,
+            },
+          }),
       ...(rootOwnerRuntime === undefined
         ? {}
         : {
