@@ -70,7 +70,12 @@ import {
 } from '../harness-transcript'
 import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
-import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util'
+import {
+  addSpend as addRetainedSpend,
+  sleep as runtimeSleep,
+  unmeteredSpend,
+  zeroSpend,
+} from '../util'
 import { RunCancellationReason } from './abortable'
 import { assertValidBudget, meterUsageEvent, newUsageTotals, spendFromUsageTotals } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
@@ -120,9 +125,11 @@ import {
   bindScopeRetainedOwnerEnvironmentId,
   bindScopeRetainedOwnerProvider,
   consumeScopeRetainedOwnerResult,
+  prepareScopeRetainedOwnerSeatSwitch,
   prepareScopeRetainedOwnerTask,
   reconcileScopeRetainedOwnerEnvironment,
   scopeRetainedOwnerContext,
+  scopeRetainedOwnerJournalRoot,
   scopeRetainedOwnerPriorSpend,
   scopeRetainedOwnerRestorePoint,
   scopeRetainedOwnerResult,
@@ -158,6 +165,15 @@ import {
   restoreScopeOwnerAcceptedExecution,
   scopeOwnerExecutorNodeContext,
 } from './scope'
+import {
+  type ActiveSeat,
+  authoredSeatStages,
+  SeatChain,
+  SeatChainExhaustedError,
+  type SeatSegment,
+  type SelectSeat,
+  seatExecutionProfile,
+} from './seat-chain'
 import { detachedSnapshot } from './snapshot'
 import { type PlateauOptions, plateau, type StopRule } from './stop-rules'
 import { createRootHandle, createSupervisor, DEFAULT_MAX_DEPTH } from './supervisor'
@@ -864,6 +880,21 @@ function driveHarnessFromBackend(
   now: () => number = Date.now,
   maxTurns?: number,
   rootStream?: RootStreamSink,
+  seatSelection?: {
+    readonly select: SelectSeat
+    readonly journal: SpawnJournal
+    readonly rootId: string
+    readonly onSegment: (
+      nodeId: string,
+      segment: SeatSegment,
+      phase: 'started' | 'ended',
+    ) => Promise<void>
+    readonly onPause: (
+      nodeId: string,
+      resumeAt: string,
+      phase: 'paused' | 'resumed',
+    ) => Promise<void>
+  },
 ): DriveHarness {
   // Same refusal the router arm makes in `driverAgent`: a negative cap would silently run zero
   // turns and finalize an empty no-winner.
@@ -876,9 +907,9 @@ function driveHarnessFromBackend(
   const capturedBackend = managerExecutorConfig(
     captureReusableExecutorConfig(backend, 'driveHarnessFromBackend'),
   )
-  const boundBackend = bindReusableExecutorExecutionId(capturedBackend, executionId)
-  const baseFactory = createExecutor(boundBackend)
-  const ownerRuntime =
+  let boundBackend = bindReusableExecutorExecutionId(capturedBackend, executionId)
+  let baseFactory = createExecutor(boundBackend)
+  let ownerRuntime =
     boundBackend.backend === 'provider'
       ? (boundBackend.runtime ??
         resolveAgentEnvironmentProvider(boundBackend.provider, boundBackend.registry).name)
@@ -907,6 +938,30 @@ function driveHarnessFromBackend(
   // The manager's own harness session, as the newest attempt captured it.
   let managerTranscript: HarnessTranscriptCapture | undefined
   let managerArtifact: ExecutorResult<unknown> | undefined
+  const committedTranscriptDigest = (artifact: ExecutorResult<unknown> | undefined): string => {
+    if (artifact === undefined)
+      return 'Prior committed transcript: no bounded turn content was captured.'
+    const out = artifact.out
+    if (out === null || typeof out !== 'object') {
+      return `Prior committed transcript ref: ${artifact.outRef}; no structured turn content was captured.`
+    }
+    const record = out as { content?: unknown; events?: unknown }
+    const events = Array.isArray(record.events) ? record.events : []
+    const kinds = events.slice(-16).flatMap((event) => {
+      if (event === null || typeof event !== 'object') return []
+      const kind = (event as { type?: unknown }).type
+      return typeof kind === 'string' ? [kind.slice(0, 80)] : []
+    })
+    const content = typeof record.content === 'string' ? record.content.slice(-4_000) : ''
+    return [
+      `Prior committed transcript ref: ${artifact.outRef}; ${events.length} events captured.`,
+      ...(kinds.length > 0 ? [`Recent event kinds: ${kinds.join(', ')}.`] : []),
+      ...(content ? [`Last captured answer excerpt: ${content}`] : []),
+    ].join('\n')
+  }
+  let seatChain: SeatChain | undefined
+  let activeSeat: ActiveSeat | undefined
+  let switchedProviderCheckpointAt: string | undefined
   const drive: DriveHarness = async ({
     profile,
     authoredProfile,
@@ -918,7 +973,96 @@ function driveHarnessFromBackend(
     coordinationTools,
     reentry,
   }) => {
+    const priorCommittedArtifact = managerArtifact
     managerArtifact = undefined
+    switchedProviderCheckpointAt = undefined
+    const stages = authoredSeatStages(authoredProfile)
+    if (stages !== undefined) {
+      if (!seatSelection) {
+        throw new ValidationError('AgentProfile.seats requires SuperviseOptions.selectSeat')
+      }
+      if (activeSeat === undefined) {
+        // A coordinator crash after a provider committed a failed turn must restore that exact
+        // outcome before selecting a replacement. No new seat may start while the old call is
+        // still in doubt, and the next retry carries the typed usage-limit reason.
+        const accepted = await scopeRetainedOwnerResult(scope)
+        const reported = accepted === undefined ? undefined : executorFailure(accepted)
+        if (reported !== undefined) {
+          await restoreScopeOwnerAcceptedExecution(scope)
+          consumeScopeRetainedOwnerResult(scope)
+          managerArtifact = accepted
+          throw new HarnessTurnFailedError(ownerRuntime, reported)
+        }
+      }
+      const seatJournalRoot = scopeRetainedOwnerJournalRoot(scope) ?? seatSelection.rootId
+      seatChain ??= new SeatChain(
+        authoredProfile,
+        scope.view.root,
+        seatJournalRoot,
+        seatSelection.journal,
+        seatSelection.select,
+        now,
+        (segment, phase) => seatSelection.onSegment(scope.view.root, segment, phase),
+        async (selection, previous) => {
+          if (previous && previous.seat !== selection.seat) {
+            const sameEnvironment =
+              previous.provider === selection.stage.provider &&
+              previous.harness === selection.stage.harness
+            const checkpoint = await prepareScopeRetainedOwnerSeatSwitch(
+              scope,
+              sameEnvironment ? 'same-environment' : 'replace-environment',
+            )
+            if (!sameEnvironment) switchedProviderCheckpointAt = checkpoint.checkpointAt
+          }
+        },
+      )
+      const usageLimit =
+        reentry?.reason.reason === 'upstream-unavailable' &&
+        reentry.reason.signal === 'subscription-usage-limit'
+      if (activeSeat === undefined || usageLimit) {
+        let afterRecheck = false
+        for (;;) {
+          try {
+            activeSeat = await seatChain.next(usageLimit && !afterRecheck, afterRecheck)
+            if (afterRecheck) await seatSelection.onPause(scope.view.root, '', 'resumed')
+            break
+          } catch (error) {
+            if (!(error instanceof SeatChainExhaustedError)) throw error
+            await seatSelection.journal.appendEvent(seatJournalRoot, {
+              kind: 'seat-paused',
+              id: scope.view.root,
+              resumeAt: error.resumeAt,
+              seq: Date.parse(error.resumeAt),
+              at: new Date(now()).toISOString(),
+            })
+            await seatSelection.onPause(scope.view.root, error.resumeAt, 'paused')
+            const waitMs = Math.max(1_000, Date.parse(error.resumeAt) - now())
+            await runtimeSleep(waitMs, scope.signal, false)
+            afterRecheck = true
+          }
+        }
+        boundBackend = bindReusableExecutorExecutionId(
+          managerExecutorConfig(
+            captureReusableExecutorConfig(
+              {
+                ...activeSeat.backend,
+                // Let the supervisor see a terminal typed usage limit. The provider executor's
+                // default unavailable loop would otherwise retry this seat inside one invocation.
+                unavailablePause: false,
+              },
+              'selectSeat',
+            ),
+          ),
+          `${executionId}:segment:${activeSeat.segmentIndex}`,
+        )
+        baseFactory = createExecutor(boundBackend)
+        ownerRuntime =
+          boundBackend.backend === 'provider'
+            ? (boundBackend.runtime ??
+              resolveAgentEnvironmentProvider(boundBackend.provider, boundBackend.registry).name)
+            : 'cli'
+      }
+    }
     const retainedOwner =
       boundBackend.backend === 'provider' ? scopeRetainedOwnerContext(scope) : undefined
     if (retainedOwner && boundBackend.backend === 'provider') {
@@ -946,9 +1090,43 @@ function driveHarnessFromBackend(
     // and the coordinator's run state.
     let driveTask = task
     if (reentry !== undefined) {
-      const continuity = await reentryContinuity(boundBackend, scope, retainedOwner !== undefined)
+      const continuity: ReentryContinuity =
+        switchedProviderCheckpointAt === undefined
+          ? await reentryContinuity(boundBackend, scope, retainedOwner !== undefined)
+          : {
+              session: 'new',
+              environment: 'replaced',
+              workspace: 'restored',
+              checkpointAt: switchedProviderCheckpointAt,
+            }
+      if (
+        activeSeat?.previous &&
+        activeSeat.previous.seat !== activeSeat.seat &&
+        activeSeat.previous.provider === activeSeat.stage.provider &&
+        activeSeat.previous.harness === activeSeat.stage.harness &&
+        (continuity.session !== 'continued' || continuity.environment !== 'same')
+      ) {
+        throw new ValidationError('same-provider seat continuation lost its native environment')
+      }
       reentry.onContinuity?.(continuity)
       driveTask = reentry.compose(continuity)
+      if (
+        activeSeat?.previous &&
+        (activeSeat.previous.provider !== activeSeat.stage.provider ||
+          activeSeat.previous.harness !== activeSeat.stage.harness)
+      ) {
+        driveTask = [
+          String(driveTask),
+          '',
+          '## Harness handoff',
+          '',
+          'This is the same logical agent in a different harness or provider. Read the restored workspace,',
+          'especially its STATE, NEXT, and RESULT pages and knowledge pages, before acting.',
+          'A prior tool call may have executed. Check its committed output or workspace effect',
+          'before repeating it.',
+          committedTranscriptDigest(priorCommittedArtifact),
+        ].join('\n')
+      }
     }
     const originalTask = retainedOwner
       ? await prepareScopeRetainedOwnerTask(scope, driveTask)
@@ -990,8 +1168,19 @@ function driveHarnessFromBackend(
       coordinationTools,
       'driveHarnessFromBackend coordination tools',
     )
-    const expectedProviderProfile = providerVisibleProfile(canonicalDriverProfile)
-    const providerDriverProfile = agentProfileSchema.parse(profile)
+    const expectedProviderProfile = providerVisibleProfile(
+      activeSeat
+        ? seatExecutionProfile(canonicalDriverProfile, activeSeat.stage)
+        : canonicalDriverProfile,
+    )
+    if (activeSeat) {
+      assertExecutableAgentProfile(expectedProviderProfile, 'selected seat')
+      assertBackendProfileMaterialization(expectedProviderProfile, boundBackend, 'selected seat')
+      assertBridgeProfileMaterializes(expectedProviderProfile, boundBackend, 'selected seat')
+    }
+    const providerDriverProfile = activeSeat
+      ? expectedProviderProfile
+      : agentProfileSchema.parse(profile)
     if (
       canonicalAgentProfileDigest(providerDriverProfile) !==
       canonicalAgentProfileDigest(expectedProviderProfile)
@@ -1591,7 +1780,10 @@ function driveHarnessFromBackend(
       endDrive()
     }
     if (failed) throw failure
-    if (turnFailure !== undefined) throw turnFailure
+    if (turnFailure !== undefined) {
+      managerArtifact = terminalArtifact
+      throw turnFailure
+    }
     managerArtifact = terminalArtifact
   }
   drive.resultArtifact = () => managerArtifact
@@ -1620,6 +1812,9 @@ function driveHarnessFromBackend(
     drive.harnessTranscript = () => managerTranscript ?? activeExecutor?.harnessTranscript?.()
     drive.harnessTranscriptSettled = () =>
       activeExecutor?.harnessTranscriptSettled?.() ?? Promise.resolve()
+  }
+  drive.closeSeatSegment = async (reason) => {
+    await seatChain?.close(reason)
   }
   return attestRuntimeOwnedScopeOwner(drive, ownerRuntime)
 }
@@ -1862,6 +2057,10 @@ export interface SuperviseOptions {
   readonly execution?: AgentExecutionRef
   /** WHERE workers run — derives the worker seam. Provide this OR an explicit `makeWorkerAgent`. */
   readonly backend?: ExecutorConfig
+  /** Resolve an authored subscription stage to one eligible seat and a backend pinned to its
+   * credential reference. The callback may report stage exhaustion with `resumeAt`; Runtime
+   * advances the authored chain and never writes credentials into its record. */
+  readonly selectSeat?: SelectSeat
   /** The independent completion check for backend-derived workers and direct supervisor
    *  submissions. Strongly recommended: without it the supervisor cannot submit its own work and
    *  backend-derived workers fall back to their own validity signal. A `string` names an entry in
@@ -2313,6 +2512,7 @@ const superviseOptionKeys = [
   'authorizeMessage',
   'authorizeSpawn',
   'backend',
+  'selectSeat',
   'blobs',
   'budget',
   'childSettleGraceMs',
@@ -2508,6 +2708,7 @@ const superviseExecutableOptionKeys = [
   'resolveDeliverable',
   'resolveDriveHarness',
   'resolveSpawnProfile',
+  'selectSeat',
   'resolveSupervisorTools',
   'stopRule',
 ] as const
@@ -2594,6 +2795,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
   assertSuperviseOptionKeys(opts, 'supervise')
   const {
     backend,
+    selectSeat,
     coordination,
     driverBackend,
     deliverable,
@@ -2750,6 +2952,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...capturedData,
     ...(capturedCoordination === undefined ? {} : { coordination: capturedCoordination }),
     ...(capturedBackend === undefined ? {} : { backend: capturedBackend }),
+    ...(selectSeat === undefined ? {} : { selectSeat }),
     ...(capturedDriverBackend === undefined ? {} : { driverBackend: capturedDriverBackend }),
     ...(capturedDeliverable === undefined ? {} : { deliverable: capturedDeliverable }),
     ...(resolveDeliverable === undefined ? {} : { resolveDeliverable }),
@@ -3168,6 +3371,9 @@ function superviseInternal(
   const composeSpawnProfile = profileGuidanceComposer(options.profileGuidance)
   const canonicalProfile = superviseRootProfile(profile, options.profileGuidance)
   assertExecutableAgentProfile(canonicalProfile, 'supervise root')
+  if (authoredSeatStages(canonicalProfile) !== undefined && options.selectSeat === undefined) {
+    throw new ValidationError('supervise: AgentProfile.seats requires selectSeat before execution')
+  }
   const canonicalTask = freezeDetached(task)
   if (options.makeWorkerAgent && options.authorizeSpawn) {
     throw new ValidationError(
@@ -3220,6 +3426,9 @@ function superviseInternal(
   const backendModel = (options.backend as { model?: unknown } | undefined)?.model
   const driverBackendModel = (options.driverBackend as { model?: unknown } | undefined)?.model
   assertProfileModelsAllowed(canonicalProfile, options.allowedModels)
+  for (const stage of authoredSeatStages(canonicalProfile) ?? []) {
+    assertModelAllowed(stage.model, options.allowedModels)
+  }
   assertModelAllowed(
     typeof backendModel === 'string' ? backendModel : undefined,
     options.allowedModels,
@@ -3395,7 +3604,11 @@ function superviseInternal(
     }
     return (authored) => {
       const composed = composeSpawnProfile ? composeSpawnProfile(authored) : authored
-      return canLead(composed) ? withInheritedSpawnRights(parent, composed) : composed
+      // A seat chain is an explicit execution policy. Inheriting manager grants would turn a
+      // seat-bearing leaf into a manager and change the authored profile before selection.
+      return composed.seats || !canLead(composed)
+        ? composed
+        : withInheritedSpawnRights(parent, composed)
     }
   }
   const harnessClaims = new WeakMap<
@@ -3454,6 +3667,41 @@ function superviseInternal(
           options.now ?? Date.now,
           options.maxTurns,
           context.depth === 0 ? rootStreamSink : undefined,
+          options.selectSeat === undefined
+            ? undefined
+            : {
+                select: options.selectSeat,
+                journal,
+                rootId: runId,
+                onSegment: async (nodeId, segment, phase) => {
+                  await options.hooks?.onEvent?.(
+                    {
+                      id: `${nodeId}:seat:${segment.startedAt}:${phase}`,
+                      runId,
+                      target: 'agent.seat',
+                      phase: 'event',
+                      timestamp: options.now?.() ?? Date.now(),
+                      parentId: nodeId,
+                      payload: { nodeId, phase, segment },
+                    },
+                    {},
+                  )
+                },
+                onPause: async (nodeId, resumeAt, phase) => {
+                  await options.hooks?.onEvent?.(
+                    {
+                      id: `${nodeId}:seat:${phase}:${resumeAt || (options.now?.() ?? Date.now())}`,
+                      runId,
+                      target: 'agent.seat',
+                      phase: 'event',
+                      timestamp: options.now?.() ?? Date.now(),
+                      parentId: nodeId,
+                      payload: { nodeId, phase, ...(resumeAt ? { resumeAt } : {}) },
+                    },
+                    {},
+                  )
+                },
+              },
         )
       : undefined
   }
@@ -3611,7 +3859,12 @@ function superviseInternal(
         // A Runtime tool grant makes this a managed persistent node. `spawn_worker` is one
         // capability on that node, not a hidden role bit: an IC can submit a result, ask a parent,
         // or call a product tool without also being allowed to delegate.
-        const usesRuntimeCoordination = declaredRuntimeToolNames(authorized).length > 0
+        const seatManagedLeaf =
+          authoredSeatStages(authorized) !== undefined &&
+          declaredRuntimeToolNames(authorized).length === 0 &&
+          isExternalSupervisor(authorized)
+        const usesRuntimeCoordination =
+          declaredRuntimeToolNames(authorized).length > 0 || seatManagedLeaf
         if (!usesRuntimeCoordination) {
           if (childDeliverable !== deliverable && !options.backend) {
             throw new ValidationError(
@@ -3749,8 +4002,8 @@ function superviseInternal(
           ...(options.onDriverAttempt ? { onDriverAttempt: options.onDriverAttempt } : {}),
           // A managed child receives its assignment's independent completion check. It can submit
           // work itself, delegate, or do both under the same profile contract.
-          ...(childDeliverable ? { deliverable: childDeliverable } : {}),
-          ...(childDeliverable
+          ...(childDeliverable && !seatManagedLeaf ? { deliverable: childDeliverable } : {}),
+          ...(childDeliverable && !seatManagedLeaf
             ? {
                 onAcceptedSubmission: () => {
                   acceptedSubmission = true
@@ -3759,7 +4012,10 @@ function superviseInternal(
             : {}),
           // Every external manager with a check in the tree is sent back under the run's one
           // continuation policy. Its files sit beside the root's, under its own owner id.
-          ...(childDeliverable && options.continuation && isExternalSupervisor(authorized)
+          ...(childDeliverable &&
+          !seatManagedLeaf &&
+          options.continuation &&
+          isExternalSupervisor(authorized)
             ? {
                 continuation: options.continuation,
                 ...(options.runDir === undefined
@@ -3802,6 +4058,7 @@ function superviseInternal(
           () => acceptedSubmission,
           recoveryFactories.get(childFactory),
           () => unassessedOutput,
+          seatManagedLeaf ? childDeliverable : undefined,
         )
       }
       if (

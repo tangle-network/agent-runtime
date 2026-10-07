@@ -162,7 +162,9 @@ export async function healReleasedSlots(
       // only from that target flips the node to released as it does live. `startedAt` is the
       // runtime's own rule for a recovered child (the spawn instant), `releasedAt` the last
       // receipt's instant; the journal record above is the byte-identical surface.
-      const materialized = owned.find((event) => event.kind === 'materialized')
+      const materialized = [...owned]
+        .reverse()
+        .find((event) => event.kind === 'materialized' || event.kind === 'seat-materialized')
       const lastReceipt = receipts[receipts.length - 1]!
       notifyRuntimeHookEvent(
         opts.hooks,
@@ -328,7 +330,9 @@ export async function prepareInterruptedExecutors(
       prepared = prepareRetainedExecutor(opts.recoverExecutor, { spawned: node, profile, task })
       if (!prepared) continue
     }
-    const priorMaterialization = owned.find((event) => event.kind === 'materialized')?.receipt
+    const priorMaterialization = [...owned]
+      .reverse()
+      .find((event) => event.kind === 'materialized' || event.kind === 'seat-materialized')?.receipt
     const continuation =
       latestInput !== undefined && inputs.length > 1 && node.ownedTreeRoot === undefined
         ? await leafContinuation(node, owned, latestInput, opts)
@@ -433,7 +437,9 @@ async function assertRecordedResult(
   opts: ResumeStores,
 ): Promise<void> {
   const before = events.slice(0, events.indexOf(result))
-  const receipt = before.find((event) => event.kind === 'materialized')?.receipt
+  const receipt = [...before]
+    .reverse()
+    .find((event) => event.kind === 'materialized' || event.kind === 'seat-materialized')?.receipt
   const binding = [...before].reverse().find((event) => event.kind === 'execution-bound')?.binding
   if (
     receipt?.status !== 'known' ||

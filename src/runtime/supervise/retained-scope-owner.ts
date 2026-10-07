@@ -65,6 +65,8 @@ interface OwnerState {
   prepared?: boolean
   acceptedConsumed?: boolean
   priorSession?: RetainedRunEnvironmentAdmission
+  /** A changed native provider starts a new harness session from a verified checkpoint. */
+  forceNewSession?: boolean
   provider?: AgentEnvironmentProvider
   /** The provider backend captures executable workspace evidence for unsettled owner turns. */
   workspaceRetention: boolean
@@ -255,6 +257,11 @@ export function scopeRetainedOwnerContext(
   return owners.get(scope)?.context
 }
 
+/** The journal tree that owns this manager turn, including nested driver children. */
+export function scopeRetainedOwnerJournalRoot(scope: Scope<unknown>): NodeId | undefined {
+  return owners.get(scope)?.args.rootId
+}
+
 /**
  * Bind cleanup before replay can return an already accepted owner result. `checkpointCapture` is
  * where each checkpoint's files are stored before the checkpoint is deleted; without it, no
@@ -404,6 +411,118 @@ export function noteScopeRetainedOwnerCoordination(scope: Scope<unknown>): void 
 /** @internal The checkpoint in progress for this owner, for a test or a release to wait on. */
 export function scopeRetainedOwnerCheckpointing(scope: Scope<unknown>): Promise<void> | undefined {
   return owners.get(scope)?.checkpointing
+}
+
+/** A committed turn is the seat boundary. Keep its native home for a same-harness provider
+ * continuation; only a provider/harness change needs a new environment. */
+export async function prepareScopeRetainedOwnerSeatSwitch(
+  scope: Scope<unknown>,
+  mode: 'same-environment' | 'replace-environment',
+): Promise<{
+  readonly checkpointAt: string
+  readonly checkpointId: string
+  readonly sourceEnvironmentId: string
+}> {
+  const state = owners.get(scope)
+  if (!state?.acceptedRef || !state.acceptedConsumed) {
+    throw new ValidationError('seat switch requires a committed owner turn')
+  }
+  const accepted = state.acceptedRef
+  await scopeRetainedOwnerTurnEnded(scope)
+  await state.checkpointing
+  await checkpointOwnerWorkspace(scope, state)
+  const owned = ((await state.args.journal.loadTree(state.args.rootId)) ?? []).filter(
+    (event) => event.id === state.args.nodeId,
+  )
+  const acceptedIndex = owned.findIndex(
+    (event) =>
+      event.kind === 'execution-result' &&
+      event.seq === accepted.seq &&
+      event.outRef === accepted.outRef,
+  )
+  if (acceptedIndex < 0)
+    throw new ValidationError('seat switch has no committed result in its journal')
+  const source = owned
+    .slice(0, acceptedIndex)
+    .reverse()
+    .find((event) => event.kind === 'execution-admitted' && event.admission.phase === 'environment')
+  const sourceEnvironmentId =
+    source?.kind === 'execution-admitted' && source.admission.phase === 'environment'
+      ? source.admission.environmentId
+      : undefined
+  const checkpoint =
+    sourceEnvironmentId !== undefined
+      ? owned
+          .slice(acceptedIndex + 1)
+          .reverse()
+          .find(
+            (event) =>
+              event.kind === 'workspace-checkpoint' && event.environmentId === sourceEnvironmentId,
+          )
+      : undefined
+  if (checkpoint?.kind !== 'workspace-checkpoint') {
+    throw new ValidationError(
+      'seat switch requires a checkpoint of the committed source environment',
+    )
+  }
+  if (mode === 'replace-environment') {
+    await retireSeatEnvironment(scope, state)
+    state.forceNewSession = true
+  }
+  return {
+    checkpointAt: checkpoint.at,
+    checkpointId: checkpoint.checkpoint.checkpointId,
+    sourceEnvironmentId: checkpoint.environmentId,
+  }
+}
+
+/** The next seat receives fresh create-time credentials. Release the stopped source only after
+ * its checkpoint exists, then commit the teardown so recovery never tries its old session. */
+async function retireSeatEnvironment(scope: Scope<unknown>, state: OwnerState): Promise<void> {
+  const { provider, args } = state
+  if (!provider?.get)
+    throw new ValidationError('seat switch requires a provider with exact environment lookup')
+  const owned = ((await args.journal.loadTree(args.rootId)) ?? []).filter(
+    (event) => event.id === args.nodeId,
+  )
+  const admitted = [...owned]
+    .reverse()
+    .find((event) => event.kind === 'execution-admitted' && event.admission.phase === 'environment')
+  if (admitted?.kind !== 'execution-admitted' || admitted.admission.phase !== 'environment') {
+    throw new ValidationError('seat switch has no committed source environment')
+  }
+  const environmentId = admitted.admission.environmentId
+  if (destroyedEnvironmentIds(owned).has(environmentId)) return
+  const signal = AbortSignal.any([scope.signal, AbortSignal.timeout(30_000)])
+  const environment = await runAbortable(
+    () => provider.get!(environmentId),
+    signal,
+    'seat switch environment lookup timed out',
+  )
+  if (environment !== null) {
+    if (
+      environment.id !== environmentId ||
+      environment.provider !== provider.name ||
+      !environment.destroy
+    ) {
+      throw new ValidationError('seat switch cannot retire the exact source environment')
+    }
+    await runAbortable(
+      () => environment.destroy!(),
+      signal,
+      'seat switch environment retirement timed out',
+    )
+  }
+  await args.journal.appendEvent(args.rootId, {
+    kind: 'environment-teardown',
+    id: args.nodeId,
+    provider: provider.name,
+    environmentId,
+    destroyed: true,
+    detail: 'seat changed after a committed turn',
+    seq: state.nextSequence(),
+    at: new Date(args.now()).toISOString(),
+  })
 }
 
 async function checkpointOwnerWorkspace(scope: Scope<unknown>, state: OwnerState): Promise<void> {
@@ -696,7 +815,8 @@ async function cleanCheckpoints(
   for (const event of checkpoints) {
     const captured = await captureBeforeCleanup(state, branching, event, events, parent)
     if ('reason' in captured) {
-      ;(state.captureRefused ??= new Set()).add(event.checkpoint.checkpointId)
+      state.captureRefused ??= new Set()
+      state.captureRefused.add(event.checkpoint.checkpointId)
       refused.push(captured)
       await state.args.journal.appendEvent(state.args.rootId, {
         kind: 'workspace-checkpoint-cleanup',
@@ -1029,9 +1149,14 @@ async function restoreCapable(provider: AgentEnvironmentProvider | undefined): P
  * re-entered director is told: the checkpoint's time, or undefined when there is nothing to
  * restore.
  */
-export async function scopeRetainedOwnerRestorePoint(
-  scope: Scope<unknown>,
-): Promise<{ readonly checkpointId: string; readonly takenAt: string } | undefined> {
+export async function scopeRetainedOwnerRestorePoint(scope: Scope<unknown>): Promise<
+  | {
+      readonly checkpointId: string
+      readonly takenAt: string
+      readonly sourceEnvironmentId: string
+    }
+  | undefined
+> {
   const state = owners.get(scope)
   if (state === undefined || !(await restoreCapable(state.provider))) return undefined
   const owned = ((await state.args.journal.loadTree(state.args.rootId)) ?? []).filter(
@@ -1040,7 +1165,11 @@ export async function scopeRetainedOwnerRestorePoint(
   const latest = restoreBefore(owned, -1)
   return latest === undefined
     ? undefined
-    : { checkpointId: latest.checkpoint.checkpointId, takenAt: latest.at }
+    : {
+        checkpointId: latest.checkpoint.checkpointId,
+        takenAt: latest.at,
+        sourceEnvironmentId: latest.checkpoint.source.environmentId,
+      }
 }
 
 /** @internal Whether another owner release could still destroy what the last one left. */
@@ -1713,6 +1842,26 @@ export async function prepareScopeRetainedOwnerTask(
   // A later invocation never reuses an environment the provider confirmed unusable.
   if (state.priorSession !== undefined && unusable.has(state.priorSession.environmentId)) {
     delete state.priorSession
+  }
+  const segmentStarts = owned.filter(
+    (event): event is Extract<SpawnEvent, { kind: 'seat-segment' }> =>
+      event.kind === 'seat-segment' && event.phase === 'started',
+  )
+  const latestSeat = segmentStarts.at(-1)
+  const previousSeat = segmentStarts.at(-2)
+  if (
+    latestSeat &&
+    previousSeat &&
+    latestSeat.provider !== previousSeat.provider &&
+    owned.indexOf(latestSeat) > owned.indexOf(latestInput as SpawnEvent)
+  ) {
+    // A coordinator that died after recording the new segment but before dispatch still starts
+    // a fresh native session from the committed checkpoint, never the old provider's session.
+    state.forceNewSession = true
+  }
+  if (state.forceNewSession) {
+    delete state.priorSession
+    delete state.forceNewSession
   }
   state.prepared = true
   // The invocation's restore point is fixed by the journal before its input, so a recovered
