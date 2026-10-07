@@ -1,3 +1,7 @@
+## 0.306.1
+
+Runtime resolves `@tangle-network/agent-profile-materialize` 0.21, the release whose peer is `@tangle-network/agent-interface` ^3. 0.20.x peers on ^2, so `pnpm peers check` failed in the publish workflow and 0.304.0 through 0.306.0 never reached npm.
+
 ## 0.306.0
 
 A retained owner's workspace checkpoint is now deleted only after its files are captured into the run's content-addressed store. Runtime forks the checkpoint into an environment that runs no harness, passes it to the new optional `ProviderWorkspaceRetentionPort.captureCheckpoint`, verifies the returned tree (every file in the store, and the checkpoint's marker bytes), journals `workspace-checkpoint-capture` with the tree digest, and destroys the fork; `workspace-checkpoint-cleanup` names that digest in `capturedDigest`. Without `captureCheckpoint`, or when a capture fails, the checkpoint is kept and the cleanup receipt says why in `refused`. New journal kinds: `workspace-checkpoint-fork-requested`, `workspace-checkpoint-capture` and `workspace-checkpoint-fork-teardown`. `captureAgentCandidateWorkspaceTreeToArtifacts` and `verifyAgentCandidateWorkspaceTree` store and verify a workspace as one object per file content plus its manifest, and the artifact ports gain an optional `locate({ sha256, byteLength })`, which `createPrivateCasArtifactPort` implements. Measured on Discovery Lab run terraform-dc-tokens-20261006d, 76 of the first 101 checkpoint deletions had removed the only copy of a director's workspace.
