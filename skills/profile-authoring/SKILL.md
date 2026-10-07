@@ -45,6 +45,11 @@ Grade only outputs that the rerun reproduces.
 A parent that promotes children on proxy passes alone selects for the gap; have the referee attack a result before anyone builds on it.
 Keep the headline gate fixed for the whole task; report a stricter bar as a second line.
 
+For a customer commission, the bar is the first deliverable.
+Author the root to spend its first milestone as the expert team for the domain: 50 to 100 concrete, checkable expectations across mechanics, domain substance, finance, risk, plan, evidence and presentation, the deliverable spec, and a workplan.
+An engagement partner outside the authoring lineage raises the bar against named exemplars and adds what it misses; part of its additions stay held back.
+A hygiene bar (present, reproduces, calculates) is the proxy, not the audience; directors optimise to whatever bar they are given.
+
 ## 4. Choose roles and a model for each
 
 Proposers: cheap, high-throughput models where an exact checker exists, with an occasional strong model.
@@ -209,6 +214,7 @@ Null certificate: space, rows, calibration; registered reproducer, sha256, sourc
 Credited exit, in the agents' words:
 Served completion tools and observed materialization:
 Development progress measurement, calibration, and feedback cadence:
+Commission bar: engagement spec, partner, template it starts from:
 Stop: installed check/continuation policy, deadline, maxBarren, budget, cancellation:
 Known traps handed to agents:
 Budget, caps, key and its dollar cap:
