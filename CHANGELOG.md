@@ -1,3 +1,7 @@
+## 0.307.2
+
+Reissue the 0.307 release with retained owner checkpoint recovery and periodic workspace capture after the prior publish tags stopped before npm.
+
 ## 0.307.1
 
 Align release verification with agent-interface 3.1.1 and its profile seat axis so the 0.307 recovery changes can publish.
