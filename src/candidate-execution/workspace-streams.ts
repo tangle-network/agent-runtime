@@ -171,7 +171,14 @@ export async function verifyAgentCandidateWorkspaceTree(
   if (tree.manifest.sha256 !== tree.digest)
     throw new Error('workspace tree digest does not name its manifest')
   signal?.throwIfAborted()
-  const bytes = await artifacts.read(tree.manifest)
+  // A durable store that holds evicted objects serves them as streams; its buffered read may refuse.
+  let bytes: Uint8Array
+  if (artifacts.readStream) {
+    const chunks: Uint8Array[] = []
+    for await (const chunk of verifiedArtifactChunks(tree.manifest, artifacts, signal))
+      chunks.push(chunk)
+    bytes = Buffer.concat(chunks)
+  } else bytes = await artifacts.read(tree.manifest)
   verifyBytes(bytes, tree.manifest.sha256, tree.manifest.byteLength, 'workspace tree manifest')
   const material = JSON.parse(
     Buffer.from(bytes).toString('utf8'),

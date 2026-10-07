@@ -6,7 +6,10 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
-import { captureAgentCandidateWorkspaceTreeToArtifacts } from '../../src/candidate-execution/workspace-streams'
+import {
+  captureAgentCandidateWorkspaceTreeToArtifacts,
+  verifyAgentCandidateWorkspaceTree,
+} from '../../src/candidate-execution/workspace-streams'
 import { InMemoryResultBlobStore } from '../../src/durable/spawn-journal'
 import { createPrivateCasArtifactPort } from '../../src/runtime/private-cas'
 import {
@@ -263,6 +266,9 @@ describe('checkpoint capture before cleanup', () => {
     expect(second.digest).not.toBe(first.digest)
     const again = await persist(join(root, 'one'))
     expect(again).toMatchObject({ digest: first.digest, storedBytes: 0 })
+    // A store whose buffered read refuses still verifies the tree through its stream.
+    const streamed = { ...cas, read: () => Promise.reject(new Error('buffered read refused')) }
+    expect((await verifyAgentCandidateWorkspaceTree(second, streamed)).files).toHaveLength(2)
   })
 
   it('captures a checkpoint from its fork before rotation deletes it, and records the digest', async () => {
