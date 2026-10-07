@@ -1261,7 +1261,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1035 exports.
 | `RetainedRunTurnInput` | type | A fresh retained turn with a canonical, approved portable context request. |
 | `RootMaterialization` | type | Trusted root composition evidence. Generic `Agent.act` roots omit this and remain unknown. |
 | `RootProviderModelEvidence` | type | Provider-observed model identity for the root manager's settled inference turns. |
-| `RootSignal` | type | Out-of-band message to a running root. Open by intent — a client extends it. |
+| `RootSignal` | type | Cancellation of a running root. Send steering or answers through the root's `deliver` inbox. |
 | `RunContext` | type | The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext` is the |
 | `RunPersonified` | type | The composed run signature. |
 | `Runtime` | type | The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name. |

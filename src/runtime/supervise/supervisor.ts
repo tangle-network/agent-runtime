@@ -1146,13 +1146,13 @@ export function createRootHandle<Out>(): SteerableRootHandle<Out> {
   return handle
 }
 
-/** A `RootSignal` sink: `cancel` cascades an abort; pause/resume/ask are observability
- *  signals the substrate accepts but does not act on here (the chat/pi-viz client owns
- *  pause semantics — building them now would be mechanism ahead of the gate). */
+/** Reject unsupported signals from JavaScript or older declarations before changing the run. */
 function pushRootSignal(cascadeAbort: (reason?: unknown) => void): (msg: RootSignal) => void {
   return (msg: RootSignal): void => {
-    if (msg.kind === 'cancel')
-      cascadeAbort(new RunCancellationReason('root-signal', msg.reason ?? 'root signal: cancel'))
+    if (msg.kind !== 'cancel') {
+      throw new ValidationError('RootHandle.signal only supports cancellation')
+    }
+    cascadeAbort(new RunCancellationReason('root-signal', msg.reason ?? 'root signal: cancel'))
   }
 }
 
