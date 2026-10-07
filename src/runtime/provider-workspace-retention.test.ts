@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type {
   AgentCandidateWorkspaceSnapshotEvidence,
   AgentEnvironment,
@@ -12,7 +15,10 @@ import type { SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it, vi } from 'vitest'
 import {
   type AgentCandidateOutputArtifactPort,
+  type AgentCandidateWorkspaceTree,
   captureAgentCandidateWorkspaceFiles,
+  captureAgentCandidateWorkspaceTreeToArtifacts,
+  verifyAgentCandidateWorkspaceTree,
 } from '../candidate-execution'
 import { sha256Bytes } from '../candidate-execution/digest'
 import {
@@ -1170,6 +1176,81 @@ describe('provider workspace retention', () => {
     expect(transcript.descriptor.files.map((file) => file.attribution.nativePath)).toEqual([
       'any/transcript.jsonl',
     ])
+  })
+
+  it('retains a running workspace before a failed final capture', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'runtime-live-workspace-'))
+    try {
+      await writeFile(join(directory, 'proof.txt'), 'written before teardown\n')
+      const base = artifactStore()
+      const artifacts: AgentCandidateOutputArtifactPort = {
+        ...base,
+        async putStream(input) {
+          const chunks: Uint8Array[] = []
+          for await (const chunk of input.chunks) chunks.push(chunk)
+          return base.put({ ...input, bytes: Buffer.concat(chunks) })
+        },
+        async *readStream(ref) {
+          yield await base.read(ref)
+        },
+        async locate(ref) {
+          return base.bytes.has(ref.sha256.slice(7))
+            ? {
+                ...ref,
+                locator: {
+                  kind: 's3' as const,
+                  bucket: 'provider-retention-tests',
+                  key: ref.sha256.slice(7),
+                },
+              }
+            : undefined
+        },
+      }
+      const { provider } = providerFor(async function* () {
+        yield {
+          type: 'usage',
+          data: { usageMode: 'delta' },
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+        await new Promise<never>(() => {})
+      })
+      let captured: AgentCandidateWorkspaceTree | undefined
+      const executor = providerAsExecutor(provider, {
+        workspaceRetention: {
+          timeoutMs: 5_000,
+          artifacts,
+          capture: async () => {
+            throw new Error('final capture unavailable')
+          },
+          liveIntervalMs: 5,
+          async captureLive(context) {
+            captured = await captureAgentCandidateWorkspaceTreeToArtifacts(directory, {
+              artifactPersistence: {
+                executionId: context.executionId,
+                outputArtifacts: artifacts,
+                signal: context.signal,
+              },
+            })
+            return captured
+          },
+        },
+      })(
+        { profile: testProfile('live-workspace'), harness: null },
+        { signal: new AbortController().signal, seams: {} },
+      )
+      const iterator = (
+        executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>
+      )[Symbol.asyncIterator]()
+      await iterator.next()
+      for (let waited = 0; captured === undefined && waited < 2_000; waited += 5)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      expect(captured).toBeDefined()
+      await iterator.return?.(undefined)
+      const material = await verifyAgentCandidateWorkspaceTree(captured!, artifacts)
+      expect(material.files.map((file) => file.path)).toEqual(['proof.txt'])
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   it('refuses executor reuse while a retained source environment is still live', async () => {

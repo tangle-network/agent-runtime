@@ -8365,6 +8365,18 @@ Refuse cleanup while any native session or workspace coverage remains missing.
 
 Reads the durable manifest and archive after capture returns.
 
+##### liveIntervalMs?
+
+> `readonly` `optional` **liveIntervalMs?**: `number`
+
+Time between live workspace captures. Omit to leave live capture disabled.
+
+##### liveTimeoutMs?
+
+> `readonly` `optional` **liveTimeoutMs?**: `number`
+
+Bound on one live capture and verification, including queue wait. Defaults to timeoutMs.
+
 ##### nativeIntervalMs?
 
 > `readonly` `optional` **nativeIntervalMs?**: `number`
@@ -8449,6 +8461,22 @@ Captures run on their own queue of [maxConcurrentCaptures](#maxconcurrentcapture
 ###### context
 
 [`ProviderCheckpointCaptureContext`](#providercheckpointcapturecontext)
+
+###### Returns
+
+`Promise`\<[`AgentCandidateWorkspaceTree`](candidate-execution.md#agentcandidateworkspacetree)\>
+
+##### captureLive()?
+
+> `optional` **captureLive**(`context`): `Promise`\<[`AgentCandidateWorkspaceTree`](candidate-execution.md#agentcandidateworkspacetree)\>
+
+Capture a running environment's workspace without waiting for its turn to settle.
+
+###### Parameters
+
+###### context
+
+[`ProviderWorkspaceRetentionContext`](#providerworkspaceretentioncontext)
 
 ###### Returns
 
