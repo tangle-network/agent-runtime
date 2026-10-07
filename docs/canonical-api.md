@@ -123,7 +123,8 @@ Provider turns carry an exact inline profile in `AgentTurnInput.profile`.
 Large profile resources do not belong in bounded `providerOptions` metadata.
 Runtime validates the turn before environment creation and binds its profile digest into retained admission identity.
 A request-schema refusal ends the driver attempt without repeated provisioning.
-Post-admission uncertainty still requires reconciliation.
+A capacity refusal before dispatch was refused before it ran, and pauses the driver.
+Post-admission uncertainty still requires reconciliation; a manager turn that fails it the same way twice is abandoned with its outcome journaled, and the driver continues in a new invocation.
 
 Author persistent agent configuration through its profile.
 Use existing steering and execution controls for changes during work.

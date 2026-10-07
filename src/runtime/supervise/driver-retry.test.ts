@@ -1914,3 +1914,190 @@ describe('an infrastructure outage', () => {
     expect(waits).toEqual([2_000, 15_000, 1_500, 11_250, 1_001, 7_508])
   })
 })
+
+/** agent-provider-tangle's `TangleCredentialCapacityError`, by structure: the subscription account
+ *  owner refused a fresh dispatch before the dispatch request existed, so no HTTP status rides. */
+function credentialCapacityRefusal(): Error {
+  return Object.assign(new Error('Subscription account capacity is unavailable'), {
+    name: 'TangleCredentialCapacityError',
+    code: 'provider_quota_exhausted',
+    reason: 'exhausted',
+  })
+}
+
+/** The provider answered and could not resolve an execution it admitted. */
+function unresolvedPending(): RetainedExecutionPendingError {
+  return new RetainedExecutionPendingError(
+    Object.assign(new Error('retained run not found'), { status: 404 }),
+  )
+}
+
+describe('pending retained executions (terraform-dc-tokens-20261006d)', () => {
+  it('pauses for a credential capacity refusal before dispatch instead of retrying a reconciliation', async () => {
+    const refused = new RetainedExecutionPendingError(credentialCapacityRefusal(), 'admission')
+    expect(refused.pendingCause).toBe('request-rejected')
+    expect(refused.message).toContain('refused before it ran; nothing to reconcile')
+    expect(classifyDriverFailure(refused)).toBe('unavailable')
+    expect(upstreamUnavailableSignal(refused)).toBe('provider_quota_exhausted')
+    // After dispatch the same code proves nothing about whether the execution ran.
+    const afterDispatch = new RetainedExecutionPendingError(
+      credentialCapacityRefusal(),
+      'execution',
+    )
+    expect(afterDispatch.pendingCause).toBe('unobservable')
+    expect(classifyDriverFailure(afterDispatch)).toBe('transient')
+
+    // Run d's root met 20 of these over 16 minutes; strict bounds would have ended it at three.
+    const script = scriptedDrive([...Array.from({ length: 40 }, () => refused), null])
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { transientOutageMs: 0 },
+      sleep: instantSleep,
+      onAttempt: (record) => void records.push(record),
+    })
+    expect(script.attempts).toHaveLength(41)
+    expect(records.slice(0, 40).every((record) => record.classification === 'unavailable')).toBe(
+      true,
+    )
+    expect(records[0]?.unavailableSignal).toBe('provider_quota_exhausted')
+    expect(records.at(-1)?.stop).toBe('completed')
+  })
+
+  it('abandons a pending invocation on its second identical reconciliation failure', async () => {
+    const script = scriptedDrive([unresolvedPending(), unresolvedPending(), null])
+    const resolved: Array<{ cause: string; failures: number }> = []
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { transientOutageMs: 0 },
+      sleep: instantSleep,
+      onAttempt: (record) => void records.push(record),
+      resolvePending: async (failure, failures) => {
+        resolved.push({ cause: failure.pendingCause, failures })
+        return true
+      },
+    })
+    expect(resolved).toEqual([{ cause: 'unobservable', failures: 2 }])
+    expect(records.map((record) => record.abandoned ?? false)).toEqual([false, true, false])
+    expect(records.at(-1)?.stop).toBe('completed')
+  })
+
+  it('abandons instead of stopping when a pending failure would end the run', async () => {
+    const lost = () =>
+      new RetainedExecutionPendingError(Object.assign(new Error('reset'), { code: 'ECONNRESET' }))
+    // A lost transport is never abandoned on its own: the provider may still be running it.
+    const transportOnly = scriptedDrive([lost(), lost(), lost()])
+    const offered: string[] = []
+    const error = await runDriverWithRetry({
+      drive: transportOnly.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { transientOutageMs: 0 },
+      sleep: instantSleep,
+      resolvePending: async (failure) => {
+        offered.push(failure.pendingCause)
+        return true
+      },
+    }).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ stop: 'no-progress' })
+    expect(offered).toEqual([])
+
+    // Two transport losses, then the provider cannot resolve what it admitted: the third failure
+    // would end the run, so that invocation is abandoned and its replacement completes.
+    const script = scriptedDrive([lost(), lost(), unresolvedPending(), null])
+    const resolved: number[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { transientOutageMs: 0 },
+      sleep: instantSleep,
+      resolvePending: async (_failure, failures) => {
+        resolved.push(failures)
+        return true
+      },
+    })
+    expect(resolved).toEqual([1])
+    expect(script.attempts).toEqual([1, 2, 3, 4])
+  })
+
+  it('stops a provider that loses every execution after maxConsecutiveFailures abandonments', async () => {
+    const script = scriptedDrive(Array.from({ length: 30 }, () => unresolvedPending()))
+    let abandoned = 0
+    const error = await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { transientOutageMs: 0 },
+      sleep: instantSleep,
+      resolvePending: async () => {
+        abandoned += 1
+        return true
+      },
+    }).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ stop: 'no-progress' })
+    expect(abandoned).toBe(3)
+    // Each abandonment buys the replacement a fresh streak; the fourth stuck invocation ends it.
+    expect(script.attempts.length).toBeLessThan(15)
+  })
+
+  it('keeps an owner that cannot abandon on the barren bound', async () => {
+    const script = scriptedDrive([unresolvedPending(), unresolvedPending(), unresolvedPending()])
+    const error = await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { transientOutageMs: 0 },
+      sleep: instantSleep,
+      resolvePending: async () => false,
+    }).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ stop: 'no-progress' })
+    expect(script.attempts).toEqual([1, 2, 3])
+  })
+
+  it('does not count time paused for capacity against the transient outage window', async () => {
+    let clock = 0
+    const lost = new Error('fetch failed')
+    const refused = new RetainedExecutionPendingError(credentialCapacityRefusal(), 'admission')
+    // One transient failure, 20 minutes of capacity refusals, then two more transient failures:
+    // the transient streak itself lasted seconds, inside a one-minute window.
+    const script = scriptedDrive([
+      lost,
+      ...Array.from({ length: 20 }, () => refused),
+      lost,
+      lost,
+      null,
+    ])
+    await runDriverWithRetry({
+      drive: async (attempt) => {
+        clock += 1_000
+        await script.drive(attempt)
+      },
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: {
+        transientOutageMs: 60_000,
+        unavailablePauseMs: 60_000,
+        maxUnavailablePauseMs: 60_000,
+      },
+      now: () => clock,
+      sleep: async (ms) => {
+        clock += ms
+      },
+      random: () => 0,
+    })
+    expect(script.attempts).toHaveLength(24)
+  })
+})

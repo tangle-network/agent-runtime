@@ -817,7 +817,11 @@ interface JournalNodeIndex {
   bindings: Set<string>
   inputs: Set<number>
   input: boolean
+  /** The sequence of the latest `execution-input`. */
+  latestInput?: number
   result: boolean
+  /** The latest invocation was abandoned: nothing of it is accepted, and a new input may follow. */
+  abandoned: boolean
   admissions: Map<
     Extract<SpawnEvent, { kind: 'execution-admitted' }>['admission']['phase'],
     Extract<SpawnEvent, { kind: 'execution-admitted' }>['admission']
@@ -903,6 +907,7 @@ export class SpawnEventIndex {
       event.kind !== 'execution-input' &&
       event.kind !== 'execution-admitted' &&
       event.kind !== 'execution-result' &&
+      event.kind !== 'execution-abandoned' &&
       event.kind !== 'environment-teardown' &&
       event.kind !== 'environment-terminal' &&
       !closesCursorSlot(event)
@@ -919,6 +924,7 @@ export class SpawnEventIndex {
         inputs: new Set(),
         input: false,
         result: false,
+        abandoned: false,
         admissions: new Map(),
         unusableEnvironments: new Set(),
       }
@@ -945,11 +951,14 @@ export class SpawnEventIndex {
     else if (event.kind === 'execution-input') {
       node.inputs.add(event.seq)
       node.input = true
+      node.latestInput = event.seq
       node.result = false
+      node.abandoned = false
       node.admissions.clear()
     } else if (event.kind === 'execution-admitted') {
       node.admissions.set(event.admission.phase, event.admission)
     } else if (event.kind === 'execution-result') node.result = true
+    else if (event.kind === 'execution-abandoned') node.abandoned = true
     if (closesCursorSlot(event)) node.closed = true
   }
 
@@ -957,7 +966,8 @@ export class SpawnEventIndex {
     if (
       event.kind !== 'execution-input' &&
       event.kind !== 'execution-admitted' &&
-      event.kind !== 'execution-result'
+      event.kind !== 'execution-result' &&
+      event.kind !== 'execution-abandoned'
     )
       return
     function fail(reason: string): never {
@@ -968,15 +978,27 @@ export class SpawnEventIndex {
     if (event.kind === 'execution-input') {
       if (!/^sha256:[0-9a-f]{64}$/.test(event.taskRef)) fail('has an invalid task reference')
       if (node.inputs.has(event.seq)) fail('has duplicate input sequence')
-      // An unfinished invocation may be replaced only once its environment is gone or the
-      // provider reports its compute terminal. Then the old turn cannot still be running.
+      // An unfinished invocation may be replaced only once its environment is gone, the provider
+      // reports its compute terminal, or Runtime abandoned it: then nothing of the old turn can
+      // be accepted, because every later admission or result of it is refused below.
       const environment = node.admissions.get('environment')
       const ranIn =
         environment?.phase === 'environment' ? environment.environmentId : node.lastEnvironmentId
-      const abandoned = ranIn !== undefined && node.unusableEnvironments.has(ranIn)
-      if (node.input && !node.result && !abandoned) fail('input replaces an unfinished invocation')
+      const closed = node.abandoned || (ranIn !== undefined && node.unusableEnvironments.has(ranIn))
+      if (node.input && !node.result && !closed) fail('input replaces an unfinished invocation')
       return
     }
+    if (event.kind === 'execution-abandoned') {
+      if (!node.input || node.latestInput !== event.inputSeq)
+        fail('abandons an invocation that is not its latest')
+      if (node.result) fail('abandons an invocation that has a result')
+      if (node.abandoned) fail('abandons an invocation twice')
+      if (!Number.isSafeInteger(event.failures) || event.failures < 1)
+        fail('abandons without a failure count')
+      return
+    }
+    // Nothing of an abandoned invocation is accepted: its replacement is the only invocation.
+    if (node.abandoned) fail(`${event.kind} follows its abandonment`)
     if (event.kind === 'execution-result') {
       if (node.result) fail('has duplicate result')
       if (!node.admissions.has('dispatched')) fail('result precedes dispatch')
@@ -1049,6 +1071,7 @@ const outsideCursorNamespaceKinds = [
   'execution-input',
   'execution-admitted',
   'execution-result',
+  'execution-abandoned',
   'execution-evidence',
   'progress',
   'reconciled',
@@ -1168,6 +1191,7 @@ export async function replaySpawnTree(
       ev.kind === 'execution-input' ||
       ev.kind === 'execution-admitted' ||
       ev.kind === 'execution-result' ||
+      ev.kind === 'execution-abandoned' ||
       ev.kind === 'execution-evidence'
     )
       continue

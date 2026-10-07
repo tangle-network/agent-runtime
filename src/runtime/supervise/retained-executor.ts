@@ -18,6 +18,7 @@ import type {
   Spend,
   WorkspaceCheckpointMarker,
 } from './types'
+import { UNAVAILABLE_CODES } from './upstream-unavailable'
 
 /** Scope owns the durable writer; provider executors only publish sanitized admissions. */
 export const retainedExecutorSeamKey = 'runtime.retainedExecutor'
@@ -155,7 +156,9 @@ export function retainedExecutorContext(ctx: ExecutorContext): RetainedExecutorC
  *   `RetainedRunProviderContractError` naming a broken answer (an `*_INVALID`, `*_CHANGED`,
  *   `*_DUPLICATE`, `*_MISSING` code), an event bound to another run.
  * - `'request-rejected'`: the request itself was refused BEFORE it ran — a schema violation
- *   (`ZodError`), an HTTP 4xx at admission. Never named after admission.
+ *   (`ZodError`), an HTTP 4xx at admission, or a capacity refusal at admission that carries an
+ *   upstream capacity `code` and no HTTP status: the account owner's credential command refused a
+ *   fresh dispatch before the dispatch request existed. Never named after admission.
  * - `'transport'`: the provider or a gateway in front of it failed — an HTTP 5xx, a socket
  *   error, a platform service answering with a server error. Status is in doubt only because
  *   the transport was.
@@ -270,6 +273,18 @@ export function classifyRetainedPendingCause(
     }
     if (code !== undefined && transportCodes.has(code)) return 'transport'
     if (name === 'NetworkError' || name === 'ServerError') return 'transport'
+    // A capacity refusal with no HTTP response is the account owner refusing to bind a credential
+    // to a fresh dispatch: agent-provider-tangle resolves the subscription credential before it
+    // sends the dispatch, and its `TangleCredentialCapacityError` carries the router's code. At
+    // admission nothing was sent, so nothing ran. Discovery run terraform-dc-tokens-20261006d died
+    // on 20 such refusals named "requires reconciliation" (2026-10-07 19:07:56Z to 19:23:45Z).
+    if (
+      status === undefined &&
+      at === 'admission' &&
+      code !== undefined &&
+      UNAVAILABLE_CODES.has(code.toLowerCase())
+    )
+      return 'request-rejected'
     if (status !== undefined) {
       if (status >= 500) return 'transport'
       if (at === 'admission' && status !== 408) return 'request-rejected'

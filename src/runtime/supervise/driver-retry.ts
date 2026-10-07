@@ -100,7 +100,7 @@ import {
   type ContinuationEntry,
 } from './continuation'
 import { errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
-import { RetainedExecutionPendingError } from './retained-executor'
+import { RetainedExecutionPendingError, type RetainedPendingCause } from './retained-executor'
 import { subscriptionUsageLimitSignal } from './seat-chain'
 import type { Scope } from './types'
 import {
@@ -173,6 +173,9 @@ export interface DriverAttemptRecord {
   readonly madeProgress: boolean
   /** Set when this attempt ended the loop. */
   readonly stop?: DriverAttemptStop
+  /** True when this attempt's pending invocation was abandoned rather than retried: see
+   *  `DriverRetryRun.resolvePending`. */
+  readonly abandoned?: boolean
   /** Set when another attempt follows. For an `unavailable` attempt this is the pause, which is
    *  infrastructure time: together with `durationMs` it is what the outage cost this driver. */
   readonly retryInMs?: number
@@ -316,6 +319,19 @@ export interface DriverRetryRun {
   /** How a completed drive that left work open waits. Omit = a completed drive is the end. */
   readonly wait?: DriverWaitPolicy
   readonly onAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
+  /**
+   * Abandon the unfinished retained invocation a failed drive left pending, and answer whether
+   * it was abandoned. The loop asks when the same invocation failed reconciliation with the same
+   * cause twice in a row, or when that failure would otherwise end the run: retrying the same
+   * reconciliation repeats the same refusal. Discovery run terraform-dc-tokens-20261006d repeated
+   * one on 20 drives over 16 minutes until the barren bound settled it `driver-failed`
+   * (2026-10-07). Only an `unobservable` or `nested-recovery` pending is offered: the provider
+   * answered and could not resolve the execution. Omit = never.
+   */
+  readonly resolvePending?: (
+    failure: RetainedExecutionPendingError,
+    failures: number,
+  ) => Promise<boolean>
   readonly now?: () => number
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>
   /** The jitter source, in `[0, 1)`. Default `Math.random`. */
@@ -327,6 +343,23 @@ const DEFAULT_MAX_ATTEMPTS = Number.POSITIVE_INFINITY
 const DEFAULT_INITIAL_BACKOFF_MS = 2_000
 const DEFAULT_MAX_BACKOFF_MS = 30_000
 const DEFAULT_TRANSIENT_OUTAGE_MS = 900_000
+/** Consecutive identical reconciliation failures of one pending invocation that resolve it. */
+const SAME_PENDING_LIMIT = 2
+
+/**
+ * The pending invocation a failure left, when abandoning it is the resolution: the provider
+ * answered and could not resolve the execution (`unobservable`), or a nested manager's recovery
+ * could not be rebuilt (`nested-recovery`). A lost transport waits for the provider instead, in
+ * the outage window: abandoning during a provider outage would start a second execution beside
+ * one that may still run. A request refused before it ran has nothing to abandon: a capacity
+ * refusal pauses and any other refusal is terminal. A contract violation stays terminal (#1204).
+ */
+function abandonablePending(error: unknown): RetainedExecutionPendingError | undefined {
+  return error instanceof RetainedExecutionPendingError &&
+    (error.pendingCause === 'unobservable' || error.pendingCause === 'nested-recovery')
+    ? error
+    : undefined
+}
 /**
  * Bridge error classes the bridge itself never retries: a request that fails identically on
  * every attempt, mapped below 5xx on its HTTP path (`parse_error` 400, the other two 501). On the
@@ -441,11 +474,31 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
     return unavailableSignalInText(errorProperty(error, 'message') ?? '')
   }
   if (error instanceof AgentEvalError) return undefined
+  const code = capacityCode(error)
+  if (code !== undefined) return code
   const status = errorHttpStatus(error)
   if (status !== undefined) {
     return UNAVAILABLE_STATUSES.has(status) ? `http-${status}` : undefined
   }
   return unavailableSignalInText(errorProperty(error, 'message') ?? '')
+}
+
+/**
+ * The upstream capacity code an error carries as its own `code` field, or `undefined`. A provider
+ * SDK names a capacity refusal with the router's code when no HTTP response exists to carry a
+ * status: agent-provider-tangle's `TangleCredentialCapacityError` (`provider_quota_exhausted`,
+ * `upstream_unavailable`) when the subscription account owner has no account with room.
+ */
+function capacityCode(error: Error): string | undefined {
+  let code: unknown
+  try {
+    code = Reflect.get(error, 'code')
+  } catch {
+    return undefined
+  }
+  if (typeof code !== 'string') return undefined
+  const normalized = code.toLowerCase()
+  return UNAVAILABLE_CODES.has(normalized) ? normalized : undefined
 }
 
 /** True when the upstream refused for capacity and the same request will succeed later. */
@@ -543,7 +596,10 @@ function retainedAdmissionCause(error: unknown): Error | undefined {
       }
       if (
         error.pendingCause === 'request-rejected' &&
-        (value instanceof AgentEvalError || isProviderSchemaRejection(value))
+        (value instanceof AgentEvalError ||
+          isProviderSchemaRejection(value) ||
+          // A capacity refusal before dispatch: the same request is admitted when room returns.
+          capacityCode(value) !== undefined)
       )
         return value
       const members: unknown = Reflect.get(value, 'errors')
@@ -810,6 +866,10 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   // Consecutive `unavailable` attempts, for the pause doubling only. Any other outcome, or an
   // unavailable attempt that still made progress, resets it: the upstream served in between.
   let consecutivePauses = 0
+  // Consecutive failures that left the same unfinished retained invocation pending for the same
+  // reason, and the abandonments since the last progress or completed drive.
+  let samePending: { readonly cause: RetainedPendingCause; readonly count: number } | undefined
+  let abandonments = 0
   // Every pause this loop took, for the re-entry it names.
   let pauses = 0
   let continuations = 0
@@ -889,6 +949,15 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       const classification = classifyDriverFailure(error, run.signal)
       const after = run.progress()
       const progressed = madeProgress(before, after)
+      if (progressed) abandonments = 0
+      const pending = abandonablePending(error)
+      samePending =
+        pending === undefined || classification !== 'transient'
+          ? undefined
+          : {
+              cause: pending.pendingCause,
+              count: samePending?.cause === pending.pendingCause ? samePending.count + 1 : 1,
+            }
       if (classification === 'unavailable') {
         // A pause, not a failure: neither `failures` nor the barren streak moves, so an outage of
         // any length ends the run only at the deadline, the budget, or a cancellation.
@@ -927,6 +996,11 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
         // because the refused turn may have ended before it read a re-prompt.
         reentry = { reason: 'upstream-unavailable', signal: unavailableSignal, pause: pauses }
         await sleep(pause, run.signal)
+        // Waiting for capacity is not transient outage time. A transient streak that began before
+        // the refusal keeps its own age, so a capacity outage longer than `transientOutageMs`
+        // cannot end the run on the next transient failure. Measured 2026-10-07 on Discovery run
+        // terraform-dc-tokens-20261006d: its root waited out capacity refusals for 16 minutes.
+        if (outageSince !== undefined) outageSince += now() - startedAt
         if (run.signal.aborted) {
           throw new DriverAttemptsExhaustedError(error, attempts, 'aborted')
         }
@@ -963,21 +1037,45 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
         if (progressed) return undefined
         return consecutiveBarren + 1 >= maxConsecutive ? 'no-progress' : undefined
       })()
+      // A pending invocation that failed reconciliation the same way twice, or that would now
+      // end the run, is resolved instead of retried: the owner abandons it, recording what the
+      // provider confirmed, and the next drive starts a new invocation. The new invocation's
+      // failures start a new streak. Abandonments in a row without progress are bounded like
+      // failures, so a provider that loses every execution still ends the run.
+      let abandoned = false
+      if (
+        pending !== undefined &&
+        samePending !== undefined &&
+        run.resolvePending !== undefined &&
+        retryEnabled &&
+        !run.signal.aborted &&
+        abandonments < maxConsecutive &&
+        (stop === 'no-progress' || (stop === undefined && samePending.count >= SAME_PENDING_LIMIT))
+      ) {
+        abandoned = await run.resolvePending(pending, samePending.count)
+        if (abandoned) {
+          abandonments += 1
+          samePending = undefined
+          consecutiveBarren = 0
+          outageSince = undefined
+        }
+      }
+      const retryStop = abandoned ? undefined : stop
 
       if (progressed) barrenReentries = 0
-      if (stop !== undefined) {
+      if (retryStop !== undefined) {
         await emit({
           attempt,
           durationMs,
           error: errMessage(error),
           classification,
           madeProgress: progressed,
-          stop,
+          stop: retryStop,
         })
-        throw new DriverAttemptsExhaustedError(error, attempts, stop)
+        throw new DriverAttemptsExhaustedError(error, attempts, retryStop)
       }
 
-      consecutiveBarren = progressed ? 0 : consecutiveBarren + 1
+      if (!abandoned) consecutiveBarren = progressed ? 0 : consecutiveBarren + 1
       const backoff = jitteredMs(
         cappedDoublingMs(consecutiveBarren, initialBackoff, maxBackoff),
         random,
@@ -988,6 +1086,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
         error: errMessage(error),
         classification,
         madeProgress: progressed,
+        ...(abandoned ? { abandoned: true } : {}),
         retryInMs: backoff,
       })
       // A retry re-enters with the ORIGINAL task. The drive that just failed may have died before
@@ -1012,6 +1111,8 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     consecutiveBarren = 0
     consecutivePauses = 0
     outageSince = undefined
+    samePending = undefined
+    abandonments = 0
     const durationMs = now() - startedAt
     const after = run.progress()
     const progressed = madeProgress(before, after)

@@ -1462,6 +1462,36 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /**
+       * Runtime stopped reconciling this node's unfinished retained invocation: it failed
+       * reconciliation with the same pending cause on consecutive drives, or once when that
+       * failure would otherwise have ended the run, so the next drive starts a new invocation
+       * instead of repeating the refusal. Written only for an invocation with no committed result. No admission or result of the abandoned
+       * invocation is accepted afterwards, so an execution that does finish later can never be
+       * accepted beside its replacement.
+       */
+      kind: 'execution-abandoned'
+      id: NodeId
+      /** The `execution-input` sequence of the abandoned invocation. */
+      inputSeq: number
+      /** The cause every one of the consecutive reconciliation failures carried. */
+      pendingCause: RetainedPendingCause
+      /** How many consecutive drives failed reconciliation with that cause. */
+      failures: number
+      /** The last failure, as recorded. */
+      detail: string
+      /**
+       * What the provider confirmed about the abandoned execution. `stopped`: the provider
+       * stopped it or reported it not live, so nothing of it still runs. `uncertain`: nothing
+       * could be confirmed; it may have run, may still be running, and its spend is unknown.
+       */
+      outcome: 'stopped' | 'uncertain'
+      /** The provider's answer to the stop Runtime requested, when the invocation had dispatched. */
+      stop?: { executionId: string; effect: RetainedRunEffect; error?: string }
+      seq: number
+      at: string
+    }
+  | {
       /** Capture output retained independently of terminal outcome, spend, and recovery state. */
       kind: 'execution-evidence'
       id: NodeId
