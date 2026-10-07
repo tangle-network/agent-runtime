@@ -27,6 +27,7 @@
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
 import type {
+  AgentCandidateArtifactRef,
   AgentProfile,
   AgentTurnResult,
   ChildTaskEvent,
@@ -1875,14 +1876,73 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /** Runtime is about to ask the provider for a fork of a checkpoint, to read its files. The
+       *  record comes first, so a fork that a crash left alive is found by this key and destroyed
+       *  at the owner's release. Informational, like `workspace-checkpoint`. */
+      kind: 'workspace-checkpoint-fork-requested'
+      id: NodeId
+      provider: string
+      /** The environment the checkpoint was taken from. */
+      environmentId: string
+      checkpointId: string
+      idempotencyKey: string
+      requestDigest: Sha256Digest
+      seq: number
+      at: string
+    }
+  | {
+      /** Whether the provider confirmed destroying a checkpoint capture's fork. A fork without a
+       *  `destroyed` record is asked for again at the owner's release. Informational, like
+       *  `workspace-checkpoint`. */
+      kind: 'workspace-checkpoint-fork-teardown'
+      id: NodeId
+      provider: string
+      /** The environment the checkpoint was taken from. */
+      environmentId: string
+      checkpointId: string
+      fork: { idempotencyKey: string; environmentId: string }
+      destroyed: boolean
+      seq: number
+      at: string
+    }
+  | {
+      /** A checkpoint's files, read from a fork of it, stored in the run's content-addressed
+       *  store as a tree before the checkpoint may be deleted. `tree.digest` names the manifest;
+       *  every file it lists is an object of the same store. Informational, like
+       *  `workspace-checkpoint`. */
+      kind: 'workspace-checkpoint-capture'
+      id: NodeId
+      provider: string
+      /** The environment the checkpoint was taken from. */
+      environmentId: string
+      checkpointId: string
+      /** The fork the capture read, by its request key and environment; destroyed once this
+       *  record is written. */
+      fork: { idempotencyKey: string; environmentId: string }
+      tree: {
+        digest: Sha256Digest
+        manifest: AgentCandidateArtifactRef
+        files: number
+        bytes: number
+        storedBytes: number
+      }
+      seq: number
+      at: string
+    }
+  | {
       /** Exact checkpoint cleanup outcome; unconfirmed resources remain pending across resume.
-       * Informational, like `workspace-checkpoint`. */
+       *  `capturedDigest` is the tree of the checkpoint's files that a `workspace-checkpoint-capture`
+       *  stored before the delete was asked for. `refused` says why the checkpoint was kept
+       *  without a delete: its files are in no capture, so deleting it would lose them.
+       *  Informational, like `workspace-checkpoint`. */
       kind: 'workspace-checkpoint-cleanup'
       id: NodeId
       provider: string
       environmentId: string
       checkpointId: string
       confirmed: boolean
+      capturedDigest?: Sha256Digest
+      refused?: string
       seq: number
       at: string
     }

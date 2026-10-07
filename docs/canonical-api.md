@@ -457,8 +457,14 @@ Checkpoint receipts must match the exact request before Runtime journals or rest
 Missing results are reconciled through exact checkpoint lookup during release.
 An unresolved request preserves its source for later lookup and appears in the settle result.
 Cleanup uses the source-scoped provider handle, even when that source is lost.
-Exact cleanup acknowledgements are journaled as `workspace-checkpoint-cleanup` receipts.
+No checkpoint is deleted before its files are captured into the run's content-addressed store.
+Runtime forks the checkpoint into a new environment that runs no harness, journaling `workspace-checkpoint-fork-requested` first, and passes it to the retention port's `captureCheckpoint`.
+The port stores the files as a tree (`captureAgentCandidateWorkspaceTreeToArtifacts`): one object per file content and a manifest, so a capture stores only the files no earlier capture holds.
+Runtime verifies that the store holds every file of the tree and the checkpoint's marker bytes, journals `workspace-checkpoint-capture` with the tree's digest, and destroys the fork (`workspace-checkpoint-fork-teardown`).
+Exact cleanup acknowledgements are journaled as `workspace-checkpoint-cleanup` receipts that name the captured tree's digest.
+When the port has no `captureCheckpoint` or a capture fails, the checkpoint is kept and its cleanup receipt says why (`refused`); the release tries a failed capture again and keeps the source alive while one is still possible.
 Unconfirmed cleanup names the remaining snapshot in the settle result and remains pending across resume.
+A capture fork the journal does not show destroyed is found by its request key and destroyed at the owner's release.
 When the provider loses the environment, the next invocation is created with `workspace.checkpoint` set to the latest receipt, and the re-entry task states the checkpoint's time.
 Runtime then reads the marker back from the new environment and journals a `workspace-restored` receipt with `verified: true` only when the marker matches.
 Files written after the last checkpoint are lost, and the task says so.

@@ -224,6 +224,7 @@ export {
   type ForkRequest,
   type PlacementInfo,
   type ProviderAsSandboxClientOptions,
+  type ProviderCheckpointCaptureContext,
   type ProviderExecutorOptions,
   type ProviderLeafOut,
   type ProviderNativeCapturePhase,

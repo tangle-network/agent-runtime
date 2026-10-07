@@ -1,18 +1,26 @@
 import {
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
+  type AgentProfile,
   type AgentWorkspaceBranching,
   agentCandidateWorkspaceSnapshotEvidenceSchema,
+  type Sha256Digest,
   workspaceCheckpointRequestDigest,
   workspaceCheckpointResultMatchesRequest,
   workspaceCleanupAcknowledgementMatches,
   workspaceCleanupRequestDigest,
+  workspaceForkRequestDigest,
+  workspaceForkResultMatchesRequest,
 } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { environmentReader, type SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import { HARNESS_TRANSCRIPT_SETTLE_TIMEOUT_MS } from '../harness-transcript'
+import {
+  captureProviderCheckpointWorkspace,
+  type ProviderWorkspaceRetentionPort,
+} from '../provider-workspace-retention'
 import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../retained-native-stop'
 import { sameControlCoordinates } from '../retained-run-binding'
 import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
@@ -41,6 +49,7 @@ import type {
 } from './types'
 import {
   WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS,
+  WORKSPACE_CHECKPOINT_FORK_TIMEOUT_MS,
   WORKSPACE_CHECKPOINT_MARKER_PATH,
   WORKSPACE_CHECKPOINT_MIN_INTERVAL_MS,
   WORKSPACE_CHECKPOINT_TIMEOUT_MS,
@@ -78,6 +87,15 @@ interface OwnerState {
   lastCheckpointAt?: number
   /** Set once checkpoints cannot be taken for this owner, with why; no later call retries. */
   checkpointsUnavailable?: string
+  /** Where a checkpoint's files are captured before it is deleted, and the profile its capture
+   *  names. Bound with the provider; absent when the owner's backend retains no workspace. */
+  checkpointCapture?: {
+    readonly port: ProviderWorkspaceRetentionPort
+    readonly profile: AgentProfile
+  }
+  /** Checkpoints whose capture failed in this process. Rotation keeps them without forking them
+   *  again; the release tries each once more. */
+  captureRefused?: Set<string>
   /** The drive in progress: from before its executor exists until its turn has ended. */
   drive?: Promise<void>
   /** End-of-turn work a turn handed over: its workspace capture and the evidence of its receipt. */
@@ -237,13 +255,23 @@ export function scopeRetainedOwnerContext(
   return owners.get(scope)?.context
 }
 
-/** Bind cleanup before replay can return an already accepted owner result. */
+/**
+ * Bind cleanup before replay can return an already accepted owner result. `checkpointCapture` is
+ * where each checkpoint's files are stored before the checkpoint is deleted; without it, no
+ * checkpoint of this owner is deleted.
+ */
 export function bindScopeRetainedOwnerProvider(
   scope: Scope<unknown>,
   provider: AgentEnvironmentProvider,
+  checkpointCapture?: {
+    readonly port: ProviderWorkspaceRetentionPort
+    readonly profile: AgentProfile
+  },
 ): void {
   const state = owners.get(scope)
-  if (state) state.provider = provider
+  if (state === undefined) return
+  state.provider = provider
+  if (checkpointCapture !== undefined) state.checkpointCapture = checkpointCapture
 }
 
 /** Bind the owner cleanup policy selected by its provider executor. */
@@ -460,10 +488,21 @@ async function checkpointOwnerWorkspace(scope: Scope<unknown>, state: OwnerState
     seq: state.nextSequence(),
     at,
   })
-  const owned = pendingCheckpoints((await args.journal.loadTree(args.rootId)) ?? [], state).filter(
-    (event): event is CheckpointEvent => event.environmentId === environment.id,
+  const events = (await args.journal.loadTree(args.rootId)) ?? []
+  const owned = pendingCheckpoints(events, state).filter(
+    (event): event is CheckpointEvent =>
+      event.environmentId === environment.id &&
+      state.captureRefused?.has(event.checkpoint.checkpointId) !== true,
   )
-  await deleteCheckpoints(state, branching, owned.slice(0, -WORKSPACE_CHECKPOINTS_KEPT), signal)
+  // The capture forks a box and reads its whole workspace, so it is bounded by the fork and the
+  // port, never by this checkpoint's own bound.
+  await cleanCheckpoints(
+    state,
+    branching,
+    owned.slice(0, -WORKSPACE_CHECKPOINTS_KEPT),
+    events,
+    scope.signal,
+  )
 }
 
 /** Reconstruct authority for this source only; a replacement cannot own its snapshots. */
@@ -620,15 +659,59 @@ function pendingCheckpoints(events: readonly SpawnEvent[], state: OwnerState): C
   )
 }
 
-/** Only the source-scoped handle can attest deletion, including after its source is lost. */
-async function deleteCheckpoints(
+type CheckpointCaptureEvent = Extract<SpawnEvent, { kind: 'workspace-checkpoint-capture' }>
+type ForkTeardownEvent = Extract<SpawnEvent, { kind: 'workspace-checkpoint-fork-teardown' }>
+
+/** A checkpoint kept without a delete because no capture holds its files. */
+interface CaptureRefusal {
+  readonly event: CheckpointEvent
+  readonly reason: string
+  /** Whether a later capture needs the source: its handle is the only one that can fork it. */
+  readonly needsSource: boolean
+}
+
+/** What cleaning a group of checkpoints left: deletes the provider did not confirm, and
+ *  checkpoints kept because their files are in no capture. */
+interface CheckpointCleanup {
+  readonly unconfirmed: CheckpointEvent[]
+  readonly refused: CaptureRefusal[]
+}
+
+/**
+ * Delete checkpoints, each only after its files are captured into the run's content-addressed
+ * store; a checkpoint no capture holds is kept, and the cleanup record says why. Only the
+ * source-scoped handle can fork a checkpoint and attest its deletion, including after its source
+ * is lost. `parent` cancels the captures (the owner's scope during rotation); each provider
+ * operation also has its own bound.
+ */
+async function cleanCheckpoints(
   state: OwnerState,
   branching: AgentWorkspaceBranching | undefined,
   checkpoints: readonly CheckpointEvent[],
-  signal: AbortSignal,
-): Promise<CheckpointEvent[]> {
+  events: readonly SpawnEvent[],
+  parent?: AbortSignal,
+): Promise<CheckpointCleanup> {
   const unconfirmed: CheckpointEvent[] = []
+  const refused: CaptureRefusal[] = []
   for (const event of checkpoints) {
+    const captured = await captureBeforeCleanup(state, branching, event, events, parent)
+    if ('reason' in captured) {
+      ;(state.captureRefused ??= new Set()).add(event.checkpoint.checkpointId)
+      refused.push(captured)
+      await state.args.journal.appendEvent(state.args.rootId, {
+        kind: 'workspace-checkpoint-cleanup',
+        id: state.args.nodeId,
+        provider: event.provider,
+        environmentId: event.environmentId,
+        checkpointId: event.checkpoint.checkpointId,
+        confirmed: false,
+        refused: captured.reason.slice(0, 1_000),
+        seq: state.nextSequence(),
+        at: new Date(state.args.now()).toISOString(),
+      })
+      continue
+    }
+    state.captureRefused?.delete(event.checkpoint.checkpointId)
     const material = {
       kind: 'checkpoint' as const,
       targetId: event.checkpoint.checkpointId,
@@ -642,6 +725,7 @@ async function deleteCheckpoints(
     let confirmed = false
     try {
       if (branching === undefined) throw new Error('source-scoped checkpoint handle unavailable')
+      const signal = AbortSignal.timeout(30_000)
       const acknowledgement = await runAbortable(
         () => branching.deleteCheckpoint(request, { signal }),
         signal,
@@ -661,11 +745,255 @@ async function deleteCheckpoints(
       environmentId: event.environmentId,
       checkpointId: event.checkpoint.checkpointId,
       confirmed,
+      capturedDigest: captured.digest,
       seq: state.nextSequence(),
       at: new Date(state.args.now()).toISOString(),
     })
   }
-  return unconfirmed
+  return { unconfirmed, refused }
+}
+
+/**
+ * The digest of the tree that holds a checkpoint's files, capturing it first when no record says
+ * one exists, or why it cannot be had. The files are read from a fork of the checkpoint: a box
+ * created from the snapshot itself, so the capture is the checkpoint's state and not the live
+ * workspace's, which has moved on. The fork request is journaled before it is made and the fork
+ * destroyed once the capture is journaled, so neither a failure nor a crash leaves it running
+ * unrecorded.
+ */
+async function captureBeforeCleanup(
+  state: OwnerState,
+  branching: AgentWorkspaceBranching | undefined,
+  event: CheckpointEvent,
+  events: readonly SpawnEvent[],
+  parent?: AbortSignal,
+): Promise<{ readonly digest: Sha256Digest } | CaptureRefusal> {
+  const { args } = state
+  const checkpointId = event.checkpoint.checkpointId
+  const recorded = events.find(
+    (prior): prior is CheckpointCaptureEvent =>
+      prior.kind === 'workspace-checkpoint-capture' &&
+      prior.id === args.nodeId &&
+      prior.provider === event.provider &&
+      prior.environmentId === event.environmentId &&
+      prior.checkpointId === checkpointId,
+  )
+  if (recorded !== undefined) return { digest: recorded.tree.digest }
+  const refuse = (reason: string, needsSource: boolean): CaptureRefusal => ({
+    event,
+    reason,
+    needsSource,
+  })
+  const capture = state.checkpointCapture
+  if (capture?.port.captureCheckpoint === undefined)
+    return refuse('no checkpoint capture: the owner backend has no captureCheckpoint', false)
+  const provider = state.provider
+  if (provider?.get === undefined)
+    return refuse('the provider cannot reconstruct a fork of the checkpoint', false)
+  if (branching === undefined) return refuse('source-scoped checkpoint handle unavailable', true)
+  const material = { checkpoint: event.checkpoint, placement: { kind: 'sandbox' as const } }
+  // One key per attempt: a fork an earlier attempt destroyed cannot be replayed into this one.
+  const request = {
+    ...material,
+    idempotencyKey: `${event.checkpoint.idempotencyKey}:capture:${state.nextSequence()}`,
+    requestDigest: workspaceForkRequestDigest(material),
+  }
+  const forkSignal = AbortSignal.any([
+    ...(parent === undefined ? [] : [parent]),
+    AbortSignal.timeout(WORKSPACE_CHECKPOINT_FORK_TIMEOUT_MS),
+  ])
+  let forkEnvironmentId: string | undefined
+  try {
+    await args.journal.appendEvent(args.rootId, {
+      kind: 'workspace-checkpoint-fork-requested',
+      id: args.nodeId,
+      provider: event.provider,
+      environmentId: event.environmentId,
+      checkpointId,
+      idempotencyKey: request.idempotencyKey,
+      requestDigest: request.requestDigest,
+      seq: state.nextSequence(),
+      at: new Date(args.now()).toISOString(),
+    })
+    const result = await runAbortable(
+      () => branching.fork(request, { signal: forkSignal }),
+      forkSignal,
+      'checkpoint fork timed out',
+    )
+    if (result.status === 'created' || result.status === 'replayed')
+      forkEnvironmentId = result.environment.environmentId
+    if (
+      (result.status !== 'created' && result.status !== 'replayed') ||
+      !workspaceForkResultMatchesRequest(request, result)
+    ) {
+      return refuse(
+        `fork ${result.status}${'message' in result ? `: ${result.message}` : ''}`,
+        true,
+      )
+    }
+    const forkId = result.environment.environmentId
+    const get = provider.get.bind(provider)
+    const environment = await runAbortable(
+      () => get(forkId),
+      forkSignal,
+      'checkpoint fork lookup timed out',
+    )
+    if (environment === null || environment.id !== forkId || environment.provider !== provider.name)
+      return refuse(`fork ${forkId} could not be reconstructed`, true)
+    parent?.throwIfAborted()
+    const tree = await captureProviderCheckpointWorkspace(
+      capture.port,
+      {
+        environment,
+        checkpoint: event.checkpoint,
+        executionId: `${args.nodeId}:checkpoint:${checkpointId}`,
+        profile: capture.profile,
+      },
+      event.marker,
+    )
+    await args.journal.appendEvent(args.rootId, {
+      kind: 'workspace-checkpoint-capture',
+      id: args.nodeId,
+      provider: event.provider,
+      environmentId: event.environmentId,
+      checkpointId,
+      fork: { idempotencyKey: request.idempotencyKey, environmentId: forkId },
+      tree: {
+        digest: tree.digest,
+        manifest: tree.manifest,
+        files: tree.files,
+        bytes: tree.bytes,
+        storedBytes: tree.storedBytes,
+      },
+      seq: state.nextSequence(),
+      at: new Date(args.now()).toISOString(),
+    })
+    return { digest: tree.digest }
+  } catch (error) {
+    return refuse(
+      `capture failed: ${errorText(error instanceof Error ? error.message : error)}`,
+      true,
+    )
+  } finally {
+    if (forkEnvironmentId !== undefined)
+      await destroyCaptureFork(state, branching, {
+        provider: event.provider,
+        environmentId: event.environmentId,
+        checkpointId,
+        fork: { idempotencyKey: request.idempotencyKey, environmentId: forkEnvironmentId },
+      })
+  }
+}
+
+/** Destroy a capture's fork and journal whether the provider confirmed it. */
+async function destroyCaptureFork(
+  state: OwnerState,
+  branching: AgentWorkspaceBranching,
+  target: Pick<ForkTeardownEvent, 'provider' | 'environmentId' | 'checkpointId' | 'fork'>,
+): Promise<boolean> {
+  const material = {
+    kind: 'fork' as const,
+    targetId: target.fork.environmentId,
+    provider: target.provider,
+  }
+  const request = {
+    ...material,
+    operationId: `${target.fork.idempotencyKey}:destroy`,
+    requestDigest: workspaceCleanupRequestDigest(material),
+  }
+  let destroyed = false
+  try {
+    const signal = AbortSignal.timeout(30_000)
+    const acknowledgement = await runAbortable(
+      () => branching.destroyFork(request, { signal }),
+      signal,
+      'checkpoint capture fork cleanup timed out',
+    )
+    destroyed =
+      workspaceCleanupAcknowledgementMatches(request, acknowledgement) &&
+      (acknowledgement.status === 'deleted' || acknowledgement.status === 'already_absent')
+  } catch {
+    // Journaled unconfirmed below; the release asks again.
+  }
+  await state.args.journal.appendEvent(state.args.rootId, {
+    kind: 'workspace-checkpoint-fork-teardown',
+    id: state.args.nodeId,
+    ...target,
+    destroyed,
+    seq: state.nextSequence(),
+    at: new Date(state.args.now()).toISOString(),
+  })
+  return destroyed
+}
+
+/**
+ * Destroy every capture fork the journal does not show destroyed: one a crash left between its
+ * request and its teardown, or whose teardown the provider did not confirm. Returns the forks
+ * still not confirmed destroyed, by environment or, when none was ever named, by request key.
+ */
+async function settleCaptureForks(state: OwnerState): Promise<string[]> {
+  const { args } = state
+  const providerName = state.provider?.name
+  const events = ((await args.journal.loadTree(args.rootId)) ?? []).filter(
+    (event) => event.id === args.nodeId,
+  )
+  const named = (key: string): string | undefined => {
+    for (const event of events) {
+      if (
+        (event.kind === 'workspace-checkpoint-capture' ||
+          event.kind === 'workspace-checkpoint-fork-teardown') &&
+        event.fork.idempotencyKey === key
+      )
+        return event.fork.environmentId
+    }
+    return undefined
+  }
+  const destroyed = new Set(
+    events.flatMap((event) =>
+      event.kind === 'workspace-checkpoint-fork-teardown' && event.destroyed
+        ? [event.fork.idempotencyKey]
+        : [],
+    ),
+  )
+  const unresolved: string[] = []
+  for (const request of events) {
+    if (request.kind !== 'workspace-checkpoint-fork-requested' || request.provider !== providerName)
+      continue
+    if (destroyed.has(request.idempotencyKey)) continue
+    const signal = AbortSignal.timeout(30_000)
+    const branching = await checkpointHandle(state, request.environmentId, signal)
+    let forkEnvironmentId = named(request.idempotencyKey)
+    if (forkEnvironmentId === undefined && branching !== undefined) {
+      try {
+        const found = await runAbortable(
+          () =>
+            branching.lookupFork(
+              { idempotencyKey: request.idempotencyKey, requestDigest: request.requestDigest },
+              { signal },
+            ),
+          signal,
+          'checkpoint capture fork lookup timed out',
+        )
+        // No fork was ever created for this request: nothing to destroy.
+        if (found.status === 'not_found') continue
+        if (found.status === 'found') forkEnvironmentId = found.environment.environmentId
+      } catch {
+        // Unresolved below.
+      }
+    }
+    if (
+      forkEnvironmentId === undefined ||
+      branching === undefined ||
+      !(await destroyCaptureFork(state, branching, {
+        provider: request.provider,
+        environmentId: request.environmentId,
+        checkpointId: request.checkpointId,
+        fork: { idempotencyKey: request.idempotencyKey, environmentId: forkEnvironmentId },
+      }))
+    )
+      unresolved.push(forkEnvironmentId ?? request.idempotencyKey)
+  }
+  return unresolved
 }
 
 /**
@@ -859,30 +1187,45 @@ async function releaseOwnerEnvironment(
   let lastDetail: string | undefined
   let retriable = false
   const checkpointFailures: CheckpointEvent[] = []
+  const checkpointsKept: CaptureRefusal[] = []
+  // Sources kept because a checkpoint of theirs is in no capture, and only they can fork it.
+  const uncapturedSources = new Set<string>()
   const pending = pendingCheckpoints(events, state).filter(
     (event) => !retentionFailures.has(event.environmentId),
   )
   for (const sourceEnvironmentId of new Set(pending.map((event) => event.environmentId))) {
-    const signal = AbortSignal.timeout(30_000)
-    const branching = await checkpointHandle(state, sourceEnvironmentId, signal)
-    checkpointFailures.push(
-      ...(await deleteCheckpoints(
-        state,
-        branching,
-        pending.filter((event) => event.environmentId === sourceEnvironmentId),
-        signal,
-      )),
+    const branching = await checkpointHandle(
+      state,
+      sourceEnvironmentId,
+      AbortSignal.timeout(30_000),
     )
+    const cleaned = await cleanCheckpoints(
+      state,
+      branching,
+      pending.filter((event) => event.environmentId === sourceEnvironmentId),
+      events,
+    )
+    checkpointFailures.push(...cleaned.unconfirmed)
+    checkpointsKept.push(...cleaned.refused)
+    for (const refusal of cleaned.refused)
+      if (refusal.needsSource) uncapturedSources.add(sourceEnvironmentId)
   }
+  const forksUnresolved = await settleCaptureForks(state)
   for (const event of checkpointFailures) pendingSources.add(event.environmentId)
   for (const environmentId of environments) {
     if (released.has(environmentId)) continue
     let destroyed = false
     let detail: string | undefined
-    if (retentionFailures.has(environmentId) || pendingSources.has(environmentId)) {
+    if (
+      retentionFailures.has(environmentId) ||
+      pendingSources.has(environmentId) ||
+      uncapturedSources.has(environmentId)
+    ) {
       detail = pendingSources.has(environmentId)
         ? 'checkpoint cleanup unresolved: source preserved for exact lookup and cleanup'
-        : 'provider workspace retention: source preserved because the owner execution has no verified workspace receipt'
+        : uncapturedSources.has(environmentId)
+          ? 'checkpoint kept uncaptured: source preserved so its checkpoint can still be forked and captured'
+          : 'provider workspace retention: source preserved because the owner execution has no verified workspace receipt'
       preserved.push(environmentId)
       lastDetail = detail
     } else {
@@ -969,6 +1312,26 @@ async function releaseOwnerEnvironment(
         detail: `checkpoint request unresolved: ${event.request.idempotencyKey} from ${event.environmentId} (${reason})`,
       }),
     ),
+    ...checkpointsKept.map(
+      ({ event, reason }): UnconfirmedTeardown => ({
+        id: args.nodeId,
+        label: 'scope owner workspace checkpoint',
+        runtime: provider.name,
+        status: 'done',
+        detail: `checkpoint kept uncaptured: ${event.checkpoint.checkpointId} from ${event.environmentId} (${reason})`,
+      }),
+    ),
+    ...(forksUnresolved.length === 0
+      ? []
+      : [
+          {
+            id: args.nodeId,
+            label: 'scope owner checkpoint capture fork',
+            runtime: provider.name,
+            status: 'done',
+            detail: `checkpoint capture fork destruction unconfirmed: ${forksUnresolved.join(', ')}`,
+          } satisfies UnconfirmedTeardown,
+        ]),
   ]
   return unconfirmed.length > 0 || preserved.length > 0
     ? [

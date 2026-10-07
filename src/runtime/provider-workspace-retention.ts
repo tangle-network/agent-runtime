@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto'
 import type {
   AgentCandidateCapturedArtifact,
   AgentCandidateWorkspaceSnapshotEvidence,
   AgentExactRunControlRef,
   AgentProfile,
+  WorkspaceCheckpointRef,
 } from '@tangle-network/agent-interface'
 import { AgentExactRunControlRefSchema } from '@tangle-network/agent-interface'
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
@@ -13,7 +15,11 @@ import {
   type AgentCandidateWorkspaceArchiveLimits,
   verifyAgentCandidateWorkspaceArchive,
 } from '../candidate-execution/workspace-archive'
-import { verifyAgentCandidateWorkspaceArtifacts } from '../candidate-execution/workspace-streams'
+import {
+  type AgentCandidateWorkspaceTree,
+  verifyAgentCandidateWorkspaceArtifacts,
+  verifyAgentCandidateWorkspaceTree,
+} from '../candidate-execution/workspace-streams'
 import { ValidationError } from '../errors'
 import { sameControlCoordinates } from './retained-run-binding'
 import { runAbortable } from './supervise/abortable'
@@ -62,6 +68,25 @@ export interface ProviderWorkspaceRetentionPort {
   captureNative?(
     context: ProviderWorkspaceRetentionContext,
   ): Promise<ProviderWorkspaceCaptureResult>
+  /**
+   * Store one workspace checkpoint's files in the run's content-addressed store, before Runtime
+   * deletes the checkpoint. Return what `captureAgentCandidateWorkspaceTreeToArtifacts` returns
+   * for the files the environment holds, written to {@link artifacts}.
+   *
+   * A checkpoint is a provider snapshot that Runtime takes while a director works and deletes
+   * once two newer ones exist. Its files are read from a fork Runtime creates from the snapshot
+   * for this call alone: the fork holds exactly the checkpoint's workspace and runs no harness,
+   * so the capture has no session to copy. Runtime verifies the tree against the store and the
+   * checkpoint's marker file, journals its digest, and destroys the fork. Without this method, or
+   * when a capture fails, Runtime keeps the checkpoint: on Discovery Lab run
+   * terraform-dc-tokens-20261006d, 76 of the first 101 checkpoint deletions removed the only copy
+   * of a director's workspace at that moment.
+   *
+   * Captures run on their own queue of {@link maxConcurrentCaptures} slots, under {@link timeoutMs}.
+   */
+  captureCheckpoint?(
+    context: ProviderCheckpointCaptureContext,
+  ): Promise<AgentCandidateWorkspaceTree>
   /** Milliseconds between native captures of a running turn. Default 120,000. */
   readonly nativeIntervalMs?: number
   /** Bound on one native capture, including its queue wait. Default 120,000. */
@@ -240,6 +265,89 @@ export interface ProviderWorkspaceRetentionContext {
   readonly signal: AbortSignal
 }
 
+/** What {@link ProviderWorkspaceRetentionPort.captureCheckpoint} receives. */
+export interface ProviderCheckpointCaptureContext {
+  /** A fork of the checkpoint, created for this capture alone. It holds the checkpoint's
+   *  workspace and runs no harness. */
+  readonly environment: AgentEnvironment
+  /** The checkpoint the fork was created from. */
+  readonly checkpoint: WorkspaceCheckpointRef
+  /** Runtime artifact identity of this capture: `<node>:checkpoint:<checkpoint id>`. */
+  readonly executionId: string
+  /** The owner's profile; its harness names what the fork's source ran. */
+  readonly profile: AgentProfile
+  /** A fresh signal bounded by {@link ProviderWorkspaceRetentionPort.timeoutMs}. */
+  readonly signal: AbortSignal
+}
+
+const checkpointSlotKeys = new WeakMap<ProviderWorkspaceRetentionPort, CaptureSlots>()
+function checkpointSlots(port: ProviderWorkspaceRetentionPort): CaptureSlots {
+  let key = checkpointSlotKeys.get(port)
+  if (key === undefined) {
+    key = Object.freeze({ maxConcurrentCaptures: port.maxConcurrentCaptures })
+    checkpointSlotKeys.set(port, key)
+  }
+  return key
+}
+
+/**
+ * Capture a checkpoint through the port on its own queue and bound, then verify that the store
+ * holds every file of the returned tree and, when the checkpoint took a marker, that the tree
+ * holds the marker's exact bytes, which proves it read this checkpoint and no other state.
+ */
+export async function captureProviderCheckpointWorkspace(
+  port: ProviderWorkspaceRetentionPort,
+  context: Omit<ProviderCheckpointCaptureContext, 'signal'>,
+  marker: { readonly path: string; readonly content: string } | undefined,
+): Promise<AgentCandidateWorkspaceTree> {
+  assertProviderWorkspaceRetentionPort(port, 'provider workspace retention')
+  const capture = port.captureCheckpoint
+  if (capture === undefined)
+    throw new ValidationError('provider workspace retention: the port has no captureCheckpoint')
+  const controller = new AbortController()
+  const clearDeadline = armDeadlineTimer(
+    port.timeoutMs,
+    () => controller.abort(new Error(`checkpoint capture timed out after ${port.timeoutMs}ms`)),
+    true,
+  )
+  try {
+    return await runAbortable(
+      () =>
+        withCaptureSlot(checkpointSlots(port), controller.signal, async () => {
+          const tree = detachedSnapshot(
+            await capture.call(port, { ...context, signal: controller.signal }),
+            'checkpoint capture tree',
+          )
+          if (tree?.kind !== 'agent-candidate-workspace-tree')
+            throw new Error('checkpoint capture returned no workspace tree')
+          const material = await verifyAgentCandidateWorkspaceTree(tree, port.artifacts, {
+            ...(port.limits === undefined ? {} : { limits: port.limits }),
+            signal: controller.signal,
+          })
+          if (material.files.length !== tree.files)
+            throw new Error('checkpoint capture tree misstates its file count')
+          if (marker !== undefined) {
+            const bytes = Buffer.from(marker.content, 'utf8')
+            const held = material.files.find((file) => file.path === marker.path)
+            if (
+              held === undefined ||
+              held.byteLength !== bytes.byteLength ||
+              held.sha256 !== `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+            )
+              throw new Error(
+                `checkpoint capture does not hold the checkpoint's marker ${marker.path}`,
+              )
+          }
+          return tree
+        }),
+      controller.signal,
+      `checkpoint capture timed out after ${port.timeoutMs}ms`,
+    )
+  } finally {
+    clearDeadline()
+  }
+}
+
 /** Durable join from one provider box to the verified bytes retained before cleanup. */
 export interface ProviderWorkspaceCaptureReceipt {
   readonly executionId: string
@@ -283,6 +391,9 @@ export function assertProviderWorkspaceRetentionPort(
   }
   if (port.captureNative !== undefined && typeof port.captureNative !== 'function') {
     throw new ValidationError(`${context}: workspaceRetention.captureNative must be a function`)
+  }
+  if (port.captureCheckpoint !== undefined && typeof port.captureCheckpoint !== 'function') {
+    throw new ValidationError(`${context}: workspaceRetention.captureCheckpoint must be a function`)
   }
   for (const key of ['nativeIntervalMs', 'nativeTimeoutMs'] as const) {
     const value = port[key]

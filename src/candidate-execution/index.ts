@@ -159,10 +159,13 @@ export {
 } from './workspace-archive'
 export {
   type AgentCandidateWorkspaceArtifactsOptions,
+  type AgentCandidateWorkspaceTree,
   type CaptureAgentCandidateWorkspaceToArtifactsOptions,
   captureAgentCandidateWorkspaceToArtifacts,
+  captureAgentCandidateWorkspaceTreeToArtifacts,
   materializeAgentCandidateWorkspaceFromArtifacts,
   verifyAgentCandidateWorkspaceArtifacts,
+  verifyAgentCandidateWorkspaceTree,
 } from './workspace-streams'
 export {
   type DescribeWorkspaceTreeOptions,

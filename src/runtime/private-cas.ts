@@ -548,6 +548,29 @@ export function createPrivateCasArtifactPort(
     async read(ref) {
       return readRef(ref)
     },
+    async locate(object, options = {}) {
+      options.signal?.throwIfAborted()
+      const digest = object.sha256
+      const hex = hexOf(digest)
+      const ref: AgentCandidateArtifactRef = {
+        locator: { kind: 'private-cas', namespace, digest },
+        sha256: digest,
+        byteLength: object.byteLength,
+      }
+      try {
+        await checkDirectories(join(store, hex.slice(0, 2)), false)
+        const local = await lstat(destination(digest))
+        // An object is published whole by a link, so its length is the length it was written with.
+        if (local.isFile()) return local.size === object.byteLength ? ref : undefined
+      } catch (error) {
+        if (!missing(error)) throw error
+      }
+      if (durable === undefined) return undefined
+      const receipt = await readLocal(join(receipts, hex))
+      if (receipt === undefined) return undefined
+      const stored = JSON.parse(Buffer.from(receipt).toString('utf8')) as { byteLength?: unknown }
+      return stored.byteLength === object.byteLength ? ref : undefined
+    },
     offload,
   }
 
