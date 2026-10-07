@@ -185,7 +185,10 @@ describe('supervision deadlines', () => {
     vi.setSystemTime(5_000)
     const { scope } = await beginScope({ maxIterations: 1, maxTokens: 10 }, { idleMs: 1_000 })
     const child = steerableLeaf('silent')
-    scope.spawn(child.agent, 'task', { budget: { maxIterations: 1, maxTokens: 10, deadlineMs: 100 }, label: 'silent' })
+    scope.spawn(child.agent, 'task', {
+      budget: { maxIterations: 1, maxTokens: 10, deadlineMs: 100 },
+      label: 'silent',
+    })
 
     await vi.advanceTimersByTimeAsync(100)
     expect(child.messages).toHaveLength(1)
@@ -203,7 +206,10 @@ describe('supervision deadlines', () => {
     vi.setSystemTime(6_000)
     const { scope } = await beginScope({ maxIterations: 1, maxTokens: 10 }, { idleMs: 1_000 })
     const child = steerableLeaf('busy', { activeUntil: 6_000 + 100 + 5_000 })
-    scope.spawn(child.agent, 'task', { budget: { maxIterations: 1, maxTokens: 10, deadlineMs: 100 }, label: 'busy' })
+    scope.spawn(child.agent, 'task', {
+      budget: { maxIterations: 1, maxTokens: 10, deadlineMs: 100 },
+      label: 'busy',
+    })
 
     await vi.advanceTimersByTimeAsync(100 + 4_500)
     expect(scope.view.inFlight).toBe(1)
@@ -218,19 +224,25 @@ describe('supervision deadlines', () => {
     vi.setSystemTime(7_000)
     const { scope } = await beginScope({ maxIterations: 1, maxTokens: 10 }, false)
     const child = steerableLeaf('boxed')
-    scope.spawn(child.agent, 'task', { budget: { maxIterations: 1, maxTokens: 10, deadlineMs: 100 }, label: 'boxed' })
+    scope.spawn(child.agent, 'task', {
+      budget: { maxIterations: 1, maxTokens: 10, deadlineMs: 100 },
+      label: 'boxed',
+    })
 
     await vi.advanceTimersByTimeAsync(100)
     expect(child.messages).toEqual([])
     expect(await scope.next()).toMatchObject({ kind: 'down', reason: 'aborted before settle' })
   })
 
-  it('stops a steerable child at the run\'s own deadline without a check-in', async () => {
+  it("stops a steerable child at the run's own deadline without a check-in", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(8_000)
     const { scope } = await beginScope({ maxIterations: 1, maxTokens: 10, deadlineMs: 50 })
     const child = steerableLeaf('inherits')
-    scope.spawn(child.agent, 'task', { budget: { maxIterations: 1, maxTokens: 10 }, label: 'inherits' })
+    scope.spawn(child.agent, 'task', {
+      budget: { maxIterations: 1, maxTokens: 10 },
+      label: 'inherits',
+    })
 
     await vi.advanceTimersByTimeAsync(50)
     expect(child.messages).toEqual([])
@@ -238,7 +250,9 @@ describe('supervision deadlines', () => {
   })
 
   it('refuses a malformed check-in policy before any child runs', async () => {
-    await expect(beginScope({ maxIterations: 1, maxTokens: 10 }, { idleMs: 0 })).rejects.toThrow(/idleMs/)
+    await expect(beginScope({ maxIterations: 1, maxTokens: 10 }, { idleMs: 0 })).rejects.toThrow(
+      /idleMs/,
+    )
   })
 
   it('clears a child deadline when the child finishes first', async () => {
@@ -256,7 +270,10 @@ describe('supervision deadlines', () => {
   })
 })
 
-async function beginScope(budget: Budget, deadlineCheckIn?: DeadlineCheckIn): Promise<{ scope: Scope<unknown> }> {
+async function beginScope(
+  budget: Budget,
+  deadlineCheckIn?: DeadlineCheckIn,
+): Promise<{ scope: Scope<unknown> }> {
   const journal = new InMemorySpawnJournal()
   await journal.beginTree('deadline-scope', new Date(Date.now()).toISOString())
   return {
@@ -294,7 +311,8 @@ function steerableLeaf(
       }),
     deliver(message: unknown): boolean {
       messages.push(message)
-      if (options.submitOnCheckIn !== undefined) queueMicrotask(() => finish(options.submitOnCheckIn as string))
+      if (options.submitOnCheckIn !== undefined)
+        queueMicrotask(() => finish(options.submitOnCheckIn as string))
       return true
     },
     progress: () =>
@@ -303,7 +321,11 @@ function steerableLeaf(
         : undefined,
     teardown: async () => ({ destroyed: true }),
   }
-  const agent = { name, act: async () => name, executorSpec: { profile: testAgentProfile(name), harness: null, executor } } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+  const agent = {
+    name,
+    act: async () => name,
+    executorSpec: { profile: testAgentProfile(name), harness: null, executor },
+  } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
   return { agent, messages, finish: (out) => finish(out) }
 }
 

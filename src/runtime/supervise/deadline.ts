@@ -42,7 +42,9 @@ export function checkInIdleMs(policy: DeadlineCheckIn | undefined): number | und
   if (policy === false) return undefined
   const idleMs = policy?.idleMs ?? DEFAULT_CHECK_IN_IDLE_MS
   if (!Number.isSafeInteger(idleMs) || idleMs <= 0) {
-    throw new ValidationError('deadlineCheckIn.idleMs must be a positive safe integer of milliseconds')
+    throw new ValidationError(
+      'deadlineCheckIn.idleMs must be a positive safe integer of milliseconds',
+    )
   }
   return idleMs
 }

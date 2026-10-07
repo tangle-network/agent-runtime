@@ -1278,6 +1278,12 @@ export {
   DEFAULT_DEADLINE_WARNING_MS,
   type ManagerWakePolicy,
 } from './supervise/wake'
+// What a child's own time box does: a check-in that keeps it running while it makes progress.
+export {
+  DEADLINE_CHECK_IN_MESSAGE,
+  type DeadlineCheckIn,
+  DEFAULT_CHECK_IN_IDLE_MS,
+} from './supervise/deadline'
 // The bounded settle-evidence block a worker exposes so the brain's next decision is not authored
 // blind. Complementary to `CompletionEvidence` (a pointer), which this block is the target of.
 // Promoted from the loops repo (#4519).
