@@ -2442,6 +2442,46 @@ describe('supervisor', () => {
     if (result.kind === 'no-winner') expect(result.reason).toBe('cancelled')
   })
 
+  it('rejects unsupported root signals without affecting live children, then cancels the tree', async () => {
+    const handle = createRootHandle<unknown>()
+    const supervisor = createSupervisor<unknown, unknown>()
+    supervisor.attach(handle)
+    const result = await supervisor.run(
+      {
+        name: 'root-signals',
+        async act(_task, scope) {
+          const child = scope.spawn(
+            leafAgent('live-child', { out: 'done', events: [], block: deferred().promise }),
+            'task',
+            { budget: { maxIterations: 1, maxTokens: 10 }, label: 'live-child' },
+          )
+          expect(child.ok).toBe(true)
+          const budget = scope.budget
+          for (const signal of [
+            { kind: 'pause' },
+            { kind: 'resume' },
+            { kind: 'ask', question: 'What is running?' },
+          ]) {
+            expect(() => Reflect.apply(handle.signal, handle, [signal])).toThrow(ValidationError)
+            expect(scope.signal.aborted).toBe(false)
+            expect(scope.view.inFlight).toBe(1)
+            expect(scope.budget).toEqual(budget)
+          }
+          handle.signal({ kind: 'cancel', reason: 'operator stop' })
+          await scope.next()
+        },
+      },
+      'task',
+      supervisorOpts(),
+    )
+    expect(result).toMatchObject({
+      reason: 'cancelled',
+      source: 'root-signal',
+      cancellationReason: 'operator stop',
+    })
+    expect(result.tree.nodes.find((node) => node.label === 'live-child')?.status).toBe('cancelled')
+  })
+
   it('a bound RootHandle reads the live tree and is fail-loud when detached', async () => {
     const handle = createRootHandle<unknown>()
     // Detached: every method is a typed throw, never a silent no-op.

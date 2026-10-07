@@ -2597,6 +2597,7 @@ export interface RootHandle<Out> {
   /** Optional for structural compatibility with existing view/signal/abort wrappers. Handles
    * minted by `createRootHandle` implement the required form in `SteerableRootHandle`. */
   deliver?(msg: unknown): boolean
+  /** Cancel the live tree. Unsupported signals from older callers throw a validation error. */
   signal(msg: RootSignal): void
   abort(reason?: string): void
   /** Phantom: binds the handle to the supervised run's output type. Type-only — never
@@ -2610,12 +2611,8 @@ export interface SteerableRootHandle<Out> extends RootHandle<Out> {
   deliver(msg: unknown): boolean
 }
 
-/** Out-of-band message to a running root. Open by intent — a client extends it. */
-export type RootSignal =
-  | { kind: 'pause' }
-  | { kind: 'resume' }
-  | { kind: 'cancel'; reason?: string }
-  | { kind: 'ask'; question: string }
+/** Cancellation of a running root. Send steering or answers through the root's `deliver` inbox. */
+export type RootSignal = { kind: 'cancel'; reason?: string }
 
 // ── Widening governor ────────────────────────────────────────────────────────
 

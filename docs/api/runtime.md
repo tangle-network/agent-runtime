@@ -27718,6 +27718,8 @@ minted by `createRootHandle` implement the required form in `SteerableRootHandle
 
 > **signal**(`msg`): `void`
 
+Cancel the live tree. Unsupported signals from older callers throw a validation error.
+
 ###### Parameters
 
 ###### msg
@@ -27789,6 +27791,8 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 ##### signal()
 
 > **signal**(`msg`): `void`
+
+Cancel the live tree. Unsupported signals from older callers throw a validation error.
 
 ###### Parameters
 
@@ -35883,9 +35887,19 @@ The driver's own rejection, carried across the typed no-winner boundary so the f
 
 ### RootSignal
 
-> **RootSignal** = \{ `kind`: `"pause"`; \} \| \{ `kind`: `"resume"`; \} \| \{ `kind`: `"cancel"`; `reason?`: `string`; \} \| \{ `kind`: `"ask"`; `question`: `string`; \}
+> **RootSignal** = `object`
 
-Out-of-band message to a running root. Open by intent — a client extends it.
+Cancellation of a running root. Send steering or answers through the root's `deliver` inbox.
+
+#### Properties
+
+##### kind
+
+> **kind**: `"cancel"`
+
+##### reason?
+
+> `optional` **reason?**: `string`
 
 ***
 

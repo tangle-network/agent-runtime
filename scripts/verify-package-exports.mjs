@@ -252,6 +252,7 @@ try {
       // The caller-brain seam is production: ToolLoopChat resolves from /kernel (issue 694 option A).
       import {
         attachWorker,
+        createRootHandle,
         type ObserveInput,
         type ObserveOptions,
         readWorkerSteerAcknowledgement,
@@ -289,6 +290,14 @@ try {
       } from '@tangle-network/agent-runtime/intelligence'
 
       const promptSource = createCertifiedPromptSource({ target: 'packed-consumer' })
+      const rootHandle = createRootHandle()
+      rootHandle.signal({ kind: 'cancel', reason: 'operator stop' })
+      // @ts-expect-error Runtime does not implement topology pause.
+      rootHandle.signal({ kind: 'pause' })
+      // @ts-expect-error Runtime does not implement topology resume.
+      rootHandle.signal({ kind: 'resume' })
+      // @ts-expect-error Messages go through the root inbox, not a discarded signal.
+      rootHandle.signal({ kind: 'ask', question: 'What is running?' })
       const forcedPromptRefresh: Promise<void> = promptSource.refresh({ force: true })
       const ordinaryPromptRefresh: Promise<void> = promptSource.refresh()
       // @ts-expect-error Forced refresh is explicit boolean policy, not a truthy string.
@@ -619,6 +628,33 @@ try {
         const root = await import('@tangle-network/agent-runtime')
         const kernel = await import('@tangle-network/agent-runtime/kernel')
         const toolLoop = await import('@tangle-network/agent-runtime/tool-loop')
+        const assert = (await import('node:assert/strict')).default
+        const handle = kernel.createRootHandle()
+        const supervisor = kernel.createSupervisor()
+        supervisor.attach(handle)
+        const cancellation = await supervisor.run({
+          name: 'packed-root-signals',
+          async act(_task, scope) {
+            for (const signal of [
+              { kind: 'pause' },
+              { kind: 'resume' },
+              { kind: 'ask', question: 'What is running?' },
+            ]) {
+              assert.throws(() => handle.signal(signal), root.ValidationError)
+              assert.equal(scope.signal.aborted, false)
+            }
+            handle.signal({ kind: 'cancel', reason: 'packed consumer stop' })
+          },
+        }, 'task', {
+          budget: { maxIterations: 1, maxTokens: 10 },
+          runId: 'packed-root-signals',
+          journal: new kernel.InMemorySpawnJournal(),
+          blobs: new kernel.InMemoryResultBlobStore(),
+          executors: kernel.createExecutorRegistry(),
+        })
+        assert.equal(cancellation.reason, 'cancelled')
+        assert.equal(cancellation.source, 'root-signal')
+        assert.equal(cancellation.cancellationReason, 'packed consumer stop')
         for (const name of ['attachWorker', 'readWorkerSteerAcknowledgement', 'writeWorkerSteer']) {
           if (typeof kernel[name] !== 'function') throw new Error('missing kernel export ' + name)
         }
