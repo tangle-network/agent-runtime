@@ -665,6 +665,18 @@ digests itself from the exact detached values it executes.
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-2)
 
+##### selectSeat?
+
+> `readonly` `optional` **selectSeat?**: [`SelectSeat`](runtime.md#selectseat-1)
+
+Resolve an authored subscription stage to one eligible seat and a backend pinned to its
+credential reference. The callback may report stage exhaustion with `resumeAt`; Runtime
+advances the authored chain and never writes credentials into its record.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`selectSeat`](runtime.md#selectseat-2)
+
 ##### resolveDeliverable?
 
 > `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `null` \| `undefined`
@@ -1479,6 +1491,18 @@ WHERE workers run — derives the worker seam. Provide this OR an explicit `make
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`backend`](runtime.md#backend-4)
+
+##### selectSeat?
+
+> `readonly` `optional` **selectSeat?**: [`SelectSeat`](runtime.md#selectseat-1)
+
+Resolve an authored subscription stage to one eligible seat and a backend pinned to its
+credential reference. The callback may report stage exhaustion with `resumeAt`; Runtime
+advances the authored chain and never writes credentials into its record.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`selectSeat`](runtime.md#selectseat-2)
 
 ##### deliverable?
 
