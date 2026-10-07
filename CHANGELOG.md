@@ -1,3 +1,7 @@
+## 0.307.1
+
+Align release verification with agent-interface 3.1.1 and its profile seat axis so the 0.307 recovery changes can publish.
+
 ## 0.307.0
 
 Capture and verify a running provider workspace on its own interval, so a failed final capture does not erase all workspace evidence from a long turn.
