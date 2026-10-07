@@ -284,6 +284,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'authorizeSpawn',
   'router',
   'driveHarness',
+  'selectSeat',
   'driverRetry',
   'onDriverAttempt',
   'workerRetry',

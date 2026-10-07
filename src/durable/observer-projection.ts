@@ -1,3 +1,4 @@
+import type { SeatSegment } from '../runtime/supervise/seat-chain'
 import type {
   BudgetOverspend,
   BudgetViolation,
@@ -127,6 +128,9 @@ export interface PursuitRunProjection {
   readonly status: PursuitStatus
   readonly settledAt?: number
   readonly error?: string
+  /** Subscription execution of the root manager, ordered across seat changes. */
+  readonly segments?: ReadonlyArray<SeatSegment>
+  readonly resumeAt?: string
   readonly firstSequence: number
   readonly lastSequence: number
   readonly firstObservedAt: number
@@ -189,6 +193,9 @@ export interface PursuitNodeProjection {
   readonly score?: number
   readonly valid?: boolean
   readonly reason?: string
+  /** Subscription execution of this logical child, ordered across seat changes. */
+  readonly segments?: ReadonlyArray<SeatSegment>
+  readonly resumeAt?: string
   readonly infra?: boolean
   /** Recorded by Runtime on the `agent.child` payload: `'pending'` at a retained child's
    *  settlement, `'released'` when root settlement destroyed its environment without recovery,
@@ -237,6 +244,8 @@ type MutableRun = {
   status: PursuitStatus
   settledAt?: number
   error?: string
+  segments?: SeatSegment[]
+  resumeAt?: string
   firstSequence: number
   lastSequence: number
   firstObservedAt: number
@@ -284,6 +293,8 @@ type MutableNode = {
   score?: number
   valid?: boolean
   reason?: string
+  segments?: SeatSegment[]
+  resumeAt?: string
   infra?: boolean
   retainedExecution?: RetainedExecutionState
   retainedPendingCause?: RetainedPendingCause
@@ -340,6 +351,7 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
       projectRunActivity(run, record)
       projectSpawnNode(nodes, record, run.attemptIndex)
       projectNodeActivity(nodes, record)
+      projectSeat(run, nodes, record)
       projectTurn(run, nodes, record)
     } else if (record.decision) {
       decisionCount += 1
@@ -383,6 +395,50 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
     eventCount,
     decisionCount,
   })
+}
+
+function projectSeat(
+  run: MutableRun,
+  nodes: Map<string, MutableNode>,
+  record: ObserverRecord,
+): void {
+  const event = record.event
+  if (event?.target !== 'agent.seat') return
+  const payload = objectRecord(event.payload)
+  const phase = stringField(payload, 'phase')
+  const node = nodes.get(nodeKey(event.runId, stringField(payload, 'nodeId') ?? ''))
+  const owner = node ?? run
+  if (phase === 'paused') {
+    const resumeAt = stringField(payload, 'resumeAt')
+    if (resumeAt) owner.resumeAt = resumeAt
+    return
+  }
+  if (phase === 'resumed') {
+    delete owner.resumeAt
+    return
+  }
+  const raw = objectRecord(payload?.segment)
+  const seat = stringField(raw, 'seat')
+  const harness = stringField(raw, 'harness')
+  const provider = stringField(raw, 'provider')
+  const model = stringField(raw, 'model')
+  const startedAt = stringField(raw, 'startedAt')
+  if (!seat || !harness || !provider || !model || !startedAt) return
+  if (owner.segments === undefined) owner.segments = []
+  const segments = owner.segments
+  if (phase === 'started') {
+    if (!segments.some((segment) => segment.startedAt === startedAt && segment.seat === seat)) {
+      segments.push({ seat, harness, provider, model, startedAt })
+    }
+  } else if (phase === 'ended') {
+    const endedAt = stringField(raw, 'endedAt')
+    const reason = stringField(raw, 'reason') as SeatSegment['reason']
+    if (!endedAt || !reason) return
+    const index = segments.findIndex(
+      (segment) => segment.startedAt === startedAt && segment.seat === seat,
+    )
+    if (index >= 0) segments[index] = { seat, harness, provider, model, startedAt, endedAt, reason }
+  }
 }
 
 function attemptKey(runId: string, attemptIndex: number): string {
@@ -804,9 +860,12 @@ function timingOf(node: MutableNode): PursuitNodeTiming | undefined {
 
 function freezeRun(run: MutableRun, nodes: readonly MutableNode[]): PursuitRunProjection {
   const gaps = runSpendGaps(nodes)
-  const { rootInference: _rootInference, started: _started, ...rest } = run
+  const { rootInference: _rootInference, started: _started, segments, ...rest } = run
   return Object.freeze({
     ...rest,
+    ...(segments?.length
+      ? { segments: Object.freeze(segments.map((segment) => Object.freeze(segment))) }
+      : {}),
     targets: Object.freeze({ ...run.targets }),
     decisions: Object.freeze({ ...run.decisions }),
     totals: runTotals(run, nodes),
@@ -817,6 +876,7 @@ function freezeRun(run: MutableRun, nodes: readonly MutableNode[]): PursuitRunPr
 function freezeNode(node: MutableNode): PursuitNodeProjection {
   const {
     modelCalls,
+    segments,
     reasoningTokens,
     startedAt: _startedAt,
     attemptIndex: _attemptIndex,
@@ -826,6 +886,9 @@ function freezeNode(node: MutableNode): PursuitNodeProjection {
   const timing = timingOf(node)
   return Object.freeze({
     ...rest,
+    ...(segments?.length
+      ? { segments: Object.freeze(segments.map((segment) => Object.freeze(segment))) }
+      : {}),
     ...(modelCalls.length > 0 ? { modelCalls: Object.freeze([...modelCalls]) } : {}),
     ...(total !== undefined ? { usage: usageOf(total, reasoningTokens), cost: costOf(total) } : {}),
     ...(total !== undefined && platformOf(total) !== undefined

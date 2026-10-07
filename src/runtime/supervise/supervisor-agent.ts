@@ -64,6 +64,7 @@ import {
   type DriverAttemptRecord,
   type DriverContinuationRecord,
   type DriverProgressMark,
+  type DriverReentry,
   type DriverRetryPolicy,
   runDriverWithRetry,
   summarizeDriverAttempts,
@@ -81,6 +82,11 @@ import {
 import { isLiveNodeStatus } from './node-status'
 import type { PeerMailLimits } from './peer-mail'
 import type { ExecutorProgress } from './progress'
+import {
+  coordinationMcpAlias,
+  coordinationProfileToolPrefix,
+  providerVisibleProfile,
+} from './provider-visible-profile'
 import { composeReentryTask, type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
 import { readRootStream } from './root-stream'
 import { createRouterTranscript } from './router-transcript'
@@ -115,11 +121,11 @@ import {
 } from './wake'
 import { observeWorkerControls } from './worker-control-observer'
 
-/** Runtime-owned coordination is mounted under this MCP alias. */
-export const coordinationMcpAlias = 'agent-runtime-coordination'
-
-/** A profile declares Runtime-owned tools with this provider-neutral prefix. */
-export const coordinationProfileToolPrefix = `${coordinationMcpAlias.replaceAll('-', '_')}_`
+export {
+  coordinationMcpAlias,
+  coordinationProfileToolPrefix,
+  providerVisibleProfile,
+} from './provider-visible-profile'
 
 const coordinationVerbNameSet = new Set<string>(coordinationVerbNames)
 
@@ -163,27 +169,6 @@ export function assertNoReservedCoordinationMcpAlias(profile: AgentProfile, cont
   throw new ValidationError(
     `${context}: profile MCP alias ${JSON.stringify(coordinationMcpAlias)} is reserved for Runtime coordination`,
   )
-}
-
-/**
- * Project one canonical profile to the profile a provider may receive.
- *
- * The reserved prefix is Runtime-owned in its entirety. A `true` declaration must resolve to a
- * mounted Runtime or product descriptor before execution; a `false` declaration grants nothing.
- * Neither is a provider-native tool. Stripping the whole namespace keeps a false or refused grant
- * from becoming an invented harness capability during strict materialization.
- */
-export function providerVisibleProfile(profile: AgentProfile): AgentProfile {
-  if (profile.tools === undefined) return profile
-  const providerTools = Object.fromEntries(
-    Object.entries(profile.tools).filter(
-      ([name]) => !name.startsWith(coordinationProfileToolPrefix),
-    ),
-  )
-  if (Object.keys(providerTools).length === Object.keys(profile.tools).length) return profile
-  if (Object.keys(providerTools).length > 0) return { ...profile, tools: providerTools }
-  const { tools: _runtimeTools, ...withoutTools } = profile
-  return withoutTools
 }
 
 /** A supervisor is an exact canonical AgentProfile; no looser model/prompt shape exists. */
@@ -486,6 +471,8 @@ export interface DriveHarness {
      *  the coordinator's run state, which is right for any backend. A harness that can prove what
      *  the next turn continues composes the task from that proof instead, and reports it. */
     readonly reentry?: {
+      /** Why Runtime is re-entering; a typed usage limit may advance an authored seat chain. */
+      readonly reason: DriverReentry
       readonly compose: (continuity: ReentryContinuity) => string
       readonly onContinuity?: (continuity: ReentryContinuity) => void
     }
@@ -507,6 +494,8 @@ export interface DriveHarness {
   harnessTranscript?(): HarnessTranscriptCapture | undefined
   /** Resolves once {@link harnessTranscript} is final (`Executor.harnessTranscriptSettled`). */
   harnessTranscriptSettled?(): Promise<void>
+  /** Close the last subscription segment at this logical manager's settlement. */
+  closeSeatSegment?(reason: 'completed' | 'failed' | 'cancelled' | 'paused'): Promise<void>
 }
 
 /** Trusted manager identity available before its external harness starts. A product uses this to
@@ -1338,6 +1327,7 @@ function buildSupervisorAgent(
             continuations: keeper?.entries() ?? [],
           })
         }
+        let driverFailed = true
         try {
           await runDriverWithRetry({
             drive: async (attempt, reentry) => {
@@ -1377,6 +1367,7 @@ function buildSupervisorAgent(
                     ? {}
                     : {
                         reentry: {
+                          reason: reentry!,
                           compose,
                           onContinuity: (continuity: ReentryContinuity) => {
                             if (continuity.environment === 'replaced') environmentReplacements += 1
@@ -1489,7 +1480,11 @@ function buildSupervisorAgent(
               await deps.onDriverAttempt?.(record)
             },
           })
+          driverFailed = false
         } finally {
+          await driveHarness.closeSeatSegment?.(
+            scope.signal.aborted ? 'cancelled' : driverFailed ? 'failed' : 'completed',
+          )
           settleLoop()
         }
         // Without a parent oracle, preserve the single finalization after the driver finishes.

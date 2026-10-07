@@ -42,6 +42,7 @@ import { ValidationError } from '../../errors'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { addSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
+import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { ACCEPTED_RESULT_GRACE_MS, armDeadlineTimer } from './deadline'
 import { executableAgentSpecSnapshot } from './executable-spec'
 import {
@@ -94,6 +95,9 @@ interface DriverSpec extends AgentSpec {
   /** Reads whether this manager accepted a direct result through its assignment's completion
    *  check. The check itself runs in the manager, exactly once, before this executor settles. */
   readonly acceptedSubmission?: () => boolean
+  /** A seat-bearing leaf reuses the retained manager lifecycle; its original leaf check
+   * still gates the outer artifact, without granting submit_result to its profile. */
+  readonly leafDeliverable?: DeliverableSpec<unknown>
   /** The driver returned native evidence without an assignment quality check. */
   readonly unassessedOutput?: () => boolean
   readonly recoverExecutor?: ExecutorFactory<unknown>
@@ -120,6 +124,7 @@ export function driverChild<Out>(
   acceptedSubmission?: () => boolean,
   recoverExecutor?: ExecutorFactory<unknown>,
   unassessedOutput?: () => boolean,
+  leafDeliverable?: DeliverableSpec<unknown>,
 ): Agent<unknown, Out> {
   const name = profile.name ?? driver.name
   const traceSource = (
@@ -143,6 +148,7 @@ export function driverChild<Out>(
     journal,
     ...(acceptedSubmission ? { acceptedSubmission } : {}),
     ...(unassessedOutput ? { unassessedOutput } : {}),
+    ...(leafDeliverable ? { leafDeliverable } : {}),
     ...(recoverExecutor ? { recoverExecutor } : {}),
     ...(traceSource ? { traceSource } : {}),
     ...(progress ? { progress } : {}),
@@ -497,7 +503,11 @@ export function withDriverExecutor(base: ExecutorRegistry): ExecutorRegistry {
         return {
           succeeded: true as const,
           value: ((_ignored, context) =>
-            driverExecutorFactory(spec, context)) as ExecutorFactory<Out>,
+            isDriverSpec(spec) && spec.leafDeliverable
+              ? attestNestedDriverTreeOwner(
+                  gateOnDeliverable(driverExecutorFactory(spec, context), spec.leafDeliverable),
+                )
+              : driverExecutorFactory(spec, context)) as ExecutorFactory<Out>,
         }
       }
       const resolved = base.resolve<Out>(spec)

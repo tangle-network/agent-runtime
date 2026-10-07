@@ -812,6 +812,8 @@ interface JournalNodeIndex {
   spawned: boolean
   closed: boolean
   materialized: boolean
+  authoredProfileDigest?: string
+  latestSeatMaterialization: number
   bindings: Set<string>
   inputs: Set<number>
   input: boolean
@@ -856,6 +858,20 @@ export class SpawnEventIndex {
         )
       }
     }
+    if (event.kind === 'seat-materialized') {
+      if (
+        !node?.materialized ||
+        node.authoredProfileDigest === undefined ||
+        event.receipt.status !== 'known' ||
+        event.receipt.authoredProfileDigest !== node.authoredProfileDigest ||
+        !Number.isSafeInteger(event.segmentIndex) ||
+        event.segmentIndex <= node.latestSeatMaterialization
+      ) {
+        throw new Error(
+          `spawn journal corrupted: invalid seat materialization for node '${event.id}' in tree '${this.root}'`,
+        )
+      }
+    }
     if (event.kind === 'execution-bound') {
       if (node?.bindings.has(event.binding.attemptId)) {
         throw new Error(
@@ -882,6 +898,7 @@ export class SpawnEventIndex {
     if (
       event.kind !== 'spawned' &&
       event.kind !== 'materialized' &&
+      event.kind !== 'seat-materialized' &&
       event.kind !== 'execution-bound' &&
       event.kind !== 'execution-input' &&
       event.kind !== 'execution-admitted' &&
@@ -896,6 +913,7 @@ export class SpawnEventIndex {
         spawned: false,
         closed: false,
         materialized: false,
+        latestSeatMaterialization: 0,
         bindings: new Set(),
         inputs: new Set(),
         input: false,
@@ -913,7 +931,11 @@ export class SpawnEventIndex {
       node.lastEnvironmentId = event.admission.environmentId
     }
     if (event.kind === 'spawned') node.spawned = true
-    else if (event.kind === 'materialized') node.materialized = true
+    else if (event.kind === 'materialized') {
+      node.materialized = true
+      node.authoredProfileDigest = event.receipt.authoredProfileDigest
+    } else if (event.kind === 'seat-materialized')
+      node.latestSeatMaterialization = event.segmentIndex
     else if (event.kind === 'execution-bound') node.bindings.add(event.binding.attemptId)
     else if (event.kind === 'execution-input') {
       node.inputs.add(event.seq)
@@ -1039,6 +1061,9 @@ const outsideCursorNamespaceKinds = [
   'workspace-restored',
   'workspace-capture',
   'trace-unpropagated',
+  'seat-segment',
+  'seat-materialized',
+  'seat-paused',
   'paused',
   'driver-attempt',
   'node-inputs-resolved',
@@ -1153,6 +1178,8 @@ export async function replaySpawnTree(
     if (ev.kind === 'workspace-restored') continue // workspace receipt, not a settlement
     if (ev.kind === 'workspace-capture') continue // capture timing, not a settlement
     if (ev.kind === 'trace-unpropagated') continue // severed-hop marker, not a settlement
+    if (ev.kind === 'seat-segment' || ev.kind === 'seat-materialized' || ev.kind === 'seat-paused')
+      continue // placement evidence
     if (ev.kind === 'paused') continue // an unavailable upstream's pause, not a settlement
     if (ev.kind === 'driver-attempt') continue // driver diagnosis, not a settlement
     if (ev.kind === 'node-inputs-resolved') continue // graph-engine fold input, not a settlement
@@ -1357,7 +1384,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
   // Materialization is node evidence, not a settlement. Fold it after node creation and before
   // freezing the view; exactly one receipt per node is enforced by the journal corruption guard.
   for (const ev of events) {
-    if (ev.kind !== 'materialized') continue
+    if (ev.kind !== 'materialized' && ev.kind !== 'seat-materialized') continue
     const node = requireNode(nodes, ev.id)
     node.materialization = ev.receipt
     node.runtime = ev.receipt.runtime

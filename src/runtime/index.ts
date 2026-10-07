@@ -1088,6 +1088,12 @@ export {
   SUBTREE_RESULT_LIMIT,
   settledToIteration,
 } from './supervise/scope'
+export type {
+  SeatSegment,
+  SeatSelection,
+  SeatSelectionInput,
+  SelectSeat,
+} from './supervise/seat-chain'
 // The fenced, cross-machine variant: one compare-and-set head, generation fencing, lease
 // heartbeats, lost-ack recovery, and a SQL coordination side-log. @experimental.
 export {
