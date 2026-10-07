@@ -2633,6 +2633,19 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`reservationPolicy`](runtime.md#reservationpolicy-2)
 
+##### deadlineCheckIn?
+
+> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](runtime.md#deadlinecheckin)
+
+What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default: a check-in;
+ the child is told to save its state and submit what it has, and is stopped only once it then
+ makes no progress for 30 min. `false` stops it at the time box. The run's own deadline always
+ stops every node. See `deadline.ts` `DeadlineCheckIn`.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-3)
+
 ##### workerSlots?
 
 > `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-6)
