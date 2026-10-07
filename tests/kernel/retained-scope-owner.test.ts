@@ -31,6 +31,7 @@ import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Scope, SpawnEvent } from '../../src/runtime/supervise/types'
 import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
+import { captureProfile, checkpointCaptureFixture } from '../helpers/checkpoint-capture'
 
 function checkpointFixture(
   options: {
@@ -56,12 +57,20 @@ function checkpointFixture(
   }
   let lost = false
   let deletes = 0
+  const files = new Map<string, string>()
+  const snapshots = new Map<string, ReadonlyMap<string, string>>()
+  const capture = checkpointCaptureFixture({
+    provider: source.provider,
+    snapshotFiles: (id) => snapshots.get(id),
+  })
   const environment: AgentEnvironment = {
     id: source.environmentId,
     provider: source.provider,
     status: async () => 'running',
     async *stream() {},
-    write: async () => {},
+    write: async (path, content) => {
+      files.set(path, String(content))
+    },
     destroy: async () => {
       lost = true
     },
@@ -69,6 +78,7 @@ function checkpointFixture(
       checkpoint: async (
         request: WorkspaceCheckpointRequest,
       ): Promise<WorkspaceCheckpointResult> => {
+        snapshots.set('owned-checkpoint', new Map(files))
         const foreign = options.foreign
         const key = foreign === 'key' ? 'foreign-key' : request.idempotencyKey
         const digest =
@@ -99,15 +109,7 @@ function checkpointFixture(
       lookupCheckpoint: async () => {
         throw new Error('not used')
       },
-      fork: async () => {
-        throw new Error('not used')
-      },
-      lookupFork: async () => {
-        throw new Error('not used')
-      },
-      destroyFork: async () => {
-        throw new Error('not used')
-      },
+      ...capture.branching,
     },
   }
   const provider: AgentEnvironmentProvider = {
@@ -116,7 +118,8 @@ function checkpointFixture(
     create: async () => {
       throw new Error('not used')
     },
-    get: async () => (lost ? null : environment),
+    get: async (id) =>
+      id === source.environmentId ? (lost ? null : environment) : capture.forkEnvironment(id),
   }
   const register = (scope: Scope<unknown>) => {
     registerScopeRetainedOwner(scope, {
@@ -133,11 +136,15 @@ function checkpointFixture(
         },
       },
     })
-    bindScopeRetainedOwnerProvider(scope, provider)
+    bindScopeRetainedOwnerProvider(scope, provider, {
+      port: capture.port,
+      profile: captureProfile,
+    })
   }
   return {
     events,
     register,
+    capture,
     deletes: () => deletes,
     async checkpoint(scope: Scope<unknown>) {
       register(scope)

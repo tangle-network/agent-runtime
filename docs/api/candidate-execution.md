@@ -1628,6 +1628,32 @@ Stream an artifact without materializing its complete contents.
 
 `AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>\>
 
+##### locate()?
+
+> `optional` **locate**(`object`, `options?`): `Promise`\<`AgentCandidateArtifactRef` \| `undefined`\>
+
+**`Experimental`**
+
+The stored object with exactly this digest and length, or undefined when the store holds
+none. It finds an object by its content alone, so a workspace stored one object per file can
+skip every file the store already holds, and be read back from its manifest.
+
+###### Parameters
+
+###### object
+
+`Pick`\<`AgentCandidateArtifactRef`, `"sha256"` \| `"byteLength"`\>
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`AgentCandidateArtifactRef` \| `undefined`\>
+
 ***
 
 ### AgentCandidateOutputArtifactPort
@@ -1693,6 +1719,36 @@ Stream an artifact without materializing its complete contents.
 ###### Inherited from
 
 [`AgentCandidateArtifactPort`](#agentcandidateartifactport).[`readStream`](#readstream)
+
+##### locate()?
+
+> `optional` **locate**(`object`, `options?`): `Promise`\<`AgentCandidateArtifactRef` \| `undefined`\>
+
+**`Experimental`**
+
+The stored object with exactly this digest and length, or undefined when the store holds
+none. It finds an object by its content alone, so a workspace stored one object per file can
+skip every file the store already holds, and be read back from its manifest.
+
+###### Parameters
+
+###### object
+
+`Pick`\<`AgentCandidateArtifactRef`, `"sha256"` \| `"byteLength"`\>
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`AgentCandidateArtifactRef` \| `undefined`\>
+
+###### Inherited from
+
+[`AgentCandidateArtifactPort`](#agentcandidateartifactport).[`locate`](#locate)
 
 ##### putStream()?
 
@@ -3519,6 +3575,64 @@ Caller-owned bytes accepted by createAgentCandidateWorkspacePort.
 
 ***
 
+### AgentCandidateWorkspaceTree
+
+**`Experimental`**
+
+A workspace stored as one content-addressed object per file plus the manifest that names them.
+
+Its digest is the manifest's, the same identity an archived capture of the same files has. Two
+trees share every file they have in common, so storing one costs only the files no earlier
+capture in the store holds: on Discovery Lab run terraform-dc-tokens-20261006d, the files a
+director changed between two captures one to two minutes apart were 5.5 to 8.2 MB of a
+60 to 70 MB workspace.
+
+#### Properties
+
+##### kind
+
+> `readonly` **kind**: `"agent-candidate-workspace-tree"`
+
+**`Experimental`**
+
+##### digest
+
+> `readonly` **digest**: `` `sha256:${string}` ``
+
+**`Experimental`**
+
+The manifest's digest; the manifest is the object of this digest.
+
+##### manifest
+
+> `readonly` **manifest**: `AgentCandidateArtifactRef`
+
+**`Experimental`**
+
+##### files
+
+> `readonly` **files**: `number`
+
+**`Experimental`**
+
+##### bytes
+
+> `readonly` **bytes**: `number`
+
+**`Experimental`**
+
+The bytes of every file in the workspace.
+
+##### storedBytes
+
+> `readonly` **storedBytes**: `number`
+
+**`Experimental`**
+
+The bytes this capture added to the store; every other file was already there.
+
+***
+
 ### AgentCandidateWorkspaceArtifactsOptions
 
 **`Experimental`**
@@ -4011,7 +4125,7 @@ Secret-free response from the service's reservation endpoint.
 
 ### AgentCandidateOutputPurpose
 
-> **AgentCandidateOutputPurpose** = `"execution-plan"` \| `"materialization-receipt"` \| `"candidate-workspace-manifest"` \| `"candidate-workspace-archive"` \| `"task-manifest"` \| `"task-archive"` \| `"task-patch"` \| `"task-output"` \| `"task-outcome"` \| `"memory-after-manifest"` \| `"memory-after-archive"` \| `"grader-evidence"` \| `"benchmark-result"` \| `"model-settlement"` \| `"trace"` \| `"executor-native-evidence"` \| `"executor-capture"` \| `"run-receipt"` \| `"knowledge-retrieval-config"` \| `"knowledge-evaluation"` \| `"failure-evidence"`
+> **AgentCandidateOutputPurpose** = `"execution-plan"` \| `"materialization-receipt"` \| `"candidate-workspace-manifest"` \| `"candidate-workspace-archive"` \| `"candidate-workspace-file"` \| `"task-manifest"` \| `"task-archive"` \| `"task-patch"` \| `"task-output"` \| `"task-outcome"` \| `"memory-after-manifest"` \| `"memory-after-archive"` \| `"grader-evidence"` \| `"benchmark-result"` \| `"model-settlement"` \| `"trace"` \| `"executor-native-evidence"` \| `"executor-capture"` \| `"run-receipt"` \| `"knowledge-retrieval-config"` \| `"knowledge-evaluation"` \| `"failure-evidence"`
 
 **`Experimental`**
 
@@ -5040,6 +5154,66 @@ Capture regular files to durable artifacts with memory bounded by the manifest a
 #### Returns
 
 `Promise`\<\{ `snapshot`: `AgentCandidateWorkspaceSnapshotEvidence`; \}\>
+
+***
+
+### captureAgentCandidateWorkspaceTreeToArtifacts()
+
+> **captureAgentCandidateWorkspaceTreeToArtifacts**(`rootInput`, `options`): `Promise`\<[`AgentCandidateWorkspaceTree`](#agentcandidateworkspacetree)\>
+
+**`Experimental`**
+
+Store a workspace as a tree: each regular file the store does not already hold, then the
+manifest. The store must find objects by content (`locate`) and stream them.
+
+#### Parameters
+
+##### rootInput
+
+`string`
+
+##### options
+
+[`CaptureAgentCandidateWorkspaceToArtifactsOptions`](#captureagentcandidateworkspacetoartifactsoptions)
+
+#### Returns
+
+`Promise`\<[`AgentCandidateWorkspaceTree`](#agentcandidateworkspacetree)\>
+
+***
+
+### verifyAgentCandidateWorkspaceTree()
+
+> **verifyAgentCandidateWorkspaceTree**(`tree`, `artifacts`, `options?`): `Promise`\<`AgentCandidateWorkspaceManifestMaterial`\>
+
+**`Experimental`**
+
+Read a tree back by its digest and confirm the store holds every file it names. Returns the
+manifest; reading a file is `artifacts.read` of what `locate` returns for its digest.
+
+#### Parameters
+
+##### tree
+
+`Pick`\<[`AgentCandidateWorkspaceTree`](#agentcandidateworkspacetree), `"digest"` \| `"manifest"`\>
+
+##### artifacts
+
+[`AgentCandidateArtifactPort`](#agentcandidateartifactport)
+
+##### options?
+
+###### limits?
+
+`Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
+
+###### signal?
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<`AgentCandidateWorkspaceManifestMaterial`\>
 
 ***
 

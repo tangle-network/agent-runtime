@@ -5,8 +5,10 @@ import { dirname, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type {
+  AgentCandidateArtifactRef,
   AgentCandidateWorkspaceManifestMaterial,
   AgentCandidateWorkspaceSnapshotEvidence,
+  Sha256Digest,
 } from '@tangle-network/agent-interface'
 import { extract, type Pack, pack } from 'tar-stream'
 import { persistCandidateOutputArtifactStream, verifiedArtifactChunks } from './artifact-streams'
@@ -71,6 +73,121 @@ export async function captureAgentCandidateWorkspaceToArtifacts(
       archive: archiveArtifact,
     }),
   })
+}
+
+/**
+ * A workspace stored as one content-addressed object per file plus the manifest that names them.
+ *
+ * Its digest is the manifest's, the same identity an archived capture of the same files has. Two
+ * trees share every file they have in common, so storing one costs only the files no earlier
+ * capture in the store holds: on Discovery Lab run terraform-dc-tokens-20261006d, the files a
+ * director changed between two captures one to two minutes apart were 5.5 to 8.2 MB of a
+ * 60 to 70 MB workspace.
+ */
+export interface AgentCandidateWorkspaceTree {
+  readonly kind: 'agent-candidate-workspace-tree'
+  /** The manifest's digest; the manifest is the object of this digest. */
+  readonly digest: Sha256Digest
+  readonly manifest: AgentCandidateArtifactRef
+  readonly files: number
+  /** The bytes of every file in the workspace. */
+  readonly bytes: number
+  /** The bytes this capture added to the store; every other file was already there. */
+  readonly storedBytes: number
+}
+
+/**
+ * Store a workspace as a tree: each regular file the store does not already hold, then the
+ * manifest. The store must find objects by content (`locate`) and stream them.
+ */
+export async function captureAgentCandidateWorkspaceTreeToArtifacts(
+  rootInput: string,
+  options: CaptureAgentCandidateWorkspaceToArtifactsOptions,
+): Promise<AgentCandidateWorkspaceTree> {
+  const { outputArtifacts, executionId, signal } = options.artifactPersistence
+  if (!outputArtifacts.putStream || !outputArtifacts.readStream || !outputArtifacts.locate) {
+    throw new Error('workspace tree persistence requires putStream, readStream and locate')
+  }
+  if (!executionId.trim())
+    throw new Error('candidate workspace artifact persistence requires an executionId')
+  signal?.throwIfAborted()
+  const limits = workspaceLimits(options.limits)
+  const material = await scanMaterializedWorkspaceManifest(rootInput, { limits, signal })
+  validateManifest(material, limits)
+  const root = await realpath(resolve(rootInput))
+  let bytes = 0
+  let storedBytes = 0
+  for (const file of material.files) {
+    signal?.throwIfAborted()
+    bytes += file.byteLength
+    const held = await outputArtifacts.locate(
+      { sha256: file.sha256, byteLength: file.byteLength },
+      signal === undefined ? undefined : { signal },
+    )
+    if (held !== undefined) continue
+    const stored = await persistCandidateOutputArtifactStream(outputArtifacts, {
+      executionId,
+      purpose: 'candidate-workspace-file',
+      chunks: workspaceFileChunks(root, file, signal),
+      maxBytes: file.byteLength,
+      signal,
+    })
+    if (stored.sha256 !== file.sha256 || stored.byteLength !== file.byteLength)
+      throw new Error(`workspace file changed during capture: ${file.path}`)
+    storedBytes += file.byteLength
+  }
+  const manifestBytes = canonicalCandidateBytes(material)
+  const manifest = await persistCandidateOutputArtifactStream(outputArtifacts, {
+    executionId,
+    purpose: 'candidate-workspace-manifest',
+    chunks: oneChunk(manifestBytes),
+    maxBytes: manifestBytes.byteLength,
+    signal,
+  })
+  const digest = canonicalCandidateDigest(material)
+  if (manifest.sha256 !== digest)
+    throw new Error('candidate workspace manifest digest does not name its stored bytes')
+  return deepFreezeCandidate({
+    kind: 'agent-candidate-workspace-tree' as const,
+    digest,
+    manifest,
+    files: material.files.length,
+    bytes,
+    storedBytes,
+  })
+}
+
+/**
+ * Read a tree back by its digest and confirm the store holds every file it names. Returns the
+ * manifest; reading a file is `artifacts.read` of what `locate` returns for its digest.
+ */
+export async function verifyAgentCandidateWorkspaceTree(
+  tree: Pick<AgentCandidateWorkspaceTree, 'digest' | 'manifest'>,
+  artifacts: AgentCandidateArtifactPort,
+  options: { limits?: Partial<AgentCandidateWorkspaceArchiveLimits>; signal?: AbortSignal } = {},
+): Promise<AgentCandidateWorkspaceManifestMaterial> {
+  const { signal } = options
+  if (!artifacts.locate) throw new Error('workspace tree verification requires locate')
+  if (tree.manifest.sha256 !== tree.digest)
+    throw new Error('workspace tree digest does not name its manifest')
+  signal?.throwIfAborted()
+  const bytes = await artifacts.read(tree.manifest)
+  verifyBytes(bytes, tree.manifest.sha256, tree.manifest.byteLength, 'workspace tree manifest')
+  const material = JSON.parse(
+    Buffer.from(bytes).toString('utf8'),
+  ) as AgentCandidateWorkspaceManifestMaterial
+  validateManifest(material, workspaceLimits(options.limits))
+  if (canonicalCandidateDigest(material) !== tree.digest)
+    throw new Error('workspace tree manifest is not canonical')
+  for (const file of material.files) {
+    signal?.throwIfAborted()
+    const held = await artifacts.locate(
+      { sha256: file.sha256, byteLength: file.byteLength },
+      signal === undefined ? undefined : { signal },
+    )
+    if (held === undefined) throw new Error(`workspace tree file is not in the store: ${file.path}`)
+  }
+  return material
 }
 
 export interface AgentCandidateWorkspaceArtifactsOptions {
