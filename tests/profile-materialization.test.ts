@@ -45,6 +45,7 @@ const EXPECTED_CANONICAL_AXES = [
   'mcp',
   'connections',
   'subagents',
+  'seats',
   'files',
   'resourceTools',
   'skills',
@@ -60,7 +61,7 @@ const EXPECTED_CANONICAL_AXES = [
 ] as const
 
 describe('canonical axis set', () => {
-  it('is the exact 30-leaf set agent-interface publishes', () => {
+  it('is the exact canonical axis set agent-interface publishes', () => {
     expect([...AGENT_PROFILE_MATERIALIZATION_AXES].sort()).toEqual(
       [...EXPECTED_CANONICAL_AXES].sort(),
     )
