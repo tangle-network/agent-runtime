@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
@@ -25,9 +26,9 @@ jobs:
           (
             cd "$RUNNER_TEMP/code-mode-deps"
             printf '%s\n' '{"name":"runtime-codemode-proof-deps","private":true,"type":"module"}' > package.json
-            npm install --ignore-scripts --no-audit --no-fund \
+            pnpm add --ignore-scripts \
               @earendil-works/pi-codemode@1.0.4 typescript@6.0.3 vitest@4.1.11 pnpm@11.17.0 \
-              tsx@4.20.6 @types/node@22.18.6 @biomejs/biome@2.5.11
+              tsx@4.23.12 @types/node@26.4.0 @biomejs/biome@2.5.11
           )
           ln -s "$RUNNER_TEMP/code-mode-deps/node_modules" node_modules
       - name: Exercise Runtime source against the real QuickJS worker
@@ -38,6 +39,7 @@ jobs:
       - name: Retain exact source and public dependency bytes for reproduction
         if: always()
         run: |
+          mkdir -p "$RUNNER_TEMP/code-mode-proof"
           git rev-parse HEAD > "$RUNNER_TEMP/code-mode-proof/commit.txt"
           git archive --format=tar HEAD | gzip > "$RUNNER_TEMP/code-mode-proof/source.tgz"
           if [ -d "$RUNNER_TEMP/code-mode-deps/node_modules" ]; then
