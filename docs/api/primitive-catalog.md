@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.301.1` and `@tangle-network/agent-eval@0.205.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.301.2` and `@tangle-network/agent-eval@0.205.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -453,7 +453,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1069 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1070 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1030,6 +1030,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1069 exports.
 | `PromptHandle` | interface | A versioned reference into a prompt registry: `surface` names the role/edge the text serves, |
 | `PromptRegistry` | interface | Versioned prompt store. `resolve` fails loud on an unknown handle: a directive that silently |
 | `ProviderAsSandboxClientOptions` | interface | Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port. |
+| `ProviderCheckpointCaptureContext` | interface | What {@link ProviderWorkspaceRetentionPort.captureCheckpoint} receives. |
 | `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
 | `ProviderLeafOut` | interface | What one provider-executed turn settles on: the visible answer plus the event archive the |
 | `ProviderModelAttemptEvidence` | interface | One provider/harness inference attempt. An empty observation list means the attempt started but |
@@ -1435,7 +1436,7 @@ Import from `@tangle-network/agent-runtime/platform` — 28 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 134 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 137 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1449,6 +1450,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 134 exports.
 | `captureAgentCandidateWorkspace` | function | Capture one exact regular-file workspace for immutable candidate execution. |
 | `captureAgentCandidateWorkspaceFiles` | function | Capture detached files returned by a remote executor into the standard archive. |
 | `captureAgentCandidateWorkspaceToArtifacts` | function | Capture regular files to durable artifacts with memory bounded by the manifest and stream buffers. |
+| `captureAgentCandidateWorkspaceTreeToArtifacts` | function | Store a workspace as a tree: each regular file the store does not already hold, then the |
 | `createAgentCandidateWorkspacePort` | function | Create the standard bounded materializer for candidate execution ports. |
 | `createProtectedAgentCandidateModelPort` | function | Bind a protected model-grant service to the immutable candidate runtime. |
 | `describeWorkspaceTree` | function | Describe one directory tree by content, streaming every file. |
@@ -1470,6 +1472,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 134 exports.
 | `seedWorkspaceTree` | function | Seed a workspace from a directory, one entry at a time, and return the digest of what was |
 | `verifyAgentCandidateBundle` | function | Verifies every digest, resource, workspace, and Git object in a candidate bundle. |
 | `verifyAgentCandidateWorkspaceArtifacts` | function | Verify durable regular-file workspace evidence without retaining archive or file contents. |
+| `verifyAgentCandidateWorkspaceTree` | function | Read a tree back by its digest and confirm the store holds every file it names. Returns the |
 | `verifyMaterializedWorkspace` | function | Refuse a materialized workspace whose files, modes, or bytes are not the signed manifest. |
 | `AGENT_CANDIDATE_EXECUTION_SUPPORT` | const | Surfaces admitted by Runtime's verifier before an environment adapter is selected. |
 | `CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV` | const | Environment variable containing the materialized retrieval configuration path. |
@@ -1500,6 +1503,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 134 exports.
 | `AgentCandidateRepositoryPort` | interface | Resolves a declared GitHub repository to an already-present local Git object store. |
 | `AgentCandidateTaskExecution` | interface | Runtime placement for one exact cell from a signed candidate experiment. |
 | `AgentCandidateWorkspacePort` | interface | Materializes an already-verified workspace archive. |
+| `AgentCandidateWorkspaceTree` | interface | A workspace stored as one content-addressed object per file plus the manifest that names them. |
 | `BuildAgentCandidateBundleInput` | interface | Complete measured surfaces and execution policy compiled into one candidate bundle. |
 | `PreparedAgentCandidateKnowledge` | interface | Exact file-backed knowledge admitted by the candidate bundle. |
 | `ProtectedAgentCandidateModelGrantContext` | interface | Values available only while one protected model grant is active. |
