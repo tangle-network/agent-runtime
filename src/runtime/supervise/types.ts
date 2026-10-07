@@ -1735,6 +1735,18 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /** The provider still has this environment's record, but authoritatively reports its
+       * compute terminal. A new invocation may restore its checkpoint in another environment;
+       * the source still needs a separate teardown receipt at settlement. */
+      kind: 'environment-terminal'
+      id: NodeId
+      provider: string
+      environmentId: string
+      status: 'failed' | 'expired'
+      seq: number
+      at: string
+    }
+  | {
       /** One provider environment a settled retained-pending child held, released at root
        *  settlement — or not. The run had reached a terminal outcome no later process resumes, so
        *  the environment its executor kept for recovery could never be recovered; this is the
@@ -1955,6 +1967,31 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /** A subscription segment boundary. Informational: execution and cost replay skip it.
+       * The open and close records share a segment index, and never contain credentials. */
+      kind: 'seat-segment'
+      id: NodeId
+      segmentIndex: number
+      stageIndex: number
+      phase: 'started' | 'ended'
+      seat: string
+      harness: string
+      provider: string
+      model: string
+      reason?: 'usage-limit' | 'completed' | 'failed' | 'cancelled' | 'paused'
+      seq: number
+      at: string
+    }
+  | {
+      /** Exact materialization for a later, authorized subscription segment. */
+      kind: 'seat-materialized'
+      id: NodeId
+      segmentIndex: number
+      receipt: ProfileMaterializationReceipt
+      seq: number
+      at: string
+    }
+  | {
       /** One completed manager driver attempt, recorded before retry or observer callbacks.
        * Errors are redacted and bounded. Informational: replay and cost readers skip it.
        * `seq` counts this node's driver records across coordinator restarts. */
@@ -1963,6 +2000,14 @@ export type SpawnEvent =
       record: DriverAttemptRecord
       /** Runtime execution attempt identity when the manager uses a deferred executor. */
       attemptId?: string
+      seq: number
+      at: string
+    }
+  | {
+      /** Every authored seat was unavailable. The agent holds no model turn until this reset. */
+      kind: 'seat-paused'
+      id: NodeId
+      resumeAt: string
       seq: number
       at: string
     }

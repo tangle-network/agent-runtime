@@ -76,6 +76,7 @@ type ProfileDifferHandledField =
   | 'prompt'
   | 'model'
   | 'harness'
+  | 'seats'
   | 'permissions'
   | 'tools'
   | 'mcp'
@@ -449,6 +450,10 @@ function completeAgentProfileReplacementDiffs(
   if (profileValuesDiffer(baseline.harness, candidate.harness)) {
     remove.harness = true
     if (candidate.harness !== undefined) set.harness = candidate.harness
+  }
+  if (profileValuesDiffer(baseline.seats, candidate.seats)) {
+    remove.seats = true
+    if (candidate.seats !== undefined) set.seats = candidate.seats
   }
   if (profileValuesDiffer(baseline.permissions, candidate.permissions)) {
     remove.permissions = true

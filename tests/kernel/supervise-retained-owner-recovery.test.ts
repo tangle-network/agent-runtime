@@ -688,6 +688,8 @@ describe('retained external supervisor recovery', () => {
     const createInputs: Parameters<AgentEnvironmentProvider['create']>[0][] = []
     const environmentIds: string[] = []
     const prompts: string[] = []
+    let lostEnvironment: AgentEnvironment | undefined
+    let terminalCleanupCalls = 0
     let port = 0
     let token = ''
     const callTool = async (name: string, args: Record<string, unknown>) => {
@@ -772,6 +774,7 @@ describe('retained external supervisor recovery', () => {
               if (waited > 5_000) throw new Error('no workspace checkpoint was journaled')
               await new Promise((resolve) => setTimeout(resolve, 10))
             }
+            lostEnvironment = environment
             await environment.destroy?.()
             throw new Error('Sandbox not found')
           },
@@ -797,7 +800,19 @@ describe('retained external supervisor recovery', () => {
       },
       get: async (id) => {
         const environment = await base.get!(id)
-        return environment ? wrap(environment) : null
+        if (environment) return wrap(environment)
+        // The control plane retains a terminal record after the compute is gone. A non-null get
+        // must not make Runtime reconnect the failed execution or abandon its checkpoint.
+        return lostEnvironment?.id === id
+          ? {
+              ...wrap(lostEnvironment),
+              status: async () => 'failed',
+              destroy: async () => {
+                terminalCleanupCalls++
+                await lostEnvironment?.destroy?.()
+              },
+            }
+          : null
       },
     }
     const result = await supervise(
@@ -839,7 +854,26 @@ describe('retained external supervisor recovery', () => {
     expect(createInputs).toHaveLength(2)
     expect(new Set(environmentIds).size).toBe(2)
     const events = (await context.journal.loadTree('restore-root')) ?? []
+    expect(events.filter((event) => event.kind === 'execution-input').map((event) => event.id)).toEqual([
+      'restore-root',
+      'restore-root',
+    ])
     const checkpoint = events.find((event) => event.kind === 'workspace-checkpoint')
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'environment-terminal',
+        environmentId: environmentIds[0],
+        status: 'failed',
+      }),
+    )
+    expect(terminalCleanupCalls).toBe(1)
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'environment-teardown',
+        environmentId: environmentIds[0],
+        destroyed: true,
+      }),
+    )
     expect(checkpoint).toMatchObject({
       kind: 'workspace-checkpoint',
       environmentId: environmentIds[0],

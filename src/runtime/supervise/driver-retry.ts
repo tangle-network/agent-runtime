@@ -101,6 +101,7 @@ import {
 } from './continuation'
 import { errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
 import { RetainedExecutionPendingError } from './retained-executor'
+import { subscriptionUsageLimitSignal } from './seat-chain'
 import type { Scope } from './types'
 import {
   cappedDoublingMs,
@@ -420,6 +421,11 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
   // for an upstream out of capacity and never counts the turn for or against the run.
   if (error instanceof CheckUnavailableError) return 'check-unavailable'
   if (error instanceof HarnessTurnFailedError) {
+    const usageLimit = subscriptionUsageLimitSignal({
+      error: error.message,
+      ...(error.errorCode === undefined ? {} : { errorCode: error.errorCode }),
+    })
+    if (usageLimit !== undefined) return usageLimit
     return unavailableSignalOfFailure({
       error: error.message,
       ...(error.errorCode === undefined ? {} : { errorCode: error.errorCode }),

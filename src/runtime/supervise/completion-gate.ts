@@ -93,6 +93,32 @@ export function gateOnDeliverable<Out>(
     gated = await check(art.out, art.verdict?.score)
   }
 
+  const gateExecution = (
+    r: ReturnType<Executor<Out>['execute']>,
+  ): ReturnType<Executor<Out>['execute']> => {
+    if (isAsyncIterable<UsageEvent>(r)) {
+      // The terminal artifact may exist even when a budget or abort ends the stream.
+      return (async function* () {
+        try {
+          for await (const ev of r) yield ev
+        } finally {
+          await settleVerdict()
+        }
+      })()
+    }
+    return (async () => {
+      let res: ExecutorResult<Out>
+      try {
+        res = await r
+      } catch (error) {
+        await settleVerdict()
+        throw error
+      }
+      gated = await check(res.out, res.verdict?.score)
+      return { ...res, verdict: gated } satisfies ExecutorResult<Out>
+    })()
+  }
+
   const wrapped: Executor<Out> = {
     runtime: inner.runtime,
     ...(inner.budgetExempt !== undefined ? { budgetExempt: inner.budgetExempt } : {}),
@@ -108,52 +134,18 @@ export function gateOnDeliverable<Out>(
     ...(inner.progress ? { progress: () => inner.progress?.() } : {}),
     ...(inner.traceSource ? { traceSource: () => inner.traceSource?.() } : {}),
     ...(inner.metered ? { metered: () => inner.metered?.() } : {}),
+    ...(inner.accounting ? { accounting: () => inner.accounting?.() } : {}),
     ...(inner.harnessTranscript ? { harnessTranscript: () => inner.harnessTranscript?.() } : {}),
     ...(inner.harnessTranscriptSettled
       ? { harnessTranscriptSettled: () => inner.harnessTranscriptSettled?.() ?? Promise.resolve() }
       : {}),
-    execute(task, signal) {
-      const r = inner.execute(task, signal)
-      if (isAsyncIterable<UsageEvent>(r)) {
-        // Streaming: pass the usage events through (the conserved-pool fold consumes them),
-        // then gate the verdict from the settled artifact.
-        return (async function* () {
-          try {
-            for await (const ev of r) yield ev
-          } finally {
-            // `finally`, NOT the straight-line path: delivery is a property of the OUTPUT, not of
-            // how the worker terminated. A worker killed by budget, deadline, or abort AFTER it
-            // wrote its deliverable has still delivered, and checking only on clean completion
-            // reported failure over completed work.
-            //
-            // Measured: discovery-lab run `proof-native-tools-20260801b` spawned a child that
-            // wrote `child-artifact.txt` containing exactly the required line, then overran a
-            // parent-authored 12,000-token budget (it spent 76,657 — no pi child in six runs has
-            // finished under ~31,000). The stream aborted, this check never ran, and the run
-            // recorded `no-winner` over a file that was correct on disk.
-            //
-            // This does not weaken the gate. The deliverable check IS the ground truth, so a
-            // partially-written or absent artifact still fails it; all that changes is that the
-            // question now gets asked.
-            await settleVerdict()
-          }
-        })()
-      }
-      // One-shot: gate the resolved result's verdict in place.
-      return (async () => {
-        let res: ExecutorResult<Out>
-        try {
-          res = await r
-        } catch (error) {
-          // Same reason as the streaming path: a rejected execute can still have left a correct
-          // artifact behind. Check it, then re-throw so the failure itself is never swallowed.
-          await settleVerdict()
-          throw error
+    execute: (task, signal) => gateExecution(inner.execute(task, signal)),
+    ...(inner.recover
+      ? {
+          recover: (task: unknown, signal: AbortSignal) =>
+            gateExecution(inner.recover!(task, signal)),
         }
-        gated = await check(res.out, res.verdict?.score)
-        return { ...res, verdict: gated } satisfies ExecutorResult<Out>
-      })()
-    },
+      : {}),
     teardown: (grace) => inner.teardown(grace),
     ...teardownSurfaces(inner),
     resultArtifact() {

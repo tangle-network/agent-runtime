@@ -26,6 +26,8 @@
  */
 
 import {
+  agentProfileSchema,
+  canonicalAgentProfileDigest,
   canonicalCandidateDigest,
   type Sha256Digest,
   sha256DigestSchema,
@@ -96,6 +98,7 @@ import {
   type TeamProgress,
   type WorkerProgress,
 } from './progress'
+import { providerVisibleProfile } from './provider-visible-profile'
 import { prepareScopeResume } from './recover-executors'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import {
@@ -116,6 +119,7 @@ import {
   retainedOwnerWorkspaceRetentionSeamKey,
   scopeRetainedOwnerSettled,
 } from './retained-scope-owner'
+import { authoredSeatStages, seatExecutionProfile } from './seat-chain'
 import { detachedSnapshot } from './snapshot'
 import {
   type DownSettlement,
@@ -2699,7 +2703,56 @@ async function publishOwnerMaterialization(
       cause: error,
     })
   }
-  if (state.prior !== undefined) {
+  const committed = state.receipt ?? state.prior
+  if (
+    committed?.status === 'known' &&
+    canonicalCandidateDigest(committed) !== canonicalCandidateDigest(receipt)
+  ) {
+    const events = (await state.journal.loadTree(state.retainedRoot)) ?? []
+    const started = [...events]
+      .reverse()
+      .find(
+        (event) =>
+          event.id === state.nodeId && event.kind === 'seat-segment' && event.phase === 'started',
+      )
+    const latestMaterialization = [...events]
+      .reverse()
+      .find(
+        (event) =>
+          event.id === state.nodeId &&
+          (event.kind === 'materialized' || event.kind === 'seat-materialized'),
+      )
+    const lastSegmentIndex =
+      latestMaterialization?.kind === 'seat-materialized' ? latestMaterialization.segmentIndex : 0
+    const authored = agentProfileSchema.safeParse(state.authoredProfile)
+    const authoredProfile = authored.success ? authored.data : undefined
+    const stage =
+      authoredProfile && started?.kind === 'seat-segment'
+        ? authoredSeatStages(authoredProfile)?.[started.stageIndex]
+        : undefined
+    if (
+      authoredProfile &&
+      stage &&
+      started?.kind === 'seat-segment' &&
+      started.segmentIndex > lastSegmentIndex &&
+      started.harness === stage.harness &&
+      started.provider === stage.provider &&
+      started.model === stage.model &&
+      receipt.status === 'known' &&
+      receipt.effectiveProfileDigest ===
+        canonicalAgentProfileDigest(
+          providerVisibleProfile(seatExecutionProfile(authoredProfile, stage)),
+        ) &&
+      receipt.model.status === 'known' &&
+      receipt.model.id === stage.model
+    ) {
+      await appendOwnerSeatMaterialization(state, started.segmentIndex, receipt, binding)
+      state.onReceipt?.(receipt, binding)
+      state.publishedThisProcess = true
+      return
+    }
+  }
+  if (state.prior !== undefined && state.receipt === undefined) {
     if (canonicalCandidateDigest(state.prior) !== canonicalCandidateDigest(receipt)) {
       await rejectOwnerMaterialization(state)
       throw new ValidationError(
@@ -2818,12 +2871,15 @@ export async function restoreScopeOwnerAcceptedExecution(scope: Scope<unknown>):
   const receiptEvent = owned
     .slice(0, resultIndex)
     .reverse()
-    .find((event) => event.kind === 'materialized')
+    .find((event) => event.kind === 'materialized' || event.kind === 'seat-materialized')
   const bindingEvent = owned
     .slice(inputIndex, resultIndex)
     .reverse()
     .find((event) => event.kind === 'execution-bound')
-  if (receiptEvent?.kind !== 'materialized' || bindingEvent?.kind !== 'execution-bound') {
+  if (
+    (receiptEvent?.kind !== 'materialized' && receiptEvent?.kind !== 'seat-materialized') ||
+    bindingEvent?.kind !== 'execution-bound'
+  ) {
     throw new ValidationError(
       'accepted scope owner result has no preceding materialization evidence',
     )
@@ -2836,8 +2892,8 @@ export async function restoreScopeOwnerAcceptedExecution(scope: Scope<unknown>):
     receipt.runtime !== state.runtime ||
     receipt.authoredProfileDigest !== state.authoredProfileDigest ||
     binding.materializationReceiptDigest !== canonicalCandidateDigest(receipt) ||
-    (state.prior !== undefined &&
-      canonicalCandidateDigest(state.prior) !== canonicalCandidateDigest(receipt))
+    ((state.receipt ?? state.prior) !== undefined &&
+      canonicalCandidateDigest(state.receipt ?? state.prior) !== canonicalCandidateDigest(receipt))
   ) {
     throw new ValidationError(
       'accepted scope owner materialization does not match the resumed owner',
@@ -2974,6 +3030,24 @@ async function appendOwnerMaterialization(
   await appendOwnerBinding(state, binding)
 }
 
+async function appendOwnerSeatMaterialization(
+  state: OwnerMaterializationState,
+  segmentIndex: number,
+  receipt: ProfileMaterializationReceipt,
+  binding: ExecutionBindingReceipt,
+): Promise<void> {
+  await appendOwnerEvidence(state, {
+    kind: 'seat-materialized',
+    id: state.nodeId,
+    segmentIndex,
+    receipt,
+    seq: segmentIndex,
+    at: new Date(state.now()).toISOString(),
+  })
+  state.receipt = receipt
+  await appendOwnerBinding(state, binding)
+}
+
 async function appendOwnerBinding(
   state: OwnerMaterializationState,
   binding: ExecutionBindingReceipt,
@@ -2990,7 +3064,7 @@ async function appendOwnerBinding(
 
 async function appendOwnerEvidence(
   state: OwnerMaterializationState,
-  event: Extract<SpawnEvent, { kind: 'materialized' | 'execution-bound' }>,
+  event: Extract<SpawnEvent, { kind: 'materialized' | 'seat-materialized' | 'execution-bound' }>,
 ): Promise<void> {
   for (const root of new Set([state.root, state.retainedRoot])) {
     await appendExactMaterializationEvent(state.journal, root, event)
@@ -3000,18 +3074,24 @@ async function appendOwnerEvidence(
 async function appendExactMaterializationEvent(
   journal: SpawnJournal,
   root: NodeId,
-  event: Extract<SpawnEvent, { kind: 'materialized' | 'execution-bound' }>,
+  event: Extract<SpawnEvent, { kind: 'materialized' | 'seat-materialized' | 'execution-bound' }>,
 ): Promise<void> {
   const prior = (await journal.loadTree(root))?.find(
     (item) =>
       item.id === event.id &&
       (event.kind === 'materialized'
         ? item.kind === 'materialized'
-        : item.kind === 'execution-bound' && item.binding.attemptId === event.binding.attemptId),
+        : event.kind === 'seat-materialized'
+          ? item.kind === 'seat-materialized' && item.segmentIndex === event.segmentIndex
+          : item.kind === 'execution-bound' && item.binding.attemptId === event.binding.attemptId),
   )
-  if (prior?.kind === 'materialized' || prior?.kind === 'execution-bound') {
-    const previous = prior.kind === 'materialized' ? prior.receipt : prior.binding
-    const next = event.kind === 'materialized' ? event.receipt : event.binding
+  if (
+    prior?.kind === 'materialized' ||
+    prior?.kind === 'seat-materialized' ||
+    prior?.kind === 'execution-bound'
+  ) {
+    const previous = prior.kind === 'execution-bound' ? prior.binding : prior.receipt
+    const next = event.kind === 'execution-bound' ? event.binding : event.receipt
     if (canonicalCandidateDigest(previous) !== canonicalCandidateDigest(next)) {
       throw new ValidationError('scope execution evidence conflicts with its committed record')
     }

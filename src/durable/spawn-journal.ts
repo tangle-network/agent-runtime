@@ -812,6 +812,8 @@ interface JournalNodeIndex {
   spawned: boolean
   closed: boolean
   materialized: boolean
+  authoredProfileDigest?: string
+  latestSeatMaterialization: number
   bindings: Set<string>
   inputs: Set<number>
   input: boolean
@@ -822,8 +824,8 @@ interface JournalNodeIndex {
   >
   /** The environment this node's retained invocations last ran in, across invocations. */
   lastEnvironmentId?: string
-  /** Environments a teardown receipt records as destroyed or lost. */
-  destroyedEnvironments: Set<string>
+  /** Environments that can run no more turns, from teardown or provider terminal observation. */
+  unusableEnvironments: Set<string>
 }
 
 /** One validation implementation for memory, durable append, and cold replay. */
@@ -856,6 +858,20 @@ export class SpawnEventIndex {
         )
       }
     }
+    if (event.kind === 'seat-materialized') {
+      if (
+        !node?.materialized ||
+        node.authoredProfileDigest === undefined ||
+        event.receipt.status !== 'known' ||
+        event.receipt.authoredProfileDigest !== node.authoredProfileDigest ||
+        !Number.isSafeInteger(event.segmentIndex) ||
+        event.segmentIndex <= node.latestSeatMaterialization
+      ) {
+        throw new Error(
+          `spawn journal corrupted: invalid seat materialization for node '${event.id}' in tree '${this.root}'`,
+        )
+      }
+    }
     if (event.kind === 'execution-bound') {
       if (node?.bindings.has(event.binding.attemptId)) {
         throw new Error(
@@ -882,11 +898,13 @@ export class SpawnEventIndex {
     if (
       event.kind !== 'spawned' &&
       event.kind !== 'materialized' &&
+      event.kind !== 'seat-materialized' &&
       event.kind !== 'execution-bound' &&
       event.kind !== 'execution-input' &&
       event.kind !== 'execution-admitted' &&
       event.kind !== 'execution-result' &&
       event.kind !== 'environment-teardown' &&
+      event.kind !== 'environment-terminal' &&
       !closesCursorSlot(event)
     )
       return
@@ -896,24 +914,33 @@ export class SpawnEventIndex {
         spawned: false,
         closed: false,
         materialized: false,
+        latestSeatMaterialization: 0,
         bindings: new Set(),
         inputs: new Set(),
         input: false,
         result: false,
         admissions: new Map(),
-        destroyedEnvironments: new Set(),
+        unusableEnvironments: new Set(),
       }
       this.nodes.set(event.id, node)
     }
     if (event.kind === 'environment-teardown') {
-      if (event.destroyed) node.destroyedEnvironments.add(event.environmentId)
+      if (event.destroyed) node.unusableEnvironments.add(event.environmentId)
+      return
+    }
+    if (event.kind === 'environment-terminal') {
+      node.unusableEnvironments.add(event.environmentId)
       return
     }
     if (event.kind === 'execution-admitted' && event.admission.phase === 'environment') {
       node.lastEnvironmentId = event.admission.environmentId
     }
     if (event.kind === 'spawned') node.spawned = true
-    else if (event.kind === 'materialized') node.materialized = true
+    else if (event.kind === 'materialized') {
+      node.materialized = true
+      node.authoredProfileDigest = event.receipt.authoredProfileDigest
+    } else if (event.kind === 'seat-materialized')
+      node.latestSeatMaterialization = event.segmentIndex
     else if (event.kind === 'execution-bound') node.bindings.add(event.binding.attemptId)
     else if (event.kind === 'execution-input') {
       node.inputs.add(event.seq)
@@ -941,12 +968,12 @@ export class SpawnEventIndex {
     if (event.kind === 'execution-input') {
       if (!/^sha256:[0-9a-f]{64}$/.test(event.taskRef)) fail('has an invalid task reference')
       if (node.inputs.has(event.seq)) fail('has duplicate input sequence')
-      // An unfinished invocation may be replaced only once the environment it ran in is gone:
-      // then nothing can still be running it, so a new input cannot pay for one turn twice.
+      // An unfinished invocation may be replaced only once its environment is gone or the
+      // provider reports its compute terminal. Then the old turn cannot still be running.
       const environment = node.admissions.get('environment')
       const ranIn =
         environment?.phase === 'environment' ? environment.environmentId : node.lastEnvironmentId
-      const abandoned = ranIn !== undefined && node.destroyedEnvironments.has(ranIn)
+      const abandoned = ranIn !== undefined && node.unusableEnvironments.has(ranIn)
       if (node.input && !node.result && !abandoned) fail('input replaces an unfinished invocation')
       return
     }
@@ -1030,6 +1057,7 @@ const outsideCursorNamespaceKinds = [
   'teardown-pending',
   'teardown-confirmed',
   'environment-teardown',
+  'environment-terminal',
   'workspace-checkpoint-requested',
   'workspace-checkpoint',
   'workspace-checkpoint-fork-requested',
@@ -1039,6 +1067,9 @@ const outsideCursorNamespaceKinds = [
   'workspace-restored',
   'workspace-capture',
   'trace-unpropagated',
+  'seat-segment',
+  'seat-materialized',
+  'seat-paused',
   'paused',
   'driver-attempt',
   'node-inputs-resolved',
@@ -1144,6 +1175,7 @@ export async function replaySpawnTree(
     if (ev.kind === 'teardown-unconfirmed') continue // executor-leak evidence, not a settlement
     if (ev.kind === 'teardown-pending' || ev.kind === 'teardown-confirmed') continue // cleanup retry
     if (ev.kind === 'environment-teardown') continue // release receipt, not a settlement
+    if (ev.kind === 'environment-terminal') continue // provider liveness evidence, not a settlement
     if (ev.kind === 'workspace-checkpoint-requested') continue // workspace intent, not a settlement
     if (ev.kind === 'workspace-checkpoint') continue // workspace receipt, not a settlement
     if (ev.kind === 'workspace-checkpoint-fork-requested') continue // workspace intent, not a settlement
@@ -1153,6 +1185,8 @@ export async function replaySpawnTree(
     if (ev.kind === 'workspace-restored') continue // workspace receipt, not a settlement
     if (ev.kind === 'workspace-capture') continue // capture timing, not a settlement
     if (ev.kind === 'trace-unpropagated') continue // severed-hop marker, not a settlement
+    if (ev.kind === 'seat-segment' || ev.kind === 'seat-materialized' || ev.kind === 'seat-paused')
+      continue // placement evidence
     if (ev.kind === 'paused') continue // an unavailable upstream's pause, not a settlement
     if (ev.kind === 'driver-attempt') continue // driver diagnosis, not a settlement
     if (ev.kind === 'node-inputs-resolved') continue // graph-engine fold input, not a settlement
@@ -1357,7 +1391,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
   // Materialization is node evidence, not a settlement. Fold it after node creation and before
   // freezing the view; exactly one receipt per node is enforced by the journal corruption guard.
   for (const ev of events) {
-    if (ev.kind !== 'materialized') continue
+    if (ev.kind !== 'materialized' && ev.kind !== 'seat-materialized') continue
     const node = requireNode(nodes, ev.id)
     node.materialization = ev.receipt
     node.runtime = ev.receipt.runtime

@@ -104,6 +104,12 @@ Cancellation, the node's deadline and budget, and the turn's `timeoutMs` end its
 The failed result and its spend stay in the journal.
 Its environment is handled as a successful turn's: it is not force-killed.
 The retry starts a new invocation, which reuses the retained owner environment.
+A retained owner whose provider reports its environment `failed` or `expired` instead starts a
+new environment, restoring its latest confirmed workspace checkpoint when one exists.
+The terminal observation is journaled separately from physical teardown, so the source still
+receives cleanup at settlement.
+`stopped` remains eligible for provider resume; an unavailable status read proves no loss and
+does not authorize replacement.
 A resumed run replays a committed failed owner result as the same failure rather than as a delivered turn.
 Accepted failures keep that status through cancellation races and coordinator recovery.
 
