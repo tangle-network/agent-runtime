@@ -1005,12 +1005,12 @@ function restoreBefore(
   owned: readonly SpawnEvent[],
   inputIndex: number,
 ): CheckpointEvent | undefined {
-  const destroyed = destroyedEnvironmentIds(owned)
+  const unusable = unusableEnvironmentIds(owned)
   return owned
     .slice(0, inputIndex < 0 ? owned.length : inputIndex)
     .filter(
       (event): event is CheckpointEvent =>
-        event.kind === 'workspace-checkpoint' && destroyed.has(event.environmentId),
+        event.kind === 'workspace-checkpoint' && unusable.has(event.environmentId),
     )
     .at(-1)
 }
@@ -1537,11 +1537,14 @@ function hasDurableWorkspaceCapture(
   )
 }
 
-/** Environment ids this owner's provider confirmed gone, from their teardown receipts. */
-function destroyedEnvironmentIds(owned: readonly SpawnEvent[]): ReadonlySet<string> {
+/** Environments that cannot execute another turn, whether absent or terminal at the provider. */
+function unusableEnvironmentIds(owned: readonly SpawnEvent[]): ReadonlySet<string> {
   return new Set(
     owned.flatMap((event) =>
-      event.kind === 'environment-teardown' && event.destroyed ? [event.environmentId] : [],
+      event.kind === 'environment-terminal' ||
+      (event.kind === 'environment-teardown' && event.destroyed)
+        ? [event.environmentId]
+        : [],
     ),
   )
 }
@@ -1590,8 +1593,9 @@ export type RetainedOwnerEnvironmentState =
  * commissioned settled `done` two minutes later, unread.
  *
  * The reconciliation refusal protects against paying twice for an execution that may still run.
- * An environment the provider no longer holds runs nothing, so there is nothing to reconcile: the
- * loss is journaled as a destroyed teardown receipt, and the next prepare starts a new invocation.
+ * An environment the provider no longer holds or reports terminal runs nothing. Runtime records
+ * the provider's exact observation before the next prepare starts a new invocation. A terminal
+ * record still requires cleanup at settlement; it is not a teardown receipt.
  */
 export async function reconcileScopeRetainedOwnerEnvironment(
   scope: Scope<unknown>,
@@ -1605,31 +1609,57 @@ export async function reconcileScopeRetainedOwnerEnvironment(
   const continued = continuedEnvironment(owned)
   if (continued === undefined) return { state: 'none' }
   const environmentId = continued.admission.environmentId
-  if (destroyedEnvironmentIds(owned).has(environmentId)) return { state: 'lost', environmentId }
+  if (unusableEnvironmentIds(owned).has(environmentId)) return { state: 'lost', environmentId }
   if (!provider.get) return { state: 'unknown', environmentId }
   let environment: Awaited<ReturnType<NonNullable<AgentEnvironmentProvider['get']>>>
+  let terminalStatus: 'failed' | 'expired' | undefined
   try {
     environment = await runAbortable(
       () => provider.get!(environmentId),
       AbortSignal.any([scope.signal, AbortSignal.timeout(30_000)]),
       'retained owner environment check timed out',
     )
+    if (environment !== null) {
+      const found = environment
+      if (found.id !== environmentId || found.provider !== provider.name)
+        return { state: 'unknown', environmentId }
+      const status = await runAbortable(
+        () => found.status(),
+        AbortSignal.any([scope.signal, AbortSignal.timeout(30_000)]),
+        'retained owner environment status timed out',
+      )
+      if (status === 'failed' || status === 'expired') terminalStatus = status
+    }
   } catch {
     return { state: 'unknown', environmentId }
   }
-  if (environment !== null) return { state: 'live', environmentId, inFlight: continued.inFlight }
+  if (environment !== null && terminalStatus === undefined)
+    return { state: 'live', environmentId, inFlight: continued.inFlight }
   scope.signal.throwIfAborted()
-  await args.journal.appendEvent(args.rootId, {
-    kind: 'environment-teardown',
-    id: args.nodeId,
-    provider: provider.name,
-    environmentId,
-    destroyed: true,
-    detail:
-      'lost: the provider no longer holds this environment, so the next invocation starts in a new one',
-    seq: state.nextSequence(),
-    at: new Date(args.now()).toISOString(),
-  })
+  await args.journal.appendEvent(
+    args.rootId,
+    terminalStatus === undefined
+      ? {
+          kind: 'environment-teardown',
+          id: args.nodeId,
+          provider: provider.name,
+          environmentId,
+          destroyed: true,
+          detail:
+            'lost: the provider no longer holds this environment, so the next invocation starts in a new one',
+          seq: state.nextSequence(),
+          at: new Date(args.now()).toISOString(),
+        }
+      : {
+          kind: 'environment-terminal',
+          id: args.nodeId,
+          provider: provider.name,
+          environmentId,
+          status: terminalStatus,
+          seq: state.nextSequence(),
+          at: new Date(args.now()).toISOString(),
+        },
+  )
   return { state: 'lost', environmentId }
 }
 
@@ -1657,11 +1687,11 @@ export async function prepareScopeRetainedOwnerTask(
     const accepted = [...attempt].reverse().find((event) => event.kind === 'execution-result')
     if (accepted?.kind === 'execution-result') state.acceptedRef = accepted
   }
-  const destroyed = destroyedEnvironmentIds(owned)
+  const unusable = unusableEnvironmentIds(owned)
   const inFlight = continuedEnvironment(owned)
-  if (inFlight?.inFlight && destroyed.has(inFlight.admission.environmentId)) {
-    // An in-flight invocation whose environment the provider no longer holds cannot be recovered,
-    // and nothing is left running to pay for twice. The next drive is a new invocation.
+  if (inFlight?.inFlight && unusable.has(inFlight.admission.environmentId)) {
+    // An in-flight invocation in an absent or terminal environment cannot be recovered, and
+    // nothing is left running to pay for twice. The next drive is a new invocation.
     delete state.inputSequence
     delete state.taskRef
     state.admissions.length = 0
@@ -1680,8 +1710,8 @@ export async function prepareScopeRetainedOwnerTask(
     state.admissions.length = 0
     delete state.acceptedConsumed
   }
-  // A later invocation never reuses an environment the provider confirmed gone.
-  if (state.priorSession !== undefined && destroyed.has(state.priorSession.environmentId)) {
+  // A later invocation never reuses an environment the provider confirmed unusable.
+  if (state.priorSession !== undefined && unusable.has(state.priorSession.environmentId)) {
     delete state.priorSession
   }
   state.prepared = true

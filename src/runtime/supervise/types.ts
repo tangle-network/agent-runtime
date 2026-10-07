@@ -1735,6 +1735,18 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /** The provider still has this environment's record, but authoritatively reports its
+       * compute terminal. A new invocation may restore its checkpoint in another environment;
+       * the source still needs a separate teardown receipt at settlement. */
+      kind: 'environment-terminal'
+      id: NodeId
+      provider: string
+      environmentId: string
+      status: 'failed' | 'expired'
+      seq: number
+      at: string
+    }
+  | {
       /** One provider environment a settled retained-pending child held, released at root
        *  settlement — or not. The run had reached a terminal outcome no later process resumes, so
        *  the environment its executor kept for recovery could never be recovered; this is the
