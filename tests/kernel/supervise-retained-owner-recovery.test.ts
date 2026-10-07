@@ -854,10 +854,9 @@ describe('retained external supervisor recovery', () => {
     expect(createInputs).toHaveLength(2)
     expect(new Set(environmentIds).size).toBe(2)
     const events = (await context.journal.loadTree('restore-root')) ?? []
-    expect(events.filter((event) => event.kind === 'execution-input').map((event) => event.id)).toEqual([
-      'restore-root',
-      'restore-root',
-    ])
+    expect(
+      events.filter((event) => event.kind === 'execution-input').map((event) => event.id),
+    ).toEqual(['restore-root', 'restore-root'])
     const checkpoint = events.find((event) => event.kind === 'workspace-checkpoint')
     expect(events).toContainEqual(
       expect.objectContaining({

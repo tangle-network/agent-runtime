@@ -55,6 +55,7 @@ import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-netw
 import { defaultRedactor } from '../redact'
 import {
   assertProviderWorkspaceRetentionPort,
+  captureProviderLiveWorkspace,
   captureProviderWorkspaceSnapshot,
   DEFAULT_NATIVE_CAPTURE_INTERVAL_MS,
   type ProviderNativeCapturePhase,
@@ -811,6 +812,9 @@ function createProviderExecutor(
     if (workspaceSnapshot !== undefined) return workspaceSnapshot
     if (workspaceCapturePromise === undefined) {
       workspaceOutcome = outcome
+      // A running copy may still be reading this environment. Finish it before the final
+      // capture or destruction so the two snapshots have an unambiguous order.
+      stopLiveMirror()
       // The workspace capture reads the session too; an interval copy must not race it.
       if (nativeTimer !== undefined) clearTimeout(nativeTimer)
       nativeTimer = undefined
@@ -828,7 +832,7 @@ function createProviderExecutor(
       const reportTiming = retention?.onWorkspaceCapture
       let timing: ProviderWorkspaceCaptureTiming | undefined
       const capturedExecutionId = workspaceExecutionId
-      workspaceCapturePromise = (nativeInFlight ?? Promise.resolve())
+      workspaceCapturePromise = Promise.all([nativeInFlight, liveInFlight])
         .then(() =>
           captureProviderWorkspaceSnapshot(
             workspaceRetention,
@@ -925,6 +929,43 @@ function createProviderExecutor(
     options.workspaceRetention?.captureNative === undefined ? undefined : options.workspaceRetention
   let nativeInFlight: Promise<void> | undefined
   let nativeTimer: ReturnType<typeof setTimeout> | undefined
+  const livePort =
+    options.workspaceRetention?.captureLive === undefined ? undefined : options.workspaceRetention
+  let liveInFlight: Promise<void> | undefined
+  let liveTimer: ReturnType<typeof setTimeout> | undefined
+  const stopLiveMirror = (): void => {
+    if (liveTimer !== undefined) clearTimeout(liveTimer)
+    liveTimer = undefined
+  }
+  const startLiveMirror = (next: AgentEnvironment): void => {
+    if (livePort?.liveIntervalMs === undefined) return
+    stopLiveMirror()
+    const schedule = (): void => {
+      liveTimer = setTimeout(() => {
+        if (liveInFlight === undefined && workspaceCapturePromise === undefined) {
+          const running = captureProviderLiveWorkspace(livePort, {
+            environment: next,
+            executionId: workspaceExecutionId,
+            ...(workspaceControlRef === undefined ? {} : { controlRef: workspaceControlRef }),
+            ...(node === undefined ? {} : { node }),
+            providerSessionId,
+            nativeSessionId: null,
+            profile: createProfile,
+          }).then(
+            () => undefined,
+            () => undefined,
+          )
+          const tracked = running.finally(() => {
+            if (liveInFlight === tracked) liveInFlight = undefined
+          })
+          liveInFlight = tracked
+        }
+        schedule()
+      }, livePort.liveIntervalMs)
+      liveTimer.unref?.()
+    }
+    schedule()
+  }
   // Whether `harnessTranscript` currently holds a native copy. A settled workspace capture is the
   // fuller record and replaces it; a native copy never replaces a settled workspace capture.
   let nativeHoldsTranscript = false
@@ -1018,6 +1059,7 @@ function createProviderExecutor(
     return tracked
   }
   const startNativeMirror = (next: AgentEnvironment): void => {
+    startLiveMirror(next)
     if (nativePort === undefined) return
     if (nativeTimer !== undefined) clearTimeout(nativeTimer)
     const interval = nativePort.nativeIntervalMs ?? DEFAULT_NATIVE_CAPTURE_INTERVAL_MS

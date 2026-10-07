@@ -87,6 +87,12 @@ export interface ProviderWorkspaceRetentionPort {
   captureCheckpoint?(
     context: ProviderCheckpointCaptureContext,
   ): Promise<AgentCandidateWorkspaceTree>
+  /** Capture a running environment's workspace without waiting for its turn to settle. */
+  captureLive?(context: ProviderWorkspaceRetentionContext): Promise<AgentCandidateWorkspaceTree>
+  /** Time between live workspace captures. Omit to leave live capture disabled. */
+  readonly liveIntervalMs?: number
+  /** Bound on one live capture and verification, including queue wait. Defaults to timeoutMs. */
+  readonly liveTimeoutMs?: number
   /** Milliseconds between native captures of a running turn. Default 120,000. */
   readonly nativeIntervalMs?: number
   /** Bound on one native capture, including its queue wait. Default 120,000. */
@@ -348,6 +354,47 @@ export async function captureProviderCheckpointWorkspace(
   }
 }
 
+/** Verify a running workspace copy before treating it as retained evidence. */
+export async function captureProviderLiveWorkspace(
+  port: ProviderWorkspaceRetentionPort,
+  context: Omit<ProviderWorkspaceRetentionContext, 'signal'>,
+): Promise<AgentCandidateWorkspaceTree> {
+  assertProviderWorkspaceRetentionPort(port, 'provider workspace retention')
+  if (port.captureLive === undefined)
+    throw new ValidationError('provider workspace retention: the port has no captureLive')
+  const timeoutMs = port.liveTimeoutMs ?? port.timeoutMs
+  const controller = new AbortController()
+  const clearDeadline = armDeadlineTimer(
+    timeoutMs,
+    () => controller.abort(new Error(`live workspace capture timed out after ${timeoutMs}ms`)),
+    true,
+  )
+  try {
+    return await runAbortable(
+      () =>
+        withCaptureSlot(checkpointSlots(port), controller.signal, async () => {
+          const tree = detachedSnapshot(
+            await port.captureLive!({ ...context, signal: controller.signal }),
+            'live workspace capture tree',
+          )
+          if (tree?.kind !== 'agent-candidate-workspace-tree')
+            throw new Error('live workspace capture returned no workspace tree')
+          const material = await verifyAgentCandidateWorkspaceTree(tree, port.artifacts, {
+            ...(port.limits === undefined ? {} : { limits: port.limits }),
+            signal: controller.signal,
+          })
+          if (material.files.length !== tree.files)
+            throw new Error('live workspace capture tree misstates its file count')
+          return tree
+        }),
+      controller.signal,
+      `live workspace capture timed out after ${timeoutMs}ms`,
+    )
+  } finally {
+    clearDeadline()
+  }
+}
+
 /** Durable join from one provider box to the verified bytes retained before cleanup. */
 export interface ProviderWorkspaceCaptureReceipt {
   readonly executionId: string
@@ -395,7 +442,18 @@ export function assertProviderWorkspaceRetentionPort(
   if (port.captureCheckpoint !== undefined && typeof port.captureCheckpoint !== 'function') {
     throw new ValidationError(`${context}: workspaceRetention.captureCheckpoint must be a function`)
   }
-  for (const key of ['nativeIntervalMs', 'nativeTimeoutMs'] as const) {
+  if (port.captureLive !== undefined && typeof port.captureLive !== 'function') {
+    throw new ValidationError(`${context}: workspaceRetention.captureLive must be a function`)
+  }
+  if (port.liveIntervalMs !== undefined && port.captureLive === undefined) {
+    throw new ValidationError(`${context}: workspaceRetention.liveIntervalMs requires captureLive`)
+  }
+  for (const key of [
+    'nativeIntervalMs',
+    'nativeTimeoutMs',
+    'liveIntervalMs',
+    'liveTimeoutMs',
+  ] as const) {
     const value = port[key]
     if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
       throw new ValidationError(

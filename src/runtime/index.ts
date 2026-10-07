@@ -1092,6 +1092,7 @@ export type {
   SeatSegment,
   SeatSelection,
   SeatSelectionInput,
+  SeatStage,
   SelectSeat,
 } from './supervise/seat-chain'
 // The fenced, cross-machine variant: one compare-and-set head, generation fencing, lease

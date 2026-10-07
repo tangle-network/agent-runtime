@@ -492,7 +492,15 @@ async function retireSeatEnvironment(scope: Scope<unknown>, state: OwnerState): 
     throw new ValidationError('seat switch has no committed source environment')
   }
   const environmentId = admitted.admission.environmentId
-  if (destroyedEnvironmentIds(owned).has(environmentId)) return
+  if (
+    owned.some(
+      (event) =>
+        event.kind === 'environment-teardown' &&
+        event.destroyed &&
+        event.environmentId === environmentId,
+    )
+  )
+    return
   const signal = AbortSignal.any([scope.signal, AbortSignal.timeout(30_000)])
   const environment = await runAbortable(
     () => provider.get!(environmentId),
