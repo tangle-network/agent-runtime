@@ -28,6 +28,7 @@ const testFiles = [
   'tests/durability/sql-context-stores.test.ts',
   'tests/durability/known-defects.test.ts',
   'tests/durability/inotify-invariant.test.ts',
+  'tests/durability/retained-owner-pending-invariants.test.ts',
 ]
 
 const tmp = mkdtempSync(join(tmpdir(), 'durability-conformance-'))

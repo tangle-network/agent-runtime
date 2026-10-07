@@ -132,6 +132,11 @@ Each record keeps the original identity, so recovery never mints a replacement.
 
 A retained provider run reattaches through `reconnectRetainedRun`. A chat turn resumes from Agent App's buffer and completion receipt. Work that was in flight is `in-doubt` until it is reattached or proven never dispatched.
 
+A supervised manager's turn that stays pending is resolved, not retried until the run ends:
+- A capacity refusal before dispatch, such as a subscription credential owner with no account room, was refused before it ran. The driver pauses as for any capacity refusal, bounded only by the deadline, the budget and cancellation, and time paused does not count toward `driverRetry.transientOutageMs`.
+- A turn the provider answered but could not resolve, twice the same way or once when the failure would end the run, is abandoned. Runtime stops it at the provider, journals `execution-abandoned` with the outcome the provider confirmed (`stopped` or `uncertain`), and the next drive starts a new invocation. The journal refuses every later admission or result of the abandoned turn, so its replacement is the only one that can commit.
+- A lost transport waits for the provider inside the outage window, because the original may still be running.
+
 **What survives a host crash?** Sandbox owns this:
 - Project identity survives, through the durable project store.
 - Workspaces come back from a confirmed snapshot.
@@ -180,6 +185,7 @@ Passing `journal`, `blobs` and `resume` directly is an advanced test seam, not a
 |---|---|---|
 | Coordinator killed before or after dispatch, mid-turn, before or after commit, before or after an effect | Runtime `tests/durability/sql-run-context.test.ts` and the `runDir` graph kill matrix | Real OS processes; synthetic retained provider |
 | Two contenders, a stale owner (SIGSTOP, then SIGCONT), lease expiry and takeover | Runtime fenced SQL suite | Real OS processes, SQLite |
+| A manager turn left pending by a capacity refusal, a lost reply, a crash at any retained boundary, or an execution the provider can no longer resolve | Runtime `tests/durability/retained-owner-pending-invariants.test.ts` (seeded sequences) and `tests/kernel/supervise-retained-owner-pending.test.ts` | Production provider executor, owner journal and driver retry; durable synthetic provider |
 | Kill during a session resume | Harness conformance case 8 kills the CLI during a resume turn, and the session continues. In the `host-loss` restore scenario, a coordinator is killed during recovery, before the director's session resumes; the next coordinator resumes that same session. Runtime `tests/durability/session-reattach.test.ts` covers kills mid-session with re-attach | Real Claude Code, Codex, OpenCode and Pi; end to end; synthetic sessions |
 | CLI killed mid-tool, then resumed | Harness conformance case 7 | Real CLIs, scripted model |
 | Host loss, end to end | Harness conformance `host-loss`, restore scenario | Runtime supervisor, sidecar and Claude Code in Docker; shim control plane |

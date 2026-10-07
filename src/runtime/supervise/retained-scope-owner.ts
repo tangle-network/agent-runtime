@@ -27,10 +27,11 @@ import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../r
 import { addSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
 import { assertValidSpend } from './budget'
-import { errorText } from './error-message'
+import { errMessage, errorText } from './error-message'
 import { executorFailureReason } from './executor-outcome'
 import {
   executorEvidenceWriter,
+  type RetainedExecutionPendingError,
   type RetainedExecutorContext,
   type RetainedWorkspaceRestore,
   type RetainedWorkspaceRestoreReceipt,
@@ -124,26 +125,11 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
   const taskEvent = [...events].reverse().find((event) => event.kind === 'execution-input')
   const start = taskEvent === undefined ? 0 : events.indexOf(taskEvent)
   const attempt = events.slice(start)
-  const beforeInput = taskEvent === undefined ? [] : events.slice(0, start)
-  const priorInput = [...beforeInput].reverse().find((event) => event.kind === 'execution-input')
-  const priorAttempt =
-    priorInput === undefined ? [] : beforeInput.slice(beforeInput.indexOf(priorInput))
   const admissions = attempt.flatMap((event) =>
     event.kind === 'execution-admitted' ? [event.admission] : [],
   )
   const acceptedRef = [...attempt].reverse().find((event) => event.kind === 'execution-result')
-  const priorResult = [...priorAttempt].reverse().find((event) => event.kind === 'execution-result')
-  const priorSession =
-    priorResult?.kind === 'execution-result'
-      ? priorAttempt
-          .slice(0, priorAttempt.indexOf(priorResult))
-          .reverse()
-          .flatMap((event) =>
-            event.kind === 'execution-admitted' && event.admission.phase === 'environment'
-              ? [event.admission]
-              : [],
-          )[0]
-      : undefined
+  const priorSession = taskEvent === undefined ? undefined : committedSession(events, start)
   let sequence = Math.max(0, ...events.map((event) => ('seq' in event ? event.seq : 0)))
   const state: OwnerState = {
     args,
@@ -249,6 +235,114 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
     },
   }
   owners.set(scope, state)
+}
+
+/**
+ * The environment admission an invocation that starts at `before` continues in: that of the
+ * latest earlier invocation with a committed result, looking past invocations Runtime abandoned,
+ * which never committed one. A live process keeps the same session across an abandonment, so a
+ * resumed one must derive it the same way or its replay of the next invocation would not match
+ * the material that invocation admitted.
+ */
+function committedSession(
+  events: readonly SpawnEvent[],
+  before: number,
+): RetainedRunEnvironmentAdmission | undefined {
+  let end = before
+  for (;;) {
+    const head = events.slice(0, end)
+    const input = [...head].reverse().find((event) => event.kind === 'execution-input')
+    if (input === undefined) return undefined
+    const start = head.indexOf(input)
+    const attempt = head.slice(start)
+    const result = [...attempt].reverse().find((event) => event.kind === 'execution-result')
+    if (result !== undefined) {
+      return attempt
+        .slice(0, attempt.indexOf(result))
+        .reverse()
+        .flatMap((event) =>
+          event.kind === 'execution-admitted' && event.admission.phase === 'environment'
+            ? [event.admission]
+            : [],
+        )[0]
+    }
+    if (!attempt.some((event) => event.kind === 'execution-abandoned')) return undefined
+    end = start
+  }
+}
+
+/** Bounds the stop Runtime asks for before abandoning a dispatched invocation. */
+const ABANDON_STOP_TIMEOUT_MS = 30_000
+
+/**
+ * Abandon the owner's in-flight invocation, which the driver retry loop asks for when the same
+ * reconciliation keeps failing the same way (`DriverRetryRun.resolvePending`).
+ *
+ * Runtime stops the invocation at the provider when it had dispatched, then journals what the
+ * provider confirmed. The journal refuses every later admission or result of the invocation, so
+ * only the replacement the next {@link prepareScopeRetainedOwnerTask} starts can commit a result.
+ * Answers `false`, journaling nothing, when this owner has no unfinished invocation to abandon.
+ */
+export async function abandonScopeRetainedOwnerInvocation(
+  scope: Scope<unknown>,
+  failure: RetainedExecutionPendingError,
+  failures: number,
+): Promise<boolean> {
+  const state = owners.get(scope)
+  if (state === undefined || state.inputSequence === undefined) return false
+  const { args } = state
+  const owned = ((await args.journal.loadTree(args.rootId)) ?? []).filter(
+    (event) => event.id === args.nodeId,
+  )
+  const latestInput = [...owned].reverse().find((event) => event.kind === 'execution-input')
+  if (latestInput?.kind !== 'execution-input' || latestInput.seq !== state.inputSequence)
+    return false
+  const attempt = owned.slice(owned.indexOf(latestInput))
+  if (
+    attempt.some(
+      (event) => event.kind === 'execution-result' || event.kind === 'execution-abandoned',
+    )
+  )
+    return false
+  const dispatched = [...attempt]
+    .reverse()
+    .flatMap((event) =>
+      event.kind === 'execution-admitted' && event.admission.phase === 'dispatched'
+        ? [event.admission]
+        : [],
+    )[0]
+  const stop =
+    dispatched === undefined || state.provider === undefined
+      ? undefined
+      : await stopRetainedNativeExecution({
+          provider: state.provider,
+          controlRef: dispatched.controlRef,
+          signal: AbortSignal.any([scope.signal, AbortSignal.timeout(ABANDON_STOP_TIMEOUT_MS)]),
+          now: args.now,
+        })
+  scope.signal.throwIfAborted()
+  const stopped = stop?.effect === 'cancelled' || stop?.effect === 'not_live'
+  await args.journal.appendEvent(args.rootId, {
+    kind: 'execution-abandoned',
+    id: args.nodeId,
+    inputSeq: latestInput.seq,
+    pendingCause: failure.pendingCause,
+    failures,
+    detail: errorText(errMessage(failure)).slice(0, 2_048),
+    outcome: stopped ? 'stopped' : 'uncertain',
+    ...(stop === undefined
+      ? {}
+      : {
+          stop: {
+            executionId: stop.executionId,
+            effect: stop.effect,
+            ...(stop.error === undefined ? {} : { error: stop.error }),
+          },
+        }),
+    seq: state.nextSequence(),
+    at: new Date(args.now()).toISOString(),
+  })
+  return true
 }
 
 export function scopeRetainedOwnerContext(
@@ -1833,6 +1927,17 @@ export async function prepareScopeRetainedOwnerTask(
     delete state.taskRef
     state.admissions.length = 0
     delete state.priorSession
+  }
+  if (
+    latestInput?.kind === 'execution-input' &&
+    state.inputSequence === latestInput.seq &&
+    owned.slice(owned.indexOf(latestInput)).some((event) => event.kind === 'execution-abandoned')
+  ) {
+    // Nothing of an abandoned invocation is recovered. The next drive is a new invocation in the
+    // session the abandoned one continued, and the journal admits its input.
+    delete state.inputSequence
+    delete state.taskRef
+    state.admissions.length = 0
   }
   if (state.prepared && state.acceptedRef && state.acceptedConsumed) {
     const currentEnvironment = [...state.admissions]

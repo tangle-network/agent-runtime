@@ -88,6 +88,7 @@ import {
   providerVisibleProfile,
 } from './provider-visible-profile'
 import { composeReentryTask, type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
+import { abandonScopeRetainedOwnerInvocation } from './retained-scope-owner'
 import { readRootStream } from './root-stream'
 import { createRouterTranscript } from './router-transcript'
 import { applyRunCancellation } from './run-cancellation'
@@ -1407,6 +1408,8 @@ function buildSupervisorAgent(
             progress: readProgress,
             budget: () => scope.budget,
             signal: scope.signal,
+            resolvePending: (failure, failures) =>
+              abandonScopeRetainedOwnerInvocation(scope, failure, failures),
             wait: {
               open: () =>
                 !mcp.submittedResult() &&
