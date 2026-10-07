@@ -100,10 +100,10 @@ test('store writes are explicit, detached, and absent after failure', async () =
 })
 
 test('native image output is preserved, not rendered as text containing base64', async () => {
-  const result = await runCodeMode('image({type:"image", data:"aGVsbG8=", mimeType:"image/png"}); text("image attached")', {...opts, tools:[]})
+  const result = await runCodeMode('image({type:"image", data:"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC", mimeType:"image/png"}); text("image attached")', {...opts, tools:[]})
   assert.equal(result.ok, true)
   assert.deepEqual(result.output, [
-    {type:'image', data:'aGVsbG8=', mimeType:'image/png'},
+    {type:'image', data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC', mimeType:'image/png'},
     {type:'text', text:'image attached'},
   ])
 })
