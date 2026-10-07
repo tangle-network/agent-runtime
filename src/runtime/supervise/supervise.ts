@@ -81,7 +81,7 @@ import { assertValidBudget, meterUsageEvent, newUsageTotals, spendFromUsageTotal
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { CONTINUATIONS_DIR, type ContinuationPolicy } from './continuation'
 import { isLoopbackHost } from './coordination-mcp'
-import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
+import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, type DeadlineCheckIn, teardownExecutor } from './deadline'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
 import {
   type DriverAttemptRecord,
@@ -2335,6 +2335,11 @@ export interface SuperviseOptions {
    *  free of its children's reservations, so its own turns keep budget. Default slices shrink to fit
    *  beside it. Default: off. */
   readonly reservationPolicy?: RecursiveReservationPolicy
+  /** What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default: a check-in;
+   *  the child is told to save its state and submit what it has, and is stopped only once it then
+   *  makes no progress for 30 min. `false` stops it at the time box. The run's own deadline always
+   *  stops every node. See `deadline.ts` `DeadlineCheckIn`. */
+  readonly deadlineCheckIn?: DeadlineCheckIn
   /** Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
    *  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
    *  its budget slice and waits in a queue (deepest first) instead of being refused, and a manager
@@ -2546,6 +2551,7 @@ const superviseOptionKeys = [
   'peerMail',
   'perWorker',
   'reservationPolicy',
+  'deadlineCheckIn',
   'profileGuidance',
   'profileSecurity',
   'registry',
@@ -4325,6 +4331,9 @@ function superviseInternal(
         managerBackend?.backend === 'provider' && managerBackend.workspaceRetention !== undefined,
       ...(options.workerSlots !== undefined ? { workerSlots: options.workerSlots } : {}),
       ...(options.reservationPolicy ? { reservationPolicy: options.reservationPolicy } : {}),
+      ...(options.deadlineCheckIn === undefined
+        ? {}
+        : { deadlineCheckIn: options.deadlineCheckIn }),
       ...(ctx.resume === true || (options.runDir === undefined && options.resume === true)
         ? { resume: true }
         : {}),

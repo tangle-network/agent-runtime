@@ -393,6 +393,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       maxDepth,
       workerSlots,
       reservationPolicy,
+      deadlineCheckIn,
       maxRestarts,
       withinMs,
       childSettleGraceMs,
@@ -648,6 +649,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         ...(opts.reservationPolicy
           ? { reservationPolicy: opts.reservationPolicy, ownerBudget: opts.budget }
           : {}),
+        ...(deadlineCheckIn === undefined ? {} : { deadlineCheckIn }),
         signal: controller.signal,
         now,
         hooks: opts.hooks,

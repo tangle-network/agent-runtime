@@ -444,7 +444,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1035 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1038 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -741,7 +741,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 1035 exports.
 | `cliWorktreeExecutor` | const | The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored |
 | `collectDelivered` | const | Every verified distinct output, highest score first — the shape for competing hypotheses, a |
 | `CONTINUATION_FACTS` | const | The facts a profile template may name. |
+| `DEADLINE_CHECK_IN_MESSAGE` | const | The check-in a child receives at its own time box. |
 | `DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY` | const | Manager-authored profiles are untrusted until product policy says otherwise. Remote MCP and |
+| `DEFAULT_CHECK_IN_IDLE_MS` | const | How long a checked-in child may go without progress before it is stopped: 30 min. |
 | `DEFAULT_DEADLINE_WARNING_MS` | const | How long before its deadline a manager is woken once to submit its best result: 15 min. |
 | `DEFAULT_MAX_DEPTH` | const | The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every |
 | `DEFAULT_PEER_MAIL_LIMITS` | const | Bounds chosen so a peer channel cannot become the dominant cost of a run: eight sends and |
@@ -1192,6 +1194,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1035 exports.
 | `CoordinationDeliveryEvidence` | type | Durable delivery evidence retained in commit order. An attempt without a later event carrying |
 | `CoordinationEvent` | type | Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for |
 | `CoordinationOwnerId` | type | Stable identity of the supervisor that owns one coordination stream. High-level supervision |
+| `DeadlineCheckIn` | type | What a steerable child's own time box does: a check-in, not a kill. At the child's deadline its |
 | `DeclaredCheckStateCapture` | type | Write the run's state into `into`, an empty directory Runtime created and removes after the read. |
 | `DefinePersona` | type | Builds a frozen `Persona`, failing loud on the executors-supplied invariant (neither a |
 | `Deliverable` | type | How a typed deliverable `Out` is materialized from a finished turn. |
