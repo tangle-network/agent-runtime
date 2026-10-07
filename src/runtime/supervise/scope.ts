@@ -63,6 +63,9 @@ import {
   armDeadlineTimer,
   boundedChildDeadlineAt,
   CHILD_DEADLINE_REASON,
+  checkInIdleMs,
+  DEADLINE_CHECK_IN_MESSAGE,
+  type DeadlineCheckIn,
   DEFAULT_SUCCESSFUL_SHUTDOWN_MS,
   singleFlightTeardown,
   type TeardownAnswer,
@@ -221,6 +224,9 @@ export interface ScopeArgs {
   readonly reservationPolicy?: RecursiveReservationPolicy
   /** The budget from which this scope's owner-share floor is derived. */
   readonly ownerBudget?: Budget
+  /** What a steerable child's own time box does: a check-in by default (`deadline.ts`
+   *  `DeadlineCheckIn`); `false` stops the child at its time box. Nested scopes inherit it. */
+  readonly deadlineCheckIn?: DeadlineCheckIn
   /** Abort signal for this scope; an abort cascades into every live child's executor. */
   readonly signal: AbortSignal
   /** Injected clock — keeps the journal `at` timestamp deterministic in tests. */
@@ -811,6 +817,7 @@ function makeNestedScopeSeam(
       ...(args.reservationPolicy
         ? { reservationPolicy: args.reservationPolicy, ownerBudget: nestedBudget }
         : {}),
+      ...(args.deadlineCheckIn === undefined ? {} : { deadlineCheckIn: args.deadlineCheckIn }),
       signal,
       ...(restored ? { resumeFrom: restored.resumeFrom } : {}),
       ...(args.now ? { now: args.now } : {}),
@@ -854,6 +861,8 @@ function makeNestedScopeSeam(
 
 /** Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. */
 export function createScope<Out>(args: ScopeArgs): Scope<Out> {
+  // Refuse a malformed check-in policy now, never inside a child's deadline timer.
+  checkInIdleMs(args.deadlineCheckIn)
   const children = new Map<NodeId, LiveChild>()
   const settlementWrites = new Set<Promise<Settled<Out>>>()
   // Set once by `closeScopeAdmission` at the join barrier; never cleared.
@@ -1151,9 +1160,19 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       if (args.signal.aborted) controller.abort(args.signal.reason)
       else args.signal.addEventListener('abort', cascadeAbort, { once: true })
       if (childDeadlineAtMs !== undefined) {
-        clearChildDeadline = armDeadlineTimer(Math.max(0, childDeadlineAtMs - now()), () =>
-          controller.abort(CHILD_DEADLINE_REASON),
-        )
+        // The run's own deadline (a root scope's pool cutoff) stops the child; any shorter cutoff
+        // is a time box its lead set, which is a check-in for a child that can be told.
+        const runDeadlineAtMs = args.depth === 0 ? args.pool.readout().deadlineMs : 0
+        const timeBox = !(runDeadlineAtMs > 0 && childDeadlineAtMs >= runDeadlineAtMs)
+        let clearCheckIn: (() => void) | undefined
+        const clearTimer = armDeadlineTimer(Math.max(0, childDeadlineAtMs - now()), () => {
+          clearCheckIn = timeBox ? checkInAtTimeBox(id, controller) : undefined
+          if (clearCheckIn === undefined) controller.abort(CHILD_DEADLINE_REASON)
+        })
+        clearChildDeadline = () => {
+          clearTimer()
+          clearCheckIn?.()
+        }
       }
 
       // Seed THIS scope's own keystone deps into the child's `ExecutorContext.seams`, so a
@@ -1929,6 +1948,34 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       const seq = cursorSeq++
       return await commitSettlement(pick, settlement, seq)
     }
+  }
+
+  /**
+   * A child's own time box: tell it to save its state and submit what it has, and keep it running
+   * while it makes progress (`deadline.ts` `DeadlineCheckIn`). Returns the watch's stop, or
+   * undefined when the child cannot be told (no inbox, already settled, or check-ins are off), in
+   * which case the caller stops it as before.
+   */
+  function checkInAtTimeBox(nodeId: NodeId, controller: AbortController): (() => void) | undefined {
+    const idleMs = checkInIdleMs(args.deadlineCheckIn)
+    if (idleMs === undefined || controller.signal.aborted) return undefined
+    if (!send(nodeId, { steer: DEADLINE_CHECK_IN_MESSAGE, interrupt: false })) return undefined
+    const watch = setInterval(
+      () => {
+        const read = progress(nodeId, { stallAfterMs: idleMs })
+        if (read === undefined || !read.live || controller.signal.aborted) {
+          clearInterval(watch)
+          return
+        }
+        if (read.stalled) {
+          clearInterval(watch)
+          controller.abort(CHILD_DEADLINE_REASON)
+        }
+      },
+      Math.min(idleMs, 60_000),
+    )
+    if (typeof watch.unref === 'function') watch.unref()
+    return () => clearInterval(watch)
   }
 
   function send(nodeId: NodeId, msg: unknown): boolean {

@@ -12,6 +12,42 @@ export const CHILD_DEADLINE_REASON = 'child deadline exceeded'
 export const ROOT_DEADLINE_REASON = 'root budget deadline exceeded'
 
 /**
+ * What a steerable child's own time box does: a check-in, not a kill. At the child's deadline its
+ * lead's scope delivers {@link DEADLINE_CHECK_IN_MESSAGE} to the child's inbox and keeps it
+ * running; the child is stopped with {@link CHILD_DEADLINE_REASON} only once it then makes no
+ * progress for `idleMs`. The run's own deadline, the budgets and cancellation still stop it at once.
+ * `false` restores the hard kill at the time box. A child that exposes no inbox cannot be told,
+ * so it is stopped at its time box as before.
+ *
+ * Measured 2026-10-07 on Discovery run terraform-dc-tokens-20261007e-codex1: four of 42 directors
+ * were killed at the 90-minute boxes their root set, three of them mid-turn, losing 27, 6 and 91
+ * minutes since their last recorded page, and each successor spent 12 to 19 minutes re-reading
+ * before its first page.
+ */
+export type DeadlineCheckIn = false | { readonly idleMs?: number }
+
+/** How long a checked-in child may go without progress before it is stopped: 30 min. */
+export const DEFAULT_CHECK_IN_IDLE_MS = 30 * 60_000
+
+/** The check-in a child receives at its own time box. */
+export const DEADLINE_CHECK_IN_MESSAGE =
+  'Check-in: your time box has ended. This is not a stop. Finish the step you are on and start ' +
+  'nothing new. Record your current state and every result you have not recorded yet, then call ' +
+  'submit_result with what you have now; if the work is not done, mark it incomplete and name ' +
+  'what remains. Your lead decides whether to continue you or hand the work on. You keep running ' +
+  'while you make progress.'
+
+/** The idle bound a check-in policy sets, or undefined when time boxes are hard kills. */
+export function checkInIdleMs(policy: DeadlineCheckIn | undefined): number | undefined {
+  if (policy === false) return undefined
+  const idleMs = policy?.idleMs ?? DEFAULT_CHECK_IN_IDLE_MS
+  if (!Number.isSafeInteger(idleMs) || idleMs <= 0) {
+    throw new ValidationError('deadlineCheckIn.idleMs must be a positive safe integer of milliseconds')
+  }
+  return idleMs
+}
+
+/**
  * How long an abort waits for a manager whose result was already accepted to end the turn that
  * submitted it. Acceptance asks the turn's harness to stop; what remains is the turn's final
  * session copy (a bounded native capture), metering its usage and committing its result. Its

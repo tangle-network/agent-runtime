@@ -301,6 +301,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'recoverExecutor',
   'perWorker',
   'reservationPolicy',
+  'deadlineCheckIn',
   'workerSlots',
   'watchWorkers',
   'stallAfterMs',

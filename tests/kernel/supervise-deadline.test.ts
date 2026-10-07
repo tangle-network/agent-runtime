@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
-import { armDeadlineTimer, teardownExecutor } from '../../src/runtime/supervise/deadline'
+import {
+  armDeadlineTimer,
+  DEADLINE_CHECK_IN_MESSAGE,
+  type DeadlineCheckIn,
+  teardownExecutor,
+} from '../../src/runtime/supervise/deadline'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createScope } from '../../src/runtime/supervise/scope'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -156,6 +161,86 @@ describe('supervision deadlines', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('checks a steerable child in at its own time box instead of stopping it, and keeps what it submits', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(4_000)
+    const { scope } = await beginScope({ maxIterations: 1, maxTokens: 10 })
+    const child = steerableLeaf('director', { submitOnCheckIn: 'state saved: 3 of 5 sections' })
+    const spawned = scope.spawn(child.agent, 'task', {
+      budget: { maxIterations: 1, maxTokens: 10, deadlineMs: 100 },
+      label: 'director',
+    })
+    expect(spawned.ok).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(100)
+    expect(child.messages).toEqual([{ steer: DEADLINE_CHECK_IN_MESSAGE, interrupt: false }])
+
+    const settled = await scope.next()
+    expect(settled).toMatchObject({ kind: 'done', out: 'state saved: 3 of 5 sections' })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('stops a checked-in child only once it makes no progress for the idle bound', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(5_000)
+    const { scope } = await beginScope({ maxIterations: 1, maxTokens: 10 }, { idleMs: 1_000 })
+    const child = steerableLeaf('silent')
+    scope.spawn(child.agent, 'task', { budget: { maxIterations: 1, maxTokens: 10, deadlineMs: 100 }, label: 'silent' })
+
+    await vi.advanceTimersByTimeAsync(100)
+    expect(child.messages).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(scope.view.inFlight).toBe(1)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    const settled = await scope.next()
+    expect(settled).toMatchObject({ kind: 'down', reason: 'aborted before settle' })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('keeps a checked-in child that is still working past the idle bound', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(6_000)
+    const { scope } = await beginScope({ maxIterations: 1, maxTokens: 10 }, { idleMs: 1_000 })
+    const child = steerableLeaf('busy', { activeUntil: 6_000 + 100 + 5_000 })
+    scope.spawn(child.agent, 'task', { budget: { maxIterations: 1, maxTokens: 10, deadlineMs: 100 }, label: 'busy' })
+
+    await vi.advanceTimersByTimeAsync(100 + 4_500)
+    expect(scope.view.inFlight).toBe(1)
+    child.finish('finished after the check-in')
+
+    expect(await scope.next()).toMatchObject({ kind: 'done', out: 'finished after the check-in' })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('stops a steerable child at its time box when check-ins are off', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(7_000)
+    const { scope } = await beginScope({ maxIterations: 1, maxTokens: 10 }, false)
+    const child = steerableLeaf('boxed')
+    scope.spawn(child.agent, 'task', { budget: { maxIterations: 1, maxTokens: 10, deadlineMs: 100 }, label: 'boxed' })
+
+    await vi.advanceTimersByTimeAsync(100)
+    expect(child.messages).toEqual([])
+    expect(await scope.next()).toMatchObject({ kind: 'down', reason: 'aborted before settle' })
+  })
+
+  it('stops a steerable child at the run\'s own deadline without a check-in', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(8_000)
+    const { scope } = await beginScope({ maxIterations: 1, maxTokens: 10, deadlineMs: 50 })
+    const child = steerableLeaf('inherits')
+    scope.spawn(child.agent, 'task', { budget: { maxIterations: 1, maxTokens: 10 }, label: 'inherits' })
+
+    await vi.advanceTimersByTimeAsync(50)
+    expect(child.messages).toEqual([])
+    expect(await scope.next()).toMatchObject({ kind: 'down', reason: 'aborted before settle' })
+  })
+
+  it('refuses a malformed check-in policy before any child runs', async () => {
+    await expect(beginScope({ maxIterations: 1, maxTokens: 10 }, { idleMs: 0 })).rejects.toThrow(/idleMs/)
+  })
+
   it('clears a child deadline when the child finishes first', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(3_000)
@@ -171,7 +256,7 @@ describe('supervision deadlines', () => {
   })
 })
 
-async function beginScope(budget: Budget): Promise<{ scope: Scope<unknown> }> {
+async function beginScope(budget: Budget, deadlineCheckIn?: DeadlineCheckIn): Promise<{ scope: Scope<unknown> }> {
   const journal = new InMemorySpawnJournal()
   await journal.beginTree('deadline-scope', new Date(Date.now()).toISOString())
   return {
@@ -186,8 +271,40 @@ async function beginScope(budget: Budget): Promise<{ scope: Scope<unknown> }> {
       depth: 0,
       signal: new AbortController().signal,
       now: Date.now,
+      ...(deadlineCheckIn === undefined ? {} : { deadlineCheckIn }),
     }),
   }
+}
+
+/** A leaf with an inbox: it records what it is told, may submit when checked in, and may report
+ *  tool activity until `activeUntil`. It ends when told to finish or when aborted. */
+function steerableLeaf(
+  name: string,
+  options: { submitOnCheckIn?: string; activeUntil?: number } = {},
+): { agent: Agent<unknown, unknown>; messages: unknown[]; finish(out: string): void } {
+  const messages: unknown[] = []
+  let finish: (out: string) => void = () => {}
+  const executor: Executor<unknown> = {
+    runtime: 'router',
+    execute: (_task, signal) =>
+      new Promise<ExecutorResult<unknown>>((resolve) => {
+        finish = (out) => resolve({ outRef: `out:${name}`, out, spent: zeroSpend })
+        if (signal.aborted) finish('aborted')
+        else signal.addEventListener('abort', () => finish('aborted'), { once: true })
+      }),
+    deliver(message: unknown): boolean {
+      messages.push(message)
+      if (options.submitOnCheckIn !== undefined) queueMicrotask(() => finish(options.submitOnCheckIn as string))
+      return true
+    },
+    progress: () =>
+      options.activeUntil !== undefined && Date.now() <= options.activeUntil
+        ? { recentActivity: [{ at: Date.now(), kind: 'tool', label: 'edit' }] }
+        : undefined,
+    teardown: async () => ({ destroyed: true }),
+  }
+  const agent = { name, act: async () => name, executorSpec: { profile: testAgentProfile(name), harness: null, executor } } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+  return { agent, messages, finish: (out) => finish(out) }
 }
 
 function blockingLeaf(name: string): Agent<unknown, unknown> {
