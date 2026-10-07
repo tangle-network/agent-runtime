@@ -32,6 +32,15 @@ import {
   type WorktreeHarnessResult,
 } from '../../mcp/worktree-harness'
 import {
+  type CodeModeStore,
+  type CodeModeToolContext,
+  type CodeModeToolsOptions,
+  codeModeArguments,
+  codeModeModelOutput,
+  createCodeModeTools,
+  toolResultText,
+} from '../code-mode'
+import {
   type AgentEnvironmentProvider,
   type AgentEnvironmentProviderRegistry,
   type ProviderExecutorOptions,
@@ -632,13 +641,23 @@ export interface RouterToolsSeam {
   routerKey: string
   complete?: RouterConfig['complete']
   tools: ReadonlyArray<ToolSpec>
-  executeToolCall: (name: string, args: Record<string, unknown>, task: unknown) => Promise<string>
+  executeToolCall: (
+    name: string,
+    args: Record<string, unknown>,
+    task: unknown,
+    context: CodeModeToolContext,
+  ) => Promise<unknown>
+  /** Run model-written scripts over the same profile-authorized tool handlers. */
+  codeMode?: true | Omit<CodeModeToolsOptions, 'wasm' | 'workerUrl'>
   /** Exact conversation to continue. Runtime validates its system message against the profile. */
   initialMessages?: ReadonlyArray<Readonly<Record<string, unknown>>>
   /** Persist each buffered HTTP attempt, including failed responses, before the next turn. */
   onProviderResponse?: (receipt: RouterResponseReceipt) => void | Promise<void>
   /** Observe the detached final conversation for session persistence. */
-  onMessages?: (messages: ReadonlyArray<Readonly<Record<string, unknown>>>) => void | Promise<void>
+  onMessages?: (
+    messages: ReadonlyArray<Readonly<Record<string, unknown>>>,
+    context?: { codeModeStore: CodeModeStore },
+  ) => void | Promise<void>
   /** Online observer of each tool step — the seam a `DetectorMonitor` taps to watch the live pipe
    *  (raise a `finding` when the worker loops/errors). Called after every tool call resolves, with
    *  real per-call wall-clock (`startedAt`/`endedAt`/`durationMs`) so a push `TraceSource` can carry
@@ -771,6 +790,68 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         // re-register listeners on these long-lived signals every turn.
         const external = linkAbort(signal, controller.signal).signal
 
+        // Both direct calls and calls made inside a program cross this exact
+        // authorized handler and the same existing tool-step observer.
+        const executeGranted = async (
+          name: string,
+          raw: unknown,
+          context: CodeModeToolContext,
+        ): Promise<unknown> => {
+          external.throwIfAborted()
+          context.signal.throwIfAborted()
+          if (!enabledToolNames.has(name)) throw new ValidationError(`tool ${name} is not granted`)
+          const args = codeModeArguments(raw)
+          if (context.callId !== context.parentCallId) {
+            executedToolCalls.push({ id: context.callId, name, arguments: JSON.stringify(args) })
+          }
+          const startedAt = Date.now()
+          let status: 'ok' | 'error' = 'ok'
+          try {
+            return await seam.executeToolCall(name, args, task, context)
+          } catch (error) {
+            status = 'error'
+            throw error
+          } finally {
+            const endedAt = Date.now()
+            try {
+              seam.onToolStep?.({
+                toolName: name,
+                args,
+                status,
+                startedAt,
+                endedAt,
+                durationMs: endedAt - startedAt,
+              })
+            } catch {
+              /* Monitoring cannot change whether the original operation ran. */
+            }
+          }
+        }
+        const codeMode = seam.codeMode
+          ? createCodeModeTools(
+              seam.tools.map(({ function: tool }) => ({
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.parameters as Record<string, unknown>,
+                outputSchema: tool.outputSchema,
+                execute: (args, context) => executeGranted(tool.name, args, context),
+              })),
+              seam.codeMode === true ? {} : seam.codeMode,
+            )
+          : undefined
+        const presentedTools: ReadonlyArray<ToolSpec> = codeMode
+          ? codeMode.tools.map((tool) => ({
+              type: 'function',
+              function: {
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.inputSchema,
+              },
+            }))
+          : seam.tools
+        const modelToolNames = new Set(presentedTools.map((tool) => tool.function.name))
+        const codeByName = new Map(codeMode?.tools.map((tool) => [tool.name, tool]) ?? [])
+
         try {
           for (let t = 0; maxTurns === 0 || t < maxTurns; t += 1) {
             // QUEUED messages flush at the step boundary, before this turn's inference.
@@ -802,7 +883,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                   ...(seam.complete ? { complete: seam.complete } : {}),
                 },
                 messages,
-                seam.tools,
+                presentedTools,
                 {
                   ...(profileExecution.temperature !== undefined
                     ? { temperature: profileExecution.temperature }
@@ -926,12 +1007,13 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                 },
               })),
             })
+            const images: Array<{ type: 'image_url'; image_url: { url: string } }> = []
             for (let i = 0; i < toolCalls.length; i += 1) {
               const tc = toolCalls[i]
               const id = tc?.id ?? `call_${i}`
               const toolName = tc?.name ?? ''
               executedToolCalls.push({ id, name: toolName, arguments: tc?.arguments ?? '' })
-              if (!enabledToolNames.has(toolName)) {
+              if (!modelToolNames.has(toolName)) {
                 messages.push({
                   role: 'tool',
                   tool_call_id: id,
@@ -957,38 +1039,40 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                 })
                 continue
               }
-              let result: string
-              let status: 'ok' | 'error' = 'ok'
-              const toolStartedAt = Date.now()
+              let result: unknown
+              let succeeded = true
               try {
-                result = await seam.executeToolCall(toolName, args, task)
+                const context = { signal: external, callId: id, parentCallId: id }
+                result = codeMode
+                  ? await codeByName.get(toolName)!.execute(args, context)
+                  : await executeGranted(toolName, args, context)
               } catch (e) {
-                status = 'error'
+                succeeded = false
                 result = `error: ${e instanceof Error ? e.message : String(e)}`
               }
-              const toolEndedAt = Date.now()
-              messages.push({ role: 'tool', tool_call_id: id, content: result })
-              // Feed the online detector pipe (stuck-loop / error-streak) — a worker repeating the same
-              // call or hammering errors is caught mid-run, not only at settle. This is an observability
-              // side-channel: a throwing monitor must never crash the production inference loop.
-              try {
-                seam.onToolStep?.({
-                  toolName,
-                  args,
-                  status,
-                  startedAt: toolStartedAt,
-                  endedAt: toolEndedAt,
-                  durationMs: toolEndedAt - toolStartedAt,
-                })
-              } catch {
-                // ignore — monitoring must not break the worker
-              }
+              const projected =
+                succeeded && codeMode && toolName === 'codemode'
+                  ? codeModeModelOutput(result)
+                  : undefined
+              if (projected) images.push(...projected.images)
+              messages.push({
+                role: 'tool',
+                tool_call_id: id,
+                content: projected?.text ?? toolResultText(result),
+              })
             }
+            if (images.length)
+              messages.push({
+                role: 'user',
+                content: [{ type: 'text', text: 'Images emitted by codemode:' }, ...images],
+              })
           }
         } finally {
-          await seam.onMessages?.(
-            structuredClone(messages) as ReadonlyArray<Readonly<Record<string, unknown>>>,
-          )
+          const saved = structuredClone(messages) as ReadonlyArray<
+            Readonly<Record<string, unknown>>
+          >
+          if (codeMode) await seam.onMessages?.(saved, { codeModeStore: codeMode.snapshotStore() })
+          else await seam.onMessages?.(saved)
         }
 
         const priced = isModelPriced(model)
@@ -1004,6 +1088,9 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         }
         const out = {
           content: lastText,
+          ...(codeMode
+            ? { codeModeStore: codeMode.snapshotStore(), modelToolNames: [...modelToolNames] }
+            : {}),
           ...(observedModel !== undefined ? { model: observedModel } : {}),
           messages,
           turns,
@@ -1053,6 +1140,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         provider: spec.profile.model?.provider ?? null,
         maxTurns,
         tools: seam.tools,
+        ...(seam.codeMode ? { codeMode: seam.codeMode } : {}),
         temperature: profileExecution.temperature ?? null,
         tokenLimits: profileExecution.tokenLimits,
         retry: profileExecution.retry ?? null,

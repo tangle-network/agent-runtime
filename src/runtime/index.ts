@@ -125,6 +125,19 @@ export {
   renderPairwiseMarkdown,
   type ScoreOf,
 } from './benchmark-report'
+export {
+  type CodeModeOptions,
+  type CodeModeResult,
+  type CodeModeStore,
+  type CodeModeTool,
+  type CodeModeToolContext,
+  type CodeModeToolset,
+  type CodeModeToolsOptions,
+  createCodeModeTools,
+  describeCodeModeTools,
+  type RunCodeModeOptions,
+  runCodeMode,
+} from './code-mode'
 // codex's own rollout store, read as a spend receipt. The reader is public because a harness store
 // is evidence a caller may need OUTSIDE a live run — reconciling a finished run, or auditing a seat
 // whose transport forwarded no usage at all.
@@ -716,12 +729,6 @@ export {
   chatWorkerSeam,
   createChatSessionStore,
 } from './supervise/chat-transport-executor'
-export {
-  type CodeModeOptions,
-  type CodeModeRunner,
-  codeModeSupervisorTools,
-  unsafeInProcessRunner,
-} from './supervise/code-mode'
 // The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
 // settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
 export {

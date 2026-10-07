@@ -1,9 +1,8 @@
 /**
  * The ONE lint over model-authored source.
  *
- * Two features have a model write code the runtime then runs: `authorStrategy` (an authored
- * optimization strategy, since 0.60) and code mode's `execute` (a program over the coordination
- * verbs). Both need the same refusals; this module is the single copy both import.
+ * Authored optimization strategies use this static contract lint. General Runtime code-mode
+ * scripts execute in the isolated QuickJS/WASM engine instead of relying on source lint.
  *
  * A LINT, NOT A SANDBOX — it reads text and cannot constrain what running code does, and trivial
  * concatenation defeats any token match. Its only job is refusing the obvious escapes so a typo or

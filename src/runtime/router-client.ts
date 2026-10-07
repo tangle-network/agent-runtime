@@ -19,6 +19,7 @@ import {
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import type { ReasoningEffort } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
+import type { CodeModeToolContext, CodeModeToolsOptions } from './code-mode'
 import { type RouterRetryPolicy, resolveRouterRetryPolicy } from './router-retry-policy'
 import { armDeadlineTimer } from './supervise/deadline'
 import { addResourceSpend } from './supervise/resources'
@@ -361,7 +362,12 @@ export async function routerChatWithTools(
   messages: ReadonlyArray<Record<string, unknown>>,
   tools: ReadonlyArray<{
     type: 'function'
-    function: { name: string; description?: string; parameters: unknown }
+    function: {
+      name: string
+      description?: string
+      parameters: unknown
+      outputSchema?: Record<string, unknown> | boolean
+    }
   }>,
   opts?: {
     /** Observe each actual HTTP attempt before decoding or rejecting its response. */
@@ -486,7 +492,15 @@ function toolCompletionBody(
     ]),
     model: cfg.model,
     messages,
-    ...(tools.length > 0 ? { tools, tool_choice: opts?.toolChoice ?? 'auto' } : {}),
+    ...(tools.length > 0
+      ? {
+          tools: tools.map(({ function: { outputSchema: _outputSchema, ...fn }, ...tool }) => ({
+            ...tool,
+            function: fn,
+          })),
+          tool_choice: opts?.toolChoice ?? 'auto',
+        }
+      : {}),
     ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts?.maxTokens ? { max_tokens: opts.maxTokens } : {}),
     ...(maxCompletionTokens !== undefined ? { max_completion_tokens: maxCompletionTokens } : {}),
@@ -1250,7 +1264,12 @@ function chatWithTools(
 
 export interface ToolSpec {
   type: 'function'
-  function: { name: string; description?: string; parameters: unknown }
+  function: {
+    name: string
+    description?: string
+    parameters: unknown
+    outputSchema?: Record<string, unknown> | boolean
+  }
 }
 
 export interface RouterToolLoopResult {
@@ -1286,8 +1305,13 @@ export async function routerToolLoop(
   system: string,
   user: string,
   tools: ReadonlyArray<ToolSpec>,
-  execute: (name: string, args: Record<string, unknown>) => Promise<string>,
+  execute: (
+    name: string,
+    args: Record<string, unknown>,
+    context: CodeModeToolContext,
+  ) => Promise<unknown>,
   opts?: {
+    codeMode?: true | CodeModeToolsOptions
     maxTurns?: number
     temperature?: number
     signal?: AbortSignal
@@ -1314,6 +1338,8 @@ export async function routerToolLoop(
       }),
     tools,
     execute,
+    ...(opts?.codeMode ? { codeMode: opts.codeMode } : {}),
+    ...(opts?.signal ? { signal: opts.signal } : {}),
     initialMessages,
     maxTurns: opts?.maxTurns ?? 4,
   })
