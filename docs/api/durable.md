@@ -2764,6 +2764,33 @@ reused id without it. Ignored when `runDir` is also set — the file context own
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-7)
 
+##### modelChange?
+
+> `readonly` `optional` **modelChange?**: `object`
+
+Resume this run with the root on another model. `profile` stays the root profile the run
+recorded, so its identity, coordination owner and settled children resume unchanged; the root
+executes that profile with `model.default`, and `model.reasoningEffort` when given, replaced.
+When the model differs from the one the run last ran, the journal gains one `model-changed`
+record with the time and `reason`. Nothing else about the profile changes this way, and a
+fresh run refuses it: a new run takes its model from its profile.
+
+###### model
+
+> `readonly` **model**: `string`
+
+###### reasoningEffort?
+
+> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
+
+###### reason
+
+> `readonly` **reason**: `string`
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`modelChange`](runtime.md#modelchange-1)
+
 ##### steerDir?
 
 > `readonly` `optional` **steerDir?**: `string`

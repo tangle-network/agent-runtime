@@ -106,6 +106,7 @@ A product keeps a store only for what the platform cannot know: when to send, wh
 | `RetainedRunHandle.cancel` | `cancel_requested`, `cancelled`, `not_live`, `unknown` | `cancel_requested` is not a confirmed stop |
 | `supervise` resume (`ResumedWork.keys`) | `completed`, `down` | Settled. The journal replays the settlement |
 | | `in-doubt` | Uncertain. A keyed replacement is refused until the original execution is recovered |
+| `supervise` resume with `modelChange` | same run, new root model | The recorded identity, coordination owner and settled children carry over; the journal gains one `model-changed` record with the time and reason. Any other profile change is refused |
 | Keyed `Scope.spawn` after resume (`SpawnPrior.state`) | `completed` | Settled. Nothing new is spawned |
 | | `retried` | The prior attempt settled `down`, was proven never dispatched, or died with the process for inline executors. It re-runs under the same key |
 | `recoverExecutor` on resume | adopts the executor | Reattached. The interrupted child continues in its original session |

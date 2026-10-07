@@ -32,6 +32,7 @@ import type {
   AgentTurnResult,
   ChildTaskEvent,
   InteractionRequest,
+  ReasoningEffort,
   Sha256Digest,
   WorkspaceCheckpointRef,
   WorkspaceCheckpointRequest,
@@ -2042,6 +2043,18 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /** The root resumed on another model or reasoning effort (`SupervisorOpts.rootModelChange`).
+       *  The run keeps its id, recorded identity and settled children; this record says when the
+       *  model changed and why. Informational: replay and cost readers skip it. */
+      kind: 'model-changed'
+      id: NodeId
+      from: RootModel
+      to: RootModel
+      reason: string
+      seq: number
+      at: string
+    }
+  | {
       /** A manager's driver turn was refused by an unavailable upstream (an exhausted quota, a
        *  rate limit, an overload), and the driver paused before re-entering instead of failing.
        *  Both durations are infrastructure time: `attemptMs` is the refused turn, `pauseMs` the
@@ -2104,11 +2117,30 @@ export interface RecursiveReservationPolicy {
   readonly ownerShare: number
 }
 
+/** The model a root runs on: its profile's `model.default` and `model.reasoningEffort`. */
+export interface RootModel {
+  readonly model?: string
+  readonly reasoningEffort?: ReasoningEffort
+}
+
+/** A resumed root that runs on another model than its recorded profile names. */
+export interface RootModelChange {
+  /** The model the recorded root profile names. */
+  readonly from: RootModel
+  /** The model the root runs on from this entry. */
+  readonly to: RootModel
+  readonly reason: string
+}
+
 export interface SupervisorOpts {
   /** The root conserved-pool ceiling (tokens + usd + iterations + deadline). */
   readonly budget: Budget
   /** Exact root profile/task identity supplied by the one-call composition surface. */
   readonly rootIdentity?: NodeExecutionIdentity
+  /** The root resumes on another model. `rootIdentity` stays the recorded root's; when the model
+   *  differs from the one the run last ran, the journal gains one `model-changed` record. A fresh
+   *  run refuses it. */
+  readonly rootModelChange?: RootModelChange
   /** Trusted composition evidence for a root whose `act` drives an external backend. A generic
    *  root omits it and is durably marked unknown; model-facing Scope never receives this writer. */
   readonly rootMaterialization?: RootMaterialization
