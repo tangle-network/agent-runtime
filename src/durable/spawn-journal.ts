@@ -822,8 +822,8 @@ interface JournalNodeIndex {
   >
   /** The environment this node's retained invocations last ran in, across invocations. */
   lastEnvironmentId?: string
-  /** Environments a teardown receipt records as destroyed or lost. */
-  destroyedEnvironments: Set<string>
+  /** Environments that can run no more turns, from teardown or provider terminal observation. */
+  unusableEnvironments: Set<string>
 }
 
 /** One validation implementation for memory, durable append, and cold replay. */
@@ -887,6 +887,7 @@ export class SpawnEventIndex {
       event.kind !== 'execution-admitted' &&
       event.kind !== 'execution-result' &&
       event.kind !== 'environment-teardown' &&
+      event.kind !== 'environment-terminal' &&
       !closesCursorSlot(event)
     )
       return
@@ -901,12 +902,16 @@ export class SpawnEventIndex {
         input: false,
         result: false,
         admissions: new Map(),
-        destroyedEnvironments: new Set(),
+        unusableEnvironments: new Set(),
       }
       this.nodes.set(event.id, node)
     }
     if (event.kind === 'environment-teardown') {
-      if (event.destroyed) node.destroyedEnvironments.add(event.environmentId)
+      if (event.destroyed) node.unusableEnvironments.add(event.environmentId)
+      return
+    }
+    if (event.kind === 'environment-terminal') {
+      node.unusableEnvironments.add(event.environmentId)
       return
     }
     if (event.kind === 'execution-admitted' && event.admission.phase === 'environment') {
@@ -941,12 +946,12 @@ export class SpawnEventIndex {
     if (event.kind === 'execution-input') {
       if (!/^sha256:[0-9a-f]{64}$/.test(event.taskRef)) fail('has an invalid task reference')
       if (node.inputs.has(event.seq)) fail('has duplicate input sequence')
-      // An unfinished invocation may be replaced only once the environment it ran in is gone:
-      // then nothing can still be running it, so a new input cannot pay for one turn twice.
+      // An unfinished invocation may be replaced only once its environment is gone or the
+      // provider reports its compute terminal. Then the old turn cannot still be running.
       const environment = node.admissions.get('environment')
       const ranIn =
         environment?.phase === 'environment' ? environment.environmentId : node.lastEnvironmentId
-      const abandoned = ranIn !== undefined && node.destroyedEnvironments.has(ranIn)
+      const abandoned = ranIn !== undefined && node.unusableEnvironments.has(ranIn)
       if (node.input && !node.result && !abandoned) fail('input replaces an unfinished invocation')
       return
     }
@@ -1030,6 +1035,7 @@ const outsideCursorNamespaceKinds = [
   'teardown-pending',
   'teardown-confirmed',
   'environment-teardown',
+  'environment-terminal',
   'workspace-checkpoint-requested',
   'workspace-checkpoint',
   'workspace-checkpoint-fork-requested',
@@ -1144,6 +1150,7 @@ export async function replaySpawnTree(
     if (ev.kind === 'teardown-unconfirmed') continue // executor-leak evidence, not a settlement
     if (ev.kind === 'teardown-pending' || ev.kind === 'teardown-confirmed') continue // cleanup retry
     if (ev.kind === 'environment-teardown') continue // release receipt, not a settlement
+    if (ev.kind === 'environment-terminal') continue // provider liveness evidence, not a settlement
     if (ev.kind === 'workspace-checkpoint-requested') continue // workspace intent, not a settlement
     if (ev.kind === 'workspace-checkpoint') continue // workspace receipt, not a settlement
     if (ev.kind === 'workspace-checkpoint-fork-requested') continue // workspace intent, not a settlement
