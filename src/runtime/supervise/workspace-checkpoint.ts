@@ -32,8 +32,13 @@ export const WORKSPACE_CHECKPOINT_TIMEOUT_MS = 120_000
  *  ten times the bound on the request itself, so nothing it started can still be in flight. */
 export const WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS = 10 * WORKSPACE_CHECKPOINT_TIMEOUT_MS
 
-/** Checkpoints kept per source environment; older ones are deleted once a newer one is journaled. */
+/** Checkpoints kept per source environment; older ones are deleted once a newer one is journaled,
+ *  and only after their files are captured. */
 export const WORKSPACE_CHECKPOINTS_KEPT = 2
+
+/** Bound on creating and reconstructing the fork a checkpoint's capture reads: a Sandbox box
+ *  created from a snapshot (measured 2026-09-24: 19 s). The capture itself is bounded by its port. */
+export const WORKSPACE_CHECKPOINT_FORK_TIMEOUT_MS = 10 * 60_000
 
 /** Write the marker. False when the environment cannot take it, so no restore can be verified. */
 export async function writeWorkspaceMarker(

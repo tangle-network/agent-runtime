@@ -176,6 +176,7 @@ export type {
 } from '@tangle-network/agent-interface/environment-provider'
 
 export type {
+  ProviderCheckpointCaptureContext,
   ProviderNativeCapturePhase,
   ProviderWorkspaceAttemptProvenance,
   ProviderWorkspaceCaptureProvenance,

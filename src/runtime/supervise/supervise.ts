@@ -925,6 +925,9 @@ function driveHarnessFromBackend(
       bindScopeRetainedOwnerProvider(
         scope,
         resolveAgentEnvironmentProvider(boundBackend.provider, boundBackend.registry),
+        boundBackend.workspaceRetention === undefined
+          ? undefined
+          : { port: boundBackend.workspaceRetention, profile },
       )
       // The manager's current box, for a spawn that names a resource by path. Read from the
       // active executor's receipt at spawn time, not captured: the environment does not exist

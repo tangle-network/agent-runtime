@@ -47,6 +47,15 @@ export interface AgentCandidateArtifactPort {
     ref: AgentCandidateArtifactRef,
     options?: { signal?: AbortSignal },
   ): AsyncIterable<Uint8Array>
+  /**
+   * The stored object with exactly this digest and length, or undefined when the store holds
+   * none. It finds an object by its content alone, so a workspace stored one object per file can
+   * skip every file the store already holds, and be read back from its manifest.
+   */
+  locate?(
+    object: Pick<AgentCandidateArtifactRef, 'sha256' | 'byteLength'>,
+    options?: { signal?: AbortSignal },
+  ): Promise<AgentCandidateArtifactRef | undefined>
 }
 
 export type AgentCandidateOutputPurpose =
@@ -54,6 +63,7 @@ export type AgentCandidateOutputPurpose =
   | 'materialization-receipt'
   | 'candidate-workspace-manifest'
   | 'candidate-workspace-archive'
+  | 'candidate-workspace-file'
   | 'task-manifest'
   | 'task-archive'
   | 'task-patch'

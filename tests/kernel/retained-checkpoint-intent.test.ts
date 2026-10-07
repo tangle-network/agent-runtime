@@ -19,6 +19,7 @@ import {
 } from '../../src/runtime/supervise/retained-scope-owner'
 import type { Scope, SpawnEvent } from '../../src/runtime/supervise/types'
 import { WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS } from '../../src/runtime/supervise/workspace-checkpoint'
+import { captureProfile, checkpointCaptureFixture } from '../helpers/checkpoint-capture'
 
 type Boundary = 'unknown-outcome' | 'late-after-cancel' | 'journal-append-failure'
 type Lookup = 'found' | 'unknown' | 'not_found' | 'foreign'
@@ -37,6 +38,12 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
   }
   let request: WorkspaceCheckpointRequest | undefined
   let checkpoint: WorkspaceCheckpointRef | undefined
+  const files = new Map<string, string>()
+  let snapshot: ReadonlyMap<string, string> | undefined
+  const capture = checkpointCaptureFixture({
+    provider: source.provider,
+    snapshotFiles: (id) => (id === 'intent-snapshot' && checkpoint ? snapshot : undefined),
+  })
   let live = true
   let deletes = 0
   let destroys = 0
@@ -55,7 +62,9 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
     provider: source.provider,
     status: async () => 'running',
     async *stream() {},
-    write: async () => {},
+    write: async (path, content) => {
+      files.set(path, String(content))
+    },
     destroy: async () => {
       destroys += 1
       live = false
@@ -66,6 +75,7 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
         durableBeforeEffect = events.some(
           (event) => event.kind === 'workspace-checkpoint-requested',
         )
+        snapshot = new Map(files)
         checkpoint = {
           checkpointId: 'intent-snapshot',
           provider: source.provider,
@@ -124,15 +134,7 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
         checkpoint = undefined
         return { ...input, status: 'deleted' }
       },
-      fork: async () => {
-        throw new Error('not used')
-      },
-      lookupFork: async () => {
-        throw new Error('not used')
-      },
-      destroyFork: async () => {
-        throw new Error('not used')
-      },
+      ...capture.branching,
     },
   }
   const provider: AgentEnvironmentProvider = {
@@ -141,7 +143,8 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
     create: async () => {
       throw new Error('not used')
     },
-    get: async (id) => (id === source.environmentId && live ? environment : null),
+    get: async (id) =>
+      id === source.environmentId ? (live ? environment : null) : capture.forkEnvironment(id),
     workspaceBranching: {
       forEnvironment: async (id) => {
         expect(id).toBe(source.environmentId)
@@ -168,7 +171,10 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
         },
       },
     })
-    bindScopeRetainedOwnerProvider(ownerScope, provider)
+    bindScopeRetainedOwnerProvider(ownerScope, provider, {
+      port: capture.port,
+      profile: captureProfile,
+    })
   }
   return {
     events,
