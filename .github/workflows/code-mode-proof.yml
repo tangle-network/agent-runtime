@@ -22,8 +22,13 @@ jobs:
       - name: Prepare pinned standalone execution dependencies
         run: |
           mkdir -p "$RUNNER_TEMP/code-mode-deps" "$RUNNER_TEMP/code-mode-proof"
-          npm install --prefix "$RUNNER_TEMP/code-mode-deps" --ignore-scripts --no-audit --no-fund \
-            @earendil-works/pi-codemode@1.0.4 typescript@6.0.3 vitest@4.1.11 pnpm@11.17.0
+          (
+            cd "$RUNNER_TEMP/code-mode-deps"
+            printf '%s\n' '{"name":"runtime-codemode-proof-deps","private":true,"type":"module"}' > package.json
+            npm install --ignore-scripts --no-audit --no-fund \
+              @earendil-works/pi-codemode@1.0.4 typescript@6.0.3 vitest@4.1.11 pnpm@11.17.0 \
+              tsx@4.20.6 @types/node@22.18.6 @biomejs/biome@2.5.11
+          )
           ln -s "$RUNNER_TEMP/code-mode-deps/node_modules" node_modules
       - name: Exercise Runtime source against the real QuickJS worker
         run: |
@@ -38,6 +43,7 @@ jobs:
           if [ -d "$RUNNER_TEMP/code-mode-deps/node_modules" ]; then
             tar -C "$RUNNER_TEMP/code-mode-deps" -czf "$RUNNER_TEMP/code-mode-proof/dependencies.tgz" node_modules
           fi
+          tar -C "$(dirname "$(command -v node)")" -czf "$RUNNER_TEMP/code-mode-proof/node.tgz" node
           cd "$RUNNER_TEMP/code-mode-proof"
           sha256sum *.tgz > SHA256SUMS
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
