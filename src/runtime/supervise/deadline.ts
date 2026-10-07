@@ -14,7 +14,7 @@ export const ROOT_DEADLINE_REASON = 'root budget deadline exceeded'
 /**
  * What a steerable child's own time box does: a check-in, not a kill. At the child's deadline its
  * lead's scope delivers {@link DEADLINE_CHECK_IN_MESSAGE} to the child's inbox and keeps it
- * running; the child is stopped with {@link CHILD_DEADLINE_REASON} only once it then makes no
+ * running; the child is stopped (reason `child deadline exceeded`) only once it then makes no
  * progress for `idleMs`. The run's own deadline, the budgets and cancellation still stop it at once.
  * `false` restores the hard kill at the time box. A child that exposes no inbox cannot be told,
  * so it is stopped at its time box as before.
