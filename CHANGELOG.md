@@ -1,3 +1,9 @@
+## 0.307.0
+
+Capture and verify a running provider workspace on its own interval, so a failed final capture does not erase all workspace evidence from a long turn.
+
+Restore retained owners from their latest workspace checkpoint when a provider reports the prior environment failed or expired, while preserving separate evidence of source cleanup.
+
 ## 0.306.2
 
 `verifyAgentCandidateWorkspaceTree` reads a tree's manifest as a stream when the store offers one. A private CAS whose durable store has evicted the local copy serves it as a stream, and its buffered read may refuse, so a checkpoint capture on such a store was refused and its checkpoint kept.
