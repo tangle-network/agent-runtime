@@ -1530,7 +1530,13 @@ describe('environment provider adapters', () => {
     )
     const received = await collect(executor.execute('task', signal) as AsyncIterable<UsageEvent>)
     expect(received.filter((event) => event.kind === 'tokens')).toEqual([
-      { kind: 'tokens', mode: 'cumulative', input: 41_321, output: 278, cacheBreakdownKnown: false },
+      {
+        kind: 'tokens',
+        mode: 'cumulative',
+        input: 41_321,
+        output: 278,
+        cacheBreakdownKnown: false,
+      },
     ])
     expect(executor.resultArtifact().spent.tokens.input).toBe(41_321)
   })
