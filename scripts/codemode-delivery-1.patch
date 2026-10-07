@@ -1,0 +1,74 @@
+diff --git a/.release-notes/runtime-codemode.md b/.release-notes/runtime-codemode.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..5b4223041276b6b40f7f16136e37aa33655b0490
+GIT binary patch
+literal 862
+zcmYk5L2uhI42AFg6+CW0oMOFgJq<l|K!&U-u&Y&tiHXRRMoDh6U%w|i*>;GLgwiA5
+z$LDfM{Dnr*Xm?%L-Mw%M&NG#PscOx<r(6@;Bsp3aHC)KYJ$EA>BwE;#F`o1;WuPM~
+zn+x<(waCbny-6y>XZE#7RH|9@IE&}vbnik`rX*d{oF#u$@uzRQ`=4KT8)7{Q>K`<g
+z`Oa2oaHgE|$2Ij<^$FKD`1AxZ>b<cmeEah?#*k4lCO0_=?kzAKERNLQpBOTse}qb`
+z7{4pa;bqcjc{MlWv*gkyelsUZA;z?tTZQOhbMv$%AB44J@~*jCz-0&T|1g12#u?WL
+ztm!-F0;;$lGJ#zaZnUEb+(OmWGT_H=92#IN0B&<<>{%x0I`tgFtTq=C9BP>bN%r_E
+z<+7$-vFb}Ts7x+Yh9kut2*~J;Xje<BWftIb3gQJ4Q75*%NaqqkE~`s<h%neV&Q5IN
+z{hD6e$e}^M?qK&fCJXo#^|wtR4#-8npzEt<ci?B;TJ%`uwTO_UXxBc5Frdq0n<&>2
+zGZBWUXm>+=OWM3QE}-{c%3`{r#%T2Lu>SP9)s^3YQX2GMRRCs97~yDcq=DgbcG#lk
+t&E<jo!2XmXG7fZY0enVK+Jg9SV1J!d8N}Mk;s|VQsTb(u9lAjO?hk1;J<b3C
+
+diff --git a/examples/code-mode/index.ts b/examples/code-mode/index.ts
+index a6683157dda86f17e0680355a0c53c4bc07b0fb5..1a05571acd3cd0736ff66e6a0a129f0e11b5bd1b 100644
+GIT binary patch
+literal 1790
+zcmaJ>U2o$y5PbKq*a8Pg4jc;Cr$ViBDAE*Yf&0MSp)Y}PW++<bSt41Ia$*?%@13O-
+zpOc3g{?cl-oSmJW>gsAnSM)o59&9qbrl^APiQHZX3R-px(oeoK%B1c<ZICwUhBl_t
+z@eq^lNl7msOlOkOQE;gbjy@UM%3yVj3yNAf+mLLvP1HH(7xd423WK#cKy95-dO<Fb
+z4{mQ7js@Ky*T^oH11{PG*HhY>2t?jRlUz8|<gG_EJ^`TYJpfh8HTt^8S7mIYpG1lP
+zl-sitfFbILN@!D}*Iuiwv?liSZ~)Lwt7L3TYp(MipPEt_^qQO{lOoPBkrTKgP|Bq5
+zp0pZ(raV4KwbQn#sR(XJI$S5`x>zhI|1yc3slOt6D?6|%ggDI!+-ywCjaD<$dlwQN
+znfB&SFifYh^TINgO{~CCZ_q(;nHycVf0gQG+Fs@i_IB#%TvCV%?-*2tQSjh@kXOuR
+z7&$|c@n98g1`A%mK`)Ih=QVvAVf?mtrn#ZxjJS=MvMOi^_!&}JcyNNbi|^6dVt!7;
+z{h>=pl#kLRmclc-5;;Wc{5_WRyY`%znG{UUx2bY@Jk5W-$Zo;Ck9gp|Xtc*Tv{jHL
+zrhx1HAFo1Q>+mAB8fyiehG6MvArYu-*9!i(AZ$bg4P$7!Sme`*&c_{Y9r%njeSG*1
+zISH2TolOBS$`PLEr7yW6EpO<4EIlRf^dXiwFh^JP?j4~)(P`VJ?P@+hF~0S9B(u&h
+z1u^}VWjBuTdZOmq*yvf$p#B+TCa|Xa=~2p~8_N)l-4>Vho*(3#Mvu;r87Mwu3gbp%
+zKeKPBtyViopC$lMi!~b^lXy|aSU;pMNbY3~si%Vn$A!yeVNSAX;3Uq<4kGh9u&dOx
+zkzItupZj1qIO%^1z09pD`pPRmI-8Q#x-_jjN&Mf!b$DgihNSv;FhO5BoKy-<h8;b>
+zre&_D1u4JD(8B7D6io~0gvDOoT;vn|{pI5a;bn-roK!#Uc*$1Ek3y=hfw_Q<A#HvE
+z7w2O0AB~?mSdFoK&8uZLRQ@z>mT<c{W)s{aS^Y?NA;6&4Z;sPl&DUZFhdkBvD%zt_
+zZ0u?MysfU&qH}GT@khwmwq|oE*`s)g>*-hQWjCM=RwL#$os_RI3bF$`-p}*->@=G(
+z($VTfuagu*=xDiI(wdp5tLn`WHkTO(tNZ)6E1=0r9qmUbnbfu{a~sU_q+<39Mw{c)
+V-8_QlYH;twMgx0ziyJ2f^B*mYN<;tv
+
+diff --git a/package.json b/package.json
+index 7a89869710efdf8504508aab49f70d2ab887ea24..6c607f0b111f1e30f483c1ede9d92eef077bff97 100644
+GIT binary patch
+delta 58
+zcmZ2ub;D|dkTj#^W?^YzM&;DRqSU;U%pBeF{G#k){en#0<ouM>Tp(7mQcyC~Gte`c
+Myii(hvbD@d05v-k8vp<R
+
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 487e40cbf21ebe398eba0eaed5765172229bfe8e..213074cd98956b66be83ef882e9f2d86a79a7873 100644
+GIT binary patch
+delta 438
+zcmX@UnCr=Mt_?!0lBtPBsd*`xIlATfMcKvr1(~|Z`6;Qn`6-h>2#GTr>KRN<;1OX3
+z(t0M74Y}kdYcTRo{w2gaIYC%%b3E%d0fEBO%;fB>V%_q@;!Fo)J+tYIA&lzvZq9}7
+zCGP%3zUft=nVv<ye!h-Ik$J`b70!O;`NoDRRfQ2{$vF|B&Sn*<A;zYDUOwItfnLRB
+zNvX~uS!MZdj^$D5u8sle7NKU^-i`q-?h$zwzUj8MwOm{Z3hE9xU7hLxaq6b?YN4ry
+zmKFtBPQ@v%fnNGS&RJfTQK^xhSwV?`k>R1~CHYZF0nWKzrsj#IrT)d4LB&oHslic(
+ziJ9RgA&D6V`sV2smgeD}{w{_Qg&t+;L7@ie{t+dU6-{I~jg0gRE%gl4YnuhdwhM|e
+xYOk|F4+cFWD}`zzT|52ZV@7FVWD~3ufFY@8G+9tgb9&W1Mv?8MM;L?70stKQkYxY>
+
+diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
+index f1f60df400725fd215d9d4bcde8500203b932302..7baf4b16e9ead98cc5caa2158dad034efa8761b1 100644
+GIT binary patch
+delta 160
+zcmWlSI}XAy5JVdq($k`mDBNK46%9?!zzvMOge9>ZY?II-aROS7!3{~8Ddvsdyr<vd
+zQ@s{AQODGig$b6V8v^7j_Jm6e4*5#ZF|%pt2zqLh(NRns{1QH7Xq;ovc0lCXJk+WH
+vBt%I%lDFK*KEyh$T9)I%=r1>Ft@dKv%^>a%HuWvZUMDVh>Y%pbXXleYiYqlY
+
+diff --git a/scripts/code-mode-proof.mts b/scripts/code-mode-proof.mts
+index 4099991eab3e9c91d10c99ff5ab59e3bc14577d5..635560c962b50628468f37fd9966361d36a7318d 100644
+GIT binary patch
+delta 202
+zcmbQDzDHw&qF_vBn3I1{xq-KPdcGqN_yvb%xQ3>Kn64ng$=T5pNI3_l7zU(*1YBHm
+xTm!>`O!D0Q(j(nLA|QnxMs8IZVGv%9TS#_rX<)9i^JGoIWi+*5^L4?!i~x5%J}3YH
+
