@@ -1,3 +1,7 @@
+## 0.306.2
+
+`verifyAgentCandidateWorkspaceTree` reads a tree's manifest as a stream when the store offers one. A private CAS whose durable store has evicted the local copy serves it as a stream, and its buffered read may refuse, so a checkpoint capture on such a store was refused and its checkpoint kept.
+
 ## 0.306.1
 
 Runtime resolves `@tangle-network/agent-profile-materialize` 0.21, the release whose peer is `@tangle-network/agent-interface` ^3. 0.20.x peers on ^2, so `pnpm peers check` failed in the publish workflow and 0.304.0 through 0.306.0 never reached npm.
