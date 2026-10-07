@@ -1,0 +1,50 @@
+name: Code mode implementation proof
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/code-mode-proof.yml'
+      - 'src/runtime/code-mode.ts'
+      - 'scripts/code-mode-proof.mts'
+permissions:
+  contents: read
+jobs:
+  isolated-execution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Prepare pinned standalone execution dependencies
+        run: |
+          mkdir -p "$RUNNER_TEMP/code-mode-deps" "$RUNNER_TEMP/code-mode-proof"
+          npm install --prefix "$RUNNER_TEMP/code-mode-deps" --ignore-scripts --no-audit --no-fund \
+            @earendil-works/pi-codemode@1.0.4 typescript@6.0.3 vitest@4.1.11 pnpm@11.17.0
+          ln -s "$RUNNER_TEMP/code-mode-deps/node_modules" node_modules
+      - name: Exercise Runtime source against the real QuickJS worker
+        run: |
+          set -o pipefail
+          node --experimental-strip-types --test scripts/code-mode-proof.mts \
+            | tee "$RUNNER_TEMP/code-mode-proof/results.tap"
+      - name: Retain exact source and public dependency bytes for reproduction
+        if: always()
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/code-mode-proof/commit.txt"
+          git archive --format=tar HEAD | gzip > "$RUNNER_TEMP/code-mode-proof/source.tgz"
+          if [ -d "$RUNNER_TEMP/code-mode-deps/node_modules" ]; then
+            tar -C "$RUNNER_TEMP/code-mode-deps" -czf "$RUNNER_TEMP/code-mode-proof/dependencies.tgz" node_modules
+          fi
+          cd "$RUNNER_TEMP/code-mode-proof"
+          sha256sum *.tgz > SHA256SUMS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: code-mode-proof
+          path: ${{ runner.temp }}/code-mode-proof/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
