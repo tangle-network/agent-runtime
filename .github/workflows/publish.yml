@@ -28,11 +28,10 @@ concurrency:
 jobs:
   release-source:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, ci-public]
+    runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.release.outputs.sha }}
       version: ${{ steps.release.outputs.version }}
-      publish: ${{ steps.registry.outputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -120,27 +119,12 @@ jobs:
           echo "Re-cut the tag at the tip of main, or push a $LINE branch for a backport."
           exit 1
 
-      # npm accepts trusted publishing only from GitHub-hosted runners, so the
-      # hosted publish job starts only when this version is not yet on npm.
-      - name: Decide whether this release publishes
-        id: registry
-        env:
-          VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          if npm view "@tangle-network/agent-runtime@$VERSION" version --registry=https://registry.npmjs.org 2>/dev/null | grep -qx "$VERSION"; then
-            echo "@tangle-network/agent-runtime@$VERSION is already on npm; nothing to publish"
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          fi
-
   verify:
     needs: release-source
-    runs-on: [self-hosted, ci-public]
+    runs-on: ubuntu-latest
     outputs:
       release-version: ${{ needs.release-source.outputs.version }}
       package-sha256: ${{ steps.package.outputs.sha256 }}
-      publish: ${{ needs.release-source.outputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -270,7 +254,7 @@ jobs:
 
   verify-official-optimizers:
     needs: release-source
-    runs-on: [self-hosted, ci-public]
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -297,7 +281,7 @@ jobs:
 
   verify-runtime-bench:
     needs: release-source
-    runs-on: [self-hosted, ci-public]
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -326,7 +310,7 @@ jobs:
 
   publish-npm:
     needs: [verify, verify-official-optimizers, verify-runtime-bench]
-    if: needs.verify.outputs.publish == 'true'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -425,11 +409,10 @@ jobs:
     # Manual dispatch remains root-only. Re-run a failed bench tag workflow so
     # tag/version locking stays intact and the root package is never co-published.
     if: startsWith(github.ref, 'refs/tags/agent-bench-v')
-    runs-on: [self-hosted, ci-public]
+    runs-on: ubuntu-latest
     outputs:
       release-version: ${{ steps.release.outputs.version }}
       package-sha256: ${{ steps.package.outputs.sha256 }}
-      publish: ${{ steps.registry.outputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -467,18 +450,6 @@ jobs:
           echo "version=$NPM_VERSION" >> "$GITHUB_OUTPUT"
           echo "Version locked: $NPM_VERSION"
 
-      - name: Decide whether this release publishes
-        id: registry
-        env:
-          VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          if npm view "@tangle-network/agent-bench@$VERSION" version --registry=https://registry.npmjs.org 2>/dev/null | grep -qx "$VERSION"; then
-            echo "@tangle-network/agent-bench@$VERSION is already on npm; nothing to publish"
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Package and verify the exact agent-bench archive
         id: package
         run: |
@@ -507,7 +478,7 @@ jobs:
 
   publish-agent-bench:
     needs: verify-agent-bench
-    if: needs.verify-agent-bench.outputs.publish == 'true'
+    if: startsWith(github.ref, 'refs/tags/agent-bench-v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
