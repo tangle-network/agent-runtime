@@ -4,14 +4,17 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/code-mode-proof.yml'
-      - 'src/runtime/code-mode.ts'
+      - 'src/runtime/**'
+      - 'tests/kernel/**'
       - 'scripts/code-mode-proof.mts'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
 permissions:
   contents: read
 jobs:
-  isolated-execution:
+  runtime-integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -20,32 +23,40 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
-      - name: Prepare pinned standalone execution dependencies
-        run: |
-          mkdir -p "$RUNNER_TEMP/code-mode-deps" "$RUNNER_TEMP/code-mode-proof"
-          (
-            cd "$RUNNER_TEMP/code-mode-deps"
-            printf '%s\n' '{"name":"runtime-codemode-proof-deps","private":true,"type":"module"}' > package.json
-            pnpm add --ignore-scripts \
-              @earendil-works/pi-codemode@1.0.4 typescript@6.0.3 vitest@4.1.11 pnpm@11.17.0 \
-              tsx@4.23.12 @types/node@26.4.0 @biomejs/biome@2.5.11
-          )
-          ln -s "$RUNNER_TEMP/code-mode-deps/node_modules" node_modules
-      - name: Exercise Runtime source against the real QuickJS worker
+      - name: Prepare evidence directory
+        run: mkdir -p "$RUNNER_TEMP/code-mode-proof"
+      - name: Install complete frozen Runtime dependencies
         run: |
           set -o pipefail
-          node --experimental-strip-types --test scripts/code-mode-proof.mts \
-            | tee "$RUNNER_TEMP/code-mode-proof/results.tap"
-      - name: Retain exact source and public dependency bytes for reproduction
+          pnpm install --frozen-lockfile --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/code-mode-proof/install.log"
+      - name: Real isolated execution
+        run: |
+          set -o pipefail
+          node --experimental-strip-types --test scripts/code-mode-proof.mts 2>&1 | tee "$RUNNER_TEMP/code-mode-proof/execution.tap"
+      - name: Runtime executor and existing loop regressions
         if: always()
         run: |
-          mkdir -p "$RUNNER_TEMP/code-mode-proof"
+          set -o pipefail
+          pnpm exec vitest run tests/kernel/code-mode.test.ts tests/kernel/harness-native-tools.test.ts tests/kernel/brain-loop-finalize.test.ts tests/kernel/tool-loop-compaction.test.ts tests/kernel/tool-loop-preparation-stop.test.ts 2>&1 | tee "$RUNNER_TEMP/code-mode-proof/integration.log"
+      - name: Build actual public Runtime package
+        if: always()
+        run: |
+          set -o pipefail
+          pnpm run build 2>&1 | tee "$RUNNER_TEMP/code-mode-proof/build.log"
+      - name: Typecheck actual Runtime sources and examples
+        if: always()
+        run: |
+          set -o pipefail
+          pnpm run typecheck 2>&1 | tee "$RUNNER_TEMP/code-mode-proof/typecheck.log"
+      - name: Retain exact source and dependencies for local reproduction
+        if: always()
+        run: |
           git rev-parse HEAD > "$RUNNER_TEMP/code-mode-proof/commit.txt"
           git archive --format=tar HEAD | gzip > "$RUNNER_TEMP/code-mode-proof/source.tgz"
-          if [ -d "$RUNNER_TEMP/code-mode-deps/node_modules" ]; then
-            tar -C "$RUNNER_TEMP/code-mode-deps" -czf "$RUNNER_TEMP/code-mode-proof/dependencies.tgz" node_modules
+          if [ -d node_modules ]; then
+            tar -czf "$RUNNER_TEMP/code-mode-proof/dependencies.tgz" node_modules
           fi
-          tar -C "$(dirname "$(command -v node)")" -czf "$RUNNER_TEMP/code-mode-proof/node.tgz" node
+          if [ -d dist ]; then tar -czf "$RUNNER_TEMP/code-mode-proof/dist.tgz" dist; fi
           cd "$RUNNER_TEMP/code-mode-proof"
           sha256sum *.tgz > SHA256SUMS
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
