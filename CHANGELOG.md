@@ -1,3 +1,11 @@
+## 0.311.2
+
+Allow Agent Profile Materializer 0.22 alongside 0.21. Qualify the maintained profile admission and candidate execution paths against 0.22 so consumers can adopt its declared MCP permission fixes without overriding Runtime dependency bounds.
+
+The profile-authoring skill now states a node's role as the first entry of `prompt.instructions`, which every harness reads while keeping its own system prompt. It notes that Codex and Gemini refuse `prompt.appendSystemPrompt` at materialization, and that `prompt.systemPrompt` replaces the whole harness prompt (17,730 characters of base instructions on Codex).
+
+The profile-authoring skill fits inline in a spawned profile again (16,310 of 16,384 bytes) after the role-channel guidance grew it; 0.311.1 failed its publish verify on this size check.
+
 ## 0.311.1
 
 The profile-authoring skill fits inline in a spawned profile again (16,357 of 16,384 bytes): duplicate submit_result, served-tool and reference lines are removed and the deadline check-in guidance is shortened. 0.311.0 failed its publish verify on this size check.
