@@ -1,3 +1,7 @@
+## 0.312.0
+
+A run settles only on a terminal condition: the deadline, a cancel, an exhausted budget, a result the check accepts, or the no-progress bound. `report_blocked` whose probe fails no longer closes the run: the reply says so, `continuation.blocked` records both errors, and the root is re-entered like any turn that ended unmet (`continuation.closedBy` loses `'blocked'`). `supervise({ segment })` replaces `modelChange`: a resume may move the root to another model, provider, reasoning effort or harness, and record the caller's `stack`, as a new segment of the same run id; the journal's `root-segment` record (replacing `model-changed`) names what the root runs on from then and why, and a fresh run records its first segment. A harness change starts a new native session from the latest workspace checkpoint. `RootModel`/`RootModelChange` become `RootSegment`/`RootSegmentEntry`.
+
 ## 0.311.2
 
 Allow Agent Profile Materializer 0.22 alongside 0.21. Qualify the maintained profile admission and candidate execution paths against 0.22 so consumers can adopt its declared MCP permission fixes without overriding Runtime dependency bounds.
