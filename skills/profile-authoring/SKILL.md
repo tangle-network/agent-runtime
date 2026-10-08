@@ -164,9 +164,9 @@ Group retries of the same assignment into one lineage when comparing teams.
 Grant `submit_result` only when Runtime gives that node an independent check; otherwise its settlement stays unassessed.
 Grant only the observation, steering and journal tools that the assignment needs.
 Set `harness`, `model.default` and `model.provider` explicitly, and validate against the current `agentProfileSchema`.
-State the node's role in `prompt.appendSystemPrompt`: it is added after the harness's own system prompt, which stays in force.
-Put the procedure in `prompt.instructions`.
-Set `prompt.systemPrompt` only to replace the harness prompt on purpose; the model then loses the harness's own tool and workflow guidance.
+State the node's role as the first entry of `prompt.instructions` and its procedure in the entries after it; every harness reads them, and the harness's own system prompt stays in force.
+`prompt.appendSystemPrompt` reaches only harnesses with an additive channel (claude-code, pi, prime, opencode); Codex and Gemini refuse it when the profile materializes.
+Set `prompt.systemPrompt` only to replace the whole harness prompt on purpose: the model then loses the harness's own tool and workflow guidance, which on Codex is 17,730 characters of base instructions.
 
 For subscription execution, select a harness and model that the granted account can serve.
 The private executor resolves the authorized credential and materializes the harness's authentication files.
