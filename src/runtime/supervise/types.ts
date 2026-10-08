@@ -2122,11 +2122,12 @@ export interface RecursiveReservationPolicy {
 /**
  * What a root runs on during one segment of its run.
  *
- * Its profile's `model.default`, `model.reasoningEffort` and `harness`, and the package versions
- * the caller ran it under. A run is one id for its whole life; a turn that ends, a lost stream or a dead supervisor is a
+ * Its profile's `model.provider`, `model.default`, `model.reasoningEffort` and `harness`, and the
+ * package versions the caller ran it under. A run is one id for its whole life; a turn that ends, a lost stream or a dead supervisor is a
  * boundary between entries, and an entry on anything else here starts a new segment.
  */
 export interface RootSegment {
+  readonly provider?: string
   readonly model?: string
   readonly reasoningEffort?: ReasoningEffort
   readonly harness?: string

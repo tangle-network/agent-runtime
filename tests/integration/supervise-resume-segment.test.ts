@@ -56,8 +56,13 @@ describe('supervisePursuit: one run id for its whole life, in recorded segments'
     expect(segments(after)).toEqual([
       expect.objectContaining({
         id: 'run:segment',
-        from: { model: 'offline-test-model', harness: 'claude-code' },
-        to: { model: 'gpt-6-luna', reasoningEffort: 'high', harness: 'claude-code' },
+        from: { provider: 'offline', model: 'offline-test-model', harness: 'claude-code' },
+        to: {
+          provider: 'offline',
+          model: 'gpt-6-luna',
+          reasoningEffort: 'high',
+          harness: 'claude-code',
+        },
         reason: 'gpt-6 is on the seat now',
         seq: 0,
       }),
@@ -78,6 +83,7 @@ describe('supervisePursuit: one run id for its whole life, in recorded segments'
 
     const toCodex = {
       harness: 'codex',
+      provider: 'openai',
       model: 'gpt-6.1-sol',
       reason: 'no Claude seat has room',
     } as const
@@ -87,8 +93,8 @@ describe('supervisePursuit: one run id for its whole life, in recorded segments'
     expect(driven.at(-1)).toEqual({ harness: 'codex', model: 'gpt-6.1-sol' })
     expect(segments(await events(runDir))).toEqual([
       expect.objectContaining({
-        from: { model: 'offline-test-model', harness: 'claude-code' },
-        to: { model: 'gpt-6.1-sol', harness: 'codex' },
+        from: { provider: 'offline', model: 'offline-test-model', harness: 'claude-code' },
+        to: { provider: 'openai', model: 'gpt-6.1-sol', harness: 'codex' },
         reason: 'no Claude seat has room',
       }),
     ])
@@ -99,7 +105,7 @@ describe('supervisePursuit: one run id for its whole life, in recorded segments'
     await run(runDir, [], { segment: { stack, reason: 'pressed' } })
     expect(segments(await events(runDir))).toEqual([
       expect.objectContaining({
-        to: { model: 'offline-test-model', harness: 'claude-code', stack },
+        to: { provider: 'offline', model: 'offline-test-model', harness: 'claude-code', stack },
         reason: 'pressed',
         seq: 0,
       }),

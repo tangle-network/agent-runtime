@@ -2418,10 +2418,10 @@ export interface SuperviseOptions {
   /**
    * The segment this entry runs the root in. A run keeps one id for its whole life: a turn that
    * ends, a lost stream and a dead supervisor are boundaries between entries, and a resume may move
-   * the root to another model, reasoning effort or harness, or onto another stack, as a new
-   * segment of the same run. `profile` stays the root profile the run recorded, so its identity,
+   * the root to another model, provider, reasoning effort or harness, or onto another stack, as a
+   * new segment of the same run. `profile` stays the root profile the run recorded, so its identity,
    * coordination owner and settled children resume unchanged; the root executes that profile with
-   * `model.default`, `model.reasoningEffort` and `harness` replaced where given. `stack` names the
+   * `model.provider`, `model.default`, `model.reasoningEffort` and `harness` replaced where given. `stack` names the
    * package versions the caller runs this entry under, its Runtime among them; Runtime records it
    * and never reads it. When the segment differs from the one the run last ran, the journal gains
    * one `root-segment` record with the time and `reason`. A different task, or any other profile
@@ -2433,6 +2433,7 @@ export interface SuperviseOptions {
    * from its latest checkpoint when the provider holds one.
    */
   readonly segment?: {
+    readonly provider?: string
     readonly model?: string
     readonly reasoningEffort?: ReasoningEffort
     readonly harness?: AgentProfile['harness']
@@ -3349,6 +3350,7 @@ export function superviseRootProfile(
 /** What a root profile runs on, as a `root-segment` record names it. */
 function rootSegmentOf(profile: AgentProfile): RootSegment {
   return {
+    ...(profile.model?.provider === undefined ? {} : { provider: profile.model.provider }),
     ...(profile.model?.default === undefined ? {} : { model: profile.model.default }),
     ...(profile.model?.reasoningEffort === undefined
       ? {}
@@ -3362,7 +3364,7 @@ function admitSegment(segment: NonNullable<SuperviseOptions['segment']>): void {
   if (typeof segment !== 'object' || segment === null) {
     throw new ValidationError('supervise: segment must be an object')
   }
-  for (const key of ['model', 'harness'] as const) {
+  for (const key of ['provider', 'model', 'harness'] as const) {
     const value = segment[key]
     if (value !== undefined && (typeof value !== 'string' || value.trim().length === 0)) {
       throw new ValidationError(`supervise: segment.${key} must name a ${key}`)
@@ -3387,13 +3389,14 @@ function admitSegment(segment: NonNullable<SuperviseOptions['segment']>): void {
   }
 }
 
-/** The recorded root profile with only its model, reasoning effort and harness replaced where the
- *  segment names them. */
+/** The recorded root profile with only its provider, model, reasoning effort and harness replaced
+ *  where the segment names them. */
 function withRootSegment(
   profile: AgentProfile,
   segment: NonNullable<SuperviseOptions['segment']>,
 ): AgentProfile {
   if (
+    segment.provider === undefined &&
     segment.model === undefined &&
     segment.reasoningEffort === undefined &&
     segment.harness === undefined
@@ -3406,6 +3409,7 @@ function withRootSegment(
       ...(segment.harness === undefined ? {} : { harness: segment.harness }),
       model: {
         ...profile.model,
+        ...(segment.provider === undefined ? {} : { provider: segment.provider }),
         ...(segment.model === undefined ? {} : { default: segment.model }),
         ...(segment.reasoningEffort === undefined
           ? {}

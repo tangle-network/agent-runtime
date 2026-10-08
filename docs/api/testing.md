@@ -1274,10 +1274,10 @@ reused id without it. Ignored when `runDir` is also set — the file context own
 
 The segment this entry runs the root in. A run keeps one id for its whole life: a turn that
 ends, a lost stream and a dead supervisor are boundaries between entries, and a resume may move
-the root to another model, reasoning effort or harness, or onto another stack, as a new
-segment of the same run. `profile` stays the root profile the run recorded, so its identity,
+the root to another model, provider, reasoning effort or harness, or onto another stack, as a
+new segment of the same run. `profile` stays the root profile the run recorded, so its identity,
 coordination owner and settled children resume unchanged; the root executes that profile with
-`model.default`, `model.reasoningEffort` and `harness` replaced where given. `stack` names the
+`model.provider`, `model.default`, `model.reasoningEffort` and `harness` replaced where given. `stack` names the
 package versions the caller runs this entry under, its Runtime among them; Runtime records it
 and never reads it. When the segment differs from the one the run last ran, the journal gains
 one `root-segment` record with the time and `reason`. A different task, or any other profile
@@ -1287,6 +1287,10 @@ segment and refuses a model or harness change: a new run takes them from its pro
 A harness change starts a new native session: a session of one harness cannot continue in
 another. The root re-enters with its objective and the run's state, in a workspace restored
 from its latest checkpoint when the provider holds one.
+
+###### provider?
+
+> `readonly` `optional` **provider?**: `string`
 
 ###### model?
 
@@ -2381,10 +2385,10 @@ reused id without it. Ignored when `runDir` is also set — the file context own
 
 The segment this entry runs the root in. A run keeps one id for its whole life: a turn that
 ends, a lost stream and a dead supervisor are boundaries between entries, and a resume may move
-the root to another model, reasoning effort or harness, or onto another stack, as a new
-segment of the same run. `profile` stays the root profile the run recorded, so its identity,
+the root to another model, provider, reasoning effort or harness, or onto another stack, as a
+new segment of the same run. `profile` stays the root profile the run recorded, so its identity,
 coordination owner and settled children resume unchanged; the root executes that profile with
-`model.default`, `model.reasoningEffort` and `harness` replaced where given. `stack` names the
+`model.provider`, `model.default`, `model.reasoningEffort` and `harness` replaced where given. `stack` names the
 package versions the caller runs this entry under, its Runtime among them; Runtime records it
 and never reads it. When the segment differs from the one the run last ran, the journal gains
 one `root-segment` record with the time and `reason`. A different task, or any other profile
@@ -2394,6 +2398,10 @@ segment and refuses a model or harness change: a new run takes them from its pro
 A harness change starts a new native session: a session of one harness cannot continue in
 another. The root re-enters with its objective and the run's state, in a workspace restored
 from its latest checkpoint when the provider holds one.
+
+###### provider?
+
+> `readonly` `optional` **provider?**: `string`
 
 ###### model?
 
