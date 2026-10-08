@@ -967,6 +967,7 @@ function driveHarnessFromBackend(
   const drive: DriveHarness = async ({
     profile,
     authoredProfile,
+    registeredProfile,
     task,
     scope,
     coordinationMcpUrl,
@@ -1452,8 +1453,11 @@ function driveHarnessFromBackend(
     ): ExecutorMaterialization => ({
       ...exactDeclaration,
       // The provider sees the projected profile while the receipt remains bound to the canonical
-      // profile that authorized Runtime coordination.
-      authoredProfile: canonicalDriverProfile,
+      // profile that authorized Runtime coordination: the registered one, across every segment of the run.
+      authoredProfile:
+        registeredProfile === undefined
+          ? canonicalDriverProfile
+          : agentProfileSchema.parse(registeredProfile),
       effectiveProfile: providerDriverProfile,
       platformAttachments: {
         [coordinationMcpAlias]: {
@@ -4375,6 +4379,8 @@ function superviseInternal(
             abortRun: cancelDurableRun,
           }),
       ...(options.steerDir === undefined ? {} : { steerDir: resolve(options.steerDir) }),
+      // A root executing another segment of its registered profile attributes its materialization to the registered one.
+      ...(canonicalProfile === registeredProfile ? {} : { registeredProfile }),
     } satisfies SupervisorAgentDeps
     const agent =
       testBrain === undefined
@@ -4435,7 +4441,8 @@ function superviseInternal(
             rootMaterialization: {
               runtime: rootOwnerRuntime,
               declaration: 'deferred' as const,
-              authoredProfile: canonicalProfile,
+              // Every segment's materialization is attributed to the registered root profile.
+              authoredProfile: registeredProfile,
             },
           }),
       maxDepth: options.maxDepth ?? DEFAULT_MAX_DEPTH,

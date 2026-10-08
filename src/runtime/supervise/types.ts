@@ -2014,7 +2014,8 @@ export type SpawnEvent =
       at: string
     }
   | {
-      /** Exact materialization for a later, authorized subscription segment. */
+      /** Exact materialization for a later, authorized segment of the node: a subscription seat segment, or for
+       *  the root a `root-segment` (another model, effort or harness of its registered profile). */
       kind: 'seat-materialized'
       id: NodeId
       segmentIndex: number

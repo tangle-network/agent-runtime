@@ -24325,6 +24325,14 @@ The exact provider-visible projection. Runtime-owned coordination tool declarati
 The immutable canonical profile Runtime admitted. Use it only to bind receipts or audit
  authority; never send it to a provider, because it contains Runtime-owned declarations.
 
+###### registeredProfile?
+
+`AgentProfile`
+
+The profile the run registered, when `authoredProfile` is another segment of it (a resumed root moved to
+ another model or harness). Materialization receipts are attributed to it, so a run's materialization chain
+ keeps one authored profile across segments. Absent when the two are the same.
+
 ###### systemPrompt?
 
 `string`
@@ -24603,6 +24611,15 @@ How hard a transiently-failed EXTERNAL driver is re-entered before the run ends
  the bridge backend reattaches the harness session by its durable execution id. Omit = retry
  under the defaults; `{ enabled: false }` = the historical first-failure-ends-the-run behavior.
  The router arm is unaffected: its transport already retries.
+
+##### registeredProfile?
+
+> `readonly` `optional` **registeredProfile?**: `AgentProfile`
+
+The profile this manager was registered with, when it executes another segment of it (a resumed root moved
+ to another model or harness, `SuperviseOptions.segment`). Its materialization stays attributed to the
+ registered profile, as a seat's does to the profile that authored the seat; the executed profile is its
+ effective profile. Omit = the executed profile is the registered one.
 
 ##### onDriverAttempt?
 
@@ -35679,7 +35696,8 @@ The open and close records share a segment index, and never contain credentials.
 
 > **kind**: `"seat-materialized"`
 
-Exact materialization for a later, authorized subscription segment.
+Exact materialization for a later, authorized segment of the node: a subscription seat segment, or for
+ the root a `root-segment` (another model, effort or harness of its registered profile).
 
 ###### id
 

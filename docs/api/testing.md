@@ -2791,6 +2791,19 @@ How hard a transiently-failed EXTERNAL driver is re-entered before the run ends
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`driverRetry`](runtime.md#driverretry-2)
 
+##### registeredProfile?
+
+> `readonly` `optional` **registeredProfile?**: `AgentProfile`
+
+The profile this manager was registered with, when it executes another segment of it (a resumed root moved
+ to another model or harness, `SuperviseOptions.segment`). Its materialization stays attributed to the
+ registered profile, as a seat's does to the profile that authored the seat; the executed profile is its
+ effective profile. Omit = the executed profile is the registered one.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`registeredProfile`](runtime.md#registeredprofile)
+
 ##### onDriverAttempt?
 
 > `readonly` `optional` **onDriverAttempt?**: (`record`) => `void` \| `Promise`\<`void`\>
