@@ -91,8 +91,6 @@ Tell agents the checker may be wrong; credit a checker-defect report the same wa
 Separate execution settlement, development progress, and final acceptance.
 An unknown outside verdict does not establish absent research progress.
 Match completion instructions to the tools actually served to that node.
-Require `submit_result` only when its grant and checker exist.
-Keep unassessed results unassessed when the execution contract permits settlement without acceptance.
 
 For continued research, inspect the installed Runtime deliverable and continuation contracts before choosing bounds.
 Use the existing `checkState` interface for calibrated development measurements when applicable.
@@ -127,8 +125,8 @@ Record each new trap where the next author reads it, in the same change as its f
 
 Hard limits live in Runtime options and per-assignment budgets: `budget`, `workerSlots`, `maxDepth`, `allowedModels`, `continuation`.
 Prompt text enforces no limit.
-A spawn's `deadlineMs` is a time box, not a kill: at the box Runtime tells the child to record its state and submit what it has, and stops it only once it then makes no progress (`deadlineCheckIn`).
-Let the root choose each assignment's check-in cadence from the work; do not write a fixed milestone length or a fixed specialist deadline into a brief, and register a fixed box only as an arm against the root's own cadence.
+A spawn's `deadlineMs` is a check-in, not a kill: the child is told to record its state and submit what it has, and is stopped only if it then makes no progress (`deadlineCheckIn`).
+Let the root set each check-in from the work; write no fixed milestone length or specialist deadline into a brief, and register a fixed box only as an arm against the root's cadence.
 `maxTokens` is settled after the work: an overspent child keeps its output and carries a `budgetViolation`.
 A child's total counts input tokens on every turn, so reserve turns times context.
 For paid calls, use the execution owner's named credential and enforceable dollar limit.
@@ -181,7 +179,6 @@ When mounted, [execution and credentials](references/execution-and-credentials.m
 
 A tool name must be one the harness publishes, and a refused name fails the same way on retry.
 `ls`, `list` and `find` are not tool names; select paths with a glob tool and search contents with a grep tool.
-Inspect materialized permissions and served tools before relying on a restriction.
 Distinguish exact Runtime grants from harness-native defaults, which may expose additional tools.
 Keep file access within the actual permission boundary.
 Use the execution owner's supported cancellation and recovery procedures for a wedged parent.
@@ -228,7 +225,6 @@ Records that expose a hack, profile revisions, and unavailable observations:
 
 For acceptance gaps and null certificates, read [acceptance examples](references/acceptance-examples.md).
 Mount the acceptance reference when the assignment needs its worked examples.
-Research directors also require the research authoring reference named above.
 
 ## Then consider
 
