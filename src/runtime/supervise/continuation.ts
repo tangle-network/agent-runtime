@@ -180,8 +180,9 @@ export interface CheckRead {
  *
  * Required for an external manager with a check: Runtime supplies no default, because a retry
  * default in source is a research decision the record must make. There is no re-prompt count.
- * The loop re-enters until the check passes, `report_blocked` ends the run, or a bound ends it:
- * this deadline, the budget, `maxBarren` turns in a row without progress, or cancellation.
+ * The loop re-enters until the check passes or a bound ends it: this deadline, the budget,
+ * `maxBarren` turns in a row without progress, or cancellation. A tool `report_blocked` shows
+ * really failed is recorded and the loop goes on: a blocked tool is not a terminal condition.
  * Progress means the check's best composite rose, an accepted result, or a worker that delivered.
  */
 export interface ContinuationPolicy {

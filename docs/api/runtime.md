@@ -2503,6 +2503,31 @@ The tool's error message, when it failed.
 
 ***
 
+### BlockedToolReport
+
+One `report_blocked` whose probe failed too.
+ It names the tool, the error the manager saw, and the error the coordinator's own call returned.
+
+#### Properties
+
+##### tool
+
+> `readonly` **tool**: `string`
+
+##### reported
+
+> `readonly` **reported**: `string`
+
+##### probed
+
+> `readonly` **probed**: `string`
+
+##### at
+
+> `readonly` **at**: `string`
+
+***
+
 ### WorktreeCommandResult
 
 Outcome of one verification command run in the worktree (test or typecheck).
@@ -15552,8 +15577,9 @@ How a manager with a completion check is sent back when its turn ends unmet.
 
 Required for an external manager with a check: Runtime supplies no default, because a retry
 default in source is a research decision the record must make. There is no re-prompt count.
-The loop re-enters until the check passes, `report_blocked` ends the run, or a bound ends it:
-this deadline, the budget, `maxBarren` turns in a row without progress, or cancellation.
+The loop re-enters until the check passes or a bound ends it: this deadline, the budget,
+`maxBarren` turns in a row without progress, or cancellation. A tool `report_blocked` shows
+really failed is recorded and the loop goes on: a blocked tool is not a terminal condition.
 Progress means the check's best composite rose, an accepted result, or a worker that delivered.
 
 #### Properties
@@ -17400,18 +17426,24 @@ Of those, the ones whose new environment was created from the lost one's latest 
 
 ##### closedBy?
 
-> `readonly` `optional` **closedBy?**: `"stop"` \| `"blocked"` \| `"result-accepted"` \| `"stop-rule"`
+> `readonly` `optional` **closedBy?**: `"stop"` \| `"result-accepted"` \| `"stop-rule"`
 
 How the run was closed, when something closed it: an accepted `submit_result`, the
- manager's own `stop` (served only to a manager with no check), a `report_blocked` whose
- probe failed, or the caller's progress `stopRule`. Absent when the loop ended on a bound or a
- failure.
+ manager's own `stop` (served only to a manager with no check), or the caller's progress
+ `stopRule`. Absent when the loop ended on a bound or a failure. A blocked tool never closes
+ a run: it is a segment boundary, recorded in `blocked`.
 
 ##### stopReason?
 
 > `readonly` `optional` **stopReason?**: `string`
 
-The reason the manager gave, or the failed probe, verbatim.
+The reason the manager gave, verbatim.
+
+##### blocked?
+
+> `readonly` `optional` **blocked?**: readonly [`BlockedToolReport`](#blockedtoolreport)[]
+
+Every `report_blocked` whose probe failed too, in report order. Present when non-empty.
 
 ##### continuations
 
@@ -18373,9 +18405,9 @@ director heard held no line of the check's verdict.
 
 A continuation is the retry path, not a second loop: same scope, same coordination server,
 same live children, and the same budget, deadline, and abort bounds. There is no count: the
-loop ends when the check passes, when `report_blocked` shows a tool really failed, at this
-deadline, on the budget, after `maxBarren` turns in a row without progress, or on
-cancellation. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+loop ends when the check passes, at this deadline, on the budget, after `maxBarren` turns in
+a row without progress, or on cancellation. A turn that ends, a blocked tool, and a lost
+stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`./continuation.ts`); the
 profile owns its words, and `append` may add a section but never replace one.
 
 Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
@@ -18652,24 +18684,45 @@ reused id without it. Ignored when `runDir` is also set — the file context own
 
 [`SuperviseOptions`](#superviseoptions).[`resume`](#resume-7)
 
-##### modelChange?
+##### segment?
 
-> `readonly` `optional` **modelChange?**: `object`
+> `readonly` `optional` **segment?**: `object`
 
-Resume this run with the root on another model. `profile` stays the root profile the run
-recorded, so its identity, coordination owner and settled children resume unchanged; the root
-executes that profile with `model.default`, and `model.reasoningEffort` when given, replaced.
-When the model differs from the one the run last ran, the journal gains one `model-changed`
-record with the time and `reason`. Nothing else about the profile changes this way, and a
-fresh run refuses it: a new run takes its model from its profile.
+The segment this entry runs the root in. A run keeps one id for its whole life: a turn that
+ends, a lost stream and a dead supervisor are boundaries between entries, and a resume may move
+the root to another model, provider, reasoning effort or harness, or onto another stack, as a
+new segment of the same run. `profile` stays the root profile the run recorded, so its identity,
+coordination owner and settled children resume unchanged; the root executes that profile with
+`model.provider`, `model.default`, `model.reasoningEffort` and `harness` replaced where given. `stack` names the
+package versions the caller runs this entry under, its Runtime among them; Runtime records it
+and never reads it. When the segment differs from the one the run last ran, the journal gains
+one `root-segment` record with the time and `reason`. A different task, or any other profile
+change, is still a resume identity mismatch: that is a new run. A fresh run records its first
+segment and refuses a model or harness change: a new run takes them from its profile.
 
-###### model
+A harness change starts a new native session: a session of one harness cannot continue in
+another. The root re-enters with its objective and the run's state, in a workspace restored
+from its latest checkpoint when the provider holds one.
 
-> `readonly` **model**: `string`
+###### provider?
+
+> `readonly` `optional` **provider?**: `string`
+
+###### model?
+
+> `readonly` `optional` **model?**: `string`
 
 ###### reasoningEffort?
 
 > `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
+
+###### harness?
+
+> `readonly` `optional` **harness?**: `HarnessType`
+
+###### stack?
+
+> `readonly` `optional` **stack?**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
 ###### reason
 
@@ -18677,7 +18730,7 @@ fresh run refuses it: a new run takes its model from its profile.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`modelChange`](#modelchange-1)
+[`SuperviseOptions`](#superviseoptions).[`segment`](#segment-1)
 
 ##### steerDir?
 
@@ -23283,9 +23336,9 @@ director heard held no line of the check's verdict.
 
 A continuation is the retry path, not a second loop: same scope, same coordination server,
 same live children, and the same budget, deadline, and abort bounds. There is no count: the
-loop ends when the check passes, when `report_blocked` shows a tool really failed, at this
-deadline, on the budget, after `maxBarren` turns in a row without progress, or on
-cancellation. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+loop ends when the check passes, at this deadline, on the budget, after `maxBarren` turns in
+a row without progress, or on cancellation. A turn that ends, a blocked tool, and a lost
+stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`./continuation.ts`); the
 profile owns its words, and `append` may add a section but never replace one.
 
 Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
@@ -23546,24 +23599,45 @@ is `runDir` or a `runContext` (see `docs/durability.md`). Exactly what the file
 context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
 reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
 
-##### modelChange?
+##### segment?
 
-> `readonly` `optional` **modelChange?**: `object`
+> `readonly` `optional` **segment?**: `object`
 
-Resume this run with the root on another model. `profile` stays the root profile the run
-recorded, so its identity, coordination owner and settled children resume unchanged; the root
-executes that profile with `model.default`, and `model.reasoningEffort` when given, replaced.
-When the model differs from the one the run last ran, the journal gains one `model-changed`
-record with the time and `reason`. Nothing else about the profile changes this way, and a
-fresh run refuses it: a new run takes its model from its profile.
+The segment this entry runs the root in. A run keeps one id for its whole life: a turn that
+ends, a lost stream and a dead supervisor are boundaries between entries, and a resume may move
+the root to another model, provider, reasoning effort or harness, or onto another stack, as a
+new segment of the same run. `profile` stays the root profile the run recorded, so its identity,
+coordination owner and settled children resume unchanged; the root executes that profile with
+`model.provider`, `model.default`, `model.reasoningEffort` and `harness` replaced where given. `stack` names the
+package versions the caller runs this entry under, its Runtime among them; Runtime records it
+and never reads it. When the segment differs from the one the run last ran, the journal gains
+one `root-segment` record with the time and `reason`. A different task, or any other profile
+change, is still a resume identity mismatch: that is a new run. A fresh run records its first
+segment and refuses a model or harness change: a new run takes them from its profile.
 
-###### model
+A harness change starts a new native session: a session of one harness cannot continue in
+another. The root re-enters with its objective and the run's state, in a workspace restored
+from its latest checkpoint when the provider holds one.
 
-> `readonly` **model**: `string`
+###### provider?
+
+> `readonly` `optional` **provider?**: `string`
+
+###### model?
+
+> `readonly` `optional` **model?**: `string`
 
 ###### reasoningEffort?
 
 > `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
+
+###### harness?
+
+> `readonly` `optional` **harness?**: `HarnessType`
+
+###### stack?
+
+> `readonly` `optional` **stack?**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
 ###### reason
 
@@ -27340,11 +27414,19 @@ kept free for its own inference while children hold their declared slices.
 
 ***
 
-### RootModel
+### RootSegment
 
-The model a root runs on: its profile's `model.default` and `model.reasoningEffort`.
+What a root runs on during one segment of its run.
+
+Its profile's `model.provider`, `model.default`, `model.reasoningEffort` and `harness`, and the
+package versions the caller ran it under. A run is one id for its whole life; a turn that ends, a lost stream or a dead supervisor is a
+boundary between entries, and an entry on anything else here starts a new segment.
 
 #### Properties
+
+##### provider?
+
+> `readonly` `optional` **provider?**: `string`
 
 ##### model?
 
@@ -27354,25 +27436,36 @@ The model a root runs on: its profile's `model.default` and `model.reasoningEffo
 
 > `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
 
+##### harness?
+
+> `readonly` `optional` **harness?**: `string`
+
+##### stack?
+
+> `readonly` `optional` **stack?**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+The package versions the caller runs this segment under, by package name (its Runtime among
+ them). Runtime records them and never reads them.
+
 ***
 
-### RootModelChange
+### RootSegmentEntry
 
-A resumed root that runs on another model than its recorded profile names.
+The segment a root enters with this process.
 
 #### Properties
 
-##### from
+##### registered
 
-> `readonly` **from**: [`RootModel`](#rootmodel)
+> `readonly` **registered**: [`RootSegment`](#rootsegment)
 
-The model the recorded root profile names.
+What the recorded root profile runs on, without a stack.
 
-##### to
+##### current
 
-> `readonly` **to**: [`RootModel`](#rootmodel)
+> `readonly` **current**: [`RootSegment`](#rootsegment)
 
-The model the root runs on from this entry.
+What the root runs on from this entry.
 
 ##### reason
 
@@ -27396,13 +27489,13 @@ The root conserved-pool ceiling (tokens + usd + iterations + deadline).
 
 Exact root profile/task identity supplied by the one-call composition surface.
 
-##### rootModelChange?
+##### rootSegment?
 
-> `readonly` `optional` **rootModelChange?**: [`RootModelChange`](#rootmodelchange)
+> `readonly` `optional` **rootSegment?**: [`RootSegmentEntry`](#rootsegmententry)
 
-The root resumes on another model. `rootIdentity` stays the recorded root's; when the model
- differs from the one the run last ran, the journal gains one `model-changed` record. A fresh
- run refuses it.
+The segment this entry runs the root in. `rootIdentity` stays the recorded root's; when the
+ segment differs from the one the run last ran, the journal gains one `root-segment` record. A
+ fresh run refuses a segment that changes the recorded profile's model or harness.
 
 ##### rootMaterialization?
 
@@ -32570,7 +32663,7 @@ Why the retry loop stopped. `completed` is the only non-failure.
 
 Why a completed drive with an unmet contract was not re-entered. `no-progress` means
  `continuation.maxBarren` consecutive re-entered drives completed without progress. `closed`
- means the run was already closed: a failed `report_blocked` probe or a progress stop rule.
+ means the run was already closed: the manager's own `stop` or a progress stop rule.
 
 ***
 
@@ -33805,7 +33898,7 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-9); `parent?`: [`NodeId`](#nodeid-9); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-9); `budget`: [`Budget`](#budget-16); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-9); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-9); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-9); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-9); `outRef`: `string`; `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-9); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-9); `outRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-9); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-9); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-9); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-9); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-9); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-9); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-9); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-9); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-9); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-9); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-9); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-9); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-9); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-9); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-9); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-9); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-9); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-9); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-9); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-9); `resumeAt`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"model-changed"`; `id`: [`NodeId`](#nodeid-9); `from`: [`RootModel`](#rootmodel); `to`: [`RootModel`](#rootmodel); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-9); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-9); `parent?`: [`NodeId`](#nodeid-9); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-9); `budget`: [`Budget`](#budget-16); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-9); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-9); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-9); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-9); `outRef`: `string`; `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-9); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-9); `outRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-9); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-9); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-9); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-9); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-9); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-9); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-9); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-9); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-9); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-9); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-9); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-9); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-9); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-9); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-9); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-9); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-9); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-9); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-9); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-9); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-9); `resumeAt`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-9); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-9); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
 
 #### Union Members
 
@@ -35676,27 +35769,29 @@ Every authored seat was unavailable. The agent holds no model turn until this re
 
 ##### Type Literal
 
-\{ `kind`: `"model-changed"`; `id`: [`NodeId`](#nodeid-9); `from`: [`RootModel`](#rootmodel); `to`: [`RootModel`](#rootmodel); `reason`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-9); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
-> **kind**: `"model-changed"`
+> **kind**: `"root-segment"`
 
-The root resumed on another model or reasoning effort (`SupervisorOpts.rootModelChange`).
- The run keeps its id, recorded identity and settled children; this record says when the
- model changed and why. Informational: replay and cost readers skip it.
+The root entered a new segment of its run (`SupervisorOpts.rootSegment`): its model,
+ reasoning effort, harness or the caller's stack differs from the segment it last ran. The
+ run keeps its id, recorded identity and settled children; this record says what the root
+ runs on from here, since when, and why. `from` is absent on the run's first record when
+ nothing ran before it. Informational: replay and cost readers skip it.
 
 ###### id
 
 > **id**: [`NodeId`](#nodeid-9)
 
-###### from
+###### from?
 
-> **from**: [`RootModel`](#rootmodel)
+> `optional` **from?**: [`RootSegment`](#rootsegment)
 
 ###### to
 
-> **to**: [`RootModel`](#rootmodel)
+> **to**: [`RootSegment`](#rootsegment)
 
 ###### reason
 

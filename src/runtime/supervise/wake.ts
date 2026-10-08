@@ -6,8 +6,9 @@
  * re-read the whole cached context. Measured 2026-10-05 on two Discovery roots: 18 of 88 model
  * turns did nothing but wait.
  *
- * Now ending a turn is waiting, not completion. Only an accepted `submit_result`, `report_blocked`,
- * or a turn that ends with no open work ends a manager. When a turn ends with open work, Runtime
+ * Now ending a turn is waiting, not completion. Only an accepted `submit_result`, or a turn that
+ * ends with no open work, ends a manager's turn loop; a manager with a check is then sent back
+ * by its continuation until a bound ends the run. When a turn ends with open work, Runtime
  * blocks on the coordination bus with no model turn, and starts the next turn when something
  * happens: a worker settled, a finding arrived, the lead sent a message or an answer, a tool call
  * that outlived its response fence finished, or the deadline warning came due. Everything that

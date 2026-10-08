@@ -102,7 +102,7 @@ Choose `maxBarren` from the task's measured feedback cadence; pending assessment
 For managers, state how they wait for descendants and collect their artifacts before returning.
 A nested manager returning can end its scope and cancel live descendants.
 A manager waits by ending its turn while required descendant work remains live: Runtime wakes it with each settlement, finding, or message from its lead, and with a notice before its deadline.
-Ending a turn with work open is not completion; only an accepted `submit_result`, `report_blocked`, or a turn that ends with nothing open ends a manager.
+Ending a turn with work open is not completion; a manager with a check ends only on an accepted `submit_result` or a bound.
 A shell timer or polling loop is not Runtime re-entry, and it spends turns.
 Require each descendant to retain partial work where its parent can recover it after interruption.
 

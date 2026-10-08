@@ -989,9 +989,9 @@ director heard held no line of the check's verdict.
 
 A continuation is the retry path, not a second loop: same scope, same coordination server,
 same live children, and the same budget, deadline, and abort bounds. There is no count: the
-loop ends when the check passes, when `report_blocked` shows a tool really failed, at this
-deadline, on the budget, after `maxBarren` turns in a row without progress, or on
-cancellation. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+loop ends when the check passes, at this deadline, on the budget, after `maxBarren` turns in
+a row without progress, or on cancellation. A turn that ends, a blocked tool, and a lost
+stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`./continuation.ts`); the
 profile owns its words, and `append` may add a section but never replace one.
 
 Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
@@ -1268,24 +1268,45 @@ reused id without it. Ignored when `runDir` is also set — the file context own
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-7)
 
-##### modelChange?
+##### segment?
 
-> `readonly` `optional` **modelChange?**: `object`
+> `readonly` `optional` **segment?**: `object`
 
-Resume this run with the root on another model. `profile` stays the root profile the run
-recorded, so its identity, coordination owner and settled children resume unchanged; the root
-executes that profile with `model.default`, and `model.reasoningEffort` when given, replaced.
-When the model differs from the one the run last ran, the journal gains one `model-changed`
-record with the time and `reason`. Nothing else about the profile changes this way, and a
-fresh run refuses it: a new run takes its model from its profile.
+The segment this entry runs the root in. A run keeps one id for its whole life: a turn that
+ends, a lost stream and a dead supervisor are boundaries between entries, and a resume may move
+the root to another model, provider, reasoning effort or harness, or onto another stack, as a
+new segment of the same run. `profile` stays the root profile the run recorded, so its identity,
+coordination owner and settled children resume unchanged; the root executes that profile with
+`model.provider`, `model.default`, `model.reasoningEffort` and `harness` replaced where given. `stack` names the
+package versions the caller runs this entry under, its Runtime among them; Runtime records it
+and never reads it. When the segment differs from the one the run last ran, the journal gains
+one `root-segment` record with the time and `reason`. A different task, or any other profile
+change, is still a resume identity mismatch: that is a new run. A fresh run records its first
+segment and refuses a model or harness change: a new run takes them from its profile.
 
-###### model
+A harness change starts a new native session: a session of one harness cannot continue in
+another. The root re-enters with its objective and the run's state, in a workspace restored
+from its latest checkpoint when the provider holds one.
 
-> `readonly` **model**: `string`
+###### provider?
+
+> `readonly` `optional` **provider?**: `string`
+
+###### model?
+
+> `readonly` `optional` **model?**: `string`
 
 ###### reasoningEffort?
 
 > `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
+
+###### harness?
+
+> `readonly` `optional` **harness?**: `HarnessType`
+
+###### stack?
+
+> `readonly` `optional` **stack?**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
 ###### reason
 
@@ -1293,7 +1314,7 @@ fresh run refuses it: a new run takes its model from its profile.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`modelChange`](runtime.md#modelchange-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`segment`](runtime.md#segment-1)
 
 ##### steerDir?
 
@@ -1999,9 +2020,9 @@ director heard held no line of the check's verdict.
 
 A continuation is the retry path, not a second loop: same scope, same coordination server,
 same live children, and the same budget, deadline, and abort bounds. There is no count: the
-loop ends when the check passes, when `report_blocked` shows a tool really failed, at this
-deadline, on the budget, after `maxBarren` turns in a row without progress, or on
-cancellation. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+loop ends when the check passes, at this deadline, on the budget, after `maxBarren` turns in
+a row without progress, or on cancellation. A turn that ends, a blocked tool, and a lost
+stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`./continuation.ts`); the
 profile owns its words, and `append` may add a section but never replace one.
 
 Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
@@ -2358,24 +2379,45 @@ reused id without it. Ignored when `runDir` is also set — the file context own
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-7)
 
-##### modelChange?
+##### segment?
 
-> `readonly` `optional` **modelChange?**: `object`
+> `readonly` `optional` **segment?**: `object`
 
-Resume this run with the root on another model. `profile` stays the root profile the run
-recorded, so its identity, coordination owner and settled children resume unchanged; the root
-executes that profile with `model.default`, and `model.reasoningEffort` when given, replaced.
-When the model differs from the one the run last ran, the journal gains one `model-changed`
-record with the time and `reason`. Nothing else about the profile changes this way, and a
-fresh run refuses it: a new run takes its model from its profile.
+The segment this entry runs the root in. A run keeps one id for its whole life: a turn that
+ends, a lost stream and a dead supervisor are boundaries between entries, and a resume may move
+the root to another model, provider, reasoning effort or harness, or onto another stack, as a
+new segment of the same run. `profile` stays the root profile the run recorded, so its identity,
+coordination owner and settled children resume unchanged; the root executes that profile with
+`model.provider`, `model.default`, `model.reasoningEffort` and `harness` replaced where given. `stack` names the
+package versions the caller runs this entry under, its Runtime among them; Runtime records it
+and never reads it. When the segment differs from the one the run last ran, the journal gains
+one `root-segment` record with the time and `reason`. A different task, or any other profile
+change, is still a resume identity mismatch: that is a new run. A fresh run records its first
+segment and refuses a model or harness change: a new run takes them from its profile.
 
-###### model
+A harness change starts a new native session: a session of one harness cannot continue in
+another. The root re-enters with its objective and the run's state, in a workspace restored
+from its latest checkpoint when the provider holds one.
 
-> `readonly` **model**: `string`
+###### provider?
+
+> `readonly` `optional` **provider?**: `string`
+
+###### model?
+
+> `readonly` `optional` **model?**: `string`
 
 ###### reasoningEffort?
 
 > `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
+
+###### harness?
+
+> `readonly` `optional` **harness?**: `HarnessType`
+
+###### stack?
+
+> `readonly` `optional` **stack?**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
 ###### reason
 
@@ -2383,7 +2425,7 @@ fresh run refuses it: a new run takes its model from its profile.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`modelChange`](runtime.md#modelchange-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`segment`](runtime.md#segment-1)
 
 ##### steerDir?
 

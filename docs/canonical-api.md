@@ -180,7 +180,9 @@ Successful continuations do not consume `driverRetry.maxAttempts`; that limit co
 An upstream out of capacity (a quota, a rate limit, an overload), or a check that could not run, pauses the driver instead; a pause is bounded only by the deadline, the budget and cancellation.
 `maxBarren` re-entered drives in a row without progress end the loop (`repromptRefusedBy: 'no-progress'`); progress is a delivery or a rise in the check's best composite.
 A progress `stopRule` that fired ends it too, and the settle record's `continuation.closedBy` is `stop-rule`.
-A manager with a check is never served `stop`: it ends through `submit_result` or `report_blocked`, and a profile that grants it `stop` is refused before any compute.
+A manager with a check is never served `stop`: it ends through `submit_result` or a bound, and a profile that grants it `stop` is refused before any compute.
+A run settles only on a terminal condition: the deadline, a cancel, an exhausted budget, a result the check accepts, or the no-progress bound.
+A turn that ends, a lost stream, a blocked tool and a dead supervisor are boundaries the root is re-entered across, by `resume` for a dead supervisor.
 A thrown parent check reports a validation error through the existing driver failure record; a `CheckUnavailableError` pauses instead.
 
 | I want to… | Use (import) | Do NOT build |
@@ -493,10 +495,11 @@ Closure is a runtime rule.
 The refusal names the running workers and the waiting events, and nothing is checked or stopped.
 Questions keep their own `questionPolicy` rule.
 
-`report_blocked({ tool, arguments, error })` replaces a voluntary `stop` for a director that believes a dependency failed.
+`report_blocked({ tool, arguments, error })` lets a director that believes a dependency failed have the coordinator check.
 The coordinator calls the named tool again with the same arguments, under the director's own grants.
 When the call succeeds, the reply carries its result and the run continues.
-When it fails again, the run stops with reason `blocked: <tool> ...` and the settle record's `continuation.closedBy` is `blocked`.
+When it fails again, the reply says so, the settle record's `continuation.blocked` keeps both errors, and the run still continues.
+A blocked tool is not a terminal condition: the director works around it or ends its turn, and turns without progress end the run at `maxBarren`.
 `submit_result`, `stop` and `report_blocked` are never probed.
 Grant it as `agent_runtime_coordination_report_blocked`.
 

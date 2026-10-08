@@ -923,7 +923,7 @@ export interface CoordinationToolsOptions {
    * The same independent completion check used for workers. When present, the driver receives a
    * `submit_result` tool and may finish work itself instead of being forced to delegate it. The
    * first passing submission is retained; a false or throwing check fails closed. A manager with a
-   * check is not served `stop`: it ends through `submit_result` or `report_blocked`.
+   * check is not served `stop`: it ends through `submit_result`, or when a bound ends the run.
    */
   readonly deliverable?: DeliverableSpec<unknown>
   /** Serve `read_continuation`: the full continuation files the note refers to. Supplied by the
@@ -1438,10 +1438,18 @@ export interface CoordinationTools {
     readonly verdict?: CheckVerdict
     readonly unavailable?: string
   }): CheckRead
-  /** The failed probe that ended the run through `report_blocked`, when one did. */
-  blocked():
-    | { readonly tool: string; readonly reported: string; readonly probed: string }
-    | undefined
+  /** Every `report_blocked` whose probe failed too, in report order. A blocked tool is evidence,
+   *  not a terminal condition: the run goes on, and the no-progress bound ends it when it cannot. */
+  blocked(): ReadonlyArray<BlockedToolReport>
+}
+
+/** One `report_blocked` whose probe failed too.
+ *  It names the tool, the error the manager saw, and the error the coordinator's own call returned. */
+export interface BlockedToolReport {
+  readonly tool: string
+  readonly reported: string
+  readonly probed: string
+  readonly at: string
 }
 
 /** The reserved coordination verb names — the complete set `createCoordinationTools` can emit
@@ -1889,10 +1897,8 @@ export function createCoordinationToolsForManager(
       ? undefined
       : detachedFrozen({ result: priorSubmission.event.result })
   let submissionInFlight: Promise<void> | undefined
-  // Set when `report_blocked` probed the named tool and the probe failed too.
-  let blockedEvidence:
-    | { readonly tool: string; readonly reported: string; readonly probed: string }
-    | undefined
+  // Every `report_blocked` whose probe failed too.
+  const blockedReports: BlockedToolReport[] = []
   let questionSeq = 0
   const ledger: SettledWorker[] = []
   const questions: QuestionRecord[] = [...(opts.priorQuestions ?? [])]
@@ -4499,8 +4505,8 @@ export function createCoordinationToolsForManager(
           } satisfies McpToolDescriptor,
         ]
       : []),
-    // A manager with a check ends only when the check passes, when `report_blocked` shows a tool
-    // really failed, or when a bound ends it. Measured before this rule (2026-09-24): 389 of 650
+    // A manager with a check ends only when the check passes or when a bound ends the run.
+    // Measured before this rule (2026-09-24): 389 of 650
     // lead directors could call `stop`, which ended the run with no check and no second chance.
     ...(deliverable
       ? []
@@ -4577,11 +4583,13 @@ export function createCoordinationToolsForManager(
     {
       name: 'report_blocked',
       description: [
-        'Report that a tool you need keeps failing, so the run cannot go on.',
+        'Report that a tool you need keeps failing.',
         'Name the tool, the arguments you called it with, and the error you saw.',
         'The coordinator calls that tool again, with those arguments, under your identity.',
         'When the call succeeds you are not blocked: the reply carries its result, and you continue.',
-        'When it fails again, the run ends as blocked and the record keeps both errors.',
+        'When it fails again, the record keeps both errors and the run goes on: work around the tool,',
+        'or end your turn and be woken later. A blocked tool never ends the run; turns that end',
+        "without progress end it at the run's no-progress bound.",
         'submit_result, stop and report_blocked cannot be probed.',
       ].join(' '),
       inputSchema: {
@@ -4655,14 +4663,22 @@ export function createCoordinationToolsForManager(
               'not blocked. Use this result and continue the objective.',
           }
         }
-        blockedEvidence = Object.freeze({ tool: bare, reported, probed: probe.error })
-        stopped = true
-        reason = `blocked: ${bare} failed when the coordinator probed it: ${probe.error}`
-        notifyStop()
+        blockedReports.push(
+          Object.freeze({
+            tool: bare,
+            reported,
+            probed: probe.error,
+            at: new Date().toISOString(),
+          }),
+        )
         return {
           blocked: true,
-          stopped: true,
           probe: { tool: bare, ok: false, error: probe.error },
+          guidance:
+            'The call failed when the coordinator made it too, and the record keeps both errors. ' +
+            'The run does not end on a blocked tool. Continue with the work that does not need it, ' +
+            'or end your turn: you will be woken, and the tool may work then. Turns that end ' +
+            'without progress end the run at its no-progress bound.',
         }
       },
     },
@@ -5038,7 +5054,7 @@ export function createCoordinationToolsForManager(
         ...(lastRejection === undefined ? {} : { lastRejection }),
       })
     },
-    blocked: () => blockedEvidence,
+    blocked: () => [...blockedReports],
     checkReads: () => checkReads,
     recordCheckRead,
     ...(peerMail ? { peerMail } : {}),

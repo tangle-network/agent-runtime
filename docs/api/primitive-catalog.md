@@ -444,7 +444,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1040 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1041 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -823,6 +823,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1040 exports.
 | `AwaitWakeInput` | interface | What a manager waits for, from `awaitWake`. |
 | `BenchmarkCell` | interface | One strategy's outcome on one task — the per-task cell an optimizer consumes. |
 | `BenchmarkReport` | interface | Benchmark output: per-strategy means plus the full per-task × per-strategy losses table an optimizer mines. |
+| `BlockedToolReport` | interface | One `report_blocked` whose probe failed too. |
 | `BoxSurfaceReaderOptions` | interface | Retry and cancellation controls for {@link boxSurfaceReader}. |
 | `BranchCapableBox` | interface | Loop-side view of the current Sandbox SDK's live branch method. |
 | `BridgeHarnessStore` | interface | A harness's own session store on the bridge host, named so the runtime may read it. |
@@ -1055,8 +1056,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 1040 exports.
 | `RetainedRunSnapshot` | interface | Stable status snapshot for a retained run. |
 | `RetainedRunStartMaterial` | interface | Environment, turn, and optional identity needed to replay one retained start. |
 | `RootHandle` | interface | Live root handle — a chat/pi-viz client uses it to inspect and control one root run. |
-| `RootModel` | interface | The model a root runs on: its profile's `model.default` and `model.reasoningEffort`. |
-| `RootModelChange` | interface | A resumed root that runs on another model than its recorded profile names. |
+| `RootSegment` | interface | What a root runs on during one segment of its run. |
+| `RootSegmentEntry` | interface | The segment a root enters with this process. |
 | `RootStreamReceipt` | interface | The root manager's retained provider stream: `<runDir>/root-stream.jsonl`, one line per |
 | `RouterResponseReceipt` | interface | Exact buffered HTTP evidence. Authentication and cookie headers are excluded. |
 | `RouterSeam` | interface | Router/inline transport seam. The profile owns model, prompt, and generation behavior. |

@@ -90,6 +90,7 @@ import type {
   NoWinnerError,
   ProfileMaterializationReceipt,
   RootHandle,
+  RootSegmentEntry,
   RootSignal,
   Scope,
   SpawnEvent,
@@ -223,32 +224,39 @@ function rootExecutionBindingReceipt(
   }
 }
 
-/** Append one `model-changed` record when the root's model differs from the one it last ran. The
- *  last record's `to`, or the recorded profile's model when there is none, is what it last ran, so
- *  every later entry on the same model appends nothing. */
-async function recordRootModelChange(
+/** Whether a segment changes what the recorded profile runs, apart from the caller's stack. */
+function changesRootProfile(entry: RootSegmentEntry): boolean {
+  const { stack: _stack, ...current } = entry.current
+  return contentAddress(current) !== contentAddress(entry.registered)
+}
+
+/**
+ * Append one `root-segment` record when the root enters a segment that differs from the one it
+ * last ran. The last record's `to` is what it last ran; a resumed run with no record last ran its
+ * recorded profile, and a fresh run ran nothing. Every later entry on the same segment appends
+ * nothing, so a resume after a dead supervisor or a lost stream is a boundary, not a segment.
+ */
+async function recordRootSegment(
   opts: SupervisorOpts,
   events: readonly SpawnEvent[],
   at: string,
+  fresh: boolean,
 ): Promise<void> {
-  const change = opts.rootModelChange
-  if (change === undefined) return
-  if (typeof change.reason !== 'string' || change.reason.trim().length === 0) {
-    throw new ValidationError(`supervisor: run '${opts.runId}' model change needs a reason`)
-  }
-  const changes = events.filter(
-    (event): event is Extract<SpawnEvent, { kind: 'model-changed' }> =>
-      event.kind === 'model-changed' && event.id === opts.runId,
+  const entry = opts.rootSegment
+  if (entry === undefined) return
+  const records = events.filter(
+    (event): event is Extract<SpawnEvent, { kind: 'root-segment' }> =>
+      event.kind === 'root-segment' && event.id === opts.runId,
   )
-  const last = changes.at(-1)?.to ?? change.from
-  if (contentAddress(last) === contentAddress(change.to)) return
+  const last = records.at(-1)?.to ?? (fresh ? undefined : entry.registered)
+  if (last !== undefined && contentAddress(last) === contentAddress(entry.current)) return
   await opts.journal.appendEvent(opts.runId, {
-    kind: 'model-changed',
+    kind: 'root-segment',
     id: opts.runId,
-    from: last,
-    to: change.to,
-    reason: change.reason,
-    seq: changes.length,
+    ...(last === undefined ? {} : { from: last }),
+    to: entry.current,
+    reason: entry.reason,
+    seq: records.length,
     at,
   })
 }
@@ -295,7 +303,7 @@ function describeIdentityMismatch(
   // key, a different key order the address is sensitive to). Say that rather than nothing.
   if (differing.length === 0)
     return 'the identity objects differ in shape while every known field matches'
-  return `${differing.join('; ')} — use a new runId to change any of these; a resume may change only the root model (modelChange)`
+  return `${differing.join('; ')} — a different task or root profile is a new run; a resume may change the root's model, reasoning effort and harness as a new segment of this run (segment)`
 }
 
 /** Validate caller-supplied root identity before any journal access. Fresh runs may omit identity,
@@ -414,7 +422,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
     const {
       budget,
       rootIdentity,
-      rootModelChange,
+      rootSegment,
       rootMaterialization,
       runId,
       journal: journalStore,
@@ -446,7 +454,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           budget,
           runId,
           ...(rootIdentity === undefined ? {} : { rootIdentity }),
-          ...(rootModelChange === undefined ? {} : { rootModelChange }),
+          ...(rootSegment === undefined ? {} : { rootSegment }),
           ...(rootMaterialization === undefined ? {} : { rootMaterialization }),
           ...(maxDepth === undefined ? {} : { maxDepth }),
           ...(typeof workerSlots === 'number' ? { workerSlots } : {}),
@@ -559,13 +567,11 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         resumeFrom = restored.resumeFrom
         prior = [...resumeFrom.events]
         pool = createBudgetPool(opts.budget, runEpochMs, restored.poolRestore)
-        if (opts.rootModelChange !== undefined) {
-          await recordRootModelChange(opts, prior, runStartedAt)
-        }
+        await recordRootSegment(opts, prior, runStartedAt, false)
       } else {
-        if (opts.rootModelChange !== undefined) {
+        if (opts.rootSegment !== undefined && changesRootProfile(opts.rootSegment)) {
           throw new RuntimeRunStateError(
-            `supervisor: run '${opts.runId}' has no recorded root to change the model of; a new run takes its model from its profile`,
+            `supervisor: run '${opts.runId}' has no recorded root to change the model or harness of; a new run takes them from its profile`,
           )
         }
         pool = createBudgetPool(opts.budget, runStartedAtMs)
@@ -609,6 +615,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           })
         }
         await appendSpawnEvents(opts.journal, opts.runId, rootEvents)
+        await recordRootSegment(opts, [], runStartedAt, true)
       }
 
       const stableRootReceipt = resuming
