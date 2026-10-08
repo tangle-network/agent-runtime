@@ -5365,6 +5365,66 @@ True when the iteration carried an error — maps to OTEL status code 2.
 
 ***
 
+### RouterTokenPrice
+
+USD per token. A null cache rate means the Router lists none, so those tokens bill at `input`.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `string`
+
+##### input
+
+> `readonly` **input**: `number`
+
+##### cachedInput
+
+> `readonly` **cachedInput**: `number` \| `null`
+
+##### cacheWrite
+
+> `readonly` **cacheWrite**: `number` \| `null`
+
+##### output
+
+> `readonly` **output**: `number`
+
+***
+
+### TokenWork
+
+#### Properties
+
+##### model
+
+> `readonly` **model**: `string`
+
+##### inputTokens
+
+> `readonly` **inputTokens**: `number`
+
+The whole prompt, cache reads and writes included.
+
+##### outputTokens
+
+> `readonly` **outputTokens**: `number`
+
+##### cacheReadTokens?
+
+> `readonly` `optional` **cacheReadTokens?**: `number`
+
+Prompt tokens served from the provider's cache, part of `inputTokens`.
+
+##### cacheWriteTokens?
+
+> `readonly` `optional` **cacheWriteTokens?**: `number`
+
+Prompt tokens written to the provider's cache, part of `inputTokens`.
+
+***
+
 ### RuntimeHookEvent
 
 #### Type Parameters
@@ -8932,6 +8992,28 @@ Default Tangle Router base URL used when no env override is set.
 
 ***
 
+### ROUTER\_PRICE\_SOURCE
+
+> `const` **ROUTER\_PRICE\_SOURCE**: `object`
+
+The Router catalog file and commit these prices were copied from.
+
+#### Type Declaration
+
+##### repository
+
+> `readonly` **repository**: `"tangle-network/tangle-router"` = `'tangle-network/tangle-router'`
+
+##### path
+
+> `readonly` **path**: `"pricing/researched-provider-prices.json"` = `'pricing/researched-provider-prices.json'`
+
+##### commit
+
+> `readonly` **commit**: `"e3445f270eba5234a2f7e85dda1a88743c20f322"` = `'e3445f270eba5234a2f7e85dda1a88743c20f322'`
+
+***
+
 ### isolatedCheckBoxEvidenceSchema
 
 > `const` **isolatedCheckBoxEvidenceSchema**: `ZodType`\<[`IsolatedCheckBoxEvidence`](runtime.md#isolatedcheckboxevidence)\>
@@ -10625,6 +10707,47 @@ Mint a fresh 16-hex-character OTLP span id. Exported so a producer that must kno
 #### Returns
 
 `string`
+
+***
+
+### routerTokenPrice()
+
+> **routerTokenPrice**(`model`): [`RouterTokenPrice`](#routertokenprice) \| `undefined`
+
+The Router's price for a model id as a harness or provider reports it: exact, then without a
+`@snapshot` suffix, then its last path segment (`openai/gpt-6.1-sol` is `gpt-6.1-sol`), each
+as written and lowercased. Undefined when the Router prices no such model.
+
+#### Parameters
+
+##### model
+
+`string`
+
+#### Returns
+
+[`RouterTokenPrice`](#routertokenprice) \| `undefined`
+
+***
+
+### priceTokens()
+
+> **priceTokens**(`work`): `number` \| `undefined`
+
+What the Router would charge for this work at the model's base rates, or undefined when it
+prices no such model or a count is not a non-negative number. Cache reads and writes bill at
+their own rates when the Router lists them. A per-request tier (some models charge more past a
+prompt size) is not applied: a run total does not keep each request's prompt size.
+
+#### Parameters
+
+##### work
+
+[`TokenWork`](#tokenwork)
+
+#### Returns
+
+`number` \| `undefined`
 
 ***
 

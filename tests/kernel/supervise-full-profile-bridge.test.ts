@@ -2735,7 +2735,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         name: 'pi-leader',
         harness: 'codex',
         prompt: { systemPrompt: 'Lead the pursuit.' },
-        model: { provider: 'openai', default: 'gpt-5.6' },
+        model: { provider: 'openai', default: 'gpt-5.6-sol' },
       },
       'Choose the next experiment.',
       {

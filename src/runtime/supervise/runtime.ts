@@ -2,7 +2,6 @@
 
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
   type AgentProfileResourceRef,
@@ -31,6 +30,7 @@ import {
   type WorktreeCheckRunner,
   type WorktreeHarnessResult,
 } from '../../mcp/worktree-harness'
+import { priceTokens } from '../../pricing/router-prices'
 import {
   type AgentEnvironmentProvider,
   type AgentEnvironmentProviderRegistry,
@@ -991,8 +991,13 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
           )
         }
 
-        const priced = isModelPriced(model)
-        const estimatedUsd = priced ? estimateCost(tokens.input, tokens.output, model) : undefined
+        const estimatedUsd = priceTokens({
+          model,
+          inputTokens: tokens.input,
+          outputTokens: tokens.output,
+          ...(tokens.cacheRead === undefined ? {} : { cacheReadTokens: tokens.cacheRead }),
+          ...(tokens.cacheWrite === undefined ? {} : { cacheWriteTokens: tokens.cacheWrite }),
+        })
         const spent: Spend = {
           ...addResourceSpend(resources),
           iterations: turns,

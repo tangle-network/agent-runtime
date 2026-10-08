@@ -16,9 +16,9 @@ import {
   SDKError,
   withRetry,
 } from '@tangle-network/agent-core'
-import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import type { ReasoningEffort } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
+import { priceTokens } from '../pricing/router-prices'
 import { type RouterRetryPolicy, resolveRouterRetryPolicy } from './router-retry-policy'
 import { armDeadlineTimer } from './supervise/deadline'
 import { addResourceSpend } from './supervise/resources'
@@ -548,9 +548,7 @@ function meterTurn(
       ...(cache ? { cache } : {}),
     }
   }
-  const localEstimate = isModelPriced(model)
-    ? estimateCost(usage.input, usage.output, model)
-    : undefined
+  const localEstimate = priceTokens({ model, inputTokens: usage.input, outputTokens: usage.output })
   // A cached prefix token is billed at a discount the local price table does not know about, so
   // subtract the provider's OWN reported saving rather than re-deriving a discount here. Without
   // this a long supervisor run — which re-sends a growing transcript every turn — is reported at

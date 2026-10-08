@@ -1,4 +1,4 @@
-import { estimateCost, HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
+import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import {
   type AgentExactRunControlRef,
   type AgentProfile,
@@ -13,6 +13,7 @@ import {
   InMemorySpawnJournal,
   replaySpawnTree,
 } from '../durable/spawn-journal'
+import { priceTokens } from '../pricing/router-prices'
 import {
   type AgentEnvironment,
   type AgentEnvironmentEvent,
@@ -405,7 +406,7 @@ describe('environment provider adapters', () => {
     const events = await collect(
       executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>,
     )
-    const expected = estimateCost(200_000, 20_000, 'glm-5.3')
+    const expected = priceTokens({ model: 'glm-5.3', inputTokens: 200_000, outputTokens: 20_000 })!
     expect(expected).toBeGreaterThan(0)
     expect(events).toContainEqual({
       kind: 'cost',

@@ -3,7 +3,6 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { estimateCost } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
   canonicalAgentProfileDigest,
@@ -17,6 +16,7 @@ import {
   replaySpawnTree,
 } from '../../durable/spawn-journal'
 import { BackendTransportError, ValidationError } from '../../errors'
+import { priceTokens } from '../../pricing/router-prices'
 import { spendFromUsageEvents } from './budget'
 import { classifyDriverFailure } from './driver-retry'
 import {
@@ -1499,7 +1499,11 @@ describe('bridgeExecutor upstream-error propagation', () => {
     )
     // glm rates over this turn's own 3 in / 2 out. The dollars reach the channel instead of a
     // zero, and they carry the marker that says the catalog priced them.
-    const priced = estimateCost(3, 2, 'pi/tangle-router/glm-5.2')
+    const priced = priceTokens({
+      model: 'pi/tangle-router/glm-5.2',
+      inputTokens: 3,
+      outputTokens: 2,
+    })!
     expect(priced).toBeGreaterThan(0)
     expect(events).toContainEqual({
       kind: 'cost',
@@ -1749,7 +1753,11 @@ describe('bridgeExecutor upstream-error propagation', () => {
     expect(requests).toBe(2)
     // Turn 1 billed a real $0.01. Turn 2 sent no receipt, so only turn 2's own 4 in / 1 out is
     // priced — the receipt and the estimate stay separable in the settled spend.
-    const turn2 = estimateCost(4, 1, 'pi/tangle-router/glm-5.2')
+    const turn2 = priceTokens({
+      model: 'pi/tangle-router/glm-5.2',
+      inputTokens: 4,
+      outputTokens: 1,
+    })!
     expect(executor.resultArtifact().spent).toMatchObject({
       iterations: 2,
       tokens: { input: 7, output: 3 },
@@ -2098,7 +2106,11 @@ describe('bridgeExecutor upstream-error propagation', () => {
     ])
     // The interrupted turn presented 5 in / 2 out and billed nothing, so it is priced. The
     // resumed turn carried a real $0.01 receipt and is not priced on top of it.
-    const interruptedTurn = estimateCost(5, 2, 'pi/tangle-router/glm-5.2')
+    const interruptedTurn = priceTokens({
+      model: 'pi/tangle-router/glm-5.2',
+      inputTokens: 5,
+      outputTokens: 2,
+    })!
     expect(executor.resultArtifact()).toMatchObject({
       out: { content: 'corrected answer' },
       spent: {

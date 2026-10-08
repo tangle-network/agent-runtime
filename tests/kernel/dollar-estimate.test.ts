@@ -1,12 +1,15 @@
-import { estimateCost, MODEL_PRICING } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
+import { priceTokens, routerTokenPrice } from '../../src/pricing/router-prices'
+import { ROUTER_PRICE_SOURCE, ROUTER_TOKEN_PRICES } from '../../src/pricing/router-prices.generated'
 import { createBudgetPool, spendFromUsageEvents } from '../../src/runtime/supervise/budget'
 import { priceUnreceiptedWork } from '../../src/runtime/supervise/cost-estimate'
 import type { Spend, UsageEvent } from '../../src/runtime/supervise/types'
 import { usdEstimatedOf } from '../../src/runtime/util'
 
-const MODEL = 'claude-sonnet-4-20250514'
-const RATE = MODEL_PRICING[MODEL]!
+// The model terraform-dc-tokens-20261008f ran on a subscription: its record showed 101,423,456
+// input and 456,586 output tokens at "$0 (unknown-floor)" because no table priced it.
+const MODEL = 'gpt-6.1-sol'
+const RATE = ROUTER_TOKEN_PRICES[MODEL]!
 
 function spend(over: Partial<Spend> = {}): Spend {
   return { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: 0, ...over }
@@ -18,9 +21,9 @@ function uncappedPool() {
 }
 
 describe('pricing work that carried no provider receipt', () => {
-  it('prices from the catalog and marks the dollars as not measured', () => {
+  it('prices from the Router catalog and marks the dollars as not measured', () => {
     const event = priceUnreceiptedWork({ inputTokens: 10_000, outputTokens: 2_000, model: MODEL })
-    const expected = 10 * RATE.input + 2 * RATE.output
+    const expected = 10_000 * RATE.input + 2_000 * RATE.output
     expect(event).toEqual({
       kind: 'cost',
       usd: expected,
@@ -31,14 +34,33 @@ describe('pricing work that carried no provider receipt', () => {
     expect(expected).toBeGreaterThan(0)
   })
 
-  it('prices a cached prefix at the full input rate, because the catalog carries no cache rate', () => {
-    // The catalog entry is `{ input, output }` per model. There is no cache-read rate to apply,
-    // so a prefix the provider served from cache is charged at the full input rate. That
-    // overstates a cache-heavy turn, which is the correct direction: a discount the catalog
-    // cannot support would be invented, and an invented discount understates spend.
-    expect(Object.keys(RATE).sort()).toEqual(['input', 'output'])
-    const priced = priceUnreceiptedWork({ inputTokens: 10_000, outputTokens: 2_000, model: MODEL })
-    expect(priced.usd).toBe(estimateCost(10_000, 2_000, MODEL))
+  it("prices cached prompt tokens at the Router's cached rate", () => {
+    // terraform-dc-tokens-20261008f: 3,428,192 fresh and 97,995,264 cached input, 456,586 output.
+    // At $2 in, $0.10 cached and $10 out per million that is $6.86 + $9.80 + $4.57.
+    const priced = priceUnreceiptedWork({
+      inputTokens: 101_423_456,
+      cacheReadTokens: 97_995_264,
+      outputTokens: 456_586,
+      model: MODEL,
+    })
+    expect(priced.usdEstimated).toBeCloseTo(21.2218, 3)
+    // Without the split, every prompt token bills at the full input rate.
+    expect(
+      priceUnreceiptedWork({ inputTokens: 101_423_456, outputTokens: 456_586, model: MODEL })
+        .usdEstimated,
+    ).toBeCloseTo(207.4129, 3)
+  })
+
+  it('reads a model id as harnesses report it, and names the Router commit it priced from', () => {
+    for (const id of ['openai/gpt-6.1-sol', 'GPT-6.1-SOL', 'pi/tangle-router/gpt-6.1-sol@fp_a']) {
+      expect(routerTokenPrice(id)).toBe(RATE)
+    }
+    expect(ROUTER_PRICE_SOURCE.path).toBe('pricing/researched-provider-prices.json')
+    expect(ROUTER_PRICE_SOURCE.commit).toMatch(/^[0-9a-f]{40}$/)
+    expect(
+      priceTokens({ model: MODEL, inputTokens: 10, outputTokens: 1, cacheReadTokens: 11 }),
+    ).toBe(11 * RATE.cachedInput! + RATE.output)
+    expect(priceTokens({ model: MODEL, inputTokens: -1, outputTokens: 1 })).toBeUndefined()
   })
 
   it('reports unknown dollars, not a free turn, for a model the catalog does not price', () => {
