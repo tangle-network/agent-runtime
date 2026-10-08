@@ -103,7 +103,7 @@ For managers, state how they wait for descendants and collect their artifacts be
 A nested manager returning can end its scope and cancel live descendants.
 A manager waits by ending its turn while required descendant work remains live: Runtime wakes it with each settlement, finding, or message from its lead, and with a notice before its deadline.
 Ending a turn with work open is not completion; only an accepted `submit_result`, `report_blocked`, or a turn that ends with nothing open ends a manager.
-A background shell timer or a polling loop does not establish Runtime re-entry, and it spends turns.
+A shell timer or polling loop is not Runtime re-entry, and it spends turns.
 Require each descendant to retain partial work where its parent can recover it after interruption.
 
 Retain certificates and partial work where the outside assessor can read exact bytes.
@@ -117,7 +117,7 @@ A source merge proves no change to an installed or running process.
 Hand agents the domain's known traps as rules, not stories.
 Write each trap as what the held-back acceptance refuses, never as what the proxy passes.
 "The outside check does not count a c = 0 instance" is a trap; "the checker passed c = 0 claims" is a recipe.
-Examples: excluded or trivial cases, stale or wrong-field comparators, published answers, tests versus users, a demo versus a customer, a rater versus an expert.
+Examples: excluded or trivial cases, stale comparators, published answers, tests versus users, a rater versus an expert.
 Keep infrastructure incidents out of the brief; the operator owns the stack.
 Record each new trap where the next author reads it, in the same change as its fix.
 
@@ -164,13 +164,12 @@ Group retries of the same assignment into one lineage when comparing teams.
 Grant `submit_result` only when Runtime gives that node an independent check; otherwise its settlement stays unassessed.
 Grant only the observation, steering and journal tools that the assignment needs.
 Set `harness`, `model.default` and `model.provider` explicitly, and validate against the current `agentProfileSchema`.
-State the node's role as the first entry of `prompt.instructions` and its procedure in the entries after it; every harness reads them, and the harness's own system prompt stays in force.
+State the node's role in the first `prompt.instructions` entry and its procedure after it; every harness reads them, and its own system prompt stays in force.
 `prompt.appendSystemPrompt` reaches only harnesses with an additive channel (claude-code, pi, prime, opencode); Codex and Gemini refuse it when the profile materializes.
-Set `prompt.systemPrompt` only to replace the whole harness prompt on purpose: the model then loses the harness's own tool and workflow guidance, which on Codex is 17,730 characters of base instructions.
+Set `prompt.systemPrompt` only to replace the whole harness prompt on purpose: the model then loses the harness's own tool and workflow guidance (17,730 characters on Codex).
 
 For subscription execution, select a harness and model that the granted account can serve.
-The private executor resolves the authorized credential and materializes the harness's authentication files.
-Keep credential references in supported configuration; keep credential values outside profiles, tasks, resources, and journals.
+Keep credential values out of profiles, tasks, resources and journals; reference them through supported configuration.
 Runtime descendants use the same configured provider and credential resolver; author their profiles rather than copying login files.
 Check the child's materialization receipt and actual session before claiming that account or harness executed.
 Grant only the models and authentication routes the execution owner authorized.
@@ -180,7 +179,6 @@ When mounted, [execution and credentials](references/execution-and-credentials.m
 A tool name must be one the harness publishes, and a refused name fails the same way on retry.
 `ls`, `list` and `find` are not tool names; select paths with a glob tool and search contents with a grep tool.
 Distinguish exact Runtime grants from harness-native defaults, which may expose additional tools.
-Keep file access within the actual permission boundary.
 Use the execution owner's supported cancellation and recovery procedures for a wedged parent.
 Compare Runtime's materialization receipt and served tool set with what you authored before a large run.
 
