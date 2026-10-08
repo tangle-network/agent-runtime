@@ -97,9 +97,10 @@ const PERSONA_PROFILE = {
   prompt: { systemPrompt: 'PERSONA-PROMPT' },
   metadata: { tag: 'persona' },
 } as AgentProfile
+// A model the Router catalog prices (src/pricing/router-prices.generated.ts), so its unbilled tokens get an estimate.
 const ESTIMATED_PROFILE = {
   ...PROFILE,
-  model: { provider: 'test', default: 'gpt-4o-mini' },
+  model: { provider: 'test', default: 'gpt-6-luna' },
 } as AgentProfile
 
 function fakeCtx(costCeilingUsd?: number): DispatchContext & {
