@@ -1972,6 +1972,23 @@ export async function prepareScopeRetainedOwnerTask(
     // a fresh native session from the committed checkpoint, never the old provider's session.
     state.forceNewSession = true
   }
+  const rootSegment = owned
+    .filter(
+      (event): event is Extract<SpawnEvent, { kind: 'root-segment' }> =>
+        event.kind === 'root-segment',
+    )
+    .at(-1)
+  if (
+    rootSegment?.from !== undefined &&
+    rootSegment.from.harness !== rootSegment.to.harness &&
+    owned.indexOf(rootSegment) > owned.indexOf(latestInput as SpawnEvent)
+  ) {
+    // A root resumed in another harness: a native session of one harness cannot continue in
+    // another. An in-flight turn of the old harness is still recovered as it committed; every
+    // invocation after it starts a new session, from the latest checkpoint when the provider holds
+    // one, exactly as a seat that changed provider does.
+    state.forceNewSession = true
+  }
   if (state.forceNewSession) {
     delete state.priorSession
     delete state.forceNewSession

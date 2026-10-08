@@ -93,6 +93,7 @@ import {
   RuntimeRunStateError,
   ValidationError,
 } from '../../errors'
+import type { BlockedToolReport } from '../../mcp/tools/coordination'
 import { sleep } from '../util'
 import {
   CheckUnavailableError,
@@ -198,7 +199,7 @@ export interface DriverAttemptRecord {
 
 /** Why a completed drive with an unmet contract was not re-entered. `no-progress` means
  *  `continuation.maxBarren` consecutive re-entered drives completed without progress. `closed`
- *  means the run was already closed: a failed `report_blocked` probe or a progress stop rule. */
+ *  means the run was already closed: the manager's own `stop` or a progress stop rule. */
 export type DriverRepromptRefusal =
   | 'closed'
   | Extract<
@@ -284,8 +285,8 @@ export interface DriverContinuationPolicy {
   readonly deadlineMs: number
   /** Write the continuation note for this re-entry. */
   readonly compose: (context: ContinuationContext) => Promise<string>
-  /** True when the run is already closed (a failed `report_blocked` probe, a progress stop rule):
-   *  a continuation would re-enter a session told to stop. */
+  /** True when the run is already closed (the manager's own `stop`, a progress stop rule): a
+   *  continuation would re-enter a session told to stop. */
   readonly closed: () => boolean
 }
 
@@ -759,12 +760,14 @@ export interface DriverContinuationRecord extends DriverLoopRecord {
    *  The journal's `workspace-restored` receipts say whether each restore was verified. */
   readonly workspaceRestores: number
   /** How the run was closed, when something closed it: an accepted `submit_result`, the
-   *  manager's own `stop` (served only to a manager with no check), a `report_blocked` whose
-   *  probe failed, or the caller's progress `stopRule`. Absent when the loop ended on a bound or a
-   *  failure. */
-  readonly closedBy?: 'result-accepted' | 'stop' | 'blocked' | 'stop-rule'
-  /** The reason the manager gave, or the failed probe, verbatim. */
+   *  manager's own `stop` (served only to a manager with no check), or the caller's progress
+   *  `stopRule`. Absent when the loop ended on a bound or a failure. A blocked tool never closes
+   *  a run: it is a segment boundary, recorded in `blocked`. */
+  readonly closedBy?: 'result-accepted' | 'stop' | 'stop-rule'
+  /** The reason the manager gave, verbatim. */
   readonly stopReason?: string
+  /** Every `report_blocked` whose probe failed too, in report order. Present when non-empty. */
+  readonly blocked?: ReadonlyArray<BlockedToolReport>
   /** Every continuation note this manager was sent, with the check's verdict before and after it.
    *  Empty for a manager with no check. */
   readonly continuations: ReadonlyArray<ContinuationEntry>

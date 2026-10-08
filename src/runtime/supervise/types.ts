@@ -2043,13 +2043,15 @@ export type SpawnEvent =
       at: string
     }
   | {
-      /** The root resumed on another model or reasoning effort (`SupervisorOpts.rootModelChange`).
-       *  The run keeps its id, recorded identity and settled children; this record says when the
-       *  model changed and why. Informational: replay and cost readers skip it. */
-      kind: 'model-changed'
+      /** The root entered a new segment of its run (`SupervisorOpts.rootSegment`): its model,
+       *  reasoning effort, harness or the caller's stack differs from the segment it last ran. The
+       *  run keeps its id, recorded identity and settled children; this record says what the root
+       *  runs on from here, since when, and why. `from` is absent on the run's first record when
+       *  nothing ran before it. Informational: replay and cost readers skip it. */
+      kind: 'root-segment'
       id: NodeId
-      from: RootModel
-      to: RootModel
+      from?: RootSegment
+      to: RootSegment
       reason: string
       seq: number
       at: string
@@ -2117,18 +2119,28 @@ export interface RecursiveReservationPolicy {
   readonly ownerShare: number
 }
 
-/** The model a root runs on: its profile's `model.default` and `model.reasoningEffort`. */
-export interface RootModel {
+/**
+ * What a root runs on during one segment of its run.
+ *
+ * Its profile's `model.default`, `model.reasoningEffort` and `harness`, and the package versions
+ * the caller ran it under. A run is one id for its whole life; a turn that ends, a lost stream or a dead supervisor is a
+ * boundary between entries, and an entry on anything else here starts a new segment.
+ */
+export interface RootSegment {
   readonly model?: string
   readonly reasoningEffort?: ReasoningEffort
+  readonly harness?: string
+  /** The package versions the caller runs this segment under, by package name (its Runtime among
+   *  them). Runtime records them and never reads them. */
+  readonly stack?: Readonly<Record<string, string>>
 }
 
-/** A resumed root that runs on another model than its recorded profile names. */
-export interface RootModelChange {
-  /** The model the recorded root profile names. */
-  readonly from: RootModel
-  /** The model the root runs on from this entry. */
-  readonly to: RootModel
+/** The segment a root enters with this process. */
+export interface RootSegmentEntry {
+  /** What the recorded root profile runs on, without a stack. */
+  readonly registered: RootSegment
+  /** What the root runs on from this entry. */
+  readonly current: RootSegment
   readonly reason: string
 }
 
@@ -2137,10 +2149,10 @@ export interface SupervisorOpts {
   readonly budget: Budget
   /** Exact root profile/task identity supplied by the one-call composition surface. */
   readonly rootIdentity?: NodeExecutionIdentity
-  /** The root resumes on another model. `rootIdentity` stays the recorded root's; when the model
-   *  differs from the one the run last ran, the journal gains one `model-changed` record. A fresh
-   *  run refuses it. */
-  readonly rootModelChange?: RootModelChange
+  /** The segment this entry runs the root in. `rootIdentity` stays the recorded root's; when the
+   *  segment differs from the one the run last ran, the journal gains one `root-segment` record. A
+   *  fresh run refuses a segment that changes the recorded profile's model or harness. */
+  readonly rootSegment?: RootSegmentEntry
   /** Trusted composition evidence for a root whose `act` drives an external backend. A generic
    *  root omits it and is durably marked unknown; model-facing Scope never receives this writer. */
   readonly rootMaterialization?: RootMaterialization

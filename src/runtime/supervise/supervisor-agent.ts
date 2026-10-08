@@ -836,13 +836,13 @@ function buildSupervisorAgent(
         "a director back, and what to tell it, is the record's decision",
     )
   }
-  // One way out: a manager with a check ends when the check passes, when `report_blocked` shows a
-  // tool really failed, or when a bound ends it. Refused before any compute, on both arms.
+  // One way out: a manager with a check ends when the check passes or when a bound ends it.
+  // Refused before any compute, on both arms.
   if (deps.deliverable !== undefined && runtimeToolNames.includes('stop')) {
     throw new ValidationError(
       `supervisorAgent: the profile grants ${coordinationProfileToolPrefix}stop to a manager with a ` +
-        'completion check. Such a manager ends only through submit_result (the check passes) or ' +
-        'report_blocked (a failed probe); remove stop from its tools',
+        'completion check. Such a manager ends only through submit_result (the check passes) or a ' +
+        'bound (deadline, budget, cancellation, no progress); remove stop from its tools',
     )
   }
   const continuationDeadlineMs =
@@ -1312,18 +1312,18 @@ function buildSupervisorAgent(
           const stopReason = controls.stopReason() ?? progressStopReason
           const closedBy: DriverContinuationRecord['closedBy'] = mcp.submittedResult()
             ? 'result-accepted'
-            : controls.blocked() !== undefined
-              ? 'blocked'
-              : mcp.isStopped()
-                ? 'stop'
-                : progressStopReason !== undefined
-                  ? 'stop-rule'
-                  : undefined
+            : mcp.isStopped()
+              ? 'stop'
+              : progressStopReason !== undefined
+                ? 'stop-rule'
+                : undefined
+          const blocked = controls.blocked()
           deps.onDriverLoopSettled?.({
             ...summarizeDriverAttempts(loopRecords),
             environmentReplacements,
             workspaceRestores,
             ...(closedBy === undefined ? {} : { closedBy }),
+            ...(blocked.length === 0 ? {} : { blocked }),
             ...(stopReason === undefined ? {} : { stopReason }),
             continuations: keeper?.entries() ?? [],
           })
@@ -1430,7 +1430,7 @@ function buildSupervisorAgent(
                 try {
                   const wake = await controls.awaitWake({
                     attempt: nextAttempt,
-                    // A stop (accepted result, stop rule, report_blocked) ends the wait too.
+                    // A stop (accepted result, stop rule, the manager's own stop) ends the wait too.
                     signal: AbortSignal.any([scope.signal, stopController.signal]),
                     heartbeatMs: wakePolicy.heartbeatMs,
                     debounceMs: wakePolicy.debounceMs,
@@ -1458,9 +1458,9 @@ function buildSupervisorAgent(
                     maxBarren: continuation.maxBarren,
                     deadlineMs: continuationDeadlineMs,
                     compose: (context) => (keeper as ContinuationKeeper).compose(context),
-                    // A run the coordination server closed ended on purpose — a failed
-                    // `report_blocked` probe, or a progress stop rule that aborted the stop
-                    // signal. A continuation would re-enter a harness told to stop.
+                    // A run the coordination server closed ended on purpose — the manager's own
+                    // `stop` (served only without a check), or a progress stop rule that aborted
+                    // the stop signal. A continuation would re-enter a harness told to stop.
                     closed: () => mcp.isStopped() || progressStopReason !== undefined,
                   },
                 }

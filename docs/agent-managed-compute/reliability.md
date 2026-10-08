@@ -54,7 +54,8 @@ Completed director invocations reset the consecutive transport-failure counter e
 The failure-attempt, deadline, cancellation, and resource bounds still apply.
 Successful incomplete invocations do not consume `driverRetry.maxAttempts`; only failed invocations consume that allowance.
 A manager with a completion check declares a `continuation` policy: a deadline and `maxBarren`, with no continuation count.
-The loop ends when the check passes, when `report_blocked` shows a tool really failed, at the deadline, on the budget, or after `maxBarren` turns in a row without progress.
+The loop ends when the check passes, at the deadline, on the budget, on cancellation, or after `maxBarren` turns in a row without progress.
+A turn that ends, a lost stream and a blocked tool are boundaries, never the end of the run.
 
 The file run lock protects one local coordinator.
 It does not fence provider mutations from a partitioned coordinator on another machine.

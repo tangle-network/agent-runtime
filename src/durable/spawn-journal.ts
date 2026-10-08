@@ -1093,7 +1093,7 @@ const outsideCursorNamespaceKinds = [
   'seat-segment',
   'seat-materialized',
   'seat-paused',
-  'model-changed',
+  'root-segment',
   'paused',
   'driver-attempt',
   'node-inputs-resolved',
@@ -1212,7 +1212,7 @@ export async function replaySpawnTree(
     if (ev.kind === 'trace-unpropagated') continue // severed-hop marker, not a settlement
     if (ev.kind === 'seat-segment' || ev.kind === 'seat-materialized' || ev.kind === 'seat-paused')
       continue // placement evidence
-    if (ev.kind === 'model-changed') continue // a root model change, not a settlement
+    if (ev.kind === 'root-segment') continue // a root segment boundary, not a settlement
     if (ev.kind === 'paused') continue // an unavailable upstream's pause, not a settlement
     if (ev.kind === 'driver-attempt') continue // driver diagnosis, not a settlement
     if (ev.kind === 'node-inputs-resolved') continue // graph-engine fold input, not a settlement

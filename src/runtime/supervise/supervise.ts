@@ -215,8 +215,8 @@ import type {
   RecursiveReservationPolicy,
   ResultBlobStore,
   RootHandle,
-  RootModel,
   RootProviderModelEvidence,
+  RootSegment,
   RootStreamReceipt,
   Scope,
   SpawnJournal,
@@ -2252,9 +2252,9 @@ export interface SuperviseOptions {
    *
    * A continuation is the retry path, not a second loop: same scope, same coordination server,
    * same live children, and the same budget, deadline, and abort bounds. There is no count: the
-   * loop ends when the check passes, when `report_blocked` shows a tool really failed, at this
-   * deadline, on the budget, after `maxBarren` turns in a row without progress, or on
-   * cancellation. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+   * loop ends when the check passes, at this deadline, on the budget, after `maxBarren` turns in
+   * a row without progress, or on cancellation. A turn that ends, a blocked tool, and a lost
+   * stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`./continuation.ts`); the
    * profile owns its words, and `append` may add a section but never replace one.
    *
    * Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
@@ -2416,16 +2416,27 @@ export interface SuperviseOptions {
    * reused id without it. Ignored when `runDir` is also set — the file context owns the flag. */
   readonly resume?: boolean
   /**
-   * Resume this run with the root on another model. `profile` stays the root profile the run
-   * recorded, so its identity, coordination owner and settled children resume unchanged; the root
-   * executes that profile with `model.default`, and `model.reasoningEffort` when given, replaced.
-   * When the model differs from the one the run last ran, the journal gains one `model-changed`
-   * record with the time and `reason`. Nothing else about the profile changes this way, and a
-   * fresh run refuses it: a new run takes its model from its profile.
+   * The segment this entry runs the root in. A run keeps one id for its whole life: a turn that
+   * ends, a lost stream and a dead supervisor are boundaries between entries, and a resume may move
+   * the root to another model, reasoning effort or harness, or onto another stack, as a new
+   * segment of the same run. `profile` stays the root profile the run recorded, so its identity,
+   * coordination owner and settled children resume unchanged; the root executes that profile with
+   * `model.default`, `model.reasoningEffort` and `harness` replaced where given. `stack` names the
+   * package versions the caller runs this entry under, its Runtime among them; Runtime records it
+   * and never reads it. When the segment differs from the one the run last ran, the journal gains
+   * one `root-segment` record with the time and `reason`. A different task, or any other profile
+   * change, is still a resume identity mismatch: that is a new run. A fresh run records its first
+   * segment and refuses a model or harness change: a new run takes them from its profile.
+   *
+   * A harness change starts a new native session: a session of one harness cannot continue in
+   * another. The root re-enters with its objective and the run's state, in a workspace restored
+   * from its latest checkpoint when the provider holds one.
    */
-  readonly modelChange?: {
-    readonly model: string
+  readonly segment?: {
+    readonly model?: string
     readonly reasoningEffort?: ReasoningEffort
+    readonly harness?: AgentProfile['harness']
+    readonly stack?: Readonly<Record<string, string>>
     readonly reason: string
   }
   /** Durable steer directory when it differs from the run-control directory. */
@@ -2579,7 +2590,7 @@ const superviseOptionKeys = [
   'router',
   'runDir',
   'resume',
-  'modelChange',
+  'segment',
   'runContext',
   'runId',
   'signal',
@@ -3335,36 +3346,70 @@ export function superviseRootProfile(
   return freezeDetachedProfile(compose ? compose(parsedProfile.data) : parsedProfile.data)
 }
 
-/** The model a root runs on, as a `model-changed` record names it. */
-function rootModelOf(profile: AgentProfile): RootModel {
+/** What a root profile runs on, as a `root-segment` record names it. */
+function rootSegmentOf(profile: AgentProfile): RootSegment {
   return {
     ...(profile.model?.default === undefined ? {} : { model: profile.model.default }),
     ...(profile.model?.reasoningEffort === undefined
       ? {}
       : { reasoningEffort: profile.model.reasoningEffort }),
+    ...(profile.harness === undefined ? {} : { harness: profile.harness }),
   }
 }
 
-/** The recorded root profile with only its model, and its reasoning effort when given, replaced. */
-function withRootModel(
-  profile: AgentProfile,
-  change: NonNullable<SuperviseOptions['modelChange']>,
-): AgentProfile {
-  if (typeof change.model !== 'string' || change.model.trim().length === 0) {
-    throw new ValidationError('supervise: modelChange.model must name a model')
+/** Refuse a segment that names nothing usable before any compute. */
+function admitSegment(segment: NonNullable<SuperviseOptions['segment']>): void {
+  if (typeof segment !== 'object' || segment === null) {
+    throw new ValidationError('supervise: segment must be an object')
   }
-  if (typeof change.reason !== 'string' || change.reason.trim().length === 0) {
-    throw new ValidationError('supervise: modelChange.reason must say why the model changed')
+  for (const key of ['model', 'harness'] as const) {
+    const value = segment[key]
+    if (value !== undefined && (typeof value !== 'string' || value.trim().length === 0)) {
+      throw new ValidationError(`supervise: segment.${key} must name a ${key}`)
+    }
+  }
+  if (typeof segment.reason !== 'string' || segment.reason.trim().length === 0) {
+    throw new ValidationError('supervise: segment.reason must say why the segment starts')
+  }
+  if (segment.stack !== undefined) {
+    if (
+      typeof segment.stack !== 'object' ||
+      segment.stack === null ||
+      Array.isArray(segment.stack)
+    ) {
+      throw new ValidationError('supervise: segment.stack must map package names to versions')
+    }
+    for (const [name, version] of Object.entries(segment.stack)) {
+      if (typeof version !== 'string' || version.length === 0) {
+        throw new ValidationError(`supervise: segment.stack.${name} must be a version string`)
+      }
+    }
+  }
+}
+
+/** The recorded root profile with only its model, reasoning effort and harness replaced where the
+ *  segment names them. */
+function withRootSegment(
+  profile: AgentProfile,
+  segment: NonNullable<SuperviseOptions['segment']>,
+): AgentProfile {
+  if (
+    segment.model === undefined &&
+    segment.reasoningEffort === undefined &&
+    segment.harness === undefined
+  ) {
+    return profile
   }
   return superviseRootProfile(
     {
       ...profile,
+      ...(segment.harness === undefined ? {} : { harness: segment.harness }),
       model: {
         ...profile.model,
-        default: change.model,
-        ...(change.reasoningEffort === undefined
+        ...(segment.model === undefined ? {} : { default: segment.model }),
+        ...(segment.reasoningEffort === undefined
           ? {}
-          : { reasoningEffort: change.reasoningEffort }),
+          : { reasoningEffort: segment.reasoningEffort }),
       },
     },
     undefined,
@@ -3427,12 +3472,13 @@ function superviseInternal(
   // Fail loud before any compute: every configured model must be in the allowed subset (no-op
   // when allowedModels is unset). The backend seam carries its own model on most backends.
   const composeSpawnProfile = profileGuidanceComposer(options.profileGuidance)
-  // The recorded root profile fixes the run's identity; a model change only alters what it executes.
+  // The recorded root profile fixes the run's identity; a segment only alters what it executes.
   const registeredProfile = superviseRootProfile(profile, options.profileGuidance)
+  if (options.segment !== undefined) admitSegment(options.segment)
   const canonicalProfile =
-    options.modelChange === undefined
+    options.segment === undefined
       ? registeredProfile
-      : withRootModel(registeredProfile, options.modelChange)
+      : withRootSegment(registeredProfile, options.segment)
   assertExecutableAgentProfile(canonicalProfile, 'supervise root')
   if (authoredSeatStages(canonicalProfile) !== undefined && options.selectSeat === undefined) {
     throw new ValidationError('supervise: AgentProfile.seats requires selectSeat before execution')
@@ -4365,13 +4411,18 @@ function superviseInternal(
         ? { recoverExecutor: options.recoverExecutor ?? recoveryFactories.get(workerFactory) }
         : {}),
       rootIdentity: rootExecution.identity,
-      ...(options.modelChange === undefined
+      ...(options.segment === undefined
         ? {}
         : {
-            rootModelChange: {
-              from: rootModelOf(registeredProfile),
-              to: rootModelOf(canonicalProfile),
-              reason: options.modelChange.reason,
+            rootSegment: {
+              registered: rootSegmentOf(registeredProfile),
+              current: {
+                ...rootSegmentOf(canonicalProfile),
+                ...(options.segment.stack === undefined
+                  ? {}
+                  : { stack: { ...options.segment.stack } }),
+              },
+              reason: options.segment.reason,
             },
           }),
       ...(rootOwnerRuntime === undefined

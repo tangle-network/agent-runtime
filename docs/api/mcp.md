@@ -3916,7 +3916,7 @@ Called once when this manager declares completion through `stop` or an accepted 
 The same independent completion check used for workers. When present, the driver receives a
 `submit_result` tool and may finish work itself instead of being forced to delegate it. The
 first passing submission is retained; a false or throwing check fails closed. A manager with a
-check is not served `stop`: it ends through `submit_result` or `report_blocked`.
+check is not served `stop`: it ends through `submit_result`, or when a bound ends the run.
 
 ##### readContinuation?
 
@@ -4646,13 +4646,14 @@ Record a check read that happened outside `submit_result`, such as a turn end.
 
 ##### blocked()
 
-> **blocked**(): \{ `tool`: `string`; `reported`: `string`; `probed`: `string`; \} \| `undefined`
+> **blocked**(): readonly [`BlockedToolReport`](runtime.md#blockedtoolreport)[]
 
-The failed probe that ended the run through `report_blocked`, when one did.
+Every `report_blocked` whose probe failed too, in report order. A blocked tool is evidence,
+ not a terminal condition: the run goes on, and the no-progress bound ends it when it cannot.
 
 ###### Returns
 
-\{ `tool`: `string`; `reported`: `string`; `probed`: `string`; \} \| `undefined`
+readonly [`BlockedToolReport`](runtime.md#blockedtoolreport)[]
 
 ***
 
