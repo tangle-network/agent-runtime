@@ -677,10 +677,14 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // final result can name it.
       const breaker = createIntensityBreaker(opts, () => cascadeAbort('intensity breaker tripped'))
       const journal = wrapJournalForBreaker(opts.journal, breaker)
-      const priorRootMaterialization = prior?.find(
-        (event): event is Extract<SpawnEvent, { kind: 'materialized' }> =>
-          event.kind === 'materialized' && event.id === opts.runId,
-      )?.receipt
+      // The root's latest materialization: its first, or a later segment's (a seat, or a root segment).
+      const priorRootMaterialization = prior
+        ?.filter(
+          (event): event is Extract<SpawnEvent, { kind: 'materialized' | 'seat-materialized' }> =>
+            (event.kind === 'materialized' || event.kind === 'seat-materialized') &&
+            event.id === opts.runId,
+        )
+        .at(-1)?.receipt
 
       const scope = createScope<Out>({
         parentId: opts.runId,

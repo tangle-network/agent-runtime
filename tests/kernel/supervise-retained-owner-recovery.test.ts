@@ -26,6 +26,139 @@ afterEach(async () => {
 })
 
 describe('retained external supervisor recovery', () => {
+  it('resumes a root killed mid-turn on another model as a segment of the same run', async () => {
+    // The one-run-one-id canary (2026-10-08): the supervisor was killed mid-turn, the root moved to gpt-6.1-sol, and
+    // every drive of the resumed root was refused "scope owner materialization changed mid-run; differ:
+    // authoredProfileDigest, effectiveProfileDigest, model" until its retry bound.
+    const directory = await mkdtemp(join(tmpdir(), 'retained-owner-segment-'))
+    directories.push(directory)
+    const proxy = await coordinationProxy()
+    proxies.push(proxy)
+    const stateFile = join(directory, 'provider.json')
+    const runDirectory = join(directory, 'run')
+    const context = createFileRunContext(runDirectory)
+    let dispatches = 0
+    let failed = false
+    let port = 0
+    let token = ''
+    const models: Array<string | undefined> = []
+    const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
+      ...environment,
+      dispatch: async (turn) => {
+        dispatches++
+        const result = await environment.dispatch(turn)
+        if (dispatches === 2) {
+          const response = await fetch(`http://127.0.0.1:${port}/manager`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 'moved',
+              method: 'tools/call',
+              params: { name: 'submit_result', arguments: { result: { answer: 'moved' } } },
+            }),
+          })
+          if (!response.ok) throw new Error(`submit_result returned ${response.status}`)
+        }
+        return result
+      },
+    })
+    const provider: AgentEnvironmentProvider = {
+      ...durableRetainedProvider(stateFile),
+      capabilities: async () => ({
+        ...(await durableRetainedProvider(stateFile).capabilities()),
+        create: { runtimeAttachments: { mcp: true } },
+      }),
+      create: async (input) => {
+        token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+        models.push(input.profile?.model?.default)
+        return wrap(await durableRetainedProvider(stateFile).create(input))
+      },
+      get: async (id) => {
+        const environment = await durableRetainedProvider(stateFile).get!(id)
+        return environment ? wrap(environment) : null
+      },
+    }
+    const profile = testAgentProfile('root', {
+      harness: 'codex',
+      tools: runtimeToolDeclarations('submit_result'),
+    })
+    const options = {
+      runDir: runDirectory,
+      runId: 'segment-root',
+      backend: { backend: 'provider' as const, provider },
+      driverBackend: { backend: 'provider' as const, provider },
+      budget: { maxIterations: 8, maxTokens: 100, deadlineMs: 60_000 },
+      driverRetry: { enabled: false },
+      continuation: testContinuation({ maxBarren: 2 }),
+      deliverable: {
+        describe: 'moved answer',
+        check: (v: unknown) => (v as { answer?: string }).answer === 'moved',
+      },
+      coordination: {
+        authentication: {
+          signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+        },
+        publicUrl: (address: { port: number }) => {
+          port = address.port
+          proxy.forwardTo(port)
+          return `${proxy.url}/manager`
+        },
+      },
+      journal: {
+        beginTree: context.journal.beginTree.bind(context.journal),
+        loadTree: context.journal.loadTree.bind(context.journal),
+        appendEvent: async (root: string, event: SpawnEvent) => {
+          await context.journal.appendEvent(root, event)
+          // The process dies once the root's second turn, its first continuation, is under way: its first turn
+          // already committed the root's materialization on the start model.
+          if (
+            !failed &&
+            event.kind === 'execution-admitted' &&
+            event.admission.phase === 'environment'
+          ) {
+            const prior = (await context.journal.loadTree(root)) ?? []
+            const admitted = prior.filter(
+              (e) => e.kind === 'execution-admitted' && e.admission.phase === 'environment',
+            )
+            if (admitted.length === 2) {
+              failed = true
+              throw new Error('test crash mid-turn')
+            }
+          }
+        },
+      },
+      blobs: context.blobs,
+    }
+    await expect(supervise(profile, 'answer', options)).rejects.toThrow()
+    const resumeAbort = new AbortController()
+    const resumeTimer = setTimeout(() => resumeAbort.abort(new Error('resume timeout')), 5_000)
+    // The turn in flight belongs to the last segment: its recorded intent cannot replay on the new model, and the
+    // driver's pending-invocation rule abandons it after two identical refusals, stopping it at the provider.
+    const result = await supervise(profile, 'answer', {
+      ...options,
+      driverRetry: { maxAttempts: 6, initialBackoffMs: 0, maxBackoffMs: 0 },
+      segment: { model: 'moved-model', reason: 'the root moves to another model' },
+      retainedAtSettlement: 'release',
+      signal: resumeAbort.signal,
+    })
+    clearTimeout(resumeTimer)
+    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'moved' } })
+    expect(models[0]).toBe('offline-test-model')
+    const events = (await context.journal.loadTree('segment-root')) ?? []
+    const segment = events.findIndex((event) => event.kind === 'root-segment')
+    const materialized = events.findIndex(
+      (event) => event.kind === 'seat-materialized' && event.id === 'segment-root',
+    )
+    expect(segment).toBeGreaterThan(-1)
+    expect(materialized).toBeGreaterThan(segment)
+    const receipt = events[materialized]
+    expect(receipt?.kind === 'seat-materialized' ? receipt.receipt : undefined).toMatchObject({
+      status: 'known',
+      model: { status: 'known', id: 'moved-model' },
+    })
+  })
+
   it.each([1, 2] as const)(
     'recovers a continuation (maxBarren %s) after interrupted admission without a third dispatch',
     async (maxBarren) => {

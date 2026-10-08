@@ -453,6 +453,10 @@ export interface DriveHarness {
     /** The immutable canonical profile Runtime admitted. Use it only to bind receipts or audit
      *  authority; never send it to a provider, because it contains Runtime-owned declarations. */
     readonly authoredProfile: SupervisorProfile
+    /** The profile the run registered, when `authoredProfile` is another segment of it (a resumed root moved to
+     *  another model or harness). Materialization receipts are attributed to it, so a run's materialization chain
+     *  keeps one authored profile across segments. Absent when the two are the same. */
+    readonly registeredProfile?: SupervisorProfile
     /** The standing instruction assembled from the profile: its system prompt in either spelling,
      *  plus the `prompt.instructions` and `resources.instructions` lines. Absent when the profile
      *  names none — the harness's own default then applies. This, not `profile.systemPrompt`, is
@@ -536,6 +540,11 @@ export interface SupervisorAgentDeps {
    *  under the defaults; `{ enabled: false }` = the historical first-failure-ends-the-run behavior.
    *  The router arm is unaffected: its transport already retries. */
   readonly driverRetry?: DriverRetryPolicy
+  /** The profile this manager was registered with, when it executes another segment of it (a resumed root moved
+   *  to another model or harness, `SuperviseOptions.segment`). Its materialization stays attributed to the
+   *  registered profile, as a seat's does to the profile that authored the seat; the executed profile is its
+   *  effective profile. Omit = the executed profile is the registered one. */
+  readonly registeredProfile?: AgentProfile
   /** Per-attempt record for the external driver — how an operator sees "failed after N attempts"
    *  instead of one backend's last words. */
   readonly onDriverAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
@@ -752,6 +761,13 @@ function buildSupervisorAgent(
   const exactProfile = agentProfileSchema.parse(profile)
   assertExecutableAgentProfile(exactProfile, 'supervisorAgent')
   const stableProfile = detachedSnapshot(exactProfile, 'supervisorAgent profile')
+  const registeredProfile =
+    deps.registeredProfile === undefined
+      ? stableProfile
+      : detachedSnapshot(
+          agentProfileSchema.parse(deps.registeredProfile),
+          'supervisorAgent registered profile',
+        )
   const stableRouter =
     deps.router === undefined ? undefined : snapshotRouterTransportConfig(deps.router)
   const resolveTools = deps.resolveSupervisorTools
@@ -1362,6 +1378,7 @@ function buildSupervisorAgent(
                 await driveHarness({
                   profile: providerProfile,
                   authoredProfile: stableProfile,
+                  ...(registeredProfile === stableProfile ? {} : { registeredProfile }),
                   ...(profilePrompt !== undefined ? { systemPrompt: profilePrompt } : {}),
                   task: compose === undefined ? task : compose(UNPROVEN_CONTINUITY),
                   ...(compose === undefined

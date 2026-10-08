@@ -2798,6 +2798,30 @@ async function publishOwnerMaterialization(
       state.publishedThisProcess = true
       return
     }
+    // A root resumed on another segment of its registered profile (another model, effort or harness:
+    // `SuperviseOptions.segment`) materializes that segment once, after its `root-segment` record, under the same
+    // authored profile. Before this, the resumed root's every drive was refused "materialization changed mid-run"
+    // until its retry bound (the one-run-one-id canary, 2026-10-08, 14 attempts on gpt-6.1-sol).
+    const rootSegment = [...events]
+      .reverse()
+      .find(
+        (event): event is Extract<SpawnEvent, { kind: 'root-segment' }> =>
+          event.id === state.nodeId && event.kind === 'root-segment',
+      )
+    if (
+      rootSegment !== undefined &&
+      (latestMaterialization === undefined ||
+        events.indexOf(rootSegment) > events.indexOf(latestMaterialization)) &&
+      receipt.status === 'known' &&
+      receipt.authoredProfileDigest === committed.authoredProfileDigest &&
+      (rootSegment.to.model === undefined ||
+        (receipt.model.status === 'known' && receipt.model.id === rootSegment.to.model))
+    ) {
+      await appendOwnerSeatMaterialization(state, lastSegmentIndex + 1, receipt, binding)
+      state.onReceipt?.(receipt, binding)
+      state.publishedThisProcess = true
+      return
+    }
   }
   if (state.prior !== undefined && state.receipt === undefined) {
     if (canonicalCandidateDigest(state.prior) !== canonicalCandidateDigest(receipt)) {
