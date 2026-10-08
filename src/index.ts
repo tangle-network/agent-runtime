@@ -212,7 +212,6 @@ export {
   serializeRolloutPolicy,
   structuralRolloutPolicyFromProfile,
 } from './improvement/rollout-policy'
-
 // ── Knowledge orchestration ──────────────────────────────────────────
 // Runtime owns live agent orchestration; agent-knowledge owns the KB/RAG/memory state.
 // These wrappers bridge the two without making agent-knowledge import runtime.
@@ -221,7 +220,6 @@ export {
   createKnowledgeImprovementActivationExecutor,
   type KnowledgeImprovementActivationExecutor,
 } from './knowledge/activation'
-
 export {
   type AgentKnowledgeReadinessCheckOptions,
   buildKnowledgeImprovementExperimentBundles,
@@ -233,7 +231,6 @@ export {
   type RunKnowledgeImprovementJobOptions,
   runKnowledgeImprovementJob,
 } from './knowledge/improvement-job'
-
 export {
   createSupervisedKnowledgeUpdater,
   formatSupervisedKnowledgeTask,
@@ -318,6 +315,13 @@ export {
   padTraceId,
   toOtelAttributes,
 } from './otel-export'
+export {
+  priceTokens,
+  ROUTER_PRICE_SOURCE,
+  type RouterTokenPrice,
+  routerTokenPrice,
+  type TokenWork,
+} from './pricing/router-prices'
 // ── Readiness ─────────────────────────────────────────────────────────
 export { decideKnowledgeReadiness } from './readiness'
 // ── Run loop ─────────────────────────────────────────────────────────

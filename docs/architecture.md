@@ -420,11 +420,12 @@ A zero would assert the provider measured no cache, which is a different fact fr
 
 The dollar channel keeps a receipt and a price apart.
 A provider receipt is a dollar figure the provider billed; cli-bridge sends one only with `cost_known: true` and `provider-receipt` or `billing-receipt` provenance, and the claude harness reports one for the whole `claude -p` invocation.
-A cli-bridge turn that carries NO receipt is priced from the model catalog (`estimateCost` in agent-eval) against that turn's own token counts, because a zero there reads as a measured free turn and made a fleet-wide dollar total report `$0` on runs that certainly spent money.
+A turn that carries NO receipt is priced from the Router's catalog (`priceTokens` in `src/pricing/router-prices.ts`, a copy of tangle-router `pricing/researched-provider-prices.json` that `scripts/sync-router-prices.mjs` generates) against that turn's own token counts, because a zero there reads as a measured free turn and made a fleet-wide dollar total report `$0` on runs that certainly spent money.
+Runtime keeps no other price table: a run's API-equivalent cost and the Router's charge for the same tokens use the same rates.
 The priced part is carried in `Spend.usdEstimated`, so `usd - usdEstimated` is what a provider is known to have billed, and it is admitted only with `usdKnown: false` — a catalog price approximates what a provider would bill and never measures what it did.
 An unpriced model contributes no dollars and leaves the turn unknown rather than free.
-The catalog holds one input rate and one output rate per model and no cache-read rate, so a prompt prefix the provider served from cache is priced at the full input rate.
-That overstates a cache-heavy turn, which is the correct direction: a discount the catalog cannot support would be invented, and an invented discount understates spend.
+Cache reads and writes bill at the Router's cached and cache-write rates when the Router lists them and the turn reports the split; otherwise every prompt token bills at the input rate, which overstates rather than invents a discount.
+A per-request tier (a higher rate past a prompt size) is not applied, because a run total does not keep each request's prompt size.
 A dollar cap is unaffected — `observe` and `reconcile` still refuse unknown dollars under a `maxUsd` root, and an estimate rides `usdKnown: false`.
 
 Two facts make this the whole game:

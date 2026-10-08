@@ -1608,7 +1608,7 @@ function observedBridgeExecutor(): Executor<unknown> {
       profile: {
         name: 'observed-worker',
         harness: 'pi',
-        model: { provider: 'tangle-router', default: 'gpt-5-mini' },
+        model: { provider: 'tangle-router', default: 'gpt-5.6-luna' },
       },
       harness: null,
     } as AgentSpec,

@@ -2286,6 +2286,8 @@ async function* streamProviderExecutor(
       const priced = priceUnreceiptedWork({
         inputTokens: tokens.input,
         outputTokens: tokens.output,
+        ...(tokens.cacheRead === undefined ? {} : { cacheReadTokens: tokens.cacheRead }),
+        ...(tokens.cacheWrite === undefined ? {} : { cacheWriteTokens: tokens.cacheWrite }),
         model,
       })
       if (priced.usdKnown === false && priced.usdEstimated !== undefined) return priced.usdEstimated
