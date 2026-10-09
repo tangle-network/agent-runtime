@@ -17115,6 +17115,12 @@ Set when this attempt ended the loop.
 True when this attempt's pending invocation was abandoned rather than retried: see
  `DriverRetryRun.resolvePending`.
 
+##### pendingCause?
+
+> `readonly` `optional` **pendingCause?**: [`RetainedPendingCause`](#retainedpendingcause-1)
+
+With `stop: 'pending-unresolved'`: why the invocation it left pending cannot be resolved.
+
 ##### retryInMs?
 
 > `readonly` `optional` **retryInMs?**: `number`
@@ -32668,7 +32674,7 @@ Whether the run's declared completion check has passed. `'none'` means the calle
 
 ### DriverAttemptStop
 
-> **DriverAttemptStop** = `"completed"` \| `"terminal-error"` \| `"retry-disabled"` \| `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"no-progress"` \| `"max-attempts"`
+> **DriverAttemptStop** = `"completed"` \| `"terminal-error"` \| `"retry-disabled"` \| `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"no-progress"` \| `"max-attempts"` \| `"pending-unresolved"`
 
 Why the retry loop stopped. `completed` is the only non-failure.
 
