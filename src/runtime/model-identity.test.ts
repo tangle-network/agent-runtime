@@ -52,6 +52,13 @@ describe('served model identity', () => {
     ).toBe('deepseek/deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402')
   })
 
+  it('merges hyphen-only provider spellings and keeps the raw observed identity', () => {
+    expect(mergeObservedModelIdentity('zai/glm-5.3', 'z-ai/glm-5.3')).toBe('zai/glm-5.3')
+    expect(mergeObservedModelIdentity('zai/glm-5.3', 'z-ai/glm-5.3@fp_a')).toBe('z-ai/glm-5.3@fp_a')
+    expect(mergeObservedModelIdentity('zai/glm-5.3@fp_a', 'z-ai/glm-5.3@fp_b')).toBeUndefined()
+    expect(mergeObservedModelIdentity('zai/glm-5.3', 'openai/glm-5.3')).toBeUndefined()
+  })
+
   it('retains a provider date snapshot when stream observations gain detail', () => {
     expect(mergeObservedModelIdentity('gpt-5.2', 'openai/gpt-5.2-2025-12-11')).toBe(
       'openai/gpt-5.2-2025-12-11',
