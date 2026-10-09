@@ -2102,6 +2102,26 @@ describe('pending retained executions (terraform-dc-tokens-20261006d)', () => {
     expect(clock).toBeLessThan(900_000)
   })
 
+  it('never stops a pending that made progress as pending-unresolved', async () => {
+    // With no abandonments allowed, a pending whose drives each made progress keeps the
+    // progress rule: progress earns another attempt.
+    const script = scriptedDrive([unresolvedPending(), unresolvedPending(), null])
+    let composite = 0
+    await runDriverWithRetry({
+      drive: async (attempt) => {
+        composite += 1
+        await script.drive(attempt)
+      },
+      progress: () => mark({ composite }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { maxConsecutiveFailures: 0, transientOutageMs: 0 },
+      sleep: instantSleep,
+      resolvePending: async () => true,
+    })
+    expect(script.attempts).toEqual([1, 2, 3])
+  })
+
   it('keeps an owner that cannot abandon on the barren bound', async () => {
     const script = scriptedDrive([unresolvedPending(), unresolvedPending(), unresolvedPending()])
     const error = await runDriverWithRetry({

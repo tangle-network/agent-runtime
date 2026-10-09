@@ -1074,6 +1074,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       // names the pending cause so the owner reconciles the execution before re-driving the run.
       const unresolved =
         !abandoned &&
+        !progressed &&
         pending !== undefined &&
         samePending !== undefined &&
         run.resolvePending !== undefined &&
