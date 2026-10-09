@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { routerBrain, streamRouterChatWithTools } from '../../src/runtime/router-client'
+import {
+  routerBrain,
+  routerChatWithUsage,
+  streamRouterChatWithTools,
+  streamRouterChatWithUsage,
+} from '../../src/runtime/router-client'
 
 // `routerBrain` is a same-module thin wrapper over `routerChatWithTools`, which speaks raw HTTP.
 // The offline seam is therefore `fetch` (the real boundary) — stub it to drive the whole
@@ -575,5 +580,149 @@ describe('routerBrain transport selection', () => {
     // by the transport choice.
     expect(result.usage).toEqual({ input: 120, output: 45 })
     expect(result.costUsd).toBeGreaterThan(0)
+  })
+})
+
+// A thinking model's long answer outlives the Router's request deadline when the response is
+// buffered, because that deadline ends only when headers are committed. Streaming commits headers
+// at the first byte. These cases pin that the streamed plain-chat completion reassembles exactly
+// what the buffered one returns, so a caller can switch transports without changing evidence.
+describe('streamRouterChatWithUsage — the SSE plain-chat transport', () => {
+  beforeEach(() => vi.unstubAllGlobals())
+  afterEach(() => vi.unstubAllGlobals())
+
+  const usage = {
+    prompt_tokens: 900,
+    completion_tokens: 400,
+    completion_tokens_details: { reasoning_tokens: 350 },
+    cost: 0.0123,
+    prompt_tokens_details: { cached_tokens: 512 },
+  }
+
+  it('returns the identical RouterChatResult the buffered completion returns for the same answer', async () => {
+    stubRouter({
+      model: 'z-ai/glm-5.3',
+      choices: [
+        {
+          message: { content: 'the answer', reasoning_content: 'think long and hard' },
+          finish_reason: 'stop',
+        },
+      ],
+      usage,
+    })
+    const buffered = await routerChatWithUsage(cfg, [{ role: 'user', content: 'q' }])
+
+    stubStream(
+      frame({ model: 'z-ai/glm-5.3', choices: [{ delta: { reasoning_content: 'think long' } }] }) +
+        frame({ model: 'z-ai/glm-5.3', choices: [{ delta: { reasoning_content: ' and hard' } }] }) +
+        frame({ model: 'z-ai/glm-5.3', choices: [{ delta: { content: 'the ' } }] }) +
+        frame({ model: 'z-ai/glm-5.3', choices: [{ delta: { content: 'answer' } }] }) +
+        frame({
+          model: 'z-ai/glm-5.3',
+          choices: [{ index: 0, finish_reason: 'stop', delta: {} }],
+        }) +
+        frame({ model: 'z-ai/glm-5.3', choices: [], usage }) +
+        'data: [DONE]\n\n',
+      { sliceAt: [40, 200, 333] },
+    )
+    const streamed = await streamRouterChatWithUsage(cfg, [{ role: 'user', content: 'q' }])
+
+    expect(streamed).toEqual(buffered)
+    expect(streamed).toMatchObject({
+      content: 'the answer',
+      reasoning: 'think long and hard',
+      finishReason: 'stop',
+      model: 'z-ai/glm-5.3',
+      usage: { input: 900, output: 400, reasoning: 350 },
+      billedCostUsd: 0.0123,
+      cache: { readTokens: 512 },
+      transportAttempts: 1,
+    })
+  })
+
+  it('sends the buffered request body plus stream and include_usage, and no tool fields', async () => {
+    stubStream(
+      `${frame({ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] })}data: [DONE]\n\n`,
+    )
+    await streamRouterChatWithUsage(
+      { ...cfg, maxTokens: 16_384 },
+      [{ role: 'user', content: 'q' }],
+      {
+        temperature: 0.2,
+        seed: 7,
+        reasoningEffort: 'high',
+        extraBody: { thinking: { type: 'enabled' }, stream: false, model: 'smuggled' },
+      },
+    )
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('http://router.test/v1/chat/completions')
+    const sent = JSON.parse((init as { body: string }).body)
+    expect(sent).toEqual({
+      thinking: { type: 'enabled' },
+      model: 'deepseek-v4-flash',
+      messages: [{ role: 'user', content: 'q' }],
+      temperature: 0.2,
+      max_tokens: 16_384,
+      seed: 7,
+      reasoning_effort: 'high',
+      stream: true,
+      stream_options: { include_usage: true },
+    })
+    expect((init as { headers: Record<string, string> }).headers.accept).toBe('text/event-stream')
+  })
+
+  it('leaves usage unknown rather than zero when the stream carried none', async () => {
+    stubStream(
+      `${frame({ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] })}data: [DONE]\n\n`,
+    )
+    const result = await streamRouterChatWithUsage(cfg, [])
+    expect(result.content).toBe('ok')
+    expect(result.usage).toBeUndefined()
+    expect(result.costUsd).toBeUndefined()
+    expect(result.billedCostUsd).toBeUndefined()
+  })
+
+  it('refuses a stream that carried no choice, as the buffered path refuses a missing message', async () => {
+    stubStream(`${frame({ choices: [], usage })}data: [DONE]\n\n`)
+    await expect(streamRouterChatWithUsage(cfg, [])).rejects.toThrow(/carried no choices/)
+  })
+
+  it('refuses a stream whose reported model changes mid-completion', async () => {
+    stubStream(
+      frame({ model: 'z-ai/glm-5.3', choices: [{ delta: { content: 'a' } }] }) +
+        frame({ model: 'other/model', choices: [{ delta: { content: 'b' } }] }) +
+        'data: [DONE]\n\n',
+    )
+    await expect(streamRouterChatWithUsage(cfg, [])).rejects.toThrow(/changed reported model/)
+  })
+
+  it('surfaces an upstream error frame instead of returning a partial answer', async () => {
+    stubStream(
+      frame({ choices: [{ delta: { content: 'partial' } }] }) +
+        frame({ error: { message: 'request_deadline_exceeded' } }),
+    )
+    await expect(streamRouterChatWithUsage(cfg, [])).rejects.toThrow(
+      /router stream error: request_deadline_exceeded/,
+    )
+  })
+
+  it('stops reading and rejects when the caller aborts mid-stream, even with a header deadline set', async () => {
+    const cancelled = stubUnclosedStream(frame({ choices: [{ delta: { content: 'partial' } }] }))
+    const controller = new AbortController()
+    const pending = streamRouterChatWithUsage(
+      { ...cfg, retry: { maxAttempts: 1, requestTimeoutMs: 60_000 } },
+      [],
+      { signal: controller.signal },
+    )
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    controller.abort(new Error('caller gave up'))
+    await expect(pending).rejects.toThrow(/caller gave up/)
+    expect(cancelled).toHaveBeenCalled()
+  })
+
+  it('refuses the buffered injected transport', async () => {
+    await expect(
+      streamRouterChatWithUsage({ ...cfg, complete: async () => ({ choices: [] }) }, []),
+    ).rejects.toThrow(/streamRouterChatWithUsage: .*cannot serve a stream/)
   })
 })
