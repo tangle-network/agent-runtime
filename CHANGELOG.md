@@ -1,3 +1,7 @@
+## 0.313.2
+
+Served-model identity checks treat provider slugs that differ only by hyphens (`z-ai` and `zai`, `x-ai` and `xai`) as one provider, so a Router route that reports OpenRouter's `z-ai/glm-5.3` satisfies a profile declaring `zai/glm-5.3`. Every other provider substitution is still refused.
+
 ## 0.313.1
 
 Releases 0.313.0, which failed its publish verify: the persona estimate test priced gpt-4o-mini, which the Router catalog (#1663) does not list; it now uses gpt-6-luna.
