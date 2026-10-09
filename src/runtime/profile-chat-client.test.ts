@@ -702,3 +702,139 @@ describe('profileChatClient tool pass-through (a tool-carrying request never ans
     expect(ran).not.toHaveBeenCalled()
   })
 })
+
+describe('profile chat over a streamed Router completion', () => {
+  const streamingProfile: AgentProfile = {
+    ...profile,
+    model: {
+      provider: 'tangle-router',
+      default: 'zai/glm-5.3',
+      reasoningEffort: 'high',
+      maxVisibleOutputTokens: 16_384,
+      metadata: { stream: true },
+    },
+  }
+
+  function stubSse(frames: ReadonlyArray<unknown>) {
+    const encoder = new TextEncoder()
+    const sse = `${frames.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('')}data: [DONE]\n\n`
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => sse,
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(sse))
+          controller.close()
+        },
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  function streamingCall() {
+    return profileOptimizerModelCall({
+      profile: streamingProfile,
+      context: 'streamed optimizer test',
+      executor: { backend: 'router', routerBaseUrl: 'http://router.test/v1', routerKey: 'k' },
+    })
+  }
+
+  it('streams a tool-free optimizer call and returns the same exact evidence as a buffered call', async () => {
+    const fetchMock = stubSse([
+      { model: 'z-ai/glm-5.3', choices: [{ delta: { reasoning_content: 'weigh' } }] },
+      { model: 'z-ai/glm-5.3', choices: [{ delta: { content: 'streamed ' } }] },
+      { model: 'z-ai/glm-5.3', choices: [{ delta: { content: 'answer' }, finish_reason: 'stop' }] },
+      {
+        model: 'z-ai/glm-5.3',
+        choices: [],
+        usage: {
+          prompt_tokens: 11,
+          completion_tokens: 6,
+          completion_tokens_details: { reasoning_tokens: 4 },
+          cost: 0.004,
+        },
+      },
+    ])
+    try {
+      const result = await streamingCall()({
+        callId: 'streamed-call-1',
+        request: { ...request, model: 'zai/glm-5.3', maxTokens: 16_384 },
+        endpointFormat: 'chat-completions',
+        signal: new AbortController().signal,
+      })
+
+      expect(result.succeeded).toBe(true)
+      if (!result.succeeded) throw new Error(result.error)
+      const sent = JSON.parse(
+        (fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body,
+      )
+      expect(sent).toMatchObject({
+        model: 'zai/glm-5.3',
+        stream: true,
+        stream_options: { include_usage: true },
+        max_tokens: 16_384,
+        reasoning_effort: 'high',
+      })
+      expect(sent.tools).toBeUndefined()
+      expect(result.response).toMatchObject({
+        content: 'streamed answer',
+        model: 'z-ai/glm-5.3',
+        costUsd: 0.004,
+        finishReason: 'stop',
+        usage: { promptTokens: 11, completionTokens: 6, reasoningTokens: 4 },
+      })
+      expect(result.receipt).toMatchObject({
+        model: 'z-ai/glm-5.3',
+        inputTokens: 11,
+        outputTokens: 6,
+        actualCostUsd: 0.004,
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('refuses a streamed response served by a different model', async () => {
+    stubSse([
+      { model: 'deepseek-v4-flash', choices: [{ delta: { content: 'x' }, finish_reason: 'stop' }] },
+    ])
+    try {
+      const result = await streamingCall()({
+        callId: 'streamed-call-2',
+        request: { ...request, model: 'zai/glm-5.3' },
+        endpointFormat: 'chat-completions',
+        signal: new AbortController().signal,
+      })
+      expect(result.succeeded).toBe(false)
+      if (result.succeeded) throw new Error('expected refusal')
+      expect(result.error).toMatch(/provider reported model "deepseek-v4-flash"/u)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('refuses stream with the buffered injected transport before any call', async () => {
+    const complete = vi.fn()
+    const result = await profileOptimizerModelCall({
+      profile: streamingProfile,
+      context: 'streamed injected test',
+      executor: {
+        backend: 'router',
+        routerBaseUrl: 'http://injected.invalid/v1',
+        routerKey: 'injected-transport',
+        complete,
+      },
+    })({
+      callId: 'streamed-call-3',
+      request: { ...request, model: 'zai/glm-5.3' },
+      endpointFormat: 'chat-completions',
+      signal: new AbortController().signal,
+    })
+    expect(result.succeeded).toBe(false)
+    if (result.succeeded) throw new Error('expected refusal')
+    expect(result.error).toMatch(/cannot serve a stream/u)
+    expect(complete).not.toHaveBeenCalled()
+  })
+})

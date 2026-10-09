@@ -138,6 +138,11 @@ export interface ProfileModelExecutionSettings {
   readonly extraBody?: Readonly<Record<string, unknown>>
   /** Zero means no turn-count cap; conserved budgets and deadlines still apply. */
   readonly maxTurns?: number
+  /**
+   * Take each Router completion over SSE, with or without tools. The Router's request deadline ends
+   * when response headers are committed, so a long thinking-model answer needs a stream to finish.
+   * Requires the HTTP transport; an injected buffered `complete` transport is refused.
+   */
   readonly stream?: boolean
 }
 

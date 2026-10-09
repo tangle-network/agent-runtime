@@ -167,29 +167,7 @@ export async function routerChatWithUsage(
 ): Promise<RouterChatResult> {
   const url = `${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`
   const headers = routerRequestHeaders(cfg, opts)
-  const temperature = opts?.temperature
-  const maxTokens = opts?.maxTokens ?? cfg.maxTokens
-  const maxCompletionTokens = opts?.maxCompletionTokens ?? cfg.maxCompletionTokens
-  const body = (): Record<string, unknown> => ({
-    ...providerRequestExtras(opts?.extraBody, [
-      'model',
-      'messages',
-      'temperature',
-      'max_tokens',
-      'max_completion_tokens',
-      'seed',
-      'reasoning_effort',
-      'stream',
-      'stream_options',
-    ]),
-    model: cfg.model,
-    messages,
-    ...(temperature !== undefined ? { temperature } : {}),
-    ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
-    ...(maxCompletionTokens !== undefined ? { max_completion_tokens: maxCompletionTokens } : {}),
-    ...(opts?.seed !== undefined ? { seed: opts.seed } : {}),
-    ...(opts?.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
-  })
+  const body = (): Record<string, unknown> => chatCompletionBody(cfg, messages, opts)
   const retry = resolveRouterRetryPolicy(cfg.retry, 'RouterConfig.retry')
   // Injected transport short-circuits the network: the offline benchmark seam. It owns its own
   // determinism while sharing the HTTP path's retry, timeout, and cancellation behavior.
@@ -217,6 +195,41 @@ export async function routerChatWithUsage(
     retry,
   )
   return parseChatResult(await routerResponseJson(response, attempts), cfg.model, attempts)
+}
+
+/** Per-call options shared by the buffered and streamed plain-chat transports. */
+type ChatCompletionOptions = NonNullable<Parameters<typeof routerChatWithUsage>[2]>
+
+/** The OpenAI-shape request body both plain-chat transports send. One builder so the streamed
+ *  completion cannot drift from the buffered one on model, ceilings, seed, or reasoning effort. */
+function chatCompletionBody(
+  cfg: RouterConfig,
+  messages: ReadonlyArray<{ role: string; content: unknown }>,
+  opts: ChatCompletionOptions | undefined,
+): Record<string, unknown> {
+  const temperature = opts?.temperature
+  const maxTokens = opts?.maxTokens ?? cfg.maxTokens
+  const maxCompletionTokens = opts?.maxCompletionTokens ?? cfg.maxCompletionTokens
+  return {
+    ...providerRequestExtras(opts?.extraBody, [
+      'model',
+      'messages',
+      'temperature',
+      'max_tokens',
+      'max_completion_tokens',
+      'seed',
+      'reasoning_effort',
+      'stream',
+      'stream_options',
+    ]),
+    model: cfg.model,
+    messages,
+    ...(temperature !== undefined ? { temperature } : {}),
+    ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+    ...(maxCompletionTokens !== undefined ? { max_completion_tokens: maxCompletionTokens } : {}),
+    ...(opts?.seed !== undefined ? { seed: opts.seed } : {}),
+    ...(opts?.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
+  }
 }
 
 function parseChatResult(
@@ -721,20 +734,148 @@ export async function streamRouterChatWithTools(
     propagatedHeaders?: Readonly<Record<string, string>>
   },
 ): Promise<RouterChatToolsResult> {
+  const streamed = await streamChatCompletion(
+    'streamRouterChatWithTools',
+    cfg,
+    toolCompletionBody(cfg, messages, tools, opts),
+    opts,
+  )
+  const toolCalls: RouterToolCall[] = [...streamed.calls.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([index, call]) => ({
+      id: call.id ?? `call_${index}`,
+      name: call.name ?? '',
+      arguments: call.arguments || '{}',
+    }))
+  const { usage, resources, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(
+    streamed.rawUsage,
+    cfg.model,
+    streamed.transportAttempts,
+  )
+  return {
+    // `null` only when NO content field was ever sent — the buffered path's `msg?.content ?? null`.
+    content: streamed.sawContent ? streamed.content : null,
+    toolCalls,
+    transportAttempts: streamed.transportAttempts,
+    ...(streamed.model !== undefined ? { model: streamed.model } : {}),
+    ...(streamed.reasoning ? { reasoning: streamed.reasoning } : {}),
+    ...(streamed.finishReason !== undefined ? { finishReason: streamed.finishReason } : {}),
+    ...(usage ? { usage } : {}),
+    ...(resources ? { resources } : {}),
+    ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(costProvenance ? { costProvenance } : {}),
+    ...(billedCostUsd !== undefined ? { billedCostUsd } : {}),
+    ...(cache ? { cache } : {}),
+    // The turn ran; its tokens are unknown. Marked rather than left as a bare `undefined`, which a
+    // metering caller cannot tell apart from a turn that genuinely cost nothing.
+    ...(usage ? {} : { usageUnknown: true as const }),
+  }
+}
+
+/**
+ * The SAME completion as `routerChatWithUsage`, taken over SSE (`stream: true`) and reassembled
+ * into the identical `RouterChatResult`: content with any inline `<think>` split out, reasoning,
+ * finish reason, reported model, usage, catalog estimate, billed cost, and prompt cache.
+ *
+ * What it buys: the Tangle Router bounds a request by a deadline that ends when response headers
+ * are committed. A buffered completion commits headers only after the whole generation, so a long
+ * thinking-model answer outlives that deadline and fails with `request_deadline_exceeded`. A
+ * streamed response commits headers at the first byte, so generation length is no longer bounded
+ * by the Router's request deadline.
+ *
+ * Usage that never arrives stays `undefined` (never a fabricated 0), which the executor records as
+ * unknown tokens. A stream that ends without a single choice is refused, matching the buffered
+ * path's refusal of a completion with no `choices[0].message`.
+ */
+export async function streamRouterChatWithUsage(
+  cfg: RouterConfig,
+  messages: ReadonlyArray<{ role: string; content: unknown }>,
+  opts?: ChatCompletionOptions,
+): Promise<RouterChatResult> {
+  const streamed = await streamChatCompletion(
+    'streamRouterChatWithUsage',
+    cfg,
+    chatCompletionBody(cfg, messages, opts),
+    opts,
+  )
+  if (!streamed.sawChoice) {
+    throwRouterFailureWithAttempts(
+      new ValidationError('router stream: completion carried no choices'),
+      streamed.transportAttempts,
+    )
+  }
+  const { usage, resources, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(
+    streamed.rawUsage,
+    cfg.model,
+    streamed.transportAttempts,
+  )
+  return {
+    content: streamed.content,
+    transportAttempts: streamed.transportAttempts,
+    ...(streamed.model !== undefined ? { model: streamed.model } : {}),
+    ...(streamed.reasoning ? { reasoning: streamed.reasoning } : {}),
+    ...(usage ? { usage } : {}),
+    ...(resources ? { resources } : {}),
+    ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(costProvenance ? { costProvenance } : {}),
+    ...(billedCostUsd !== undefined ? { billedCostUsd } : {}),
+    ...(cache ? { cache } : {}),
+    ...(streamed.finishReason !== undefined ? { finishReason: streamed.finishReason } : {}),
+  }
+}
+
+/** One streamed completion, reassembled but not yet metered. */
+interface StreamedCompletion {
+  /** Visible answer with any inline `<think>` block split into `reasoning`. */
+  content: string
+  /** Whether any `delta.content` string arrived, including an empty one. */
+  sawContent: boolean
+  /** Whether any chunk carried a choice. */
+  sawChoice: boolean
+  reasoning?: string
+  finishReason?: string
+  rawUsage?: RawUsage
+  model?: string
+  calls: Map<number, StreamingToolCall>
+  transportAttempts: number
+}
+
+/**
+ * POST `body` with `stream: true` and fold the SSE chunks into one completion. Both streamed
+ * transports share this reader so content, reasoning, model identity, finish reason, usage, and
+ * tool-call assembly cannot drift between them.
+ *
+ * The caller signal stays attached through the body read: the retry layer's request deadline
+ * covers only response headers, and cancelling the caller must still stop a completion that is
+ * mid-stream rather than leave it reading until the provider finishes.
+ */
+async function streamChatCompletion(
+  context: string,
+  cfg: RouterConfig,
+  requestBody: Record<string, unknown>,
+  opts:
+    | {
+        signal?: AbortSignal
+        callId?: string
+        correlationId?: string
+        propagatedHeaders?: Readonly<Record<string, string>>
+      }
+    | undefined,
+): Promise<StreamedCompletion> {
   const retry = resolveRouterRetryPolicy(cfg.retry, 'RouterConfig.retry')
   if (cfg.complete) {
     throw new ValidationError(
-      'streamRouterChatWithTools: RouterConfig.complete is a BUFFERED transport (it returns one ' +
+      `${context}: RouterConfig.complete is a BUFFERED transport (it returns one ` +
         'parsed completion body) and cannot serve a stream. Drop `stream` to use the injected ' +
         'transport, or drop `complete` to stream from the router.',
     )
   }
   const body = {
-    ...toolCompletionBody(cfg, messages, tools, opts),
+    ...requestBody,
     stream: true,
     // Without this an OpenAI-compatible upstream omits usage from a streamed response entirely,
     // and the turn would meter nothing. An upstream that accepts but ignores it is caught after the
-    // fact by `usageUnknown`, not assumed away.
+    // fact by the caller's unknown-usage handling, not assumed away.
     stream_options: { include_usage: true },
   }
   const { response: res, attempts: transportAttempts } = await fetchRouterResponse(
@@ -751,13 +892,17 @@ export async function streamRouterChatWithTools(
     retry,
   )
   if (!res.body) {
-    throw new ValidationError(
-      `router ${res.status}: streamed completion returned no response body to read`,
+    throwRouterFailureWithAttempts(
+      new ValidationError(
+        `router ${res.status}: streamed completion returned no response body to read`,
+      ),
+      transportAttempts,
     )
   }
 
   let content = ''
   let sawContent = false
+  let sawChoice = false
   let fieldReasoning = ''
   let finishReason: string | undefined
   let rawUsage: RawUsage | undefined
@@ -765,17 +910,27 @@ export async function streamRouterChatWithTools(
   const calls = new Map<number, StreamingToolCall>()
   let lastCallIndex = -1
 
-  for await (const chunk of readChatCompletionChunksWithAttempts(res.body, transportAttempts)) {
+  for await (const chunk of readChatCompletionChunksWithAttempts(
+    res.body,
+    transportAttempts,
+    opts?.signal,
+  )) {
     if (chunk.error) {
-      throw new ValidationError(
-        `router stream error: ${chunk.error.message ?? chunk.error.type ?? 'unknown'}`,
+      throwRouterFailureWithAttempts(
+        new ValidationError(
+          `router stream error: ${chunk.error.message ?? chunk.error.type ?? 'unknown'}`,
+        ),
+        transportAttempts,
       )
     }
     const chunkModel = reportedModel(chunk.model)
     if (chunkModel !== undefined) {
       if (observedModel !== undefined && observedModel !== chunkModel) {
-        throw new ValidationError(
-          `router stream changed reported model from ${JSON.stringify(observedModel)} to ${JSON.stringify(chunkModel)}`,
+        throwRouterFailureWithAttempts(
+          new ValidationError(
+            `router stream changed reported model from ${JSON.stringify(observedModel)} to ${JSON.stringify(chunkModel)}`,
+          ),
+          transportAttempts,
         )
       }
       observedModel = chunkModel
@@ -784,6 +939,7 @@ export async function streamRouterChatWithTools(
     if (chunk.usage) rawUsage = chunk.usage
     const choice = chunk.choices?.[0]
     if (!choice) continue
+    sawChoice = true
     if (typeof choice.finish_reason === 'string') finishReason = choice.finish_reason
     const delta = choice.delta
     if (!delta) continue
@@ -817,37 +973,18 @@ export async function streamRouterChatWithTools(
   }
 
   // A model that inlines its thinking as `<think>` in `content` is normalized the same way the
-  // chat path normalizes it, so a downstream parser reading `content` gets the clean answer.
+  // buffered chat path normalizes it, so a downstream parser reading `content` gets the clean answer.
   const split = splitReasoning(content, fieldReasoning.length > 0 ? fieldReasoning : undefined)
-  const toolCalls: RouterToolCall[] = [...calls.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([index, call]) => ({
-      id: call.id ?? `call_${index}`,
-      name: call.name ?? '',
-      arguments: call.arguments || '{}',
-    }))
-  const { usage, resources, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(
-    rawUsage,
-    cfg.model,
-    transportAttempts,
-  )
   return {
-    // `null` only when NO content field was ever sent — the buffered path's `msg?.content ?? null`.
-    content: sawContent ? split.content : null,
-    toolCalls,
-    transportAttempts,
-    ...(observedModel !== undefined ? { model: observedModel } : {}),
+    content: split.content,
+    sawContent,
+    sawChoice,
     ...(split.reasoning ? { reasoning: split.reasoning } : {}),
     ...(finishReason !== undefined ? { finishReason } : {}),
-    ...(usage ? { usage } : {}),
-    ...(resources ? { resources } : {}),
-    ...(costUsd !== undefined ? { costUsd } : {}),
-    ...(costProvenance ? { costProvenance } : {}),
-    ...(billedCostUsd !== undefined ? { billedCostUsd } : {}),
-    ...(cache ? { cache } : {}),
-    // The turn ran; its tokens are unknown. Marked rather than left as a bare `undefined`, which a
-    // metering caller cannot tell apart from a turn that genuinely cost nothing.
-    ...(usage ? {} : { usageUnknown: true as const }),
+    ...(rawUsage ? { rawUsage } : {}),
+    ...(observedModel !== undefined ? { model: observedModel } : {}),
+    calls,
+    transportAttempts,
   }
 }
 
@@ -1136,16 +1273,25 @@ function idAlreadyOpen(calls: Map<number, StreamingToolCall>, id: string): boole
  */
 async function* readChatCompletionChunks(
   body: ReadableStream<Uint8Array>,
+  signal?: AbortSignal,
 ): AsyncIterable<ChatCompletionChunk> {
+  signal?.throwIfAborted()
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
   // Set only when a read reported EOF: the body is then already exhausted and cancelling it is
   // both unnecessary and a no-op. Any other exit leaves bytes on the wire.
   let drained = false
+  // Cancelling resolves the pending read as EOF; the abort check after each read turns that EOF
+  // into the caller's abort instead of a truncated completion that looks finished.
+  const onAbort = () => {
+    reader.cancel(signal?.reason).catch(() => undefined)
+  }
+  signal?.addEventListener('abort', onAbort, { once: true })
   try {
     for (;;) {
       const { done, value } = await reader.read()
+      signal?.throwIfAborted()
       buf = normalizeSseLineEndings(
         done ? buf : buf + decoder.decode(value, { stream: true }),
         // While the stream is live a trailing `\r` is ambiguous; at EOF it is a terminator.
@@ -1165,6 +1311,7 @@ async function* readChatCompletionChunks(
     const tail = parseChunkFrame(buf)
     if (tail && tail !== 'done') yield tail
   } finally {
+    signal?.removeEventListener('abort', onAbort)
     if (!drained) {
       // `cancel()` REJECTS when the body is already errored (a dead socket). That is cleanup on a
       // path that already carries either a complete result or an error of its own, and letting the
@@ -1179,9 +1326,10 @@ async function* readChatCompletionChunks(
 async function* readChatCompletionChunksWithAttempts(
   body: ReadableStream<Uint8Array>,
   attempts: number,
+  signal?: AbortSignal,
 ): AsyncIterable<ChatCompletionChunk> {
   try {
-    yield* readChatCompletionChunks(body)
+    yield* readChatCompletionChunks(body, signal)
   } catch (error) {
     throwRouterFailureWithAttempts(error, attempts)
   }

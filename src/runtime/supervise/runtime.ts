@@ -55,6 +55,7 @@ import {
   routerChatWithUsage,
   routerTransportAttemptsFromError,
   streamRouterChatWithTools,
+  streamRouterChatWithUsage,
   type ToolSpec,
 } from '../router-client'
 import { type RunAgentRoundsOptions, runAgentRounds } from '../run-loop'
@@ -455,12 +456,6 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         transcript.observe(messages)
         const started = Date.now()
         const linked = linkAbort(signal, controller.signal).signal
-        const extraBody = {
-          ...(profileExecution.extraBody ?? {}),
-          ...(profileExecution.reasoningEffort
-            ? { reasoning_effort: profileExecution.reasoningEffort }
-            : {}),
-        }
         recordRuntimeOwnedProviderAttemptStart(executor)
         const r = await runRouterTransport<RouterChatResult | RouterChatToolsResult>(
           'routerInlineExecutor',
@@ -490,11 +485,18 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
                       : {}),
                     ...profileExecution.tokenLimits.applied,
                     ...(profileExecution.seed !== undefined ? { seed: profileExecution.seed } : {}),
-                    ...(Object.keys(extraBody).length > 0 ? { extraBody } : {}),
+                    ...(profileExecution.reasoningEffort
+                      ? { reasoningEffort: profileExecution.reasoningEffort }
+                      : {}),
+                    ...(profileExecution.extraBody
+                      ? { extraBody: profileExecution.extraBody }
+                      : {}),
                     ...requestIdentity,
                   },
                 )
-              : routerChatWithUsage(
+              : (profileExecution.stream === true
+                  ? streamRouterChatWithUsage
+                  : routerChatWithUsage)(
                   {
                     routerBaseUrl: seam.routerBaseUrl,
                     routerKey: seam.routerKey,
@@ -706,6 +708,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
     {
       routerBaseUrl: seam.routerBaseUrl,
       routerKey: seam.routerKey,
+      ...(seam.complete ? { complete: seam.complete } : {}),
       tools: seam.tools,
     },
     { multiTurn: true },
@@ -2633,9 +2636,9 @@ function routerProfileExecution(
       'routerInlineExecutor: AgentProfile.model.metadata.maxTurns requires the router-tools backend',
     )
   }
-  if (settings.stream === true && seam.tools === undefined) {
+  if (settings.stream === true && seam.complete !== undefined) {
     throw new ValidationError(
-      'routerInlineExecutor: streamed chat without tool schemas is not supported; omit stream or use a harness executor',
+      'routerInlineExecutor: AgentProfile.model.metadata.stream requires the HTTP Router transport; RouterSeam.complete returns one buffered completion and cannot serve a stream',
     )
   }
 
