@@ -1,3 +1,7 @@
+## 0.313.3
+
+`AgentProfile.model.metadata.stream: true` now streams tool-free direct Router turns too, so a long thinking-model answer is no longer cut off by the Router's request deadline; the streamed turn returns the same content, reasoning, finish reason, usage, billed cost, and served-model checks as the buffered one, and a caller abort now stops a streamed completion mid-body.
+
 ## 0.313.2
 
 Served-model identity checks treat provider slugs that differ only by hyphens (`z-ai` and `zai`, `x-ai` and `xai`) as one provider, so a Router route that reports OpenRouter's `z-ai/glm-5.3` satisfies a profile declaring `zai/glm-5.3`. Every other provider substitution is still refused.
