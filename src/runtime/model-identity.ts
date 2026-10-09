@@ -111,7 +111,7 @@ function equivalentModelBase(observed: string, declared: string): boolean {
   if (
     observedPath.provider === undefined ||
     declaredPath.provider === undefined ||
-    observedPath.provider === declaredPath.provider
+    sameProvider(observedPath.provider, declaredPath.provider)
   ) {
     return true
   }
@@ -129,6 +129,14 @@ function equivalentModelBase(observed: string, declared: string): boolean {
   }
 
   return false
+}
+
+/**
+ * Compare provider slugs across catalogs that spell one vendor with or without hyphens,
+ * such as `zai` and OpenRouter's `z-ai`. Any other provider difference is a substitution.
+ */
+function sameProvider(left: string, right: string): boolean {
+  return left.replaceAll('-', '') === right.replaceAll('-', '')
 }
 
 interface ModelBaseParts {
