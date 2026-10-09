@@ -303,8 +303,9 @@ function checkpointSlots(port: ProviderWorkspaceRetentionPort): CaptureSlots {
  */
 export async function captureProviderCheckpointWorkspace(
   port: ProviderWorkspaceRetentionPort,
-  context: Omit<ProviderCheckpointCaptureContext, 'signal'>,
+  prepare: (signal: AbortSignal) => Promise<Omit<ProviderCheckpointCaptureContext, 'signal'>>,
   marker: { readonly path: string; readonly content: string } | undefined,
+  parent?: AbortSignal,
 ): Promise<AgentCandidateWorkspaceTree> {
   assertProviderWorkspaceRetentionPort(port, 'provider workspace retention')
   const capture = port.captureCheckpoint
@@ -316,19 +317,24 @@ export async function captureProviderCheckpointWorkspace(
     () => controller.abort(new Error(`checkpoint capture timed out after ${port.timeoutMs}ms`)),
     true,
   )
+  const signal =
+    parent === undefined ? controller.signal : AbortSignal.any([controller.signal, parent])
   try {
     return await runAbortable(
       () =>
-        withCaptureSlot(checkpointSlots(port), controller.signal, async () => {
+        withCaptureSlot(checkpointSlots(port), signal, async () => {
+          // Reserve capacity before creating the temporary checkpoint fork. A fork waiting in
+          // this queue can otherwise idle into provider suspension before capture starts.
+          const context = await prepare(signal)
           const tree = detachedSnapshot(
-            await capture.call(port, { ...context, signal: controller.signal }),
+            await capture.call(port, { ...context, signal }),
             'checkpoint capture tree',
           )
           if (tree?.kind !== 'agent-candidate-workspace-tree')
             throw new Error('checkpoint capture returned no workspace tree')
           const material = await verifyAgentCandidateWorkspaceTree(tree, port.artifacts, {
             ...(port.limits === undefined ? {} : { limits: port.limits }),
-            signal: controller.signal,
+            signal,
           })
           if (material.files.length !== tree.files)
             throw new Error('checkpoint capture tree misstates its file count')
@@ -346,7 +352,7 @@ export async function captureProviderCheckpointWorkspace(
           }
           return tree
         }),
-      controller.signal,
+      signal,
       `checkpoint capture timed out after ${port.timeoutMs}ms`,
     )
   } finally {
