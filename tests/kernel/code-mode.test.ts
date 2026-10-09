@@ -1,409 +1,414 @@
-/**
- * Code mode over the coordination verbs — the Cloudflare/Anthropic pattern, held to its own
- * definition: an API GENERATED from the live grant, exactly TWO tools (`search`, `execute`), a
- * sandbox whose only capability is the bindings, and every call the code makes crossing the same
- * kernel path the MCP verb crosses. The last test is the point: one `execute` call orchestrates
- * two worker spawns, and the JOURNAL — not the program — is what proves they ran.
- */
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
+import { createCodeModeTools, runCodeMode } from '../../src/runtime/code-mode'
+import { createExecutor } from '../../src/runtime/supervise/runtime'
+import type { AgentSpec } from '../../src/runtime/supervise/types'
+import { runBrainLoop } from '../../src/runtime/tool-loop'
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
-import { describe, expect, it, vi } from 'vitest'
-import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
-import {
-  codeModeSupervisorTools,
-  renderCodeModeApi,
-  renderJsonSchemaType,
-  unsafeInProcessRunner,
-} from '../../src/runtime/supervise/code-mode'
-import { superviseWithTestBrain } from '../../src/runtime/supervise/supervise'
-import type {
-  Agent,
-  AgentSpec,
-  Executor,
-  ExecutorResult,
-  Spend,
-} from '../../src/runtime/supervise/types'
-import { scriptedBrain } from './scripted-brain'
-import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
-
-const SPEND: Spend = { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 }
-
-/** An offline leaf: settles with `{ built: <name> }`, valid, through the kernel's own path. */
-function leafSeam(profileRaw: unknown): Agent<unknown, unknown> {
-  const profile = profileRaw as AgentProfile
-  const name = profile.name ?? 'worker'
-  let artifact: ExecutorResult<unknown> | undefined
-  const executor: Executor<unknown> = {
-    runtime: 'inline',
-    async execute() {
-      artifact = {
-        outRef: `w:${name}`,
-        out: { built: name },
-        verdict: { valid: true, score: 1 },
-        spent: SPEND,
-      }
-      return artifact
-    },
-    teardown: () => Promise.resolve({ destroyed: true }),
-    resultArtifact: () => {
-      if (!artifact) throw new Error('leaf: resultArtifact before drain')
-      return artifact
-    },
-  }
-  return {
-    name,
-    act: async () => '',
-    executorSpec: { profile, harness: null, executor } as AgentSpec,
-  } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+const context = (callId = 'program') => ({
+  signal: new AbortController().signal,
+  callId,
+  parentCallId: callId,
+})
+const readTool = {
+  type: 'function' as const,
+  function: {
+    name: 'read',
+    description: 'Read a permitted record.',
+    parameters: { type: 'object' },
+    outputSchema: { type: 'object', properties: { value: { type: 'number' } } },
+  },
 }
 
-describe('codeModeSupervisorTools requires an explicit runner — no silent in-process default', () => {
-  it('throws without a runner, naming the trusted and jailed choices', () => {
-    // The runtime ships no isolate, so the boundary is the caller's deliberate choice.
-    expect(() => codeModeSupervisorTools(undefined as never)).toThrow(
-      /a CodeModeRunner is required/,
-    )
-  })
-})
-
-describe('the generated API — rendered from schemas, never prose', () => {
-  it('renders a JSON Schema as TypeScript, structurally', () => {
-    expect(
-      renderJsonSchemaType({
-        type: 'object',
-        properties: {
-          task: { type: 'string', description: 'What to do.' },
-          continuity: { type: 'string', enum: ['fresh', 'resume'] },
-          budget: { type: 'object', properties: { maxTokens: { type: 'integer' } } },
-          tags: { type: 'array', items: { type: 'string' } },
-        },
-        required: ['task'],
-      }),
-    ).toBe(
-      `{
-  /** What to do. */ task: string
-  continuity?: "fresh" | "resume"
-  budget?: {
-    maxTokens?: number
-  }
-  tags?: Array<string>
-}`,
-    )
-    expect(renderJsonSchemaType(undefined)).toBe('unknown')
-    expect(renderJsonSchemaType({ anyOf: [{ type: 'string' }, { type: 'null' }] })).toBe(
-      'string | null',
-    )
-  })
-
-  it('renders declare-function blocks and filters by query; lifecycle verbs are named as excluded', () => {
-    const faces = [
-      { name: 'spawn_worker', description: 'Start a worker.', inputSchema: { type: 'object' } },
-      { name: 'observe_agent', description: 'Read a worker.' },
-    ]
-    const all = renderCodeModeApi(faces)
-    expect(all).toContain('declare function spawn_worker(')
-    expect(all).toContain('declare function observe_agent(')
-    expect(all).toContain('NOT callable from code: submit_result, stop, ask_parent')
-    const filtered = renderCodeModeApi(faces, 'spawn')
-    expect(filtered).toContain('spawn_worker')
-    expect(filtered).not.toContain('declare function observe_agent')
-  })
-})
-
-describe('the sandbox — bindings are the only capability', () => {
-  const run = (code: string, bindings = {}, signal = new AbortController().signal) =>
-    unsafeInProcessRunner().run({ code, bindings, signal })
-
-  it('runs a program against the bindings and captures logs beside the result', async () => {
-    const calls: unknown[] = []
-    const { result, logs } = await run(
-      `const a = await api.double(2)
-       console.log('doubled to', a)
-       return a + (await api.double(a))`,
-      {
-        double: async (args: unknown) => {
-          calls.push(args)
-          return (args as number) * 2
-        },
-      },
-    )
-    expect(result).toBe(12)
-    expect(logs).toEqual(['doubled to 4'])
-    expect(calls).toEqual([2, 4])
-  })
-
-  it('an unknown api member fails with guidance; a lifecycle verb fails with the WHY', async () => {
-    await expect(run('return api.frobnicate({})')).rejects.toThrow(
-      /not in the granted API — call search/,
-    )
-    await expect(run('return api.submit_result({})')).rejects.toThrow(/second brain|lifecycle verb/)
-  })
-
-  it('the context has no require, no process, and code generation is disabled inside it', async () => {
-    // `process`/`fetch` are refused by the lint before the vm; the vm itself has no `require`,
-    // and eval-in-the-sandbox is off at the context level (codeGeneration: strings: false).
-    await expect(run('return require("node:fs")')).rejects.toThrow()
-    await expect(run('return eval("1+1")')).rejects.toThrow()
-  })
-
-  it('an aborted signal ends a program that would otherwise never resolve', async () => {
-    const controller = new AbortController()
-    controller.abort(new Error('scope cancelled'))
-    await expect(run('await new Promise(() => {})', {}, controller.signal)).rejects.toThrow(
-      /scope cancelled/,
-    )
-  })
-
-  it('HONESTLY not a boundary: the in-process runner does NOT contain host-reaching code', async () => {
-    // Documented escape, asserted so nobody is surprised: node:vm shares the host realm, so a
-    // host binding's `.constructor` is the host Function. This is WHY the runner is named unsafe
-    // and why untrusted models need a jailed runner. api.constructor itself is closed (own-only
-    // null-proto target), but api.<binding>.constructor is not — and cannot be, inside vm.
-    const reached = await run("return typeof api.noop.constructor.constructor === 'function'", {
-      noop: async () => null,
-    })
-    expect(reached.result).toBe(true)
-  })
-})
-
-describe('caller-authored execution deadlines and manager cancellation', () => {
-  /** A minimal invocation context: a call-counting `verbs`, a live signal, a coordinationTools
-   *  face. Enough to drive the execute handler without a full supervise run. */
-  function fakeContext(
-    signal: AbortSignal,
-    onSpawn: () => void,
-    granted: ReadonlyArray<string> = ['spawn_worker'],
-  ) {
-    const noop = async () => ({ ok: true })
-    return {
-      runId: 'r',
-      runNamespace: 'r',
-      nodeId: 'n',
-      ownerId: 'n',
-      depth: 0,
-      identity: {},
-      profile: { name: 'm' },
-      task: 't',
-      signal,
-      verbs: {
-        spawnAgent: async () => {
-          onSpawn()
-          // A real macrotask yield: a pure-microtask loop would starve the deadline timer, which
-          // is the honest limit of in-process execution (see unsafeInProcessRunner's doc).
-          await new Promise((resolve) => setTimeout(resolve, 1))
-          return { workerId: 'w' }
-        },
-        awaitSettlement: async (args: unknown) => ({
-          settled: (args as { workerIds: string[] }).workerIds,
-        }),
-        steerAgent: noop,
-        observeAgent: noop,
-        listQuestions: noop,
-        answerQuestion: noop,
-        runAnalyst: noop,
-      },
-      coordinationTools: () => granted.map((name) => ({ name, inputSchema: { type: 'object' } })),
-    } as unknown as Parameters<
-      Extract<
-        ReturnType<ReturnType<typeof codeModeSupervisorTools>>[number],
-        { name: 'execute' }
-      >['handler']
-    >[1]
-  }
-
-  it('binds api.await_settlement beside spawn_worker, and only then', async () => {
-    const tools = codeModeSupervisorTools(unsafeInProcessRunner())([] as never)
-    const execute = tools.find((tool) => tool.name === 'execute')
-    if (!execute) throw new Error('no execute tool')
-    const program = `
-      const { workerId } = await api.spawn_worker({ profile: { name: 'w' }, task: 't' })
-      return await api.await_settlement({ workerIds: [workerId] })
-    `
-    await expect(
-      execute.handler(
-        { code: program },
-        fakeContext(new AbortController().signal, () => {}),
-      ),
-    ).resolves.toMatchObject({ result: { settled: ['w'] } })
-
-    // A program with no spawn grant has no workers of its own to join.
-    await expect(
-      execute.handler(
-        { code: 'return await api.await_settlement({ workerIds: ["w"] })' },
-        fakeContext(new AbortController().signal, () => {}, ['observe_agent']),
-      ),
-    ).rejects.toThrow(/not in the granted API/)
-  })
-
-  it('an omitted deadline keeps running until the manager cancels', async () => {
-    vi.useFakeTimers()
+describe('Runtime code mode over the real QuickJS worker', () => {
+  it('batches real file reads and keeps intermediate data outside the model conversation', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-codemode-'))
     try {
-      let executionSignal: AbortSignal | undefined
-      const runner = {
-        run: ({ signal }: { signal: AbortSignal }) => {
-          executionSignal = signal
-          return new Promise<never>((_resolve, reject) => {
-            if (signal.aborted) reject(signal.reason)
-            else signal.addEventListener('abort', () => reject(signal.reason), { once: true })
-          })
-        },
-      }
-      const tools = codeModeSupervisorTools(runner)([] as never)
-      const execute = tools.find((tool) => tool.name === 'execute')
-      if (!execute) throw new Error('no execute tool')
-      const manager = new AbortController()
-      const pending = execute.handler(
-        { code: 'await new Promise(() => {})' },
-        fakeContext(manager.signal, () => {}),
+      await writeFile(
+        join(dir, 'a.json'),
+        JSON.stringify({ value: 20, privateIntermediate: 'not a model message' }),
       )
-      const observed = pending.catch((error: unknown) => error)
-
-      await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000)
-      expect(executionSignal?.aborted).toBe(false)
-
-      manager.abort(new Error('manager cancelled'))
-      await expect(observed).resolves.toMatchObject({ message: 'manager cancelled' })
+      await writeFile(
+        join(dir, 'b.json'),
+        JSON.stringify({ value: 22, privateIntermediate: 'not a model message' }),
+      )
+      let turn = 0
+      const calls: string[] = []
+      const result = await runBrainLoop({
+        codeMode: { concurrency: 1 },
+        tools: [readTool],
+        initialMessages: [],
+        maxTurns: 3,
+        execute: async (name, args, ctx) => {
+          expect(name).toBe('read')
+          if (!['a.json', 'b.json'].includes(String(args.path))) throw new Error('not authorized')
+          calls.push(ctx.callId)
+          return JSON.parse(await readFile(join(dir, String(args.path)), 'utf8'))
+        },
+        chat: async (messages, tools) => {
+          expect(tools.map((tool) => tool.function.name)).toEqual(['tool_search', 'codemode'])
+          if (++turn === 1)
+            return {
+              content: '',
+              toolCalls: [
+                {
+                  id: 'batch',
+                  name: 'codemode',
+                  arguments: JSON.stringify({
+                    code: `
+            const rows = await Promise.all(['a.json','b.json'].map(path => tools.read({path})));
+            store('count', rows.length);
+            return rows.reduce((sum, row) => sum + row.value, 0);
+          `,
+                  }),
+                },
+              ],
+            }
+          expect(JSON.stringify(messages)).not.toContain('privateIntermediate')
+          expect(JSON.parse(String(messages.at(-1)?.content))).toMatchObject({
+            ok: true,
+            value: 42,
+          })
+          return { content: '42', toolCalls: [], usage: { input: 3, output: 1 } }
+        },
+      })
+      expect(result.final).toBe('42')
+      expect(result.codeModeStore).toEqual({ count: 2 })
+      expect(calls).toEqual(['batch/tool/1', 'batch/tool/2'])
+      expect(result.toolTrace.filter((call) => call.name === 'read')).toHaveLength(2)
+      // The evidence trace retains real calls; only the model's conversation is reduced.
+      expect(JSON.stringify(result.toolTrace)).toContain('privateIntermediate')
     } finally {
-      vi.useRealTimers()
+      await rm(dir, { recursive: true, force: true })
     }
   })
 
-  it('a program that spawns in a loop is halted by the deadline; the count is bounded and it rejects', async () => {
-    const tools = codeModeSupervisorTools(unsafeInProcessRunner(), { timeoutMs: 30 })([] as never)
-    const execute = tools.find((tool) => tool.name === 'execute')
-    if (!execute) throw new Error('no execute tool')
-    let spawns = 0
-    const controller = new AbortController()
-    // Each iteration awaits a real 5ms tick, so ~30ms admits a handful, then the gate refuses.
-    const program = `
-      for (;;) {
-        await api.spawn_worker({ profile: { name: 'w' }, task: 't' })
-      }
-    `
-    await expect(
-      execute.handler(
-        { code: program },
-        fakeContext(controller.signal, () => {
-          spawns += 1
-        }),
-      ),
-    ).rejects.toThrow(/deadline passed|timed out/)
-    // Bounded: the loop cannot spawn forever. Exact count is timing-dependent; the invariant is
-    // that it STOPPED, not how many it managed before 30ms.
-    expect(spawns).toBeGreaterThan(0)
-    expect(spawns).toBeLessThan(5_000)
+  it('preserves dispatch authorization rather than accepting every name in the source', async () => {
+    let calls = 0
+    const result = await runCodeMode('return await tools.secret({})', {
+      callId: 'denied',
+      tools: [
+        {
+          name: 'allowed',
+          execute: () => {
+            calls++
+            return true
+          },
+        },
+      ],
+    })
+    expect(result.ok).toBe(false)
+    expect(calls).toBe(0)
+    const refused = await runCodeMode('return await tools.allowed({})', {
+      callId: 'policy-denied',
+      tools: [
+        {
+          name: 'allowed',
+          execute: () => {
+            throw new Error('approval required')
+          },
+        },
+      ],
+    })
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) expect(refused.error.message).toContain('approval required')
   })
 
-  it('once aborted, the manager scope signal refuses further api calls immediately', async () => {
-    const tools = codeModeSupervisorTools(unsafeInProcessRunner())([] as never)
-    const execute = tools.find((tool) => tool.name === 'execute')
-    if (!execute) throw new Error('no execute tool')
-    let spawns = 0
-    const controller = new AbortController()
-    controller.abort(new Error('scope cancelled'))
+  it('preserves host schema validation before a nested external effect', async () => {
+    const schema = z.object({ id: z.string().min(1) }).strict()
+    let effects = 0
+    const result = await runCodeMode('return await tools.write({id: 42})', {
+      callId: 'invalid-schema',
+      tools: [
+        {
+          name: 'write',
+          inputSchema: z.toJSONSchema(schema),
+          execute: (raw) => {
+            schema.parse(raw)
+            effects++
+            return 'written'
+          },
+        },
+      ],
+    })
+    expect(result.ok).toBe(false)
+    expect(effects).toBe(0)
+  })
+
+  it('places native images after all tool replies without exposing base64 in tool text', async () => {
+    const data =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC'
+    let turn = 0
+    await runBrainLoop({
+      codeMode: true,
+      tools: [],
+      initialMessages: [],
+      maxTurns: 2,
+      execute: async () => {
+        throw new Error('no granted tools')
+      },
+      chat: async (messages) => {
+        if (++turn === 1)
+          return {
+            content: '',
+            toolCalls: [
+              {
+                id: 'image',
+                name: 'codemode',
+                arguments: JSON.stringify({
+                  code: `image({type:"image",data:"${data}",mimeType:"image/png"})`,
+                }),
+              },
+              { id: 'search', name: 'tool_search', arguments: '{}' },
+            ],
+          }
+        expect(messages.slice(-3).map((message) => message.role)).toEqual(['tool', 'tool', 'user'])
+        expect(String(messages.at(-3)?.content)).not.toContain(data)
+        expect(messages.at(-1)?.content).toContainEqual({
+          type: 'image_url',
+          image_url: { url: `data:image/png;base64,${data}` },
+        })
+        return { content: 'image seen', toolCalls: [] }
+      },
+    })
+    expect(turn).toBe(2)
+  })
+
+  it('uses generated output declarations and refuses nested code-mode toolsets', async () => {
+    const native = {
+      name: 'read',
+      inputSchema: { type: 'object' },
+      outputSchema: { type: 'number' },
+      execute: () => 42,
+    }
+    const set = createCodeModeTools([native])
+    expect(await set.tools[0]!.execute({}, context())).toContain('Promise<number>')
+    expect(() => createCodeModeTools(set.tools)).toThrow(/do not nest/)
+    expect(() => createCodeModeTools([native, native])).toThrow(/duplicate/)
+  })
+
+  it('refuses normalized-name collisions instead of dispatching the wrong handler', async () => {
+    const effects: string[] = []
+    const tools = ['send-email', 'send_email'].map((name) => ({
+      name,
+      execute: () => {
+        effects.push(name)
+        return name
+      },
+    }))
     await expect(
-      execute.handler(
-        { code: 'return await api.spawn_worker({ profile: { name: 42 }, task: 42 })' },
-        fakeContext(controller.signal, () => {
-          spawns += 1
-        }),
-      ),
-    ).rejects.toThrow(/scope cancelled/)
-    expect(spawns).toBe(0)
+      runCodeMode('return await tools["send_email"]({})', {
+        callId: 'ambiguous-name',
+        tools,
+      }),
+    ).rejects.toThrow(/ambiguous tool name/)
+    expect(effects).toEqual([])
+  })
+
+  it('keeps host-selected direct-only lifecycle tools out of programs', async () => {
+    let settled = false
+    const set = createCodeModeTools(
+      [
+        {
+          name: 'finish',
+          execute: () => {
+            settled = true
+          },
+        },
+      ],
+      { directTools: ['finish'] },
+    )
+    expect(set.tools.map((tool) => tool.name)).toEqual(['tool_search', 'codemode', 'finish'])
+    expect(
+      await set.tools[1]!.execute({ code: 'await tools.finish({})' }, context()),
+    ).toMatchObject({ ok: false })
+    expect(settled).toBe(false)
+    await set.tools[2]!.execute({}, context())
+    expect(settled).toBe(true)
+  })
+
+  it('retains successful small state, restores it explicitly, and does not commit a failed program', async () => {
+    const set = createCodeModeTools([])
+    const execute = set.tools[1]!.execute
+    await execute({ code: 'store("n", 4)' }, context('one'))
+    const failed = await execute(
+      { code: 'store("n", 99); throw new Error("failed")' },
+      context('two'),
+    )
+    expect(failed).toMatchObject({ ok: false })
+    expect(set.snapshotStore()).toEqual({ n: 4 })
+    const resumed = createCodeModeTools([], { store: set.snapshotStore() })
+    expect(
+      await resumed.tools[1]!.execute({ code: 'return load("n") + 1' }, context('three')),
+    ).toMatchObject({ ok: true, value: 5 })
+  })
+
+  it('never reruns an external effect when code later throws', async () => {
+    let effects = 0
+    const set = createCodeModeTools([
+      {
+        name: 'effect',
+        execute: () => {
+          effects++
+          return 'accepted'
+        },
+      },
+    ])
+    const result = await set.tools[1]!.execute(
+      { code: 'await tools.effect({}); throw new Error("after effect")' },
+      context(),
+    )
+    expect(result).toMatchObject({ ok: false })
+    expect(effects).toBe(1)
+  })
+
+  it('treats invalid wrapper arguments as errors before any tool effect', async () => {
+    const set = createCodeModeTools([])
+    await expect(set.tools[1]!.execute(null, context())).rejects.toThrow(/JSON object/)
+    await expect(set.tools[1]!.execute({ code: 123 }, context())).rejects.toThrow(/code: string/)
+  })
+
+  it('revokes the program when it catches a total-call limit error', async () => {
+    let effects = 0
+    const result = await runCodeMode(
+      `
+      for (let i = 0; i < 10; i++) {
+        try { await tools.effect({}) } catch {}
+      }
+      store('bypassed', true);
+    `,
+      {
+        callId: 'caught-limit',
+        maxCalls: 2,
+        tools: [{ name: 'effect', execute: () => ++effects }],
+      },
+    )
+    expect(result.ok).toBe(false)
+    expect(result.calls.length).toBeLessThanOrEqual(3)
+    expect(effects).toBe(2)
+    expect('storeWrites' in result).toBe(false)
+  })
+
+  it('enforces the total call budget', async () => {
+    let effects = 0
+    const result = await runCodeMode('for (let i=0;i<5;i++) await tools.effect({})', {
+      callId: 'bounded',
+      maxCalls: 2,
+      tools: [{ name: 'effect', execute: () => ++effects }],
+    })
+    expect(result.ok).toBe(false)
+    expect(effects).toBe(2)
   })
 })
 
-describe('code mode over a REAL supervise() — the dynamic workflow, kernel-metered', () => {
-  it('ONE execute call spawns two workers, awaits both, and the JOURNAL proves the kernel path', async () => {
-    const journal = new InMemorySpawnJournal()
-    const program = `
-      const ids = []
-      for (const name of ['builder-a', 'builder-b']) {
-        ids.push((await api.spawn_worker({ profile: { name }, task: 'build ' + name })).workerId)
-      }
-      const settled = new Set()
-      while (settled.size < ids.length) {
-        const waiting = ids.filter((id) => !settled.has(id))
-        for (const id of (await api.await_settlement({ workerIds: waiting })).settled) settled.add(id)
-      }
-      console.log('both settled')
-      const outputs = []
-      for (const workerId of ids) outputs.push((await api.observe_agent({ workerId })).status)
-      return { workers: ids.length, outputs }
-    `
-    const res = await superviseWithTestBrain(
-      testAgentProfile('root', {
-        harness: 'cli-base',
-        tools: runtimeToolDeclarations('spawn_worker', 'observe_agent', 'search', 'execute'),
-      }),
-      'coordinate the build',
-      {
-        budget: { maxIterations: 30, maxTokens: 100_000 },
-        journal,
-        runId: 'code-mode-run',
-        makeWorkerAgent: leafSeam,
-        resolveSupervisorTools: codeModeSupervisorTools(unsafeInProcessRunner()),
-        brain: scriptedBrain([
-          { toolCalls: [{ name: 'search', arguments: {} }] },
-          { toolCalls: [{ name: 'execute', arguments: { code: program } }] },
-          { content: 'done' },
-        ]),
+describe('code mode in the existing public createExecutor(router-tools) path', () => {
+  it('runs real isolated programs through profile-authorized handlers and retains their native identity', async () => {
+    let turn = 0
+    const seen: string[] = []
+    const steps: string[] = []
+    let stored: unknown
+    const factory = createExecutor({
+      backend: 'router-tools',
+      routerBaseUrl: 'https://router.test/v1',
+      routerKey: 'offline',
+      tools: [readTool],
+      codeMode: { concurrency: 2 },
+      executeToolCall: async (name, args, task, ctx) => {
+        expect(name).toBe('read')
+        expect(task).toBe('sum records')
+        seen.push(ctx.callId)
+        return { value: Number(args.value), hidden: 'large intermediate' }
       },
-    )
-    expect(res.kind).toBe('winner')
-
-    // THE claim: the program's spawns crossed the kernel — two spawned + two settled child
-    // records in the journal, reserved from the conserved pool, exactly as MCP-verb spawns would.
-    const events = (await journal.loadTree('code-mode-run')) ?? []
-    const spawnedChildren = events.filter(
-      (event) => event.kind === 'spawned' && event.id !== 'code-mode-run',
-    )
-    const settledChildren = events.filter(
-      (event) => event.kind === 'settled' && event.id !== 'code-mode-run',
-    )
-    expect(spawnedChildren.length).toBeGreaterThanOrEqual(2)
-    expect(settledChildren.length).toBeGreaterThanOrEqual(2)
+      onToolStep: (step) => {
+        steps.push(step.toolName)
+      },
+      onMessages: (_messages, state) => {
+        stored = state?.codeModeStore
+      },
+      complete: async (body) => {
+        expect(
+          (body.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name),
+        ).toEqual(['tool_search', 'codemode'])
+        const message =
+          ++turn === 1
+            ? {
+                content: '',
+                tool_calls: [
+                  {
+                    id: 'native-batch',
+                    type: 'function',
+                    function: {
+                      name: 'codemode',
+                      arguments: JSON.stringify({
+                        code: `const rows = await Promise.all([20,22].map(value => tools.read({value}))); store('sum', rows.reduce((n,r)=>n+r.value,0)); return load('sum')`,
+                      }),
+                    },
+                  },
+                ],
+              }
+            : { content: '42' }
+        if (turn > 1) expect(JSON.stringify(body.messages)).not.toContain('large intermediate')
+        return {
+          model: 'offline-model',
+          choices: [{ message, finish_reason: turn === 1 ? 'tool_calls' : 'stop' }],
+          usage: { prompt_tokens: 5, completion_tokens: 2, cost: 0 },
+        }
+      },
+    })
+    const spec = {
+      profile: {
+        name: 'code-mode-runtime-user',
+        harness: 'cli-base',
+        model: { provider: 'tangle-router', default: 'offline-model', metadata: { maxTurns: 3 } },
+        tools: { read: true },
+      },
+      harness: null,
+    } as AgentSpec
+    const signal = new AbortController().signal
+    const executor = factory(spec, { signal, seams: {} })
+    try {
+      const result = await executor.execute('sum records', signal)
+      expect(result.out).toMatchObject({
+        content: '42',
+        codeModeStore: { sum: 42 },
+        modelToolNames: ['tool_search', 'codemode'],
+      })
+      expect(result.spent.iterations).toBe(2)
+      expect(result.spent.tokens.input).toBe(10)
+      expect(seen).toEqual(['native-batch/tool/1', 'native-batch/tool/2'])
+      expect(steps).toEqual(['read', 'read'])
+      expect(stored).toEqual({ sum: 42 })
+      expect(
+        (result.out as { toolCalls: Array<{ id: string }> }).toolCalls.map((call) => call.id),
+      ).toEqual(['native-batch', ...seen])
+    } finally {
+      await executor.teardown(0)
+    }
   })
 
-  it('search answers the LIVE grant: the rendered API is the spawn_worker the verbs actually serve', async () => {
-    let rendered = ''
-    const res = await superviseWithTestBrain(
-      testAgentProfile('root', {
+  it('refuses a mismatched profile grant before model execution', () => {
+    const factory = createExecutor({
+      backend: 'router-tools',
+      routerBaseUrl: 'https://router.test/v1',
+      routerKey: 'offline',
+      tools: [readTool],
+      codeMode: true,
+      executeToolCall: async () => 0,
+    })
+    const spec = {
+      profile: {
+        name: 'no-grant',
         harness: 'cli-base',
-        tools: runtimeToolDeclarations('spawn_worker', 'search'),
-      }),
-      'look around',
-      {
-        budget: { maxIterations: 10, maxTokens: 50_000 },
-        journal: new InMemorySpawnJournal(),
-        makeWorkerAgent: leafSeam,
-        resolveSupervisorTools: () => {
-          const [search] = codeModeSupervisorTools(unsafeInProcessRunner())(
-            undefined as never,
-          ) as never[]
-          const wrapped = search as {
-            handler: (raw: unknown, context: unknown) => Promise<unknown>
-          }
-          return [
-            {
-              ...(search as object),
-              handler: async (raw: unknown, context: unknown) => {
-                const out = await wrapped.handler(raw, context)
-                rendered = String(out)
-                return out
-              },
-            },
-          ] as never
-        },
-        brain: scriptedBrain([
-          { toolCalls: [{ name: 'search', arguments: { query: 'spawn' } }] },
-          { content: 'done' },
-        ]),
+        model: { provider: 'tangle-router', default: 'offline-model' },
+        tools: { read: false },
       },
+      harness: null,
+    } as AgentSpec
+    expect(() => factory(spec, { signal: new AbortController().signal, seams: {} })).toThrow(
+      /not enabled|disables/,
     )
-    expect(res.kind).not.toBe('error')
-    expect(rendered).toContain('declare function spawn_worker(')
-    // Generated from the live descriptor's schema — a field only the real schema carries.
-    expect(rendered).toContain('continuity')
   })
 })
