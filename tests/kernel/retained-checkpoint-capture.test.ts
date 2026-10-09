@@ -5,13 +5,14 @@ import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   captureAgentCandidateWorkspaceTreeToArtifacts,
   verifyAgentCandidateWorkspaceTree,
 } from '../../src/candidate-execution/workspace-streams'
 import { InMemoryResultBlobStore } from '../../src/durable/spawn-journal'
 import { createPrivateCasArtifactPort } from '../../src/runtime/private-cas'
+import { captureProviderCheckpointWorkspace } from '../../src/runtime/provider-workspace-retention'
 import {
   bindScopeRetainedOwnerProvider,
   noteScopeRetainedOwnerCoordination,
@@ -50,7 +51,7 @@ function mulberry32(seed: number): () => number {
  * the provider fail forks, captures, deletes and fork destroys; `crash` drops every in-memory
  * owner state and registers the owner again from its journal, as a restarted coordinator does.
  */
-function ownerModel(options: { capture?: boolean } = {}) {
+function ownerModel(options: { capture?: boolean; maxConcurrentCaptures?: number } = {}) {
   const provider = 'model-provider'
   const source = {
     runId: 'model-run',
@@ -78,6 +79,7 @@ function ownerModel(options: { capture?: boolean } = {}) {
     failCapture: () => knobs.capture,
     failDestroy: () => knobs.destroy,
   })
+  const capturePort = { ...capture.port, maxConcurrentCaptures: options.maxConcurrentCaptures }
   cleanups.push(() => capture.cleanup())
   const events: SpawnEvent[] = []
   let clock = 0
@@ -157,7 +159,7 @@ function ownerModel(options: { capture?: boolean } = {}) {
     bindScopeRetainedOwnerProvider(
       scope,
       environmentProvider,
-      options.capture === false ? undefined : { port: capture.port, profile: captureProfile },
+      options.capture === false ? undefined : { port: capturePort, profile: captureProfile },
     )
   }
   return {
@@ -167,6 +169,7 @@ function ownerModel(options: { capture?: boolean } = {}) {
     files,
     knobs,
     capture,
+    capturePort,
     deletes,
     live: () => live,
     async start() {
@@ -241,6 +244,54 @@ async function assertNothingLost(model: Model): Promise<void> {
 }
 
 describe('checkpoint capture before cleanup', () => {
+  it('waits for capture capacity before creating a checkpoint fork', async () => {
+    const model = ownerModel({ maxConcurrentCaptures: 1 })
+    await model.start()
+    await model.coordinate()
+    await model.coordinate()
+
+    let releaseSlot!: () => void
+    const held = new Promise<void>((resolve) => {
+      releaseSlot = resolve
+    })
+    let slotGranted!: () => void
+    const granted = new Promise<void>((resolve) => {
+      slotGranted = resolve
+    })
+    const holder = captureProviderCheckpointWorkspace(
+      model.capturePort,
+      async () => {
+        slotGranted()
+        await held
+        throw new Error('released test slot')
+      },
+      undefined,
+    )
+    await granted
+
+    const rotation = model.coordinate()
+    await vi.waitFor(() => {
+      expect(
+        model.events.some(
+          (event) =>
+            event.kind === 'workspace-checkpoint' &&
+            event.checkpoint.checkpointId === 'checkpoint-3',
+        ),
+      ).toBe(true)
+    })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(model.capture.forks.size).toBe(0)
+    expect(model.events.some((event) => event.kind === 'workspace-checkpoint-fork-requested')).toBe(
+      false,
+    )
+
+    releaseSlot()
+    await expect(holder).rejects.toThrow('released test slot')
+    await rotation
+    expect(model.capture.forks.size).toBe(1)
+    await assertNothingLost(model)
+  })
+
   it('stores a workspace tree once per file content, and reads it back by digest', async () => {
     const root = makeTempRoot('workspace-tree-')
     cleanups.push(() => rmSync(root, { recursive: true, force: true }))

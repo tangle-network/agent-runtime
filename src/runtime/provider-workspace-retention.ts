@@ -303,7 +303,7 @@ function checkpointSlots(port: ProviderWorkspaceRetentionPort): CaptureSlots {
  */
 export async function captureProviderCheckpointWorkspace(
   port: ProviderWorkspaceRetentionPort,
-  context: Omit<ProviderCheckpointCaptureContext, 'signal'>,
+  prepare: (signal: AbortSignal) => Promise<Omit<ProviderCheckpointCaptureContext, 'signal'>>,
   marker: { readonly path: string; readonly content: string } | undefined,
 ): Promise<AgentCandidateWorkspaceTree> {
   assertProviderWorkspaceRetentionPort(port, 'provider workspace retention')
@@ -320,6 +320,9 @@ export async function captureProviderCheckpointWorkspace(
     return await runAbortable(
       () =>
         withCaptureSlot(checkpointSlots(port), controller.signal, async () => {
+          // Reserve capacity before creating the temporary checkpoint fork. A fork waiting in
+          // this queue can otherwise idle into provider suspension before capture starts.
+          const context = await prepare(controller.signal)
           const tree = detachedSnapshot(
             await capture.call(port, { ...context, signal: controller.signal }),
             'checkpoint capture tree',

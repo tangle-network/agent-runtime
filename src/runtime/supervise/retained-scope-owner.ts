@@ -1020,59 +1020,66 @@ async function captureBeforeCleanup(
     idempotencyKey: `${event.checkpoint.idempotencyKey}:capture:${state.nextSequence()}`,
     requestDigest: workspaceForkRequestDigest(material),
   }
-  const forkSignal = AbortSignal.any([
-    ...(parent === undefined ? [] : [parent]),
-    AbortSignal.timeout(WORKSPACE_CHECKPOINT_FORK_TIMEOUT_MS),
-  ])
   let forkEnvironmentId: string | undefined
   try {
-    await args.journal.appendEvent(args.rootId, {
-      kind: 'workspace-checkpoint-fork-requested',
-      id: args.nodeId,
-      provider: event.provider,
-      environmentId: event.environmentId,
-      checkpointId,
-      idempotencyKey: request.idempotencyKey,
-      requestDigest: request.requestDigest,
-      seq: state.nextSequence(),
-      at: new Date(args.now()).toISOString(),
-    })
-    const result = await runAbortable(
-      () => branching.fork(request, { signal: forkSignal }),
-      forkSignal,
-      'checkpoint fork timed out',
-    )
-    if (result.status === 'created' || result.status === 'replayed')
-      forkEnvironmentId = result.environment.environmentId
-    if (
-      (result.status !== 'created' && result.status !== 'replayed') ||
-      !workspaceForkResultMatchesRequest(request, result)
-    ) {
-      return refuse(
-        `fork ${result.status}${'message' in result ? `: ${result.message}` : ''}`,
-        true,
-      )
-    }
-    const forkId = result.environment.environmentId
-    const get = provider.get.bind(provider)
-    const environment = await runAbortable(
-      () => get(forkId),
-      forkSignal,
-      'checkpoint fork lookup timed out',
-    )
-    if (environment === null || environment.id !== forkId || environment.provider !== provider.name)
-      return refuse(`fork ${forkId} could not be reconstructed`, true)
-    parent?.throwIfAborted()
     const tree = await captureProviderCheckpointWorkspace(
       capture.port,
-      {
-        environment,
-        checkpoint: event.checkpoint,
-        executionId: `${args.nodeId}:checkpoint:${checkpointId}`,
-        profile: capture.profile,
+      async (captureSignal) => {
+        const forkSignal = AbortSignal.any([
+          captureSignal,
+          ...(parent === undefined ? [] : [parent]),
+          AbortSignal.timeout(WORKSPACE_CHECKPOINT_FORK_TIMEOUT_MS),
+        ])
+        await args.journal.appendEvent(args.rootId, {
+          kind: 'workspace-checkpoint-fork-requested',
+          id: args.nodeId,
+          provider: event.provider,
+          environmentId: event.environmentId,
+          checkpointId,
+          idempotencyKey: request.idempotencyKey,
+          requestDigest: request.requestDigest,
+          seq: state.nextSequence(),
+          at: new Date(args.now()).toISOString(),
+        })
+        const result = await runAbortable(
+          () => branching.fork(request, { signal: forkSignal }),
+          forkSignal,
+          'checkpoint fork timed out',
+        )
+        if (result.status === 'created' || result.status === 'replayed')
+          forkEnvironmentId = result.environment.environmentId
+        if (
+          (result.status !== 'created' && result.status !== 'replayed') ||
+          !workspaceForkResultMatchesRequest(request, result)
+        )
+          throw new Error(
+            `fork ${result.status}${'message' in result ? `: ${result.message}` : ''}`,
+          )
+        const forkId = result.environment.environmentId
+        const get = provider.get.bind(provider)
+        const environment = await runAbortable(
+          () => get(forkId),
+          forkSignal,
+          'checkpoint fork lookup timed out',
+        )
+        if (
+          environment === null ||
+          environment.id !== forkId ||
+          environment.provider !== provider.name
+        )
+          throw new Error(`fork ${forkId} could not be reconstructed`)
+        parent?.throwIfAborted()
+        return {
+          environment,
+          checkpoint: event.checkpoint,
+          executionId: `${args.nodeId}:checkpoint:${checkpointId}`,
+          profile: capture.profile,
+        }
       },
       event.marker,
     )
+    const forkId = forkEnvironmentId
+    if (forkId === undefined) throw new Error('checkpoint capture fork identity missing')
     await args.journal.appendEvent(args.rootId, {
       kind: 'workspace-checkpoint-capture',
       id: args.nodeId,
