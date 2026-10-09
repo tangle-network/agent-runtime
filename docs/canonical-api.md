@@ -125,6 +125,7 @@ Runtime validates the turn before environment creation and binds its profile dig
 A request-schema refusal ends the driver attempt without repeated provisioning.
 A capacity refusal before dispatch was refused before it ran, and pauses the driver.
 Post-admission uncertainty still requires reconciliation; a manager turn that fails it the same way twice is abandoned with its outcome journaled, and the driver continues in a new invocation.
+Abandonments in a row without progress are bounded by `maxConsecutiveFailures`; once they are spent, the next invocation that fails reconciliation the same way twice ends the driver with `stop: 'pending-unresolved'` and its `pendingCause`, journaled on the `driver-attempt` record, so the owner reconciles the execution before re-driving the run.
 
 Author persistent agent configuration through its profile.
 Use existing steering and execution controls for changes during work.

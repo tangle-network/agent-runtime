@@ -230,4 +230,26 @@ describe('supervised root with a pending retained turn', () => {
     expect(new Set(run.dispatched.map((turn) => turn.executionId)).size).toBe(3)
     expect(new Set(run.dispatched.map((turn) => turn.sessionId)).size).toBe(1)
   })
+
+  it('ends with a typed pending-unresolved stop when every replacement stays unresolved', async () => {
+    // terraform-dc-build-20261009g-fork (2026-10-09): every replacement continued one stopped
+    // sandbox and failed reconciliation the same way, so abandoning again could not help.
+    const run = await superviseRoot({
+      unresolvable: (dispatched) => dispatched >= 2,
+      submitOn: Number.POSITIVE_INFINITY,
+    })
+    expect(run.result.kind).toBe('no-winner')
+    const abandoned = run.events.filter((event) => event.kind === 'execution-abandoned')
+    // The default maxConsecutiveFailures bounds the abandonments in a row.
+    expect(abandoned).toHaveLength(3)
+    expect(run.attempts.at(-1)).toMatchObject({
+      stop: 'pending-unresolved',
+      pendingCause: 'unobservable',
+      madeProgress: false,
+    })
+    expect(JSON.stringify(run.result)).toContain('stopped by pending-unresolved')
+    // One committed first turn, then four invocations: three abandoned, one left unresolved.
+    expect(count(run.events, 'execution-input')).toBe(5)
+    expect(count(run.events, 'execution-result')).toBe(1)
+  })
 })

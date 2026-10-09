@@ -2045,10 +2045,81 @@ describe('pending retained executions (terraform-dc-tokens-20261006d)', () => {
         return true
       },
     }).catch((caught: unknown) => caught)
-    expect(error).toMatchObject({ stop: 'no-progress' })
+    expect(error).toMatchObject({ stop: 'pending-unresolved' })
     expect(abandoned).toBe(3)
     // Each abandonment buys the replacement a fresh streak; the fourth stuck invocation ends it.
     expect(script.attempts.length).toBeLessThan(15)
+  })
+
+  it('stops with pending-unresolved once abandonments are spent, without waiting out the outage window', async () => {
+    // terraform-dc-build-20261009g-fork (2026-10-09): every replacement re-entered the same
+    // stopped sandbox, whose reconnect threw "no verified current container proof". With the
+    // run's maxConsecutiveFailures of 12, the root made 12 abandonments, then retried the 13th
+    // invocation for the whole 15-minute outage window: 52 attempts over 26 minutes, all at $0,
+    // ending as an untyped `no-progress`.
+    let clock = 0
+    const script = scriptedDrive(
+      Array.from(
+        { length: 200 },
+        () =>
+          new RetainedExecutionPendingError(
+            new Error('Tangle native session capture has no verified current container proof'),
+          ),
+      ),
+    )
+    const records: DriverAttemptRecord[] = []
+    let abandoned = 0
+    const error = await runDriverWithRetry({
+      drive: async (attempt) => {
+        clock += 10_000
+        await script.drive(attempt)
+      },
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { maxConsecutiveFailures: 12, maxAttempts: 16 },
+      now: () => clock,
+      sleep: async (ms) => {
+        clock += ms
+      },
+      random: () => 0.5,
+      onAttempt: (record) => void records.push(record),
+      resolvePending: async () => {
+        abandoned += 1
+        return true
+      },
+    }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(DriverAttemptsExhaustedError)
+    expect(error).toMatchObject({ stop: 'pending-unresolved' })
+    expect(abandoned).toBe(12)
+    // Two failures per abandoned invocation, and two more for the one that could not be.
+    expect(script.attempts).toHaveLength(26)
+    expect(records.at(-1)).toMatchObject({
+      stop: 'pending-unresolved',
+      pendingCause: 'unobservable',
+      madeProgress: false,
+    })
+    expect(clock).toBeLessThan(900_000)
+  })
+
+  it('never stops a pending that made progress as pending-unresolved', async () => {
+    // With no abandonments allowed, a pending whose drives each made progress keeps the
+    // progress rule: progress earns another attempt.
+    const script = scriptedDrive([unresolvedPending(), unresolvedPending(), null])
+    let composite = 0
+    await runDriverWithRetry({
+      drive: async (attempt) => {
+        composite += 1
+        await script.drive(attempt)
+      },
+      progress: () => mark({ composite }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { maxConsecutiveFailures: 0, transientOutageMs: 0 },
+      sleep: instantSleep,
+      resolvePending: async () => true,
+    })
+    expect(script.attempts).toEqual([1, 2, 3])
   })
 
   it('keeps an owner that cannot abandon on the barren bound', async () => {
