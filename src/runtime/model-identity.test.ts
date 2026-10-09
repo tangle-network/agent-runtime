@@ -31,6 +31,14 @@ describe('served model identity', () => {
     ['tangle-router/deepseek-v4-flash', 'deepseek/deepseek-v4-flash@', false],
     ['tangle-router/', 'deepseek/', false],
     ['tangle-router/deepseek-v4-flash', 'deepseek/@fp_a', false],
+    ['zai/glm-5.3', 'z-ai/glm-5.3', true],
+    ['zai/glm-5.3', 'glm-5.3', true],
+    ['z-ai/glm-5.3', 'zai/glm-5.3', true],
+    ['xai/grok-4', 'x-ai/grok-4', true],
+    ['zai/glm-5.3', 'z-ai/glm-5.2', false],
+    ['zai/glm-5.3', 'openai/glm-5.3', false],
+    ['zai/glm-5.3', 'z-a-i-x/glm-5.3', false],
+    ['xai/grok-4', 'zai/grok-4', false],
   ])('matches declared %s against observed %s as %s', (declared, observed, expected) => {
     expect(observedModelMatchesDeclared(observed, declared)).toBe(expected)
   })
@@ -42,6 +50,13 @@ describe('served model identity', () => {
         'deepseek/deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402',
       ),
     ).toBe('deepseek/deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402')
+  })
+
+  it('merges hyphen-only provider spellings and keeps the raw observed identity', () => {
+    expect(mergeObservedModelIdentity('zai/glm-5.3', 'z-ai/glm-5.3')).toBe('zai/glm-5.3')
+    expect(mergeObservedModelIdentity('zai/glm-5.3', 'z-ai/glm-5.3@fp_a')).toBe('z-ai/glm-5.3@fp_a')
+    expect(mergeObservedModelIdentity('zai/glm-5.3@fp_a', 'z-ai/glm-5.3@fp_b')).toBeUndefined()
+    expect(mergeObservedModelIdentity('zai/glm-5.3', 'openai/glm-5.3')).toBeUndefined()
   })
 
   it('retains a provider date snapshot when stream observations gain detail', () => {
