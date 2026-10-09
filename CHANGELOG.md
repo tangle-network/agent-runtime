@@ -1,3 +1,9 @@
+## 0.314.0
+
+Checkpoint cleanup reserves workspace capture capacity before creating its temporary Sandbox fork, so a fork cannot suspend while waiting in the capture queue. A cancelled owner leaves the queue promptly, and a fork that resolves after the capture deadline is still torn down.
+
+The root driver stops with `stop: 'pending-unresolved'` (and the record's `pendingCause`) once `maxConsecutiveFailures` abandonments have each been replaced by an invocation that failed reconciliation the same way, instead of retrying the next one through the whole transient-outage window and settling an untyped `no-progress`. `DriverAttemptStop` gains `'pending-unresolved'`; consumers that switch over it exhaustively add the case.
+
 ## 0.313.3
 
 `AgentProfile.model.metadata.stream: true` now streams tool-free direct Router turns too, so a long thinking-model answer is no longer cut off by the Router's request deadline; the streamed turn returns the same content, reasoning, finish reason, usage, billed cost, and served-model checks as the buffered one, and a caller abort now stops a streamed completion mid-body.
