@@ -1012,6 +1012,7 @@ async function captureBeforeCleanup(
   const provider = state.provider
   if (provider?.get === undefined)
     return refuse('the provider cannot reconstruct a fork of the checkpoint', false)
+  const get = provider.get.bind(provider)
   if (branching === undefined) return refuse('source-scoped checkpoint handle unavailable', true)
   const material = { checkpoint: event.checkpoint, placement: { kind: 'sandbox' as const } }
   // One key per attempt: a fork an earlier attempt destroyed cannot be replayed into this one.
@@ -1056,7 +1057,6 @@ async function captureBeforeCleanup(
             `fork ${result.status}${'message' in result ? `: ${result.message}` : ''}`,
           )
         const forkId = result.environment.environmentId
-        const get = provider.get.bind(provider)
         const environment = await runAbortable(
           () => get(forkId),
           forkSignal,
