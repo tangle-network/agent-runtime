@@ -1022,6 +1022,7 @@ async function captureBeforeCleanup(
     requestDigest: workspaceForkRequestDigest(material),
   }
   let forkEnvironmentId: string | undefined
+  let captureEnded = false
   try {
     const tree = await captureProviderCheckpointWorkspace(
       capture.port,
@@ -1043,12 +1044,24 @@ async function captureBeforeCleanup(
           at: new Date(args.now()).toISOString(),
         })
         const result = await runAbortable(
-          () => branching.fork(request, { signal: forkSignal }),
+          () =>
+            branching.fork(request, { signal: forkSignal }).then(async (result) => {
+              if (result.status === 'created' || result.status === 'replayed') {
+                const forkId = result.environment.environmentId
+                if (captureEnded)
+                  await destroyCaptureFork(state, branching, {
+                    provider: event.provider,
+                    environmentId: event.environmentId,
+                    checkpointId,
+                    fork: { idempotencyKey: request.idempotencyKey, environmentId: forkId },
+                  })
+                else forkEnvironmentId = forkId
+              }
+              return result
+            }),
           forkSignal,
           'checkpoint fork timed out',
         )
-        if (result.status === 'created' || result.status === 'replayed')
-          forkEnvironmentId = result.environment.environmentId
         if (
           (result.status !== 'created' && result.status !== 'replayed') ||
           !workspaceForkResultMatchesRequest(request, result)
@@ -1077,6 +1090,7 @@ async function captureBeforeCleanup(
         }
       },
       event.marker,
+      parent,
     )
     const forkId = forkEnvironmentId
     if (forkId === undefined) throw new Error('checkpoint capture fork identity missing')
@@ -1104,6 +1118,7 @@ async function captureBeforeCleanup(
       true,
     )
   } finally {
+    captureEnded = true
     if (forkEnvironmentId !== undefined)
       await destroyCaptureFork(state, branching, {
         provider: event.provider,

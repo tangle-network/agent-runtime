@@ -51,7 +51,14 @@ function mulberry32(seed: number): () => number {
  * the provider fail forks, captures, deletes and fork destroys; `crash` drops every in-memory
  * owner state and registers the owner again from its journal, as a restarted coordinator does.
  */
-function ownerModel(options: { capture?: boolean; maxConcurrentCaptures?: number } = {}) {
+function ownerModel(
+  options: {
+    capture?: boolean
+    maxConcurrentCaptures?: number
+    timeoutMs?: number
+    forkWait?: () => Promise<void>
+  } = {},
+) {
   const provider = 'model-provider'
   const source = {
     runId: 'model-run',
@@ -79,7 +86,11 @@ function ownerModel(options: { capture?: boolean; maxConcurrentCaptures?: number
     failCapture: () => knobs.capture,
     failDestroy: () => knobs.destroy,
   })
-  const capturePort = { ...capture.port, maxConcurrentCaptures: options.maxConcurrentCaptures }
+  const capturePort = {
+    ...capture.port,
+    maxConcurrentCaptures: options.maxConcurrentCaptures,
+    timeoutMs: options.timeoutMs ?? capture.port.timeoutMs,
+  }
   cleanups.push(() => capture.cleanup())
   const events: SpawnEvent[] = []
   let clock = 0
@@ -129,6 +140,14 @@ function ownerModel(options: { capture?: boolean; maxConcurrentCaptures?: number
         return { ...input, status: 'deleted' }
       },
       ...capture.branching,
+      ...(options.forkWait === undefined
+        ? {}
+        : {
+            fork: async (...args: Parameters<typeof capture.branching.fork>) => {
+              await options.forkWait!()
+              return capture.branching.fork(...args)
+            },
+          }),
     },
   }
   const environmentProvider: AgentEnvironmentProvider = {
@@ -140,7 +159,8 @@ function ownerModel(options: { capture?: boolean; maxConcurrentCaptures?: number
     get: async (id) =>
       id === source.environmentId ? (live ? environment : null) : capture.forkEnvironment(id),
   }
-  let scope = { signal: new AbortController().signal } as Scope<unknown>
+  let scopeController = new AbortController()
+  let scope = { signal: scopeController.signal } as Scope<unknown>
   const register = () => {
     registerScopeRetainedOwner(scope, {
       rootId: source.runId,
@@ -198,8 +218,12 @@ function ownerModel(options: { capture?: boolean; maxConcurrentCaptures?: number
       await scopeRetainedOwnerCheckpointing(scope)
     },
     crash() {
-      scope = { signal: new AbortController().signal } as Scope<unknown>
+      scopeController = new AbortController()
+      scope = { signal: scopeController.signal } as Scope<unknown>
       register()
+    },
+    abort() {
+      scopeController.abort('cancelled test owner')
     },
     release() {
       return releaseScopeRetainedOwnerEnvironment(scope)
@@ -290,6 +314,98 @@ describe('checkpoint capture before cleanup', () => {
     await rotation
     expect(model.capture.forks.size).toBe(1)
     await assertNothingLost(model)
+  })
+
+  it('stops waiting for capture capacity when the owner is cancelled', async () => {
+    const model = ownerModel({ maxConcurrentCaptures: 1 })
+    await model.start()
+    await model.coordinate()
+    await model.coordinate()
+
+    let releaseSlot!: () => void
+    const held = new Promise<void>((resolve) => {
+      releaseSlot = resolve
+    })
+    let slotGranted!: () => void
+    const granted = new Promise<void>((resolve) => {
+      slotGranted = resolve
+    })
+    const holder = captureProviderCheckpointWorkspace(
+      model.capturePort,
+      async () => {
+        slotGranted()
+        await held
+        throw new Error('released test slot')
+      },
+      undefined,
+    )
+    await granted
+
+    const rotation = model.coordinate()
+    await vi.waitFor(() => {
+      expect(
+        model.events.some(
+          (event) =>
+            event.kind === 'workspace-checkpoint' &&
+            event.checkpoint.checkpointId === 'checkpoint-3',
+        ),
+      ).toBe(true)
+    })
+    try {
+      model.abort()
+      await vi.waitFor(
+        () => {
+          expect(model.events).toContainEqual(
+            expect.objectContaining({
+              kind: 'workspace-checkpoint-cleanup',
+              checkpointId: 'checkpoint-1',
+              confirmed: false,
+            }),
+          )
+        },
+        { timeout: 1_000 },
+      )
+      expect(model.capture.forks.size).toBe(0)
+    } finally {
+      releaseSlot()
+      await expect(holder).rejects.toThrow('released test slot')
+      await rotation
+    }
+  })
+
+  it('destroys a fork that resolves after checkpoint capture times out', async () => {
+    let releaseFork!: () => void
+    const held = new Promise<void>((resolve) => {
+      releaseFork = resolve
+    })
+    let forkStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      forkStarted = resolve
+    })
+    const model = ownerModel({
+      timeoutMs: 200,
+      forkWait: async () => {
+        forkStarted()
+        await held
+      },
+    })
+    await model.start()
+    await model.coordinate()
+    await model.coordinate()
+
+    const rotation = model.coordinate()
+    await started
+    await rotation
+    expect(model.capture.forks.size).toBe(0)
+    releaseFork()
+    await vi.waitFor(() => expect(model.capture.destroyed.has('fork-1')).toBe(true))
+    expect(model.events).toContainEqual(
+      expect.objectContaining({
+        kind: 'workspace-checkpoint-fork-teardown',
+        fork: { idempotencyKey: expect.any(String), environmentId: 'fork-1' },
+        destroyed: true,
+      }),
+    )
   })
 
   it('stores a workspace tree once per file content, and reads it back by digest', async () => {
