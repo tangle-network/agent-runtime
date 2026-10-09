@@ -160,6 +160,7 @@ export type DriverAttemptStop =
   | 'deadline'
   | 'no-progress'
   | 'max-attempts'
+  | 'pending-unresolved'
 
 /** One attempt's record — the legible failure the issue's third ask names. Emitted per attempt so
  *  an operator sees `driver failed after N attempts` instead of one opaque `pi exit unknown`. */
@@ -177,6 +178,8 @@ export interface DriverAttemptRecord {
   /** True when this attempt's pending invocation was abandoned rather than retried: see
    *  `DriverRetryRun.resolvePending`. */
   readonly abandoned?: boolean
+  /** With `stop: 'pending-unresolved'`: why the invocation it left pending cannot be resolved. */
+  readonly pendingCause?: RetainedPendingCause
   /** Set when another attempt follows. For an `unavailable` attempt this is the pause, which is
    *  infrastructure time: together with `durationMs` it is what the outage cost this driver. */
   readonly retryInMs?: number
@@ -1063,7 +1066,21 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
           outageSince = undefined
         }
       }
-      const retryStop = abandoned ? undefined : stop
+      // A pending invocation that would be abandoned again, after the run already spent its
+      // abandonments without progress, is not retried until the outage window or the barren bound
+      // ends it: each replacement failed reconciliation the same way, so the next one would too.
+      // Discovery run terraform-dc-build-20261009g-fork (2026-10-09) re-entered one stopped
+      // sandbox 52 times over 26 minutes this way, and settled an untyped `no-progress`. The stop
+      // names the pending cause so the owner reconciles the execution before re-driving the run.
+      const unresolved =
+        !abandoned &&
+        pending !== undefined &&
+        samePending !== undefined &&
+        run.resolvePending !== undefined &&
+        abandonments >= maxConsecutive &&
+        samePending.count >= SAME_PENDING_LIMIT &&
+        (stop === undefined || stop === 'no-progress')
+      const retryStop = abandoned ? undefined : unresolved ? 'pending-unresolved' : stop
 
       if (progressed) barrenReentries = 0
       if (retryStop !== undefined) {
@@ -1074,6 +1091,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
           classification,
           madeProgress: progressed,
           stop: retryStop,
+          ...(unresolved ? { pendingCause: pending.pendingCause } : {}),
         })
         throw new DriverAttemptsExhaustedError(error, attempts, retryStop)
       }
