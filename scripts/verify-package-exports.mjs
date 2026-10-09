@@ -559,6 +559,35 @@ try {
     appDir,
   )
 
+  // Node workers inherit execArgv: use a normal file consumer, rather than the
+  // --input-type=module eval launcher used for the import-only probe above.
+  writeFileSync(join(appDir, 'code-mode-consumer.mjs'), `
+        const { strict: assert } = await import('node:assert')
+        const { runCodeMode, createCodeModeTools } = await import('@tangle-network/agent-runtime/kernel')
+        let effects = 0
+        const tools = [{ name: 'read', execute: () => ({ value: ++effects }) }]
+        const program = createCodeModeTools(tools, { concurrency: 1 })
+        const context = { signal: new AbortController().signal, callId: 'packed', parentCallId: 'packed' }
+        const result = await program.tools.find(tool => tool.name === 'codemode').execute({
+          code: 'const rows = await Promise.all([tools.read({}), tools.read({})]); store("sum", rows.reduce((n, r) => n + r.value, 0)); return load("sum")',
+        }, context)
+        assert.equal(result.ok, true, JSON.stringify(result))
+        assert.equal(result.value, 3)
+        // A newly constructed toolset restores only committed data, without replaying effects.
+        const resumed = createCodeModeTools(tools, { store: program.snapshotStore() })
+        const restored = await resumed.tools.find(tool => tool.name === 'codemode').execute({
+          code: 'return load("sum")',
+        }, { ...context, callId: 'restored', parentCallId: 'restored' })
+        assert.equal(restored.value, 3)
+        assert.equal(effects, 2)
+        const isolated = await runCodeMode('return [typeof process, typeof fetch]', {
+          tools: [], callId: 'isolation', timeoutMs: 5000,
+        })
+        assert.equal(isolated.ok, true, JSON.stringify(isolated))
+        assert.deepEqual(isolated.value, ['undefined', 'undefined'])
+  `)
+  run(process.execPath, ['code-mode-consumer.mjs'], appDir)
+
   // Verify the install a new Runtime consumer actually performs. The app has
   // no direct peer declarations, so npm must install every required peer from
   // Runtime's metadata before any public entrypoint can load.

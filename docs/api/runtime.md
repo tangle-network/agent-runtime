@@ -3358,6 +3358,303 @@ Below this many shared scenarios a paired test can't defensibly separate two pro
 
 ***
 
+### CodeModeToolContext
+
+#### Properties
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+Aborted on script return, failure, timeout, or cancellation.
+
+##### parentCallId
+
+> `readonly` **parentCallId**: `string`
+
+Parent tool-call identity, supplied by the existing Runtime loop.
+
+##### callId
+
+> `readonly` **callId**: `string`
+
+Identity for this nested call, not an external-effect idempotency key.
+
+***
+
+### CodeModeTool
+
+#### Properties
+
+##### name
+
+> `readonly` **name**: `string`
+
+##### description?
+
+> `readonly` `optional` **description?**: `string`
+
+##### inputSchema?
+
+> `readonly` `optional` **inputSchema?**: `CodemodeJsonSchema`
+
+Declaration metadata only; the original handler must validate input before effects.
+
+##### outputSchema?
+
+> `readonly` `optional` **outputSchema?**: `CodemodeJsonSchema`
+
+Declaration metadata only; does not validate or transform handler results.
+
+##### execute
+
+> `readonly` **execute**: (`args`, `context`) => `unknown`
+
+Use the host's normal authorized, validated, metered dispatch here.
+
+###### Parameters
+
+###### args
+
+`unknown`
+
+###### context
+
+[`CodeModeToolContext`](#codemodetoolcontext)
+
+###### Returns
+
+`unknown`
+
+***
+
+### CodeModeOptions
+
+#### Extended by
+
+- [`CodeModeToolsOptions`](#codemodetoolsoptions)
+- [`RunCodeModeOptions`](#runcodemodeoptions)
+
+#### Properties
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+Includes time in tools; at most 2,147,483,647 ms. Infinity disables the deadline.
+
+##### memoryLimitBytes?
+
+> `readonly` `optional` **memoryLimitBytes?**: `number`
+
+##### concurrency?
+
+> `readonly` `optional` **concurrency?**: `number`
+
+Excess calls queue; Promise.all does not fail simply because the queue is full.
+
+##### maxCalls?
+
+> `readonly` `optional` **maxCalls?**: `number`
+
+Bounds total admitted calls, including queued calls.
+
+##### wasm?
+
+> `readonly` `optional` **wasm?**: `object` \| `Promise`\<`object`\>
+
+Only bundled hosts need to override upstream's on-disk worker/wasm resolution.
+
+##### workerUrl?
+
+> `readonly` `optional` **workerUrl?**: `string` \| `URL`
+
+***
+
+### RunCodeModeOptions
+
+#### Extends
+
+- [`CodeModeOptions`](#codemodeoptions)
+
+#### Properties
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+Includes time in tools; at most 2,147,483,647 ms. Infinity disables the deadline.
+
+###### Inherited from
+
+[`CodeModeOptions`](#codemodeoptions).[`timeoutMs`](#timeoutms)
+
+##### memoryLimitBytes?
+
+> `readonly` `optional` **memoryLimitBytes?**: `number`
+
+###### Inherited from
+
+[`CodeModeOptions`](#codemodeoptions).[`memoryLimitBytes`](#memorylimitbytes)
+
+##### concurrency?
+
+> `readonly` `optional` **concurrency?**: `number`
+
+Excess calls queue; Promise.all does not fail simply because the queue is full.
+
+###### Inherited from
+
+[`CodeModeOptions`](#codemodeoptions).[`concurrency`](#concurrency)
+
+##### maxCalls?
+
+> `readonly` `optional` **maxCalls?**: `number`
+
+Bounds total admitted calls, including queued calls.
+
+###### Inherited from
+
+[`CodeModeOptions`](#codemodeoptions).[`maxCalls`](#maxcalls)
+
+##### wasm?
+
+> `readonly` `optional` **wasm?**: `object` \| `Promise`\<`object`\>
+
+Only bundled hosts need to override upstream's on-disk worker/wasm resolution.
+
+###### Inherited from
+
+[`CodeModeOptions`](#codemodeoptions).[`wasm`](#wasm)
+
+##### workerUrl?
+
+> `readonly` `optional` **workerUrl?**: `string` \| `URL`
+
+###### Inherited from
+
+[`CodeModeOptions`](#codemodeoptions).[`workerUrl`](#workerurl)
+
+##### tools
+
+> `readonly` **tools**: readonly [`CodeModeTool`](#codemodetool)[]
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+##### callId
+
+> `readonly` **callId**: `string`
+
+##### store?
+
+> `readonly` `optional` **store?**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+An explicit snapshot from the caller's existing state owner.
+
+***
+
+### CodeModeToolsOptions
+
+Session data is explicit so the existing run owner can retain and restore it.
+
+#### Extends
+
+- [`CodeModeOptions`](#codemodeoptions)
+
+#### Properties
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+Includes time in tools; at most 2,147,483,647 ms. Infinity disables the deadline.
+
+###### Inherited from
+
+[`CodeModeOptions`](#codemodeoptions).[`timeoutMs`](#timeoutms)
+
+##### memoryLimitBytes?
+
+> `readonly` `optional` **memoryLimitBytes?**: `number`
+
+###### Inherited from
+
+[`CodeModeOptions`](#codemodeoptions).[`memoryLimitBytes`](#memorylimitbytes)
+
+##### concurrency?
+
+> `readonly` `optional` **concurrency?**: `number`
+
+Excess calls queue; Promise.all does not fail simply because the queue is full.
+
+###### Inherited from
+
+[`CodeModeOptions`](#codemodeoptions).[`concurrency`](#concurrency)
+
+##### maxCalls?
+
+> `readonly` `optional` **maxCalls?**: `number`
+
+Bounds total admitted calls, including queued calls.
+
+###### Inherited from
+
+[`CodeModeOptions`](#codemodeoptions).[`maxCalls`](#maxcalls)
+
+##### wasm?
+
+> `readonly` `optional` **wasm?**: `object` \| `Promise`\<`object`\>
+
+Only bundled hosts need to override upstream's on-disk worker/wasm resolution.
+
+###### Inherited from
+
+[`CodeModeOptions`](#codemodeoptions).[`wasm`](#wasm)
+
+##### workerUrl?
+
+> `readonly` `optional` **workerUrl?**: `string` \| `URL`
+
+###### Inherited from
+
+[`CodeModeOptions`](#codemodeoptions).[`workerUrl`](#workerurl)
+
+##### store?
+
+> `readonly` `optional` **store?**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+##### directTools?
+
+> `readonly` `optional` **directTools?**: readonly `string`[]
+
+These capabilities keep their direct model tools and are not callable from code.
+
+***
+
+### CodeModeToolset
+
+#### Properties
+
+##### tools
+
+> `readonly` **tools**: readonly [`CodeModeTool`](#codemodetool)[]
+
+#### Methods
+
+##### snapshotStore()
+
+> **snapshotStore**(): [`CodeModeStore`](#codemodestore)
+
+Detached successful store state, never the guest heap or a program checkpoint.
+
+###### Returns
+
+[`CodeModeStore`](#codemodestore)
+
+***
+
 ### CodexRolloutIdentity
 
 Who wrote one rollout, exactly as its own `session_meta` states it. Nothing here is inferred.
@@ -5399,6 +5696,12 @@ Resolved secret env. Reaches only the child process; redacted everywhere else.
 ### LocalSandboxClientOptions
 
 #### Properties
+
+##### codeMode?
+
+> `optional` **codeMode?**: `true` \| [`CodeModeToolsOptions`](#codemodetoolsoptions)
+
+Optional code-mode presentation over the same explicitly trusted MCP tools.
 
 ##### router
 
@@ -8479,7 +8782,7 @@ when a capture fails, Runtime keeps the checkpoint: on Discovery Lab run
 terraform-dc-tokens-20261006d, 76 of the first 101 checkpoint deletions removed the only copy
 of a director's workspace at that moment.
 
-Captures run on their own queue of [maxConcurrentCaptures](#maxconcurrentcaptures) slots, under [timeoutMs](#timeoutms-2).
+Captures run on their own queue of [maxConcurrentCaptures](#maxconcurrentcaptures) slots, under [timeoutMs](#timeoutms-5).
 
 ###### Parameters
 
@@ -8763,7 +9066,7 @@ Set on native captures only: whether the turn was still running or how it ended.
 
 > `readonly` **signal**: `AbortSignal`
 
-A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-2).
+A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-5).
 
 ***
 
@@ -8802,7 +9105,7 @@ The owner's profile; its harness names what the fork's source ran.
 
 > `readonly` **signal**: `AbortSignal`
 
-A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-2).
+A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-5).
 
 ***
 
@@ -10366,6 +10669,10 @@ Exact buffered HTTP evidence. Authentication and cookie headers are excluded.
 ###### parameters
 
 > **parameters**: `unknown`
+
+###### outputSchema?
+
+> `optional` **outputSchema?**: `boolean` \| `Record`\<`string`, `unknown`\>
 
 ***
 
@@ -15334,57 +15641,6 @@ Transport/session configuration shared by every spawned exact profile.
 
 ***
 
-### CodeModeRunner
-
-Where model-written code runs. THE isolation boundary — see the module doc: this runtime ships
- no default, so a caller chooses trusted-in-process or a real jail deliberately.
-
-#### Methods
-
-##### run()
-
-> **run**(`args`): `Promise`\<\{ `result`: `unknown`; `logs`: readonly `string`[]; \}\>
-
-###### Parameters
-
-###### args
-
-###### code
-
-`string`
-
-###### bindings
-
-`Readonly`\<`Record`\<`string`, (`args`) => `Promise`\<`unknown`\>\>\>
-
-The granted operations, already cancellation-gated and result-detached by the caller. The
- runner exposes these to the program as `api.<name>` and adds nothing else reachable.
-
-###### signal
-
-`AbortSignal`
-
-Aborts when the manager cancels or a caller-authored deadline passes.
-
-###### Returns
-
-`Promise`\<\{ `result`: `unknown`; `logs`: readonly `string`[]; \}\>
-
-***
-
-### CodeModeOptions
-
-#### Properties
-
-##### timeoutMs?
-
-> `readonly` `optional` **timeoutMs?**: `number` \| `null`
-
-Optional caller-authored deadline for one `execute` call. Omit it to run until the manager
- cancels. A declared deadline aborts the runner and refuses later `api` calls.
-
-***
-
 ### DeliverableSpec
 
 The deployable completion oracle passed to [gateOnDeliverable](#gateondeliverable): a `check` that
@@ -18074,7 +18330,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-28)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-30)
 
 ##### execution?
 
@@ -21748,7 +22004,7 @@ surfaces (e.g. a gym keyed by task) can dispatch correctly.
 
 ##### executeToolCall
 
-> **executeToolCall**: (`name`, `args`, `task`) => `Promise`\<`string`\>
+> **executeToolCall**: (`name`, `args`, `task`, `context`) => `Promise`\<`unknown`\>
 
 ###### Parameters
 
@@ -21764,9 +22020,19 @@ surfaces (e.g. a gym keyed by task) can dispatch correctly.
 
 `unknown`
 
+###### context
+
+[`CodeModeToolContext`](#codemodetoolcontext)
+
 ###### Returns
 
-`Promise`\<`string`\>
+`Promise`\<`unknown`\>
+
+##### codeMode?
+
+> `optional` **codeMode?**: `true` \| `Omit`\<[`CodeModeToolsOptions`](#codemodetoolsoptions), `"wasm"` \| `"workerUrl"`\>
+
+Run model-written scripts over the same profile-authorized tool handlers.
 
 ##### initialMessages?
 
@@ -21792,7 +22058,7 @@ Persist each buffered HTTP attempt, including failed responses, before the next 
 
 ##### onMessages?
 
-> `optional` **onMessages?**: (`messages`) => `void` \| `Promise`\<`void`\>
+> `optional` **onMessages?**: (`messages`, `context?`) => `void` \| `Promise`\<`void`\>
 
 Observe the detached final conversation for session persistence.
 
@@ -21801,6 +22067,12 @@ Observe the detached final conversation for session persistence.
 ###### messages
 
 readonly `Readonly`\<`Record`\<`string`, `unknown`\>\>[]
+
+###### context?
+
+###### codeModeStore
+
+[`CodeModeStore`](#codemodestore)
 
 ###### Returns
 
@@ -28057,7 +28329,7 @@ Cancel the live tree. Unsupported signals from older callers throw a validation 
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-2).[`signal`](#signal-34)
+[`RootHandle`](#roothandle-2).[`signal`](#signal-36)
 
 ##### abort()
 
@@ -31268,6 +31540,18 @@ Decompose ONE record into per-axis scores (e.g. judge dimensions). When set, it 
 #### Returns
 
 `Record`\<`string`, `number`\>
+
+***
+
+### CodeModeResult
+
+> **CodeModeResult** = `CodemodeResult`
+
+***
+
+### CodeModeStore
+
+> **CodeModeStore** = `NonNullable`\<`CodemodeExecuteOptions`\[`"store"`\]\>
 
 ***
 
@@ -37227,6 +37511,78 @@ Render a self-contained HTML leaderboard page (the hosted surface): the SVG char
 
 ***
 
+### describeCodeModeTools()
+
+> **describeCodeModeTools**(`tools`, `query?`): `Promise`\<`string`\>
+
+Render the same tool descriptors that are executed, including their result schemas.
+
+#### Parameters
+
+##### tools
+
+readonly [`CodeModeTool`](#codemodetool)[]
+
+##### query?
+
+`string`
+
+#### Returns
+
+`Promise`\<`string`\>
+
+***
+
+### runCodeMode()
+
+> **runCodeMode**(`code`, `options`): `Promise`\<`CodemodeResult`\>
+
+Execute a JS async-function body against Runtime capabilities. The upstream
+QuickJS/WASM worker is the boundary; there is no node:vm or unsafe fallback.
+Every invocation has a fresh VM. Only successful storeWrites may be committed
+by the caller. External tool effects are neither transactional nor retried.
+
+#### Parameters
+
+##### code
+
+`string`
+
+##### options
+
+[`RunCodeModeOptions`](#runcodemodeoptions)
+
+#### Returns
+
+`Promise`\<`CodemodeResult`\>
+
+***
+
+### createCodeModeTools()
+
+> **createCodeModeTools**(`granted`, `options?`): [`CodeModeToolset`](#codemodetoolset)
+
+Present an existing authorized tool set as code mode. This is used by Runtime's
+existing loops; it does not execute a model, create an agent, or grant authority.
+One toolset belongs to one conversation. Concurrent programs are refused to
+avoid silently losing store writes; concurrency within a program is queued.
+
+#### Parameters
+
+##### granted
+
+readonly [`CodeModeTool`](#codemodetool)[]
+
+##### options?
+
+[`CodeModeToolsOptions`](#codemodetoolsoptions) = `{}`
+
+#### Returns
+
+[`CodeModeToolset`](#codemodetoolset)
+
+***
+
 ### readCodexRolloutSession()
 
 > **readCodexRolloutSession**(`rows`): [`CodexRolloutSession`](#codexrolloutsession) \| `undefined`
@@ -40854,55 +41210,6 @@ Session-owning worker factory for graph continuity.
 
 ***
 
-### unsafeInProcessRunner()
-
-> **unsafeInProcessRunner**(): [`CodeModeRunner`](#codemoderunner)
-
-An in-process runner for TRUSTED model output ONLY. NOT a security boundary.
-
-It runs the program in a `node:vm` context whose globals are the bindings (`api`) and a
-capturing `console`, with code generation disabled and inherited properties stripped. Those are
-capability discipline, not containment: `node:vm` shares the host realm, and a host function's
-`.constructor` is the host `Function`, so code that WANTS out can get out
-(`api.<binding>.constructor('return process')()`). Use this for your own eval harness, offline
-tests, or a model you trust; for untrusted output supply a jailed `CodeModeRunner` instead.
-
-#### Returns
-
-[`CodeModeRunner`](#codemoderunner)
-
-***
-
-### codeModeSupervisorTools()
-
-> **codeModeSupervisorTools**(`runner`, `options?`): [`ResolveSupervisorTools`](#resolvesupervisortools-2)
-
-Put a supervisor in code mode: its product tool surface becomes exactly `search` and `execute`.
-
-`runner` is REQUIRED and has no default — this runtime ships no isolate, so the execution
-boundary is the caller's explicit choice (see the module doc). Use [unsafeInProcessRunner](#unsafeinprocessrunner)
-for trusted output; a jailed runner for untrusted models.
-
-Pass the result as `SuperviseOptions.resolveSupervisorTools` (which `runGraph` forwards to its
-root supervisor). The graph engine's `supervisorKind` does not accept it yet, so a graph
-supervisor node cannot be put in code mode through node config today.
-
-#### Parameters
-
-##### runner
-
-[`CodeModeRunner`](#codemoderunner)
-
-##### options?
-
-[`CodeModeOptions`](#codemodeoptions) = `{}`
-
-#### Returns
-
-[`ResolveSupervisorTools`](#resolvesupervisortools-2)
-
-***
-
 ### gateOnDeliverable()
 
 > **gateOnDeliverable**\<`Out`\>(`inner`, `deliverable`): [`Executor`](#executor-2)\<`Out`\>
@@ -43866,7 +44173,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-37), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-39), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 
