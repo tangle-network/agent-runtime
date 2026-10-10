@@ -328,6 +328,8 @@ describe('retained admission classification', () => {
     expect(classifyDriverFailure(new RetainedExecutionPendingError(notAdmitted, 'execution'))).toBe(
       'terminal',
     )
+    // Outside a retained admission the bare code decides nothing.
+    expect(classifyDriverFailure(notAdmitted)).toBe('transient')
   })
 
   const refused = () =>

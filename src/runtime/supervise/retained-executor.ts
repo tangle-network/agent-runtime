@@ -159,7 +159,7 @@ export function retainedExecutorContext(ctx: ExecutorContext): RetainedExecutorC
  *   (`ZodError`), an HTTP 4xx at admission, a capacity refusal at admission that carries an
  *   upstream capacity `code` and no HTTP status (the account owner's credential command refused a
  *   fresh dispatch before the dispatch request existed), or a dispatch that Sandbox did not admit
- *   because another execution is active in the session. Never named after admission.
+ *   because another execution owns the session or turn. Never named after admission.
  * - `'transport'`: the provider or a gateway in front of it failed — an HTTP 5xx, a socket
  *   error, a platform service answering with a server error. Status is in doubt only because
  *   the transport was.
@@ -197,9 +197,8 @@ const causeMessages: Record<RetainedPendingCause, string> = {
 
 /**
  * agent-provider-tangle's `TangleDispatchNotAdmittedError` (since 3.6.11): Sandbox answered a
- * dispatch with `dispatched: false` and named another execution active in the session. Nothing
- * ran for the request. Discovery run expr-calculator-20261010b retried this answer 38 times as
- * "requires reconciliation" (2026-10-10 12:21:59Z to 12:42:26Z) with 0 tokens spent.
+ * dispatch with `dispatched: false` and named another execution that owns the session or turn.
+ * Nothing ran for the request.
  */
 export const DISPATCH_NOT_ADMITTED_CODE = 'DISPATCH_NOT_ADMITTED'
 

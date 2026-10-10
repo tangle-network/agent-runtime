@@ -446,7 +446,7 @@ function isProviderSchemaRejection(error: Error): boolean {
   }
 }
 
-/** Sandbox started nothing for the dispatch: another execution is active in the session. */
+/** Sandbox started nothing for the dispatch: another execution owns the session or turn. */
 function isDispatchNotAdmitted(error: Error): boolean {
   try {
     return Reflect.get(error, 'code') === DISPATCH_NOT_ADMITTED_CODE
@@ -538,12 +538,13 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   if (error instanceof RetainedExecutionPendingError && error.pendingCause === 'provider-contract')
     return 'terminal'
   const admission = retainedAdmissionCause(error)
+  // A dispatch that Sandbox did not admit gets the same refusal while the owning execution holds
+  // the session. A run never starts a turn beside an execution that owns its session, so it stops
+  // with the refusal named. The refusal reaches this check only from a retained admission.
+  if (admission !== undefined && isDispatchNotAdmitted(admission)) return 'terminal'
   if (admission !== undefined) return classifyDriverFailure(admission, signal)
   if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') return 'terminal'
   if (error instanceof Error && isProviderSchemaRejection(error)) return 'terminal'
-  // The same dispatch gets the same refusal while that execution runs, and a run whose own
-  // execution is still active must not start another turn beside it.
-  if (error instanceof Error && isDispatchNotAdmitted(error)) return 'terminal'
   if (error instanceof HarnessTurnFailedError) {
     // The same never-retry classes a bridge refusal carries, now arriving as a turn's outcome.
     // Without a code the failure is foreign: an upstream timeout, a cut stream, an expired key.
