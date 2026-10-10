@@ -33024,9 +33024,10 @@ execution can be reconciled. Six exhibits in three days wore the first name for 
   `RetainedRunProviderContractError` naming a broken answer (an `*_INVALID`, `*_CHANGED`,
   `*_DUPLICATE`, `*_MISSING` code), an event bound to another run.
 - `'request-rejected'`: the request itself was refused BEFORE it ran — a schema violation
-  (`ZodError`), an HTTP 4xx at admission, or a capacity refusal at admission that carries an
-  upstream capacity `code` and no HTTP status: the account owner's credential command refused a
-  fresh dispatch before the dispatch request existed. Never named after admission.
+  (`ZodError`), an HTTP 4xx at admission, a capacity refusal at admission that carries an
+  upstream capacity `code` and no HTTP status (the account owner's credential command refused a
+  fresh dispatch before the dispatch request existed), or a dispatch that Sandbox did not admit
+  because another execution owns the session or turn. Never named after admission.
 - `'transport'`: the provider or a gateway in front of it failed — an HTTP 5xx, a socket
   error, a platform service answering with a server error. Status is in doubt only because
   the transport was.
