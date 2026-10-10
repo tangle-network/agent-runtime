@@ -304,17 +304,20 @@ Remote coordination MCP requires:
 - action-level authorization,
 - per-run rate and concurrency limits,
 - structured audit events,
+- a refusal body that names its reason,
 - no secrets in tool results or logs.
 
 The default remains loopback-only.
 Set `coordination.authentication` to `true` to mint an ephemeral credential.
-By default, credentials remain valid while their scope is live, within its original absolute deadline.
+By default, credentials remain valid while their scope is live.
 Closing the listener or aborting the scope rejects its credentials immediately.
+Every stop aborts the scope: cancellation, the run's deadline, and a lead stopping its child.
+A child's own time box is a check-in that keeps the child running, so its credentials outlive the box until the child is stopped.
 Set `authentication.ttlMs` to require an additional finite expiry.
 Long-lived bearer credentials increase exposure; use narrow grants, protected storage, and revocable signing keys.
 Runtime does not renew credentials automatically or refresh credentials inside a retained environment.
 If specified, `ttlMs` must cover the manager invocation and expected coordinator downtime.
-Neither key rotation nor coordinator restart extends the original scope deadline.
+Neither key rotation nor coordinator restart extends the run's deadline: a credential is accepted only by a live scope.
 Set `coordination.publicUrl` to the caller-owned reachable endpoint or an actor-aware endpoint resolver.
 The resolver can return a promise and receives the bound port, run identity, actor identity, and manager signal.
 Runtime awaits resolution before admitting the manager, while the listener refuses requests.
@@ -334,7 +337,7 @@ Omitting `coordination.publicUrl` preserves local-only startup without this netw
 
 For same-host coordinator restart, configure `authentication.signingKeys` with an active key ID and a secret key map.
 Keep the public URL, run ID, actor ID, tool grants, and verification key stable until the retained credential expires.
-Stable keys support resumed coordination within the original scope deadline and any explicit credential expiry.
+Stable keys support resumed coordination while the resumed scope is live and within any explicit credential expiry.
 After expiry, the retained session can reattach, but its coordination requests receive HTTP 401.
 A new active key can mint credentials while previous keys verify existing credentials.
 Remove a verification key to revoke its credentials across coordinator restarts.

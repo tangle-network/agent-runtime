@@ -780,6 +780,7 @@ export {
   type CoordinationHttpOptions,
   type CoordinationMcpHandle,
   type CoordinationPublicAddress,
+  type CoordinationRejectReason,
   type CoordinationTransportOptions,
   serveCoordinationMcp,
 } from './supervise/coordination-mcp'
