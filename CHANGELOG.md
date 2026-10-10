@@ -1,3 +1,7 @@
+## 0.314.2
+
+Runtime admits `@tangle-network/agent-eval` `>=0.209.1 <0.212.0` and develops against 0.211.3, so Eval 0.211's `gpt-6-luna` price reaches Runtime consumers, with `@tangle-network/agent-knowledge` `^20.0.1`. The packed cohort runs Eval 0.209.1, 0.210.0 and 0.211.3. Eval 0.211.3 depends on harness-sessions by range; 0.210.0 through 0.211.2 pinned it exactly.
+
 ## 0.314.1
 
 A retained dispatch that Sandbox did not admit stops the driver after one attempt, as a refusal before admission (`pendingCause: 'request-rejected'`, classification `terminal`). Sandbox reports this with `dispatched: false` and another execution id, and agent-provider-tangle 3.6.11 throws it as `TangleDispatchNotAdmittedError` (`code: 'DISPATCH_NOT_ADMITTED'`). Before, it was named "requires reconciliation before replacement" and retried until `pending-unresolved`.
