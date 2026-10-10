@@ -227,7 +227,9 @@ describe('supervised root with a pending retained turn', () => {
       submitOn: Number.POSITIVE_INFINITY,
     })
     expect(run.result.kind).not.toBe('winner')
-    const refused = run.attempts.filter((attempt) => attempt.error?.includes('nothing to reconcile'))
+    const refused = run.attempts.filter((attempt) =>
+      attempt.error?.includes('nothing to reconcile'),
+    )
     expect(refused).toHaveLength(1)
     expect(refused[0]).toMatchObject({ classification: 'terminal' })
     expect(run.attempts.at(-1)?.classification).toBe('terminal')
