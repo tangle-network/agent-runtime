@@ -205,6 +205,12 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const held = new Promise<void>((resolve) => {
       release = resolve
     })
+    // The manager's wait starts when the first drive returns, so the hold is timed from there;
+    // timing it from run start lets a slow spawn_worker call shorten the measured wait.
+    let firstDriveReturned!: () => void
+    const driveReturned = new Promise<void>((resolve) => {
+      firstDriveReturned = resolve
+    })
     const tasks: string[] = []
     const attempts: DriverAttemptRecord[] = []
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task }) => {
@@ -214,6 +220,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
           name: 'spawn_worker',
           arguments: { profile: testAgentProfile('worker'), task: 'go' },
         })
+        firstDriveReturned()
         return
       }
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
@@ -234,6 +241,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const running = runSupervisor(root, blobs, journal)
     try {
       // The worker holds. The first drive has returned and the manager waits with no model turn.
+      await driveReturned
       await new Promise((resolve) => setTimeout(resolve, 300))
       expect(tasks).toHaveLength(1)
       expect(attempts).toHaveLength(0)
