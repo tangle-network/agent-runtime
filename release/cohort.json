@@ -10,8 +10,8 @@
     "agentEval": {
       "name": "@tangle-network/agent-eval",
       "repository": "tangle-network/agent-eval",
-      "version": "0.203.0",
-      "ref": "5de22f016b4492c2fbcdc0b407bde93846ff9400"
+      "version": "0.211.2",
+      "ref": "84f9e2617a41a5ac22c01db53b59a9b6d945047a"
     },
     "agentKnowledge": {
       "name": "@tangle-network/agent-knowledge",

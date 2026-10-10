@@ -1,3 +1,8 @@
+## 0.291.1
+
+Admit agent-eval 0.211 in the verified peer window while retaining the supported 0.201 to 0.203 minors, so a consumer on the 0.291 line can adopt agent-eval's judge gate.
+This line is built and tested against agent-eval 0.211.2.
+
 ## 0.291.0
 
 Admit Sandbox 0.60 in the verified peer window while retaining the supported 0.58 and 0.59 minors.
