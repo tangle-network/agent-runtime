@@ -124,7 +124,7 @@ Those are **integration proofs**, not benchmark-value proofs.
 
 `pnpm verify:official-optimizers` verifies the official GEPA/Optimize Anything bridge, recipe identities, resume behavior, accounting, and package provenance on a controlled fixture. It does not claim to reproduce GEPA, Omni, AutoResearch, or Meta-Harness benchmark lift. Full benchmark reproduction belongs in Discovery Lab, using the benchmark's own evaluator, matched budgets, frozen partitions, and immutable receipts.
 
-The same boundary applies to trace analysts, Prime Agent RLM, and DSPy RLM: Runtime may expose the execution seam, but analyst quality and benchmark lift must be established outside this repository.
+The same boundary applies to trace analysts, Prime Agent RLM, and DSPy RLM: Runtime may expose the execution seam, but analyst quality and benchmark lift must be established outside this repository. See [docs/analysts.md](./docs/analysts.md) for how to write one.
 
 ### The conformance manifest
 
@@ -181,6 +181,7 @@ Changing the packed bytes, the cohort identity, a recorded scenario result, or t
 - [`docs/canonical-api.md`](./docs/canonical-api.md) — “I want to X → use Y.”
 - [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md) — generated public surface.
 - [`docs/improve.md`](./docs/improve.md) — exact improvement, proposal, review, and activation contracts.
+- [`docs/analysts.md`](./docs/analysts.md) — how to write a trace analyst (RLM): both forms, evidence citations, optimizer, engine contract.
 - [`bench/HARNESS.md`](./bench/HARNESS.md) — supported integration and benchmark entry points, plus the evidence-level rules.
 - [`docs/STABILITY.md`](./docs/STABILITY.md) — stability promises.
 
