@@ -677,6 +677,12 @@ function postHttp(
   })
 }
 
+/** A refusal's status and the reason its JSON-RPC error body names. */
+async function refusal(response: Response): Promise<{ status: number; reason: unknown }> {
+  const body = (await response.json()) as { error?: { data?: { reason?: unknown } } }
+  return { status: response.status, reason: body.error?.data?.reason }
+}
+
 describe('authenticated and bounded coordination HTTP', () => {
   it('transports Knowledge read digests and refuses a stale conditional write', async () => {
     const root = await mkdtemp(join(tmpdir(), 'coordination-knowledge-cas-'))
@@ -948,6 +954,58 @@ describe('authenticated and bounded coordination HTTP', () => {
     )
   })
 
+  it('names the reason in every refusal body and in its audit record', async () => {
+    // MCP clients put a refused request's body into the error the agent reads. Empty, the agent saw
+    // only "Streamable HTTP error: Error POSTing to endpoint: " (2026-10-10, 28 calls).
+    const audits: Array<{ status: number; reason: unknown }> = []
+    await withBoundHttp(
+      {
+        maxRequestBytes: 128,
+        onAudit: (event) => {
+          if (event.outcome === 'rejected')
+            audits.push({ status: event.status, reason: event.reason })
+        },
+      },
+      async (mcp) => {
+        const refusals = [
+          await refusal(await postHttp(mcp)),
+          await refusal(await fetch(mcp.url, { method: 'GET', headers: mcp.headers })),
+          await refusal(
+            await fetch(mcp.url.replace('/mcp', '/other'), {
+              method: 'POST',
+              headers: mcp.headers,
+            }),
+          ),
+          await refusal(
+            await postHttp(mcp, { ...mcp.headers, Origin: 'https://attacker.example' }),
+          ),
+          await refusal(await postHttp(mcp, { ...mcp.headers, 'content-type': 'text/plain' })),
+          await refusal(await postHttp(mcp, mcp.headers, '[]')),
+          await refusal(await postHttp(mcp, mcp.headers, 'x'.repeat(129))),
+        ]
+        expect(refusals).toEqual([
+          { status: 401, reason: 'credential-refused' },
+          { status: 405, reason: 'method-not-allowed' },
+          { status: 404, reason: 'unknown-path' },
+          { status: 403, reason: 'origin-refused' },
+          { status: 415, reason: 'unsupported-content-type' },
+          { status: 400, reason: 'malformed-request' },
+          { status: 413, reason: 'body-too-large' },
+        ])
+        expect(audits).toEqual(refusals)
+        const body = await (
+          await postHttp(mcp, { Authorization: 'Bearer not-the-credential' })
+        ).text()
+        expect(JSON.parse(body)).toMatchObject({
+          jsonrpc: '2.0',
+          id: null,
+          error: { message: 'the coordination credential is missing, invalid, expired or revoked' },
+        })
+        expect(body).not.toContain('not-the-credential')
+      },
+    )
+  })
+
   it('rechecks credential revocation after an asynchronous admission audit', async () => {
     let rotate: (() => void) | undefined
     let calls = 0
@@ -1028,20 +1086,26 @@ describe('authenticated and bounded coordination HTTP', () => {
         ],
       },
       async (mcp) => {
-        const status = await new Promise<number>((resolve, reject) => {
+        const answer = await new Promise<{ status: number; body: string }>((resolve, reject) => {
           const req = request(
             mcp.url,
             { method: 'POST', headers: { ...mcp.headers, 'content-type': 'application/json' } },
             (res) => {
-              res.resume()
-              req.destroy()
-              resolve(res.statusCode!)
+              let body = ''
+              res.on('data', (chunk) => {
+                body += chunk
+              })
+              res.on('end', () => {
+                req.destroy()
+                resolve({ status: res.statusCode!, body })
+              })
             },
           )
           req.on('error', reject)
           req.write('{')
         })
-        expect(status).toBe(408)
+        expect(answer.status).toBe(408)
+        expect(JSON.parse(answer.body).error.data.reason).toBe('body-timeout')
         expect(calls).toBe(0)
       },
     )
@@ -1813,8 +1877,8 @@ describe('the coordination HTTP boundary keeps its own deadline', () => {
     try {
       const timing = call()
       await started
-      expect((await timing).status).toBe(504)
-      expect((await call()).status).toBe(429)
+      expect(await refusal(await timing)).toEqual({ status: 504, reason: 'action-timeout' })
+      expect(await refusal(await call())).toEqual({ status: 429, reason: 'request-limit' })
       release()
       await tick()
       expect((await call()).status).toBe(200)
@@ -1827,24 +1891,36 @@ describe('the coordination HTTP boundary keeps its own deadline', () => {
 })
 
 describe('caller-owned long-lived coordination credentials', () => {
-  it('binds default credentials to the original scope deadline without extending it on rotation', async () => {
+  it('keeps default credentials past the scope deadline until the scope stops', async () => {
+    // A deadline is not a stop by itself: a child's own time box checks it in and keeps it running,
+    // and the check-in asks it to record its state and submit through these tools. Every stop
+    // aborts the scope, and the scope's stop is what ends the credential.
+    const controller = new AbortController()
     await withBoundHttp(
       {},
       async (mcp) => {
-        const expiry = mcp.credentialExpiresAt!
-        expect(expiry).toBeGreaterThan(Date.now() + 3 * 60 * 60 * 1_000)
-        const clock = vi.spyOn(Date, 'now').mockReturnValue(expiry - 1)
+        expect(mcp.credentialExpiresAt).toBeUndefined()
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 5 * 60 * 60 * 1_000)
         try {
           expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
+          const old = mcp.headers
           mcp.rotateCredential()
-          expect(mcp.credentialExpiresAt).toBe(expiry)
-          clock.mockReturnValue(expiry)
-          expect((await postHttp(mcp, mcp.headers)).status).toBe(401)
+          expect(mcp.credentialExpiresAt).toBeUndefined()
+          expect(await refusal(await postHttp(mcp, old))).toEqual({
+            status: 401,
+            reason: 'credential-refused',
+          })
+          expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
         } finally {
           clock.mockRestore()
         }
+        controller.abort('the lead stopped this manager')
+        expect(await refusal(await postHttp(mcp, mcp.headers))).toEqual({
+          status: 401,
+          reason: 'scope-stopped',
+        })
       },
-      undefined,
+      controller.signal,
       4 * 60 * 60 * 1_000,
     )
   })

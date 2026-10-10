@@ -16251,6 +16251,12 @@ Re-entered drives in a row, this one included, that ended without progress.
 
 > `readonly` `optional` **action?**: `string`
 
+##### reason?
+
+> `readonly` `optional` **reason?**: [`CoordinationRejectReason`](#coordinationrejectreason)
+
+Why a `rejected` request was refused.
+
 ***
 
 ### CoordinationHttpOptions
@@ -16446,6 +16452,9 @@ Runtime-only credentials. Never put these headers in canonical profiles or journ
 
 > `readonly` **credentialExpiresAt**: `number` \| `undefined`
 
+The current credential's expiry under `authentication.ttlMs`; undefined when it lives as long
+ as the scope.
+
 ##### submittedResult
 
 > **submittedResult**: () => \{ `result`: `unknown`; \} \| `undefined`
@@ -16627,7 +16636,8 @@ End one peer exchange: every further mail on the thread is refused `thread-stopp
 
 > `readonly` `optional` **ttlMs?**: `number`
 
-Explicit finite lifetime. Omission binds the credential to the live scope and its deadline.
+Explicit finite lifetime. Omission binds the credential to the live scope: it is refused once
+ the scope stops or the listener closes. A child's own time box does not stop its scope.
 
 ##### signingKeys?
 
@@ -32605,6 +32615,15 @@ A play's own section for one note. Return `undefined` to add nothing this time.
 #### Returns
 
 `Promise`\<\{ `heading`: `string`; `text`: `string`; \} \| `undefined`\>
+
+***
+
+### CoordinationRejectReason
+
+> **CoordinationRejectReason** = `"method-not-allowed"` \| `"unknown-path"` \| `"wrong-host"` \| `"origin-refused"` \| `"listener-closed"` \| `"scope-stopped"` \| `"credential-refused"` \| `"unsupported-content-type"` \| `"body-too-large"` \| `"malformed-request"` \| `"request-limit"` \| `"body-timeout"` \| `"action-timeout"`
+
+Why the coordination boundary refused a request. The refusal's JSON-RPC error body names it, so
+ an agent reads more than a bare status, and its audit event records it.
 
 ***
 

@@ -59,7 +59,11 @@ import {
 } from './retained-scope-owner'
 import { singleFlightTools } from './single-flight-tools'
 
-export type { CoordinationHttpAudit, CoordinationHttpOptions } from './coordination-http'
+export type {
+  CoordinationHttpAudit,
+  CoordinationHttpOptions,
+  CoordinationRejectReason,
+} from './coordination-http'
 
 import type { DeliverableSpec } from './completion-gate'
 import type { BusRecord } from './event-bus'
@@ -72,6 +76,8 @@ export interface CoordinationMcpHandle {
   readonly port: number
   /** Runtime-only credentials. Never put these headers in canonical profiles or journals. */
   readonly headers: Readonly<Record<string, string>>
+  /** The current credential's expiry under `authentication.ttlMs`; undefined when it lives as long
+   *  as the scope. */
   readonly credentialExpiresAt: number | undefined
   /** Revoke this listener’s current token and mint another. Remove a signing key to revoke across restarts. */
   rotateCredential(): void
@@ -111,7 +117,8 @@ export function isLoopbackHost(host: string): boolean {
 }
 
 export interface CoordinationAuthentication {
-  /** Explicit finite lifetime. Omission binds the credential to the live scope and its deadline. */
+  /** Explicit finite lifetime. Omission binds the credential to the live scope: it is refused once
+   *  the scope stops or the listener closes. A child's own time box does not stop its scope. */
   readonly ttlMs?: number
   /** Caller-owned secret keys. Keep prior keys to verify unexpired credentials after restart. */
   readonly signingKeys?: {
@@ -362,9 +369,9 @@ export async function serveCoordinationMcpForManager(
   const rotateCredential = () => {
     if (!opts.authentication) throw new ConfigError('coordination authentication is not configured')
     if (closed) throw new ConfigError('coordination server is closed')
-    const deadline = opts.scope.budget.deadlineMs
-    const expiresAt =
-      auth?.ttlMs === undefined ? (deadline > 0 ? deadline : undefined) : Date.now() + auth.ttlMs
+    // Without `ttlMs` the credential carries no expiry: it lives as long as the scope
+    // (`refusedCredential`), and a scope's deadline is not always its stop.
+    const expiresAt = auth?.ttlMs === undefined ? undefined : Date.now() + auth.ttlMs
     if (expiresAt !== undefined && !Number.isSafeInteger(expiresAt)) {
       throw new ConfigError('coordination credential expiry must remain a safe integer')
     }
@@ -395,15 +402,23 @@ export async function serveCoordinationMcpForManager(
     token = Buffer.from(text)
     headers = Object.freeze({ Authorization: `Bearer ${text}` })
   }
+  /**
+   * Why a supplied credential is refused, or undefined when it is valid. A credential lives as
+   * long as the scope it fronts: until the scope's signal aborts, within an explicit `ttlMs`, and
+   * until rotation revokes it. Every stop aborts that signal: cancellation, the run's deadline, and
+   * a lead stopping its child. A child's own time box does not: its lead checks it in and keeps it
+   * running (`deadline.ts` `DeadlineCheckIn`), and the check-in asks it to record its state and
+   * submit through these very tools. Refusing at the time box left a checked-in child unable to do
+   * either (2026-10-10: eu-datacenter-power-2030-20261010b:s3, every call for its last 41 minutes).
+   */
+  const refusedCredential = (
+    supplied: Buffer,
+  ): 'scope-stopped' | 'credential-refused' | undefined => {
+    if (opts.scope.signal.aborted) return 'scope-stopped'
+    return validCredential(supplied) ? undefined : 'credential-refused'
+  }
   const validCredential = (supplied: Buffer): boolean => {
-    const deadline = opts.scope.budget.deadlineMs
-    if (
-      closed ||
-      opts.scope.signal.aborted ||
-      (deadline > 0 && Date.now() >= deadline) ||
-      revoked.has(supplied.toString())
-    )
-      return false
+    if (revoked.has(supplied.toString())) return false
     if (!signingKeys)
       return (
         token !== undefined &&
@@ -573,7 +588,7 @@ export async function serveCoordinationMcpForManager(
       },
       backgroundActions: () => nodeTools.background() + fencedVerbs.background(),
       authorize: (req) => {
-        if (!paths.has(req.url ?? '')) return 404
+        if (!paths.has(req.url ?? '')) return { status: 404, reason: 'unknown-path' }
         // A proxy may use the destination IP as Host. A wildcard bind must
         // recognize its actual socket address without trusting forwarded names.
         const address = req.socket.localAddress?.replace(/^::ffff:/, '')
@@ -586,16 +601,17 @@ export async function serveCoordinationMcpForManager(
           address !== undefined &&
           req.socket.localPort !== undefined &&
           req.headers.host === localAuthority
-        if (!audiences.has(req.headers.host ?? '') && !boundAuthority) return 403
-        if (closed) return 401
+        if (!audiences.has(req.headers.host ?? '') && !boundAuthority)
+          return { status: 403, reason: 'wrong-host' }
+        if (closed) return { status: 401, reason: 'listener-closed' }
         if (!opts.authentication) return undefined
         const authorization = req.headers.authorization
         const supplied =
           typeof authorization === 'string' && authorization.startsWith('Bearer ')
             ? Buffer.from(authorization.slice(7))
             : Buffer.alloc(0)
-        if (!validCredential(supplied)) return 401
-        return undefined
+        const refused = refusedCredential(supplied)
+        return refused === undefined ? undefined : { status: 401, reason: refused }
       },
     }),
   )
