@@ -156,9 +156,10 @@ export function retainedExecutorContext(ctx: ExecutorContext): RetainedExecutorC
  *   `RetainedRunProviderContractError` naming a broken answer (an `*_INVALID`, `*_CHANGED`,
  *   `*_DUPLICATE`, `*_MISSING` code), an event bound to another run.
  * - `'request-rejected'`: the request itself was refused BEFORE it ran — a schema violation
- *   (`ZodError`), an HTTP 4xx at admission, or a capacity refusal at admission that carries an
- *   upstream capacity `code` and no HTTP status: the account owner's credential command refused a
- *   fresh dispatch before the dispatch request existed. Never named after admission.
+ *   (`ZodError`), an HTTP 4xx at admission, a capacity refusal at admission that carries an
+ *   upstream capacity `code` and no HTTP status (the account owner's credential command refused a
+ *   fresh dispatch before the dispatch request existed), or a dispatch that Sandbox did not admit
+ *   because another execution is active in the session. Never named after admission.
  * - `'transport'`: the provider or a gateway in front of it failed — an HTTP 5xx, a socket
  *   error, a platform service answering with a server error. Status is in doubt only because
  *   the transport was.
@@ -193,6 +194,14 @@ const causeMessages: Record<RetainedPendingCause, string> = {
   transport: 'retained provider execution lost its transport; status in doubt',
   'nested-recovery': 'retained nested execution requires recovery before replacement',
 }
+
+/**
+ * agent-provider-tangle's `TangleDispatchNotAdmittedError` (since 3.6.11): Sandbox answered a
+ * dispatch with `dispatched: false` and named another execution active in the session. Nothing
+ * ran for the request. Discovery run expr-calculator-20261010b retried this answer 38 times as
+ * "requires reconciliation" (2026-10-10 12:21:59Z to 12:42:26Z) with 0 tokens spent.
+ */
+export const DISPATCH_NOT_ADMITTED_CODE = 'DISPATCH_NOT_ADMITTED'
 
 /** The contract-error codes that wrap a failed READ rather than name a broken answer. */
 const readFailureCodes = new Set([
@@ -271,6 +280,10 @@ export function classifyRetainedPendingCause(
       // the runtime refusing the PROVIDER's answer — a contract violation on the provider's side.
       return at === 'admission' ? 'request-rejected' : 'provider-contract'
     }
+    // Sandbox started nothing for this dispatch. After admission the same answer contradicts the
+    // dispatch the provider already confirmed.
+    if (code === DISPATCH_NOT_ADMITTED_CODE)
+      return at === 'admission' ? 'request-rejected' : 'provider-contract'
     if (code !== undefined && transportCodes.has(code)) return 'transport'
     if (name === 'NetworkError' || name === 'ServerError') return 'transport'
     // A capacity refusal with no HTTP response is the account owner refusing to bind a credential

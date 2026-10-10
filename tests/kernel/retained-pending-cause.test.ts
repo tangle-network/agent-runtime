@@ -96,6 +96,31 @@ describe('classifyRetainedPendingCause', () => {
     )
   })
 
+  it('names a dispatch that Sandbox did not admit as refused before it ran', () => {
+    // agent-provider-tangle's TangleDispatchNotAdmittedError: Sandbox answered dispatched: false
+    // with another execution active in the session, and started nothing for this request.
+    const notAdmitted = Object.assign(
+      new Error('sandbox dispatch returned an execution id different from the requested run'),
+      {
+        name: 'TangleDispatchNotAdmittedError',
+        code: 'DISPATCH_NOT_ADMITTED',
+        sessionId: 'retained-session-f9b54119',
+        requestedExecutionId: 'retained-execution-303d0f1c',
+        activeExecutionId: 'retained-execution-f9b54119',
+      },
+    )
+    expect(classifyRetainedPendingCause(notAdmitted, 'admission')).toBe('request-rejected')
+    // After the provider confirmed a dispatch, the same answer contradicts it.
+    expect(classifyRetainedPendingCause(notAdmitted, 'execution')).toBe('provider-contract')
+    // The untyped refusal that provider 3.6.10 threw stays the safety refusal.
+    expect(
+      classifyRetainedPendingCause(
+        new Error('sandbox dispatch returned an execution id different from the requested run'),
+        'admission',
+      ),
+    ).toBe('unobservable')
+  })
+
   it('reads the members of an AggregateError, not only its cause', () => {
     // retained-run-start throws AggregateError([cause, cleanupError]) with no `cause` when the
     // environment destroy also fails; the first classifiable member decides.

@@ -101,7 +101,11 @@ import {
   type ContinuationEntry,
 } from './continuation'
 import { errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
-import { RetainedExecutionPendingError, type RetainedPendingCause } from './retained-executor'
+import {
+  DISPATCH_NOT_ADMITTED_CODE,
+  RetainedExecutionPendingError,
+  type RetainedPendingCause,
+} from './retained-executor'
 import { subscriptionUsageLimitSignal } from './seat-chain'
 import type { Scope } from './types'
 import {
@@ -442,6 +446,15 @@ function isProviderSchemaRejection(error: Error): boolean {
   }
 }
 
+/** Sandbox started nothing for the dispatch: another execution is active in the session. */
+function isDispatchNotAdmitted(error: Error): boolean {
+  try {
+    return Reflect.get(error, 'code') === DISPATCH_NOT_ADMITTED_CODE
+  } catch {
+    return false
+  }
+}
+
 /**
  * The code or status that marks `error` as an upstream capacity refusal, or `undefined`.
  *
@@ -528,6 +541,9 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   if (admission !== undefined) return classifyDriverFailure(admission, signal)
   if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') return 'terminal'
   if (error instanceof Error && isProviderSchemaRejection(error)) return 'terminal'
+  // The same dispatch gets the same refusal while that execution runs, and a run whose own
+  // execution is still active must not start another turn beside it.
+  if (error instanceof Error && isDispatchNotAdmitted(error)) return 'terminal'
   if (error instanceof HarnessTurnFailedError) {
     // The same never-retry classes a bridge refusal carries, now arriving as a turn's outcome.
     // Without a code the failure is foreign: an upstream timeout, a cut stream, an expired key.
@@ -602,6 +618,7 @@ function retainedAdmissionCause(error: unknown): Error | undefined {
         error.pendingCause === 'request-rejected' &&
         (value instanceof AgentEvalError ||
           isProviderSchemaRejection(value) ||
+          isDispatchNotAdmitted(value) ||
           // A capacity refusal before dispatch: the same request is admitted when room returns.
           capacityCode(value) !== undefined)
       )

@@ -317,6 +317,19 @@ describe('retained admission classification', () => {
     expect(classifyDriverFailure(hostile)).toBe('transient')
   })
 
+  it('stops on a dispatch that Sandbox did not admit instead of retrying it', () => {
+    const notAdmitted = Object.assign(new Error('dispatch not admitted'), {
+      name: 'TangleDispatchNotAdmittedError',
+      code: 'DISPATCH_NOT_ADMITTED',
+    })
+    const admission = new RetainedExecutionPendingError(notAdmitted, 'admission')
+    expect(admission.pendingCause).toBe('request-rejected')
+    expect(classifyDriverFailure(admission)).toBe('terminal')
+    expect(classifyDriverFailure(new RetainedExecutionPendingError(notAdmitted, 'execution'))).toBe(
+      'terminal',
+    )
+  })
+
   const refused = () =>
     new RetainedExecutionPendingError(
       Object.assign(new Error('dispatch refused'), { status: 400 }),
