@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.291.0` and `@tangle-network/agent-eval@0.203.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.291.1` and `@tangle-network/agent-eval@0.211.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1719,22 +1719,26 @@ The scoring/measurement/judge substrate. **Do NOT re-implement a judge, an authe
 
 ### JUDGE — LLM-as-judge, panels, calibration
 
-Import from `@tangle-network/agent-eval` — 12 exports.
+Import from `@tangle-network/agent-eval` — 18 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `addCalibrationVerdicts` | function | Join new owner verdicts to a set. A verdict already recorded from the same |
 | `calibrateJudge` | function | Measure judge quality against human gold labels: computes Cohen's κ, Pearson correlation, and MAE over matched item ids. |
 | `createAntiSlopJudge` | function | Create a reusable Judge function from an anti-slop config. |
 | `ensembleJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` runs every panel |
 | `judgeAgreementView` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `judgeFamily` | function | Classify a model id into its provider family. Strips a `@snapshot` suffix |
+| `judgeGateDecision` | function | Whether a judge may gate now, and every reason it may not. |
 | `judgeSpans` | function | Query judge-kind spans from the trace store, optionally scoped to a single run. |
 | `llmJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` makes ONE LLM call |
+| `registerCalibrationSet` | function | Validate a calibration set and return a normalized copy ordered by example |
 | `runIntentMatchJudge` | function | Run the intent-match judge. Soft-fails to available=false on error. |
 | `runKeywordCoverageJudge` | function | Score expected concepts against an already-fetched HTML payload + any |
 | `runSemanticConceptJudge` | function | Run the semantic concept judge. Soft-fails to available=false on |
+| `CalibrationExample` | interface | One item the owner decided, with where that decision is recorded. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `CalibrationResult`, `ContinuousCalibrationResult`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `CalibrationMerge`, `CalibrationResult`, `ContinuousCalibrationResult`, `JudgeCalibrationSet`.
 
 ### AUTHENTICITY — is-this-real / anti-Goodhart gate
 
@@ -1823,7 +1827,7 @@ Import from `@tangle-network/agent-eval` — 59 exports.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
-Import from `@tangle-network/agent-eval/campaign` — 529 exports.
+Import from `@tangle-network/agent-eval/campaign` — 531 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1941,9 +1945,11 @@ Import from `@tangle-network/agent-eval/campaign` — 529 exports.
 | `scoreUserStory` | function | Score one story's produced state against its requirements. Thin wrapper over |
 | `searchCellId` | function | Deterministic cell id: one node on one task in one split at one repeat. |
 | `searchCellSetDigest` | function | Digest of the cells an estimate reads, with the contrast they serve. Cells |
+| `searchClaimDecision` | function | The paired decision a closed search's claim made for one finalist it |
 | `searchClaimReserveUsd` | function | The claim reserve a search needs: the root and 3 finalists on every test |
 | `searchDivergence` | function | The divergence rule: a node whose train mean rose over its parent's on the |
 | `searchEdgeId` | function | Deterministic edge id: one proposal of one child within one search. |
+| `searchEstimateMethod` | function | The method a paired sample of `pairs` units supports: the one staging |
 | `searchExpansionIndex` | function | The expansion index a kernel operation id encodes, or null. |
 | `searchHistoryCoverageRow` | function | Classify one producer's history without treating malformed evidence as absence. |
 | `searchModelIdentity` | function | A provider-reported model: a snapshot when its name pins one, else a moving alias. |
@@ -1996,7 +2002,7 @@ Import from `@tangle-network/agent-eval/campaign` — 529 exports.
 | `SearchStateView` | class | A read of `SearchState` at one ledger position. Header, head, audit and |
 | `WorktreeAdapterError` | class | Typed failure from a `WorktreeAdapter` operation (create/finalize/discard) — wraps the underlying git error as `cause`. |
 | `CampaignArtifactWriter` | interface | Scoped artifact writer — `write(path, content)` lands under |
-| `CampaignCellFailureReceipt` | interface | Durable `<cell>/failure-receipt.json` written before a failed cell can |
+| `CampaignCellFailureReceipt` | interface | Durable `<attempt>/failure-receipt.json` written before a failed cell can |
 | `CampaignCellRetryPolicy` | interface | Bounded in-run retry of failed cells. Every attempt dispatches the same |
 | `CampaignCostMeter` | interface | Cell-scoped paid-call entry point. The dispatch places every paid operation |
 | `CampaignScenarioIdentity` | interface | Redacted identity of a complete scenario payload retained in campaign results. |
