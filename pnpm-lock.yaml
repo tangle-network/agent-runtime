@@ -16,7 +16,7 @@ catalogs:
       specifier: '>=0.10.2 <0.11.0'
       version: 0.10.2
     '@tangle-network/agent-eval':
-      specifier: '>=0.201.0 <0.212.0'
+      specifier: '>=0.209.1 <0.212.0'
       version: 0.211.2
     '@tangle-network/agent-interface':
       specifier: ^2.16.0
