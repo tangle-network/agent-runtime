@@ -101,7 +101,11 @@ import {
   type ContinuationEntry,
 } from './continuation'
 import { errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
-import { RetainedExecutionPendingError, type RetainedPendingCause } from './retained-executor'
+import {
+  DISPATCH_NOT_ADMITTED_CODE,
+  RetainedExecutionPendingError,
+  type RetainedPendingCause,
+} from './retained-executor'
 import { subscriptionUsageLimitSignal } from './seat-chain'
 import type { Scope } from './types'
 import {
@@ -442,6 +446,15 @@ function isProviderSchemaRejection(error: Error): boolean {
   }
 }
 
+/** Sandbox started nothing for the dispatch: another execution owns the session or turn. */
+function isDispatchNotAdmitted(error: Error): boolean {
+  try {
+    return Reflect.get(error, 'code') === DISPATCH_NOT_ADMITTED_CODE
+  } catch {
+    return false
+  }
+}
+
 /**
  * The code or status that marks `error` as an upstream capacity refusal, or `undefined`.
  *
@@ -525,6 +538,10 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   if (error instanceof RetainedExecutionPendingError && error.pendingCause === 'provider-contract')
     return 'terminal'
   const admission = retainedAdmissionCause(error)
+  // A dispatch that Sandbox did not admit gets the same refusal while the owning execution holds
+  // the session. A run never starts a turn beside an execution that owns its session, so it stops
+  // with the refusal named. The refusal reaches this check only from a retained admission.
+  if (admission !== undefined && isDispatchNotAdmitted(admission)) return 'terminal'
   if (admission !== undefined) return classifyDriverFailure(admission, signal)
   if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') return 'terminal'
   if (error instanceof Error && isProviderSchemaRejection(error)) return 'terminal'
@@ -602,6 +619,7 @@ function retainedAdmissionCause(error: unknown): Error | undefined {
         error.pendingCause === 'request-rejected' &&
         (value instanceof AgentEvalError ||
           isProviderSchemaRejection(value) ||
+          isDispatchNotAdmitted(value) ||
           // A capacity refusal before dispatch: the same request is admitted when room returns.
           capacityCode(value) !== undefined)
       )

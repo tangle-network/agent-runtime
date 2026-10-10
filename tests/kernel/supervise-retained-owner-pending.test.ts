@@ -46,6 +46,20 @@ function credentialCapacityRefusal(): Error {
   })
 }
 
+/** agent-provider-tangle's `TangleDispatchNotAdmittedError`, by structure. */
+function dispatchNotAdmitted(): Error {
+  return Object.assign(
+    new Error('sandbox dispatch returned an execution id different from the requested run'),
+    {
+      name: 'TangleDispatchNotAdmittedError',
+      code: 'DISPATCH_NOT_ADMITTED',
+      sessionId: 'retained-session',
+      requestedExecutionId: 'retained-execution-requested',
+      activeExecutionId: 'retained-execution-active',
+    },
+  )
+}
+
 interface Fixture {
   /** Called before each dispatch reaches the provider; throw to refuse it. */
   readonly beforeDispatch?: (call: number) => void
@@ -201,6 +215,28 @@ describe('supervised root with a pending retained turn', () => {
     expect(count(run.events, 'execution-result')).toBe(2)
     expect(count(run.events, 'execution-abandoned')).toBe(0)
     expect(run.dispatched).toHaveLength(2)
+  })
+
+  it('stops on a dispatch that Sandbox did not admit instead of retrying it', async () => {
+    // expr-calculator-20261010b (2026-10-10): every later turn met a session that Sandbox still
+    // reported as running a dead execution, and 38 attempts in 20m27s retried that answer.
+    const run = await superviseRoot({
+      beforeDispatch: (call) => {
+        if (call >= 2) throw dispatchNotAdmitted()
+      },
+      submitOn: Number.POSITIVE_INFINITY,
+    })
+    expect(run.result.kind).not.toBe('winner')
+    const refused = run.attempts.filter((attempt) =>
+      attempt.error?.includes('nothing to reconcile'),
+    )
+    expect(refused).toHaveLength(1)
+    expect(refused[0]).toMatchObject({ classification: 'terminal' })
+    expect(run.attempts.at(-1)?.classification).toBe('terminal')
+    // Refused before it ran: the turn was neither replaced nor abandoned.
+    expect(count(run.events, 'execution-abandoned')).toBe(0)
+    expect(count(run.events, 'execution-input')).toBe(2)
+    expect(run.dispatched).toHaveLength(1)
   })
 
   it('abandons a turn the provider can no longer resolve and finishes in a new invocation', async () => {
