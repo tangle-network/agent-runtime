@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.314.1` and `@tangle-network/agent-eval@0.209.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.314.1` and `@tangle-network/agent-eval@0.211.3` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1722,22 +1722,26 @@ The scoring/measurement/judge substrate. **Do NOT re-implement a judge, an authe
 
 ### JUDGE — LLM-as-judge, panels, calibration
 
-Import from `@tangle-network/agent-eval` — 12 exports.
+Import from `@tangle-network/agent-eval` — 18 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `addCalibrationVerdicts` | function | Join new owner verdicts to a set. A verdict already recorded from the same |
 | `calibrateJudge` | function | Measure judge quality against human gold labels: computes Cohen's κ, Pearson correlation, and MAE over matched item ids. |
 | `createAntiSlopJudge` | function | Create a reusable Judge function from an anti-slop config. |
 | `ensembleJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` runs every panel |
 | `judgeAgreementView` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `judgeFamily` | function | Classify a model id into its provider family. Strips a `@snapshot` suffix |
+| `judgeGateDecision` | function | Whether a judge may gate now, and every reason it may not. |
 | `judgeSpans` | function | Query judge-kind spans from the trace store, optionally scoped to a single run. |
 | `llmJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` makes ONE LLM call |
+| `registerCalibrationSet` | function | Validate a calibration set and return a normalized copy ordered by example |
 | `runIntentMatchJudge` | function | Run the intent-match judge. Soft-fails to available=false on error. |
 | `runKeywordCoverageJudge` | function | Score expected concepts against an already-fetched HTML payload + any |
 | `runSemanticConceptJudge` | function | Run the semantic concept judge. Soft-fails to available=false on |
+| `CalibrationExample` | interface | One item the owner decided, with where that decision is recorded. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `CalibrationResult`, `ContinuousCalibrationResult`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `CalibrationMerge`, `CalibrationResult`, `ContinuousCalibrationResult`, `JudgeCalibrationSet`.
 
 ### AUTHENTICITY — is-this-real / anti-Goodhart gate
 
