@@ -1,7 +1,7 @@
 ## 0.291.1
 
-Widen the agent-eval peer window to `>=0.201.0 <0.212.0`, so a consumer on the 0.291 line can adopt agent-eval's judge gate.
-This line is built and tested against agent-eval 0.211.2.
+Move the agent-eval peer window to `>=0.209.1 <0.212.0`, so a consumer on the 0.291 line can adopt agent-eval's judge gate.
+This line is built and tested against agent-eval 0.211.2, and the packed cohort runs 0.209.1 and 0.210.0. The window reaches back two minors, so it no longer admits agent-eval 0.201 to 0.203; GTM, the only consumer on this line, moves with it.
 
 ## 0.291.0
 
