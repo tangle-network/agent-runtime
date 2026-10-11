@@ -5,6 +5,18 @@
  * memory block, and the contract suite every adapter runs. Worker-safe.
  */
 export {
+  aesGcmContentCodecFromEnv,
+  type ContentCodecOptions,
+  createAesGcmContentCodec,
+  openWorkspaceBytes,
+  SEALED_CONTENT_PREFIX,
+  sealWorkspaceBytes,
+  type WorkspaceCodecContext,
+  WorkspaceCodecError,
+  type WorkspaceContentCodec,
+  withContentCodec,
+} from './codec'
+export {
   type MakeWorkspaceStore,
   runWorkspaceStoreContract,
   type WorkspaceStoreContractCase,
