@@ -3,8 +3,8 @@ import { constants } from 'node:fs'
 import { link, lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 import type { AgentCandidateArtifactRef, Sha256Digest } from '@tangle-network/agent-interface'
-import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
 import { markPutStreamVerified } from '../candidate-execution/artifact-streams'
+import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
 
 const DIGEST = /^sha256:([0-9a-f]{64})$/u
 const HEX = /^[0-9a-f]{64}$/u
