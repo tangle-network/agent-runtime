@@ -83,6 +83,11 @@
       "types": "./dist/task-queue.d.ts",
       "import": "./dist/task-queue.js",
       "default": "./dist/task-queue.js"
+    },
+    "./workspace-store": {
+      "types": "./dist/workspace-store/index.d.ts",
+      "import": "./dist/workspace-store/index.js",
+      "default": "./dist/workspace-store/index.js"
     }
   },
   "bin": {

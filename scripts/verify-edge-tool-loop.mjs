@@ -67,6 +67,10 @@ try {
     join(appDir, 'src', 'worker.js'),
     `
       import { runToolLoop } from '@tangle-network/agent-runtime/tool-loop'
+      import {
+        createInMemoryWorkspaceStore,
+        runWorkspaceStoreContract,
+      } from '@tangle-network/agent-runtime/workspace-store'
 
       export default {
         async fetch() {
@@ -86,7 +90,9 @@ try {
             executeToolCall: async (call) => ({ ok: true, result: call.args }),
             isExecutableTool: (name) => name === 'echo',
           })
+          const contract = await runWorkspaceStoreContract(() => createInMemoryWorkspaceStore())
           return Response.json({
+            workspaceStore: contract,
             finalText: result.finalText,
             stopReason: result.stopReason,
             toolCalls: result.toolResults.length,
@@ -127,11 +133,16 @@ try {
     ) {
       throw new Error(`unexpected Worker response: ${JSON.stringify(body)}`)
     }
+    const contract = body.workspaceStore
+    if (!Array.isArray(contract) || contract.length === 0 || contract.some((c) => !c.passed)) {
+      throw new Error(`workspace store contract failed in the Worker: ${JSON.stringify(contract)}`)
+    }
   } finally {
     await miniflare.dispose()
   }
 
   process.stdout.write('Edge tool loop: packed Worker bundled and executed without Node compatibility.\n')
+  process.stdout.write('Workspace store: contract passed inside the packed Worker.\n')
 } finally {
   rmSync(tempRoot, { recursive: true, force: true })
 }

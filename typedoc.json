@@ -14,7 +14,8 @@
     "src/testing/index.ts",
     "src/mcp/index.ts",
     "src/tui/index.ts",
-    "src/runtime/task-queue.ts"
+    "src/runtime/task-queue.ts",
+    "src/workspace-store/index.ts"
   ],
   "entryPointStrategy": "resolve",
   "tsconfig": "./tsconfig.json",
