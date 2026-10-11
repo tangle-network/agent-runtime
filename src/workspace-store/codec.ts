@@ -59,6 +59,11 @@ function base64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
+/** A copy in a plain ArrayBuffer, which every Web Crypto typing accepts (this package has no DOM lib). */
+function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.slice().buffer as ArrayBuffer
+}
+
 function concat(...parts: Uint8Array[]): Uint8Array {
   const out = new Uint8Array(parts.reduce((total, part) => total + part.length, 0))
   let offset = 0
@@ -126,7 +131,7 @@ export function createAesGcmContentCodec(options: {
     let key = derived.get(id)
     if (!key) {
       key = (async () => {
-        const base = await crypto.subtle.importKey('raw', bytes as BufferSource, 'HKDF', false, [
+        const base = await crypto.subtle.importKey('raw', arrayBuffer(bytes), 'HKDF', false, [
           'deriveKey',
         ])
         const hkdf = (info: string) => ({
@@ -168,17 +173,16 @@ export function createAesGcmContentCodec(options: {
               await crypto.subtle.sign(
                 'HMAC',
                 key.iv,
-                concat(
-                  framed(context.tenant, context.path, context.operationId),
-                  plain,
-                ) as BufferSource,
+                arrayBuffer(
+                  concat(framed(context.tenant, context.path, context.operationId), plain),
+                ),
               ),
             ).slice(0, IV_BYTES)
       const sealed = new Uint8Array(
         await crypto.subtle.encrypt(
-          { name: 'AES-GCM', iv: iv as BufferSource, additionalData: aad as BufferSource },
+          { name: 'AES-GCM', iv: arrayBuffer(iv), additionalData: arrayBuffer(aad) },
           key.seal,
-          plain as BufferSource,
+          arrayBuffer(plain),
         ),
       )
       const keyId = encoder.encode(id)
@@ -197,11 +201,11 @@ export function createAesGcmContentCodec(options: {
           await crypto.subtle.decrypt(
             {
               name: 'AES-GCM',
-              iv: sealed.subarray(start, start + IV_BYTES) as BufferSource,
-              additionalData: associated(context) as BufferSource,
+              iv: arrayBuffer(sealed.subarray(start, start + IV_BYTES)),
+              additionalData: arrayBuffer(associated(context)),
             },
             key.seal,
-            sealed.subarray(start + IV_BYTES) as BufferSource,
+            arrayBuffer(sealed.subarray(start + IV_BYTES)),
           ),
         )
       } catch {
