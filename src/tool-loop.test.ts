@@ -694,8 +694,8 @@ describe('tool progress', () => {
   }
   const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 1))
   const reportingExecutor: ToolCallExecutor = async (_call, { progress }) => {
+    // A burst of two before the first await, then one more later: order holds either way.
     progress({ message: 'resolving', progress: 1, total: 3 })
-    await tick()
     progress({ message: 'compiling', progress: 2, total: 3 })
     await tick()
     progress({ message: 'linking', progress: 3, total: 3 })
@@ -759,7 +759,6 @@ describe('tool progress', () => {
   })
 
   it('drops an update a tool sends after its call settled', async () => {
-    let late: ((update: { message: string }) => void) | undefined
     const ys: StreamToolLoopYield<Raw>[] = []
     for await (const item of streamToolLoop<Raw>({
       systemPrompt: 's',
@@ -767,14 +766,17 @@ describe('tool progress', () => {
       streamTurn: progressTurn,
       ...progressSeams,
       executeToolCall: async (_call, { progress }) => {
-        late = progress
+        progress({ message: 'on time' })
+        setTimeout(() => progress({ message: 'too late' }), 0)
         return { ok: true, result: null }
       },
     })) {
       ys.push(item)
-      if (item.kind === 'tool_result') late?.({ message: 'too late' })
+      // A slow consumer: the call settles and the late update fires before the next pull.
+      await new Promise<void>((resolve) => setTimeout(resolve, 5))
     }
-    expect(ys.map((y) => y.kind)).toEqual(['event', 'tool_result', 'event'])
+    expect(ys.map((y) => y.kind)).toEqual(['event', 'tool_progress', 'tool_result', 'event'])
+    expect(ys[1]).toMatchObject({ update: { message: 'on time' } })
   })
 
   it('reports a progressing tool that throws as an executor_error after its updates', async () => {
