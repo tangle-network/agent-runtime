@@ -24,11 +24,25 @@
 
 > **args**: `Record`\<`string`, `unknown`\>
 
+##### providerFields?
+
+> `optional` **providerFields?**: `Record`\<`string`, `unknown`\>
+
+Provider-specific fields the model attached to this call, echoed back on
+its assistant `tool_calls` entry in the next request. Gemini 3 returns
+`extra_content: { google: { thought_signature } }` on each call and answers
+HTTP 400 when the next request omits it.
+
 ***
 
 ### ToolLoopAssistantToolCall
 
-One OpenAI-shaped tool-call entry carried on an assistant message.
+One OpenAI-shaped tool-call entry carried on an assistant message, plus any
+ provider-specific fields the model attached to the call (`ToolLoopCall.providerFields`).
+
+#### Indexable
+
+> \[`providerField`: `string`\]: `unknown`
 
 #### Properties
 
