@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.316.0` and `@tangle-network/agent-eval@0.211.3` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.317.0` and `@tangle-network/agent-eval@0.211.3` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -308,7 +308,7 @@ Import from `@tangle-network/agent-runtime/tool-loop` — 15 exports.
 | `runToolLoop` | function | Run the bounded tool loop and return the final text + every executed tool |
 | `streamToolLoop` | function | Streaming bounded tool loop: yields each raw turn event (the caller maps + |
 | `ToolCallContext` | interface | What the loop hands a running tool besides its call. |
-| `ToolLoopAssistantToolCall` | interface | One OpenAI-shaped tool-call entry carried on an assistant message. |
+| `ToolLoopAssistantToolCall` | interface | One OpenAI-shaped tool-call entry carried on an assistant message, plus any |
 | `ToolProgressUpdate` | interface | One progress report from a running tool, shaped like an MCP `notifications/progress` |
 | `ToolCallExecutor` | type | Executes one tool call. Implementations that take only the call stay valid. |
 | `ToolCallOutcome` | type | Outcome of one tool dispatch — structurally compatible with a hub/integration |
