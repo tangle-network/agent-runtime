@@ -529,12 +529,7 @@ export function createPrivateCasArtifactPort(
   const port: PrivateCasArtifactPort = {
     // A buffered remote store cannot satisfy the streaming capture contract.
     ...(durable === undefined || (durable.putStream && durable.getStream)
-      ? {
-          // Without a durable store, putStream's own readback reads the object every later read
-          // will. With one, the caller's readback may come from the store and is kept.
-          putStream: durable === undefined ? markPutStreamVerified(putStream) : putStream,
-          readStream,
-        }
+      ? { putStream, readStream }
       : {}),
     async put({ bytes, signal }) {
       signal?.throwIfAborted()
@@ -654,5 +649,8 @@ export function createPrivateCasArtifactPort(
       )
     return verified(stored, ref)
   }
+  // Without a durable store, putStream's own readback reads the object readStream will return.
+  // With one, the caller's readback may come from the store and is kept.
+  if (durable === undefined) markPutStreamVerified(putStream, readStream)
   return port
 }

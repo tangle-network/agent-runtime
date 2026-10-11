@@ -11,6 +11,7 @@ import {
   scanMaterializedWorkspaceManifest,
   verifyAgentCandidateWorkspaceArtifacts,
 } from '../src/candidate-execution'
+import { putStreamVerifiedBy } from '../src/candidate-execution/artifact-streams'
 import { createPrivateCasArtifactPort } from '../src/runtime/private-cas'
 
 const roots: string[] = []
@@ -207,30 +208,28 @@ it('rejects a store that corrupts the archive after publication', async () => {
   ).rejects.toThrow('digest or length')
 })
 
-it('reads a stored object back once: the private CAS put is not read again by its caller', async () => {
+it('reads a stored object back once: only the private CAS putStream and readStream pair skips the caller readback', async () => {
   const f = await fixture()
   await writeFile(join(f.source, 'large'), Buffer.alloc(256 * 1024, 7))
-  const counted = (putStream: NonNullable<typeof f.artifacts.putStream>) => {
-    const reads: string[] = []
-    const port = {
-      ...f.artifacts,
-      putStream,
-      readStream: (ref: Parameters<NonNullable<typeof f.artifacts.readStream>>[0], options?: { signal?: AbortSignal }) => {
-        reads.push(ref.sha256)
-        return f.artifacts.readStream!(ref, options)
-      },
-    }
-    return { reads, port }
+  expect(putStreamVerifiedBy(f.artifacts)).toBe(true)
+  // A wrapper that replaces either function does not inherit the claim.
+  expect(putStreamVerifiedBy({ ...f.artifacts, readStream: (ref, options) => f.artifacts.readStream!(ref, options) })).toBe(false)
+  expect(putStreamVerifiedBy({ ...f.artifacts, putStream: (input) => f.artifacts.putStream!(input) })).toBe(false)
+  const durable = createPrivateCasArtifactPort(join(f.root, 'durable-cas'), 'run-1', {
+    durable: { location: 'memory://', put: async () => undefined, get: async () => undefined },
+  })
+  expect(putStreamVerifiedBy(durable)).toBe(false)
+  // A port that is not marked is read back through its readStream once per stored object.
+  const reads: string[] = []
+  const wrapped = {
+    ...f.artifacts,
+    readStream: (ref: Parameters<NonNullable<typeof f.artifacts.readStream>>[0], options?: { signal?: AbortSignal }) => {
+      reads.push(ref.sha256)
+      return f.artifacts.readStream!(ref, options)
+    },
   }
-  const own = counted(f.artifacts.putStream!)
-  await captureAgentCandidateWorkspaceToArtifacts(f.source, {
-    artifactPersistence: { executionId: 'node-1', outputArtifacts: own.port },
-  })
-  expect(own.reads).toEqual([])
-  // A wrapper that replaces putStream does not inherit the claim and is read back once per object.
-  const wrapped = counted((input) => f.artifacts.putStream!(input))
   const { snapshot } = await captureAgentCandidateWorkspaceToArtifacts(f.source, {
-    artifactPersistence: { executionId: 'node-1', outputArtifacts: wrapped.port },
+    artifactPersistence: { executionId: 'node-1', outputArtifacts: wrapped },
   })
-  expect(wrapped.reads).toEqual([snapshot.manifest.sha256, snapshot.archive.sha256])
+  expect(reads).toEqual([snapshot.manifest.sha256, snapshot.archive.sha256])
 })
