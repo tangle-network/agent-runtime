@@ -98,6 +98,7 @@ An LLM judge becomes a gate only after it beats an always-reject baseline on cas
 
 Give agents a development check they can run; hiding every check also blocks honest work.
 Hold back a stricter acceptance check, run from the delivered packet in a fresh environment by a party outside the authoring lineage, and grade only what its rerun reproduces.
+If the run depends on a root-authored boundary or comparison claim, preserve a reproducible pre-reveal record of that claim in Knowledge before any child sees it, so the blind check can compare against the exact same statement later.
 A parent that promotes children on proxy passes alone selects for the gap; have the referee attack a result before anyone builds on it.
 Keep the headline gate fixed for the whole task; report a stricter bar as a second line.
 For a customer commission the bar is the first deliverable: the root's first milestone writes 50 to 100 checkable expectations, the deliverable spec and a workplan, and a partner outside the authoring lineage raises the bar against named exemplars and holds part of it back.
@@ -118,7 +119,9 @@ The reproducer belongs to the check: registered before launch with its hash, the
 The outside check reruns its own copy, reruns the calibration first and credits nothing on a miss, then reruns cells until its budget ends; one mismatched row refuses the certificate, and only rerun, matched cells earn credit.
 A null that is no search (a spec conflict, a gap list) counts when the held-back check reproduces each named item. A null without a certificate is "stopped, unverified"; one inside a range already covered adds nothing.
 Tell agents the checker may be wrong; credit a reproduced checker-defect report like a result.
-Grant `submit_result` only where Runtime gives the node a check; otherwise its settlement stays unassessed. Match completion instructions to the tools actually served to each node.
+Grant `submit_result` only where Runtime gives the node a check; otherwise its settlement stays unassessed. A child that returns without a structured validity verdict is unresolved in the parent's comparison, never silently counted with the settled set.
+Match completion instructions to the tools actually served to each node. List in `tools` every harness tool a child's assignment needs, even where the harness serves its defaults anyway: a map of coordination tools alone reads in the record as removing the rest, and a harness that honors the map will not serve them.
+Before spawning a revision or a treatment, compare its tools with the profile it changes, and state the reason for any tool it no longer lists.
 State the stop: what the agent does the moment its check passes, and that work after a pass spends seats and adds nothing.
 For continued research, read the installed continuation contract first and choose `maxBarren` from the measured feedback cadence.
 
