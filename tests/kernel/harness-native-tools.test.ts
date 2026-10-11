@@ -9,16 +9,12 @@ import { createMemoryToolServer } from '../../src/mcp/memory-server'
 import { createMcpServer } from '../../src/mcp/server'
 import { coordinationVerbNames, createCoordinationTools } from '../../src/mcp/tools/coordination'
 import type { Agent, ResultBlobStore, Scope, Spend } from '../../src/runtime'
-import {
-  codeModeSupervisorTools,
-  unsafeInProcessRunner,
-} from '../../src/runtime/supervise/code-mode'
+import { createCodeModeTools } from '../../src/runtime/code-mode'
 import {
   createPeerMailbox,
   peerMailTools,
   peerMailVerbNames,
 } from '../../src/runtime/supervise/peer-mail'
-import type { SupervisorNodeContext } from '../../src/runtime/supervise/supervisor-agent'
 
 const zeroSpend = (): Spend => ({ iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
 
@@ -105,11 +101,9 @@ function memoryServerToolNames(): ReadonlyArray<string> {
   return [...server.tools.keys()]
 }
 
-/** Code mode's two tools, read off the resolver `codeModeSupervisorTools` returns. */
+/** The actual general Runtime code-mode presentation. */
 async function codeModeToolNames(): Promise<ReadonlyArray<string>> {
-  const resolve = codeModeSupervisorTools(unsafeInProcessRunner())
-  const tools = await resolve({} as SupervisorNodeContext)
-  return tools.map((tool) => tool.name)
+  return createCodeModeTools([]).tools.map((tool) => tool.name)
 }
 
 /**
