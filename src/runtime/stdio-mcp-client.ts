@@ -32,6 +32,7 @@ import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import {
   type AgentProfile,
+  type AgentProfileMcpServer,
   type AgentProfileSecurityPolicy,
   validateAgentProfileSecurity,
 } from '@tangle-network/agent-interface'
@@ -40,6 +41,7 @@ import {
   redactProtectedValue,
 } from '../candidate-execution/protected-redaction'
 import { ValidationError } from '../errors'
+import { connectHttpMcp } from './http-mcp-client'
 import { type KeyProvider, resolveMcpServerLaunch } from './key-provider'
 import { sanitizeMcpToolSchema } from './mcp-environment'
 import type { AgenticTool } from './strategy'
@@ -343,6 +345,54 @@ export interface LocalMcpMaterialization {
  * child and expose its tools under `<server>__<tool>` names. The default policy
  * refuses local processes. A profile with no MCP surface returns zero tools.
  */
+/** Resolve a remote server's `url` + `headers` profile config values into the
+ *  plain strings + protected headers an HTTP connection needs. Same fail-closed
+ *  contract as `resolveMcpServerLaunch`: no KeyProvider for a declared secret, or
+ *  a missing key, aborts the materialization naming the KEY only. */
+async function resolveRemoteMcpHeaders(
+  server: AgentProfileMcpServer & { url?: unknown; headers?: unknown },
+  keys: KeyProvider | undefined,
+  label: string,
+): Promise<{
+  url: string
+  headers?: Record<string, string>
+  protectedHeaders?: Record<string, string>
+}> {
+  if (typeof server.url !== 'string' || server.url.trim().length === 0) {
+    throw new ValidationError(`${label}: a remote (http/sse) server requires url`)
+  }
+  const headers: Record<string, string> = {}
+  const protectedHeaders: Record<string, string> = {}
+  for (const [name, value] of Object.entries(
+    (server.headers ?? {}) as Record<
+      string,
+      { kind: 'public' | 'secret-ref'; value?: string; key?: string; format?: 'bearer' }
+    >,
+  )) {
+    if (value.kind === 'public') {
+      headers[name] = value.value ?? ''
+    } else {
+      if (!keys) {
+        throw new ValidationError(
+          `${label}: header ${name} is a secret-ref but no KeyProvider was supplied — refusing to connect a remote server with unresolvable auth`,
+        )
+      }
+      const secret = await keys.get(value.key ?? '')
+      if (secret === undefined) {
+        throw new ValidationError(
+          `${label}: the KeyProvider holds no value for '${value.key}' (wanted for header ${name}) — provision the key or drop the header`,
+        )
+      }
+      protectedHeaders[name] = value.format === 'bearer' ? `Bearer ${secret}` : secret
+    }
+  }
+  return {
+    url: server.url,
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    ...(Object.keys(protectedHeaders).length > 0 ? { protectedHeaders } : {}),
+  }
+}
+
 export async function materializeLocalMcp(
   profile: AgentProfile,
   opts: MaterializeLocalMcpOptions = {},
@@ -368,9 +418,48 @@ export async function materializeLocalMcp(
     for (const [key, server] of Object.entries(profile.mcp ?? {})) {
       if (server.enabled === false) continue
       const transport = server.transport ?? 'stdio'
+      if (transport === 'http' || transport === 'sse') {
+        // The remote path: no child process — the connection is HTTP, which is
+        // the MCP surface for environments that cannot spawn stdio servers
+        // (Workers, browser-context agents) and for endpoint-only servers.
+        // Headers resolve through the same fail-closed KeyProvider channel the
+        // stdio env does: a declared secret with no provider aborts the whole
+        // materialization, and resolved values are sent but never surfaced.
+        const { url, headers, protectedHeaders } = await resolveRemoteMcpHeaders(
+          server,
+          opts.keys,
+          `materializeLocalMcp: profile.mcp['${key}']`,
+        )
+        const conn = await connectHttpMcp({
+          url,
+          ...(headers !== undefined ? { headers } : {}),
+          ...(protectedHeaders !== undefined ? { protectedHeaders } : {}),
+          ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+        })
+        connections.push(conn)
+        const prefix = key.replace(/[^a-zA-Z0-9_-]/g, '_')
+        for (const t of conn.tools) {
+          const name = `${prefix}__${t.name.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+          if (routes.has(name)) {
+            throw new ValidationError(
+              `materializeLocalMcp: namespaced tool '${name}' collides across servers — rename the profile.mcp keys`,
+            )
+          }
+          routes.set(name, { conn, tool: t.name })
+          tools.push({
+            type: 'function',
+            function: {
+              name,
+              description: (t.description ?? '').slice(0, 1000),
+              parameters: sanitizeMcpToolSchema(t.inputSchema),
+            },
+          })
+        }
+        continue
+      }
       if (transport !== 'stdio') {
         throw new ValidationError(
-          `materializeLocalMcp: profile.mcp['${key}'] has transport '${transport}' — the same-host client only spawns stdio servers; a remote (http/sse) server needs an http MCP client (not yet built here) or the sandbox backend. Failing loud: scoring this profile without its declared server would fake the with/without ablation`,
+          `materializeLocalMcp: profile.mcp['${key}'] has unsupported transport '${transport}'`,
         )
       }
       if (!server.command || server.command.trim().length === 0) {

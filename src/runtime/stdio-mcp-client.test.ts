@@ -214,10 +214,20 @@ describe('materializeLocalMcp', () => {
     }
   })
 
-  it('fails closed on a non-stdio transport (the same-host client cannot fake a remote server)', async () => {
+  it('fails closed on an unreachable remote server (still no partial materialization)', async () => {
     await expect(
-      materializeLocalMcp({ mcp: { remote: { transport: 'http', url: 'https://example.test' } } }),
-    ).rejects.toThrow(/transport 'http'/)
+      materializeLocalMcp({
+        mcp: { remote: { transport: 'http', url: 'https://example.test.invalid/mcp' } },
+      }),
+    ).rejects.toThrow(/transport failed|connect/i)
+  })
+
+  it('refuses an unsupported transport by name', async () => {
+    await expect(
+      materializeLocalMcp({
+        mcp: { weird: { transport: 'websocket', url: 'https://example.test' } as never },
+      }),
+    ).rejects.toThrow(/unsupported transport 'websocket'/)
   })
 
   it('a profile with no MCP surface materializes zero tools and closes cleanly', async () => {
