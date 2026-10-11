@@ -16,10 +16,20 @@ describe('in-memory workspace store contract', () => {
     const results = await runWorkspaceStoreContract(() => {
       const store = createInMemoryWorkspaceStore()
       // A store that ignores compare-and-set must fail the contract.
-      return { ...store, put: (input) => store.put({ ...input, ifRevision: null }).catch(() => store.get(input.workspaceId, input.path).then((e) => e!)) }
+      return {
+        ...store,
+        put: (input) =>
+          store
+            .put({ ...input, ifRevision: null })
+            .catch(() => store.get(input.workspaceId, input.path).then((e) => e!)),
+      }
     })
-    expect(results.length).toBe(workspaceStoreContractCases(() => createInMemoryWorkspaceStore()).length)
-    expect(results.some((result) => !result.passed && result.error?.includes('contract'))).toBe(true)
+    expect(results.length).toBe(
+      workspaceStoreContractCases(() => createInMemoryWorkspaceStore()).length,
+    )
+    expect(results.some((result) => !result.passed && result.error?.includes('contract'))).toBe(
+      true,
+    )
   })
 })
 
@@ -55,7 +65,9 @@ describe('workspace tools', () => {
     await expect(
       remember!.run({ text: 'x', kind: 'fact', scope: 'me', memberId: 'bob' }),
     ).rejects.toThrow()
-    const saved = (await remember!.run({ text: 'x', kind: 'fact', scope: 'me' })) as { path: string }
+    const saved = (await remember!.run({ text: 'x', kind: 'fact', scope: 'me' })) as {
+      path: string
+    }
     expect(saved.path.startsWith('/memories/members/alice/')).toBe(true)
   })
 })

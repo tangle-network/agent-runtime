@@ -1518,7 +1518,7 @@ Import from `@tangle-network/agent-runtime/testing` — 14 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 246 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 252 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1537,6 +1537,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 246 exports.
 | `createDelegationTraceCollector` | function | Build a `DelegationTraceCollector` that buffers loop-trace events and converts them to spans on settle. |
 | `createDetachedTurnResumeDriver` | function | Build the `driveTurn`-backed {@link DelegationResumeDriver}. Each `tick()` |
 | `createFleetWorkspaceExecutor` | function | Build an executor that resolves each delegated iteration to an existing |
+| `createHubIntegrationToolServer` | function | Build the hub integration MCP server on the shared stdio JSON-RPC core — |
 | `createInProcessExecutor` | function | Build an in-process executor. Returns a {@link DelegationExecutor} whose `client.create()` |
 | `createInProcessTransport` | function | In-process pair of `Readable` + `Writable` streams suitable for driving |
 | `createKbGate` | function | Build a fail-closed KB gate. The returned function runs the built-in floor |
@@ -1555,6 +1556,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 246 exports.
 | `harnessSupportsReasoningEffort` | function | Whether the harness's native control can express this reasoning effort. Admission checks read |
 | `hashIdempotencyInput` | function | Best-effort stable hash for use as `idempotencyKey`. Not cryptographic; |
 | `hostDirectoryReader` | function | The host-directory reader: a manager whose workspace is a directory this process can open. |
+| `hubIntegrationTools` | function | One router tool per active Hub connection to a data provider. The tool |
 | `localHarnessExecutable` | function | The CLI binary a harness id runs. The two are NOT the same string (`claude-code` runs `claude`), |
 | `mcpToolsForRuntimeMcp` | function | Returns the queue-bound delegation tools projected into OpenAI Chat |
 | `mcpToolsForRuntimeMcpSubset` | function | Subset filter — return only the projected tools whose `function.name` |
@@ -1599,6 +1601,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 246 exports.
 | `delegationProfiles` | const | Every delegation profile a queued record can carry. One owner: the tool schemas and validators |
 | `downMessageRefusalReasons` | const | Why one parent→child delivery did not land, in the words the MANAGER needs. |
 | `harnessNativeTools` | const | Sourced native sub-agent tool names, keyed by the same `HarnessType` vocabulary the rest of the |
+| `HUB_DATA_PROVIDER_KINDS` | const | The substrate data providers whose Hub adapters become agent tools. |
 | `LOCAL_HARNESSES` | const | Every local harness, in table order — the one list `AGENT_RUNTIME_LOCAL_HARNESSES` and any |
 | `MEMORY_FILE_ENV` | const | Env var naming the durable row store file the memory bin loads (the |
 | `MEMORY_ITEMS_ENV` | const | Env var carrying inline JSON `MemoryItem` rows (win over file rows on id). |
@@ -1646,6 +1649,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 246 exports.
 | `DriveTurnCapableBox` | interface | The box surface detached turns need. `SandboxInstance` |
 | `EventAcknowledgement` | interface | One acknowledgement record: which delivered events are now processed, and on whose word. |
 | `FleetHandle` | interface | Minimal `SandboxFleet` surface the fleet executor calls. Declared |
+| `HubIntegrationClient` | interface | The subset of `PlatformHubClient` this module needs — mocks plug in here. |
 | `JsonRpcMessage` | interface | One JSON-RPC 2.0 request or notification. |
 | `JsonRpcResponse` | interface | One JSON-RPC 2.0 response. |
 | `LeadMessage` | interface | A steer or an answer this manager received from its lead. |
@@ -1682,7 +1686,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 246 exports.
 | `SourcedHarness` | type | A harness with a sourced native tool list. |
 | `UiAuditorDelegate` | type | UI-auditor delegate — fully consumer-injected. agent-runtime ships no |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AnalystRegistry`, `CappedDelegationTrace`, `CoderOutput`, `CoderReview`, `CoordinationToolsOptions`, `CreateKbGateOptions`, `CreateMemoryToolServerOptions`, `CreateWorktreeOptions`, `DelegateCodeArgs`, `DelegateCodeResult`, `DelegateFeedbackArgs`, `DelegateFeedbackHandlerOptions`, `DelegateFeedbackResult`, `DelegateHandlerOptions`, `DelegateResearchArgs`, `DelegateResearchConfig`, `DelegateResearchResult`, `DelegateRunCtx`, `DelegateUiAuditArgs`, `DelegateUiAuditConfig`, `DelegateUiAuditHandlerOptions`, `DelegateUiAuditResult`, `DelegationError`, `DelegationExecutor`, `DelegationFeedbackSnapshot`, `DelegationHistoryArgs`, `DelegationHistoryEntry`, `DelegationHistoryHandlerOptions`, `DelegationHistoryResult`, `DelegationProgress`, `DelegationResumeContext`, `DelegationRunContext`, `DelegationStatusArgs`, `DelegationStatusHandlerOptions`, `DelegationStatusResult`, `DelegationStore`, `DelegationTaskQueueOptions`, `DelegationTraceCaps`, `DetachedSessionDelegateOptions`, `DetachedTurn`, `DetachedTurnResumeDriverOptions`, `DiffOptions`, `DiffResult`, `FactCandidate`, `FactJudge`, `FactJudgeVerdict`, `FeedbackEvent`, `FeedbackRating`, `FeedbackRefersTo`, `FeedbackStore`, `FileDelegationStoreOptions`, `FleetWorkspaceExecutorOptions`, `InProcessExecutorDescribePlacement`, `InProcessExecutorOptions`, `KbGateResult`, `LocalHarnessResult`, `McpServer`, `McpServerOptions`, `Question`, `QuestionOption`, `QuestionRecord`, `RemoveWorktreeOptions`, `ResolvedSpawnResourcePath`, `RunDetachedTurnOptions`, `RunLocalHarnessOptions`, `SettleDetachedCoderTurnOptions`, `SiblingSandboxExecutorOptions`, `StdioToolServer`, `StdioToolServerOptions`, `SubmitInput`, `SubmitOutput`, `TraceContext`, `WorktreeHandle`, `AnalystToolGroupName`, `CoderDelegate`, `DelegationProfile`, `DelegationStatus`, `DetachedWinnerSelection`, `MakeWorkerAgent`, `QuestionDecision`, `QuestionEscalationTarget`, `QuestionLevel`, `QuestionPolicy`, `QuestionUrgency`, `ResolveSpawnResourcePathsResult`, `SpawnResourceRead`, `UiAuditLensFilter`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AnalystRegistry`, `CappedDelegationTrace`, `CoderOutput`, `CoderReview`, `CoordinationToolsOptions`, `CreateHubIntegrationToolServerOptions`, `CreateKbGateOptions`, `CreateMemoryToolServerOptions`, `CreateWorktreeOptions`, `DelegateCodeArgs`, `DelegateCodeResult`, `DelegateFeedbackArgs`, `DelegateFeedbackHandlerOptions`, `DelegateFeedbackResult`, `DelegateHandlerOptions`, `DelegateResearchArgs`, `DelegateResearchConfig`, `DelegateResearchResult`, `DelegateRunCtx`, `DelegateUiAuditArgs`, `DelegateUiAuditConfig`, `DelegateUiAuditHandlerOptions`, `DelegateUiAuditResult`, `DelegationError`, `DelegationExecutor`, `DelegationFeedbackSnapshot`, `DelegationHistoryArgs`, `DelegationHistoryEntry`, `DelegationHistoryHandlerOptions`, `DelegationHistoryResult`, `DelegationProgress`, `DelegationResumeContext`, `DelegationRunContext`, `DelegationStatusArgs`, `DelegationStatusHandlerOptions`, `DelegationStatusResult`, `DelegationStore`, `DelegationTaskQueueOptions`, `DelegationTraceCaps`, `DetachedSessionDelegateOptions`, `DetachedTurn`, `DetachedTurnResumeDriverOptions`, `DiffOptions`, `DiffResult`, `FactCandidate`, `FactJudge`, `FactJudgeVerdict`, `FeedbackEvent`, `FeedbackRating`, `FeedbackRefersTo`, `FeedbackStore`, `FileDelegationStoreOptions`, `FleetWorkspaceExecutorOptions`, `HubIntegrationToolsOptions`, `InProcessExecutorDescribePlacement`, `InProcessExecutorOptions`, `KbGateResult`, `LocalHarnessResult`, `McpServer`, `McpServerOptions`, `Question`, `QuestionOption`, `QuestionRecord`, `RemoveWorktreeOptions`, `ResolvedSpawnResourcePath`, `RunDetachedTurnOptions`, `RunLocalHarnessOptions`, `SettleDetachedCoderTurnOptions`, `SiblingSandboxExecutorOptions`, `StdioToolServer`, `StdioToolServerOptions`, `SubmitInput`, `SubmitOutput`, `TraceContext`, `WorktreeHandle`, `AnalystToolGroupName`, `CoderDelegate`, `DelegationProfile`, `DelegationStatus`, `DetachedWinnerSelection`, `MakeWorkerAgent`, `QuestionDecision`, `QuestionEscalationTarget`, `QuestionLevel`, `QuestionPolicy`, `QuestionUrgency`, `ResolveSpawnResourcePathsResult`, `SpawnResourceRead`, `UiAuditLensFilter`.
 
 ### Supervisor TUI — live terminal view over the on-disk run layout
 
@@ -1716,6 +1720,40 @@ Import from `@tangle-network/agent-runtime/task-queue` — 4 exports.
 | `TaskQueueSettlement` | type | Native promise settlement, retaining the exact returned or thrown value. |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `TaskQueueOptions`.
+
+### Workspace store — versioned per-tenant memory and files, tools, pinned memory, adapter contract
+
+Import from `@tangle-network/agent-runtime/workspace-store` — 32 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `assertWorkspacePath` | function | Refuse anything but an absolute, normalized path such as `/files/report.md`. |
+| `checkWorkspacePut` | function | Validate a put before any adapter touches storage; adapters call this first. |
+| `createFileTools` | function | `files.list`, `files.read`, `files.write`, `files.delete`, `files.search` over `/files/**` and `/knowledge/**`. |
+| `createInMemoryWorkspaceStore` | function | Process-local adapter for tests, previews, and single-instance hosts. |
+| `createMemoryTools` | function | `memory.remember`, `memory.recall`, `memory.forget`. |
+| `defaultMemoryPolicy` | function | Default authority. Reads: workspace memory, the speaker's own member memory, |
+| `memberIdFromPath` | function | The member a path belongs to, or `null` for workspace-scoped paths. |
+| `rankEntries` | function | BM25 over entry text (and path words), highest score first, ties by path. |
+| `readTurnMemories` | function | Workspace memories plus the speaker's own member memories, the set a turn may see. |
+| `renderPinnedMemory` | function | Render the memories a turn sees as one stable block for the per-turn preamble. |
+| `runWorkspaceStoreContract` | function | Run every contract case against fresh stores; never throws for a failing case. |
+| `workspaceStoreContractCases` | function | The contract as named cases; each case builds its own store. |
+| `WorkspaceConflictError` | class | A write lost a compare-and-set race or targeted the wrong revision. Re-read and retry. |
+| `WorkspacePolicyError` | class | A policy or path rule refused the call. |
+| `WorkspaceBytesRef` | interface | Large content kept outside the index, e.g. an R2 object. The adapter owns `key`. |
+| `WorkspaceEntry` | interface | One live document. Exactly one of `content` and `bytes` is present. |
+| `WorkspaceStore` | interface | Versioned path store for one or many tenants. Every write is a compare-and-set |
+| `WorkspaceTombstone` | interface | Erasure record: the content and bytes are gone; only this audit row remains. |
+| `WorkspaceToolDefinition` | interface | Structural tool shape, assignable to agent-app's `McpToolDefinition` |
+| `WorkspaceTurn` | interface | The speaker of the running turn, resolved by the host from its trusted session. |
+| `MakeWorkspaceStore` | type | Make a fresh, empty store for one case. |
+| `WorkspaceEntryKind` | type | What an entry holds; memory kinds are written through `memory.remember`, files through `files.write`. |
+| `WorkspaceEntryScope` | type | `member` entries live under `/memories/members/<memberId>/`; everything else is `workspace`. |
+| `WorkspacePolicyDecision` | type | `null` allows; a string refuses and is shown to the model as the reason. |
+| `WorkspaceRole` | type | `viewer` and `guest` are read-only under the default policy. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `MemoryPolicy`, `WorkspaceAccess`, `WorkspaceDeleteInput`, `WorkspacePutInput`, `WorkspaceStoreContractCase`, `WorkspaceStoreContractResult`, `WorkspaceToolContext`.
 
 ## 2. agent-eval — substrate primitives to REUSE
 

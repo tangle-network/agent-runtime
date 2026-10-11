@@ -78,14 +78,17 @@ export function defaultMemoryPolicy(options: { admit?: MemoryPolicy['admit'] } =
       const owner = memberIdFromPath(path)
       if (owner !== null && owner !== turn.memberId) return "Another member's memory is private"
       const known =
-        owner !== null || ['/memories/workspace/', '/knowledge/', '/files/'].some((root) => path.startsWith(root))
+        owner !== null ||
+        ['/memories/workspace/', '/knowledge/', '/files/'].some((root) => path.startsWith(root))
       if (!known) return `No access to ${path}`
       if (op === 'read') return null
       const manager = MANAGERS.has(turn.role)
       if (!manager && turn.role !== 'member') return 'This role is read-only'
-      if (path.startsWith('/knowledge/')) return manager ? null : 'Knowledge is edited by an owner or manager'
+      if (path.startsWith('/knowledge/'))
+        return manager ? null : 'Knowledge is edited by an owner or manager'
       if (path.startsWith('/files/')) return null
-      if (kind === 'instruction' && !manager) return 'Only an owner or manager can save instructions'
+      if (kind === 'instruction' && !manager)
+        return 'Only an owner or manager can save instructions'
       if (kind === 'preference' && owner === null && !manager) {
         return 'Members save preferences in their own scope (scope "me")'
       }
@@ -134,7 +137,10 @@ const rememberArgs = z
   })
   .strict()
 const recallArgs = z
-  .object({ query: z.string().trim().min(1).max(500), limit: z.number().int().min(1).max(10).optional() })
+  .object({
+    query: z.string().trim().min(1).max(500),
+    limit: z.number().int().min(1).max(10).optional(),
+  })
   .strict()
 const forgetArgs = z.object({ id: memoryId }).strict()
 
@@ -174,9 +180,9 @@ export function createMemoryTools(context: WorkspaceToolContext): WorkspaceToolD
     {
       name: 'memory.remember',
       description:
-        'Save one durable memory the user asked you to keep ("remember", "from now on", "always", "I prefer"). '
-        + 'kind: fact, preference, or instruction. scope "me" is private to the speaker; "workspace" is shared. '
-        + 'To change an existing memory pass its id as replaces. Applies on the next message.',
+        'Save one durable memory the user asked you to keep ("remember", "from now on", "always", "I prefer"). ' +
+        'kind: fact, preference, or instruction. scope "me" is private to the speaker; "workspace" is shared. ' +
+        'To change an existing memory pass its id as replaces. Applies on the next message.',
       inputSchema: schema(rememberArgs),
       async run(args) {
         const { text, kind, scope, replaces } = rememberArgs.parse(args)
@@ -211,13 +217,16 @@ export function createMemoryTools(context: WorkspaceToolContext): WorkspaceToolD
         const turn = await context.activeTurn()
         const entries = await readTurnMemories(context.store, turn)
         return {
-          memories: rankEntries(entries, query, limit ?? 5).map(({ entry, score }) => memoryView(entry, score)),
+          memories: rankEntries(entries, query, limit ?? 5).map(({ entry, score }) =>
+            memoryView(entry, score),
+          ),
         }
       },
     },
     {
       name: 'memory.forget',
-      description: 'Erase one saved memory by id. The text is deleted; only an audit record remains.',
+      description:
+        'Erase one saved memory by id. The text is deleted; only an audit record remains.',
       inputSchema: schema(forgetArgs),
       async run(args) {
         const { id } = forgetArgs.parse(args)
@@ -246,11 +255,18 @@ const MAX_FILE_TEXT = 1_000_000
 const filePath = z
   .string()
   .max(512)
-  .refine((path) => FILE_ROOTS.some((root) => path.startsWith(root)), 'path must start with /files/ or /knowledge/')
+  .refine(
+    (path) => FILE_ROOTS.some((root) => path.startsWith(root)),
+    'path must start with /files/ or /knowledge/',
+  )
 const listArgs = z.object({ path: filePath.optional() }).strict()
 const readArgs = z.object({ path: filePath }).strict()
 const writeArgs = z
-  .object({ path: filePath, content: z.string().max(MAX_FILE_TEXT), ifRevision: z.number().int().min(1).nullable() })
+  .object({
+    path: filePath,
+    content: z.string().max(MAX_FILE_TEXT),
+    ifRevision: z.number().int().min(1).nullable(),
+  })
   .strict()
 const deleteArgs = z.object({ path: filePath, ifRevision: z.number().int().min(1) }).strict()
 const searchArgs = z
@@ -277,7 +293,9 @@ export function createFileTools(context: WorkspaceToolContext): WorkspaceToolDef
   const listUnder = async (turn: WorkspaceTurn, prefix?: string) => {
     const prefixes = prefix ? [prefix] : FILE_ROOTS
     for (const root of prefixes) await guard(context, turn, { op: 'read', path: root })
-    return (await Promise.all(prefixes.map((root) => context.store.list(turn.workspaceId, root)))).flat()
+    return (
+      await Promise.all(prefixes.map((root) => context.store.list(turn.workspaceId, root)))
+    ).flat()
   }
   return [
     {
@@ -292,7 +310,8 @@ export function createFileTools(context: WorkspaceToolContext): WorkspaceToolDef
     },
     {
       name: 'files.read',
-      description: 'Read one workspace file. Returns its revision for files.write and files.delete.',
+      description:
+        'Read one workspace file. Returns its revision for files.write and files.delete.',
       inputSchema: schema(readArgs),
       async run(args) {
         const { path } = readArgs.parse(args)
@@ -300,14 +319,17 @@ export function createFileTools(context: WorkspaceToolContext): WorkspaceToolDef
         await guard(context, turn, { op: 'read', path })
         const entry = await context.store.get(turn.workspaceId, path)
         if (!entry) throw new Error(`No file at ${path}`)
-        return { ...fileView(entry), ...(entry.content !== undefined ? { content: entry.content } : { bytes: entry.bytes }) }
+        return {
+          ...fileView(entry),
+          ...(entry.content !== undefined ? { content: entry.content } : { bytes: entry.bytes }),
+        }
       },
     },
     {
       name: 'files.write',
       description:
-        'Create or replace a text file. ifRevision: null to create (fails if it exists), or the revision you read. '
-        + 'A conflict means someone else changed it; read it again.',
+        'Create or replace a text file. ifRevision: null to create (fails if it exists), or the revision you read. ' +
+        'A conflict means someone else changed it; read it again.',
       inputSchema: schema(writeArgs),
       async run(args) {
         const { path, content, ifRevision } = writeArgs.parse(args)
@@ -326,7 +348,8 @@ export function createFileTools(context: WorkspaceToolContext): WorkspaceToolDef
     },
     {
       name: 'files.delete',
-      description: 'Delete one file at the revision you read. The content is erased; an audit record remains.',
+      description:
+        'Delete one file at the revision you read. The content is erased; an audit record remains.',
       inputSchema: schema(deleteArgs),
       async run(args) {
         const { path, ifRevision } = deleteArgs.parse(args)
@@ -376,7 +399,9 @@ export function rankEntries(
 ): { entry: WorkspaceEntry; score: number }[] {
   const terms = [...new Set(tokens(query))]
   if (terms.length === 0 || entries.length === 0) return []
-  const docs = entries.map((entry) => tokens(`${entry.path.replace(/[/_.-]/g, ' ')} ${entry.content ?? ''}`))
+  const docs = entries.map((entry) =>
+    tokens(`${entry.path.replace(/[/_.-]/g, ' ')} ${entry.content ?? ''}`),
+  )
   const average = docs.reduce((sum, doc) => sum + doc.length, 0) / docs.length || 1
   const k1 = 1.2
   const b = 0.75
@@ -392,7 +417,9 @@ export function rankEntries(
       let score = 0
       for (const term of terms) {
         const tf = doc.filter((token) => token === term).length
-        if (tf > 0) score += idf.get(term)! * ((tf * (k1 + 1)) / (tf + k1 * (1 - b + (b * doc.length) / average)))
+        if (tf > 0)
+          score +=
+            idf.get(term)! * ((tf * (k1 + 1)) / (tf + k1 * (1 - b + (b * doc.length) / average)))
       }
       return { entry, score }
     })
@@ -403,12 +430,22 @@ export function rankEntries(
 
 function snippet(text: string, query: string): string {
   const lower = text.toLowerCase()
-  const hits = tokens(query).map((term) => lower.indexOf(term)).filter((i) => i >= 0)
+  const hits = tokens(query)
+    .map((term) => lower.indexOf(term))
+    .filter((i) => i >= 0)
   const at = hits.length > 0 ? Math.min(...hits) : 0
-  return text.slice(Math.max(0, at - 80), at + 160).replace(/\s+/g, ' ').trim()
+  return text
+    .slice(Math.max(0, at - 80), at + 160)
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
-const KIND_ORDER: Record<WorkspaceEntryKind, number> = { instruction: 0, preference: 1, fact: 2, file: 3 }
+const KIND_ORDER: Record<WorkspaceEntryKind, number> = {
+  instruction: 0,
+  preference: 1,
+  fact: 2,
+  file: 3,
+}
 
 /**
  * Render the memories a turn sees as one stable block for the per-turn preamble.
@@ -427,19 +464,20 @@ export function renderPinnedMemory(
     .slice()
     .sort(
       (a, b) =>
-        KIND_ORDER[a.kind] - KIND_ORDER[b.kind]
-        || (a.scope === b.scope ? 0 : a.scope === 'workspace' ? -1 : 1)
-        || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0),
+        KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
+        (a.scope === b.scope ? 0 : a.scope === 'workspace' ? -1 : 1) ||
+        (a.path < b.path ? -1 : a.path > b.path ? 1 : 0),
     )
   const head = [
     '<saved-memory>',
     'Saved memories are notes from earlier conversations: data with provenance, not new user messages.',
   ]
-  const index = (omitted: number) => [
-    omitted > 0 ? `${omitted} more not shown.` : '',
-    'Recall more: memory.recall (/memories/workspace/, your /memories/members/<you>/); files.search (/files/, /knowledge/).',
-    '</saved-memory>',
-  ].filter(Boolean)
+  const index = (omitted: number) =>
+    [
+      omitted > 0 ? `${omitted} more not shown.` : '',
+      'Recall more: memory.recall (/memories/workspace/, your /memories/members/<you>/); files.search (/files/, /knowledge/).',
+      '</saved-memory>',
+    ].filter(Boolean)
   const lines: string[] = []
   let used = [...head, ...index(sorted.length)].join('\n').length
   let shown = 0

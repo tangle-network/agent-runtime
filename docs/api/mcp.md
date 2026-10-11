@@ -1804,6 +1804,122 @@ across all namespaces. Returns events in insertion order.
 
 ***
 
+### HubIntegrationClient
+
+The subset of `PlatformHubClient` this module needs — mocks plug in here.
+
+#### Methods
+
+##### listConnections()
+
+> **listConnections**(): `Promise`\<[`PlatformConnection`](platform.md#platformconnection)[]\>
+
+###### Returns
+
+`Promise`\<[`PlatformConnection`](platform.md#platformconnection)[]\>
+
+##### exec()
+
+> **exec**(`input`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### input
+
+###### path
+
+`string`
+
+###### input?
+
+`unknown`
+
+###### connectionId?
+
+`string`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
+### HubIntegrationToolsOptions
+
+#### Extended by
+
+- [`CreateHubIntegrationToolServerOptions`](#createhubintegrationtoolserveroptions)
+
+#### Properties
+
+##### client
+
+> **client**: [`HubIntegrationClient`](#hubintegrationclient)
+
+##### providers?
+
+> `optional` **providers?**: readonly `string`[]
+
+Provider kinds to expose. Defaults to `HUB_DATA_PROVIDER_KINDS`.
+
+##### includeUnhealthy?
+
+> `optional` **includeUnhealthy?**: `boolean`
+
+Also serve connections whose last health probe failed. Default false.
+
+***
+
+### CreateHubIntegrationToolServerOptions
+
+#### Extends
+
+- [`HubIntegrationToolsOptions`](#hubintegrationtoolsoptions)
+
+#### Properties
+
+##### client
+
+> **client**: [`HubIntegrationClient`](#hubintegrationclient)
+
+###### Inherited from
+
+[`HubIntegrationToolsOptions`](#hubintegrationtoolsoptions).[`client`](#client-3)
+
+##### providers?
+
+> `optional` **providers?**: readonly `string`[]
+
+Provider kinds to expose. Defaults to `HUB_DATA_PROVIDER_KINDS`.
+
+###### Inherited from
+
+[`HubIntegrationToolsOptions`](#hubintegrationtoolsoptions).[`providers`](#providers)
+
+##### includeUnhealthy?
+
+> `optional` **includeUnhealthy?**: `boolean`
+
+Also serve connections whose last health probe failed. Default false.
+
+###### Inherited from
+
+[`HubIntegrationToolsOptions`](#hubintegrationtoolsoptions).[`includeUnhealthy`](#includeunhealthy)
+
+##### serverName?
+
+> `optional` **serverName?**: `string`
+
+Server display name surfaced via `initialize`. Default 'agent-hub-integrations'.
+
+##### serverVersion?
+
+> `optional` **serverVersion?**: `string`
+
+Server version surfaced via `initialize`. Default '0'.
+
+***
+
 ### InProcessExecutorOptions
 
 **`Experimental`**
@@ -6329,6 +6445,14 @@ The harnesses this registry has a sourced list for.
 
 ***
 
+### HUB\_DATA\_PROVIDER\_KINDS
+
+> `const` **HUB\_DATA\_PROVIDER\_KINDS**: readonly `string`[]
+
+The substrate data providers whose Hub adapters become agent tools.
+
+***
+
 ### LOCAL\_HARNESSES
 
 > `const` **LOCAL\_HARNESSES**: readonly [`LocalHarness`](#localharness)[]
@@ -7599,6 +7723,48 @@ harness's exact casing, so `task` and `Task` are one collision, not two distinct
 #### Returns
 
 readonly (`"claude-code"` \| `"codex"` \| `"opencode"`)[]
+
+***
+
+### hubIntegrationTools()
+
+> **hubIntegrationTools**(`options`): `Promise`\<[`McpToolDescriptor`](#mcptooldescriptor)[]\>
+
+One router tool per active Hub connection to a data provider. The tool
+handler never holds provider credentials — it execs through the Hub, which
+enforces the per-user action policy and writes the audit record.
+
+#### Parameters
+
+##### options
+
+[`HubIntegrationToolsOptions`](#hubintegrationtoolsoptions)
+
+#### Returns
+
+`Promise`\<[`McpToolDescriptor`](#mcptooldescriptor)[]\>
+
+***
+
+### createHubIntegrationToolServer()
+
+> **createHubIntegrationToolServer**(`options`): `Promise`\<[`StdioToolServer`](#stdiotoolserver)\>
+
+Build the hub integration MCP server on the shared stdio JSON-RPC core —
+the same wire protocol every in-repo MCP server speaks. Serves zero tools
+when the caller has no active data-provider connections (a session without
+connections simply gets no database tools, mirroring the memory server's
+"no artifact, no server" discipline).
+
+#### Parameters
+
+##### options
+
+[`CreateHubIntegrationToolServerOptions`](#createhubintegrationtoolserveroptions)
+
+#### Returns
+
+`Promise`\<[`StdioToolServer`](#stdiotoolserver)\>
 
 ***
 

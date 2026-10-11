@@ -20,3 +20,4 @@
 - [testing](testing.md)
 - [tool-loop](tool-loop.md)
 - [tui](tui.md)
+- [workspace-store](workspace-store.md)

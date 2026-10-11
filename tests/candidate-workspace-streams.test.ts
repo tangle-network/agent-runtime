@@ -213,8 +213,15 @@ it('reads a stored object back once: only the private CAS putStream and readStre
   await writeFile(join(f.source, 'large'), Buffer.alloc(256 * 1024, 7))
   expect(putStreamVerifiedBy(f.artifacts)).toBe(true)
   // A wrapper that replaces either function does not inherit the claim.
-  expect(putStreamVerifiedBy({ ...f.artifacts, readStream: (ref, options) => f.artifacts.readStream!(ref, options) })).toBe(false)
-  expect(putStreamVerifiedBy({ ...f.artifacts, putStream: (input) => f.artifacts.putStream!(input) })).toBe(false)
+  expect(
+    putStreamVerifiedBy({
+      ...f.artifacts,
+      readStream: (ref, options) => f.artifacts.readStream!(ref, options),
+    }),
+  ).toBe(false)
+  expect(
+    putStreamVerifiedBy({ ...f.artifacts, putStream: (input) => f.artifacts.putStream!(input) }),
+  ).toBe(false)
   const durable = createPrivateCasArtifactPort(join(f.root, 'durable-cas'), 'run-1', {
     durable: { location: 'memory://', put: async () => undefined, get: async () => undefined },
   })
@@ -223,7 +230,10 @@ it('reads a stored object back once: only the private CAS putStream and readStre
   const reads: string[] = []
   const wrapped = {
     ...f.artifacts,
-    readStream: (ref: Parameters<NonNullable<typeof f.artifacts.readStream>>[0], options?: { signal?: AbortSignal }) => {
+    readStream: (
+      ref: Parameters<NonNullable<typeof f.artifacts.readStream>>[0],
+      options?: { signal?: AbortSignal },
+    ) => {
       reads.push(ref.sha256)
       return f.artifacts.readStream!(ref, options)
     },
