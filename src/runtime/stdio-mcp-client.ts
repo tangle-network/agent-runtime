@@ -393,6 +393,13 @@ async function resolveRemoteMcpHeaders(
   }
 }
 
+/**
+ * Spawn every enabled stdio server in `profile.mcp` and expose their tools as
+ * `<server>__<tool>` behind one route and close facade.
+ *
+ * Fails closed: a declared server that cannot boot throws, so a profile is never
+ * scored as if it had no MCP surface.
+ */
 export async function materializeLocalMcp(
   profile: AgentProfile,
   opts: MaterializeLocalMcpOptions = {},
