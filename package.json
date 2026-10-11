@@ -34,6 +34,11 @@
       "import": "./dist/tool-loop.js",
       "default": "./dist/tool-loop.js"
     },
+    "./placement": {
+      "types": "./dist/placement.d.ts",
+      "import": "./dist/placement.js",
+      "default": "./dist/placement.js"
+    },
     "./intelligence": {
       "types": "./dist/intelligence.d.ts",
       "import": "./dist/intelligence.js",

@@ -6,6 +6,7 @@ export default defineConfig({
     agent: 'src/agent/index.ts',
     durable: 'src/durable/index.ts',
     'tool-loop': 'src/tool-loop.ts',
+    placement: 'src/placement/index.ts',
     intelligence: 'src/intelligence/index.ts',
     kernel: 'src/runtime/index.ts',
     'task-queue': 'src/runtime/task-queue.ts',

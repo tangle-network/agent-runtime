@@ -98,6 +98,7 @@ try {
     './agent',
     './durable',
     './tool-loop',
+    './placement',
     './intelligence',
     './kernel',
     './analyst-loop',
@@ -126,12 +127,13 @@ try {
       run('test', ['-f', join(packageDir, relativeTarget)], repoRoot)
     }
   }
-  const toolLoopPath = join(packageDir, packageExports['./tool-loop'].import)
-  const toolLoopExternalImports = staticExternalImportClosure(toolLoopPath, packageDir)
-  if (toolLoopExternalImports.length > 0) {
-    throw new Error(
-      `tool-loop entry has static external imports: ${toolLoopExternalImports.join(', ')}`,
-    )
+  // Edge entries: a Worker bundles them with no Node compatibility and no peer installs.
+  for (const subpath of ['./tool-loop', './placement']) {
+    const entryPath = join(packageDir, packageExports[subpath].import)
+    const externalImports = staticExternalImportClosure(entryPath, packageDir)
+    if (externalImports.length > 0) {
+      throw new Error(`${subpath} entry has static external imports: ${externalImports.join(', ')}`)
+    }
   }
 
   const knowledgePackageDir = join(

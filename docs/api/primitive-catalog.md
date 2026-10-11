@@ -301,18 +301,45 @@ Import from `@tangle-network/agent-runtime/durable` — 62 exports.
 
 ### Bounded tool calls for browser and edge runtimes
 
-Import from `@tangle-network/agent-runtime/tool-loop` — 12 exports.
+Import from `@tangle-network/agent-runtime/tool-loop` — 15 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `runToolLoop` | function | Run the bounded tool loop and return the final text + every executed tool |
 | `streamToolLoop` | function | Streaming bounded tool loop: yields each raw turn event (the caller maps + |
+| `ToolCallContext` | interface | What the loop hands a running tool besides its call. |
 | `ToolLoopAssistantToolCall` | interface | One OpenAI-shaped tool-call entry carried on an assistant message. |
+| `ToolProgressUpdate` | interface | One progress report from a running tool, shaped like an MCP `notifications/progress` |
+| `ToolCallExecutor` | type | Executes one tool call. Implementations that take only the call stay valid. |
 | `ToolCallOutcome` | type | Outcome of one tool dispatch — structurally compatible with a hub/integration |
 | `ToolLoopMessage` | type | A message in the running conversation the loop sends to `streamTurn`. |
 | `ToolLoopStopReason` | type | Why the loop stopped. `completed` = model finished naturally; `stuck-loop` = |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `RunToolLoopOptions`, `StreamToolLoopOptions`, `ToolLoopCall`, `ToolLoopResult`, `StreamToolLoopYield`, `ToolLoopEvent`.
+
+### Execution placement — cheapest tier a profile allows, edge-safe
+
+Import from `@tangle-network/agent-runtime/placement` — 16 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `authoredPlacement` | function | The record for a tier the author named: nothing was chosen or refused. |
+| `loopProfileRefusal` | function | Why `inference` and `loop` cannot run this profile, or undefined when they can. |
+| `placeExecution` | function | Choose where work runs: the cheapest tier every declared requirement allows. |
+| `resumedPlacement` | function | The record for work that resumes under the tier it began with. A retry reuses the |
+| `sandboxOnlyRequirements` | function | Every declared requirement only a sandbox can meet. A caller resuming work in the |
+| `loopTierProfileMaterialization` | const | The profile axes `inference` and `loop` carry: identity, prompt, model controls and |
+| `PLACEMENT_POLICY` | const | The policy version every {@link PlacementRecord} carries. |
+| `PlacementRefusedError` | class | No tier can meet every declared requirement. Raised before any spend. |
+| `LoopProfileRefusalOptions` | interface | Options for {@link loopProfileRefusal}. |
+| `PlacementContext` | interface | Which tiers this deployment has wired. |
+| `PlacementRecord` | interface | What was chosen, under which policy, why, and why each other tier was refused. |
+| `PlacementRequirements` | interface | The declared requirements of the work, beside its profile. Field names follow |
+| `SandboxOnlyRequirementsOptions` | interface | Options for {@link sandboxOnlyRequirements}. |
+| `ExecutionTier` | type | Where one unit of agent work runs, cheapest first. |
+| `VacuousAxis` | type | Profile axes a tier may count as covered when their declared value grants nothing. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `PlaceExecutionInput`.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
@@ -1518,7 +1545,7 @@ Import from `@tangle-network/agent-runtime/testing` — 14 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 246 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 252 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1537,6 +1564,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 246 exports.
 | `createDelegationTraceCollector` | function | Build a `DelegationTraceCollector` that buffers loop-trace events and converts them to spans on settle. |
 | `createDetachedTurnResumeDriver` | function | Build the `driveTurn`-backed {@link DelegationResumeDriver}. Each `tick()` |
 | `createFleetWorkspaceExecutor` | function | Build an executor that resolves each delegated iteration to an existing |
+| `createHubIntegrationToolServer` | function | Build the hub integration MCP server on the shared stdio JSON-RPC core — |
 | `createInProcessExecutor` | function | Build an in-process executor. Returns a {@link DelegationExecutor} whose `client.create()` |
 | `createInProcessTransport` | function | In-process pair of `Readable` + `Writable` streams suitable for driving |
 | `createKbGate` | function | Build a fail-closed KB gate. The returned function runs the built-in floor |
@@ -1555,6 +1583,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 246 exports.
 | `harnessSupportsReasoningEffort` | function | Whether the harness's native control can express this reasoning effort. Admission checks read |
 | `hashIdempotencyInput` | function | Best-effort stable hash for use as `idempotencyKey`. Not cryptographic; |
 | `hostDirectoryReader` | function | The host-directory reader: a manager whose workspace is a directory this process can open. |
+| `hubIntegrationTools` | function | One router tool per active Hub connection to a data provider. The tool |
 | `localHarnessExecutable` | function | The CLI binary a harness id runs. The two are NOT the same string (`claude-code` runs `claude`), |
 | `mcpToolsForRuntimeMcp` | function | Returns the queue-bound delegation tools projected into OpenAI Chat |
 | `mcpToolsForRuntimeMcpSubset` | function | Subset filter — return only the projected tools whose `function.name` |
@@ -1599,6 +1628,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 246 exports.
 | `delegationProfiles` | const | Every delegation profile a queued record can carry. One owner: the tool schemas and validators |
 | `downMessageRefusalReasons` | const | Why one parent→child delivery did not land, in the words the MANAGER needs. |
 | `harnessNativeTools` | const | Sourced native sub-agent tool names, keyed by the same `HarnessType` vocabulary the rest of the |
+| `HUB_DATA_PROVIDER_KINDS` | const | The substrate data providers whose Hub adapters become agent tools. |
 | `LOCAL_HARNESSES` | const | Every local harness, in table order — the one list `AGENT_RUNTIME_LOCAL_HARNESSES` and any |
 | `MEMORY_FILE_ENV` | const | Env var naming the durable row store file the memory bin loads (the |
 | `MEMORY_ITEMS_ENV` | const | Env var carrying inline JSON `MemoryItem` rows (win over file rows on id). |
@@ -1646,6 +1676,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 246 exports.
 | `DriveTurnCapableBox` | interface | The box surface detached turns need. `SandboxInstance` |
 | `EventAcknowledgement` | interface | One acknowledgement record: which delivered events are now processed, and on whose word. |
 | `FleetHandle` | interface | Minimal `SandboxFleet` surface the fleet executor calls. Declared |
+| `HubIntegrationClient` | interface | The subset of `PlatformHubClient` this module needs — mocks plug in here. |
 | `JsonRpcMessage` | interface | One JSON-RPC 2.0 request or notification. |
 | `JsonRpcResponse` | interface | One JSON-RPC 2.0 response. |
 | `LeadMessage` | interface | A steer or an answer this manager received from its lead. |
@@ -1682,7 +1713,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 246 exports.
 | `SourcedHarness` | type | A harness with a sourced native tool list. |
 | `UiAuditorDelegate` | type | UI-auditor delegate — fully consumer-injected. agent-runtime ships no |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AnalystRegistry`, `CappedDelegationTrace`, `CoderOutput`, `CoderReview`, `CoordinationToolsOptions`, `CreateKbGateOptions`, `CreateMemoryToolServerOptions`, `CreateWorktreeOptions`, `DelegateCodeArgs`, `DelegateCodeResult`, `DelegateFeedbackArgs`, `DelegateFeedbackHandlerOptions`, `DelegateFeedbackResult`, `DelegateHandlerOptions`, `DelegateResearchArgs`, `DelegateResearchConfig`, `DelegateResearchResult`, `DelegateRunCtx`, `DelegateUiAuditArgs`, `DelegateUiAuditConfig`, `DelegateUiAuditHandlerOptions`, `DelegateUiAuditResult`, `DelegationError`, `DelegationExecutor`, `DelegationFeedbackSnapshot`, `DelegationHistoryArgs`, `DelegationHistoryEntry`, `DelegationHistoryHandlerOptions`, `DelegationHistoryResult`, `DelegationProgress`, `DelegationResumeContext`, `DelegationRunContext`, `DelegationStatusArgs`, `DelegationStatusHandlerOptions`, `DelegationStatusResult`, `DelegationStore`, `DelegationTaskQueueOptions`, `DelegationTraceCaps`, `DetachedSessionDelegateOptions`, `DetachedTurn`, `DetachedTurnResumeDriverOptions`, `DiffOptions`, `DiffResult`, `FactCandidate`, `FactJudge`, `FactJudgeVerdict`, `FeedbackEvent`, `FeedbackRating`, `FeedbackRefersTo`, `FeedbackStore`, `FileDelegationStoreOptions`, `FleetWorkspaceExecutorOptions`, `InProcessExecutorDescribePlacement`, `InProcessExecutorOptions`, `KbGateResult`, `LocalHarnessResult`, `McpServer`, `McpServerOptions`, `Question`, `QuestionOption`, `QuestionRecord`, `RemoveWorktreeOptions`, `ResolvedSpawnResourcePath`, `RunDetachedTurnOptions`, `RunLocalHarnessOptions`, `SettleDetachedCoderTurnOptions`, `SiblingSandboxExecutorOptions`, `StdioToolServer`, `StdioToolServerOptions`, `SubmitInput`, `SubmitOutput`, `TraceContext`, `WorktreeHandle`, `AnalystToolGroupName`, `CoderDelegate`, `DelegationProfile`, `DelegationStatus`, `DetachedWinnerSelection`, `MakeWorkerAgent`, `QuestionDecision`, `QuestionEscalationTarget`, `QuestionLevel`, `QuestionPolicy`, `QuestionUrgency`, `ResolveSpawnResourcePathsResult`, `SpawnResourceRead`, `UiAuditLensFilter`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AnalystRegistry`, `CappedDelegationTrace`, `CoderOutput`, `CoderReview`, `CoordinationToolsOptions`, `CreateHubIntegrationToolServerOptions`, `CreateKbGateOptions`, `CreateMemoryToolServerOptions`, `CreateWorktreeOptions`, `DelegateCodeArgs`, `DelegateCodeResult`, `DelegateFeedbackArgs`, `DelegateFeedbackHandlerOptions`, `DelegateFeedbackResult`, `DelegateHandlerOptions`, `DelegateResearchArgs`, `DelegateResearchConfig`, `DelegateResearchResult`, `DelegateRunCtx`, `DelegateUiAuditArgs`, `DelegateUiAuditConfig`, `DelegateUiAuditHandlerOptions`, `DelegateUiAuditResult`, `DelegationError`, `DelegationExecutor`, `DelegationFeedbackSnapshot`, `DelegationHistoryArgs`, `DelegationHistoryEntry`, `DelegationHistoryHandlerOptions`, `DelegationHistoryResult`, `DelegationProgress`, `DelegationResumeContext`, `DelegationRunContext`, `DelegationStatusArgs`, `DelegationStatusHandlerOptions`, `DelegationStatusResult`, `DelegationStore`, `DelegationTaskQueueOptions`, `DelegationTraceCaps`, `DetachedSessionDelegateOptions`, `DetachedTurn`, `DetachedTurnResumeDriverOptions`, `DiffOptions`, `DiffResult`, `FactCandidate`, `FactJudge`, `FactJudgeVerdict`, `FeedbackEvent`, `FeedbackRating`, `FeedbackRefersTo`, `FeedbackStore`, `FileDelegationStoreOptions`, `FleetWorkspaceExecutorOptions`, `HubIntegrationToolsOptions`, `InProcessExecutorDescribePlacement`, `InProcessExecutorOptions`, `KbGateResult`, `LocalHarnessResult`, `McpServer`, `McpServerOptions`, `Question`, `QuestionOption`, `QuestionRecord`, `RemoveWorktreeOptions`, `ResolvedSpawnResourcePath`, `RunDetachedTurnOptions`, `RunLocalHarnessOptions`, `SettleDetachedCoderTurnOptions`, `SiblingSandboxExecutorOptions`, `StdioToolServer`, `StdioToolServerOptions`, `SubmitInput`, `SubmitOutput`, `TraceContext`, `WorktreeHandle`, `AnalystToolGroupName`, `CoderDelegate`, `DelegationProfile`, `DelegationStatus`, `DetachedWinnerSelection`, `MakeWorkerAgent`, `QuestionDecision`, `QuestionEscalationTarget`, `QuestionLevel`, `QuestionPolicy`, `QuestionUrgency`, `ResolveSpawnResourcePathsResult`, `SpawnResourceRead`, `UiAuditLensFilter`.
 
 ### Supervisor TUI — live terminal view over the on-disk run layout
 
