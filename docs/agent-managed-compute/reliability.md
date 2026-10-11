@@ -124,7 +124,7 @@ The node settles once the turn's usage is metered; the owner awaits the capture 
 A deadline or abort that reaches a manager whose submission was accepted waits, for at most 5 minutes, for the turn that submitted it to end, and the node settles `done` with the accepted result.
 A nested manager releases its own environment once its scope finishes, and the run settlement waits for every manager's capture and release.
 One release spends at most 15 minutes (`RELEASE_CHECKPOINT_CAPTURES_MS`) capturing the owner's pending checkpoints; a capture it cuts short keeps its checkpoint and the source, as a failed capture does, and the release goes on to settle.
-Live workspace captures stop whenever a turn ends, including a turn its consumer closed in an environment kept for recovery.
+Live workspace captures stop whenever a turn ends, the copy in flight included, even for a turn its consumer closed in an environment kept for recovery.
 At that release a verified capture recorded as `execution-evidence` is the turn's receipt.
 A `not_found` answer for a checkpoint request older than ten request bounds no longer keeps the source environment alive.
 Each workspace capture journals a `workspace-capture` record with its queue wait, capture time and archive bytes.

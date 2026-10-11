@@ -1298,6 +1298,60 @@ describe('provider workspace retention', () => {
     await executor.teardown('brutalKill')
   })
 
+  it('stops the live workspace capture in flight when its turn ends', async () => {
+    // A copy in flight holds a capture slot and a timer that keeps the process alive, for up to
+    // its own bound (15 minutes on terraform-dc-model-20261010h-c1, whose live copies of stopped
+    // boxes timed out at 900000ms, one after another).
+    const artifacts = artifactStore()
+    const { provider } = providerFor(async function* () {
+      yield {
+        type: 'usage',
+        data: { usageMode: 'delta' },
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }
+      await new Promise<never>(() => {})
+    })
+    let started = 0
+    let stopped = 0
+    const executor = providerAsExecutor(provider, {
+      destroyOnSettle: false,
+      workspaceRetention: {
+        timeoutMs: 3_600_000,
+        artifacts,
+        capture: (context) => snapshot(artifacts, context.executionId),
+        liveIntervalMs: 5,
+        liveTimeoutMs: 900_000,
+        captureLive(context) {
+          started += 1
+          return new Promise<never>((_resolve, reject) => {
+            context.signal.addEventListener(
+              'abort',
+              () => {
+                stopped += 1
+                reject(context.signal.reason)
+              },
+              { once: true },
+            )
+          })
+        },
+      },
+    })(
+      { profile: testProfile('live-workspace-in-flight'), harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    const iterator = (
+      executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>
+    )[Symbol.asyncIterator]()
+    await iterator.next()
+    for (let waited = 0; started === 0 && waited < 2_000; waited += 5)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    expect([started, stopped]).toEqual([1, 0])
+    await iterator.return?.(undefined)
+    await vi.waitFor(() => expect(stopped).toBe(1), { timeout: 1_000 })
+    expect(started).toBe(1)
+    await executor.teardown('brutalKill')
+  })
+
   it('refuses executor reuse while a retained source environment is still live', async () => {
     const artifacts = artifactStore()
     let creates = 0

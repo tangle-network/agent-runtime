@@ -25,7 +25,7 @@ import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../ret
 import { sameControlCoordinates } from '../retained-run-binding'
 import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { addSpend, zeroSpend } from '../util'
-import { runAbortable } from './abortable'
+import { abortError, runAbortable } from './abortable'
 import { assertValidSpend } from './budget'
 import { errMessage, errorText } from './error-message'
 import { executorFailureReason } from './executor-outcome'
@@ -1013,6 +1013,12 @@ async function captureBeforeCleanup(
   if (provider?.get === undefined)
     return refuse('the provider cannot reconstruct a fork of the checkpoint', false)
   const get = provider.get.bind(provider)
+  // A bound already spent (the release's, or the owner's cancellation) forks nothing more.
+  if (parent?.aborted)
+    return refuse(
+      `capture failed: ${errorText(abortError(parent, 'capture stopped').message)}`,
+      true,
+    )
   if (branching === undefined) return refuse('source-scoped checkpoint handle unavailable', true)
   const material = { checkpoint: event.checkpoint, placement: { kind: 'sandbox' as const } }
   // One key per attempt: a fork an earlier attempt destroyed cannot be replayed into this one.
@@ -1475,7 +1481,7 @@ async function releaseOwnerEnvironment(
       const branching = await checkpointHandle(
         state,
         sourceEnvironmentId,
-        AbortSignal.timeout(30_000),
+        AbortSignal.any([captures.signal, AbortSignal.timeout(30_000)]),
       )
       const cleaned = await cleanCheckpoints(
         state,

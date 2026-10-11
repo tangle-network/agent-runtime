@@ -933,25 +933,36 @@ function createProviderExecutor(
     options.workspaceRetention?.captureLive === undefined ? undefined : options.workspaceRetention
   let liveInFlight: Promise<void> | undefined
   let liveTimer: ReturnType<typeof setTimeout> | undefined
+  // Stops the copy in flight too: it holds a capture slot, and a timer that keeps the process alive,
+  // for up to its own bound.
+  let liveStop: AbortController | undefined
   const stopLiveMirror = (): void => {
     if (liveTimer !== undefined) clearTimeout(liveTimer)
     liveTimer = undefined
+    liveStop?.abort(new Error('live workspace capture stopped: its turn ended'))
+    liveStop = undefined
   }
   const startLiveMirror = (next: AgentEnvironment): void => {
     if (livePort?.liveIntervalMs === undefined) return
     stopLiveMirror()
+    const stop = new AbortController()
+    liveStop = stop
     const schedule = (): void => {
       liveTimer = setTimeout(() => {
         if (liveInFlight === undefined && workspaceCapturePromise === undefined) {
-          const running = captureProviderLiveWorkspace(livePort, {
-            environment: next,
-            executionId: workspaceExecutionId,
-            ...(workspaceControlRef === undefined ? {} : { controlRef: workspaceControlRef }),
-            ...(node === undefined ? {} : { node }),
-            providerSessionId,
-            nativeSessionId: null,
-            profile: createProfile,
-          }).then(
+          const running = captureProviderLiveWorkspace(
+            livePort,
+            {
+              environment: next,
+              executionId: workspaceExecutionId,
+              ...(workspaceControlRef === undefined ? {} : { controlRef: workspaceControlRef }),
+              ...(node === undefined ? {} : { node }),
+              providerSessionId,
+              nativeSessionId: null,
+              profile: createProfile,
+            },
+            stop.signal,
+          ).then(
             () => undefined,
             () => undefined,
           )
