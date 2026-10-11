@@ -8868,7 +8868,7 @@ Exact provider-create profile identity; materialization receipts bind it to the 
 
 ##### backend
 
-> **backend**: `"router"` \| `"sandbox"` \| `"bridge"` \| `"local"`
+> **backend**: `"sandbox"` \| `"router"` \| `"bridge"` \| `"local"`
 
 The execution transport for the driven loop.
 
@@ -22365,7 +22365,7 @@ A stage is authored in the immutable profile. A selection is a concrete, private
 
 ##### previous?
 
-> `readonly` `optional` **previous?**: `Pick`\<[`SeatSegment`](#seatsegment), `"provider"` \| `"model"` \| `"harness"` \| `"seat"`\>
+> `readonly` `optional` **previous?**: `Pick`\<[`SeatSegment`](#seatsegment), `"harness"` \| `"provider"` \| `"model"` \| `"seat"`\>
 
 ##### retainedEnvironmentId?
 

@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.314.2` and `@tangle-network/agent-eval@0.211.3` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.315.0` and `@tangle-network/agent-eval@0.211.3` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -301,18 +301,45 @@ Import from `@tangle-network/agent-runtime/durable` — 62 exports.
 
 ### Bounded tool calls for browser and edge runtimes
 
-Import from `@tangle-network/agent-runtime/tool-loop` — 12 exports.
+Import from `@tangle-network/agent-runtime/tool-loop` — 15 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `runToolLoop` | function | Run the bounded tool loop and return the final text + every executed tool |
 | `streamToolLoop` | function | Streaming bounded tool loop: yields each raw turn event (the caller maps + |
+| `ToolCallContext` | interface | What the loop hands a running tool besides its call. |
 | `ToolLoopAssistantToolCall` | interface | One OpenAI-shaped tool-call entry carried on an assistant message. |
+| `ToolProgressUpdate` | interface | One progress report from a running tool, shaped like an MCP `notifications/progress` |
+| `ToolCallExecutor` | type | Executes one tool call. Implementations that take only the call stay valid. |
 | `ToolCallOutcome` | type | Outcome of one tool dispatch — structurally compatible with a hub/integration |
 | `ToolLoopMessage` | type | A message in the running conversation the loop sends to `streamTurn`. |
 | `ToolLoopStopReason` | type | Why the loop stopped. `completed` = model finished naturally; `stuck-loop` = |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `RunToolLoopOptions`, `StreamToolLoopOptions`, `ToolLoopCall`, `ToolLoopResult`, `StreamToolLoopYield`, `ToolLoopEvent`.
+
+### Execution placement — cheapest tier a profile allows, edge-safe
+
+Import from `@tangle-network/agent-runtime/placement` — 16 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `authoredPlacement` | function | The record for a tier the author named: nothing was chosen or refused. |
+| `loopProfileRefusal` | function | Why `inference` and `loop` cannot run this profile, or undefined when they can. |
+| `placeExecution` | function | Choose where work runs: the cheapest tier every declared requirement allows. |
+| `resumedPlacement` | function | The record for work that resumes under the tier it began with. A retry reuses the |
+| `sandboxOnlyRequirements` | function | Every declared requirement only a sandbox can meet. A caller resuming work in the |
+| `loopTierProfileMaterialization` | const | The profile axes `inference` and `loop` carry: identity, prompt, model controls and |
+| `PLACEMENT_POLICY` | const | The policy version every {@link PlacementRecord} carries. |
+| `PlacementRefusedError` | class | No tier can meet every declared requirement. Raised before any spend. |
+| `LoopProfileRefusalOptions` | interface | Options for {@link loopProfileRefusal}. |
+| `PlacementContext` | interface | Which tiers this deployment has wired. |
+| `PlacementRecord` | interface | What was chosen, under which policy, why, and why each other tier was refused. |
+| `PlacementRequirements` | interface | The declared requirements of the work, beside its profile. Field names follow |
+| `SandboxOnlyRequirementsOptions` | interface | Options for {@link sandboxOnlyRequirements}. |
+| `ExecutionTier` | type | Where one unit of agent work runs, cheapest first. |
+| `VacuousAxis` | type | Profile axes a tier may count as covered when their declared value grants nothing. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `PlaceExecutionInput`.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
