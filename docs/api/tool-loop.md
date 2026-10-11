@@ -54,6 +54,58 @@ One OpenAI-shaped tool-call entry carried on an assistant message.
 
 ***
 
+### ToolProgressUpdate
+
+One progress report from a running tool, shaped like an MCP `notifications/progress`
+payload: a free-text `message`, a monotonic `progress` count with an optional
+`total`, and any structured `data` the caller's UI understands.
+
+#### Properties
+
+##### message?
+
+> `optional` **message?**: `string`
+
+##### progress?
+
+> `optional` **progress?**: `number`
+
+##### total?
+
+> `optional` **total?**: `number`
+
+##### data?
+
+> `optional` **data?**: `unknown`
+
+***
+
+### ToolCallContext
+
+What the loop hands a running tool besides its call.
+
+#### Properties
+
+##### progress
+
+> **progress**: (`update`) => `void`
+
+Report progress while the call runs. The streaming loop yields each update as a
+`tool_progress` step, in order, before the call's `tool_result`; updates sent after
+the call settles are dropped.
+
+###### Parameters
+
+###### update
+
+[`ToolProgressUpdate`](#toolprogressupdate)
+
+###### Returns
+
+`void`
+
+***
+
 ### ToolLoopResult
 
 #### Properties
@@ -128,7 +180,13 @@ Use `stopReason !== 'completed'` instead.
 
 ##### executeToolCall
 
-> **executeToolCall**: (`call`) => `Promise`\<[`ToolCallOutcome`](#toolcalloutcome)\>
+> **executeToolCall**: [`ToolCallExecutor`](#toolcallexecutor)
+
+##### onToolProgress?
+
+> `optional` **onToolProgress?**: (`call`, `update`) => `void`
+
+Receives each progress update a running tool reports, in order.
 
 ###### Parameters
 
@@ -136,9 +194,13 @@ Use `stopReason !== 'completed'` instead.
 
 [`ToolLoopCall`](#toolloopcall)
 
+###### update
+
+[`ToolProgressUpdate`](#toolprogressupdate)
+
 ###### Returns
 
-`Promise`\<[`ToolCallOutcome`](#toolcalloutcome)\>
+`void`
 
 ##### isExecutableTool
 
@@ -320,17 +382,7 @@ Return the USD cost of one outcome. Required for `maxCostUsd` to work.
 
 ##### executeToolCall
 
-> **executeToolCall**: (`call`) => `Promise`\<[`ToolCallOutcome`](#toolcalloutcome)\>
-
-###### Parameters
-
-###### call
-
-[`ToolLoopCall`](#toolloopcall)
-
-###### Returns
-
-`Promise`\<[`ToolCallOutcome`](#toolcalloutcome)\>
+> **executeToolCall**: [`ToolCallExecutor`](#toolcallexecutor)
 
 ##### maxToolTurns?
 
@@ -465,6 +517,28 @@ now sends correct tool history.
 
 ***
 
+### ToolCallExecutor
+
+> **ToolCallExecutor** = (`call`, `context`) => `Promise`\<[`ToolCallOutcome`](#toolcalloutcome)\>
+
+Executes one tool call. Implementations that take only the call stay valid.
+
+#### Parameters
+
+##### call
+
+[`ToolLoopCall`](#toolloopcall)
+
+##### context
+
+[`ToolCallContext`](#toolcallcontext)
+
+#### Returns
+
+`Promise`\<[`ToolCallOutcome`](#toolcalloutcome)\>
+
+***
+
 ### ToolLoopEvent
 
 > **ToolLoopEvent** = \{ `type`: `"text"`; `text`: `string`; \} \| \{ `type`: `"tool_call"`; `call`: [`ToolLoopCall`](#toolloopcall); \} \| \{ `type`: `"other"`; `event`: `unknown`; \}
@@ -485,7 +559,7 @@ Why the loop stopped. `completed` = model finished naturally; `stuck-loop` =
 
 ### StreamToolLoopYield
 
-> **StreamToolLoopYield**\<`Raw`\> = \{ `kind`: `"event"`; `event`: `Raw`; \} \| \{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `label`: `string`; `outcome`: [`ToolCallOutcome`](#toolcalloutcome); \} \| \{ `kind`: `"capped"`; `pending`: `number`; `stopReason`: `Exclude`\<[`ToolLoopStopReason`](#toolloopstopreason), `"completed"`\>; \}
+> **StreamToolLoopYield**\<`Raw`\> = \{ `kind`: `"event"`; `event`: `Raw`; \} \| \{ `kind`: `"tool_progress"`; `toolName`: `string`; `toolCallId?`: `string`; `update`: [`ToolProgressUpdate`](#toolprogressupdate); \} \| \{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `label`: `string`; `outcome`: [`ToolCallOutcome`](#toolcalloutcome); \} \| \{ `kind`: `"capped"`; `pending`: `number`; `stopReason`: `Exclude`\<[`ToolLoopStopReason`](#toolloopstopreason), `"completed"`\>; \}
 
 #### Type Parameters
 
@@ -520,8 +594,9 @@ Run the bounded tool loop and return the final text + every executed tool
 > **streamToolLoop**\<`Raw`\>(`opts`): `AsyncGenerator`\<[`StreamToolLoopYield`](#streamtoolloopyield)\<`Raw`\>, `void`, `unknown`\>
 
 Streaming bounded tool loop: yields each raw turn event (the caller maps +
- telemetries + re-emits it) and each executed `tool_result`; emits one
- `capped` if it stops for any non-completed reason with calls still pending.
+ telemetries + re-emits it), each `tool_progress` a running tool reports, and
+ each executed `tool_result`; emits one `capped` if it stops for any
+ non-completed reason with calls still pending.
 
 #### Type Parameters
 
