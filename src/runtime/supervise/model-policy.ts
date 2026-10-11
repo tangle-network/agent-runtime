@@ -144,9 +144,32 @@ export interface ProfileModelExecutionSettings {
    * Requires the HTTP transport; an injected buffered `complete` transport is refused.
    */
   readonly stream?: boolean
+  /**
+   * This node's action space is CODE, not JSON tool calls (router-tools backend
+   * only): the model is shown `tool_search` + `codemode` instead of the raw tool
+   * set, and composes the granted handlers as one QuickJS program. `true` takes
+   * engine defaults; an object pins the same subset the seam accepts. Per-node
+   * (profile) declaration overrides the environment (seam) default.
+   */
+  readonly codeMode?: true | ProfileCodeModeSettings
+}
+
+/** The per-node code-mode controls a profile may pin — the seam's subset, minus
+ *  host-only (wasm/workerUrl) and executor-owned (store) options. */
+export interface ProfileCodeModeSettings {
+  /** Includes time in tools; at most 2,147,483,647 ms. */
+  readonly timeoutMs?: number
+  readonly memoryLimitBytes?: number
+  /** Excess calls queue; Promise.all does not fail simply because the queue is full. */
+  readonly concurrency?: number
+  /** Bounds total admitted calls, including queued calls. */
+  readonly maxCalls?: number
+  /** These capabilities keep their direct model tools and are not callable from code. */
+  readonly directTools?: ReadonlyArray<string>
 }
 
 const PROFILE_MODEL_METADATA_KEYS = new Set([
+  'codeMode',
   'extraBody',
   'maxTurns',
   'retry',
@@ -216,6 +239,7 @@ export function profileModelExecutionSettings(
   ) {
     throw new ConfigError(`${context}: extraBody must be an object`)
   }
+  const codeMode = profileCodeModeSettings(metadata.codeMode, context)
   return {
     ...(temperature !== undefined ? { temperature } : {}),
     tokenLimits,
@@ -227,7 +251,56 @@ export function profileModelExecutionSettings(
       : {}),
     ...(maxTurns !== undefined ? { maxTurns } : {}),
     ...(stream !== undefined ? { stream } : {}),
+    ...(codeMode !== undefined ? { codeMode } : {}),
   }
+}
+
+const PROFILE_CODE_MODE_KEYS = new Set([
+  'concurrency',
+  'directTools',
+  'maxCalls',
+  'memoryLimitBytes',
+  'timeoutMs',
+])
+
+/** Validate `AgentProfile.model.metadata.codeMode`: `true`, or an object pinning
+ *  exactly the subset a node may choose (host-only wasm/workerUrl and the
+ *  executor-owned store are refused — those belong to the seam). */
+function profileCodeModeSettings(
+  value: unknown,
+  context: string,
+): true | ProfileCodeModeSettings | undefined {
+  if (value === undefined) return undefined
+  if (value === true) return true
+  const label = `${context}: codeMode`
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new ConfigError(`${label} must be true or an object of engine settings`)
+  }
+  const input = value as Record<string, unknown>
+  const unknown = Object.keys(input).filter((key) => !PROFILE_CODE_MODE_KEYS.has(key))
+  if (unknown.length > 0) {
+    throw new ConfigError(
+      `${label} refuses unsupported fields: ${unknown.join(', ')} (allowed: ${[...PROFILE_CODE_MODE_KEYS].join(', ')}; wasm/workerUrl/store belong to the executor seam)`,
+    )
+  }
+  const timeoutMs = positiveInteger(input.timeoutMs, `${label}.timeoutMs`)
+  const memoryLimitBytes = positiveInteger(input.memoryLimitBytes, `${label}.memoryLimitBytes`)
+  const concurrency = positiveInteger(input.concurrency, `${label}.concurrency`)
+  const maxCalls = positiveInteger(input.maxCalls, `${label}.maxCalls`)
+  const directTools = input.directTools
+  if (
+    directTools !== undefined &&
+    (!Array.isArray(directTools) || directTools.some((name) => typeof name !== 'string' || !name))
+  ) {
+    throw new ConfigError(`${label}.directTools must be an array of tool names`)
+  }
+  return Object.freeze({
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    ...(memoryLimitBytes !== undefined ? { memoryLimitBytes } : {}),
+    ...(concurrency !== undefined ? { concurrency } : {}),
+    ...(maxCalls !== undefined ? { maxCalls } : {}),
+    ...(Array.isArray(directTools) ? { directTools: Object.freeze([...directTools]) } : {}),
+  })
 }
 
 /**

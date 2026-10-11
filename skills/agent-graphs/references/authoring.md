@@ -10,6 +10,13 @@ Each node holds an id and a canonical AgentProfile; its profile name matches the
 Standing roles belong in the profile prompt, with explicit tools and resources.
 Put the concrete mission in the deliverable description and supply an independent completion check that rejects incomplete output.
 
+A node whose work is mechanical composition (fan-out, filtering, pagination, cross-tool joins)
+can be a CODE node: `model.metadata.codeMode` on its profile presents `tool_search` + `codemode`
+instead of the raw tools, so the model authors one program per assignment instead of one tool
+call per turn. The grant (`profile.tools`) is unchanged — every nested call still crosses the
+authorized handler, and spend still settles on the node. Reserve code nodes for judgment-free
+stretches; anything that must re-plan on an observed result belongs in an ordinary agent node.
+
 ## Edges
 
 Delegation edges carry work from the root to a worker through registered prompt references.

@@ -116,6 +116,7 @@ import {
   assertExecutableAgentProfile,
   concreteProfileModel,
   enforceTokenLimits,
+  type ProfileCodeModeSettings,
   type ProfileModelExecutionSettings,
   profileModelExecutionSettings,
   profileProviderModel,
@@ -830,7 +831,12 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             }
           }
         }
-        const codeMode = seam.codeMode
+        // A node declares code mode on its profile (model.metadata.codeMode) — a graph
+        // node whose action space is CODE over its granted handlers, not one JSON tool
+        // call per turn. The profile wins over the environment (seam) default, so one
+        // graph can mix code nodes and ordinary agent nodes.
+        const codeModeConfig = profileExecution.codeMode ?? seam.codeMode
+        const codeMode = codeModeConfig
           ? createCodeModeTools(
               seam.tools.map(({ function: tool }) => ({
                 name: tool.name,
@@ -839,7 +845,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                 outputSchema: tool.outputSchema,
                 execute: (args, context) => executeGranted(tool.name, args, context),
               })),
-              seam.codeMode === true ? {} : seam.codeMode,
+              codeModeConfig === true ? {} : codeModeConfig,
             )
           : undefined
         const presentedTools: ReadonlyArray<ToolSpec> = codeMode
@@ -2703,6 +2709,7 @@ interface RouterProfileExecution {
   extraBody?: Readonly<Record<string, unknown>>
   maxTurns?: number
   stream?: boolean
+  codeMode?: true | ProfileCodeModeSettings
 }
 
 /** Validate and render every AgentProfile axis the direct Router path claims to carry.
@@ -2731,6 +2738,11 @@ function routerProfileExecution(
   if (!mode.multiTurn && settings.maxTurns !== undefined) {
     throw new ValidationError(
       'routerInlineExecutor: AgentProfile.model.metadata.maxTurns requires the router-tools backend',
+    )
+  }
+  if (!mode.multiTurn && settings.codeMode !== undefined) {
+    throw new ValidationError(
+      'routerInlineExecutor: AgentProfile.model.metadata.codeMode requires the router-tools backend',
     )
   }
   if (settings.stream === true && seam.complete !== undefined) {
