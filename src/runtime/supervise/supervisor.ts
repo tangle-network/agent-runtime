@@ -1332,7 +1332,7 @@ async function drainLiveChildren(
   const after = scope.view
   if (after.inFlight > 0) {
     throw new RuntimeRunStateError(
-      `supervisor: cleanup ended with ${after.inFlight} running and ` + describeUnconfirmed(scope),
+      `supervisor: cleanup ended with ${after.inFlight} running and ${describeUnconfirmed(scope)}`,
     )
   }
   return unconfirmedTeardowns(scope)
