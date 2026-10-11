@@ -1,3 +1,7 @@
+## 0.316.0
+
+New `@tangle-network/agent-runtime/workspace-store` subpath: a Worker-safe versioned workspace store port with compare-and-set revisions and erasure tombstones, an in-memory adapter, `memory.*` and `files.*` tools bound to a trusted turn with a default `MemoryPolicy` and `admit` hook, `renderPinnedMemory`, and `runWorkspaceStoreContract` / `workspaceStoreContractCases` for persistent adapters.
+
 ## 0.315.1
 
 Clears the lint errors that stopped the 0.315.0 publish. No API change; 0.315.0 never reached npm, so this is the first release with `./placement` and tool progress.
