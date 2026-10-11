@@ -141,8 +141,14 @@ describe('profile code-mode metadata', () => {
   })
 
   it('refuses non-boolean, non-object shapes and non-positive numbers', () => {
-    expect(() => profileModelExecutionSettings(profileWith('yes'), 't')).toThrow(/must be true or an object/)
-    expect(() => profileModelExecutionSettings(profileWith({ concurrency: 0 }), 't')).toThrow(/concurrency/)
-    expect(() => profileModelExecutionSettings(profileWith({ directTools: [42] }), 't')).toThrow(/directTools/)
+    expect(() => profileModelExecutionSettings(profileWith('yes'), 't')).toThrow(
+      /must be true or an object/,
+    )
+    expect(() => profileModelExecutionSettings(profileWith({ concurrency: 0 }), 't')).toThrow(
+      /concurrency/,
+    )
+    expect(() => profileModelExecutionSettings(profileWith({ directTools: [42] }), 't')).toThrow(
+      /directTools/,
+    )
   })
 })
