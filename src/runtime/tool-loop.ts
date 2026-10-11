@@ -236,15 +236,23 @@ export async function runBrainLoop(opts: {
           outputSchema: tool.outputSchema,
           execute: async (raw, context) => {
             signal.throwIfAborted()
-            if (opts.hooks?.stopBefore?.(completedTurns))
+            // The loop top already admitted turn `completedTurns`; the predicate that can
+            // revoke a RUNNING program is the one for the next turn (a budget that stops
+            // turn N+1), so ask about `completedTurns + 1`, never the already-admitted turn.
+            if (opts.hooks?.stopBefore?.(completedTurns + 1))
               throw new Error('code mode: Runtime execution has stopped')
             const args = codeModeArguments(raw)
             const result = await opts.execute(tool.name, args, context)
-            toolTrace.push({
-              name: tool.name,
-              args: JSON.stringify(args),
-              result: toolResultText(result),
-            })
+            // Direct calls (callId === parentCallId) are recorded by the outer loop after
+            // the dispatch returns; record only nested program calls here, mirroring the
+            // supervise executor — else every direct call lands in toolTrace twice.
+            if (context.callId !== context.parentCallId) {
+              toolTrace.push({
+                name: tool.name,
+                args: JSON.stringify(args),
+                result: toolResultText(result),
+              })
+            }
             return result
           },
         })),
@@ -341,15 +349,27 @@ export async function runBrainLoop(opts: {
       }
       signal.throwIfAborted()
       let result: unknown
+      let dispatchSucceeded = true
       if (codeMode) {
         const tool = codeByName.get(tc.name)
         if (!tool)
           throw new ValidationError(`code mode: ${tc.name} is not in the model-visible tool set`)
-        result = await tool.execute(args, { signal, callId: tc.id, parentCallId: tc.id })
+        // Model-authored arguments are a real outcome, not an infra fault — feed the error
+        // back so the model can correct, rather than failing the whole loop (mirrors the
+        // supervise executor's handling of the identical dispatch).
+        try {
+          result = await tool.execute(args, { signal, callId: tc.id, parentCallId: tc.id })
+        } catch (error) {
+          dispatchSucceeded = false
+          result = `error: ${error instanceof Error ? error.message : String(error)}`
+        }
       } else {
         result = await opts.execute(tc.name, args, { signal, callId: tc.id, parentCallId: tc.id })
       }
-      const projected = codeMode && tc.name === 'codemode' ? codeModeModelOutput(result) : undefined
+      const projected =
+        dispatchSucceeded && codeMode && tc.name === 'codemode'
+          ? codeModeModelOutput(result)
+          : undefined
       if (projected) images.push(...projected.images)
       const out = projected?.text ?? toolResultText(result)
       messages.push({ role: 'tool', tool_call_id: tc.id, content: out })

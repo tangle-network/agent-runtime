@@ -412,3 +412,112 @@ describe('code mode in the existing public createExecutor(router-tools) path', (
     )
   })
 })
+
+describe('runBrainLoop code-mode dispatch robustness', () => {
+  const finishTool = {
+    type: 'function' as const,
+    function: {
+      name: 'finish',
+      description: 'Finish the task.',
+      parameters: { type: 'object' },
+    },
+  }
+
+  it('feeds invalid codemode arguments back to the model instead of failing the loop', async () => {
+    const result = await runBrainLoop({
+      codeMode: { concurrency: 1 },
+      tools: [finishTool],
+      initialMessages: [],
+      maxTurns: 3,
+      execute: async () => ({}),
+      chat: async (_messages, _tools) => {
+        if (
+          _messages.some(
+            (m) =>
+              m.role === 'tool' && typeof m.content === 'string' && m.content.includes('error:'),
+          )
+        )
+          return { content: 'recovered', toolCalls: [] }
+        return {
+          content: '',
+          toolCalls: [
+            {
+              id: 'bad-args',
+              name: 'codemode',
+              // The model emits non-JSON-object arguments: the wrapper throws synchronously
+              // on {code: string}; the loop must answer with an error tool message.
+              arguments: JSON.stringify({ code: 123 }),
+            },
+          ],
+        }
+      },
+    })
+    expect(result.final).toBe('recovered')
+    const errorReply = result.messages.find(
+      (m) => m.role === 'tool' && typeof m.content === 'string' && m.content.startsWith('error:'),
+    )
+    expect(errorReply).toBeDefined()
+    expect(String((errorReply as { content: string }).content)).toMatch(/code: string/)
+  })
+
+  it('records a direct tool call exactly once in toolTrace when codeMode presents it', async () => {
+    const result = await runBrainLoop({
+      codeMode: { concurrency: 1, directTools: ['finish'] },
+      tools: [finishTool],
+      initialMessages: [],
+      maxTurns: 2,
+      execute: async () => 'done',
+      chat: async (_messages, _tools) =>
+        _messages.some((m) => m.role === 'tool')
+          ? { content: 'done', toolCalls: [] }
+          : {
+              content: '',
+              toolCalls: [{ id: 'direct', name: 'finish', arguments: '{}' }],
+            },
+    })
+    // Wrapper-executed nested calls record inside the wrapper; a DIRECT model call records
+    // once at the outer loop. Two entries for one call double-counted behavior evidence.
+    const finishEntries = result.toolTrace.filter((entry) => entry.name === 'finish')
+    expect(finishEntries).toHaveLength(1)
+  })
+
+  it('stops a running program through the next-turn stopBefore predicate', async () => {
+    let stopTurn = Number.POSITIVE_INFINITY
+    const observedStops: number[] = []
+    const result = await runBrainLoop({
+      codeMode: { concurrency: 1 },
+      tools: [finishTool],
+      initialMessages: [],
+      maxTurns: 5,
+      hooks: {
+        stopBefore: (turn) => {
+          observedStops.push(turn)
+          return turn >= stopTurn
+        },
+      },
+      execute: async () => 'ok',
+      chat: async (_messages, _tools) => {
+        if (stopTurn === Number.POSITIVE_INFINITY) {
+          stopTurn = 2 // the loop top admitted turn 1; only the NEXT turn can be stopped
+          return {
+            content: '',
+            toolCalls: [
+              {
+                id: 'prog',
+                name: 'codemode',
+                arguments: JSON.stringify({
+                  code: 'for (let i = 0; i < 50; i++) await tools.finish({}); "ran"',
+                }),
+              },
+            ],
+          }
+        }
+        return { content: 'stopped', toolCalls: [] }
+      },
+    })
+    // The program ran under turn 1; a stop predicate that fires from turn 2 must revoke it
+    // mid-program (the wrapper throws), which lands as an error tool reply, not a crash.
+    expect(observedStops).toContain(2)
+    expect(result.toolTrace.length).toBeLessThan(50)
+  })
+})
