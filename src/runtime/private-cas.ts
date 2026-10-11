@@ -4,6 +4,7 @@ import { link, lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promi
 import { isAbsolute, join, resolve, sep } from 'node:path'
 import type { AgentCandidateArtifactRef, Sha256Digest } from '@tangle-network/agent-interface'
 import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
+import { markPutStreamVerified } from '../candidate-execution/artifact-streams'
 
 const DIGEST = /^sha256:([0-9a-f]{64})$/u
 const HEX = /^[0-9a-f]{64}$/u
@@ -648,5 +649,8 @@ export function createPrivateCasArtifactPort(
       )
     return verified(stored, ref)
   }
+  // Without a durable store, putStream's own readback reads the object readStream will return.
+  // With one, the caller's readback may come from the store and is kept.
+  if (durable === undefined) markPutStreamVerified(putStream, readStream)
   return port
 }
