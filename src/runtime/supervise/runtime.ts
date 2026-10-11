@@ -1045,7 +1045,16 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
               let result: unknown
               let succeeded = true
               try {
-                const context = { signal: external, callId: id, parentCallId: id }
+                // The dispatch carries the per-turn interrupt signal TOO, not just the
+                // external teardown/budget one: a forceful steer_agent({interrupt:true})
+                // that lands while a codemode program runs must revoke the program and
+                // its nested effects immediately (the turn re-plans), not at completion
+                // or the five-minute bound.
+                const context = {
+                  signal: AbortSignal.any([external, turnController.signal]),
+                  callId: id,
+                  parentCallId: id,
+                }
                 result = codeMode
                   ? await codeByName.get(toolName)!.execute(args, context)
                   : await executeGranted(toolName, args, context)

@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { createCodeModeTools, runCodeMode } from '../../src/runtime/code-mode'
 import { createExecutor } from '../../src/runtime/supervise/runtime'
@@ -553,3 +553,128 @@ it('feeds an unknown tool name back to the model instead of failing the loop', a
     ),
   ).toBeDefined()
 })
+
+it('records a failed nested call in toolTrace with its error', async () => {
+  const result = await runBrainLoop({
+    codeMode: { concurrency: 1 },
+    tools: [
+      {
+        type: 'function' as const,
+        function: {
+          name: 'effect',
+          description: 'An effect that can fail.',
+          parameters: { type: 'object' },
+        },
+      },
+    ],
+    initialMessages: [],
+    maxTurns: 2,
+    execute: async () => {
+      throw new Error('effect failed after side effects')
+    },
+    chat: async (_messages, _tools) => ({
+      content: 'done',
+      toolCalls: [
+        {
+          id: 'prog',
+          name: 'codemode',
+          arguments: JSON.stringify({
+            code: 'try { await tools.effect({}) } catch {} return "recovered"',
+          }),
+        },
+      ],
+    }),
+  })
+  // The program caught the failure, but the ATTEMPT stays in the trace — the handler
+  // may have performed an external effect before throwing.
+  const entry = result.toolTrace.find((item) => item.name === 'effect')
+  expect(entry).toBeDefined()
+  expect(String(entry?.result)).toMatch(/error: effect failed/)
+})
+
+  it('a forceful interrupt revokes a running codemode program and its nested effects', async () => {
+    let turn = 0
+    let effects = 0
+    const factory = createExecutor({
+      backend: 'router-tools',
+      routerBaseUrl: 'https://router.test/v1',
+      routerKey: 'offline',
+      tools: [
+        {
+          type: 'function' as const,
+          function: {
+            name: 'effect',
+            description: 'An effect.',
+            parameters: { type: 'object' },
+          },
+        },
+      ],
+      codeMode: { concurrency: 1 },
+      executeToolCall: async () => {
+        effects += 1
+        await new Promise((resolve) => setTimeout(resolve, 15))
+        return { ok: true }
+      },
+      complete: async (body) => {
+        turn += 1
+        if (turn === 1) {
+          // Long-running program: without the per-turn interrupt signal linked into the
+          // dispatch, this keeps calling effects to completion despite the forceful steer.
+          return {
+            model: 'offline-model',
+            choices: [
+              {
+                message: {
+                  content: '',
+                  tool_calls: [
+                    {
+                      id: 'long-program',
+                      type: 'function',
+                      function: {
+                        name: 'codemode',
+                        arguments: JSON.stringify({
+                          code: 'for (let i = 0; i < 200; i++) { try { await tools.effect({}) } catch {} } return "ran"',
+                        }),
+                      },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+            usage: { prompt_tokens: 5, completion_tokens: 2, cost: 0 },
+          }
+        }
+        return {
+          model: 'offline-model',
+          choices: [{ message: { content: 're-planned' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 5, completion_tokens: 2, cost: 0 },
+        }
+      },
+    })
+    const spec = {
+      profile: {
+        name: 'code-mode-interrupt',
+        harness: 'cli-base',
+        model: { provider: 'tangle-router', default: 'offline-model', metadata: { maxTurns: 5 } },
+        tools: { effect: true },
+      },
+      harness: null,
+    } as AgentSpec
+    const signal = new AbortController().signal
+    const executor = factory(spec, { signal, seams: {} })
+    try {
+      const run = executor.execute('long task', signal)
+      // Wait until the program is actually running effects, then force a re-plan.
+      await vi.waitFor(() => expect(effects).toBeGreaterThan(0), { timeout: 5_000 })
+      executor.deliver?.({ steer: 'stop everything', interrupt: true })
+      const result = await run
+      expect(result.out).toMatchObject({ content: 're-planned' })
+      // The aborted program's nested effects stopped early: 200 sequential calls at
+      // ~15ms each would run for seconds; an unrevoked program cannot finish under the
+      // interrupt. Assert a hard ceiling well below the full program.
+      expect(effects).toBeLessThan(150)
+    } finally {
+      await executor.teardown(0)
+    }
+  })

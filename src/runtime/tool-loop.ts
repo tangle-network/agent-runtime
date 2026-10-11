@@ -242,7 +242,22 @@ export async function runBrainLoop(opts: {
             if (opts.hooks?.stopBefore?.(completedTurns + 1))
               throw new Error('code mode: Runtime execution has stopped')
             const args = codeModeArguments(raw)
-            const result = await opts.execute(tool.name, args, context)
+            let result: unknown
+            try {
+              result = await opts.execute(tool.name, args, context)
+            } catch (error) {
+              // A failed nested call is still behavior evidence — the handler may have
+              // performed an external effect before throwing — so record the attempt with
+              // its error, then rethrow: the program decides whether to catch it.
+              if (context.callId !== context.parentCallId) {
+                toolTrace.push({
+                  name: tool.name,
+                  args: JSON.stringify(args),
+                  result: `error: ${error instanceof Error ? error.message : String(error)}`,
+                })
+              }
+              throw error
+            }
             // Direct calls (callId === parentCallId) are recorded by the outer loop after
             // the dispatch returns; record only nested program calls here, mirroring the
             // supervise executor — else every direct call lands in toolTrace twice.
