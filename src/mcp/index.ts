@@ -82,6 +82,14 @@ export {
   harnessNativeTools,
   sourcedHarnesses,
 } from './harness-native-tools'
+export {
+  type CreateHubIntegrationToolServerOptions,
+  createHubIntegrationToolServer,
+  HUB_DATA_PROVIDER_KINDS,
+  type HubIntegrationClient,
+  type HubIntegrationToolsOptions,
+  hubIntegrationTools,
+} from './hub-server'
 export type {
   InProcessExecutorDescribePlacement,
   InProcessExecutorOptions,
