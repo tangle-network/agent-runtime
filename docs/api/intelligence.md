@@ -559,7 +559,7 @@ cost; `ports` are the inner server's listen ports the host must expose.
 
 ##### backend
 
-> **backend**: `"router"` \| `"sandbox"` \| `"cli"`
+> **backend**: `"sandbox"` \| `"router"` \| `"cli"`
 
 ##### image?
 
@@ -4752,7 +4752,7 @@ Bind caller-owned target identities to the exact source state Runtime measured.
 
 ##### surfaces
 
-readonly (`"knowledge"` \| `"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`)[]
+readonly (`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"hooks"` \| `"knowledge"` \| `"prompt"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`)[]
 
 ##### experiment
 
@@ -4774,7 +4774,7 @@ readonly [`AgentImprovementActivationTargetIdentity`](#agentimprovementactivatio
 
 ### isAgentImprovementProfileSurface()
 
-> **isAgentImprovementProfileSurface**(`surface`): surface is "prompt" \| "tools" \| "mcp" \| "subagents" \| "hooks" \| "skills"
+> **isAgentImprovementProfileSurface**(`surface`): surface is "tools" \| "mcp" \| "subagents" \| "skills" \| "hooks" \| "prompt"
 
 Return whether a measured surface can be delivered through an agent profile.
 
@@ -4782,17 +4782,17 @@ Return whether a measured surface can be delivered through an agent profile.
 
 ##### surface
 
-`"knowledge"` \| `"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`
+`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"hooks"` \| `"knowledge"` \| `"prompt"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`
 
 #### Returns
 
-surface is "prompt" \| "tools" \| "mcp" \| "subagents" \| "hooks" \| "skills"
+surface is "tools" \| "mcp" \| "subagents" \| "skills" \| "hooks" \| "prompt"
 
 ***
 
 ### isAgentProfileMeasuredSurface()
 
-> **isAgentProfileMeasuredSurface**(`surface`): surface is "prompt" \| "tools" \| "mcp" \| "subagents" \| "hooks" \| "skills" \| "agent-profile"
+> **isAgentProfileMeasuredSurface**(`surface`): surface is "tools" \| "mcp" \| "subagents" \| "skills" \| "hooks" \| "prompt" \| "agent-profile"
 
 Return whether a surface is eligible for shared profile measurement.
 
@@ -4804,7 +4804,7 @@ Return whether a surface is eligible for shared profile measurement.
 
 #### Returns
 
-surface is "prompt" \| "tools" \| "mcp" \| "subagents" \| "hooks" \| "skills" \| "agent-profile"
+surface is "tools" \| "mcp" \| "subagents" \| "skills" \| "hooks" \| "prompt" \| "agent-profile"
 
 ***
 
@@ -4825,7 +4825,7 @@ same profile inside a candidate bundle.
 
 ##### surface
 
-`"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"`
+`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"hooks"` \| `"prompt"`
 
 #### Returns
 
@@ -4847,7 +4847,7 @@ Return the `Sha256Digest` of one profile surface using Runtime's canonical candi
 
 ##### surface
 
-`"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"`
+`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"hooks"` \| `"prompt"`
 
 #### Returns
 
@@ -4869,7 +4869,7 @@ so exact replacement requires a reset record followed by a set record.
 
 ###### surface
 
-`"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"`
+`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"hooks"` \| `"prompt"`
 
 ###### desiredInput
 
