@@ -23,6 +23,13 @@ export interface ToolLoopCall {
   toolCallId?: string
   toolName: string
   args: Record<string, unknown>
+  /**
+   * Provider-specific fields the model attached to this call, echoed back on
+   * its assistant `tool_calls` entry in the next request. Gemini 3 returns
+   * `extra_content: { google: { thought_signature } }` on each call and answers
+   * HTTP 400 when the next request omits it.
+   */
+  providerFields?: Record<string, unknown>
 }
 
 /** Outcome of one tool dispatch — structurally compatible with a hub/integration
@@ -41,8 +48,10 @@ const FAILURE_RECOVERY_ACTIONS = ['retry', 'verify', 'continue', 'stop']
  *  stuck-loop detection. The window resets on any different call. */
 const STUCK_LOOP_THRESHOLD = 3
 
-/** One OpenAI-shaped tool-call entry carried on an assistant message. */
+/** One OpenAI-shaped tool-call entry carried on an assistant message, plus any
+ *  provider-specific fields the model attached to the call (`ToolLoopCall.providerFields`). */
 export interface ToolLoopAssistantToolCall {
+  [providerField: string]: unknown
   id: string
   type: 'function'
   function: { name: string; arguments: string }
@@ -86,6 +95,7 @@ function assistantToolCallMessage(turnText: string, pending: ToolLoopCall[]): To
     role: 'assistant',
     content: turnText.trim() || null,
     tool_calls: pending.map((call) => ({
+      ...call.providerFields,
       id: toolCallId(call),
       type: 'function',
       function: { name: call.toolName, arguments: JSON.stringify(call.args) },

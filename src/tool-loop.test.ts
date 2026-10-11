@@ -600,6 +600,47 @@ describe('streamToolLoop', () => {
     ).toBe(false)
   })
 
+  it('echoes the provider fields a model attached to a call on its tool_calls entry', async () => {
+    // Gemini 3 answers HTTP 400 when the next request drops a call's thought_signature.
+    const extraContent = { google: { thought_signature: 'sig-abc' } }
+    const seen: ToolLoopMessage[][] = []
+    const streamTurn = async function* (messages: ToolLoopMessage[]): AsyncIterable<Raw> {
+      seen.push(messages)
+      if (!messages.some((m) => m.role === 'tool')) {
+        yield { type: 'tool_call', toolName: 'submit_proposal', toolCallId: 'p1', args: { a: 1 } }
+        return
+      }
+      yield { type: 'text_delta', text: 'Done.' }
+    }
+    for await (const _ of streamToolLoop<Raw>({
+      systemPrompt: 's',
+      userMessage: 'u',
+      streamTurn,
+      ...seams,
+      extractToolCall: (e: Raw): ToolLoopCall | null =>
+        e.type === 'tool_call'
+          ? {
+              toolName: e.toolName,
+              toolCallId: e.toolCallId,
+              args: e.args,
+              providerFields: { extra_content: extraContent },
+            }
+          : null,
+      executeToolCall: async () => ({ ok: true, result: {} }),
+    })) {
+      // drain
+    }
+    const assistant = seen[1]?.find((m) => m.role === 'assistant' && m.tool_calls)
+    expect(assistant?.tool_calls).toEqual([
+      {
+        extra_content: extraContent,
+        id: 'p1',
+        type: 'function',
+        function: { name: 'submit_proposal', arguments: '{"a":1}' },
+      },
+    ])
+  })
+
   it('emits one capped signal with backstop stopReason when the model never stops', async () => {
     const streamTurn = async function* (): AsyncIterable<Raw> {
       yield { type: 'tool_call', toolName: 'submit_proposal', args: {} }
