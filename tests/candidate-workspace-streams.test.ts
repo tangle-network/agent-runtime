@@ -207,34 +207,30 @@ it('rejects a store that corrupts the archive after publication', async () => {
   ).rejects.toThrow('digest or length')
 })
 
-it('reads a stored object back once: a port that verified its own put is not read again', async () => {
+it('reads a stored object back once: the private CAS put is not read again by its caller', async () => {
   const f = await fixture()
   await writeFile(join(f.source, 'large'), Buffer.alloc(256 * 1024, 7))
-  const counted = (port: typeof f.artifacts, flag: boolean) => {
+  const counted = (putStream: NonNullable<typeof f.artifacts.putStream>) => {
     const reads: string[] = []
-    const { putStreamVerified: _verified, ...rest } = port
-    return {
-      reads,
-      port: {
-        ...rest,
-        ...(flag ? { putStreamVerified: true as const } : {}),
-        readStream: (ref: Parameters<NonNullable<typeof port.readStream>>[0], options?: { signal?: AbortSignal }) => {
-          reads.push(ref.sha256)
-          return port.readStream!(ref, options)
-        },
+    const port = {
+      ...f.artifacts,
+      putStream,
+      readStream: (ref: Parameters<NonNullable<typeof f.artifacts.readStream>>[0], options?: { signal?: AbortSignal }) => {
+        reads.push(ref.sha256)
+        return f.artifacts.readStream!(ref, options)
       },
     }
+    return { reads, port }
   }
-  const verified = counted(f.artifacts, true)
+  const own = counted(f.artifacts.putStream!)
   await captureAgentCandidateWorkspaceToArtifacts(f.source, {
-    artifactPersistence: { executionId: 'node-1', outputArtifacts: verified.port },
+    artifactPersistence: { executionId: 'node-1', outputArtifacts: own.port },
   })
-  expect(verified.reads).toEqual([])
-  // A port that does not declare its own readback is still verified, once per stored object.
-  const unverified = counted(f.artifacts, false)
+  expect(own.reads).toEqual([])
+  // A wrapper that replaces putStream does not inherit the claim and is read back once per object.
+  const wrapped = counted((input) => f.artifacts.putStream!(input))
   const { snapshot } = await captureAgentCandidateWorkspaceToArtifacts(f.source, {
-    artifactPersistence: { executionId: 'node-1', outputArtifacts: unverified.port },
+    artifactPersistence: { executionId: 'node-1', outputArtifacts: wrapped.port },
   })
-  expect(unverified.reads).toEqual([snapshot.manifest.sha256, snapshot.archive.sha256])
-  expect(f.artifacts.putStreamVerified).toBe(true)
+  expect(wrapped.reads).toEqual([snapshot.manifest.sha256, snapshot.archive.sha256])
 })

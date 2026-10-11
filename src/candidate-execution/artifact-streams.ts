@@ -43,6 +43,18 @@ export async function* verifiedArtifactChunks(
   }
 }
 
+const selfVerifyingPutStreams = new WeakSet<object>()
+
+/**
+ * Declare that this exact putStream resolves only after reading its stored object back from where
+ * it will be read and matching its digest and length. The claim belongs to the function, so a
+ * wrapper that replaces putStream never inherits it.
+ */
+export function markPutStreamVerified<T extends object>(putStream: T): T {
+  selfVerifyingPutStreams.add(putStream)
+  return putStream
+}
+
 /** Stream evaluator evidence into its existing store and verify durable readback before returning. */
 export async function persistCandidateOutputArtifactStream(
   port: AgentCandidateOutputArtifactPort,
@@ -96,7 +108,7 @@ export async function persistCandidateOutputArtifactStream(
     // A port that already read its stored object back is not read a third time. Measured
     // 2026-10-11: a critics tribunal on /mnt/traces re-read 1.1 GB/min of just-written workspace
     // archives, each one written once and read back twice.
-    if (port.putStreamVerified !== true) {
+    if (!selfVerifyingPutStreams.has(port.putStream)) {
       for await (const _chunk of verifiedArtifactChunks(ref, port, input.signal)) {
         // Verification consumes the durable object without retaining it.
       }

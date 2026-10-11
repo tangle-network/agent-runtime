@@ -4,6 +4,7 @@ import { link, lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promi
 import { isAbsolute, join, resolve, sep } from 'node:path'
 import type { AgentCandidateArtifactRef, Sha256Digest } from '@tangle-network/agent-interface'
 import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
+import { markPutStreamVerified } from '../candidate-execution/artifact-streams'
 
 const DIGEST = /^sha256:([0-9a-f]{64})$/u
 const HEX = /^[0-9a-f]{64}$/u
@@ -528,7 +529,12 @@ export function createPrivateCasArtifactPort(
   const port: PrivateCasArtifactPort = {
     // A buffered remote store cannot satisfy the streaming capture contract.
     ...(durable === undefined || (durable.putStream && durable.getStream)
-      ? { putStream, readStream, putStreamVerified: true as const }
+      ? {
+          // Without a durable store, putStream's own readback reads the object every later read
+          // will. With one, the caller's readback may come from the store and is kept.
+          putStream: durable === undefined ? markPutStreamVerified(putStream) : putStream,
+          readStream,
+        }
       : {}),
     async put({ bytes, signal }) {
       signal?.throwIfAborted()
