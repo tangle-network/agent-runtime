@@ -1,6 +1,6 @@
 ---
 name: profile-authoring
-description: Author AgentProfiles that start on the first spawn and deliver checked work, for new, continued, or multi-director runs.
+description: Author AgentProfiles that start on first spawn and deliver checked work, new or continued.
 ---
 
 # Profile authoring
