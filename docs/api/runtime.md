@@ -40410,9 +40410,11 @@ the live connection. This low-level function provides no process isolation.
 
 > **materializeLocalMcp**(`profile`, `opts?`): `Promise`\<[`LocalMcpMaterialization`](#localmcpmaterialization)\>
 
-Spawn every explicitly trusted stdio server in `profile.mcp` as a same-host
-child and expose its tools under `<server>__<tool>` names. The default policy
-refuses local processes. A profile with no MCP surface returns zero tools.
+Spawn every enabled stdio server in `profile.mcp` and expose their tools as
+`<server>__<tool>` behind one route and close facade.
+
+Fails closed: a declared server that cannot boot throws, so a profile is never
+scored as if it had no MCP surface.
 
 #### Parameters
 

@@ -2159,8 +2159,8 @@
     },
     "./tool-loop": {
       "RunToolLoopOptions": "value 8a88a972590a",
-      "StreamToolLoopOptions": "value 6e6961155cf6",
-      "StreamToolLoopYield": "value 2dac0d10b5e5",
+      "StreamToolLoopOptions": "value 4f2907258462",
+      "StreamToolLoopYield": "value 6f712db93ba4",
       "ToolCallContext": "value 6aff3d793bce",
       "ToolCallExecutor": "value 4c847341eda1",
       "ToolCallOutcome": "value e642b480b64e",
