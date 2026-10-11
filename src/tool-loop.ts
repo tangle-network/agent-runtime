@@ -98,6 +98,34 @@ function toolResultMessage(call: ToolLoopCall, content: string): ToolLoopMessage
   return { role: 'tool', tool_call_id: toolCallId(call), content }
 }
 
+/**
+ * One progress report from a running tool, shaped like an MCP `notifications/progress`
+ * payload: a free-text `message`, a monotonic `progress` count with an optional
+ * `total`, and any structured `data` the caller's UI understands.
+ */
+export interface ToolProgressUpdate {
+  message?: string
+  progress?: number
+  total?: number
+  data?: unknown
+}
+
+/** What the loop hands a running tool besides its call. */
+export interface ToolCallContext {
+  /**
+   * Report progress while the call runs. The streaming loop yields each update as a
+   * `tool_progress` step, in order, before the call's `tool_result`; updates sent after
+   * the call settles are dropped.
+   */
+  progress: (update: ToolProgressUpdate) => void
+}
+
+/** Executes one tool call. Implementations that take only the call stay valid. */
+export type ToolCallExecutor = (
+  call: ToolLoopCall,
+  context: ToolCallContext,
+) => Promise<ToolCallOutcome>
+
 function defaultRender(label: string, outcome: ToolCallOutcome): string {
   if (outcome.ok) return `- ${label} → ok: ${JSON.stringify(outcome.result)}`
   return `- ${label} → failed (${outcome.code}): ${outcome.message}`
@@ -131,7 +159,9 @@ export interface RunToolLoopOptions {
   userMessage: string
   priorMessages?: ToolLoopMessage[]
   streamTurn: (messages: ToolLoopMessage[]) => AsyncIterable<ToolLoopEvent>
-  executeToolCall: (call: ToolLoopCall) => Promise<ToolCallOutcome>
+  executeToolCall: ToolCallExecutor
+  /** Receives each progress update a running tool reports, in order. */
+  onToolProgress?: (call: ToolLoopCall, update: ToolProgressUpdate) => void
   isExecutableTool: (toolName: string) => boolean
   /** Runaway-backstop cap. Default 200 — set far above any legitimate workflow.
    *  For per-workflow limits, use `maxCostUsd` or `deadlineMs` instead. */
@@ -237,16 +267,11 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
       }
 
       const callEventId = observer.toolCallBefore(toolTurn, turnEventId, callIndex, call)
-      let outcome: ToolCallOutcome
-      try {
-        outcome = await opts.executeToolCall(call)
-      } catch (err) {
-        outcome = {
-          ok: false,
-          code: 'executor_error',
-          message: err instanceof Error ? err.message : String(err),
-        }
-      }
+      let settled = false
+      const outcome = await executeGuarded(opts.executeToolCall, call, (update) => {
+        if (!settled) opts.onToolProgress?.(call, update)
+      })
+      settled = true
 
       // Budget check after each tool call.
       if (opts.maxCostUsd !== undefined && opts.costOf !== undefined) {
@@ -298,6 +323,12 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
 export type StreamToolLoopYield<Raw> =
   | { kind: 'event'; event: Raw }
   | {
+      kind: 'tool_progress'
+      toolName: string
+      toolCallId?: string
+      update: ToolProgressUpdate
+    }
+  | {
       kind: 'tool_result'
       toolName: string
       toolCallId?: string
@@ -314,7 +345,7 @@ export interface StreamToolLoopOptions<Raw> {
   extractText: (event: Raw) => string
   extractToolCall: (event: Raw) => ToolLoopCall | null
   isExecutableTool: (toolName: string) => boolean
-  executeToolCall: (call: ToolLoopCall) => Promise<ToolCallOutcome>
+  executeToolCall: ToolCallExecutor
   /** Runaway-backstop cap. Default 200 — set far above any legitimate workflow. */
   maxToolTurns?: number
   /** Wall-clock deadline in ms since epoch (Date.now()-based). */
@@ -331,8 +362,9 @@ export interface StreamToolLoopOptions<Raw> {
 }
 
 /** Streaming bounded tool loop: yields each raw turn event (the caller maps +
- *  telemetries + re-emits it) and each executed `tool_result`; emits one
- *  `capped` if it stops for any non-completed reason with calls still pending. */
+ *  telemetries + re-emits it), each `tool_progress` a running tool reports, and
+ *  each executed `tool_result`; emits one `capped` if it stops for any
+ *  non-completed reason with calls still pending. */
 export async function* streamToolLoop<Raw>(
   opts: StreamToolLoopOptions<Raw>,
 ): AsyncGenerator<StreamToolLoopYield<Raw>, void, unknown> {
@@ -410,16 +442,37 @@ export async function* streamToolLoop<Raw>(
       }
 
       const callEventId = observer.toolCallBefore(toolTurn, turnEventId, callIndex, call)
-      let outcome: ToolCallOutcome
-      try {
-        outcome = await opts.executeToolCall(call)
-      } catch (err) {
-        outcome = {
-          ok: false,
-          code: 'executor_error',
-          message: err instanceof Error ? err.message : String(err),
+      // Progress arrives while the call is in flight; yield it as it lands, in order,
+      // and stop accepting it once the call settles so it never trails the result.
+      const progress: ToolProgressUpdate[] = []
+      let wake: (() => void) | undefined
+      let settled = false
+      const running = executeGuarded(opts.executeToolCall, call, (update) => {
+        if (settled) return
+        progress.push(update)
+        wake?.()
+      }).then((result) => {
+        settled = true
+        wake?.()
+        return result
+      })
+      while (!settled || progress.length > 0) {
+        const update = progress.shift()
+        if (update !== undefined) {
+          yield {
+            kind: 'tool_progress',
+            toolName: call.toolName,
+            toolCallId: call.toolCallId,
+            update,
+          }
+          continue
         }
+        await new Promise<void>((resolve) => {
+          wake = resolve
+        })
+        wake = undefined
       }
+      const outcome = await running
 
       // Budget check after each tool call.
       if (opts.maxCostUsd !== undefined && opts.costOf !== undefined) {
@@ -474,6 +527,23 @@ export async function* streamToolLoop<Raw>(
       })),
       failedToolCalls: outcomes.filter((item) => !item.outcome.ok).length,
     })
+  }
+}
+
+/** Run one call; a thrown executor becomes an `executor_error` outcome. */
+async function executeGuarded(
+  execute: ToolCallExecutor,
+  call: ToolLoopCall,
+  progress: (update: ToolProgressUpdate) => void,
+): Promise<ToolCallOutcome> {
+  try {
+    return await execute(call, { progress })
+  } catch (err) {
+    return {
+      ok: false,
+      code: 'executor_error',
+      message: err instanceof Error ? err.message : String(err),
+    }
   }
 }
 

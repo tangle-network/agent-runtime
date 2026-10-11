@@ -4,6 +4,7 @@ import {
   runToolLoop,
   type StreamToolLoopYield,
   streamToolLoop,
+  type ToolCallExecutor,
   type ToolCallOutcome,
   type ToolLoopCall,
   type ToolLoopEvent,
@@ -674,5 +675,160 @@ describe('streamToolLoop', () => {
       kind: 'retry',
       candidateActions: ['retry', 'verify', 'continue', 'stop'],
     })
+  })
+})
+
+describe('tool progress', () => {
+  type Raw = { t: 'text'; text: string } | { t: 'call'; call: ToolLoopCall }
+  const progressSeams = {
+    extractText: (e: Raw) => (e.t === 'text' ? e.text : ''),
+    extractToolCall: (e: Raw) => (e.t === 'call' ? e.call : null),
+    isExecutableTool: (n: string) => n === 'build',
+  }
+  const progressTurn = async function* (messages: ToolLoopMessage[]): AsyncGenerator<Raw> {
+    if (!messages.some((m) => m.role === 'tool')) {
+      yield { t: 'call', call: { toolName: 'build', toolCallId: 'b1', args: {} } }
+    } else {
+      yield { t: 'text', text: 'built' }
+    }
+  }
+  const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 1))
+  const reportingExecutor: ToolCallExecutor = async (_call, { progress }) => {
+    progress({ message: 'resolving', progress: 1, total: 3 })
+    await tick()
+    progress({ message: 'compiling', progress: 2, total: 3 })
+    await tick()
+    progress({ message: 'linking', progress: 3, total: 3 })
+    return { ok: true, result: { artifact: 'app' } }
+  }
+
+  it('yields each progress update in order, while the call runs, before its tool_result', async () => {
+    const ys: StreamToolLoopYield<Raw>[] = []
+    for await (const item of streamToolLoop<Raw>({
+      systemPrompt: 's',
+      userMessage: 'u',
+      streamTurn: progressTurn,
+      ...progressSeams,
+      executeToolCall: reportingExecutor,
+    }))
+      ys.push(item)
+
+    expect(ys.map((y) => y.kind)).toEqual([
+      'event',
+      'tool_progress',
+      'tool_progress',
+      'tool_progress',
+      'tool_result',
+      'event',
+    ])
+    expect(ys.filter((y) => y.kind === 'tool_progress')).toEqual(
+      ['resolving', 'compiling', 'linking'].map((message, i) => ({
+        kind: 'tool_progress',
+        toolName: 'build',
+        toolCallId: 'b1',
+        update: { message, progress: i + 1, total: 3 },
+      })),
+    )
+  })
+
+  it('delivers an update while the call is still running, not after it settles', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const loop = streamToolLoop<Raw>({
+      systemPrompt: 's',
+      userMessage: 'u',
+      streamTurn: progressTurn,
+      ...progressSeams,
+      executeToolCall: async (_call, { progress }) => {
+        await tick()
+        progress({ message: 'waiting on the box' })
+        await gate
+        return { ok: true, result: null }
+      },
+    })
+    expect((await loop.next()).value).toMatchObject({ kind: 'event' })
+    // The tool has not returned (the gate is shut), yet its update is already out.
+    expect((await loop.next()).value).toMatchObject({
+      kind: 'tool_progress',
+      update: { message: 'waiting on the box' },
+    })
+    release()
+    expect((await loop.next()).value).toMatchObject({ kind: 'tool_result' })
+  })
+
+  it('drops an update a tool sends after its call settled', async () => {
+    let late: ((update: { message: string }) => void) | undefined
+    const ys: StreamToolLoopYield<Raw>[] = []
+    for await (const item of streamToolLoop<Raw>({
+      systemPrompt: 's',
+      userMessage: 'u',
+      streamTurn: progressTurn,
+      ...progressSeams,
+      executeToolCall: async (_call, { progress }) => {
+        late = progress
+        return { ok: true, result: null }
+      },
+    })) {
+      ys.push(item)
+      if (item.kind === 'tool_result') late?.({ message: 'too late' })
+    }
+    expect(ys.map((y) => y.kind)).toEqual(['event', 'tool_result', 'event'])
+  })
+
+  it('reports a progressing tool that throws as an executor_error after its updates', async () => {
+    const ys: StreamToolLoopYield<Raw>[] = []
+    for await (const item of streamToolLoop<Raw>({
+      systemPrompt: 's',
+      userMessage: 'u',
+      streamTurn: progressTurn,
+      ...progressSeams,
+      executeToolCall: async (_call, { progress }) => {
+        progress({ message: 'started' })
+        await tick()
+        throw new Error('box lost')
+      },
+    }))
+      ys.push(item)
+    expect(ys.map((y) => y.kind)).toEqual(['event', 'tool_progress', 'tool_result', 'event'])
+    expect(ys[2]).toMatchObject({ outcome: { ok: false, code: 'executor_error', message: 'box lost' } })
+  })
+
+  it('hands runToolLoop progress to onToolProgress in order', async () => {
+    const seen: string[] = []
+    const result = await runToolLoop({
+      systemPrompt: 's',
+      userMessage: 'u',
+      streamTurn: async function* (messages) {
+        if (!messages.some((m) => m.role === 'tool')) {
+          yield { type: 'tool_call', call: { toolName: 'build', toolCallId: 'b1', args: {} } }
+        } else {
+          yield { type: 'text', text: 'built' }
+        }
+      },
+      isExecutableTool: (n) => n === 'build',
+      executeToolCall: reportingExecutor,
+      onToolProgress: (call, update) => seen.push(`${call.toolCallId}:${update.message}`),
+    })
+    expect(result.stopReason).toBe('completed')
+    expect(seen).toEqual(['b1:resolving', 'b1:compiling', 'b1:linking'])
+  })
+
+  it('still accepts an executor that takes only the call', async () => {
+    const callOnly = async (call: ToolLoopCall): Promise<ToolCallOutcome> => ({
+      ok: true,
+      result: call.toolName,
+    })
+    const ys: StreamToolLoopYield<Raw>[] = []
+    for await (const item of streamToolLoop<Raw>({
+      systemPrompt: 's',
+      userMessage: 'u',
+      streamTurn: progressTurn,
+      ...progressSeams,
+      executeToolCall: callOnly,
+    }))
+      ys.push(item)
+    expect(ys.map((y) => y.kind)).toEqual(['event', 'tool_result', 'event'])
   })
 })
