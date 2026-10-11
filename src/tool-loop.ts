@@ -345,11 +345,19 @@ export type StreamToolLoopYield<Raw> =
       label: string
       outcome: ToolCallOutcome
     }
-  | { kind: 'capped'; pending: number; stopReason: Exclude<ToolLoopStopReason, 'completed'> }
+  | {
+      kind: 'capped'
+      pending: number
+      stopReason: Exclude<ToolLoopStopReason, 'completed'>
+      /** On `deadline` only: the conversation after the system prompt, every tool call answered.
+       *  Passing it back as `priorMessages` with no `userMessage` continues the same turn. */
+      messages?: ToolLoopMessage[]
+    }
 
 export interface StreamToolLoopOptions<Raw> {
   systemPrompt: string
-  userMessage: string
+  /** Omit to continue a checkpointed turn whose `priorMessages` already end with tool results. */
+  userMessage?: string
   priorMessages?: ToolLoopMessage[]
   streamTurn: (messages: ToolLoopMessage[]) => AsyncIterable<Raw>
   extractText: (event: Raw) => string
@@ -385,7 +393,9 @@ export async function* streamToolLoop<Raw>(
   const messages: ToolLoopMessage[] = [
     { role: 'system', content: opts.systemPrompt },
     ...(opts.priorMessages ?? []),
-    { role: 'user', content: opts.userMessage },
+    ...(opts.userMessage !== undefined
+      ? [{ role: 'user' as const, content: opts.userMessage }]
+      : []),
   ]
   const observer = createToolLoopObserver(opts.hooks, runId, opts.scenarioId)
   let accumulatedCostUsd = 0
@@ -398,7 +408,8 @@ export async function* streamToolLoop<Raw>(
     // Wall-clock deadline check before every new turn.
     if (opts.deadlineMs !== undefined && Date.now() >= opts.deadlineMs) {
       observer.loopAfter({ turns: toolTurn + 1, stopReason: 'deadline' })
-      yield { kind: 'capped', pending: 0, stopReason: 'deadline' }
+      // A turn boundary: every call is answered, so the history is a resumable checkpoint.
+      yield { kind: 'capped', pending: 0, stopReason: 'deadline', messages: messages.slice(1) }
       return
     }
 
