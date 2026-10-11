@@ -148,7 +148,10 @@ export function createInMemoryWorkspaceStore(
   const erased: WorkspaceTombstone[] = []
   const tenant = (workspaceId: string) => {
     let entries = live.get(workspaceId)
-    if (!entries) live.set(workspaceId, (entries = new Map()))
+    if (!entries) {
+      entries = new Map()
+      live.set(workspaceId, entries)
+    }
     return entries
   }
 

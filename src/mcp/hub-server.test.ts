@@ -147,7 +147,7 @@ describe('createHubIntegrationToolServer', () => {
       id: 1,
       method: 'tools/list',
     })
-    const tools = (listed?.result as { tools: Array<{ name: string }> }).tools
+    const tools = (listed!.result as { tools: Array<{ name: string }> }).tools
     expect(tools.map((tool) => tool.name)).toEqual(['hub_neon'])
 
     const called = await server.handle({
@@ -159,7 +159,7 @@ describe('createHubIntegrationToolServer', () => {
         arguments: { action: 'branches.get', input: { project_id: 'p', branch_id: 'b' } },
       },
     })
-    expect((called?.result as { content: unknown[] }).content).toBeDefined()
+    expect((called!.result as { content: unknown[] }).content).toBeDefined()
     expect(exec).toHaveBeenCalledWith({
       path: 'neon.branches.get',
       input: { project_id: 'p', branch_id: 'b' },
@@ -180,7 +180,7 @@ describe('createHubIntegrationToolServer', () => {
     const client = clientWith([connection({ id: 'conn_sl_1', providerId: 'slack' })])
     const server = await createHubIntegrationToolServer({ client })
     const listed = await server.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
-    expect((listed?.result as { tools: unknown[] }).tools).toEqual([])
+    expect((listed!.result as { tools: unknown[] }).tools).toEqual([])
   })
 
   it('includes neon in the default data-provider kinds', () => {
