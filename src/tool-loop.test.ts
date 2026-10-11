@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { RuntimeDecisionPoint, RuntimeHookEvent } from './runtime-hooks'
 import {
   runToolLoop,
@@ -658,6 +658,39 @@ describe('streamToolLoop', () => {
     const capped = ys.filter((y) => y.kind === 'capped')
     expect(capped).toHaveLength(1)
     expect(capped[0]).toMatchObject({ kind: 'capped', stopReason: 'backstop' })
+  })
+
+  it('checkpoints the answered history at the deadline, and continues from it without a new user message', async () => {
+    let now = 1_000
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      const seen: ToolLoopMessage[][] = []
+      const first = async function* (messages: ToolLoopMessage[]): AsyncIterable<Raw> {
+        seen.push(messages)
+        yield { type: 'tool_call', toolName: 'submit_proposal', args: { step: 1 }, toolCallId: 'c1' }
+      }
+      const ys: StreamToolLoopYield<Raw>[] = []
+      for await (const item of streamToolLoop<Raw>({
+        systemPrompt: 's', userMessage: 'u', deadlineMs: 2_000, streamTurn: first, ...seams,
+        executeToolCall: async () => { now = 3_000; return { ok: true, result: { done: 1 } } },
+      })) ys.push(item)
+      const capped = ys.find((y) => y.kind === 'capped')
+      expect(capped).toMatchObject({ stopReason: 'deadline', pending: 0 })
+      const checkpoint = capped?.kind === 'capped' ? capped.messages ?? [] : []
+      expect(checkpoint.map((m) => m.role)).toEqual(['user', 'assistant', 'tool'])
+      expect(checkpoint[2]).toMatchObject({ tool_call_id: 'c1' })
+
+      const resumed: ToolLoopMessage[][] = []
+      const second = async function* (messages: ToolLoopMessage[]): AsyncIterable<Raw> {
+        resumed.push(messages)
+        yield { type: 'text_delta', text: 'finished' }
+      }
+      for await (const _ of streamToolLoop<Raw>({
+        systemPrompt: 's', priorMessages: checkpoint, deadlineMs: 10_000, streamTurn: second, ...seams,
+        executeToolCall: async () => ({ ok: true, result: {} }),
+      })) { /* drain */ }
+      expect(resumed[0]!.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'tool'])
+    } finally { clock.mockRestore() }
   })
 
   it('emits capped with stuck-loop stopReason on 3 consecutive identical calls', async () => {

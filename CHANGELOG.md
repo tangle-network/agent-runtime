@@ -1,3 +1,7 @@
+## 0.318.0
+
+A turn that reaches its deadline can continue instead of failing. `streamToolLoop`'s `capped` yield for `deadline` now carries `messages`: the conversation after the system prompt, with every tool call answered. Passing them back as `priorMessages`, with `userMessage` omitted (now optional), continues the same turn in a later process.
+
 ## 0.317.0
 
 `ToolLoopCall` carries optional `providerFields`, which the tool loop echoes onto the call's assistant `tool_calls` entry in the next request. A Gemini 3 model returns `extra_content.google.thought_signature` on each tool call and refuses the follow-up request with HTTP 400 when it is missing.
