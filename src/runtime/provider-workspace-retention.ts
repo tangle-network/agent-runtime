@@ -360,10 +360,12 @@ export async function captureProviderCheckpointWorkspace(
   }
 }
 
-/** Verify a running workspace copy before treating it as retained evidence. */
+/** Verify a running workspace copy before treating it as retained evidence. `parent` stops the
+ *  copy, in the queue or under way, when its turn ends. */
 export async function captureProviderLiveWorkspace(
   port: ProviderWorkspaceRetentionPort,
   context: Omit<ProviderWorkspaceRetentionContext, 'signal'>,
+  parent?: AbortSignal,
 ): Promise<AgentCandidateWorkspaceTree> {
   assertProviderWorkspaceRetentionPort(port, 'provider workspace retention')
   if (port.captureLive === undefined)
@@ -375,25 +377,27 @@ export async function captureProviderLiveWorkspace(
     () => controller.abort(new Error(`live workspace capture timed out after ${timeoutMs}ms`)),
     true,
   )
+  const signal =
+    parent === undefined ? controller.signal : AbortSignal.any([controller.signal, parent])
   try {
     return await runAbortable(
       () =>
-        withCaptureSlot(checkpointSlots(port), controller.signal, async () => {
+        withCaptureSlot(checkpointSlots(port), signal, async () => {
           const tree = detachedSnapshot(
-            await port.captureLive!({ ...context, signal: controller.signal }),
+            await port.captureLive!({ ...context, signal }),
             'live workspace capture tree',
           )
           if (tree?.kind !== 'agent-candidate-workspace-tree')
             throw new Error('live workspace capture returned no workspace tree')
           const material = await verifyAgentCandidateWorkspaceTree(tree, port.artifacts, {
             ...(port.limits === undefined ? {} : { limits: port.limits }),
-            signal: controller.signal,
+            signal,
           })
           if (material.files.length !== tree.files)
             throw new Error('live workspace capture tree misstates its file count')
           return tree
         }),
-      controller.signal,
+      signal,
       `live workspace capture timed out after ${timeoutMs}ms`,
     )
   } finally {

@@ -25,7 +25,7 @@ import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../ret
 import { sameControlCoordinates } from '../retained-run-binding'
 import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { addSpend, zeroSpend } from '../util'
-import { runAbortable } from './abortable'
+import { abortError, runAbortable } from './abortable'
 import { assertValidSpend } from './budget'
 import { errMessage, errorText } from './error-message'
 import { executorFailureReason } from './executor-outcome'
@@ -1013,6 +1013,12 @@ async function captureBeforeCleanup(
   if (provider?.get === undefined)
     return refuse('the provider cannot reconstruct a fork of the checkpoint', false)
   const get = provider.get.bind(provider)
+  // A bound already spent (the release's, or the owner's cancellation) forks nothing more.
+  if (parent?.aborted)
+    return refuse(
+      `capture failed: ${errorText(abortError(parent, 'capture stopped').message)}`,
+      true,
+    )
   if (branching === undefined) return refuse('source-scoped checkpoint handle unavailable', true)
   const material = { checkpoint: event.checkpoint, placement: { kind: 'sandbox' as const } }
   // One key per attempt: a fork an earlier attempt destroyed cannot be replayed into this one.
@@ -1369,13 +1375,26 @@ export async function scopeRetainedOwnerSettled(scope: Scope<unknown>): Promise<
 }
 
 /**
+ * How long one release spends capturing the owner's pending checkpoints, all of them together. A
+ * capture it cuts short keeps its checkpoint and the source, as a failed capture does, and the
+ * release goes on to settle. Each capture is otherwise bounded only by its port, and one at a
+ * time: on Discovery run terraform-dc-model-20261010h-c1 (Runtime 0.314.0) a director's release
+ * waited 00:19:18Z to 01:19:38Z for one capture to reach the port's 60-minute bound, and the run
+ * settled 98 minutes after its deadline. The release captures that finished there took 67 seconds
+ * and 7 and 34 minutes, beside live captures of abandoned directors on the same slots.
+ */
+export const RELEASE_CHECKPOINT_CAPTURES_MS = 15 * 60_000
+
+/**
  * Release the owner's environment once no turn of it will run again: at the run's final
  * settlement for the root, and when a nested manager's own scope has finished. A second call while
  * one is in flight joins it. The release first waits for the end-of-turn capture of the owner's
- * last turn, so the capture always precedes the destroy.
+ * last turn, so the capture always precedes the destroy. `capturesMs` bounds the checkpoint
+ * captures it runs ({@link RELEASE_CHECKPOINT_CAPTURES_MS}).
  */
 export function releaseScopeRetainedOwnerEnvironment(
   scope: Scope<unknown>,
+  { capturesMs = RELEASE_CHECKPOINT_CAPTURES_MS }: { readonly capturesMs?: number } = {},
 ): Promise<readonly UnconfirmedTeardown[]> {
   const state = owners.get(scope)
   const provider = state?.provider
@@ -1384,7 +1403,7 @@ export function releaseScopeRetainedOwnerEnvironment(
   const releasing = (async () => {
     await ownerDriveEnded(state)
     await scopeRetainedOwnerTurnEnded(scope)
-    return await releaseOwnerEnvironment(state, provider)
+    return await releaseOwnerEnvironment(state, provider, capturesMs)
   })()
   const tracked = releasing.finally(() => {
     if (state.releasing === tracked) delete state.releasing
@@ -1396,6 +1415,7 @@ export function releaseScopeRetainedOwnerEnvironment(
 async function releaseOwnerEnvironment(
   state: OwnerState,
   provider: AgentEnvironmentProvider,
+  capturesMs: number,
 ): Promise<readonly UnconfirmedTeardown[]> {
   const { args } = state
   // No checkpoint may race the destroy below, and none is needed after it.
@@ -1446,22 +1466,37 @@ async function releaseOwnerEnvironment(
   const pending = pendingCheckpoints(events, state).filter(
     (event) => !retentionFailures.has(event.environmentId),
   )
-  for (const sourceEnvironmentId of new Set(pending.map((event) => event.environmentId))) {
-    const branching = await checkpointHandle(
-      state,
-      sourceEnvironmentId,
-      AbortSignal.timeout(30_000),
-    )
-    const cleaned = await cleanCheckpoints(
-      state,
-      branching,
-      pending.filter((event) => event.environmentId === sourceEnvironmentId),
-      events,
-    )
-    checkpointFailures.push(...cleaned.unconfirmed)
-    checkpointsKept.push(...cleaned.refused)
-    for (const refusal of cleaned.refused)
-      if (refusal.needsSource) uncapturedSources.add(sourceEnvironmentId)
+  const captures = new AbortController()
+  const capturesTimer = setTimeout(
+    () =>
+      captures.abort(
+        new Error(
+          `the release's ${capturesMs} ms for checkpoint captures ran out; checkpoint and source kept`,
+        ),
+      ),
+    capturesMs,
+  )
+  try {
+    for (const sourceEnvironmentId of new Set(pending.map((event) => event.environmentId))) {
+      const branching = await checkpointHandle(
+        state,
+        sourceEnvironmentId,
+        AbortSignal.any([captures.signal, AbortSignal.timeout(30_000)]),
+      )
+      const cleaned = await cleanCheckpoints(
+        state,
+        branching,
+        pending.filter((event) => event.environmentId === sourceEnvironmentId),
+        events,
+        captures.signal,
+      )
+      checkpointFailures.push(...cleaned.unconfirmed)
+      checkpointsKept.push(...cleaned.refused)
+      for (const refusal of cleaned.refused)
+        if (refusal.needsSource) uncapturedSources.add(sourceEnvironmentId)
+    }
+  } finally {
+    clearTimeout(capturesTimer)
   }
   const forksUnresolved = await settleCaptureForks(state)
   for (const event of checkpointFailures) pendingSources.add(event.environmentId)
