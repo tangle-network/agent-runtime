@@ -8,9 +8,23 @@ import {
 } from '../../src/workspace-store'
 
 describe('in-memory workspace store contract', () => {
-  for (const contractCase of workspaceStoreContractCases(() => createInMemoryWorkspaceStore())) {
+  for (const contractCase of workspaceStoreContractCases(() => createInMemoryWorkspaceStore(), {
+    idempotentOperations: true,
+  })) {
     it(contractCase.name, contractCase.run)
   }
+
+  it('fails the operationId case for a store that declares replay but ignores operationId', async () => {
+    const results = await runWorkspaceStoreContract(
+      () => {
+        const store = createInMemoryWorkspaceStore()
+        return { ...store, put: (input) => store.put({ ...input, operationId: undefined }) }
+      },
+      { idempotentOperations: true },
+    )
+    expect(results.find((result) => result.name.startsWith('operationId'))?.passed).toBe(false)
+    expect(results.filter((result) => !result.passed)).toHaveLength(1)
+  })
 
   it('runWorkspaceStoreContract reports a broken adapter instead of throwing', async () => {
     const results = await runWorkspaceStoreContract(() => {
