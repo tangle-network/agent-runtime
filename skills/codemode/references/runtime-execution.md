@@ -13,6 +13,13 @@ signal, parent call ID and nested call ID. The original tool-step observer recor
 The existing internal brain loop and local MCP client accept the same presentation option.
 This does not require the Pi coding harness.
 
+For ONE node of a graph — a code node beside ordinary agent nodes — declare it on the
+node's pinned profile instead of the environment: `model.metadata.codeMode = true` (or
+`{ concurrency, maxCalls, timeoutMs, memoryLimitBytes, directTools }`). The profile
+declaration overrides the backend default for that node alone, and every graph node is
+its pinned profile, so this is the whole authoring surface: no seam change, no new node
+kind. Validation is fail-loud (unknown or host-owned fields are refused before any request).
+
 The implementation uses the standalone `@earendil-works/pi-codemode` QuickJS/WASM worker.
 There is no unsafe Node VM fallback. Code cannot read host files, processes or network
 except through explicitly supplied tools. The default VM memory cap is 64 MiB, wall deadline

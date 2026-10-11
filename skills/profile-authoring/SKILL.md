@@ -13,7 +13,7 @@ Do not constrain agents with prohibitions: change what is rewarded and who is in
 ## A profile that starts
 
 A refused profile fails before its first model turn, and it fails the same way on every retry.
-On 2026-10-10 Discovery plays lost 20 driver attempts to child profiles naming a tool the harness does not publish, and 3 spawns to a missing subscription source.
+On 2026-10-10 Discovery lost 20 driver attempts to unpublished tool names and 3 spawns to a missing subscription source.
 Start from a profile that already ran (in a Discovery play, `inputs/profile-examples/<family>.json`) and change only `name`, `description` and `prompt.instructions`.
 
 | Field | Rule |
@@ -25,7 +25,7 @@ Start from a profile that already ran (in a Discovery play, `inputs/profile-exam
 | `prompt` | The role in `instructions[0]`, the procedure after it. No `systemPrompt`: it replaces the harness's own guidance (17,730 characters on Codex), and Discovery refuses one under 4,000 characters. No `appendSystemPrompt` on Codex or Gemini. |
 | `resources` | `failOnError: true`. Hand each file by path, `{"path": "<mount>", "resource": {"kind": "inline", "name": "<name>", "path": "<file in your workspace>"}}`: Runtime reads the bytes (UTF-8, at most 4 MiB). Never retype a file into `content`: a manager that did delivered 5 wrong characters in 24,008. |
 
-Native tool ids (agent-dev-container `packages/agent-profile-materialize/src/control-maps.ts` and `execution-controls.ts`; matching ignores case and every character but letters, digits and `_`):
+Native tool ids (agent-dev-container `packages/agent-profile-materialize/src/control-maps.ts` and `execution-controls.ts`; matching ignores case and all but letters, digits and `_`):
 
 | Harness | Accepted | Refused |
 |---|---|---|
@@ -46,7 +46,7 @@ Runtime keys (agent-runtime `src/runtime/supervise/provider-visible-profile.ts`;
 
 Leaf or manager is decided by the keys you write (`withInheritedSpawnRights`, `src/runtime/supervise/supervise.ts`).
 A child whose profile names any `agent_runtime_coordination_` key gets exactly those keys.
-A child that names none, under a parent that can spawn, inherits the parent's coordination verbs, `spawn_worker` included, plus `submit_result`; it does not inherit product verbs, so it cannot write Knowledge pages.
+A child that names none, under a parent that can spawn, inherits the parent's coordination verbs (`spawn_worker` included) and `submit_result`, but no product verbs, so it cannot write Knowledge pages.
 So always write them. A leaf gets the product verbs it uses, `submit_result` and `report_blocked`.
 A manager adds `agent_runtime_coordination_spawn_worker: true` and only the observation and steering verbs it will use, and carries this skill byte for byte: `"skills": [{"kind": "inline", "name": "profile-authoring", "path": "<this file in your workspace>"}]` beside `resources.failOnError: true`.
 
@@ -73,7 +73,7 @@ The spawn's assignment carries the work; the profile carries the role.
 Every assignment names four things: the exact page path and format to record, with one literal example line; the command that checks the part; what to do when blocked; and when to check in.
 Hand every file the child judges by path, never a summary.
 A spawn's `deadlineMs` is a check-in, not a kill: the child is told to record its state and submit what it has, and is stopped only if it then makes no progress. Set it from the work.
-A manager waits by ending its turn: Runtime wakes it with each settlement, finding or message, and with a notice before its deadline. A shell timer or polling loop is not re-entry, and it spends turns. Ending a turn with work open is not completion; a manager with a check ends on an accepted `submit_result` or a bound.
+A manager waits by ending its turn: Runtime wakes it with each settlement, finding or message, and with a notice before its deadline. Polling or a shell timer is not re-entry and spends turns. Ending a turn with work open is not completion; a manager with a check ends on an accepted `submit_result` or a bound.
 A nested manager that returns early can end its scope and cancel live descendants.
 Require each child to record partial work where its parent can recover it after an interruption.
 Before retrying a failed child, read what it recorded; finished work may be usable. A retry names the specific failure in a new profile.
@@ -89,46 +89,45 @@ Make a literature search part of acceptance, and record an answer already publis
 ## 2. Probe the proxy's gap before launch
 
 The proxy is the check you can run during the work: an exact checker, a test suite, a rater or a demo. The gap is everything it accepts and the audience rejects; hacks live there, and a stronger model does not close it.
-Try to make the proxy accept what the audience rejects: plant the source's trivial and excluded cases, a published answer, a degenerate artifact, an impossible variant, a stale comparator. Each must be refused or classed as known; if one passes, fix the proxy or narrow the claim.
-Probe the other side too: write one correct result in a format the brief allows but the proxy's author did not expect, and run the proxy on it. A proxy that refuses it trains agents on format, not substance.
+Try to make the proxy accept what the audience rejects: plant trivial and excluded cases, a published answer, a degenerate artifact, an impossible variant, a stale comparator. Each must be refused or classed as known; if one passes, fix the proxy or narrow the claim.
+Probe the other side too: run the proxy on one correct result in a format the brief allows but its author did not expect. A proxy that refuses it trains agents on format, not substance.
 Use exact or interval arithmetic, and count only what is proven.
 An LLM judge becomes a gate only after it beats an always-reject baseline on cases a human graded.
 
 ## 3. Keep acceptance out of the reward loop
 
 Give agents a development check they can run; hiding every check also blocks honest work.
-Hold back a stricter acceptance check, run from the delivered packet in a fresh environment by a party outside the authoring lineage, and grade only what its rerun reproduces.
-If the run depends on a root-authored boundary or comparison claim, preserve a reproducible pre-reveal record of that claim in Knowledge before any child sees it, so the blind check can compare against the exact same statement later.
+Hold back a stricter acceptance check, run from the delivered packet in a fresh environment by a party outside the authoring lineage; grade only what its rerun reproduces.
+Record any root-authored boundary or comparison claim in Knowledge before a child sees it, so the blind check compares the same statement.
 A parent that promotes children on proxy passes alone selects for the gap; have the referee attack a result before anyone builds on it.
 Keep the headline gate fixed for the whole task; report a stricter bar as a second line.
-For a customer commission the bar is the first deliverable: the root's first milestone writes 50 to 100 checkable expectations, the deliverable spec and a workplan, and a partner outside the authoring lineage raises the bar against named exemplars and holds part of it back.
+For a customer commission the bar is the first deliverable: the root's first milestone writes 50 to 100 checkable expectations, the deliverable spec and a workplan; a partner outside the authoring lineage raises the bar against named exemplars and holds part back.
 
 ## 4. Choose roles and a model for each
 
 Proposers: cheap, high-throughput models where an exact checker exists, with an occasional strong model.
 Referee: a skeptic from another model family, holding the artifact and its own instrument (exact recomputation, execution, a literature search, an attempted counter-case). It can reject a claim; only the held-back check accepts one. A change of family alone is weak.
 Monitor: reads the journal and live notes, flags drift or proxy gaming, and steers or reports; it never scores.
-Choose each model from measured cost and quality on this kind of work, state its dollars, and admit it in `allowedModels`; Runtime refuses a model outside that list at spawn.
+Choose each model from measured cost and quality on this kind of work, state its dollars, and admit it in `allowedModels`; Runtime refuses any other at spawn.
 Spawn a helper only for work that is independent, long enough to repay a cold start, and checkable on its own.
 
 ## 5. Define success, the honest null, and the stop
 
 Success is an accepted result or a reproduced null. Separate execution settlement, development progress and final acceptance; an unknown outside verdict is not absent progress.
-A null from a search counts only with a coverage certificate: the searched space as data (ranges, method, seeds, bound reached), one row per cell, a calibration cell where the search must find objects that exist, and the sha256 of the reproducer.
+A null from a search counts only with a coverage certificate: the searched space as data (ranges, method, seeds, bound reached), one row per cell, a calibration cell with objects the search must find, and the reproducer's sha256.
 The reproducer belongs to the check: registered before launch with its hash, the statements it covers and its own calibration; agents may run it and never write it.
-The outside check reruns its own copy, reruns the calibration first and credits nothing on a miss, then reruns cells until its budget ends; one mismatched row refuses the certificate, and only rerun, matched cells earn credit.
+The outside check reruns its own copy: the calibration first, crediting nothing on a miss, then cells until its budget ends; one mismatched row refuses the certificate, and only rerun, matched cells earn credit.
 A null that is no search (a spec conflict, a gap list) counts when the held-back check reproduces each named item. A null without a certificate is "stopped, unverified"; one inside a range already covered adds nothing.
 Tell agents the checker may be wrong; credit a reproduced checker-defect report like a result.
-Grant `submit_result` only where Runtime gives the node a check; otherwise its settlement stays unassessed. A child that returns without a structured validity verdict is unresolved in the parent's comparison, never silently counted with the settled set.
-Match completion instructions to the tools actually served to each node. List in `tools` every harness tool a child's assignment needs, even where the harness serves its defaults anyway: a map of coordination tools alone reads in the record as removing the rest, and a harness that honors the map will not serve them.
-Before spawning a revision or a treatment, compare its tools with the profile it changes, and state the reason for any tool it no longer lists.
+Grant `submit_result` only where Runtime gives the node a check; otherwise its settlement stays unassessed, and a child returning no structured validity verdict stays unresolved in the parent's comparison.
+Match completion instructions to the tools served to each node. List every harness tool a child needs in `tools`, defaults included: a harness honoring a map of coordination tools alone serves nothing else. A revision states why it drops any tool its source profile listed.
 State the stop: what the agent does the moment its check passes, and that work after a pass spends seats and adds nothing.
 For continued research, read the installed continuation contract first and choose `maxBarren` from the measured feedback cadence.
 
 ## 6. Carry known traps
 
 Write each trap as what the held-back acceptance refuses, never as what the proxy passes: "the outside check does not count a c = 0 instance" is a trap; "the checker passed c = 0 claims" is a recipe. Give the rule, not the incident: the operator owns the stack.
-Typical traps: excluded or trivial cases, stale or wrong-field comparators, published answers, tests versus users, a demo versus a customer, a rater versus an expert.
+Typical traps beyond the gap probe's canaries: wrong-field comparators, tests versus users, a demo versus a customer, a rater versus an expert.
 Record each new trap where the next author reads it, in the same change as its fix.
 
 ## 7. Set budget and caps
@@ -173,5 +172,5 @@ Records that expose a hack, and unavailable observations:
 ## Then consider
 
 - `supervise` to drive the tree once its profiles exist.
-- `eval-engineering` (its pre-spend calibration) when a judge or checker has no calibration yet.
-- `pursue` (its controlled architecture comparison) when the claim compares arms.
+- `eval-engineering` when a judge or checker has no calibration yet.
+- `pursue` when the claim compares arms.
