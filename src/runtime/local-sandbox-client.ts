@@ -24,6 +24,7 @@ import {
 } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
+import type { CodeModeToolsOptions } from './code-mode'
 import type { KeyProvider } from './key-provider'
 import { assertBoxlessPromptOptions } from './prompt-options'
 import { routerBrain } from './router-client'
@@ -38,6 +39,8 @@ import { runBrainLoop, type ToolLoopChat } from './tool-loop'
 import type { SandboxClient } from './types'
 
 export interface LocalSandboxClientOptions {
+  /** Optional code-mode presentation over the same explicitly trusted MCP tools. */
+  codeMode?: true | CodeModeToolsOptions
   /** Router endpoint/auth. The exact per-create profile owns model and loop behavior. */
   router: { baseUrl: string; key: string }
   /** Fallback profile when `create(options)` carries none on `backend.profile`. */
@@ -135,6 +138,8 @@ export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClie
           const r = await runBrainLoop({
             chat,
             tools: mcp.tools,
+            ...(opts.codeMode ? { codeMode: opts.codeMode } : {}),
+            ...(popts?.signal ? { signal: popts.signal } : {}),
             execute: (name, args) => mcp.call(name, args),
             initialMessages: [
               ...(system ? [{ role: 'system', content: system }] : []),
@@ -153,7 +158,7 @@ export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClie
                 // The full offered set was right here in `mcp.tools` — record it so a
                 // `tools.enforced` contract gate on this trace can tell "offered nothing" from
                 // "the offered set was never recorded" (review finding on rows 13/14).
-                tools: mcp.tools.map((t) => t.function.name),
+                tools: r.modelToolNames ?? mcp.tools.map((t) => t.function.name),
                 ...(r.tokensKnown === false
                   ? { tokensKnown: false }
                   : { tokensIn: r.usage.input, tokensOut: r.usage.output }),

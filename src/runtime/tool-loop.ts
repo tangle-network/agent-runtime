@@ -10,6 +10,15 @@
  */
 
 import { ValidationError } from '../errors'
+import {
+  type CodeModeStore,
+  type CodeModeToolContext,
+  type CodeModeToolsOptions,
+  codeModeArguments,
+  codeModeModelOutput,
+  createCodeModeTools,
+  toolResultText,
+} from './code-mode'
 import type { ToolSpec } from './router-client'
 import type { Spend } from './supervise/types'
 
@@ -155,6 +164,10 @@ async function maybeCompact(
 }
 
 export interface ToolLoopResult {
+  /** Present only in code mode; retain through the caller's existing run/session store. */
+  codeModeStore?: CodeModeStore
+  /** Exact model-visible presentation, distinct from the underlying capability grant. */
+  modelToolNames?: ReadonlyArray<string>
   /** The model's final assistant text (where it stopped calling tools, or the budget turn). */
   final: string
   /** Inference turns spent (≤ maxTurns) — the equal-compute unit. */
@@ -188,7 +201,14 @@ export function resolveToolLoopMaxTurns(
 export async function runBrainLoop(opts: {
   chat: ToolLoopChat
   tools: ReadonlyArray<ToolSpec>
-  execute: (name: string, args: Record<string, unknown>) => Promise<string>
+  execute: (
+    name: string,
+    args: Record<string, unknown>,
+    context: CodeModeToolContext,
+  ) => Promise<unknown>
+  /** Execute programs over these same granted tools, not a second agent loop. */
+  codeMode?: true | CodeModeToolsOptions
+  signal?: AbortSignal
   /** Seed the conversation (a fresh `[system,user]` or a depth continuation). The array is copied. */
   initialMessages: ReadonlyArray<ToolLoopMessageRecord>
   maxTurns?: number
@@ -206,19 +226,59 @@ export async function runBrainLoop(opts: {
   let completedTurns = 0
   const toolTrace: Array<{ name: string; args: string; result: string }> = []
 
+  const signal = opts.signal ?? new AbortController().signal
+  const codeMode = opts.codeMode
+    ? createCodeModeTools(
+        opts.tools.map(({ function: tool }) => ({
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.parameters as Record<string, unknown>,
+          outputSchema: tool.outputSchema,
+          execute: async (raw, context) => {
+            signal.throwIfAborted()
+            if (opts.hooks?.stopBefore?.(completedTurns))
+              throw new Error('code mode: Runtime execution has stopped')
+            const args = codeModeArguments(raw)
+            const result = await opts.execute(tool.name, args, context)
+            toolTrace.push({
+              name: tool.name,
+              args: JSON.stringify(args),
+              result: toolResultText(result),
+            })
+            return result
+          },
+        })),
+        opts.codeMode === true ? {} : opts.codeMode,
+      )
+    : undefined
+  const modelTools: ReadonlyArray<ToolSpec> = codeMode
+    ? codeMode.tools.map((tool) => ({
+        type: 'function',
+        function: { name: tool.name, description: tool.description, parameters: tool.inputSchema },
+      }))
+    : opts.tools
+  const codeByName = new Map(codeMode?.tools.map((tool) => [tool.name, tool]) ?? [])
+  const retainedCodeMode = () =>
+    codeMode
+      ? {
+          codeModeStore: codeMode.snapshotStore(),
+          modelToolNames: modelTools.map((tool) => tool.function.name),
+        }
+      : {}
+
   for (let turn = 1; maxTurns === 0 || turn <= maxTurns; turn += 1) {
-    if (opts.hooks?.stopBefore?.(turn)) break
+    if (signal.aborted || opts.hooks?.stopBefore?.(turn)) break
     await opts.hooks?.beforeTurn?.(turn, messages)
     // Preparation may run a classifier or await a steer while authority changes.
-    if (opts.hooks?.stopBefore?.(turn)) break
+    if (signal.aborted || opts.hooks?.stopBefore?.(turn)) break
     // Close the chapter BEFORE the inference turn that would otherwise re-bill the whole transcript:
     // distill the accumulated middle to a compact note so this and every later turn pay O(working-set),
     // not O(total-history). A clean boundary — the prior turn's tool replies are already folded in.
     if (opts.compaction) {
       await maybeCompact(messages, opts.compaction, turn)
-      if (opts.hooks?.stopBefore?.(turn)) break
+      if (signal.aborted || opts.hooks?.stopBefore?.(turn)) break
     }
-    const r = await opts.chat(messages, opts.tools)
+    const r = await opts.chat(messages, modelTools)
     completedTurns = turn
     if (r.usage) {
       usage.input += r.usage.input
@@ -248,6 +308,7 @@ export async function runBrainLoop(opts: {
         usage,
         ...(tokensKnown ? {} : { tokensKnown: false }),
         messages,
+        ...retainedCodeMode(),
       }
     }
 
@@ -262,6 +323,7 @@ export async function runBrainLoop(opts: {
         function: { name: tc.name, arguments: tc.arguments },
       })),
     })
+    const images: Array<{ type: 'image_url'; image_url: { url: string } }> = []
     for (const tc of r.toolCalls) {
       toolCalls += 1
       let args: Record<string, unknown> = {}
@@ -277,10 +339,27 @@ export async function runBrainLoop(opts: {
         })
         continue
       }
-      const out = await opts.execute(tc.name, args)
+      signal.throwIfAborted()
+      let result: unknown
+      if (codeMode) {
+        const tool = codeByName.get(tc.name)
+        if (!tool)
+          throw new ValidationError(`code mode: ${tc.name} is not in the model-visible tool set`)
+        result = await tool.execute(args, { signal, callId: tc.id, parentCallId: tc.id })
+      } else {
+        result = await opts.execute(tc.name, args, { signal, callId: tc.id, parentCallId: tc.id })
+      }
+      const projected = codeMode && tc.name === 'codemode' ? codeModeModelOutput(result) : undefined
+      if (projected) images.push(...projected.images)
+      const out = projected?.text ?? toolResultText(result)
       messages.push({ role: 'tool', tool_call_id: tc.id, content: out })
       toolTrace.push({ name: tc.name, args: tc.arguments, result: out })
     }
+    if (images.length)
+      messages.push({
+        role: 'user',
+        content: [{ type: 'text', text: 'Images emitted by codemode:' }, ...images],
+      })
   }
   return {
     final: lastText,
@@ -290,5 +369,6 @@ export async function runBrainLoop(opts: {
     usage,
     ...(tokensKnown ? {} : { tokensKnown: false }),
     messages,
+    ...retainedCodeMode(),
   }
 }

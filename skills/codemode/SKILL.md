@@ -21,11 +21,13 @@ A batch does not expand the permission of its individual operations.
 Meter paid operations on the owning execution path and preserve their usage records.
 Keep dependent actions sequential unless their contract supports safe composition.
 
-## Runtime-supervised code
+## Runtime scripts and agents
 
-When configuring code execution for a Runtime supervisor, read [the execution boundary](references/runtime-execution.md).
-That branch supplies a generated API over Runtime's existing coordination tools and requires an explicit runner.
-For ordinary shell or session-tool batching, no additional runtime is needed.
+Use Runtime's maintained code-mode execution rather than creating a script runner or an agent loop.
+Read [the Runtime execution surface](references/runtime-execution.md) for `runCodeMode`, the
+existing router-tools executor's `codeMode` option, structured results and retained state.
+The implementation is independent of Pi's coding harness and uses the standalone QuickJS engine.
+For a harness already offering native code mode, use that surface instead of nesting code mode.
 
 Complete the requested work and inspect the resulting artifact.
 Code reduces mechanical round trips; it does not replace judgment or prove the quality of the result.
