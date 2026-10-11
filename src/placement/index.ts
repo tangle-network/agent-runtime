@@ -229,7 +229,11 @@ export function loopProfileRefusal(
   for (const [field, value] of Object.entries(fields)) {
     if (value === undefined) continue
     if (field === 'tools') continue
-    if (field === 'permissions' && vacuousPermissions && permissionsGrantNothing(value, inlineSkills))
+    if (
+      field === 'permissions' &&
+      vacuousPermissions &&
+      permissionsGrantNothing(value, inlineSkills)
+    )
       continue
     if (TOP_LEVEL_AXES.has(field) && carried.has(field)) continue
     const children = COMPOUND_FIELDS[field]
@@ -285,7 +289,7 @@ const SANDBOX_FIELDS = [
 
 interface RequirementOptions extends LoopProfileRefusalOptions {
   requirements: PlacementRequirements
-  profile: object | undefined
+  profile?: object
   interactive: boolean
 }
 
@@ -307,7 +311,9 @@ function sandboxRequirements(options: RequirementOptions): string[] {
   // sandbox decides between a requested model and the profile's.
   const profileModel = profileDefaultModel(profile)
   if (cfg.model !== undefined && profileModel !== undefined && cfg.model !== profileModel) {
-    needs.push(`the action model ${cfg.model} differs from the profile model ${String(profileModel)}`)
+    needs.push(
+      `the action model ${cfg.model} differs from the profile model ${String(profileModel)}`,
+    )
   }
   return needs
 }
@@ -343,7 +349,10 @@ function toolRequirements(cfg: PlacementRequirements): string[] {
 
 /** Grants only the loop holds: a sandbox cannot honour them. */
 function loopOnlyGrants(cfg: PlacementRequirements): string[] {
-  return [...(cfg.objects !== undefined ? ['objects'] : []), ...(cfg.http !== undefined ? ['http'] : [])]
+  return [
+    ...(cfg.objects !== undefined ? ['objects'] : []),
+    ...(cfg.http !== undefined ? ['http'] : []),
+  ]
 }
 
 /** True when the profile declares skills that only an inliner on the loop can carry. */
@@ -379,7 +388,8 @@ export function placeExecution(input: PlaceExecutionInput): PlacementRecord {
     ...opts,
   })
   const tools = toolRequirements(cfg)
-  if (input.inlineSkills && declaresProfileSkills(profile)) tools.push('skills are inlined by the loop')
+  if (input.inlineSkills && declaresProfileSkills(profile))
+    tools.push('skills are inlined by the loop')
   const loopOnly = loopOnlyGrants(cfg)
   const coveredAxes = profile ? declaredAxes(profile) : []
   const record = (
@@ -391,7 +401,9 @@ export function placeExecution(input: PlaceExecutionInput): PlacementRecord {
   if (sandboxNeeds.length > 0) {
     const reason = sandboxNeeds.join('; ')
     if (loopOnly.length > 0) {
-      throw new PlacementRefusedError(`${loopOnly.join(' and ')} run only in the worker, but ${reason}`)
+      throw new PlacementRefusedError(
+        `${loopOnly.join(' and ')} run only in the worker, but ${reason}`,
+      )
     }
     return record('sandbox', reason, [
       { placement: 'inference', reason },
@@ -407,7 +419,9 @@ export function placeExecution(input: PlaceExecutionInput): PlacementRecord {
       const unavailable =
         context.loopUnavailableReason ?? 'worker placement is not wired on this deployment'
       if (loopOnly.length > 0) {
-        throw new PlacementRefusedError(`${loopOnly.join(' and ')} need the worker, but ${unavailable}`)
+        throw new PlacementRefusedError(
+          `${loopOnly.join(' and ')} need the worker, but ${unavailable}`,
+        )
       }
       // Inlined skills are the one loop need a sandbox also meets, natively.
       return record('sandbox', unavailable, [

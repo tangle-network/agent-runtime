@@ -16,8 +16,8 @@ import { describe, expect, it } from 'vitest'
 import {
   type ExecutionTier,
   type PlacementContext,
-  type PlacementRequirements,
   PlacementRefusedError,
+  type PlacementRequirements,
   placeExecution,
 } from '../src/placement'
 
@@ -51,175 +51,137 @@ function selectAgentPlacement(
     chosen: platformTier(record.chosen),
     policy: AGENT_PLACEMENT_POLICY,
     reason: record.reason,
-    rejected: record.rejected.map((r) => ({ placement: platformTier(r.placement), reason: r.reason })),
+    rejected: record.rejected.map((r) => ({
+      placement: platformTier(r.placement),
+      reason: r.reason,
+    })),
   }
 }
 
-const PROMPT_ONLY = { prompt: { systemPrompt: "Classify the issue." } };
+const PROMPT_ONLY = { prompt: { systemPrompt: 'Classify the issue.' } }
 const AVAILABLE = {
   interactive: false,
   inferenceAvailable: true,
   workerAvailable: true,
-};
-const HARNESS = AGENT_RUN_HARNESSES[0] as string;
+}
+const HARNESS = AGENT_RUN_HARNESSES[0] as string
 const QA_PROFILE = {
-  name: "support-qa",
+  name: 'support-qa',
   prompt: {
-    systemPrompt: "Answer billing questions.",
-    instructions: ["Cite the plan name."],
+    systemPrompt: 'Answer billing questions.',
+    instructions: ['Cite the plan name.'],
   },
-  model: { default: "deepseek/deepseek-v4.1-flash", reasoningEffort: "low" },
-};
+  model: { default: 'deepseek/deepseek-v4.1-flash', reasoningEffort: 'low' },
+}
 
-describe("selectAgentPlacement", () => {
-  it("chooses inference when no declared field needs tools, files or a session", () => {
+describe('selectAgentPlacement', () => {
+  it('chooses inference when no declared field needs tools, files or a session', () => {
     expect(selectAgentPlacement({}, PROMPT_ONLY, AVAILABLE)).toEqual({
-      chosen: "inference",
+      chosen: 'inference',
       policy: AGENT_PLACEMENT_POLICY,
-      reason: "no declared requirement needs tools, files or a session",
+      reason: 'no declared requirement needs tools, files or a session',
       rejected: [
-        { placement: "worker", reason: "no declared tool needs a loop" },
+        { placement: 'worker', reason: 'no declared tool needs a loop' },
         {
-          placement: "sandbox",
-          reason: "costs more and no declared requirement needs it",
+          placement: 'sandbox',
+          reason: 'costs more and no declared requirement needs it',
         },
       ],
-    });
-  });
+    })
+  })
 
-  it("chooses inference for a profile that names its model and instructions", () => {
-    expect(selectAgentPlacement({}, QA_PROFILE, AVAILABLE).chosen).toBe(
-      "inference",
-    );
-  });
+  it('chooses inference for a profile that names its model and instructions', () => {
+    expect(selectAgentPlacement({}, QA_PROFILE, AVAILABLE).chosen).toBe('inference')
+  })
 
   it.each([
-    [{ connections: ["conn-slack"] }, "connections need Hub tools"],
-    [
-      { objects: { prefixes: ["a/"], mode: "read" } },
-      "objects need object tools",
-    ],
-    [{ http: { hosts: ["api.example.com"] } }, "http needs a fetch tool"],
-  ])("chooses the worker for %o", (cfg, reason) => {
-    const decision = selectAgentPlacement(cfg, QA_PROFILE, AVAILABLE);
-    expect(decision.chosen).toBe("worker");
-    expect(decision.reason).toContain(reason);
-    expect(decision.rejected.map((r) => r.placement)).toEqual([
-      "inference",
-      "sandbox",
-    ]);
-  });
+    [{ connections: ['conn-slack'] }, 'connections need Hub tools'],
+    [{ objects: { prefixes: ['a/'], mode: 'read' } }, 'objects need object tools'],
+    [{ http: { hosts: ['api.example.com'] } }, 'http needs a fetch tool'],
+  ])('chooses the worker for %o', (cfg, reason) => {
+    const decision = selectAgentPlacement(cfg, QA_PROFILE, AVAILABLE)
+    expect(decision.chosen).toBe('worker')
+    expect(decision.reason).toContain(reason)
+    expect(decision.rejected.map((r) => r.placement)).toEqual(['inference', 'sandbox'])
+  })
 
   it.each([
-    [
-      { harness: HARNESS },
-      PROMPT_ONLY,
-      AVAILABLE,
-      `harness ${HARNESS} is pinned`,
-    ],
+    [{ harness: HARNESS }, PROMPT_ONLY, AVAILABLE, `harness ${HARNESS} is pinned`],
+    [{}, { ...PROMPT_ONLY, harness: 'codex' }, AVAILABLE, 'profile harness needs a sandbox'],
+    [{}, { ...PROMPT_ONLY, tools: { bash: true } }, AVAILABLE, 'profile tools bash need a sandbox'],
     [
       {},
-      { ...PROMPT_ONLY, harness: "codex" },
+      { ...PROMPT_ONLY, mcp: { docs: { url: 'https://m.test' } } },
       AVAILABLE,
-      "profile harness needs a sandbox",
-    ],
-    [
-      {},
-      { ...PROMPT_ONLY, tools: { bash: true } },
-      AVAILABLE,
-      "profile tools bash need a sandbox",
-    ],
-    [
-      {},
-      { ...PROMPT_ONLY, mcp: { docs: { url: "https://m.test" } } },
-      AVAILABLE,
-      "profile mcp needs a sandbox",
+      'profile mcp needs a sandbox',
     ],
     [
       {},
       { ...PROMPT_ONLY, resources: { files: [] } },
       AVAILABLE,
-      "profile resources needs a sandbox",
+      'profile resources needs a sandbox',
     ],
-    [
-      { source: { repo: "o/r" } },
-      PROMPT_ONLY,
-      AVAILABLE,
-      "source needs a sandbox",
-    ],
-    [{ skills: ["sk_a"] }, PROMPT_ONLY, AVAILABLE, "skills needs a sandbox"],
-    [{ resume: true }, PROMPT_ONLY, AVAILABLE, "resume needs a sandbox"],
-    [{ maxRounds: 3 }, PROMPT_ONLY, AVAILABLE, "maxRounds > 1"],
-    [{ ask: true }, PROMPT_ONLY, AVAILABLE, "ask needs a session"],
-    [{}, PROMPT_ONLY, { ...AVAILABLE, interactive: true }, "interactive run"],
-  ])(
-    "keeps the sandbox and records why: %o %o",
-    (cfg, profile, context, reason) => {
-      const decision = selectAgentPlacement(cfg, profile, context);
-      expect(decision.chosen).toBe("sandbox");
-      expect(decision.reason).toContain(reason);
-      expect(decision.rejected).toEqual([
-        { placement: "inference", reason: decision.reason },
-        { placement: "worker", reason: decision.reason },
-      ]);
-    },
-  );
+    [{ source: { repo: 'o/r' } }, PROMPT_ONLY, AVAILABLE, 'source needs a sandbox'],
+    [{ skills: ['sk_a'] }, PROMPT_ONLY, AVAILABLE, 'skills needs a sandbox'],
+    [{ resume: true }, PROMPT_ONLY, AVAILABLE, 'resume needs a sandbox'],
+    [{ maxRounds: 3 }, PROMPT_ONLY, AVAILABLE, 'maxRounds > 1'],
+    [{ ask: true }, PROMPT_ONLY, AVAILABLE, 'ask needs a session'],
+    [{}, PROMPT_ONLY, { ...AVAILABLE, interactive: true }, 'interactive run'],
+  ])('keeps the sandbox and records why: %o %o', (cfg, profile, context, reason) => {
+    const decision = selectAgentPlacement(cfg, profile, context)
+    expect(decision.chosen).toBe('sandbox')
+    expect(decision.reason).toContain(reason)
+    expect(decision.rejected).toEqual([
+      { placement: 'inference', reason: decision.reason },
+      { placement: 'worker', reason: decision.reason },
+    ])
+  })
 
   it("keeps the sandbox when the action model differs from the profile's", () => {
-    const decision = selectAgentPlacement(
-      { model: "openai/gpt-5.5" },
-      QA_PROFILE,
-      AVAILABLE,
-    );
-    expect(decision.chosen).toBe("sandbox");
-    expect(decision.reason).toContain("differs from the profile model");
-  });
+    const decision = selectAgentPlacement({ model: 'openai/gpt-5.5' }, QA_PROFILE, AVAILABLE)
+    expect(decision.chosen).toBe('sandbox')
+    expect(decision.reason).toContain('differs from the profile model')
+  })
 
-  it("keeps Hub connections in the sandbox when the worker is not wired", () => {
-    const decision = selectAgentPlacement(
-      { connections: ["conn-slack"] },
-      PROMPT_ONLY,
-      { ...AVAILABLE, workerAvailable: false },
-    );
-    expect(decision.chosen).toBe("sandbox");
-  });
+  it('keeps Hub connections in the sandbox when the worker is not wired', () => {
+    const decision = selectAgentPlacement({ connections: ['conn-slack'] }, PROMPT_ONLY, {
+      ...AVAILABLE,
+      workerAvailable: false,
+    })
+    expect(decision.chosen).toBe('sandbox')
+  })
 
-  it("runs a tool-free action as one worker turn when inference is not wired", () => {
+  it('runs a tool-free action as one worker turn when inference is not wired', () => {
     expect(
       selectAgentPlacement({}, PROMPT_ONLY, {
         ...AVAILABLE,
         inferenceAvailable: false,
       }).chosen,
-    ).toBe("worker");
-  });
+    ).toBe('worker')
+  })
 
-  it("refuses a worker-only grant beside a requirement only a sandbox meets", () => {
+  it('refuses a worker-only grant beside a requirement only a sandbox meets', () => {
     expect(() =>
       selectAgentPlacement(
-        { objects: { prefixes: ["a/"], mode: "read" }, harness: HARNESS },
+        { objects: { prefixes: ['a/'], mode: 'read' }, harness: HARNESS },
         PROMPT_ONLY,
         AVAILABLE,
       ),
-    ).toThrow(AgentPlacementRefusedError);
+    ).toThrow(AgentPlacementRefusedError)
     expect(() =>
-      selectAgentPlacement(
-        { http: { hosts: ["a.example.com"] } },
-        PROMPT_ONLY,
-        {
-          ...AVAILABLE,
-          workerAvailable: false,
-        },
-      ),
-    ).toThrow(/need the worker, but worker placement is not wired/);
-  });
+      selectAgentPlacement({ http: { hosts: ['a.example.com'] } }, PROMPT_ONLY, {
+        ...AVAILABLE,
+        workerAvailable: false,
+      }),
+    ).toThrow(/need the worker, but worker placement is not wired/)
+  })
 
-  it("names every blocker, not only the first", () => {
+  it('names every blocker, not only the first', () => {
     const decision = selectAgentPlacement(
-      { source: { repo: "o/r" }, ask: true },
-      { ...PROMPT_ONLY, harness: "codex" },
+      { source: { repo: 'o/r' }, ask: true },
+      { ...PROMPT_ONLY, harness: 'codex' },
       AVAILABLE,
-    );
-    expect(decision.reason.split("; ")).toHaveLength(3);
-  });
-});
-
+    )
+    expect(decision.reason.split('; ')).toHaveLength(3)
+  })
+})

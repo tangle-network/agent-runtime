@@ -792,7 +792,9 @@ describe('tool progress', () => {
     }))
       ys.push(item)
     expect(ys.map((y) => y.kind)).toEqual(['event', 'tool_progress', 'tool_result', 'event'])
-    expect(ys[2]).toMatchObject({ outcome: { ok: false, code: 'executor_error', message: 'box lost' } })
+    expect(ys[2]).toMatchObject({
+      outcome: { ok: false, code: 'executor_error', message: 'box lost' },
+    })
   })
 
   it('hands runToolLoop progress to onToolProgress in order', async () => {

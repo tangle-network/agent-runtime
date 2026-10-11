@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   authoredPlacement,
   loopTierProfileMaterialization,
-  type PlaceExecutionInput,
   PLACEMENT_POLICY,
+  type PlaceExecutionInput,
   type PlacementContext,
   PlacementRefusedError,
   type PlacementRequirements,
@@ -87,7 +87,10 @@ const PROFILES: Array<[string, object | undefined]> = [
   ['files', { ...PROMPT_ONLY, resources: { files: [] } }],
   ['skills', { ...PROMPT_ONLY, resources: { skills: [SKILL_REF] } }],
   ['skills-strict', { ...PROMPT_ONLY, resources: { skills: [SKILL_REF], failOnError: true } }],
-  ['skills-best-effort', { ...PROMPT_ONLY, resources: { skills: [SKILL_REF], failOnError: false } }],
+  [
+    'skills-best-effort',
+    { ...PROMPT_ONLY, resources: { skills: [SKILL_REF], failOnError: false } },
+  ],
   ['permissions-deny', { ...PROMPT_ONLY, permissions: DENY_ALL }],
   ['permissions-nested-deny', { ...PROMPT_ONLY, permissions: { bash: { '*': 'deny' } } }],
   ['permissions-allow', { ...PROMPT_ONLY, permissions: { bash: 'allow' } }],
@@ -154,7 +157,10 @@ function runtimeDecision(input: PlaceExecutionInput): Decision {
     return {
       chosen: asPlatform(record.chosen),
       reason: record.reason,
-      rejected: record.rejected.map((r) => ({ placement: asPlatform(r.placement), reason: r.reason })),
+      rejected: record.rejected.map((r) => ({
+        placement: asPlatform(r.placement),
+        reason: r.reason,
+      })),
     }
   } catch (error) {
     if (!(error instanceof PlacementRefusedError)) throw error
@@ -184,8 +190,9 @@ describe('placeExecution parity with Platform agent-placement/2', () => {
   it('agrees with Platform on every corpus case when no opt-in is set', () => {
     const disagreements = CORPUS.filter(
       (c) =>
-        JSON.stringify(runtimeDecision({ requirements: c.cfg, profile: c.profile, context: c.context })) !==
-        JSON.stringify(platformDecision(c.cfg, c.profile, c.context)),
+        JSON.stringify(
+          runtimeDecision({ requirements: c.cfg, profile: c.profile, context: c.context }),
+        ) !== JSON.stringify(platformDecision(c.cfg, c.profile, c.context)),
     ).map((c) => c.label)
     console.log(`placement parity: ${CORPUS.length} cases, ${disagreements.length} disagreements`)
     expect(CORPUS.length).toBeGreaterThan(50_000)
@@ -196,7 +203,9 @@ describe('placeExecution parity with Platform agent-placement/2', () => {
     const touchesOptIn = (profile: object | undefined) => {
       const fields = (profile ?? {}) as Record<string, unknown>
       const tools = fields.tools as Record<string, unknown> | undefined
-      return fields.permissions !== undefined || fields.resources !== undefined || tools?.skill === true
+      return (
+        fields.permissions !== undefined || fields.resources !== undefined || tools?.skill === true
+      )
     }
     let differing = 0
     for (const c of CORPUS) {
@@ -220,7 +229,11 @@ describe('placeExecution parity with Platform agent-placement/2', () => {
 })
 
 describe('placeExecution opt-ins', () => {
-  const ROUTED: PlacementContext = { interactive: false, inferenceAvailable: true, loopAvailable: true }
+  const ROUTED: PlacementContext = {
+    interactive: false,
+    inferenceAvailable: true,
+    loopAvailable: true,
+  }
   const PRODUCT_TOOLS: PlacementRequirements = { tools: ['hospitality.preferences.read'] }
 
   it('keeps a deny-only permissions map in the sandbox unless vacuousAxes names it', () => {
@@ -233,7 +246,8 @@ describe('placeExecution opt-ins', () => {
     expect(routed).toEqual({
       chosen: 'loop',
       policy: PLACEMENT_POLICY,
-      reason: 'tools hospitality.preferences.read need the loop, which the worker holds without a sandbox',
+      reason:
+        'tools hospitality.preferences.read need the loop, which the worker holds without a sandbox',
       coveredAxes: expect.any(Array),
       rejected: [
         { placement: 'inference', reason: 'tools hospitality.preferences.read need the loop' },
@@ -378,7 +392,10 @@ describe('authored and resumed placement', () => {
 
   it('names what now needs a sandbox for work that began on the loop', () => {
     expect(
-      sandboxOnlyRequirements({ profile: { ...PROMPT_ONLY, harness: 'codex' }, interactive: false }),
+      sandboxOnlyRequirements({
+        profile: { ...PROMPT_ONLY, harness: 'codex' },
+        interactive: false,
+      }),
     ).toEqual(['profile harness needs a sandbox'])
   })
 
