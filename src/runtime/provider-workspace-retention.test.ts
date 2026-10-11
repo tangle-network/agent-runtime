@@ -1253,6 +1253,51 @@ describe('provider workspace retention', () => {
     }
   })
 
+  it('stops live workspace captures when a turn closed by its consumer keeps its environment', async () => {
+    // Discovery run terraform-dc-model-20261010h-c1 (Runtime 0.314.0): a budget stop closed five
+    // directors' turns in environments kept for recovery, and their live captures ran on against
+    // stopped boxes until the settled supervisor was killed, up to 18 hours later.
+    const artifacts = artifactStore()
+    const { provider, destroyed } = providerFor(async function* () {
+      yield {
+        type: 'usage',
+        data: { usageMode: 'delta' },
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }
+      await new Promise<never>(() => {})
+    })
+    let liveCaptures = 0
+    const executor = providerAsExecutor(provider, {
+      destroyOnSettle: false,
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        artifacts,
+        capture: (context) => snapshot(artifacts, context.executionId),
+        liveIntervalMs: 5,
+        async captureLive() {
+          liveCaptures += 1
+          throw new Error('Sandbox is not running (status: stopped)')
+        },
+      },
+    })(
+      { profile: testProfile('live-workspace-kept'), harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    const iterator = (
+      executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>
+    )[Symbol.asyncIterator]()
+    await iterator.next()
+    for (let waited = 0; liveCaptures === 0 && waited < 2_000; waited += 5)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(liveCaptures).toBeGreaterThan(0)
+    await iterator.return?.(undefined)
+    expect(destroyed()).toBe(0)
+    const atEnd = liveCaptures
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(liveCaptures).toBe(atEnd)
+    await executor.teardown('brutalKill')
+  })
+
   it('refuses executor reuse while a retained source environment is still live', async () => {
     const artifacts = artifactStore()
     let creates = 0

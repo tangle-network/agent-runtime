@@ -228,6 +228,7 @@ function ownerModel(
     release() {
       return releaseScopeRetainedOwnerEnvironment(scope)
     },
+    scope: () => scope,
   }
 }
 
@@ -524,6 +525,42 @@ describe('checkpoint capture before cleanup', () => {
     expect([...model.capture.forks.keys()].every((id) => model.capture.destroyed.has(id))).toBe(
       true,
     )
+    await assertNothingLost(model)
+  })
+
+  it('ends the release when its capture bound runs out, keeping the checkpoints and the source', async () => {
+    // Discovery run terraform-dc-model-20261010h-c1 (Runtime 0.314.0): a director's release waited
+    // 00:19:18Z to 01:19:38Z for one capture to reach its port's 60-minute bound.
+    let hang = false
+    const model = ownerModel({
+      timeoutMs: 3_600_000,
+      forkWait: async () => {
+        if (hang) await new Promise<never>(() => {})
+      },
+    })
+    await model.start()
+    await model.coordinate()
+    await model.coordinate()
+    expect(model.snapshots.size).toBe(2)
+    hang = true
+    const started = Date.now()
+    const kept = await releaseScopeRetainedOwnerEnvironment(model.scope(), { capturesMs: 200 })
+    expect(Date.now() - started).toBeLessThan(5_000)
+    expect(kept).toContainEqual(
+      expect.objectContaining({
+        kept: [expect.objectContaining({ environmentId: 'model-source' })],
+        detail: expect.stringContaining('checkpoint kept uncaptured'),
+      }),
+    )
+    expect(model.events).toContainEqual(
+      expect.objectContaining({
+        kind: 'workspace-checkpoint-cleanup',
+        confirmed: false,
+        refused: expect.stringContaining('ran out; checkpoint and source kept'),
+      }),
+    )
+    expect(model.live()).toBe(true)
+    expect(model.snapshots.size).toBe(2)
     await assertNothingLost(model)
   })
 
