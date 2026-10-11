@@ -93,8 +93,13 @@ export async function persistCandidateOutputArtifactStream(
     ) {
       throw new Error('candidate output locator does not identify the submitted bytes')
     }
-    for await (const _chunk of verifiedArtifactChunks(ref, port, input.signal)) {
-      // Verification consumes the durable object without retaining it.
+    // A port that already read its stored object back is not read a third time. Measured
+    // 2026-10-11: a critics tribunal on /mnt/traces re-read 1.1 GB/min of just-written workspace
+    // archives, each one written once and read back twice.
+    if (port.putStreamVerified !== true) {
+      for await (const _chunk of verifiedArtifactChunks(ref, port, input.signal)) {
+        // Verification consumes the durable object without retaining it.
+      }
     }
     return immutableCandidateValue(ref)
   } finally {

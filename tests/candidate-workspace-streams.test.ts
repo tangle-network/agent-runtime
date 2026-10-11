@@ -206,3 +206,35 @@ it('rejects a store that corrupts the archive after publication', async () => {
     }),
   ).rejects.toThrow('digest or length')
 })
+
+it('reads a stored object back once: a port that verified its own put is not read again', async () => {
+  const f = await fixture()
+  await writeFile(join(f.source, 'large'), Buffer.alloc(256 * 1024, 7))
+  const counted = (port: typeof f.artifacts, flag: boolean) => {
+    const reads: string[] = []
+    const { putStreamVerified: _verified, ...rest } = port
+    return {
+      reads,
+      port: {
+        ...rest,
+        ...(flag ? { putStreamVerified: true as const } : {}),
+        readStream: (ref: Parameters<NonNullable<typeof port.readStream>>[0], options?: { signal?: AbortSignal }) => {
+          reads.push(ref.sha256)
+          return port.readStream!(ref, options)
+        },
+      },
+    }
+  }
+  const verified = counted(f.artifacts, true)
+  await captureAgentCandidateWorkspaceToArtifacts(f.source, {
+    artifactPersistence: { executionId: 'node-1', outputArtifacts: verified.port },
+  })
+  expect(verified.reads).toEqual([])
+  // A port that does not declare its own readback is still verified, once per stored object.
+  const unverified = counted(f.artifacts, false)
+  const { snapshot } = await captureAgentCandidateWorkspaceToArtifacts(f.source, {
+    artifactPersistence: { executionId: 'node-1', outputArtifacts: unverified.port },
+  })
+  expect(unverified.reads).toEqual([snapshot.manifest.sha256, snapshot.archive.sha256])
+  expect(f.artifacts.putStreamVerified).toBe(true)
+})

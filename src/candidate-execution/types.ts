@@ -91,6 +91,11 @@ export interface AgentCandidateOutputArtifactPort extends AgentCandidateArtifact
     chunks: AsyncIterable<Uint8Array>
     signal?: AbortSignal
   }): Promise<AgentCandidateArtifactRef>
+  /**
+   * True when putStream resolves only after reading the stored object back and matching its
+   * digest and length. A caller then skips its own readback instead of reading every object twice.
+   */
+  readonly putStreamVerified?: true
 
   /** Must be idempotent for identical bytes and return only a durable S3/IPFS locator. */
   put(input: {
