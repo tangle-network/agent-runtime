@@ -521,3 +521,35 @@ describe('runBrainLoop code-mode dispatch robustness', () => {
     expect(result.toolTrace.length).toBeLessThan(50)
   })
 })
+
+it('feeds an unknown tool name back to the model instead of failing the loop', async () => {
+  const result = await runBrainLoop({
+    codeMode: { concurrency: 1 },
+    tools: [
+      {
+        type: 'function' as const,
+        function: {
+          name: 'finish',
+          description: 'Finish the task.',
+          parameters: { type: 'object' },
+        },
+      },
+    ],
+    initialMessages: [],
+    maxTurns: 3,
+    execute: async () => ({}),
+    chat: async (messages, _tools) =>
+      messages.some((m) => m.role === 'tool' && String(m.content).startsWith('error:'))
+        ? { content: 'recovered', toolCalls: [] }
+        : {
+            content: '',
+            toolCalls: [{ id: 'ghost', name: 'finish_typo', arguments: '{}' }],
+          },
+  })
+  expect(result.final).toBe('recovered')
+  expect(
+    result.messages.find(
+      (m) => m.role === 'tool' && String(m.content).includes('not in the model-visible tool set'),
+    ),
+  ).toBeDefined()
+})

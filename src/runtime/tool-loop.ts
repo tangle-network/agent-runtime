@@ -351,17 +351,19 @@ export async function runBrainLoop(opts: {
       let result: unknown
       let dispatchSucceeded = true
       if (codeMode) {
+        // Model-authored tool names are a real outcome too (a hallucinated or renamed tool):
+        // feed the error back, never fail the loop. Mirrors the supervise executor.
         const tool = codeByName.get(tc.name)
-        if (!tool)
-          throw new ValidationError(`code mode: ${tc.name} is not in the model-visible tool set`)
-        // Model-authored arguments are a real outcome, not an infra fault — feed the error
-        // back so the model can correct, rather than failing the whole loop (mirrors the
-        // supervise executor's handling of the identical dispatch).
-        try {
-          result = await tool.execute(args, { signal, callId: tc.id, parentCallId: tc.id })
-        } catch (error) {
+        if (!tool) {
           dispatchSucceeded = false
-          result = `error: ${error instanceof Error ? error.message : String(error)}`
+          result = `error: code mode: ${tc.name} is not in the model-visible tool set`
+        } else {
+          try {
+            result = await tool.execute(args, { signal, callId: tc.id, parentCallId: tc.id })
+          } catch (error) {
+            dispatchSucceeded = false
+            result = `error: ${error instanceof Error ? error.message : String(error)}`
+          }
         }
       } else {
         result = await opts.execute(tc.name, args, { signal, callId: tc.id, parentCallId: tc.id })
