@@ -59,7 +59,13 @@ for (const [jobName, requiredJob] of Object.entries(publishJobs)) {
   }
 
   const commands = steps.map((step) => step.run ?? '').join('\n')
-  for (const required of ['sha256sum', 'npm publish', '--ignore-scripts', '--provenance']) {
+  for (const required of [
+    'sha256sum',
+    'npm publish',
+    '--ignore-scripts',
+    '--provenance',
+    'is not served by the registry',
+  ]) {
     if (!commands.includes(required)) {
       throw new Error(`${jobName} publish command is missing ${required}`)
     }

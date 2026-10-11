@@ -404,6 +404,18 @@ jobs:
               npm publish "$package" --ignore-scripts --provenance --access public --registry=https://registry.npmjs.org
             fi
           fi
+          # npm can accept an upload as a staged version that stays private until a
+          # maintainer approves it with 2FA, and npm publish still exits 0. A release
+          # is done only when the registry serves the exact version.
+          for _ in $(seq 1 20); do
+            if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "$name@$version is served by the registry"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::$name@$version is not served by the registry after 10 minutes. If npm staged it, a maintainer must run 'npm stage list $name' and 'npm stage approve <stage-id>'."
+          exit 1
 
   verify-agent-bench:
     # Manual dispatch remains root-only. Re-run a failed bench tag workflow so
@@ -557,3 +569,15 @@ jobs:
           else
             npm publish "$package" --ignore-scripts --provenance --access public --registry=https://registry.npmjs.org
           fi
+          # npm can accept an upload as a staged version that stays private until a
+          # maintainer approves it with 2FA, and npm publish still exits 0. A release
+          # is done only when the registry serves the exact version.
+          for _ in $(seq 1 20); do
+            if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "$name@$version is served by the registry"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::$name@$version is not served by the registry after 10 minutes. If npm staged it, a maintainer must run 'npm stage list $name' and 'npm stage approve <stage-id>'."
+          exit 1
