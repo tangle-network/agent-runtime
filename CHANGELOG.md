@@ -1,3 +1,11 @@
+## 0.318.0
+
+A release's checkpoint captures share one 15-minute bound (`RELEASE_CHECKPOINT_CAPTURES_MS`): a capture it cuts short keeps its checkpoint and source, as a failed capture does, and the run settles instead of waiting on each capture's own port bound in turn. Live workspace captures stop whenever a turn ends, the copy in flight included, even for a turn closed by its consumer (a deadline or budget stop) in an environment kept for recovery; before, those kept capturing until the process exited, on the capture slots the release shares, and kept a settled supervisor's process alive. The release's checkpoint handle lookups share the same bound.
+
+A turn that reaches its deadline can continue instead of failing. `streamToolLoop`'s `capped` yield for `deadline` now carries `messages`: the conversation after the system prompt, with every tool call answered. Passing them back as `priorMessages`, with `userMessage` omitted (now optional), continues the same turn in a later process.
+
+Replace the unused supervisor-only code-mode interpreter with general Runtime script execution using the standalone pi-codemode QuickJS/WASM engine (not the Pi harness). `runCodeMode` and `createCodeModeTools` are available from `/kernel`; `router-tools` executors, the existing brain loop, and local MCP clients can use the same code-mode presentation. Nested calls retain the original authorized handler and receive cancellation and parent call identity. Structured values, native image output and explicit conversation store snapshots are preserved. The old `codeModeSupervisorTools`, `CodeModeRunner`, and `unsafeInProcessRunner` exports are removed; consumers should use the general toolset or execution option. Node 22.19 or newer is required. Program heaps are not crash checkpoints, and external effects are never automatically replayed. Tool-name normalization collisions and overflowing finite timeouts are refused before execution. Exceeding the total-call cap revokes the program even when guest code catches tool errors.
+
 ## 0.317.0
 
 `ToolLoopCall` carries optional `providerFields`, which the tool loop echoes onto the call's assistant `tool_calls` entry in the next request. A Gemini 3 model returns `extra_content.google.thought_signature` on each tool call and refuses the follow-up request with HTTP 400 when it is missing.

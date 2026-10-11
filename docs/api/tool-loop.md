@@ -330,9 +330,11 @@ Return the USD cost of one outcome. Required for `maxCostUsd` to work.
 
 > **systemPrompt**: `string`
 
-##### userMessage
+##### userMessage?
 
-> **userMessage**: `string`
+> `optional` **userMessage?**: `string`
+
+Omit to continue a checkpointed turn whose `priorMessages` already end with tool results.
 
 ##### priorMessages?
 
@@ -573,13 +575,56 @@ Why the loop stopped. `completed` = model finished naturally; `stuck-loop` =
 
 ### StreamToolLoopYield
 
-> **StreamToolLoopYield**\<`Raw`\> = \{ `kind`: `"event"`; `event`: `Raw`; \} \| \{ `kind`: `"tool_progress"`; `toolName`: `string`; `toolCallId?`: `string`; `update`: [`ToolProgressUpdate`](#toolprogressupdate); \} \| \{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `label`: `string`; `outcome`: [`ToolCallOutcome`](#toolcalloutcome); \} \| \{ `kind`: `"capped"`; `pending`: `number`; `stopReason`: `Exclude`\<[`ToolLoopStopReason`](#toolloopstopreason), `"completed"`\>; \}
+> **StreamToolLoopYield**\<`Raw`\> = \{ `kind`: `"event"`; `event`: `Raw`; \} \| \{ `kind`: `"tool_progress"`; `toolName`: `string`; `toolCallId?`: `string`; `update`: [`ToolProgressUpdate`](#toolprogressupdate); \} \| \{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `label`: `string`; `outcome`: [`ToolCallOutcome`](#toolcalloutcome); \} \| \{ `kind`: `"capped"`; `pending`: `number`; `stopReason`: `Exclude`\<[`ToolLoopStopReason`](#toolloopstopreason), `"completed"`\>; `messages?`: [`ToolLoopMessage`](#toolloopmessage)[]; \}
 
 #### Type Parameters
 
 ##### Raw
 
 `Raw`
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"event"`; `event`: `Raw`; \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"tool_progress"`; `toolName`: `string`; `toolCallId?`: `string`; `update`: [`ToolProgressUpdate`](#toolprogressupdate); \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `label`: `string`; `outcome`: [`ToolCallOutcome`](#toolcalloutcome); \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"capped"`; `pending`: `number`; `stopReason`: `Exclude`\<[`ToolLoopStopReason`](#toolloopstopreason), `"completed"`\>; `messages?`: [`ToolLoopMessage`](#toolloopmessage)[]; \}
+
+###### kind
+
+> **kind**: `"capped"`
+
+###### pending
+
+> **pending**: `number`
+
+###### stopReason
+
+> **stopReason**: `Exclude`\<[`ToolLoopStopReason`](#toolloopstopreason), `"completed"`\>
+
+###### messages?
+
+> `optional` **messages?**: [`ToolLoopMessage`](#toolloopmessage)[]
+
+On `deadline` only: the conversation after the system prompt, every tool call answered.
+ Passing it back as `priorMessages` with no `userMessage` continues the same turn.
 
 ## Functions
 
