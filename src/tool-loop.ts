@@ -393,7 +393,9 @@ export async function* streamToolLoop<Raw>(
   const messages: ToolLoopMessage[] = [
     { role: 'system', content: opts.systemPrompt },
     ...(opts.priorMessages ?? []),
-    ...(opts.userMessage !== undefined ? [{ role: 'user' as const, content: opts.userMessage }] : []),
+    ...(opts.userMessage !== undefined
+      ? [{ role: 'user' as const, content: opts.userMessage }]
+      : []),
   ]
   const observer = createToolLoopObserver(opts.hooks, runId, opts.scenarioId)
   let accumulatedCostUsd = 0
