@@ -678,3 +678,114 @@ it('a forceful interrupt revokes a running codemode program and its nested effec
     await executor.teardown(0)
   }
 })
+describe('profile-declared code mode (the graph-node path)', () => {
+  it("a node's profile metadata.codeMode presents code mode with no seam opt-in", async () => {
+    // A graph node is its pinned AgentProfile; declaring code mode on the profile is
+    // how ONE node in a graph becomes a code node while its siblings stay chat nodes.
+    let turn = 0
+    const seen: string[] = []
+    const factory = createExecutor({
+      backend: 'router-tools',
+      routerBaseUrl: 'https://router.test/v1',
+      routerKey: 'offline',
+      tools: [readTool],
+      // NOTE: no codeMode here — the profile below is the ONLY declaration.
+      executeToolCall: async (name, args) => {
+        seen.push(String(args.value))
+        return { value: Number(args.value) }
+      },
+      complete: async (body) => {
+        turn += 1
+        if (turn === 1) {
+          expect(
+            (body.tools as Array<{ function: { name: string } }>).map((t) => t.function.name),
+          ).toEqual(['tool_search', 'codemode'])
+          return {
+            model: 'offline-model',
+            choices: [
+              {
+                message: {
+                  content: '',
+                  tool_calls: [
+                    {
+                      id: 'profile-node',
+                      type: 'function',
+                      function: {
+                        name: 'codemode',
+                        arguments: JSON.stringify({
+                          code: 'const rows = await Promise.all([7,8].map(v => tools.read({value:v}))); return rows.reduce((n,r)=>n+r.value,0)',
+                        }),
+                      },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+            usage: { prompt_tokens: 5, completion_tokens: 2, cost: 0 },
+          }
+        }
+        return {
+          model: 'offline-model',
+          choices: [{ message: { content: '15' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 5, completion_tokens: 2, cost: 0 },
+        }
+      },
+    })
+    const spec = {
+      profile: {
+        name: 'graph-code-node',
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: 'offline-model',
+          metadata: { maxTurns: 3, codeMode: { concurrency: 2 } },
+        },
+        tools: { read: true },
+      },
+      harness: null,
+    } as AgentSpec
+    const signal = new AbortController().signal
+    const executor = factory(spec, { signal, seams: {} })
+    try {
+      const result = await executor.execute('sum two records', signal)
+      expect(result.out).toMatchObject({
+        content: '15',
+        codeModeStore: {}, // store committed empty (no writes) but PRESENT = code mode ran
+      })
+      expect(seen).toEqual(['7', '8'])
+      expect(result.spent.iterations).toBe(2) // author + settle — not one turn per read
+    } finally {
+      await executor.teardown(0)
+    }
+  })
+
+  it('rejects a malformed profile code-mode declaration before any request', async () => {
+    const factory = createExecutor({
+      backend: 'router-tools',
+      routerBaseUrl: 'https://router.test/v1',
+      routerKey: 'offline',
+      tools: [readTool],
+      executeToolCall: async () => ({}),
+      complete: async () => {
+        throw new Error('must not be called')
+      },
+    })
+    const spec = {
+      profile: {
+        name: 'bad-code-node',
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: 'offline-model',
+          metadata: { codeMode: { wasm: '/evil.wasm' } },
+        },
+        tools: { read: true },
+      },
+      harness: null,
+    } as AgentSpec
+    expect(() => factory(spec, { signal: new AbortController().signal, seams: {} })).toThrow(
+      /codeMode/,
+    )
+  })
+})
