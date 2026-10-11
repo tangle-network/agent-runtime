@@ -81,8 +81,18 @@ const idempotentOperationCase: [string, (store: WorkspaceStore) => Promise<void>
   async (store) => {
     check(store.idempotentOperations === true, 'the store declares idempotentOperations')
     const base = { workspaceId: W, path: '/files/op.md', kind: 'file' as const, actor: 'alice' }
-    const first = await store.put({ ...base, content: 'one', ifRevision: null, operationId: 'op-1' })
-    const replay = await store.put({ ...base, content: 'one', ifRevision: null, operationId: 'op-1' })
+    const first = await store.put({
+      ...base,
+      content: 'one',
+      ifRevision: null,
+      operationId: 'op-1',
+    })
+    const replay = await store.put({
+      ...base,
+      content: 'one',
+      ifRevision: null,
+      operationId: 'op-1',
+    })
     check(
       replay.revision === first.revision && replay.id === first.id && replay.content === 'one',
       'a repeated put returns the entry it wrote',

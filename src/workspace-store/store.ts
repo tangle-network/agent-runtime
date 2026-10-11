@@ -160,7 +160,9 @@ const MAX_OPERATION_ID = 256
 export function checkOperationId(path: string, operationId: unknown): void {
   if (operationId === undefined) return
   if (typeof operationId !== 'string' || !operationId || operationId.length > MAX_OPERATION_ID) {
-    throw new TypeError(`${path}: operationId must be a non-empty string of at most ${MAX_OPERATION_ID} chars`)
+    throw new TypeError(
+      `${path}: operationId must be a non-empty string of at most ${MAX_OPERATION_ID} chars`,
+    )
   }
 }
 
@@ -177,7 +179,9 @@ function sameBytes(left?: WorkspaceBytesRef, right?: WorkspaceBytesRef): boolean
 /** Whether `entry` is exactly what `input` would write: same kind, content and bytes. */
 export function isSameWorkspaceWrite(entry: WorkspaceEntry, input: WorkspacePutInput): boolean {
   return (
-    entry.kind === input.kind && entry.content === input.content && sameBytes(entry.bytes, input.bytes)
+    entry.kind === input.kind &&
+    entry.content === input.content &&
+    sameBytes(entry.bytes, input.bytes)
   )
 }
 
@@ -261,7 +265,11 @@ export function createInMemoryWorkspaceStore(
       const current = entries.get(input.path)
       const key = pathKey(input.workspaceId, input.path)
       const previous = erasedBy.get(key)
-      if (!current && input.operationId !== undefined && previous?.operationId === input.operationId) {
+      if (
+        !current &&
+        input.operationId !== undefined &&
+        previous?.operationId === input.operationId
+      ) {
         return { ...previous.tombstone }
       }
       if (input.ifRevision !== undefined && current?.revision !== input.ifRevision) {
