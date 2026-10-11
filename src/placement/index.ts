@@ -32,6 +32,7 @@ import type {
   ProfileMaterializationContract,
 } from '../agent/profile-materialization'
 
+/** The policy version every {@link PlacementRecord} carries. */
 export const PLACEMENT_POLICY = 'agent-placement/3'
 
 /** Where one unit of agent work runs, cheapest first. */
