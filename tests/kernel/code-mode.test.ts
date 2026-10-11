@@ -592,34 +592,114 @@ it('records a failed nested call in toolTrace with its error', async () => {
   expect(String(entry?.result)).toMatch(/error: effect failed/)
 })
 
-  it('a forceful interrupt revokes a running codemode program and its nested effects', async () => {
+it('a forceful interrupt revokes a running codemode program and its nested effects', async () => {
+  let turn = 0
+  let effects = 0
+  const factory = createExecutor({
+    backend: 'router-tools',
+    routerBaseUrl: 'https://router.test/v1',
+    routerKey: 'offline',
+    tools: [
+      {
+        type: 'function' as const,
+        function: {
+          name: 'effect',
+          description: 'An effect.',
+          parameters: { type: 'object' },
+        },
+      },
+    ],
+    codeMode: { concurrency: 1 },
+    executeToolCall: async () => {
+      effects += 1
+      await new Promise((resolve) => setTimeout(resolve, 15))
+      return { ok: true }
+    },
+    complete: async (body) => {
+      turn += 1
+      if (turn === 1) {
+        // Long-running program: without the per-turn interrupt signal linked into the
+        // dispatch, this keeps calling effects to completion despite the forceful steer.
+        return {
+          model: 'offline-model',
+          choices: [
+            {
+              message: {
+                content: '',
+                tool_calls: [
+                  {
+                    id: 'long-program',
+                    type: 'function',
+                    function: {
+                      name: 'codemode',
+                      arguments: JSON.stringify({
+                        code: 'for (let i = 0; i < 200; i++) { try { await tools.effect({}) } catch {} } return "ran"',
+                      }),
+                    },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+          usage: { prompt_tokens: 5, completion_tokens: 2, cost: 0 },
+        }
+      }
+      return {
+        model: 'offline-model',
+        choices: [{ message: { content: 're-planned' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 2, cost: 0 },
+      }
+    },
+  })
+  const spec = {
+    profile: {
+      name: 'code-mode-interrupt',
+      harness: 'cli-base',
+      model: { provider: 'tangle-router', default: 'offline-model', metadata: { maxTurns: 5 } },
+      tools: { effect: true },
+    },
+    harness: null,
+  } as AgentSpec
+  const signal = new AbortController().signal
+  const executor = factory(spec, { signal, seams: {} })
+  try {
+    const run = executor.execute('long task', signal)
+    // Wait until the program is actually running effects, then force a re-plan.
+    await vi.waitFor(() => expect(effects).toBeGreaterThan(0), { timeout: 5_000 })
+    executor.deliver?.({ steer: 'stop everything', interrupt: true })
+    const result = await run
+    expect(result.out).toMatchObject({ content: 're-planned' })
+    // The aborted program's nested effects stopped early: 200 sequential calls at
+    // ~15ms each would run for seconds; an unrevoked program cannot finish under the
+    // interrupt. Assert a hard ceiling well below the full program.
+    expect(effects).toBeLessThan(150)
+  } finally {
+    await executor.teardown(0)
+  }
+})
+describe('profile-declared code mode (the graph-node path)', () => {
+  it("a node's profile metadata.codeMode presents code mode with no seam opt-in", async () => {
+    // A graph node is its pinned AgentProfile; declaring code mode on the profile is
+    // how ONE node in a graph becomes a code node while its siblings stay chat nodes.
     let turn = 0
-    let effects = 0
+    const seen: string[] = []
     const factory = createExecutor({
       backend: 'router-tools',
       routerBaseUrl: 'https://router.test/v1',
       routerKey: 'offline',
-      tools: [
-        {
-          type: 'function' as const,
-          function: {
-            name: 'effect',
-            description: 'An effect.',
-            parameters: { type: 'object' },
-          },
-        },
-      ],
-      codeMode: { concurrency: 1 },
-      executeToolCall: async () => {
-        effects += 1
-        await new Promise((resolve) => setTimeout(resolve, 15))
-        return { ok: true }
+      tools: [readTool],
+      // NOTE: no codeMode here — the profile below is the ONLY declaration.
+      executeToolCall: async (name, args) => {
+        seen.push(String(args.value))
+        return { value: Number(args.value) }
       },
       complete: async (body) => {
         turn += 1
         if (turn === 1) {
-          // Long-running program: without the per-turn interrupt signal linked into the
-          // dispatch, this keeps calling effects to completion despite the forceful steer.
+          expect(
+            (body.tools as Array<{ function: { name: string } }>).map((t) => t.function.name),
+          ).toEqual(['tool_search', 'codemode'])
           return {
             model: 'offline-model',
             choices: [
@@ -628,12 +708,12 @@ it('records a failed nested call in toolTrace with its error', async () => {
                   content: '',
                   tool_calls: [
                     {
-                      id: 'long-program',
+                      id: 'profile-node',
                       type: 'function',
                       function: {
                         name: 'codemode',
                         arguments: JSON.stringify({
-                          code: 'for (let i = 0; i < 200; i++) { try { await tools.effect({}) } catch {} } return "ran"',
+                          code: 'const rows = await Promise.all([7,8].map(v => tools.read({value:v}))); return rows.reduce((n,r)=>n+r.value,0)',
                         }),
                       },
                     },
@@ -647,34 +727,65 @@ it('records a failed nested call in toolTrace with its error', async () => {
         }
         return {
           model: 'offline-model',
-          choices: [{ message: { content: 're-planned' }, finish_reason: 'stop' }],
+          choices: [{ message: { content: '15' }, finish_reason: 'stop' }],
           usage: { prompt_tokens: 5, completion_tokens: 2, cost: 0 },
         }
       },
     })
     const spec = {
       profile: {
-        name: 'code-mode-interrupt',
+        name: 'graph-code-node',
         harness: 'cli-base',
-        model: { provider: 'tangle-router', default: 'offline-model', metadata: { maxTurns: 5 } },
-        tools: { effect: true },
+        model: {
+          provider: 'tangle-router',
+          default: 'offline-model',
+          metadata: { maxTurns: 3, codeMode: { concurrency: 2 } },
+        },
+        tools: { read: true },
       },
       harness: null,
     } as AgentSpec
     const signal = new AbortController().signal
     const executor = factory(spec, { signal, seams: {} })
     try {
-      const run = executor.execute('long task', signal)
-      // Wait until the program is actually running effects, then force a re-plan.
-      await vi.waitFor(() => expect(effects).toBeGreaterThan(0), { timeout: 5_000 })
-      executor.deliver?.({ steer: 'stop everything', interrupt: true })
-      const result = await run
-      expect(result.out).toMatchObject({ content: 're-planned' })
-      // The aborted program's nested effects stopped early: 200 sequential calls at
-      // ~15ms each would run for seconds; an unrevoked program cannot finish under the
-      // interrupt. Assert a hard ceiling well below the full program.
-      expect(effects).toBeLessThan(150)
+      const result = await executor.execute('sum two records', signal)
+      expect(result.out).toMatchObject({
+        content: '15',
+        codeModeStore: {}, // store committed empty (no writes) but PRESENT = code mode ran
+      })
+      expect(seen).toEqual(['7', '8'])
+      expect(result.spent.iterations).toBe(2) // author + settle — not one turn per read
     } finally {
       await executor.teardown(0)
     }
   })
+
+  it('rejects a malformed profile code-mode declaration before any request', async () => {
+    const factory = createExecutor({
+      backend: 'router-tools',
+      routerBaseUrl: 'https://router.test/v1',
+      routerKey: 'offline',
+      tools: [readTool],
+      executeToolCall: async () => ({}),
+      complete: async () => {
+        throw new Error('must not be called')
+      },
+    })
+    const spec = {
+      profile: {
+        name: 'bad-code-node',
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: 'offline-model',
+          metadata: { codeMode: { wasm: '/evil.wasm' } },
+        },
+        tools: { read: true },
+      },
+      harness: null,
+    } as AgentSpec
+    expect(() => factory(spec, { signal: new AbortController().signal, seams: {} })).toThrow(
+      /codeMode/,
+    )
+  })
+})

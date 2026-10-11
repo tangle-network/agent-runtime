@@ -115,3 +115,34 @@ describe('separate completion ceilings', () => {
     }
   })
 })
+
+describe('profile code-mode metadata', () => {
+  const profileWith = (codeMode: unknown) =>
+    ({ model: { provider: 'tangle-router', default: 'm', metadata: { codeMode } } }) as never
+
+  it('accepts true and a valid settings object', () => {
+    expect(profileModelExecutionSettings(profileWith(true), 't').codeMode).toBe(true)
+    const settings = profileModelExecutionSettings(
+      profileWith({ concurrency: 2, maxCalls: 50, directTools: ['finish'] }),
+      't',
+    ).codeMode
+    expect(settings).toEqual({ concurrency: 2, maxCalls: 50, directTools: ['finish'] })
+  })
+
+  it('refuses host-owned and unknown fields by name', () => {
+    for (const bad of [
+      { wasm: '/evil.wasm' },
+      { workerUrl: 'https://evil.test/worker.js' },
+      { store: { smuggled: true } },
+      { nonsense: 1 },
+    ]) {
+      expect(() => profileModelExecutionSettings(profileWith(bad), 't')).toThrow(/codeMode/)
+    }
+  })
+
+  it('refuses non-boolean, non-object shapes and non-positive numbers', () => {
+    expect(() => profileModelExecutionSettings(profileWith('yes'), 't')).toThrow(/must be true or an object/)
+    expect(() => profileModelExecutionSettings(profileWith({ concurrency: 0 }), 't')).toThrow(/concurrency/)
+    expect(() => profileModelExecutionSettings(profileWith({ directTools: [42] }), 't')).toThrow(/directTools/)
+  })
+})
