@@ -1,3 +1,7 @@
+## 0.316.1
+
+`ToolLoopCall` carries optional `providerFields`, which the tool loop echoes onto the call's assistant `tool_calls` entry in the next request. A Gemini 3 model returns `extra_content.google.thought_signature` on each tool call and refuses the follow-up request with HTTP 400 when it is missing.
+
 ## 0.316.0
 
 New `@tangle-network/agent-runtime/workspace-store` subpath: a Worker-safe versioned workspace store port with compare-and-set revisions and erasure tombstones, an in-memory adapter, `memory.*` and `files.*` tools bound to a trusted turn with a default `MemoryPolicy` and `admit` hook, `renderPinnedMemory`, and `runWorkspaceStoreContract` / `workspaceStoreContractCases` for persistent adapters.
