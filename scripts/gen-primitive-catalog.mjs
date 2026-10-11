@@ -76,6 +76,7 @@ const ownSurfaceLabels = {
   './testing': 'Testing fixtures — validated Runtime wire records',
   './mcp': 'MCP servers — delegate / coordination / detached-session',
   './tui': 'Supervisor TUI — live terminal view over the on-disk run layout',
+  './workspace-store': 'Workspace store — versioned per-tenant memory and files, tools, pinned memory, adapter contract',
 }
 // SUBSTRATE surface (agent-eval): the curated category -> exports-map subpath map. These
 // are the reuse surfaces the canonical doc points agents at; the SYMBOLS under each are

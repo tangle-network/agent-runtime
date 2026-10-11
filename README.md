@@ -77,6 +77,12 @@ pnpm tsx examples/quickstart/minimal.ts
 
 Runtime uses the same primitive for round batches and concurrent sandbox lineage work. It does not turn application tasks into agents or impose a graph policy.
 
+## Shared workspace memory and files
+
+`@tangle-network/agent-runtime/workspace-store` is one versioned store per tenant that every executor shares. `WorkspaceStore` holds path documents (`/memories/workspace/<id>`, `/memories/members/<memberId>/<id>`, `/knowledge/**`, `/files/**`); every write is a compare-and-set on `revision` (`ifRevision: null` means the path must not exist) and a mismatch throws `WorkspaceConflictError`. Delete erases content and bytes and keeps a tombstone for erasure audit.
+
+`createMemoryTools` (`memory.remember`, `memory.recall`, `memory.forget`) and `createFileTools` (`files.list`, `files.read`, `files.write`, `files.delete`, `files.search`) return plain tool objects that mount in-process or behind an MCP endpoint. Identity comes from the host's trusted `activeTurn()`, never from arguments; `defaultMemoryPolicy` decides authority and takes the product's `admit` content hook. `renderPinnedMemory` renders the per-turn pinned block deterministically. `createInMemoryWorkspaceStore` is the reference adapter; a persistent adapter runs `workspaceStoreContractCases` or `runWorkspaceStoreContract` to prove the same behavior. The module has no `node:` imports.
+
 ## The core vocabulary
 
 | Word | Meaning |

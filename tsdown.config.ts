@@ -21,6 +21,7 @@ export default defineConfig({
     'loop-runner-bin': 'src/loop-runner-bin.ts',
     'tui/index': 'src/tui/index.ts',
     'tui/bin': 'src/tui/bin.ts',
+    'workspace-store/index': 'src/workspace-store/index.ts',
   },
   format: ['esm'],
   dts: {

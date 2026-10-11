@@ -1748,6 +1748,40 @@ Import from `@tangle-network/agent-runtime/task-queue` — 4 exports.
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `TaskQueueOptions`.
 
+### Workspace store — versioned per-tenant memory and files, tools, pinned memory, adapter contract
+
+Import from `@tangle-network/agent-runtime/workspace-store` — 32 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `assertWorkspacePath` | function | Refuse anything but an absolute, normalized path such as `/files/report.md`. |
+| `checkWorkspacePut` | function | Validate a put before any adapter touches storage; adapters call this first. |
+| `createFileTools` | function | `files.list`, `files.read`, `files.write`, `files.delete`, `files.search` over `/files/**` and `/knowledge/**`. |
+| `createInMemoryWorkspaceStore` | function | Process-local adapter for tests, previews, and single-instance hosts. |
+| `createMemoryTools` | function | `memory.remember`, `memory.recall`, `memory.forget`. |
+| `defaultMemoryPolicy` | function | Default authority. Reads: workspace memory, the speaker's own member memory, |
+| `memberIdFromPath` | function | The member a path belongs to, or `null` for workspace-scoped paths. |
+| `rankEntries` | function | BM25 over entry text (and path words), highest score first, ties by path. |
+| `readTurnMemories` | function | Workspace memories plus the speaker's own member memories, the set a turn may see. |
+| `renderPinnedMemory` | function | Render the memories a turn sees as one stable block for the per-turn preamble. |
+| `runWorkspaceStoreContract` | function | Run every contract case against fresh stores; never throws for a failing case. |
+| `workspaceStoreContractCases` | function | The contract as named cases; each case builds its own store. |
+| `WorkspaceConflictError` | class | A write lost a compare-and-set race or targeted the wrong revision. Re-read and retry. |
+| `WorkspacePolicyError` | class | A policy or path rule refused the call. |
+| `WorkspaceBytesRef` | interface | Large content kept outside the index, e.g. an R2 object. The adapter owns `key`. |
+| `WorkspaceEntry` | interface | One live document. Exactly one of `content` and `bytes` is present. |
+| `WorkspaceStore` | interface | Versioned path store for one or many tenants. Every write is a compare-and-set |
+| `WorkspaceTombstone` | interface | Erasure record: the content and bytes are gone; only this audit row remains. |
+| `WorkspaceToolDefinition` | interface | Structural tool shape, assignable to agent-app's `McpToolDefinition` |
+| `WorkspaceTurn` | interface | The speaker of the running turn, resolved by the host from its trusted session. |
+| `MakeWorkspaceStore` | type | Make a fresh, empty store for one case. |
+| `WorkspaceEntryKind` | type | What an entry holds; memory kinds are written through `memory.remember`, files through `files.write`. |
+| `WorkspaceEntryScope` | type | `member` entries live under `/memories/members/<memberId>/`; everything else is `workspace`. |
+| `WorkspacePolicyDecision` | type | `null` allows; a string refuses and is shown to the model as the reason. |
+| `WorkspaceRole` | type | `viewer` and `guest` are read-only under the default policy. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `MemoryPolicy`, `WorkspaceAccess`, `WorkspaceDeleteInput`, `WorkspacePutInput`, `WorkspaceStoreContractCase`, `WorkspaceStoreContractResult`, `WorkspaceToolContext`.
+
 ## 2. agent-eval — substrate primitives to REUSE
 
 The scoring/measurement/judge substrate. **Do NOT re-implement a judge, an authenticity check, a verifier, a statistics routine, a profile-matrix runner, or usage extraction** — import them from here. The category→subpath mapping is curated; the symbols are generated.
