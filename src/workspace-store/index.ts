@@ -8,13 +8,16 @@ export {
   type MakeWorkspaceStore,
   runWorkspaceStoreContract,
   type WorkspaceStoreContractCase,
+  type WorkspaceStoreContractOptions,
   type WorkspaceStoreContractResult,
   workspaceStoreContractCases,
 } from './contract'
 export {
   assertWorkspacePath,
+  checkOperationId,
   checkWorkspacePut,
   createInMemoryWorkspaceStore,
+  isSameWorkspaceWrite,
   memberIdFromPath,
   type WorkspaceBytesRef,
   WorkspaceConflictError,

@@ -65,7 +65,7 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-16)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-17)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -812,7 +812,7 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 ###### budget
 
-[`Budget`](runtime.md#budget-16)
+[`Budget`](runtime.md#budget-17)
 
 ###### label
 
@@ -1135,7 +1135,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-16)
+> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-17)
 
 The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
  of the part of the pool children may reserve (the pool less any owner share). A nested
@@ -1502,13 +1502,13 @@ Whole-run persistence and ownership. SQL contexts are acquired before replay and
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](runtime.md#budget-16)
+> `readonly` **budget**: [`Budget`](runtime.md#budget-17)
 
 The conserved compute pool for the whole run.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-14)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-15)
 
 ##### rootHandle?
 
@@ -1576,7 +1576,7 @@ The independent completion check for backend-derived workers and direct supervis
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`deliverable`](runtime.md#deliverable-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`deliverable`](runtime.md#deliverable-5)
 
 ##### resolveDeliverable?
 
@@ -1765,7 +1765,7 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 ###### budget
 
-[`Budget`](runtime.md#budget-16)
+[`Budget`](runtime.md#budget-17)
 
 ###### label
 
@@ -2195,7 +2195,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-16)
+> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-17)
 
 The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
  of the part of the pool children may reserve (the pool less any owner share). A nested
@@ -2667,7 +2667,7 @@ Product authorization for every down-leg continuation to a child.
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-16)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-17)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -2713,7 +2713,7 @@ Independent completion check for direct driver work (`submit_result`).
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`deliverable`](runtime.md#deliverable-5)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`deliverable`](runtime.md#deliverable-6)
 
 ##### onAcceptedSubmission?
 
