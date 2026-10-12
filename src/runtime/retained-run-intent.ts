@@ -2,6 +2,7 @@ import type { ContextTransferRequest } from '@tangle-network/agent-interface'
 import {
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
+  agentWorkspaceSnapshotRefDigest,
 } from '@tangle-network/agent-interface'
 import type {
   AgentTurnInput,
@@ -26,6 +27,9 @@ export function retainedCreateMaterial(
           placement: environment.metadata.runtimeProviderPlacement,
         }),
     ...(environment.backend === undefined ? {} : { backend: environment.backend }),
+    ...(environment.requestedId === undefined ? {} : { requestedId: environment.requestedId }),
+    ...(environment.egress === undefined ? {} : { egress: environment.egress }),
+    ...(environment.billingOwner === undefined ? {} : { billingOwner: environment.billingOwner }),
     ...(environment.workspace === undefined
       ? {}
       : {
@@ -75,6 +79,8 @@ function publicWorkspaceMaterial(
     ...(workspace.repoUrl === undefined ? {} : { repoUrl: workspace.repoUrl }),
     ...(workspace.gitRef === undefined ? {} : { gitRef: workspace.gitRef }),
     ...(workspace.cwd === undefined ? {} : { cwd: workspace.cwd }),
+    ...(workspace.checkpoint === undefined ? {} : { checkpoint: workspace.checkpoint }),
+    ...(workspace.snapshot === undefined ? {} : { snapshotDigest: agentWorkspaceSnapshotRefDigest(workspace.snapshot) }),
     ...(workspace.providerOptions === undefined
       ? {}
       : { providerOptionNames: retainedObjectNames(workspace.providerOptions) }),

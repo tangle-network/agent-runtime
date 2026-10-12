@@ -70,6 +70,13 @@ An archive for a prerelease of the newest matrix Sandbox adds a strict-install r
 Pass `--sandbox-repo` to pack a clean ADC checkout after its workspace dependency build.
 The cohort gate strict-installs the selected archive and runs its proposal across the declared Sandbox matrix.
 
+`verify:package` also installs the declared CLI Bridge, Tangle, Daytona and E2B development
+versions beside the packed Runtime with strict peers. Its provider consumer compiles their
+public types without casts and exercises transfer receipt and restart lookup through the
+published CLI Bridge adapter with a bounded transport fixture. The destination environment
+comes from the validated provider receipt. This check makes no cloud allocations or model
+calls; live Braid handoff remains separate evidence.
+
 - `CLAUDE.md` / `AGENTS.md`: bootloader and repo-local deltas only.
 - `docs/BUILDING.md`: stable build rules.
 - `docs/MAINTAINING.md`: the generated-vs-judgment docs split + the freshness gate.
