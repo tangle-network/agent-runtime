@@ -16,6 +16,7 @@
 export { type AnalystFinding, computeFindingId, makeFinding } from '@tangle-network/agent-eval'
 // One-stop import: portable profile plus Sandbox execution types Runtime consumers need.
 export type { AgentProfile } from '@tangle-network/agent-interface'
+export { assertProfileMaterializes } from '../agent/profile-materialization'
 export type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 export {
   contentAddress,

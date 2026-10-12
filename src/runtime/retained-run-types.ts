@@ -6,6 +6,7 @@ import type {
   AgentNativeContextContinuationResult,
   AgentSessionStatus,
   ContextTransferRequest,
+  ContextTransferReceipt,
   InteractionAcknowledgement,
   InteractionResponseCommand,
   NativeContextBoundaryProof,
@@ -225,6 +226,8 @@ export interface RetainedRunStartMaterial {
   /** Reuse an environment whose retained ownership key is verified instead of creating one. */
   readonly existingEnvironmentId?: string
   readonly turn: RetainedRunTurnInput
+  /** Accepted destination to attach, without creating or replacing its environment. */
+  readonly contextTransferReceipt?: ContextTransferReceipt
   /**
    * Explicit dispatch coordinates. When omitted, the runtime mints
    * deterministic coordinates from `(environment.idempotencyKey, turn.turnId)`

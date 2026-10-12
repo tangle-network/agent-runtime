@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -165,6 +166,15 @@ try {
       return [name, requiredPackedDevelopmentDependency(packageJson, name)]
     }),
   )
+  const providerPackages = [
+    '@tangle-network/agent-provider-cli-bridge',
+    '@tangle-network/agent-provider-tangle',
+    '@tangle-network/agent-provider-daytona',
+    '@tangle-network/agent-provider-e2b',
+  ]
+  const providerDependencies = Object.fromEntries(
+    providerPackages.map((name) => [name, requiredPackedDevelopmentDependency(packageJson, name)]),
+  )
   const sandboxVersion = suppliedSandboxTarball
     ? requiredPackedPeerCandidateVersion(
         packageJson,
@@ -199,14 +209,15 @@ try {
           '@tangle-network/agent-runtime': `file:${tarballs[0]}`,
           '@tangle-network/agent-knowledge': knowledgePackageSpec,
           ...peerDependencies,
+          ...providerDependencies,
         },
         devDependencies: {
           '@types/node': requiredPackedDevelopmentDependency(packageJson, '@types/node'),
           typescript: consumerTypeScriptVersion,
         },
-        overrides: {
-          '@tangle-network/agent-knowledge': '$@tangle-network/agent-knowledge',
-        },
+        ...(suppliedKnowledgeTarball
+          ? { overrides: { '@tangle-network/agent-knowledge': '$@tangle-network/agent-knowledge' } }
+          : {}),
       },
       null,
       2,
@@ -214,7 +225,15 @@ try {
   )
   writeFileSync(
     join(appDir, 'tsconfig.json'),
-    `${JSON.stringify(createStrictNodeConsumerTsconfig(), null, 2)}\n`,
+    `${JSON.stringify(
+      { ...createStrictNodeConsumerTsconfig(), include: ['consumer.ts', 'provider-consumer.ts'] },
+      null,
+      2,
+    )}\n`,
+  )
+  copyFileSync(
+    join(repoRoot, 'scripts', 'fixtures', 'packed-provider-consumer.ts'),
+    join(appDir, 'provider-consumer.ts'),
   )
   writeFileSync(
     join(appDir, 'consumer.ts'),
@@ -498,9 +517,10 @@ try {
   )
   // This fixture type-checks with its declared dev toolchain; ambient production
   // install settings must not silently omit TypeScript or the Node declarations.
-  run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], appDir)
+  run('npm', ['install', '--strict-peer-deps', '--ignore-scripts', '--no-audit', '--no-fund'], appDir)
   const installedScope = join(appDir, 'node_modules', '@tangle-network')
   const expectedFirstPartyVersions = {
+    ...providerDependencies,
     '@tangle-network/agent-core': requiredPackedPackageVersion(
       packageJson.dependencies?.['@tangle-network/agent-core'],
       '@tangle-network/agent-core',
@@ -528,6 +548,7 @@ try {
   }
   assertNoEdgeUnsafeStaticImports(installedScope)
   run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], appDir)
+  run(process.execPath, ['--experimental-strip-types', 'provider-consumer.ts'], appDir)
 
   run(
     process.execPath,
@@ -609,7 +630,7 @@ try {
   )
   run(
     'npm',
-    ['install', '--ignore-scripts', '--no-audit', '--no-fund'],
+    ['install', '--strict-peer-deps', '--ignore-scripts', '--no-audit', '--no-fund'],
     standaloneAppDir,
   )
   const standaloneScope = join(standaloneAppDir, 'node_modules', '@tangle-network')
