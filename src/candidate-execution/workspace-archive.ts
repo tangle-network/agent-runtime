@@ -373,6 +373,10 @@ async function captureRepository(
           (await runCandidateGit(root, ['rev-parse', 'HEAD'])).stdout.toString('utf8').trim() !== headCommit) {
         throw new Error('candidate repository changed during working-tree capture')
       }
+      const presentPaths = await existingRepositoryPaths(root, after.paths, limits)
+      if (presentPaths.join('\0') !== files.map((file) => file.path).join('\0')) {
+        throw new Error('candidate repository files changed during working-tree capture')
+      }
       await verifyMaterializedWorkspace(root, candidateWorkspaceManifest(files), {
         ignoredProtectedRootEntries: ['.git'], selectedPaths: files.map((file) => file.path),
       })
@@ -426,7 +430,16 @@ async function readRepositoryWorkingState(root: string, limits: AgentCandidateWo
 
 async function captureRepositoryWorkingTree(root: string, limits: AgentCandidateWorkspaceArchiveLimits) {
   const state = await readRepositoryWorkingState(root, limits)
-  const paths = [...new Set(state.paths.split('\0').filter(Boolean))].sort()
+  const selectedPaths = await existingRepositoryPaths(root, state.paths, limits)
+  const captured = await captureMaterializedWorkspace(root, {
+    ignoredProtectedRootEntries: ['.git'], selectedPaths, limits,
+  })
+  const files = [...captured.files].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+  return { state, files }
+}
+
+async function existingRepositoryPaths(root: string, listing: string, limits: AgentCandidateWorkspaceArchiveLimits): Promise<string[]> {
+  const paths = [...new Set(listing.split('\0').filter(Boolean))].sort()
   if (paths.length > limits.maxFiles) throw new Error('candidate workspace exceeds maxFiles')
   const selectedPaths: string[] = []
   for (const path of paths) {
@@ -438,11 +451,7 @@ async function captureRepositoryWorkingTree(root: string, limits: AgentCandidate
       if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
     }
   }
-  const captured = await captureMaterializedWorkspace(root, {
-    ignoredProtectedRootEntries: ['.git'], selectedPaths, limits,
-  })
-  const files = [...captured.files].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
-  return { state, files }
+  return selectedPaths
 }
 
 async function encodeWorkspaceArchive(
