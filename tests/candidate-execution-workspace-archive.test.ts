@@ -85,6 +85,30 @@ function repository(
 }
 
 describe('candidate workspace archive', () => {
+  it('canonicalizes staged patches across source Git diff settings', async () => {
+    const source = repository()
+    const original = Array.from({ length: 30 }, (_, index) => index % 4 === 0 ? '' : `line ${index}`)
+    writeFileSync(join(source, 'README.md'), `${original.join('\n')}\n`)
+    git(source, ['add', 'README.md'])
+    git(source, ['commit', '-m', 'multiline fixture'])
+    git(source, ['config', 'diff.context', '7'])
+    git(source, ['config', 'diff.algorithm', 'histogram'])
+    git(source, ['config', 'diff.suppressBlankEmpty', 'true'])
+    original[15] = 'staged change'
+    const staged = `${original.join('\n')}\n`
+    writeFileSync(join(source, 'README.md'), staged)
+    git(source, ['add', 'README.md'])
+    const captured = await captureAgentCandidateWorkspace(source, {
+      includeRepository: true, repositoryContents: 'working-tree',
+    })
+    const destination = join(temporaryRoot('working-tree-diff-settings-'), 'restored')
+    await createAgentCandidateWorkspacePort().materialize({
+      role: 'task', snapshot: captured.snapshot, archive: captured.archive, destination,
+    })
+    expect(git(destination, ['show', ':README.md'])).toBe(staged.trim())
+    expect(readFileSync(join(destination, 'README.md'), 'utf8')).toBe(staged)
+  })
+
   it('preserves a destination file added while restoration is in progress', async () => {
     const source = repository()
     const captured = await captureAgentCandidateWorkspace(source, {
