@@ -21,6 +21,12 @@ import {
 } from '../errors'
 import { assertRequestedInteractionCapabilities } from './interaction-capabilities'
 import {
+  assertRetainedContextTransferCapability,
+  assertRetainedContextTransferEnvironment,
+  assertRetainedContextTransferIdentity,
+  retainedContextTransferReceipt,
+} from './retained-context-transfer'
+import {
   assertStableText,
   exactControlRef,
   exactSession,
@@ -48,12 +54,6 @@ import type {
 } from './retained-run-types'
 import { detachedSnapshot } from './supervise/snapshot'
 import { freshTurnInput } from './turn-input'
-import {
-  assertRetainedContextTransferCapability,
-  assertRetainedContextTransferEnvironment,
-  assertRetainedContextTransferIdentity,
-  retainedContextTransferReceipt,
-} from './retained-context-transfer'
 
 /**
  * Mint deterministic dispatch coordinates from the two caller-supplied keys.
@@ -96,12 +96,18 @@ export async function startRetainedRun(
     throw new Error('startRetainedRun requires an awaited onAdmission durability hook')
   }
   const contextTransfer = retainedContextTransfer(options.turn.contextTransfer)
-  const transferReceipt = retainedContextTransferReceipt(options, options.provider.name, contextTransfer)
+  const transferReceipt = retainedContextTransferReceipt(
+    options,
+    options.provider.name,
+    contextTransfer,
+  )
   const { sessionId, executionId } =
     options.identity ??
     // Admission coordinates remain authoritative across generator changes.
     options.intent ??
-    (transferReceipt === undefined ? undefined : { sessionId: transferReceipt.sessionId, executionId: transferReceipt.executionId }) ??
+    (transferReceipt === undefined
+      ? undefined
+      : { sessionId: transferReceipt.sessionId, executionId: transferReceipt.executionId }) ??
     mintRetainedIdentity(options.environment.idempotencyKey, options.turn.turnId)
   const identity = { sessionId, executionId }
   assertStableText(identity.sessionId, 'retained session id')
@@ -133,11 +139,12 @@ export async function startRetainedRun(
   )
   options.environment.signal?.throwIfAborted()
   options.turn.signal?.throwIfAborted()
-  const attachmentSignal = options.environment.signal === undefined
-    ? options.turn.signal
-    : options.turn.signal === undefined
-      ? options.environment.signal
-      : AbortSignal.any([options.environment.signal, options.turn.signal])
+  const attachmentSignal =
+    options.environment.signal === undefined
+      ? options.turn.signal
+      : options.turn.signal === undefined
+        ? options.environment.signal
+        : AbortSignal.any([options.environment.signal, options.turn.signal])
   let environment: AgentEnvironment
   if (transferReceipt !== undefined && contextTransfer !== undefined) {
     const existing = await options.provider.get(transferReceipt.environmentId, {
@@ -145,7 +152,8 @@ export async function startRetainedRun(
       ...(attachmentSignal === undefined ? {} : { signal: attachmentSignal }),
     })
     attachmentSignal?.throwIfAborted()
-    if (!existing) throw new Error('accepted context transfer environment is unavailable; it cannot be replaced')
+    if (!existing)
+      throw new Error('accepted context transfer environment is unavailable; it cannot be replaced')
     assertRetainedContextTransferEnvironment(existing, contextTransfer, transferReceipt)
     environment = existing
   } else if (options.existingEnvironmentId !== undefined) {
@@ -230,7 +238,8 @@ export async function startRetainedRun(
     onAdmission: options.onAdmission,
     capabilities,
     now: options.now,
-    preserveEnvironment: transferReceipt !== undefined || options.existingEnvironmentId !== undefined,
+    preserveEnvironment:
+      transferReceipt !== undefined || options.existingEnvironmentId !== undefined,
   })
 }
 
@@ -247,7 +256,9 @@ export async function startRetainedRunInEnvironment(
   options: StartRetainedRunInEnvironmentOptions,
 ): Promise<RetainedRunHandle> {
   if (options.turn.contextTransfer !== undefined) {
-    throw new Error('accepted context transfer requires startRetainedRun with its exact profile and receipt')
+    throw new Error(
+      'accepted context transfer requires startRetainedRun with its exact profile and receipt',
+    )
   }
   assertStableText(options.environment.id, 'retained environment id')
   assertStableText(options.environment.idempotencyKey, 'environment idempotency key')
@@ -562,8 +573,23 @@ export async function recoverRetainedRun(
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
-  const environment = await options.provider.get(options.environmentId)
+  // A run that started from an ACCEPTED context transfer repeats the receipt-authorized
+  // lookup here: without the request, an adapter requiring receipt authorization answers
+  // not_found; without the receipt check, a run the receipt never bound can be accepted.
+  const environment =
+    options.contextTransfer === undefined || options.transferReceipt === undefined
+      ? await options.provider.get(options.environmentId)
+      : await options.provider.get(options.environmentId, {
+          contextTransfer: options.contextTransfer,
+        })
   if (!environment) return { outcome: 'not_found' }
+  if (options.contextTransfer !== undefined && options.transferReceipt !== undefined) {
+    assertRetainedContextTransferEnvironment(
+      environment,
+      options.contextTransfer,
+      options.transferReceipt,
+    )
+  }
   const capabilities = retainedCapabilitiesForEnvironment(
     options.provider.name,
     providerCapabilities,
@@ -648,7 +674,14 @@ function retainedRunIntent(
     sessionId: identity.sessionId,
     executionId: identity.executionId,
     requestedProfileDigest,
-    ...(receipt === undefined ? {} : { contextTransferReceiptDigest: canonicalCandidateDigest({ ...receipt, status: 'accepted' }) }),
+    ...(receipt === undefined
+      ? {}
+      : {
+          contextTransferReceiptDigest: canonicalCandidateDigest({
+            ...receipt,
+            status: 'accepted',
+          }),
+        }),
     create: retainedCreateMaterial(options.environment),
     turn: retainedTurnMaterial(options.turn, contextTransfer),
   })

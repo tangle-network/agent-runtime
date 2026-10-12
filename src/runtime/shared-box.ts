@@ -56,8 +56,13 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { harnessSystemPromptIntents } from '@tangle-network/agent-interface/harness-capabilities'
 import { materializeProfile } from '@tangle-network/agent-profile-materialize'
-import type { CreateSandboxOptions } from '@tangle-network/sandbox'
+import type { CreateSandboxOptions, PromptOptions } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
+
+/** The SDK's per-turn model routing config (`PromptOptions['backend']['model']`), whose
+ *  package-root export name varies across sandbox releases — derived here instead. */
+type TurnModelRouting = NonNullable<PromptOptions['backend']>['model']
+
 import { harnessInvocation } from '../mcp/local-harness'
 import { LEAF_CONTINUATION_TASK } from './environment-provider'
 import { concreteProfileModel, profileProviderModel } from './supervise/model-policy'
@@ -816,13 +821,10 @@ async function createWorker(
   async function* turn(
     message: string,
     turnProfile: AgentProfile,
-    options:
-      | {
-          signal?: AbortSignal
-          timeoutMs?: number
-          backend?: { model?: Record<string, unknown> }
-        }
-      | undefined,
+    /** The SDK's per-turn options (the 0.60.41 PromptOptions: signal, timeoutMs,
+     *  backend, per-turn model, secret-profile receipts). The turn reads only the
+     *  fields it has always read; the wider type is what `machine.prompt` takes. */
+    options: PromptOptions | undefined,
   ): AsyncGenerator<AgentEnvironmentEvent> {
     const signal = options?.signal
     const timeoutMs = options?.timeoutMs ?? 0
@@ -1096,7 +1098,7 @@ async function materializeWorker(
   paths: WorkerPaths,
   profile: AgentProfile,
   task: string,
-  turnModel: Record<string, unknown> | undefined,
+  turnModel: TurnModelRouting | undefined,
   clientName: string | undefined,
   continueSession?: string,
 ): Promise<{ args: string[]; config: string; model: string }> {

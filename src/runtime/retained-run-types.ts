@@ -5,8 +5,8 @@ import type {
   AgentNativeContextContinuationOptions,
   AgentNativeContextContinuationResult,
   AgentSessionStatus,
-  ContextTransferRequest,
   ContextTransferReceipt,
+  ContextTransferRequest,
   InteractionAcknowledgement,
   InteractionResponseCommand,
   NativeContextBoundaryProof,
@@ -300,6 +300,17 @@ export interface RecoverRetainedRunOptions {
   readonly environmentId: string
   readonly sessionId: string
   readonly executionId: string
+  /**
+   * Transfer replay identity, when the crashed run started from an ACCEPTED
+   * context transfer: the original request and its authoritative receipt.
+   * Recovery repeats the receipt-authorized lookup and verifies the receipt's
+   * run binding — without it, an adapter that requires receipt-authorized
+   * lookup answers not_found, and one that does not can return a run the
+   * receipt never bound. Callers that persisted the turn's context-transfer
+   * material supply these; behavior is unchanged for runs that had none.
+   */
+  readonly contextTransfer?: ContextTransferRequest
+  readonly transferReceipt?: ContextTransferReceipt
   readonly now?: () => number
 }
 
