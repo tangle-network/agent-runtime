@@ -125,6 +125,7 @@ export interface AgentCandidateWorkspacePort {
     snapshot: AgentCandidateWorkspaceSnapshotEvidence
     archive: Uint8Array
     destination: string
+    signal?: AbortSignal
   }): Promise<void>
 }
 

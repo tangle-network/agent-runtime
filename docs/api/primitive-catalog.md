@@ -1438,7 +1438,7 @@ Import from `@tangle-network/agent-runtime/platform` — 28 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 137 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 142 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1453,6 +1453,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 137 exports.
 | `captureAgentCandidateWorkspaceFiles` | function | Capture detached files returned by a remote executor into the standard archive. |
 | `captureAgentCandidateWorkspaceToArtifacts` | function | Capture regular files to durable artifacts with memory bounded by the manifest and stream buffers. |
 | `captureAgentCandidateWorkspaceTreeToArtifacts` | function | Store a workspace as a tree: each regular file the store does not already hold, then the |
+| `captureAgentWorkspaceSnapshot` | function | Capture through the canonical archive owner and return references only. |
 | `createAgentCandidateWorkspacePort` | function | Create the standard bounded materializer for candidate execution ports. |
 | `createProtectedAgentCandidateModelPort` | function | Bind a protected model-grant service to the immutable candidate runtime. |
 | `describeWorkspaceTree` | function | Describe one directory tree by content, streaming every file. |
@@ -1461,6 +1462,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 137 exports.
 | `executePreparedAgentCandidate` | function | Executes and finalizes one durably claimed candidate without exposing an unproven result. |
 | `freezeGenericAgentCandidateProfile` | function | Convert only behavior-preserving generic profile fields into the closed candidate contract. |
 | `materializeAgentCandidateWorkspaceFromArtifacts` | function | Restore regular-file artifacts into an empty destination, publishing only after complete verification. |
+| `materializeAgentWorkspaceSnapshot` | function | Restore canonical workspace references before an agent starts. |
 | `omitUndefinedObjectFields` | function | Recursively remove undefined object fields while refusing undefined array entries. |
 | `parseExactAgentProfile` | function | Parse a complete profile without silently discarding unsupported fields. |
 | `parseExactAgentProfileDiff` | function | Parse a profile diff without silently discarding unsupported fields. |
@@ -1530,13 +1532,14 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 137 exports.
 | `AgentCandidateModelLimits` | type | Limits mechanically enforced by the evaluator-owned model gateway. |
 | `AgentCandidateProfileSource` | type | A complete profile that can be frozen without losing behavior. |
 | `AgentCandidateProtectedModelSettlementCall` | type | Protected-port wire call with the gateway's counted input total preserved. |
+| `AgentCandidateWorkspaceSnapshotReferences` | type | The canonical workspace evidence without manifest material or embedded file bytes. |
 | `PersistedTaskOutcomeEvidence` | type | Immutable evaluator evidence retained with a verified candidate task outcome. |
 | `VerifiedAgentCandidateTaskOutcome` | type | Branded task outcome that has survived independent evaluator verification. |
 | `WorkspaceTreeAlgorithm` | type | `'tree-v1'` records a file's exact permission bits. `'portable-tree-v1'` records the two modes |
 | `WorkspaceTreeEntryPolicy` | type | What a walk does with an entry it refuses to describe: fail, or record and continue. |
 | `WorkspaceTreeExclusionReason` | type | Why one entry contributed its name instead of its content. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateContainerPort`, `AgentCandidateExecutionAttemptRef`, `AgentCandidateExecutionPorts`, `AgentCandidateExecutorWorkspaceFile`, `AgentCandidateExecutorWorkspaceInput`, `AgentCandidateMemoryPort`, `AgentCandidateMemoryResetResult`, `AgentCandidateModelPort`, `AgentCandidatePreparationEvidence`, `AgentCandidateProtectedModelActivation`, `AgentCandidateProtectedModelReservation`, `AgentCandidateProtectedModelSettlement`, `AgentCandidateProtectedRunCapture`, `AgentCandidateVerificationPorts`, `AgentCandidateWorkspaceArchiveLimits`, `AgentCandidateWorkspaceArtifactsOptions`, `CanonicalCandidateDocument`, `CaptureAgentCandidateWorkspaceOptions`, `CaptureAgentCandidateWorkspaceToArtifactsOptions`, `CapturedAgentCandidateWorkspace`, `CreateAgentCandidateWorkspacePortOptions`, `CreateProtectedAgentCandidateModelPortOptions`, `DescribeWorkspaceTreeOptions`, `DisposePreparedAgentCandidateOptions`, `ExactProcessCandidateExecutorOptions`, `ExecutePreparedAgentCandidateOptions`, `FileAgentCandidateExecutionClaimStoreOptions`, `InMemoryAgentCandidateExecutionClaimStoreOptions`, `PrepareAgentCandidateExecutionOptions`, `PreparedAgentCandidateExecution`, `PreparedAgentCandidateInstruction`, `PreparedAgentCandidateLaunch`, `PreparedAgentCandidateTrace`, `RecoverExpiredAgentCandidateOptions`, `ResolvedAgentCandidateContainer`, `SeedWorkspaceTreeInput`, `VerifiedAgentCandidate`, `WorkspaceTreeDescriptor`, `AgentCandidateModelGrantActivateInput`, `AgentCandidateModelGrantReserveInput`, `AgentCandidateModelGrantSettleInput`, `AgentCandidateOutputPurpose`, `AgentCandidateRetryRejection`, `AgentCandidateRunFinalization`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateContainerPort`, `AgentCandidateExecutionAttemptRef`, `AgentCandidateExecutionPorts`, `AgentCandidateExecutorWorkspaceFile`, `AgentCandidateExecutorWorkspaceInput`, `AgentCandidateMemoryPort`, `AgentCandidateMemoryResetResult`, `AgentCandidateModelPort`, `AgentCandidatePreparationEvidence`, `AgentCandidateProtectedModelActivation`, `AgentCandidateProtectedModelReservation`, `AgentCandidateProtectedModelSettlement`, `AgentCandidateProtectedRunCapture`, `AgentCandidateVerificationPorts`, `AgentCandidateWorkspaceArchiveLimits`, `AgentCandidateWorkspaceArtifactsOptions`, `CanonicalCandidateDocument`, `CaptureAgentCandidateWorkspaceOptions`, `CaptureAgentCandidateWorkspaceToArtifactsOptions`, `CapturedAgentCandidateWorkspace`, `CreateAgentCandidateWorkspacePortOptions`, `CreateProtectedAgentCandidateModelPortOptions`, `DescribeWorkspaceTreeOptions`, `DisposePreparedAgentCandidateOptions`, `ExactProcessCandidateExecutorOptions`, `ExecutePreparedAgentCandidateOptions`, `FileAgentCandidateExecutionClaimStoreOptions`, `InMemoryAgentCandidateExecutionClaimStoreOptions`, `MaterializeAgentWorkspaceSnapshotOptions`, `PrepareAgentCandidateExecutionOptions`, `PreparedAgentCandidateExecution`, `PreparedAgentCandidateInstruction`, `PreparedAgentCandidateLaunch`, `PreparedAgentCandidateTrace`, `RecoverExpiredAgentCandidateOptions`, `ResolvedAgentCandidateContainer`, `SeedWorkspaceTreeInput`, `VerifiedAgentCandidate`, `WorkspaceTreeDescriptor`, `AgentCandidateModelGrantActivateInput`, `AgentCandidateModelGrantReserveInput`, `AgentCandidateModelGrantSettleInput`, `AgentCandidateOutputPurpose`, `AgentCandidateRetryRejection`, `AgentCandidateRunFinalization`, `CaptureAgentWorkspaceSnapshotOptions`.
 
 ### Testing fixtures — validated Runtime wire records
 

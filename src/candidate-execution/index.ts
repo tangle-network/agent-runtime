@@ -168,6 +168,13 @@ export {
   verifyAgentCandidateWorkspaceTree,
 } from './workspace-streams'
 export {
+  type AgentCandidateWorkspaceSnapshotReferences,
+  type CaptureAgentWorkspaceSnapshotOptions,
+  captureAgentWorkspaceSnapshot,
+  type MaterializeAgentWorkspaceSnapshotOptions,
+  materializeAgentWorkspaceSnapshot,
+} from './workspace-transfer'
+export {
   type DescribeWorkspaceTreeOptions,
   describeWorkspaceTree,
   type SeedWorkspaceTreeInput,
