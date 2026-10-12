@@ -148,6 +148,23 @@ memory block, and the contract suite every adapter runs. Worker-safe.
 
 ***
 
+### WorkspaceStoreContractOptions
+
+One versioned workspace store per tenant, shared by every executor: path
+documents with compare-and-set revisions and erasure tombstones, memory and
+file tools bound to a trusted turn, a default authority policy, the pinned
+memory block, and the contract suite every adapter runs. Worker-safe.
+
+#### Properties
+
+##### idempotentOperations?
+
+> `readonly` `optional` **idempotentOperations?**: `boolean`
+
+Also check `operationId` replay; for a store that sets `idempotentOperations`.
+
+***
+
 ### WorkspaceBytesRef
 
 Large content kept outside the index, e.g. an R2 object. The adapter owns `key`.
@@ -306,6 +323,16 @@ Revision the caller read, or `null` when the path must not hold a live entry.
 
 Id for a new entry; ignored on update. Defaults to a random UUID.
 
+##### operationId?
+
+> `readonly` `optional` **operationId?**: `string`
+
+The caller's key for this write, for at-least-once callers such as a queue
+consumer or a sidecar capture hook. While the path's live entry is the one
+this operation wrote, with the same kind and content, repeating the call
+returns that entry instead of a conflict. Honoured only by a store that sets
+[WorkspaceStore.idempotentOperations](#idempotentoperations-1); others ignore it.
+
 ***
 
 ### WorkspaceDeleteInput
@@ -330,6 +357,15 @@ When present, the delete is refused unless the live revision matches.
 
 > `readonly` **actor**: `string`
 
+##### operationId?
+
+> `readonly` `optional` **operationId?**: `string`
+
+The caller's key for this delete. While the path's latest tombstone is the
+one this operation made, repeating the call returns that tombstone instead
+of a conflict. Honoured only by a store that sets
+[WorkspaceStore.idempotentOperations](#idempotentoperations-1).
+
 ***
 
 ### WorkspaceStore
@@ -337,6 +373,14 @@ When present, the delete is refused unless the live revision matches.
 Versioned path store for one or many tenants. Every write is a compare-and-set
 on `revision`; a mismatch throws [WorkspaceConflictError](#workspaceconflicterror). Delete erases
 content and bytes and records a [WorkspaceTombstone](#workspacetombstone).
+
+#### Properties
+
+##### idempotentOperations?
+
+> `readonly` `optional` **idempotentOperations?**: `boolean`
+
+True when put and delete honour `operationId`; the contract then checks it.
 
 #### Methods
 
@@ -645,7 +689,7 @@ What an entry holds; memory kinds are written through `memory.remember`, files t
 
 ### workspaceStoreContractCases()
 
-> **workspaceStoreContractCases**(`makeStore`): [`WorkspaceStoreContractCase`](#workspacestorecontractcase)[]
+> **workspaceStoreContractCases**(`makeStore`, `options?`): [`WorkspaceStoreContractCase`](#workspacestorecontractcase)[]
 
 The contract as named cases; each case builds its own store.
 
@@ -655,6 +699,10 @@ The contract as named cases; each case builds its own store.
 
 [`MakeWorkspaceStore`](#makeworkspacestore)
 
+##### options?
+
+[`WorkspaceStoreContractOptions`](#workspacestorecontractoptions) = `{}`
+
 #### Returns
 
 [`WorkspaceStoreContractCase`](#workspacestorecontractcase)[]
@@ -663,7 +711,7 @@ The contract as named cases; each case builds its own store.
 
 ### runWorkspaceStoreContract()
 
-> **runWorkspaceStoreContract**(`makeStore`): `Promise`\<[`WorkspaceStoreContractResult`](#workspacestorecontractresult)[]\>
+> **runWorkspaceStoreContract**(`makeStore`, `options?`): `Promise`\<[`WorkspaceStoreContractResult`](#workspacestorecontractresult)[]\>
 
 Run every contract case against fresh stores; never throws for a failing case.
 
@@ -672,6 +720,10 @@ Run every contract case against fresh stores; never throws for a failing case.
 ##### makeStore
 
 [`MakeWorkspaceStore`](#makeworkspacestore)
+
+##### options?
+
+[`WorkspaceStoreContractOptions`](#workspacestorecontractoptions) = `{}`
 
 #### Returns
 
@@ -730,6 +782,50 @@ Validate a put before any adapter touches storage; adapters call this first.
 #### Returns
 
 `void`
+
+***
+
+### checkOperationId()
+
+> **checkOperationId**(`path`, `operationId`): `void`
+
+Refuse an `operationId` that is present but empty, not a string, or over 256 chars.
+
+#### Parameters
+
+##### path
+
+`string`
+
+##### operationId
+
+`unknown`
+
+#### Returns
+
+`void`
+
+***
+
+### isSameWorkspaceWrite()
+
+> **isSameWorkspaceWrite**(`entry`, `input`): `boolean`
+
+Whether `entry` is exactly what `input` would write: same kind, content and bytes.
+
+#### Parameters
+
+##### entry
+
+[`WorkspaceEntry`](#workspaceentry)
+
+##### input
+
+[`WorkspacePutInput`](#workspaceputinput)
+
+#### Returns
+
+`boolean`
 
 ***
 

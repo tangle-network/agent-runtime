@@ -79,6 +79,8 @@ export interface WorkspaceScanOptions {
   readonly signal?: AbortSignal
   readonly ignoredProtectedRootEntries?: readonly ('.git' | '.sidecar')[]
   readonly limits?: WorkspaceScanLimits
+  /** Scan only these root-relative files, pruning every unrelated directory. */
+  readonly selectedPaths?: readonly string[]
   /**
    * Record Git's two file modes instead of the filesystem's exact permission bits: `0o755` when
    * any execute bit is set, `0o644` otherwise. A checkout umask then cannot move a manifest
@@ -288,6 +290,24 @@ async function walkWorkspace(
 ): Promise<ScannedWorkspaceEntry[]> {
   const ignoredProtectedRootEntries = new Set<string>(options.ignoredProtectedRootEntries ?? [])
   const limits = options.limits
+  const selected = options.selectedPaths ? new Set(options.selectedPaths) : undefined
+  const selectedDirectories = new Set<string>()
+  for (const path of selected ?? []) {
+    if (
+      !path ||
+      path.includes('\\') ||
+      path.includes('\0') ||
+      isAbsolute(path) ||
+      path.split('/').some((part) => !part || part === '.' || part === '..')
+    ) {
+      throw new Error('workspace selected path must be a safe relative file path')
+    }
+    let parent = dirname(path)
+    while (parent !== '.') {
+      selectedDirectories.add(parent)
+      parent = dirname(parent)
+    }
+  }
   // Scan the RESOLVED root. The property this guards is that every captured path lies under
   // one real directory with no aliasing, which resolving satisfies directly — rejecting a
   // symlinked prefix outright does not, and makes the scan impossible on macOS, where the
@@ -327,11 +347,14 @@ async function walkWorkspace(
       if (!relPath || relPath.startsWith('../') || relPath.includes('/../')) {
         throw new Error(`workspace entry escapes root: ${relPath}`)
       }
+      if (selected && !selected.has(relPath) && !selectedDirectories.has(relPath)) continue
       const stats = await lstat(absolute)
       if (stats.isSymbolicLink()) {
         throw new Error(await symlinkRefusal(absolute, relPath, absoluteRoot))
       }
       if (stats.isDirectory()) {
+        if (selected?.has(relPath))
+          throw new Error(`workspace selected file is a directory: ${relPath}`)
         await visit(absolute)
         continue
       }
@@ -387,6 +410,9 @@ async function walkWorkspace(
   }
 
   await visit(absoluteRoot)
+  if (selected && scanned.length !== selected.size) {
+    throw new Error('workspace selected files changed during capture')
+  }
   return scanned
 }
 

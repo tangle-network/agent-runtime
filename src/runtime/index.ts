@@ -893,6 +893,33 @@ export {
   runGraph,
   type TraversalContinuity,
 } from './supervise/graph'
+// The designer's memory: graphs and their outcomes as files in a workspace, so a rerun over
+// the same sandbox replays a known-good graph (near-zero inference) or authors a better one.
+export {
+  digestOfGraph,
+  type GraphRegistryDir,
+  type GraphRunRecord,
+  type GraphSelection,
+  graphDigest,
+  graphFromStored,
+  graphRegistry,
+  graphRunsFor,
+  listGraphRuns,
+  loadGraph,
+  lookupGraph,
+  pickBestGraph,
+  recordGraphRun,
+  type StoredGraph,
+  storedGraphDigests,
+  taskShapeDigest,
+} from './supervise/graph-registry'
+// The designer's toolset on the existing extraTools seam: lookup / run-and-record / history.
+export {
+  type DesignerRunGraphEnv,
+  type DesignerToolsEnv,
+  graphDesignerExtraTools,
+  type GraphDesignerExtraTools,
+} from './supervise/designer-tools'
 // The in-place CLI leaf executor: the same authored AgentProfile on the same local harness CLI,
 // running in a workspace the CALLER supplies, so the edits stay in that directory for the next
 // spawn. `createExecutor({ backend: 'cli-in-place', workspacePath })` routes to this leaf.

@@ -1011,6 +1011,10 @@ try {
           { name: 'packed-consumer', harness: 'codex' },
           bundle.profile,
         )
+        const { verifyWorkingTreeConsumer } = await import(
+          ${JSON.stringify(new URL('./lib/working-tree-consumer.mjs', import.meta.url).href)}
+        )
+        await verifyWorkingTreeConsumer(candidates)
       `,
     ],
     appDir,

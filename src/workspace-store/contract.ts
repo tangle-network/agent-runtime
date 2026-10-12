@@ -35,6 +35,11 @@ export interface WorkspaceStoreContractResult {
 /** Make a fresh, empty store for one case. */
 export type MakeWorkspaceStore = () => WorkspaceStore | Promise<WorkspaceStore>
 
+export interface WorkspaceStoreContractOptions {
+  /** Also check `operationId` replay; for a store that sets `idempotentOperations`. */
+  readonly idempotentOperations?: boolean
+}
+
 function check(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`workspace store contract: ${message}`)
 }
@@ -71,9 +76,73 @@ function toolsFor(store: WorkspaceStore, turn: WorkspaceTurn, policy?: MemoryPol
   }
 }
 
+const idempotentOperationCase: [string, (store: WorkspaceStore) => Promise<void>] = [
+  'operationId: a repeated put or delete returns its result instead of a conflict',
+  async (store) => {
+    check(store.idempotentOperations === true, 'the store declares idempotentOperations')
+    const base = { workspaceId: W, path: '/files/op.md', kind: 'file' as const, actor: 'alice' }
+    const first = await store.put({
+      ...base,
+      content: 'one',
+      ifRevision: null,
+      operationId: 'op-1',
+    })
+    const replay = await store.put({
+      ...base,
+      content: 'one',
+      ifRevision: null,
+      operationId: 'op-1',
+    })
+    check(
+      replay.revision === first.revision && replay.id === first.id && replay.content === 'one',
+      'a repeated put returns the entry it wrote',
+    )
+    await rejects(
+      () => store.put({ ...base, content: 'other', ifRevision: null, operationId: 'op-1' }),
+      WorkspaceConflictError,
+      'the same operation with different content',
+    )
+    await rejects(
+      () => store.put({ ...base, content: 'one', ifRevision: null, operationId: 'op-other' }),
+      WorkspaceConflictError,
+      'another operation with the same content',
+    )
+    const second = await store.put({
+      ...base,
+      content: 'two',
+      ifRevision: first.revision,
+      operationId: 'op-2',
+    })
+    await rejects(
+      () => store.put({ ...base, content: 'one', ifRevision: null, operationId: 'op-1' }),
+      WorkspaceConflictError,
+      'an operation a later write superseded',
+    )
+    const erase = { workspaceId: W, path: base.path, ifRevision: second.revision, actor: 'bob' }
+    const tombstone = await store.delete({ ...erase, operationId: 'op-3' })
+    const again = await store.delete({ ...erase, operationId: 'op-3' })
+    check(
+      tombstone !== null && again?.revision === tombstone.revision,
+      'a repeated delete returns its tombstone',
+    )
+    await rejects(
+      () => store.delete({ ...erase, operationId: 'op-4' }),
+      WorkspaceConflictError,
+      'another operation deleting the erased path',
+    )
+    check((await store.tombstones(W, base.path)).length === 1, 'a repeated delete erases once')
+    await rejects(
+      () => store.put({ ...base, content: 'x', ifRevision: null, operationId: '' }),
+      TypeError,
+      'an empty operationId',
+    )
+  },
+]
+
 /** The contract as named cases; each case builds its own store. */
 export function workspaceStoreContractCases(
   makeStore: MakeWorkspaceStore,
+  options: WorkspaceStoreContractOptions = {},
 ): WorkspaceStoreContractCase[] {
   const cases: [string, (store: WorkspaceStore) => Promise<void>][] = [
     [
@@ -493,6 +562,7 @@ export function workspaceStoreContractCases(
       },
     ],
   ]
+  if (options.idempotentOperations) cases.push(idempotentOperationCase)
   return cases.map(([name, body]) => ({
     name,
     async run() {
@@ -504,9 +574,10 @@ export function workspaceStoreContractCases(
 /** Run every contract case against fresh stores; never throws for a failing case. */
 export async function runWorkspaceStoreContract(
   makeStore: MakeWorkspaceStore,
+  options: WorkspaceStoreContractOptions = {},
 ): Promise<WorkspaceStoreContractResult[]> {
   const results: WorkspaceStoreContractResult[] = []
-  for (const contractCase of workspaceStoreContractCases(makeStore)) {
+  for (const contractCase of workspaceStoreContractCases(makeStore, options)) {
     try {
       await contractCase.run()
       results.push({ name: contractCase.name, passed: true })
