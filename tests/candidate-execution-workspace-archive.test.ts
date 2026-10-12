@@ -11,13 +11,15 @@ import {
   statSync,
   symlinkSync,
   truncateSync,
+  unlinkSync,
+  watch,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import { type Headers, pack } from 'tar-stream'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   captureAgentCandidateWorkspace,
@@ -31,6 +33,7 @@ import { verifyAgentCandidateWorkspaceArchive } from '../src/candidate-execution
 const roots: string[] = []
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -83,6 +86,262 @@ function repository(
 }
 
 describe('candidate workspace archive', () => {
+  it.each(['deleted', 'smaller'] as const)(
+    'bounds staged bytes when the working file is %s',
+    async (working) => {
+      const source = repository()
+      writeFileSync(join(source, 'README.md'), 'x'.repeat(32))
+      git(source, ['add', 'README.md'])
+      if (working === 'deleted') unlinkSync(join(source, 'README.md'))
+      else writeFileSync(join(source, 'README.md'), 'x')
+      await expect(
+        captureAgentCandidateWorkspace(source, {
+          includeRepository: true,
+          repositoryContents: 'working-tree',
+          limits: { maxFileBytes: 16 },
+        }),
+      ).rejects.toThrow('maxFileBytes')
+      await expect(
+        captureAgentCandidateWorkspace(source, {
+          includeRepository: true,
+          repositoryContents: 'working-tree',
+          limits: { maxFileBytes: 40, maxTotalFileBytes: 40 },
+        }),
+      ).rejects.toThrow('maxTotalFileBytes')
+    },
+  )
+
+  it('verifies staged byte limits before attempting restoration', async () => {
+    const source = repository()
+    writeFileSync(join(source, 'README.md'), 'x'.repeat(32))
+    git(source, ['add', 'README.md'])
+    unlinkSync(join(source, 'README.md'))
+    const captured = await captureAgentCandidateWorkspace(source, {
+      includeRepository: true,
+      repositoryContents: 'working-tree',
+    })
+    await expect(
+      verifyAgentCandidateWorkspaceArchive({
+        role: 'task',
+        ...captured,
+        limits: { maxFileBytes: 16 },
+      }),
+    ).rejects.toThrow()
+  })
+
+  it.each(['configured', 'xdg-default'] as const)(
+    'honors %s user Git exclusions without copying configuration',
+    async (kind) => {
+      const source = repository()
+      const configRoot = temporaryRoot('working-tree-user-exclusions-')
+      const globalConfig = join(configRoot, 'gitconfig')
+      const xdg = join(configRoot, 'xdg')
+      mkdirSync(join(xdg, 'git'), { recursive: true })
+      const excludes =
+        kind === 'configured' ? join(configRoot, 'excludes') : join(xdg, 'git', 'ignore')
+      writeFileSync(globalConfig, '')
+      if (kind === 'configured')
+        git(source, ['config', '--file', globalConfig, 'core.excludesFile', excludes])
+      writeFileSync(excludes, 'user-ignored.txt\n')
+      writeFileSync(join(source, 'user-ignored.txt'), 'harmless excluded fixture')
+      vi.stubEnv('GIT_CONFIG_GLOBAL', globalConfig)
+      vi.stubEnv('GIT_CONFIG_SYSTEM', '/dev/null')
+      vi.stubEnv('XDG_CONFIG_HOME', xdg)
+      expect(git(source, ['ls-files', '--others', '--exclude-standard'])).not.toContain(
+        'user-ignored.txt',
+      )
+      const captured = await captureAgentCandidateWorkspace(source, {
+        includeRepository: true,
+        repositoryContents: 'working-tree',
+      })
+      expect(captured.snapshot.material.files.map((file) => file.path)).not.toContain(
+        'user-ignored.txt',
+      )
+    },
+  )
+
+  it('restores the staged index independently of source Git diff settings', async () => {
+    const source = repository()
+    const original = Array.from({ length: 30 }, (_, index) =>
+      index % 4 === 0 ? '' : `line ${index}`,
+    )
+    writeFileSync(join(source, 'README.md'), `${original.join('\n')}\n`)
+    git(source, ['add', 'README.md'])
+    git(source, ['commit', '-m', 'multiline fixture'])
+    git(source, ['config', 'diff.context', '7'])
+    git(source, ['config', 'diff.algorithm', 'histogram'])
+    git(source, ['config', 'diff.suppressBlankEmpty', 'true'])
+    original[15] = 'staged change'
+    const staged = `${original.join('\n')}\n`
+    writeFileSync(join(source, 'README.md'), staged)
+    git(source, ['add', 'README.md'])
+    const captured = await captureAgentCandidateWorkspace(source, {
+      includeRepository: true,
+      repositoryContents: 'working-tree',
+    })
+    const destination = join(temporaryRoot('working-tree-diff-settings-'), 'restored')
+    await createAgentCandidateWorkspacePort().materialize({
+      role: 'task',
+      snapshot: captured.snapshot,
+      archive: captured.archive,
+      destination,
+    })
+    expect(git(destination, ['show', ':README.md'])).toBe(staged.trim())
+    expect(readFileSync(join(destination, 'README.md'), 'utf8')).toBe(staged)
+  })
+
+  it('preserves a destination file added while restoration is in progress', async () => {
+    const source = repository()
+    const captured = await captureAgentCandidateWorkspace(source, {
+      includeRepository: true,
+      repositoryContents: 'working-tree',
+    })
+    const parent = temporaryRoot('working-tree-concurrent-destination-')
+    const destination = join(parent, 'restored')
+    mkdirSync(destination)
+    const observer = watch(parent, (_event, name) => {
+      if (name !== null && String(name) !== 'restored') {
+        writeFileSync(join(destination, 'keep'), 'concurrent owner data')
+        observer.close()
+      }
+    })
+    try {
+      await expect(
+        createAgentCandidateWorkspacePort().materialize({
+          role: 'task',
+          snapshot: captured.snapshot,
+          archive: captured.archive,
+          destination,
+        }),
+      ).rejects.toThrow()
+      expect(readFileSync(join(destination, 'keep'), 'utf8')).toBe('concurrent owner data')
+    } finally {
+      observer.close()
+    }
+  })
+
+  it('restores staged, dirty, deleted and untracked files without changing the source', async () => {
+    const source = repository()
+    writeFileSync(join(source, 'README.md'), 'staged change\n')
+    git(source, ['add', 'README.md'])
+    writeFileSync(join(source, 'README.md'), 'later working change\n')
+    writeFileSync(join(source, 'bin', 'run'), Buffer.from([255, 128, 0, 10]))
+    git(source, ['add', 'bin/run'])
+    unlinkSync(join(source, 'bin', 'run'))
+    writeFileSync(join(source, 'untracked.bin'), Buffer.from([255, 0, 128, 1]))
+    const beforeStatus = git(source, ['status', '--porcelain=v1', '--untracked-files=all'])
+    const beforeIndex = git(source, ['show', ':README.md'])
+    const beforeBinaryIndex = execFileSync('git', ['show', ':bin/run'], { cwd: source })
+    const captured = await captureAgentCandidateWorkspace(source, {
+      includeRepository: true,
+      repositoryContents: 'working-tree',
+    })
+    const destination = join(temporaryRoot('working-tree-transfer-parent-'), 'restored')
+    await createAgentCandidateWorkspacePort().materialize({
+      role: 'task',
+      snapshot: captured.snapshot,
+      archive: captured.archive,
+      destination,
+    })
+    expect(readFileSync(join(destination, 'README.md'), 'utf8')).toBe('later working change\n')
+    expect(git(destination, ['show', ':README.md'])).toBe(beforeIndex)
+    expect(execFileSync('git', ['show', ':bin/run'], { cwd: destination })).toEqual(
+      beforeBinaryIndex,
+    )
+    expect([...readFileSync(join(destination, 'untracked.bin'))]).toEqual([255, 0, 128, 1])
+    expect(existsSync(join(destination, 'bin', 'run'))).toBe(false)
+    expect(existsSync(join(destination, 'ignored-cache'))).toBe(false)
+    expect(git(destination, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe(
+      beforeStatus,
+    )
+    expect(git(source, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe(beforeStatus)
+    expect(git(source, ['show', ':README.md'])).toBe(beforeIndex)
+    expect(readFileSync(join(source, 'README.md'), 'utf8')).toBe('later working change\n')
+    const restarted = join(temporaryRoot('working-tree-restart-parent-'), 'restored')
+    await createAgentCandidateWorkspacePort().materialize({
+      role: 'task',
+      snapshot: JSON.parse(JSON.stringify(captured.snapshot)),
+      archive: captured.archive,
+      destination: restarted,
+    })
+    expect(git(restarted, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe(beforeStatus)
+  })
+
+  it('refuses an occupied destination and corrupted staged bytes before changing files', async () => {
+    const source = repository()
+    writeFileSync(join(source, 'README.md'), 'staged change\n')
+    git(source, ['add', 'README.md'])
+    const captured = await captureAgentCandidateWorkspace(source, {
+      includeRepository: true,
+      repositoryContents: 'working-tree',
+    })
+    const destination = temporaryRoot('working-tree-occupied-')
+    writeFileSync(join(destination, 'keep'), 'original')
+    await expect(
+      createAgentCandidateWorkspacePort().materialize({
+        role: 'task',
+        snapshot: captured.snapshot,
+        archive: captured.archive,
+        destination,
+      }),
+    ).rejects.toThrow('must be empty')
+    expect(readFileSync(join(destination, 'keep'), 'utf8')).toBe('original')
+    const tampered = Uint8Array.from(captured.archive)
+    const offset = Buffer.from(tampered).lastIndexOf('staged change')
+    expect(offset).toBeGreaterThan(0)
+    tampered[offset] = 'S'.charCodeAt(0)
+    await expect(
+      createAgentCandidateWorkspacePort().materialize({
+        role: 'task',
+        snapshot: { ...captured.snapshot, archive: embeddedCandidateArtifact(tampered) },
+        archive: tampered,
+        destination,
+      }),
+    ).rejects.toThrow('candidate Git index files do not match the captured manifest')
+    expect(readFileSync(join(destination, 'keep'), 'utf8')).toBe('original')
+  })
+
+  it('requires a repository and refuses unsupported staged file types and oversized bundles', async () => {
+    const source = repository()
+    await expect(
+      captureAgentCandidateWorkspace(source, { repositoryContents: 'working-tree' }),
+    ).rejects.toThrow('requires includeRepository')
+    writeFileSync(join(source, 'README.md'), 'staged change\n')
+    git(source, ['add', 'README.md'])
+    await expect(
+      captureAgentCandidateWorkspace(source, {
+        includeRepository: true,
+        repositoryContents: 'working-tree',
+        limits: { maxRepositoryBundleBytes: 1 },
+      }),
+    ).rejects.toThrow('maxRepositoryBundleBytes')
+    git(source, ['update-index', '--assume-unchanged', 'README.md'])
+    await expect(
+      captureAgentCandidateWorkspace(source, {
+        includeRepository: true,
+        repositoryContents: 'working-tree',
+      }),
+    ).rejects.toThrow('special Git index flags')
+    git(source, ['update-index', '--no-assume-unchanged', 'README.md'])
+    writeFileSync(join(source, 'intent.txt'), 'not staged yet')
+    git(source, ['add', '--intent-to-add', 'intent.txt'])
+    await expect(
+      captureAgentCandidateWorkspace(source, {
+        includeRepository: true,
+        repositoryContents: 'working-tree',
+      }),
+    ).rejects.toThrow('special Git index flags')
+    git(source, ['reset', '--', 'intent.txt'])
+    const blob = git(source, ['rev-parse', 'HEAD:README.md'])
+    git(source, ['update-index', '--cacheinfo', `120000,${blob},README.md`])
+    await expect(
+      captureAgentCandidateWorkspace(source, {
+        includeRepository: true,
+        repositoryContents: 'working-tree',
+      }),
+    ).rejects.toThrow('resolved regular-file Git index')
+  })
+
   it.each(['sha1', 'sha256'] as const)(
     'captures and restores exact Git HEAD files for %s repositories',
     async (objectFormat) => {

@@ -451,7 +451,22 @@ export async function runCandidateGit(
   args: string[],
   input?: Uint8Array,
   extraEnv: Record<string, string> = {},
+  options: { maxOutputBytes?: number; readUserExclusions?: boolean } = {},
 ): Promise<GitResult> {
+  if (
+    options.readUserExclusions &&
+    (args.length !== 7 ||
+      args.slice(0, 4).join(',') !== 'config,--includes,--path,--default' ||
+      args.slice(5).join(',') !== '--get,core.excludesFile')
+  ) {
+    throw new Error('user Git configuration may only supply the effective exclusion path')
+  }
+  if (
+    options.maxOutputBytes !== undefined &&
+    (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 0)
+  ) {
+    throw new Error('candidate Git maxOutputBytes must be a nonnegative safe integer')
+  }
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')),
   ) as Record<string, string>
@@ -464,6 +479,14 @@ export async function runCandidateGit(
     LC_ALL: 'C',
     ...extraEnv,
   })
+  // Only this read-only config query can consult user configuration. Commands which read blobs,
+  // bundle, or restore a repository retain isolation from credentials and executable settings.
+  if (options.readUserExclusions) {
+    for (const name of ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_NOSYSTEM']) {
+      delete env[name]
+      if (process.env[name] !== undefined) env[name] = process.env[name]
+    }
+  }
   const fullArgs = [
     '-c',
     'core.hooksPath=/dev/null',
@@ -481,10 +504,27 @@ export async function runCandidateGit(
     const child = spawn('git', fullArgs, { env, stdio: ['pipe', 'pipe', 'pipe'] })
     const stdout: Buffer[] = []
     const stderr: Buffer[] = []
-    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk))
-    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk))
+    let outputBytes = 0
+    let exceeded = false
+    function retain(chunks: Buffer[], chunk: Buffer): void {
+      if (exceeded) return
+      outputBytes += chunk.byteLength
+      if (options.maxOutputBytes !== undefined && outputBytes > options.maxOutputBytes) {
+        exceeded = true
+        child.kill('SIGKILL')
+        return
+      }
+      chunks.push(chunk)
+    }
+    child.stdout.on('data', (chunk: Buffer) => retain(stdout, chunk))
+    child.stderr.on('data', (chunk: Buffer) => retain(stderr, chunk))
     child.on('error', reject)
+    child.stdin.on('error', reject)
     child.on('close', (code, signal) => {
+      if (exceeded) {
+        reject(new Error('candidate Git command exceeds maxOutputBytes'))
+        return
+      }
       const out = Buffer.concat(stdout)
       const err = Buffer.concat(stderr)
       if (code !== 0) {

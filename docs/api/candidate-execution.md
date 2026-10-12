@@ -413,6 +413,14 @@ What a workspace scan reads and how it records a file's permission bits.
 
 **`Experimental`**
 
+##### selectedPaths?
+
+> `readonly` `optional` **selectedPaths?**: readonly `string`[]
+
+**`Experimental`**
+
+Scan only these root-relative files, pruning every unrelated directory.
+
 ##### portableTree?
 
 > `readonly` `optional` **portableTree?**: `boolean`
@@ -3479,6 +3487,17 @@ Omit for a workspace-root file; agent-root files use the private Pi directory.
 
 Include Git HEAD so task preparation can prove its exact commit and tree.
 
+##### repositoryContents?
+
+> `optional` **repositoryContents?**: `"head"` \| `"working-tree"`
+
+**`Experimental`**
+
+`working-tree` preserves tracked and unignored untracked regular files, deletions, exact modes,
+and the complete bounded Git index. Git-ignored files stay excluded. Requires includeRepository.
+The caller must hold the workspace lease against writers; observed drift fails capture.
+The manifest digest covers files, while the archive digest also binds HEAD and the index.
+
 ##### limits?
 
 > `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
@@ -5105,7 +5124,7 @@ readonly [`AgentCandidateExecutorWorkspaceFile`](#agentcandidateexecutorworkspac
 
 ##### options?
 
-`Omit`\<[`CaptureAgentCandidateWorkspaceOptions`](#captureagentcandidateworkspaceoptions), `"includeRepository"`\> = `{}`
+`Omit`\<[`CaptureAgentCandidateWorkspaceOptions`](#captureagentcandidateworkspaceoptions), `"includeRepository"` \| `"repositoryContents"`\> = `{}`
 
 #### Returns
 

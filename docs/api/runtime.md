@@ -17092,6 +17092,148 @@ Restrict the run to this subset of models (forwarded to `supervise()`).
 
 ***
 
+### DesignerRunGraphEnv
+
+How the ENVIRONMENT executes a graph the designer asked to run.
+
+#### Extended by
+
+- [`DesignerToolsEnv`](#designertoolsenv)
+
+#### Properties
+
+##### runGraph
+
+> `readonly` **runGraph**: (`graph`) => `Promise`\<[`GraphResult`](#graphresult)\<`unknown`\>\>
+
+Run one graph (check already re-bound by [DesignerToolsEnv.bindCheck](#bindcheck)).
+
+###### Parameters
+
+###### graph
+
+[`AgentGraph`](#agentgraph)
+
+###### Returns
+
+`Promise`\<[`GraphResult`](#graphresult)\<`unknown`\>\>
+
+##### bindCheck
+
+> `readonly` **bindCheck**: (`graph`) => [`AgentGraph`](#agentgraph)
+
+Attach the environment's deliverable check to an authored graph.
+
+###### Parameters
+
+###### graph
+
+[`AgentGraph`](#agentgraph)
+
+###### Returns
+
+[`AgentGraph`](#agentgraph)
+
+***
+
+### DesignerToolsEnv
+
+How the ENVIRONMENT executes a graph the designer asked to run.
+
+#### Extends
+
+- [`DesignerRunGraphEnv`](#designerrungraphenv)
+
+#### Properties
+
+##### runGraph
+
+> `readonly` **runGraph**: (`graph`) => `Promise`\<[`GraphResult`](#graphresult)\<`unknown`\>\>
+
+Run one graph (check already re-bound by [DesignerToolsEnv.bindCheck](#bindcheck)).
+
+###### Parameters
+
+###### graph
+
+[`AgentGraph`](#agentgraph)
+
+###### Returns
+
+`Promise`\<[`GraphResult`](#graphresult)\<`unknown`\>\>
+
+###### Inherited from
+
+[`DesignerRunGraphEnv`](#designerrungraphenv).[`runGraph`](#rungraph)
+
+##### bindCheck
+
+> `readonly` **bindCheck**: (`graph`) => [`AgentGraph`](#agentgraph)
+
+Attach the environment's deliverable check to an authored graph.
+
+###### Parameters
+
+###### graph
+
+[`AgentGraph`](#agentgraph)
+
+###### Returns
+
+[`AgentGraph`](#agentgraph)
+
+###### Inherited from
+
+[`DesignerRunGraphEnv`](#designerrungraphenv).[`bindCheck`](#bindcheck)
+
+##### registryDir
+
+> `readonly` **registryDir**: `string`
+
+Workspace holding the graph registry (the sandbox's persistent volume).
+
+##### nextRunId?
+
+> `readonly` `optional` **nextRunId?**: () => `string`
+
+Distinct run ids per inner run; default: `designer-<n>`.
+
+###### Returns
+
+`string`
+
+***
+
+### GraphDesignerExtraTools
+
+#### Properties
+
+##### extraTools
+
+> `readonly` **extraTools**: readonly `object`[]
+
+##### executeExtraTool
+
+> `readonly` **executeExtraTool**: (`name`, `args`) => `unknown`
+
+The executeExtraTool contract: answers ONLY these tools, null otherwise.
+
+###### Parameters
+
+###### name
+
+`string`
+
+###### args
+
+`unknown`
+
+###### Returns
+
+`unknown`
+
+***
+
 ### WatchTraceOptions
 
 #### Properties
@@ -18905,7 +19047,7 @@ WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do 
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`extraTools`](#extratools-1)
+[`SuperviseOptions`](#superviseoptions).[`extraTools`](#extratools-2)
 
 ##### executeExtraTool?
 
@@ -18929,7 +19071,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`executeExtraTool`](#executeextratool-1)
+[`SuperviseOptions`](#superviseoptions).[`executeExtraTool`](#executeextratool-2)
 
 ##### perWorker?
 
@@ -41685,6 +41827,25 @@ authored worker's delivered output; a `no-winner` result names why (never a fabr
 #### Returns
 
 `Promise`\<[`SupervisedResult`](#supervisedresult)\<`Out`\>\>
+
+***
+
+### graphDesignerExtraTools()
+
+> **graphDesignerExtraTools**(`env`): [`GraphDesignerExtraTools`](#graphdesignerextratools)
+
+The designer's three tools over one registry. Record-every-run is enforced
+ by construction: running IS recording.
+
+#### Parameters
+
+##### env
+
+[`DesignerToolsEnv`](#designertoolsenv)
+
+#### Returns
+
+[`GraphDesignerExtraTools`](#graphdesignerextratools)
 
 ***
 
