@@ -26,7 +26,7 @@ const snapshot: AgentWorkspaceSnapshotRef = {
 async function savedIntent(environment: CreateAgentEnvironmentInput & { idempotencyKey: string }) {
   let calls = 0
   const provider: AgentEnvironmentProvider = { name: 'intent-provider',
-    capabilities: () => { calls++; return execOnlyEnvironmentCapabilities() },
+    capabilities: () => { calls++; return execOnlyEnvironmentCapabilities({ read: false, write: false, exec: false, git: false, upload: false, download: false }) },
     create: async () => { calls++; throw new Error('provider must not be reached') },
     get: async () => { calls++; return null } }
   const replay: RetainedRunStartMaterial = { environment, turn: { prompt: 'work', turnId: 'intent-turn' } }

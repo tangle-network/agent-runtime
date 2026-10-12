@@ -6,7 +6,7 @@ import {
   type AgentEnvironmentProvider,
   type AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
-import { retainedContextTransfer, retainedContextTransferReceipt, retainedContextProfile } from '../../tests/helpers/retained-context-transfer'
+import { retainedContextTransfer, retainedContextTransferReceipt, retainedContextProfile } from './retained-context-transfer-fixture'
 import { recoverRetainedRun, startRetainedRun } from './retained-run-start'
 import type { RetainedRunAdmission, RetainedRunIntentAdmission, RetainedRunStartMaterial } from './retained-run-types'
 
@@ -16,7 +16,7 @@ function fixture() {
   const counts = { creates: 0, gets: 0, dispatches: 0, destroys: 0 }
   const admissions: RetainedRunAdmission[] = []
   let received: AgentTurnInput | undefined
-  const capabilities = { ...execOnlyEnvironmentCapabilities(),
+  const capabilities = { ...execOnlyEnvironmentCapabilities({ read: true, write: true, exec: true, git: true, upload: false, download: false }),
     streaming: { live: true, replay: true, detach: true, turnIdempotency: true },
     sessions: { continue: true, list: false, messages: false },
     retainedControl: { exactRunIdentity: true, resultIdentity: true, eventIdentity: true, cancellationIdempotency: true },

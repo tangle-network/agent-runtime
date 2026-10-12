@@ -151,7 +151,7 @@
     "@biomejs/biome": "^2.5.11",
     "@modelcontextprotocol/sdk": "catalog:",
     "@tangle-network/agent-eval": "0.212.0",
-    "@tangle-network/agent-interface": "4.0.0",
+    "@tangle-network/agent-interface": "5.0.0",
     "@tangle-network/agent-provider-cli-bridge": "1.1.3",
     "@tangle-network/agent-provider-daytona": "0.5.0",
     "@tangle-network/agent-provider-e2b": "0.5.0",
