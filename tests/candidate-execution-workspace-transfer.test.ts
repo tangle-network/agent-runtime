@@ -257,7 +257,10 @@ describe('portable workspace composition', () => {
     }
     await expect(
       materializeAgentWorkspaceSnapshot({
-        snapshot, destination, signal: controller.signal, artifacts: interrupted,
+        snapshot,
+        destination,
+        signal: controller.signal,
+        artifacts: interrupted,
       }),
     ).rejects.toThrow('artifact read cancelled')
     expect(existsSync(destination)).toBe(false)
@@ -268,15 +271,24 @@ describe('portable workspace composition', () => {
     const destination = join(root, 'cancelled-staging')
     const controller = new AbortController()
     const verify = workspaceArtifacts.verifyMaterializedWorkspace
-    const verification = vi.spyOn(workspaceArtifacts, 'verifyMaterializedWorkspace').mockImplementation(async (...args) => {
-      await verify(...args)
-      expect(args[0]).toContain(`${destination}.materializing-`)
-      expect(readFileSync(join(args[0], 'tracked.txt'), 'utf8')).toBe('dirty source\n')
-      expect(existsSync(join(args[0], '.git'))).toBe(true)
-      controller.abort(new Error('staged restore cancelled'))
-    })
+    const verification = vi
+      .spyOn(workspaceArtifacts, 'verifyMaterializedWorkspace')
+      .mockImplementation(async (...args) => {
+        await verify(...args)
+        expect(args[0]).toContain(`${destination}.materializing-`)
+        expect(readFileSync(join(args[0], 'tracked.txt'), 'utf8')).toBe('dirty source\n')
+        expect(existsSync(join(args[0], '.git'))).toBe(true)
+        controller.abort(new Error('staged restore cancelled'))
+      })
     try {
-      await expect(materializeAgentWorkspaceSnapshot({ snapshot, destination, artifacts, signal: controller.signal })).rejects.toThrow('staged restore cancelled')
+      await expect(
+        materializeAgentWorkspaceSnapshot({
+          snapshot,
+          destination,
+          artifacts,
+          signal: controller.signal,
+        }),
+      ).rejects.toThrow('staged restore cancelled')
       expect(verification).toHaveBeenCalledOnce()
       expect(existsSync(destination)).toBe(false)
       expect((await readdir(root)).filter((entry) => entry.includes('.materializing-'))).toEqual([])

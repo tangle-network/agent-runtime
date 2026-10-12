@@ -1033,7 +1033,8 @@ export async function prepareEmptyDestination(
   try {
     stats = await lstat(destination)
   } catch (error) {
-    if (options.createDestination === false && (error as NodeJS.ErrnoException).code === 'ENOENT') return
+    if (options.createDestination === false && (error as NodeJS.ErrnoException).code === 'ENOENT')
+      return
     throw error
   }
   if (!stats.isDirectory() || stats.isSymbolicLink()) {
@@ -1091,7 +1092,11 @@ async function materializeRepository(
   signal?: AbortSignal,
 ): Promise<void> {
   signal?.throwIfAborted()
-  const git = async (args: string[], bytes?: Uint8Array, options: { maxOutputBytes?: number } = {}) => {
+  const git = async (
+    args: string[],
+    bytes?: Uint8Array,
+    options: { maxOutputBytes?: number } = {},
+  ) => {
     signal?.throwIfAborted()
     const result = await runCandidateGit(destination, args, bytes, {}, options)
     signal?.throwIfAborted()
@@ -1110,15 +1115,11 @@ async function materializeRepository(
     ])
     await git(['bundle', 'verify', bundlePath])
     await git(['bundle', 'unbundle', bundlePath])
-    const objectType = (
-      await git(['cat-file', '-t', repository.headCommit])
-    ).stdout
+    const objectType = (await git(['cat-file', '-t', repository.headCommit])).stdout
       .toString('utf8')
       .trim()
     if (objectType !== 'commit') throw new Error('candidate repository HEAD is not a commit')
-    const observedTree = (
-      await git(['rev-parse', `${repository.headCommit}^{tree}`])
-    ).stdout
+    const observedTree = (await git(['rev-parse', `${repository.headCommit}^{tree}`])).stdout
       .toString('utf8')
       .trim()
     if (observedTree !== repository.headTree) {
@@ -1142,9 +1143,7 @@ async function materializeRepository(
       }
       if (entries.length)
         await git(['update-index', '-z', '--index-info'], Buffer.from(entries.join('')))
-      const indexTree = (await git(['write-tree'])).stdout
-        .toString('utf8')
-        .trim()
+      const indexTree = (await git(['write-tree'])).stdout.toString('utf8').trim()
       const observed = await readCandidateGitTreeFiles(destination, indexTree, {}, limits)
       signal?.throwIfAborted()
       if (
@@ -1158,9 +1157,7 @@ async function materializeRepository(
       return
     }
 
-    const status = (
-      await git(['status', '--porcelain=v1', '--untracked-files=all'])
-    ).stdout
+    const status = (await git(['status', '--porcelain=v1', '--untracked-files=all'])).stdout
       .toString('utf8')
       .trim()
     if (status) throw new Error('candidate repository files do not exactly match HEAD')

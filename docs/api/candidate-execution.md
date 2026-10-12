@@ -1914,6 +1914,10 @@ any archive encoding, or no-op when the exact workspace is already present.
 
 `string`
 
+###### signal?
+
+`AbortSignal`
+
 ###### Returns
 
 `Promise`\<`void`\>
@@ -5389,8 +5393,8 @@ Restore canonical workspace references before an agent starts.
 The SDK boundary validates source provenance and the accepted snapshot digest before this
 byte-level composition runs. Artifact references identify content; the injected port owns
 authorization. The archive owner verifies all files and Git state before publishing fresh
-staging. Existing destinations are refused, and competing content is preserved. The caller
-owns the allocation scope against other writers; Node directory rename is not atomic no-replace.
+staging. Destinations present before or during artifact reads are refused. The caller owns
+the allocation scope against other writers; Node directory rename is not atomic no-replace.
 
 #### Parameters
 
