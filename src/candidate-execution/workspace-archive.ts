@@ -231,13 +231,14 @@ export function createAgentCandidateWorkspacePort(
 ): AgentCandidateWorkspacePort {
   const limits = workspaceLimits(options.limits)
   const port: AgentCandidateWorkspacePort = {
-    materialize: async ({ role, snapshot, archive, destination }) => {
+    materialize: async ({ role, snapshot, archive, destination, signal }) => {
       await materializeAgentCandidateWorkspace({
         role,
         snapshot,
         archive,
         destination,
         limits,
+        signal,
       })
     },
   }
@@ -250,19 +251,26 @@ async function materializeAgentCandidateWorkspace(input: {
   archive: Uint8Array
   destination: string
   limits: AgentCandidateWorkspaceArchiveLimits
+  signal?: AbortSignal
 }): Promise<void> {
+  input.signal?.throwIfAborted()
   const decoded = await decodeVerifiedWorkspaceArchive(input)
+  input.signal?.throwIfAborted()
   const destination = resolve(input.destination)
-  await prepareEmptyDestination(destination)
+  await prepareEmptyDestination(destination, { createDestination: false })
+  input.signal?.throwIfAborted()
   const staging = await mkdtemp(`${destination}.materializing-`)
   try {
-    await writeWorkspaceFiles(staging, decoded.files)
+    input.signal?.throwIfAborted()
+    await writeWorkspaceFiles(staging, decoded.files, input.signal)
     if (decoded.repository) {
-      await materializeRepository(decoded.repository, staging, input.limits)
+      await materializeRepository(decoded.repository, staging, input.limits, input.signal)
     }
+    input.signal?.throwIfAborted()
     await verifyMaterializedWorkspace(staging, input.snapshot.material, {
       ignoredProtectedRootEntries: decoded.repository ? ['.git'] : [],
     })
+    input.signal?.throwIfAborted()
     await rename(staging, destination)
   } catch (error) {
     await rm(staging, { recursive: true, force: true })
@@ -1013,9 +1021,21 @@ async function streamEqualsBytes(
   return equal && offset === expectedBuffer.byteLength
 }
 
-export async function prepareEmptyDestination(destination: string): Promise<void> {
-  await mkdir(destination, { recursive: true, mode: 0o700 })
-  const stats = await lstat(destination)
+export async function prepareEmptyDestination(
+  destination: string,
+  options: { createDestination?: boolean } = {},
+): Promise<void> {
+  await mkdir(options.createDestination === false ? dirname(destination) : destination, {
+    recursive: true,
+    mode: 0o700,
+  })
+  let stats
+  try {
+    stats = await lstat(destination)
+  } catch (error) {
+    if (options.createDestination === false && (error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
   if (!stats.isDirectory() || stats.isSymbolicLink()) {
     throw new Error('candidate workspace destination must be a real directory')
   }
@@ -1035,8 +1055,10 @@ export async function prepareEmptyDestination(destination: string): Promise<void
 async function writeWorkspaceFiles(
   destination: string,
   files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
+  signal?: AbortSignal,
 ): Promise<void> {
   for (const file of files) {
+    signal?.throwIfAborted()
     const path = workspacePath(destination, file.path)
     await mkdir(dirname(path), { recursive: true, mode: 0o700 })
     const descriptor = await open(
@@ -1048,12 +1070,14 @@ async function writeWorkspaceFiles(
       0o600,
     )
     try {
-      await descriptor.writeFile(file.bytes)
+      signal?.throwIfAborted()
+      await descriptor.writeFile(file.bytes, { signal })
       const stats = await descriptor.stat()
       if (!stats.isFile() || stats.nlink !== 1) {
         throw new Error(`candidate workspace file identity changed while writing: ${file.path}`)
       }
       await descriptor.chmod(file.mode)
+      signal?.throwIfAborted()
     } finally {
       await descriptor.close()
     }
@@ -1064,49 +1088,52 @@ async function materializeRepository(
   repository: WorkspaceArchiveRepository,
   destination: string,
   limits: AgentCandidateWorkspaceArchiveLimits,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted()
+  const git = async (args: string[], bytes?: Uint8Array, options: { maxOutputBytes?: number } = {}) => {
+    signal?.throwIfAborted()
+    const result = await runCandidateGit(destination, args, bytes, {}, options)
+    signal?.throwIfAborted()
+    return result
+  }
   const temporary = await mkdtemp(join(tmpdir(), 'agent-candidate-workspace-bundle-'))
   const bundlePath = join(temporary, `${randomUUID()}.bundle`)
   try {
-    await writeFile(bundlePath, repository.bundle.bytes, { flag: 'wx', mode: 0o600 })
-    await runCandidateGit(destination, [
+    signal?.throwIfAborted()
+    await writeFile(bundlePath, repository.bundle.bytes, { flag: 'wx', mode: 0o600, signal })
+    await git([
       'init',
       '--quiet',
       '--initial-branch=candidate',
       `--object-format=${repository.headCommit.length === 64 ? 'sha256' : 'sha1'}`,
     ])
-    await runCandidateGit(destination, ['bundle', 'verify', bundlePath])
-    await runCandidateGit(destination, ['bundle', 'unbundle', bundlePath])
+    await git(['bundle', 'verify', bundlePath])
+    await git(['bundle', 'unbundle', bundlePath])
     const objectType = (
-      await runCandidateGit(destination, ['cat-file', '-t', repository.headCommit])
+      await git(['cat-file', '-t', repository.headCommit])
     ).stdout
       .toString('utf8')
       .trim()
     if (objectType !== 'commit') throw new Error('candidate repository HEAD is not a commit')
     const observedTree = (
-      await runCandidateGit(destination, ['rev-parse', `${repository.headCommit}^{tree}`])
+      await git(['rev-parse', `${repository.headCommit}^{tree}`])
     ).stdout
       .toString('utf8')
       .trim()
     if (observedTree !== repository.headTree) {
       throw new Error('candidate repository bundle HEAD tree changed')
     }
-    await runCandidateGit(destination, ['update-ref', '--no-deref', 'HEAD', repository.headCommit])
-    await runCandidateGit(destination, ['read-tree', repository.headTree])
+    await git(['update-ref', '--no-deref', 'HEAD', repository.headCommit])
+    await git(['read-tree', repository.headTree])
     if (repository.workingTree) {
       // All staged content has passed archive limits and manifest verification before Git sees it.
       // Rebuilding an index from explicit blobs avoids binary-patch expansion and diff configuration.
-      await runCandidateGit(destination, ['read-tree', '--empty'])
+      await git(['read-tree', '--empty'])
       const entries: string[] = []
       for (const file of repository.workingTree.files) {
         const object = (
-          await runCandidateGit(
-            destination,
-            ['hash-object', '-w', '--stdin'],
-            file.bytes,
-            {},
-            { maxOutputBytes: 256 },
-          )
+          await git(['hash-object', '-w', '--stdin'], file.bytes, { maxOutputBytes: 256 })
         ).stdout
           .toString('utf8')
           .trim()
@@ -1114,15 +1141,12 @@ async function materializeRepository(
         entries.push(`${file.mode === 0o755 ? '100755' : '100644'} ${object}\t${file.path}\0`)
       }
       if (entries.length)
-        await runCandidateGit(
-          destination,
-          ['update-index', '-z', '--index-info'],
-          Buffer.from(entries.join('')),
-        )
-      const indexTree = (await runCandidateGit(destination, ['write-tree'])).stdout
+        await git(['update-index', '-z', '--index-info'], Buffer.from(entries.join('')))
+      const indexTree = (await git(['write-tree'])).stdout
         .toString('utf8')
         .trim()
       const observed = await readCandidateGitTreeFiles(destination, indexTree, {}, limits)
+      signal?.throwIfAborted()
       if (
         !Buffer.from(canonicalCandidateBytes(candidateWorkspaceManifest(observed))).equals(
           Buffer.from(
@@ -1135,7 +1159,7 @@ async function materializeRepository(
     }
 
     const status = (
-      await runCandidateGit(destination, ['status', '--porcelain=v1', '--untracked-files=all'])
+      await git(['status', '--porcelain=v1', '--untracked-files=all'])
     ).stdout
       .toString('utf8')
       .trim()

@@ -111,6 +111,7 @@ export async function materializeAgentWorkspaceSnapshot(
     snapshot: evidence,
     archive,
     destination,
+    ...(input.signal ? { signal: input.signal } : {}),
   })
 }
 
