@@ -51,10 +51,7 @@ describe('context-transfer recovery authority', () => {
     const seen: Array<Record<string, unknown> | undefined> = []
     const wrongRun = { ...receipt, runId: `sha256:${'b'.repeat(64)}` }
 
-    const makeProvider = (
-      environmentAnswer: AgentEnvironment | null,
-      receiptToVerify: typeof receipt,
-    ): AgentEnvironmentProvider =>
+    const makeProvider = (receiptToVerify: typeof receipt): AgentEnvironmentProvider =>
       ({
         name: receipt.provider,
         capabilities: () => ({
@@ -131,7 +128,7 @@ describe('context-transfer recovery authority', () => {
     const { recoverRetainedRun } = await import('./retained-run-start')
     // Authorized lookup + a matching receipt recovers.
     const ok = await recoverRetainedRun({
-      provider: makeProvider(null, receipt),
+      provider: makeProvider(receipt),
       environmentId: receipt.environmentId,
       sessionId: receipt.sessionId,
       executionId: receipt.executionId,
@@ -144,7 +141,7 @@ describe('context-transfer recovery authority', () => {
     // A receipt whose runId the transfer never bound is refused loudly.
     seen.length = 0
     const hijacked = await recoverRetainedRun({
-      provider: makeProvider(null, wrongRun),
+      provider: makeProvider(wrongRun),
       environmentId: receipt.environmentId,
       sessionId: receipt.sessionId,
       executionId: receipt.executionId,
