@@ -3690,6 +3690,48 @@ The bytes this capture added to the store; every other file was already there.
 
 ***
 
+### MaterializeAgentWorkspaceSnapshotOptions
+
+**`Experimental`**
+
+#### Properties
+
+##### snapshot
+
+> **snapshot**: [`AgentCandidateWorkspaceSnapshotReferences`](#agentcandidateworkspacesnapshotreferences)
+
+**`Experimental`**
+
+##### artifacts
+
+> **artifacts**: [`AgentCandidateArtifactPort`](#agentcandidateartifactport)
+
+**`Experimental`**
+
+Authorizes each immutable reference for the accepted transfer owner; must stream reads.
+
+##### destination
+
+> **destination**: `string`
+
+**`Experimental`**
+
+Absent destination inside a caller-owned private allocation scope.
+
+##### limits?
+
+> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
+
+**`Experimental`**
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+**`Experimental`**
+
+***
+
 ### WorkspaceTreeExclusion
 
 **`Experimental`**
@@ -4341,6 +4383,40 @@ Branded task outcome that has survived independent evaluator verification.
 > **usage**: `AgentCandidateFixedSpend` \| `null`
 
 Independent evaluator-gateway usage, even when execution or trace capture failed.
+
+***
+
+### AgentCandidateWorkspaceSnapshotReferences
+
+> **AgentCandidateWorkspaceSnapshotReferences** = `Pick`\<`AgentCandidateWorkspaceSnapshotEvidence`, `"kind"` \| `"digest"`\> & `object`
+
+**`Experimental`**
+
+The canonical workspace evidence without manifest material or embedded file bytes.
+
+#### Type Declaration
+
+##### manifest
+
+> `readonly` **manifest**: `AgentCandidateArtifactRef`
+
+##### archive
+
+> `readonly` **archive**: `AgentCandidateArtifactRef`
+
+***
+
+### CaptureAgentWorkspaceSnapshotOptions
+
+> **CaptureAgentWorkspaceSnapshotOptions** = `Omit`\<[`CaptureAgentCandidateWorkspaceOptions`](#captureagentcandidateworkspaceoptions), `"artifactPersistence"`\> & `object`
+
+**`Experimental`**
+
+#### Type Declaration
+
+##### artifactPersistence
+
+> **artifactPersistence**: `NonNullable`\<[`CaptureAgentCandidateWorkspaceOptions`](#captureagentcandidateworkspaceoptions)\[`"artifactPersistence"`\]\>
 
 ***
 
@@ -5269,6 +5345,58 @@ Restore regular-file artifacts into an empty destination, publishing only after 
 ##### input
 
 [`AgentCandidateWorkspaceArtifactsOptions`](#agentcandidateworkspaceartifactsoptions) & `object`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### captureAgentWorkspaceSnapshot()
+
+> **captureAgentWorkspaceSnapshot**(`root`, `options`): `Promise`\<[`AgentCandidateWorkspaceSnapshotReferences`](#agentcandidateworkspacesnapshotreferences)\>
+
+**`Experimental`**
+
+Capture through the canonical archive owner and return references only.
+The caller holds its existing private source workspace lease throughout capture, and binds
+its public source provenance at the SDK boundary. Choose includeRepository and working-tree
+explicitly when staged, dirty, deleted and unignored untracked Git files must travel.
+
+#### Parameters
+
+##### root
+
+`string`
+
+##### options
+
+[`CaptureAgentWorkspaceSnapshotOptions`](#captureagentworkspacesnapshotoptions)
+
+#### Returns
+
+`Promise`\<[`AgentCandidateWorkspaceSnapshotReferences`](#agentcandidateworkspacesnapshotreferences)\>
+
+***
+
+### materializeAgentWorkspaceSnapshot()
+
+> **materializeAgentWorkspaceSnapshot**(`input`): `Promise`\<`void`\>
+
+**`Experimental`**
+
+Restore canonical workspace references before an agent starts.
+The SDK boundary validates source provenance and the accepted snapshot digest before this
+byte-level composition runs. Artifact references identify content; the injected port owns
+authorization. The archive owner verifies all files and Git state before publishing fresh
+staging. Existing destinations are refused, and competing content is preserved. The caller
+owns the allocation scope against other writers; Node directory rename is not atomic no-replace.
+
+#### Parameters
+
+##### input
+
+[`MaterializeAgentWorkspaceSnapshotOptions`](#materializeagentworkspacesnapshotoptions)
 
 #### Returns
 

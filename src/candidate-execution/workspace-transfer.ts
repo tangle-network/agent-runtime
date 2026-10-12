@@ -70,8 +70,8 @@ export interface MaterializeAgentWorkspaceSnapshotOptions {
  * The SDK boundary validates source provenance and the accepted snapshot digest before this
  * byte-level composition runs. Artifact references identify content; the injected port owns
  * authorization. The archive owner verifies all files and Git state before publishing fresh
- * staging. Existing destinations are refused, and competing content is preserved. The caller
- * owns the allocation scope against other writers; Node directory rename is not atomic no-replace.
+ * staging. Destinations present before or during artifact reads are refused. The caller owns
+ * the allocation scope against other writers; Node directory rename is not atomic no-replace.
  */
 export async function materializeAgentWorkspaceSnapshot(
   input: MaterializeAgentWorkspaceSnapshotOptions,
@@ -115,7 +115,10 @@ export async function materializeAgentWorkspaceSnapshot(
 }
 
 function workspaceReferences(
-  snapshot: Pick<AgentCandidateWorkspaceSnapshotEvidence, 'kind' | 'digest' | 'manifest' | 'archive'>,
+  snapshot: Pick<
+    AgentCandidateWorkspaceSnapshotEvidence,
+    'kind' | 'digest' | 'manifest' | 'archive'
+  >,
 ): AgentCandidateWorkspaceSnapshotReferences {
   if (snapshot.kind !== 'agent-candidate-workspace-snapshot') {
     throw new Error('portable workspace snapshot kind is invalid')

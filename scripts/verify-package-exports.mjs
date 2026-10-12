@@ -956,6 +956,8 @@ try {
           'exactProcessProviderAsCandidateExecutor',
           'sealAgentCandidateBundle',
           'verifyAgentCandidateBundle',
+          'captureAgentWorkspaceSnapshot',
+          'materializeAgentWorkspaceSnapshot',
         ]) {
           if (typeof candidates[name] !== 'function') throw new Error('missing candidate export ' + name)
         }
@@ -993,7 +995,8 @@ try {
         const { verifyWorkingTreeConsumer } = await import(
           ${JSON.stringify(new URL('./lib/working-tree-consumer.mjs', import.meta.url).href)}
         )
-        await verifyWorkingTreeConsumer(candidates)
+        const kernel = await import('@tangle-network/agent-runtime/kernel')
+        await verifyWorkingTreeConsumer(candidates, kernel)
       `,
     ],
     appDir,

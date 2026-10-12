@@ -170,8 +170,8 @@ export {
 export {
   type AgentCandidateWorkspaceSnapshotReferences,
   type CaptureAgentWorkspaceSnapshotOptions,
-  type MaterializeAgentWorkspaceSnapshotOptions,
   captureAgentWorkspaceSnapshot,
+  type MaterializeAgentWorkspaceSnapshotOptions,
   materializeAgentWorkspaceSnapshot,
 } from './workspace-transfer'
 export {
