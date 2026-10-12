@@ -44,6 +44,7 @@ export type {
 export {
   AGENT_PROFILE_MATERIALIZATION_AXES,
   assertProfileMaterialization,
+  assertProfileMaterializes,
   controlProfileMaterialization,
   defineProfileMaterializationContract,
   fullProfileMaterialization,

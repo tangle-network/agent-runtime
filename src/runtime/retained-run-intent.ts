@@ -1,5 +1,6 @@
 import type { ContextTransferRequest } from '@tangle-network/agent-interface'
 import {
+  agentWorkspaceSnapshotRefDigest,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
@@ -16,6 +17,37 @@ import type {
  * Secret names remain public binding data, so changing requested credentials
  * still conflicts before provider effects begin.
  */
+/**
+ * The pre-interface5 create-material projection: `requestedId`, `egress`,
+ * `billingOwner`, and the workspace `snapshot` digest omitted — the shape
+ * records persisted by the previous version digested. Accepted only when
+ * validating replayed records (an upgrade must not strand an in-flight run
+ * whose provider creation already completed); every new admission digests the
+ * current projection.
+ */
+export function legacyRetainedCreateMaterial(
+  environment: CreateAgentEnvironmentInput,
+): Record<string, unknown> {
+  const {
+    requestedId: _requestedId,
+    egress: _egress,
+    billingOwner: _billingOwner,
+    workspace,
+    ...preInterface5
+  } = environment
+  const legacyEnvironment =
+    workspace === undefined
+      ? preInterface5
+      : {
+          ...preInterface5,
+          workspace: (() => {
+            const { snapshot: _snapshot, ...legacyWorkspace } = workspace
+            return legacyWorkspace
+          })(),
+        }
+  return retainedCreateMaterial(legacyEnvironment as CreateAgentEnvironmentInput)
+}
+
 export function retainedCreateMaterial(
   environment: CreateAgentEnvironmentInput,
 ): Record<string, unknown> {
@@ -26,6 +58,9 @@ export function retainedCreateMaterial(
           placement: environment.metadata.runtimeProviderPlacement,
         }),
     ...(environment.backend === undefined ? {} : { backend: environment.backend }),
+    ...(environment.requestedId === undefined ? {} : { requestedId: environment.requestedId }),
+    ...(environment.egress === undefined ? {} : { egress: environment.egress }),
+    ...(environment.billingOwner === undefined ? {} : { billingOwner: environment.billingOwner }),
     ...(environment.workspace === undefined
       ? {}
       : {
@@ -75,6 +110,10 @@ function publicWorkspaceMaterial(
     ...(workspace.repoUrl === undefined ? {} : { repoUrl: workspace.repoUrl }),
     ...(workspace.gitRef === undefined ? {} : { gitRef: workspace.gitRef }),
     ...(workspace.cwd === undefined ? {} : { cwd: workspace.cwd }),
+    ...(workspace.checkpoint === undefined ? {} : { checkpoint: workspace.checkpoint }),
+    ...(workspace.snapshot === undefined
+      ? {}
+      : { snapshotDigest: agentWorkspaceSnapshotRefDigest(workspace.snapshot) }),
     ...(workspace.providerOptions === undefined
       ? {}
       : { providerOptionNames: retainedObjectNames(workspace.providerOptions) }),

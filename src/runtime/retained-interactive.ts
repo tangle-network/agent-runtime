@@ -35,7 +35,11 @@ import type {
   StartRetainedInteractiveRunOptions,
 } from './retained-interactive-types'
 import { assertStableText, awaitAbortable } from './retained-run-binding'
-import { retainedCreateMaterial, retainedEnvironmentMetadata } from './retained-run-intent'
+import {
+  legacyRetainedCreateMaterial,
+  retainedCreateMaterial,
+  retainedEnvironmentMetadata,
+} from './retained-run-intent'
 import { admitDurably, mintRetainedIdentity } from './retained-run-start'
 import type {
   RetainedInteractiveEnvironmentAdmission,
@@ -87,7 +91,12 @@ export async function startRetainedInteractiveRun(
     // A replay supplies the same record and therefore skips a duplicate write.
     await admitDurably(startOptions.onAdmission, intent)
   } else {
-    assertExactInteractiveIntent(startOptions.intent, intent)
+    assertExactInteractiveIntent(startOptions.intent, intent, () =>
+      // A record persisted by the previous version digested the pre-interface5
+      // create projection; the exact legacy projection is accepted so an
+      // upgrade never strands an in-flight interactive run.
+      interactiveIntent(startOptions, profile, identity, legacyRetainedCreateMaterial),
+    )
   }
   const providerCapabilities = AgentEnvironmentCapabilitiesSchema.parse(
     await awaitAbortable(
@@ -313,6 +322,7 @@ function interactiveIntent(
   options: StartRetainedInteractiveRunOptions,
   profile: StartRetainedInteractiveRunOptions['environment']['profile'],
   identity: { readonly sessionId: string; readonly executionId: string },
+  createMaterial: typeof retainedCreateMaterial = retainedCreateMaterial,
 ): RetainedInteractiveIntentAdmission {
   const requestedProfileDigest = canonicalAgentProfileDigest(profile)
   const requestDigest = canonicalCandidateDigest({
@@ -323,7 +333,7 @@ function interactiveIntent(
     sessionId: identity.sessionId,
     executionId: identity.executionId,
     requestedProfileDigest,
-    create: retainedCreateMaterial(options.environment),
+    create: createMaterial(options.environment),
     start: sanitizedStartMaterial(options),
   })
   return {
@@ -353,10 +363,16 @@ function sanitizedStartMaterial(
 function assertExactInteractiveIntent(
   received: RetainedInteractiveIntentAdmission,
   expected: RetainedInteractiveIntentAdmission,
+  legacyExpected?: () => RetainedInteractiveIntentAdmission,
 ): void {
   const stableReceived = parseInteractiveIntent(received)
   if (canonicalCandidateDigest(stableReceived) !== canonicalCandidateDigest(expected)) {
-    throw new Error('interactive intent conflicts with replay material')
+    if (
+      legacyExpected === undefined ||
+      canonicalCandidateDigest(stableReceived) !== canonicalCandidateDigest(legacyExpected())
+    ) {
+      throw new Error('interactive intent conflicts with replay material')
+    }
   }
 }
 

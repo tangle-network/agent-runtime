@@ -5,6 +5,7 @@ import type {
   AgentNativeContextContinuationOptions,
   AgentNativeContextContinuationResult,
   AgentSessionStatus,
+  ContextTransferReceipt,
   ContextTransferRequest,
   InteractionAcknowledgement,
   InteractionResponseCommand,
@@ -225,6 +226,8 @@ export interface RetainedRunStartMaterial {
   /** Reuse an environment whose retained ownership key is verified instead of creating one. */
   readonly existingEnvironmentId?: string
   readonly turn: RetainedRunTurnInput
+  /** Accepted destination to attach, without creating or replacing its environment. */
+  readonly contextTransferReceipt?: ContextTransferReceipt
   /**
    * Explicit dispatch coordinates. When omitted, the runtime mints
    * deterministic coordinates from `(environment.idempotencyKey, turn.turnId)`
@@ -297,6 +300,17 @@ export interface RecoverRetainedRunOptions {
   readonly environmentId: string
   readonly sessionId: string
   readonly executionId: string
+  /**
+   * Transfer replay identity, when the crashed run started from an ACCEPTED
+   * context transfer: the original request and its authoritative receipt.
+   * Recovery repeats the receipt-authorized lookup and verifies the receipt's
+   * run binding — without it, an adapter that requires receipt-authorized
+   * lookup answers not_found, and one that does not can return a run the
+   * receipt never bound. Callers that persisted the turn's context-transfer
+   * material supply these; behavior is unchanged for runs that had none.
+   */
+  readonly contextTransfer?: ContextTransferRequest
+  readonly transferReceipt?: ContextTransferReceipt
   readonly now?: () => number
 }
 
