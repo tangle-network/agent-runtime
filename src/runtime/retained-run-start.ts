@@ -569,6 +569,7 @@ export async function recoverRetainedRun(
   assertStableText(options.environmentId, 'retained environment id')
   assertStableText(options.sessionId, 'retained session id')
   assertStableText(options.executionId, 'retained execution id')
+  const contextTransfer = retainedContextTransfer(options.contextTransfer)
   const providerCapabilities = await assertRetainedCapabilities(options.provider)
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
@@ -577,16 +578,16 @@ export async function recoverRetainedRun(
   // lookup here: without the request, an adapter requiring receipt authorization answers
   // not_found; without the receipt check, a run the receipt never bound can be accepted.
   const environment =
-    options.contextTransfer === undefined || options.transferReceipt === undefined
+    contextTransfer === undefined || options.transferReceipt === undefined
       ? await options.provider.get(options.environmentId)
       : await options.provider.get(options.environmentId, {
-          contextTransfer: options.contextTransfer,
+          contextTransfer,
         })
   if (!environment) return { outcome: 'not_found' }
-  if (options.contextTransfer !== undefined && options.transferReceipt !== undefined) {
+  if (contextTransfer !== undefined && options.transferReceipt !== undefined) {
     assertRetainedContextTransferEnvironment(
       environment,
-      options.contextTransfer,
+      contextTransfer,
       options.transferReceipt,
     )
   }
@@ -702,10 +703,14 @@ function retainedContextTransfer(
   value: ContextTransferRequest | undefined,
 ): ContextTransferRequest | undefined {
   if (value === undefined) return undefined
-  return detachedSnapshot(
-    ContextTransferRequestSchema.parse(value),
-    'retained context transfer request',
-  )
+  const parsed = ContextTransferRequestSchema.safeParse(value)
+  if (!parsed.success) {
+    throw new Error(
+      'retained context transfer request is invalid or uses an incompatible wire contract; preserve the original record and explicitly reconstruct and review an Interface 5 transfer request before retrying',
+      { cause: parsed.error },
+    )
+  }
+  return detachedSnapshot(parsed.data, 'retained context transfer request')
 }
 
 function assertExactRetainedRunIntent(
