@@ -108,7 +108,8 @@ export interface WorkspaceToolContext {
   newId?: () => string
 }
 
-async function guard(
+/** Policy check shared by the memory tools and harness ingest; not part of the public entry. */
+export async function guard(
   context: WorkspaceToolContext,
   turn: WorkspaceTurn,
   access: WorkspaceAccess,

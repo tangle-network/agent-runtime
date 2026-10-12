@@ -13,6 +13,22 @@ export {
   workspaceStoreContractCases,
 } from './contract'
 export {
+  captureHarnessMemory,
+  HARNESS_MEMORY_BEGIN,
+  HARNESS_MEMORY_END,
+  type HarnessIngestResult,
+  type HarnessNativeFiles,
+  type HarnessProvenance,
+  harnessActor,
+  ingestHarnessMemories,
+  type MemoryDivergence,
+  memoryDivergence,
+  normalizeMemoryText,
+  parseHarnessActor,
+  projectHarnessMemory,
+  renderHarnessMemory,
+} from './harness'
+export {
   assertWorkspacePath,
   checkOperationId,
   checkWorkspacePut,
