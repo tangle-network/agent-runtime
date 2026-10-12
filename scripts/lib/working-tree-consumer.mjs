@@ -16,7 +16,7 @@ export async function verifyWorkingTreeConsumer(candidates) {
     writeFileSync(join(source, 'file.txt'), 'committed\n')
     writeFileSync(join(source, 'deleted.txt'), 'committed deletion target\n')
     git(['add', '.'])
-    git(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'fixture'])
+    git(['commit', '-qm', 'fixture'])
     writeFileSync(join(source, 'file.txt'), 'staged\n')
     git(['add', 'file.txt'])
     writeFileSync(join(source, 'file.txt'), 'working\n')
