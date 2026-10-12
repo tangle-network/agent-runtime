@@ -629,6 +629,51 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
 
 export type { ToolSpec }
 
+/** Compose node behavior with host state and ceilings; neither grants new tools. */
+function routerCodeModeSettings(
+  profile: ProfileModelExecutionSettings['codeMode'],
+  host: RouterToolsSeam['codeMode'],
+): Omit<CodeModeToolsOptions, 'wasm' | 'workerUrl'> | undefined {
+  if (profile === false || (profile === undefined && host === undefined)) return undefined
+  const environment = typeof host === 'object' ? host : {}
+  const node = typeof profile === 'object' ? profile : {}
+  const limits: { -readonly [Key in keyof ProfileCodeModeSettings]: ProfileCodeModeSettings[Key] } =
+    {}
+  for (const key of ['timeoutMs', 'memoryLimitBytes', 'concurrency', 'maxCalls'] as const) {
+    const ceiling = environment[key]
+    const requested = node[key]
+    // Refuse an invalid host ceiling even if the node asks for a valid, smaller one.
+    for (const value of [ceiling, requested]) {
+      if (value === undefined || (key === 'timeoutMs' && value === Infinity)) continue
+      if (
+        !Number.isSafeInteger(value) ||
+        value < 1 ||
+        (key === 'timeoutMs' && value > 2_147_483_647)
+      ) {
+        throw new ValidationError(`router-tools: invalid codeMode.${key}`)
+      }
+    }
+    const value =
+      ceiling === undefined
+        ? requested
+        : requested === undefined
+          ? ceiling
+          : Math.min(ceiling, requested)
+    if (value !== undefined) limits[key] = value
+  }
+  return {
+    ...environment,
+    ...limits,
+    ...(environment.directTools || node.directTools
+      ? {
+          directTools: [
+            ...new Set([...(environment.directTools ?? []), ...(node.directTools ?? [])]),
+          ],
+        }
+      : {}),
+  }
+}
+
 /**
  * Router seam WITH tool use — the tool-using router backend. Same direct
  * OpenAI-compatible endpoint as `RouterSeam`, but each turn passes `tools`; when
@@ -735,6 +780,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
   )
   if (model === 'tangle/auto')
     assertRouterAutoDeclaration(profileExecution.extraBody?.auto, profileExecution.stream)
+  const codeModeConfig = routerCodeModeSettings(profileExecution.codeMode, seam.codeMode)
   const enabledToolNames = new Set(seam.tools.map((tool) => tool.function.name))
   const maxTurns = profileExecution.maxTurns ?? 0
   const requestIdentity = routerRequestIdentity(ctx)
@@ -831,11 +877,8 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             }
           }
         }
-        // A node declares code mode on its profile (model.metadata.codeMode) — a graph
-        // node whose action space is CODE over its granted handlers, not one JSON tool
-        // call per turn. The profile wins over the environment (seam) default, so one
-        // graph can mix code nodes and ordinary agent nodes.
-        const codeModeConfig = profileExecution.codeMode ?? seam.codeMode
+        // The profile chooses this node's action space; the host retains restored
+        // state, direct-only capabilities and execution ceilings.
         const codeMode = codeModeConfig
           ? createCodeModeTools(
               seam.tools.map(({ function: tool }) => ({
@@ -845,7 +888,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                 outputSchema: tool.outputSchema,
                 execute: (args, context) => executeGranted(tool.name, args, context),
               })),
-              codeModeConfig === true ? {} : codeModeConfig,
+              codeModeConfig,
             )
           : undefined
         const presentedTools: ReadonlyArray<ToolSpec> = codeMode
@@ -2709,7 +2752,7 @@ interface RouterProfileExecution {
   extraBody?: Readonly<Record<string, unknown>>
   maxTurns?: number
   stream?: boolean
-  codeMode?: true | ProfileCodeModeSettings
+  codeMode?: boolean | ProfileCodeModeSettings
 }
 
 /** Validate and render every AgentProfile axis the direct Router path claims to carry.
