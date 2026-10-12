@@ -5,7 +5,7 @@
  * and connection storage.
  *
  * See:
- *   - {@link PlatformAuthClient} for legacy cross-site "Login with Tangle" (returns an API key)
+ *   - {@link PlatformAuthClient} for the cross-site "Login with Tangle" API-key exchange (the classic mode; OIDC is the newer one — both are live)
  *   - {@link PlatformOidcClient} for standard OIDC authorization code + PKCE and device grants
  *   - {@link PlatformHubClient} for the `/v1/hub/*` surface
  */
