@@ -136,7 +136,7 @@ describe('candidate workspace archive', () => {
     expect(captured.snapshot.material.files.map((file) => file.path)).not.toContain('user-ignored.txt')
   })
 
-  it('canonicalizes staged patches across source Git diff settings', async () => {
+  it('restores the staged index independently of source Git diff settings', async () => {
     const source = repository()
     const original = Array.from({ length: 30 }, (_, index) => index % 4 === 0 ? '' : `line ${index}`)
     writeFileSync(join(source, 'README.md'), `${original.join('\n')}\n`)
@@ -262,11 +262,11 @@ describe('candidate workspace archive', () => {
         archive: tampered,
         destination,
       }),
-    ).rejects.toThrow('candidate Git index patch digest')
+    ).rejects.toThrow('candidate Git index files do not match the captured manifest')
     expect(readFileSync(join(destination, 'keep'), 'utf8')).toBe('original')
   })
 
-  it('requires a repository and refuses unsupported staged file types and oversized patches', async () => {
+  it('requires a repository and refuses unsupported staged file types and oversized bundles', async () => {
     const source = repository()
     await expect(
       captureAgentCandidateWorkspace(source, { repositoryContents: 'working-tree' }),
@@ -279,7 +279,7 @@ describe('candidate workspace archive', () => {
         repositoryContents: 'working-tree',
         limits: { maxRepositoryBundleBytes: 1 },
       }),
-    ).rejects.toThrow('maxOutputBytes')
+    ).rejects.toThrow('maxRepositoryBundleBytes')
     git(source, ['update-index', '--assume-unchanged', 'README.md'])
     await expect(
       captureAgentCandidateWorkspace(source, {

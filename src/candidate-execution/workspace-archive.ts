@@ -12,7 +12,7 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve, sep, win32 } from 'node:path'
 import { isAnyArrayBuffer, isSharedArrayBuffer } from 'node:util/types'
 import type {
@@ -50,7 +50,8 @@ const archiveKind = 'agent-candidate-workspace-archive' as const
 const workspaceEntryPrefix = 'workspace/'
 const repositoryMetadataEntry = 'metadata/repository.json'
 const repositoryBundleEntry = 'metadata/repository.bundle'
-const repositoryIndexEntry = 'metadata/repository.index.patch'
+const repositoryIndexEntry = 'metadata/repository.index.json'
+const repositoryIndexPrefix = 'index/'
 const fixedTarTime = new Date(0)
 
 export interface AgentCandidateWorkspaceArchiveLimits {
@@ -81,9 +82,7 @@ interface WorkspaceArchiveRepository {
     byteLength: number
     bytes: Uint8Array
   }
-  workingTree?: {
-    indexPatch: { sha256: `sha256:${string}`; byteLength: number; bytes: Uint8Array }
-  }
+  workingTree?: { files: Array<{ path: string; mode: number; bytes: Uint8Array }> }
 }
 
 interface WorkspaceArchiveRepositoryMetadata {
@@ -94,7 +93,7 @@ interface WorkspaceArchiveRepositoryMetadata {
     sha256: `sha256:${string}`
     byteLength: number
   }
-  workingTree?: { indexPatch: { sha256: `sha256:${string}`; byteLength: number } }
+  workingTree?: { indexManifest: { sha256: `sha256:${string}`; byteLength: number } }
 }
 
 interface DecodedWorkspaceArchive {
@@ -107,7 +106,7 @@ export interface CaptureAgentCandidateWorkspaceOptions {
   includeRepository?: boolean
   /**
    * `working-tree` preserves tracked and unignored untracked regular files, deletions, exact modes,
-   * and the staged binary patch. Git-ignored files stay excluded. Requires includeRepository.
+   * and the complete bounded Git index. Git-ignored files stay excluded. Requires includeRepository.
    * The caller must hold the workspace lease against writers; observed drift fails capture.
    * The manifest digest covers files, while the archive digest also binds HEAD and the index.
    */
@@ -267,7 +266,6 @@ async function materializeAgentCandidateWorkspace(input: {
     await rename(staging, destination)
   } catch (error) {
     await rm(staging, { recursive: true, force: true })
-    await rm(destination, { recursive: true, force: true })
     throw error
   }
 }
@@ -377,7 +375,7 @@ async function captureRepository(
       const after = await readRepositoryWorkingState(root, limits)
       if (
         after.paths !== working.state.paths ||
-        !Buffer.from(after.indexPatch).equals(Buffer.from(working.state.indexPatch)) ||
+        after.index !== working.state.index ||
         (await runCandidateGit(root, ['rev-parse', 'HEAD'])).stdout.toString('utf8').trim() !==
           headCommit
       ) {
@@ -404,13 +402,7 @@ async function captureRepository(
         },
         ...(working
           ? {
-              workingTree: {
-                indexPatch: {
-                  sha256: sha256Bytes(working.state.indexPatch),
-                  byteLength: working.state.indexPatch.byteLength,
-                  bytes: working.state.indexPatch,
-                },
-              },
+              workingTree: { files: working.state.files },
             }
           : {}),
       },
@@ -420,71 +412,73 @@ async function captureRepository(
   }
 }
 
-const stagedDiffArgs = [
-  'diff',
-  '--cached',
-  '--binary',
-  '--full-index',
-  '--no-ext-diff',
-  '--no-textconv',
-  '--no-renames',
-  '--no-color',
-  '--src-prefix=a/',
-  '--dst-prefix=b/',
-  'HEAD',
-  '--',
-]
-
 async function readRepositoryWorkingState(
   root: string,
   limits: AgentCandidateWorkspaceArchiveLimits,
 ): Promise<{
   paths: string
-  indexPatch: Uint8Array
+  index: string
+  files: Array<{ path: string; mode: number; bytes: Uint8Array }>
 }> {
   const env = { GIT_OPTIONAL_LOCKS: '0' }
-  const listingLimit = Math.min(
-    limits.maxArchiveBytes,
-    limits.maxFiles * (limits.maxPathBytes + 256),
-  )
-  const index = (
-    await runCandidateGit(root, ['ls-files', '--stage', '-z'], undefined, env, {
-      maxOutputBytes: listingLimit,
-    })
-  ).stdout
-  for (const entry of index.toString('utf8').split('\0').filter(Boolean)) {
-    if (!/^(100644|100755) [a-f0-9]{40,64} 0\t/.test(entry)) {
-      throw new Error('candidate working-tree capture requires a resolved regular-file Git index')
-    }
-  }
-  const paths = new TextDecoder('utf-8', { fatal: true }).decode(
-    (
-      await runCandidateGit(
-        root,
-        ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
-        undefined,
-        env,
-        { maxOutputBytes: listingLimit },
-      )
-    ).stdout,
-  )
-  for (const path of paths.split('\0').filter(Boolean)) safeArchivePath(path, limits.maxPathBytes)
-  const debugIndex = (
-    await runCandidateGit(root, ['ls-files', '--debug', '-z'], undefined, env, {
-      maxOutputBytes: listingLimit,
-    })
-  ).stdout.toString('utf8')
+  const listingLimit = Math.min(limits.maxArchiveBytes, limits.maxFiles * (limits.maxPathBytes + 256))
+  const index = new TextDecoder('utf-8', { fatal: true }).decode((
+    await runCandidateGit(root, ['ls-files', '--stage', '-z'], undefined, env, { maxOutputBytes: listingLimit })
+  ).stdout)
+  const entries = index.split('\0').filter(Boolean).map((entry) => {
+    const match = /^(100644|100755) ([a-f0-9]{40}|[a-f0-9]{64}) 0\t(.+)$/u.exec(entry)
+    if (!match) throw new Error('candidate working-tree capture requires a resolved regular-file Git index')
+    const [, mode, object, path] = match
+    if (!object || !path) throw new Error('candidate Git index is invalid')
+    return { path: safeArchivePath(path, limits.maxPathBytes), mode: mode === '100755' ? 0o755 : 0o644, object }
+  })
+  if (entries.length > limits.maxFiles) throw new Error('candidate Git index exceeds maxFiles')
+  const debugIndex = (await runCandidateGit(root, ['ls-files', '--debug', '-z'], undefined, env, {
+    maxOutputBytes: listingLimit,
+  })).stdout.toString('utf8')
   if ([...debugIndex.matchAll(/\tflags: ([a-f0-9]+)\n/gu)].some((match) => match[1] !== '0')) {
     throw new Error('candidate working-tree capture does not support special Git index flags')
   }
-  const indexPatch = Uint8Array.from(
-    (
-      await runCandidateGit(root, stagedDiffArgs, undefined, env, {
-        maxOutputBytes: limits.maxRepositoryBundleBytes,
-      })
-    ).stdout,
-  )
-  return { paths, indexPatch }
+  // Inspect every staged blob's size before reading any blob. A deleted or shortened working file
+  // must not conceal an oversized staged version, including highly compressible binary content.
+  const sizes = entries.length ? (await runCandidateGit(root, ['cat-file', '--batch-check'],
+    Buffer.from(entries.map((entry) => entry.object).join('\n') + '\n'), env,
+    { maxOutputBytes: listingLimit },
+  )).stdout.toString('utf8').trimEnd().split('\n') : []
+  if (sizes.length !== entries.length) throw new Error('candidate Git index blob metadata is incomplete')
+  let totalBytes = 0
+  const byteLengths = entries.map((entry, index) => {
+    const match = /^([a-f0-9]{40}|[a-f0-9]{64}) blob (\d+)$/u.exec(sizes[index] ?? '')
+    const size = Number(match?.[2])
+    if (!match || match[1] !== entry.object || !Number.isSafeInteger(size) || size < 0) {
+      throw new Error('candidate Git index blob metadata is invalid')
+    }
+    if (size > limits.maxFileBytes) throw new Error(`candidate Git index file exceeds maxFileBytes: ${entry.path}`)
+    if (size > limits.maxTotalFileBytes - totalBytes) throw new Error('candidate Git index exceeds maxTotalFileBytes')
+    totalBytes += size
+    return size
+  })
+  const files: Array<{ path: string; mode: number; bytes: Uint8Array }> = []
+  for (const [index, entry] of entries.entries()) {
+    const bytes = (await runCandidateGit(root, ['cat-file', 'blob', entry.object], undefined, env, {
+      maxOutputBytes: limits.maxFileBytes,
+    })).stdout
+    if (bytes.byteLength !== byteLengths[index]) throw new Error('candidate Git index blob size changed')
+    files.push({ path: entry.path, mode: entry.mode, bytes: Uint8Array.from(bytes) })
+  }
+  files.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+  assertWorkspaceFilesWithinLimits(files, limits)
+  const defaultExcludes = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'git', 'ignore')
+  const excludes = new TextDecoder('utf-8', { fatal: true }).decode((await runCandidateGit(root,
+    ['config', '--includes', '--path', '--default', defaultExcludes, '--get', 'core.excludesFile'], undefined, {},
+    { maxOutputBytes: limits.maxPathBytes, readUserExclusions: true },
+  )).stdout).replace(/\n$/u, '')
+  const paths = new TextDecoder('utf-8', { fatal: true }).decode((await runCandidateGit(root,
+    ['-c', `core.excludesFile=${excludes}`, 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+    undefined, env, { maxOutputBytes: listingLimit },
+  )).stdout)
+  for (const path of paths.split('\0').filter(Boolean)) safeArchivePath(path, limits.maxPathBytes)
+  return { paths, index, files }
 }
 
 async function captureRepositoryWorkingTree(
@@ -573,6 +567,8 @@ async function writeWorkspaceArchiveEntries(
     await writeTarEntry(archive, `${workspaceEntryPrefix}${file.path}`, file.mode, file.bytes)
   }
   if (!repository) return
+  const indexManifest = repository.workingTree
+    ? canonicalCandidateBytes(candidateWorkspaceManifest(repository.workingTree.files)) : undefined
   const metadata = canonicalCandidateBytes({
     kind: archiveKind,
     headCommit: repository.headCommit,
@@ -581,26 +577,17 @@ async function writeWorkspaceArchiveEntries(
       sha256: repository.bundle.sha256,
       byteLength: repository.bundle.byteLength,
     },
-    ...(repository.workingTree
-      ? {
-          workingTree: {
-            indexPatch: {
-              sha256: repository.workingTree.indexPatch.sha256,
-              byteLength: repository.workingTree.indexPatch.byteLength,
-            },
-          },
-        }
+    ...(indexManifest
+      ? { workingTree: { indexManifest: { sha256: sha256Bytes(indexManifest), byteLength: indexManifest.byteLength } } }
       : {}),
   } satisfies WorkspaceArchiveRepositoryMetadata)
   await writeTarEntry(archive, repositoryMetadataEntry, 0o600, metadata)
   await writeTarEntry(archive, repositoryBundleEntry, 0o600, repository.bundle.bytes)
-  if (repository.workingTree) {
-    await writeTarEntry(
-      archive,
-      repositoryIndexEntry,
-      0o600,
-      repository.workingTree.indexPatch.bytes,
-    )
+  if (repository.workingTree && indexManifest) {
+    await writeTarEntry(archive, repositoryIndexEntry, 0o600, indexManifest)
+    for (const file of repository.workingTree.files) {
+      await writeTarEntry(archive, `${repositoryIndexPrefix}${file.path}`, file.mode, file.bytes)
+    }
   }
 }
 
@@ -621,6 +608,10 @@ async function parseWorkspaceArchive(
   let repositoryMetadata: WorkspaceArchiveRepositoryMetadata | undefined
   let repositoryBundle: Uint8Array | undefined
   let repositoryIndex: Uint8Array | undefined
+  const indexFiles: DecodedWorkspaceArchive['files'] = []
+  const indexPaths = new Set<string>()
+  let previousIndexPath: string | undefined
+  let indexBytes = 0
   const decoded = (async () => {
     for await (const entry of parser) {
       const name = entry.header.name
@@ -666,7 +657,7 @@ async function parseWorkspaceArchive(
           'candidate repository metadata',
         )
         retainedEntryBytes += metadataBytes.byteLength
-        repositoryMetadata = parseRepositoryMetadata(metadataBytes, limits.maxRepositoryBundleBytes)
+        repositoryMetadata = parseRepositoryMetadata(metadataBytes, limits)
       } else if (name === repositoryBundleEntry) {
         if (entry.header.mode !== 0o600 || repositoryBundle) {
           throw new Error('candidate workspace archive repository bundle is invalid')
@@ -685,10 +676,29 @@ async function parseWorkspaceArchive(
         assertRetainedArchiveSize(bytes.byteLength, retainedEntryBytes, entry.header.size, limits)
         repositoryIndex = await readTarEntry(
           entry,
-          limits.maxRepositoryBundleBytes,
-          'candidate Git index patch',
+          limits.maxArchiveBytes,
+          'candidate Git index manifest',
         )
         retainedEntryBytes += repositoryIndex.byteLength
+      } else if (name.startsWith(repositoryIndexPrefix)) {
+        if (!repositoryMetadata?.workingTree || !repositoryIndex || indexFiles.length >= limits.maxFiles) {
+          throw new Error('candidate Git index evidence is incomplete or exceeds maxFiles')
+        }
+        const path = safeArchivePath(name.slice(repositoryIndexPrefix.length), limits.maxPathBytes)
+        if (entry.header.mode !== 0o644 && entry.header.mode !== 0o755) {
+          throw new Error('candidate Git index contains an unsupported mode')
+        }
+        assertWorkspacePathOrder(path, previousIndexPath, indexPaths, 'candidate Git index paths must be unique and sorted')
+        previousIndexPath = path
+        assertRetainedArchiveSize(bytes.byteLength, retainedEntryBytes, entry.header.size, limits)
+        if (entry.header.size === undefined || entry.header.size > limits.maxTotalFileBytes - indexBytes) {
+          throw new Error('candidate Git index exceeds maxTotalFileBytes')
+        }
+        if (entry.header.size > limits.maxFileBytes) throw new Error('candidate Git index exceeds maxFileBytes')
+        const fileBytes = await readTarEntry(entry, limits.maxFileBytes, `Git index file ${path}`)
+        retainedEntryBytes += fileBytes.byteLength
+        indexBytes += fileBytes.byteLength
+        indexFiles.push({ path, mode: entry.header.mode, bytes: fileBytes })
       } else {
         throw new Error(`candidate workspace tar contains an unsupported entry: ${name}`)
       }
@@ -701,7 +711,7 @@ async function parseWorkspaceArchive(
     }
     const repository =
       repositoryMetadata && repositoryBundle
-        ? repositoryFromTar(repositoryMetadata, repositoryBundle, repositoryIndex)
+        ? repositoryFromTar(repositoryMetadata, repositoryBundle, repositoryIndex, indexFiles)
         : undefined
     return { files, ...(repository ? { repository } : {}) }
   })()
@@ -734,7 +744,7 @@ function assertRetainedArchiveSize(
 
 function parseRepositoryMetadata(
   bytes: Uint8Array,
-  maxBundleBytes: number,
+  limits: AgentCandidateWorkspaceArchiveLimits,
 ): WorkspaceArchiveRepositoryMetadata {
   let value: unknown
   try {
@@ -756,7 +766,7 @@ function parseRepositoryMetadata(
     !/^sha256:[a-f0-9]{64}$/.test(value.bundle.sha256) ||
     !Number.isSafeInteger(value.bundle.byteLength) ||
     (value.bundle.byteLength as number) <= 0 ||
-    (value.bundle.byteLength as number) > maxBundleBytes
+    (value.bundle.byteLength as number) > limits.maxRepositoryBundleBytes
   ) {
     throw new Error('candidate workspace archive repository is invalid')
   }
@@ -773,21 +783,21 @@ function parseRepositoryMetadata(
     const working = value.workingTree
     if (
       !isRecord(working) ||
-      Object.keys(working).join(',') !== 'indexPatch' ||
-      !isRecord(working.indexPatch) ||
-      Object.keys(working.indexPatch).sort().join(',') !== 'byteLength,sha256' ||
-      typeof working.indexPatch.sha256 !== 'string' ||
-      !/^sha256:[a-f0-9]{64}$/.test(working.indexPatch.sha256) ||
-      !Number.isSafeInteger(working.indexPatch.byteLength) ||
-      (working.indexPatch.byteLength as number) < 0 ||
-      (working.indexPatch.byteLength as number) > maxBundleBytes
+      Object.keys(working).join(',') !== 'indexManifest' ||
+      !isRecord(working.indexManifest) ||
+      Object.keys(working.indexManifest).sort().join(',') !== 'byteLength,sha256' ||
+      typeof working.indexManifest.sha256 !== 'string' ||
+      !/^sha256:[a-f0-9]{64}$/.test(working.indexManifest.sha256) ||
+      !Number.isSafeInteger(working.indexManifest.byteLength) ||
+      (working.indexManifest.byteLength as number) < 0 ||
+      (working.indexManifest.byteLength as number) > limits.maxArchiveBytes
     ) {
       throw new Error('candidate workspace archive repository index is invalid')
     }
     workingTree = {
-      indexPatch: {
-        sha256: working.indexPatch.sha256 as `sha256:${string}`,
-        byteLength: working.indexPatch.byteLength as number,
+      indexManifest: {
+        sha256: working.indexManifest.sha256 as `sha256:${string}`,
+        byteLength: working.indexManifest.byteLength as number,
       },
     }
   }
@@ -806,23 +816,27 @@ function parseRepositoryMetadata(
 function repositoryFromTar(
   metadata: WorkspaceArchiveRepositoryMetadata,
   bundle: Uint8Array,
-  indexPatch: Uint8Array | undefined,
+  indexManifest: Uint8Array | undefined,
+  indexFiles: DecodedWorkspaceArchive['files'],
 ): WorkspaceArchiveRepository {
   verifyBytes(bundle, metadata.bundle.sha256, metadata.bundle.byteLength, 'candidate Git bundle')
-  if (metadata.workingTree && indexPatch) {
+  if (metadata.workingTree && indexManifest) {
     verifyBytes(
-      indexPatch,
-      metadata.workingTree.indexPatch.sha256,
-      metadata.workingTree.indexPatch.byteLength,
-      'candidate Git index patch',
+      indexManifest,
+      metadata.workingTree.indexManifest.sha256,
+      metadata.workingTree.indexManifest.byteLength,
+      'candidate Git index manifest',
     )
+    if (!Buffer.from(indexManifest).equals(Buffer.from(canonicalCandidateBytes(candidateWorkspaceManifest(indexFiles))))) {
+      throw new Error('candidate Git index files do not match the captured manifest')
+    }
   }
   return {
     headCommit: metadata.headCommit,
     headTree: metadata.headTree,
     bundle: { ...metadata.bundle, bytes: bundle },
-    ...(metadata.workingTree && indexPatch
-      ? { workingTree: { indexPatch: { ...metadata.workingTree.indexPatch, bytes: indexPatch } } }
+    ...(metadata.workingTree && indexManifest
+      ? { workingTree: { files: indexFiles } }
       : {}),
   }
 }
@@ -988,32 +1002,25 @@ async function materializeRepository(
     await runCandidateGit(destination, ['update-ref', '--no-deref', 'HEAD', repository.headCommit])
     await runCandidateGit(destination, ['read-tree', repository.headTree])
     if (repository.workingTree) {
-      const patch = repository.workingTree.indexPatch.bytes
-      if (patch.byteLength) {
-        await runCandidateGit(
-          destination,
-          ['apply', '--cached', '--binary', '--whitespace=nowarn', '-'],
-          patch,
-        )
+      // All staged content has passed archive limits and manifest verification before Git sees it.
+      // Rebuilding an index from explicit blobs avoids binary-patch expansion and diff configuration.
+      await runCandidateGit(destination, ['read-tree', '--empty'])
+      const entries: string[] = []
+      for (const file of repository.workingTree.files) {
+        const object = (await runCandidateGit(destination, ['hash-object', '-w', '--stdin'], file.bytes,
+          {}, { maxOutputBytes: 256 })).stdout.toString('utf8').trim()
+        assertGitObjectId(object, 'staged blob')
+        entries.push(`${file.mode === 0o755 ? '100755' : '100644'} ${object}\t${file.path}\0`)
       }
-      const indexTree = (await runCandidateGit(destination, ['write-tree'])).stdout
-        .toString('utf8')
-        .trim()
-      await readCandidateGitTreeFiles(destination, indexTree, {}, limits)
-      const observedPatch = (
-        await runCandidateGit(
-          destination,
-          stagedDiffArgs,
-          undefined,
-          {},
-          { maxOutputBytes: limits.maxRepositoryBundleBytes },
-        )
-      ).stdout
-      if (!observedPatch.equals(Buffer.from(patch))) {
-        throw new Error('candidate repository staged changes do not match the captured index')
-      }
+      if (entries.length) await runCandidateGit(destination, ['update-index', '-z', '--index-info'], Buffer.from(entries.join('')))
+      const indexTree = (await runCandidateGit(destination, ['write-tree'])).stdout.toString('utf8').trim()
+      const observed = await readCandidateGitTreeFiles(destination, indexTree, {}, limits)
+      if (!Buffer.from(canonicalCandidateBytes(candidateWorkspaceManifest(observed))).equals(
+        Buffer.from(canonicalCandidateBytes(candidateWorkspaceManifest(repository.workingTree.files))),
+      )) throw new Error('candidate repository staged files do not match the captured index')
       return
     }
+
     const status = (
       await runCandidateGit(destination, ['status', '--porcelain=v1', '--untracked-files=all'])
     ).stdout

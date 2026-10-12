@@ -451,8 +451,15 @@ export async function runCandidateGit(
   args: string[],
   input?: Uint8Array,
   extraEnv: Record<string, string> = {},
-  options: { maxOutputBytes?: number } = {},
+  options: { maxOutputBytes?: number; readUserExclusions?: boolean } = {},
 ): Promise<GitResult> {
+  if (
+    options.readUserExclusions &&
+    (args.length !== 7 || args.slice(0, 4).join(',') !== 'config,--includes,--path,--default' ||
+      args.slice(5).join(',') !== '--get,core.excludesFile')
+  ) {
+    throw new Error('user Git configuration may only supply the effective exclusion path')
+  }
   if (
     options.maxOutputBytes !== undefined &&
     (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 0)
@@ -471,6 +478,14 @@ export async function runCandidateGit(
     LC_ALL: 'C',
     ...extraEnv,
   })
+  // Only this read-only config query can consult user configuration. Commands which read blobs,
+  // bundle, or restore a repository retain isolation from credentials and executable settings.
+  if (options.readUserExclusions) {
+    for (const name of ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_NOSYSTEM']) {
+      delete env[name]
+      if (process.env[name] !== undefined) env[name] = process.env[name]
+    }
+  }
   const fullArgs = [
     '-c',
     'core.hooksPath=/dev/null',
