@@ -16,9 +16,16 @@ This does not require the Pi coding harness.
 For ONE node of a graph — a code node beside ordinary agent nodes — declare it on the
 node's pinned profile instead of the environment: `model.metadata.codeMode = true` (or
 `{ concurrency, maxCalls, timeoutMs, memoryLimitBytes, directTools }`). The profile
-declaration overrides the backend default for that node alone, and every graph node is
-its pinned profile, so this is the whole authoring surface: no seam change, no new node
-kind. Validation is fail-loud (unknown or host-owned fields are refused before any request).
+declaration enables code mode for that node; `false` opts that node out even when its
+backend defaults to code mode. This changes presentation only: profile tool grants,
+handler authorization, Runtime budgets and metering still apply. `true` and an empty
+object inherit the host's settings.
+For enabled nodes, each numeric setting is the smaller of the explicit host ceiling and
+profile request. Omitted settings inherit; engine defaults apply only if neither supplies
+one. Host and profile `directTools` are combined, so a profile cannot make a host's
+direct-only capability callable from a program. Restored `store` always belongs to the
+host and survives profile declarations. This keeps one authoring surface and no new node
+kind. Unknown or host-owned profile fields are refused before any request.
 
 The implementation uses the standalone `@earendil-works/pi-codemode` QuickJS/WASM worker.
 There is no unsafe Node VM fallback. Code cannot read host files, processes or network

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import * as codeModeModule from '../../src/runtime/code-mode'
 import { createCodeModeTools, runCodeMode } from '../../src/runtime/code-mode'
 import { createExecutor } from '../../src/runtime/supervise/runtime'
 import type { AgentSpec } from '../../src/runtime/supervise/types'
@@ -787,5 +788,193 @@ describe('profile-declared code mode (the graph-node path)', () => {
     expect(() => factory(spec, { signal: new AbortController().signal, seams: {} })).toThrow(
       /codeMode/,
     )
+  })
+})
+
+describe('profile code mode composes host execution policy', () => {
+  const finish = {
+    type: 'function' as const,
+    function: { name: 'finish', parameters: { type: 'object' } },
+  }
+  async function executeNode(
+    declared: unknown,
+    hosted: Parameters<typeof createCodeModeTools>[1] | true,
+    code?: string,
+    expectedTools?: string[],
+  ) {
+    const calls: string[] = []
+    let persisted: unknown
+    let turn = 0
+    const factory = createExecutor({
+      backend: 'router-tools',
+      routerBaseUrl: 'https://router.test/v1',
+      routerKey: 'offline',
+      tools: [readTool, finish],
+      codeMode: hosted,
+      executeToolCall: async (name) => {
+        calls.push(name)
+        return 1
+      },
+      onMessages: (_messages, state) => {
+        persisted = state
+      },
+      complete: async (body) => {
+        const names = (body.tools as Array<{ function: { name: string } }>).map(
+          (tool) => tool.function.name,
+        )
+        expect(names).toEqual(
+          expectedTools ??
+            (declared === false ? ['read', 'finish'] : ['tool_search', 'codemode', 'finish']),
+        )
+        return {
+          model: 'offline-model',
+          choices: [
+            {
+              message:
+                ++turn === 1 && code
+                  ? {
+                      content: '',
+                      tool_calls: [
+                        {
+                          id: 'compose',
+                          type: 'function',
+                          function: {
+                            name: declared === false ? 'read' : 'codemode',
+                            arguments: declared === false ? '{}' : JSON.stringify({ code }),
+                          },
+                        },
+                      ],
+                    }
+                  : { content: 'done' },
+              finish_reason: turn === 1 && code ? 'tool_calls' : 'stop',
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0 },
+        }
+      },
+    })
+    const spec = {
+      profile: {
+        name: 'composed-code-node',
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: 'offline-model',
+          metadata: { maxTurns: 3, codeMode: declared },
+        },
+        tools: { read: true, finish: true },
+      },
+      harness: null,
+    } as AgentSpec
+    const signal = new AbortController().signal
+    const executor = factory(spec, { signal, seams: {} })
+    try {
+      return { result: await executor.execute('continue', signal), calls, persisted }
+    } finally {
+      await executor.teardown(0)
+    }
+  }
+
+  it.each([true, {}, { concurrency: 2 }])(
+    'retains host store and direct-only tools with profile %j',
+    async (declared) => {
+      const host = { store: { previous: 41 }, directTools: ['finish'], maxCalls: 1 }
+      const { result, persisted, calls } = await executeNode(
+        declared,
+        host,
+        'store("answer", load("previous") + await tools.read({})); return load("previous")',
+      )
+      expect(result.out).toMatchObject({ codeModeStore: { previous: 41, answer: 42 } })
+      expect(persisted).toEqual({ codeModeStore: { previous: 41, answer: 42 } })
+      expect(calls).toEqual(['read'])
+      expect(host.store).toEqual({ previous: 41 })
+    },
+  )
+
+  it('keeps a host direct-only tool outside programs after profile opt-in', async () => {
+    const { result, calls } = await executeNode(
+      true,
+      { directTools: ['finish'] },
+      'return await tools.finish({})',
+    )
+    expect(calls).toEqual([])
+    expect(JSON.stringify(result.out)).toContain('tools.finish does not exist')
+  })
+
+  it('adds profile direct-only tools without removing host restrictions', async () => {
+    const { calls } = await executeNode(
+      { directTools: ['read'] },
+      { directTools: ['finish'] },
+      undefined,
+      ['tool_search', 'codemode', 'read', 'finish'],
+    )
+    expect(calls).toEqual([])
+  })
+
+  it.each(['timeoutMs', 'memoryLimitBytes', 'concurrency', 'maxCalls'])(
+    'refuses invalid host %s before any model request',
+    async (key) => {
+      await expect(
+        executeNode({ [key]: 1 }, { [key]: NaN, directTools: ['finish'] }),
+      ).rejects.toThrow(`codeMode.${key}`)
+    },
+  )
+
+  it.each([
+    [{ maxCalls: 20 }, { maxCalls: 1 }],
+    [{ maxCalls: 1 }, { maxCalls: 20 }],
+  ])('enforces the tighter call ceiling from either owner', async (declared, hosted) => {
+    const { calls, result } = await executeNode(
+      declared,
+      { ...hosted, directTools: ['finish'] },
+      'await tools.read({}); await tools.read({}); store("shouldNotCommit", true)',
+    )
+    expect(calls).toEqual(['read'])
+    expect(result.out).toMatchObject({ codeModeStore: {} })
+    expect(JSON.stringify(result.out)).toContain('call limit 1 exceeded')
+  })
+
+  it('composes each ceiling independently and unions direct-only capabilities', async () => {
+    const spy = vi.spyOn(codeModeModule, 'createCodeModeTools')
+    try {
+      await executeNode(
+        {
+          timeoutMs: 50,
+          memoryLimitBytes: 1000000,
+          concurrency: 1,
+          maxCalls: 100,
+          directTools: ['finish'],
+        },
+        {
+          timeoutMs: 100,
+          memoryLimitBytes: 500000,
+          concurrency: 4,
+          maxCalls: 10,
+          store: { n: 1 },
+          directTools: ['finish'],
+        },
+      )
+      expect(spy).toHaveBeenCalledWith(expect.anything(), {
+        timeoutMs: 50,
+        memoryLimitBytes: 500000,
+        concurrency: 1,
+        maxCalls: 10,
+        store: { n: 1 },
+        directTools: ['finish'],
+      })
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('allows a profile to opt out without erasing host state', async () => {
+    const host = { store: { previous: 41 }, directTools: ['finish'], maxCalls: 1 }
+    const { result, persisted, calls } = await executeNode(false, host, 'direct')
+    expect(result.out).not.toHaveProperty('codeModeStore')
+    expect(calls).toEqual(['read'])
+    expect(result.spent.iterations).toBe(2)
+    expect(result.spent.tokens).toMatchObject({ input: 2, output: 2 })
+    expect(persisted).toBeUndefined()
+    expect(host.store).toEqual({ previous: 41 })
   })
 })

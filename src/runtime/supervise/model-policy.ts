@@ -148,10 +148,11 @@ export interface ProfileModelExecutionSettings {
    * This node's action space is CODE, not JSON tool calls (router-tools backend
    * only): the model is shown `tool_search` + `codemode` instead of the raw tool
    * set, and composes the granted handlers as one QuickJS program. `true` takes
-   * engine defaults; an object pins the same subset the seam accepts. Per-node
-   * (profile) declaration overrides the environment (seam) default.
+   * host settings or engine defaults; an object can tighten host ceilings and
+   * add direct-only tools. `false` selects ordinary tools for this node. Host
+   * state and direct-only restrictions survive every enabled profile declaration.
    */
-  readonly codeMode?: true | ProfileCodeModeSettings
+  readonly codeMode?: boolean | ProfileCodeModeSettings
 }
 
 /** The per-node code-mode controls a profile may pin — the seam's subset, minus
@@ -263,18 +264,18 @@ const PROFILE_CODE_MODE_KEYS = new Set([
   'timeoutMs',
 ])
 
-/** Validate `AgentProfile.model.metadata.codeMode`: `true`, or an object pinning
+/** Validate `AgentProfile.model.metadata.codeMode`: a boolean, or an object pinning
  *  exactly the subset a node may choose (host-only wasm/workerUrl and the
  *  executor-owned store are refused — those belong to the seam). */
 function profileCodeModeSettings(
   value: unknown,
   context: string,
-): true | ProfileCodeModeSettings | undefined {
+): boolean | ProfileCodeModeSettings | undefined {
   if (value === undefined) return undefined
-  if (value === true) return true
+  if (typeof value === 'boolean') return value
   const label = `${context}: codeMode`
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new ConfigError(`${label} must be true or an object of engine settings`)
+    throw new ConfigError(`${label} must be a boolean or an object of engine settings`)
   }
   const input = value as Record<string, unknown>
   const unknown = Object.keys(input).filter((key) => !PROFILE_CODE_MODE_KEYS.has(key))

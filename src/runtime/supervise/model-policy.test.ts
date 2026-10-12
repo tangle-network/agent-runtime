@@ -120,8 +120,9 @@ describe('profile code-mode metadata', () => {
   const profileWith = (codeMode: unknown) =>
     ({ model: { provider: 'tangle-router', default: 'm', metadata: { codeMode } } }) as never
 
-  it('accepts true and a valid settings object', () => {
+  it('accepts booleans and a valid settings object', () => {
     expect(profileModelExecutionSettings(profileWith(true), 't').codeMode).toBe(true)
+    expect(profileModelExecutionSettings(profileWith(false), 't').codeMode).toBe(false)
     const settings = profileModelExecutionSettings(
       profileWith({ concurrency: 2, maxCalls: 50, directTools: ['finish'] }),
       't',
@@ -142,7 +143,7 @@ describe('profile code-mode metadata', () => {
 
   it('refuses non-boolean, non-object shapes and non-positive numbers', () => {
     expect(() => profileModelExecutionSettings(profileWith('yes'), 't')).toThrow(
-      /must be true or an object/,
+      /must be a boolean or an object/,
     )
     expect(() => profileModelExecutionSettings(profileWith({ concurrency: 0 }), 't')).toThrow(
       /concurrency/,
