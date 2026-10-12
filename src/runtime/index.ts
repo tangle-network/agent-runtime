@@ -912,6 +912,13 @@ export {
   storedGraphDigests,
   taskShapeDigest,
 } from './supervise/graph-registry'
+// The designer's toolset on the existing extraTools seam: lookup / run-and-record / history.
+export {
+  type DesignerRunGraphEnv,
+  type DesignerToolsEnv,
+  graphDesignerExtraTools,
+  type GraphDesignerExtraTools,
+} from './supervise/designer-tools'
 // The in-place CLI leaf executor: the same authored AgentProfile on the same local harness CLI,
 // running in a workspace the CALLER supplies, so the edits stay in that directory for the next
 // spawn. `createExecutor({ backend: 'cli-in-place', workspacePath })` routes to this leaf.
