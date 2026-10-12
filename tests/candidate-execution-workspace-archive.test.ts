@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import { type Headers, pack } from 'tar-stream'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   captureAgentCandidateWorkspace,
@@ -33,6 +33,7 @@ import { verifyAgentCandidateWorkspaceArchive } from '../src/candidate-execution
 const roots: string[] = []
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -85,6 +86,56 @@ function repository(
 }
 
 describe('candidate workspace archive', () => {
+  it.each(['deleted', 'smaller'] as const)('bounds staged bytes when the working file is %s', async (working) => {
+    const source = repository()
+    writeFileSync(join(source, 'README.md'), 'x'.repeat(32))
+    git(source, ['add', 'README.md'])
+    if (working === 'deleted') unlinkSync(join(source, 'README.md'))
+    else writeFileSync(join(source, 'README.md'), 'x')
+    await expect(captureAgentCandidateWorkspace(source, {
+      includeRepository: true, repositoryContents: 'working-tree',
+      limits: { maxFileBytes: 16 },
+    })).rejects.toThrow('maxFileBytes')
+    await expect(captureAgentCandidateWorkspace(source, {
+      includeRepository: true, repositoryContents: 'working-tree',
+      limits: { maxFileBytes: 40, maxTotalFileBytes: 40 },
+    })).rejects.toThrow('maxTotalFileBytes')
+  })
+
+  it('verifies staged byte limits before attempting restoration', async () => {
+    const source = repository()
+    writeFileSync(join(source, 'README.md'), 'x'.repeat(32))
+    git(source, ['add', 'README.md'])
+    unlinkSync(join(source, 'README.md'))
+    const captured = await captureAgentCandidateWorkspace(source, {
+      includeRepository: true, repositoryContents: 'working-tree',
+    })
+    await expect(verifyAgentCandidateWorkspaceArchive({
+      role: 'task', ...captured, limits: { maxFileBytes: 16 },
+    })).rejects.toThrow()
+  })
+
+  it.each(['configured', 'xdg-default'] as const)('honors %s user Git exclusions without copying configuration', async (kind) => {
+    const source = repository()
+    const configRoot = temporaryRoot('working-tree-user-exclusions-')
+    const globalConfig = join(configRoot, 'gitconfig')
+    const xdg = join(configRoot, 'xdg')
+    mkdirSync(join(xdg, 'git'), { recursive: true })
+    const excludes = kind === 'configured' ? join(configRoot, 'excludes') : join(xdg, 'git', 'ignore')
+    writeFileSync(globalConfig, '')
+    if (kind === 'configured') git(source, ['config', '--file', globalConfig, 'core.excludesFile', excludes])
+    writeFileSync(excludes, 'user-ignored.txt\n')
+    writeFileSync(join(source, 'user-ignored.txt'), 'harmless excluded fixture')
+    vi.stubEnv('GIT_CONFIG_GLOBAL', globalConfig)
+    vi.stubEnv('GIT_CONFIG_SYSTEM', '/dev/null')
+    vi.stubEnv('XDG_CONFIG_HOME', xdg)
+    expect(git(source, ['ls-files', '--others', '--exclude-standard'])).not.toContain('user-ignored.txt')
+    const captured = await captureAgentCandidateWorkspace(source, {
+      includeRepository: true, repositoryContents: 'working-tree',
+    })
+    expect(captured.snapshot.material.files.map((file) => file.path)).not.toContain('user-ignored.txt')
+  })
+
   it('canonicalizes staged patches across source Git diff settings', async () => {
     const source = repository()
     const original = Array.from({ length: 30 }, (_, index) => index % 4 === 0 ? '' : `line ${index}`)
