@@ -1767,16 +1767,18 @@ Import from `@tangle-network/agent-runtime/task-queue` — 4 exports.
 
 ### Workspace store — versioned per-tenant memory and files, tools, pinned memory, adapter contract
 
-Import from `@tangle-network/agent-runtime/workspace-store` — 32 exports.
+Import from `@tangle-network/agent-runtime/workspace-store` — 35 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `assertWorkspacePath` | function | Refuse anything but an absolute, normalized path such as `/files/report.md`. |
+| `checkOperationId` | function | Refuse an `operationId` that is present but empty, not a string, or over 256 chars. |
 | `checkWorkspacePut` | function | Validate a put before any adapter touches storage; adapters call this first. |
 | `createFileTools` | function | `files.list`, `files.read`, `files.write`, `files.delete`, `files.search` over `/files/**` and `/knowledge/**`. |
 | `createInMemoryWorkspaceStore` | function | Process-local adapter for tests, previews, and single-instance hosts. |
 | `createMemoryTools` | function | `memory.remember`, `memory.recall`, `memory.forget`. |
 | `defaultMemoryPolicy` | function | Default authority. Reads: workspace memory, the speaker's own member memory, |
+| `isSameWorkspaceWrite` | function | Whether `entry` is exactly what `input` would write: same kind, content and bytes. |
 | `memberIdFromPath` | function | The member a path belongs to, or `null` for workspace-scoped paths. |
 | `rankEntries` | function | BM25 over entry text (and path words), highest score first, ties by path. |
 | `readTurnMemories` | function | Workspace memories plus the speaker's own member memories, the set a turn may see. |
@@ -1797,7 +1799,7 @@ Import from `@tangle-network/agent-runtime/workspace-store` — 32 exports.
 | `WorkspacePolicyDecision` | type | `null` allows; a string refuses and is shown to the model as the reason. |
 | `WorkspaceRole` | type | `viewer` and `guest` are read-only under the default policy. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `MemoryPolicy`, `WorkspaceAccess`, `WorkspaceDeleteInput`, `WorkspacePutInput`, `WorkspaceStoreContractCase`, `WorkspaceStoreContractResult`, `WorkspaceToolContext`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `MemoryPolicy`, `WorkspaceAccess`, `WorkspaceDeleteInput`, `WorkspacePutInput`, `WorkspaceStoreContractCase`, `WorkspaceStoreContractOptions`, `WorkspaceStoreContractResult`, `WorkspaceToolContext`.
 
 ## 2. agent-eval — substrate primitives to REUSE
 

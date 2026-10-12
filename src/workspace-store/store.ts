@@ -60,6 +60,14 @@ export interface WorkspacePutInput {
   readonly bytes?: WorkspaceBytesRef
   /** Id for a new entry; ignored on update. Defaults to a random UUID. */
   readonly id?: string
+  /**
+   * The caller's key for this write, for at-least-once callers such as a queue
+   * consumer or a sidecar capture hook. While the path's live entry is the one
+   * this operation wrote, with the same kind and content, repeating the call
+   * returns that entry instead of a conflict. Honoured only by a store that sets
+   * {@link WorkspaceStore.idempotentOperations}; others ignore it.
+   */
+  readonly operationId?: string
 }
 
 export interface WorkspaceDeleteInput {
@@ -68,6 +76,13 @@ export interface WorkspaceDeleteInput {
   /** When present, the delete is refused unless the live revision matches. */
   readonly ifRevision?: number
   readonly actor: string
+  /**
+   * The caller's key for this delete. While the path's latest tombstone is the
+   * one this operation made, repeating the call returns that tombstone instead
+   * of a conflict. Honoured only by a store that sets
+   * {@link WorkspaceStore.idempotentOperations}.
+   */
+  readonly operationId?: string
 }
 
 /**
@@ -84,6 +99,8 @@ export interface WorkspaceStore {
   delete(input: WorkspaceDeleteInput): Promise<WorkspaceTombstone | null>
   /** Erasure audit rows whose path starts with `prefix`, oldest first. */
   tombstones(workspaceId: string, prefix?: string): Promise<WorkspaceTombstone[]>
+  /** True when put and delete honour `operationId`; the contract then checks it. */
+  readonly idempotentOperations?: boolean
 }
 
 /** A write lost a compare-and-set race or targeted the wrong revision. Re-read and retry. */
@@ -134,6 +151,38 @@ export function checkWorkspacePut(input: WorkspacePutInput): void {
   if (input.ifRevision !== null && !Number.isSafeInteger(input.ifRevision)) {
     throw new TypeError(`${input.path}: ifRevision must be an integer or null`)
   }
+  checkOperationId(input.path, input.operationId)
+}
+
+const MAX_OPERATION_ID = 256
+
+/** Refuse an `operationId` that is present but empty, not a string, or over 256 chars. */
+export function checkOperationId(path: string, operationId: unknown): void {
+  if (operationId === undefined) return
+  if (typeof operationId !== 'string' || !operationId || operationId.length > MAX_OPERATION_ID) {
+    throw new TypeError(
+      `${path}: operationId must be a non-empty string of at most ${MAX_OPERATION_ID} chars`,
+    )
+  }
+}
+
+function sameBytes(left?: WorkspaceBytesRef, right?: WorkspaceBytesRef): boolean {
+  if (!left || !right) return left === right
+  return (
+    left.key === right.key &&
+    left.size === right.size &&
+    left.contentType === right.contentType &&
+    left.sha256 === right.sha256
+  )
+}
+
+/** Whether `entry` is exactly what `input` would write: same kind, content and bytes. */
+export function isSameWorkspaceWrite(entry: WorkspaceEntry, input: WorkspacePutInput): boolean {
+  return (
+    entry.kind === input.kind &&
+    entry.content === input.content &&
+    sameBytes(entry.bytes, input.bytes)
+  )
 }
 
 /** Process-local adapter for tests, previews, and single-instance hosts. */
@@ -146,6 +195,10 @@ export function createInMemoryWorkspaceStore(
   // Last revision per path survives deletion so re-created paths stay monotonic.
   const lastRevision = new Map<string, number>()
   const erased: WorkspaceTombstone[] = []
+  // The operation behind each path's live entry, and behind its latest tombstone.
+  const wroteLive = new Map<string, string>()
+  const erasedBy = new Map<string, { operationId: string; tombstone: WorkspaceTombstone }>()
+  const pathKey = (workspaceId: string, path: string) => `${workspaceId}\u0000${path}`
   const tenant = (workspaceId: string) => {
     let entries = live.get(workspaceId)
     if (!entries) {
@@ -156,6 +209,7 @@ export function createInMemoryWorkspaceStore(
   }
 
   return {
+    idempotentOperations: true,
     async get(workspaceId, path) {
       const entry = live.get(workspaceId)?.get(path)
       return entry ? structuredClone(entry) : null
@@ -170,10 +224,18 @@ export function createInMemoryWorkspaceStore(
       checkWorkspacePut(input)
       const entries = tenant(input.workspaceId)
       const current = entries.get(input.path)
+      const key = pathKey(input.workspaceId, input.path)
+      if (
+        current &&
+        input.operationId !== undefined &&
+        wroteLive.get(key) === input.operationId &&
+        isSameWorkspaceWrite(current, input)
+      ) {
+        return structuredClone(current)
+      }
       if ((current?.revision ?? null) !== input.ifRevision) {
         throw new WorkspaceConflictError(input.path, input.ifRevision, current?.revision ?? null)
       }
-      const key = `${input.workspaceId}\u0000${input.path}`
       const revision = (lastRevision.get(key) ?? 0) + 1
       const at = now()
       const entry: WorkspaceEntry = {
@@ -192,12 +254,24 @@ export function createInMemoryWorkspaceStore(
       }
       entries.set(input.path, entry)
       lastRevision.set(key, revision)
+      if (input.operationId === undefined) wroteLive.delete(key)
+      else wroteLive.set(key, input.operationId)
       return structuredClone(entry)
     },
     async delete(input) {
       assertWorkspacePath(input.path)
+      checkOperationId(input.path, input.operationId)
       const entries = tenant(input.workspaceId)
       const current = entries.get(input.path)
+      const key = pathKey(input.workspaceId, input.path)
+      const previous = erasedBy.get(key)
+      if (
+        !current &&
+        input.operationId !== undefined &&
+        previous?.operationId === input.operationId
+      ) {
+        return { ...previous.tombstone }
+      }
       if (input.ifRevision !== undefined && current?.revision !== input.ifRevision) {
         throw new WorkspaceConflictError(input.path, input.ifRevision, current?.revision ?? null)
       }
@@ -212,7 +286,10 @@ export function createInMemoryWorkspaceStore(
         deletedAt: now(),
       }
       entries.delete(input.path)
-      lastRevision.set(`${input.workspaceId}\u0000${input.path}`, revision)
+      lastRevision.set(key, revision)
+      wroteLive.delete(key)
+      if (input.operationId === undefined) erasedBy.delete(key)
+      else erasedBy.set(key, { operationId: input.operationId, tombstone })
       erased.push(tombstone)
       return { ...tombstone }
     },
