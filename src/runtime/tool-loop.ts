@@ -31,6 +31,8 @@ export interface ToolLoopToolCall {
   name: string
   /** Raw JSON arguments emitted by the model. */
   arguments: string
+  /** Opaque fields echoed on this call's assistant tool_calls entry, such as a provider signature. */
+  providerFields?: Record<string, unknown>
 }
 
 /** Runtime-owned identity and cancellation for one logical inference call. The wrapper is frozen
@@ -341,6 +343,7 @@ export async function runBrainLoop(opts: {
       role: 'assistant',
       content: r.content ?? '',
       tool_calls: r.toolCalls.map((tc) => ({
+        ...tc.providerFields,
         id: tc.id,
         type: 'function',
         function: { name: tc.name, arguments: tc.arguments },
