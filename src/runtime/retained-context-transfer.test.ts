@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { canonicalCandidateDigest, type AgentExactRunControlRef } from '@tangle-network/agent-interface'
 import {
@@ -43,6 +44,26 @@ function fixture() {
 }
 
 describe('retained context transfer attachment', () => {
+  it('refuses an older transfer wire record without mutating it or touching a provider', async () => {
+    const f = fixture()
+    const stored = JSON.parse(JSON.stringify(f.material))
+    // Constructed and schema-validated with the published Interface 4.0.0 artifact.
+    stored.turn.contextTransfer = JSON.parse(readFileSync(
+      new URL('../../tests/fixtures/retained-transfer-interface4.json', import.meta.url), 'utf8',
+    ))
+    const before = JSON.stringify(stored)
+    await expect(startRetainedRun({ ...stored, provider: f.createProvider(), onAdmission: f.onAdmission }))
+      .rejects.toThrow(/preserve the original record.*Interface 5/)
+    await expect(recoverRetainedRun({
+      provider: f.createProvider(), environmentId: f.receipt.environmentId,
+      sessionId: f.receipt.sessionId, executionId: f.receipt.executionId,
+      contextTransfer: stored.turn.contextTransfer, transferReceipt: f.receipt,
+    })).rejects.toThrow(/preserve the original record.*Interface 5/)
+    expect(JSON.stringify(stored)).toBe(before)
+    expect(f.admissions).toEqual([])
+    expect(f.counts).toEqual({ creates: 0, gets: 0, dispatches: 0, destroys: 0 })
+  })
+
   it('attaches the accepted environment and dispatches the exact provider run without create', async () => {
     const f = fixture()
     const run = await startRetainedRun({ ...f.material, provider: f.createProvider(), onAdmission: f.onAdmission })

@@ -1,3 +1,4 @@
+import { sandboxOwnedContractCopies } from './lib/sandbox-owned-contracts.mjs'
 import { spawnSync } from 'node:child_process'
 import {
   copyFileSync,
@@ -33,6 +34,7 @@ import {
 // output because Runtime can inherit the failure through a transitive package.
 const edgeUnsafeStaticImports = ['graceful-fs', 'proper-lockfile']
 
+const qualifiedSandboxScopes = new Map()
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
 const suppliedTarball = process.argv[2] ? resolve(process.argv[2]) : undefined
@@ -549,6 +551,11 @@ try {
   assertNoEdgeUnsafeStaticImports(installedScope)
   run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], appDir)
   run(process.execPath, ['--experimental-strip-types', 'provider-consumer.ts'], appDir)
+  copyFileSync(
+    join(repoRoot, 'scripts', 'fixtures', 'packed-sandbox-contract-consumer.mjs'),
+    join(appDir, 'sandbox-contract-consumer.mjs'),
+  )
+  run(process.execPath, ['sandbox-contract-consumer.mjs'], appDir)
 
   run(
     process.execPath,
@@ -1116,8 +1123,16 @@ function assertNoEdgeUnsafeStaticImports(scopeDir) {
   )
 }
 
+function cohortPackageDirs(scopeDir) {
+  if (!qualifiedSandboxScopes.has(scopeDir)) {
+    qualifiedSandboxScopes.set(scopeDir, sandboxOwnedContractCopies(scopeDir))
+  }
+  const isolated = qualifiedSandboxScopes.get(scopeDir)
+  return firstPartyPackageDirs(scopeDir).filter(directory => !isolated.has(directory))
+}
+
 function assertSingleFirstPartyPackageVersion(scopeDir, packageName, expectedVersion) {
-  const installations = firstPartyPackageDirs(scopeDir)
+  const installations = cohortPackageDirs(scopeDir)
     .map((packageDir) => ({
       packageDir,
       packageJson: JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')),
@@ -1149,7 +1164,7 @@ function assertSingleFirstPartyPackageVersion(scopeDir, packageName, expectedVer
 }
 
 function assertPeerInstalled(scopeDir, packageName, peerRange) {
-  const installations = firstPartyPackageDirs(scopeDir)
+  const installations = cohortPackageDirs(scopeDir)
     .map((packageDir) => ({
       packageDir,
       packageJson: JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')),
