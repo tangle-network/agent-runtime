@@ -8,7 +8,6 @@
 
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import {
-  type AgentEnvironment,
   type AgentEnvironmentProvider,
   execOnlyEnvironmentCapabilities,
 } from '@tangle-network/agent-interface/environment-provider'
