@@ -11,6 +11,7 @@ import {
   statSync,
   symlinkSync,
   truncateSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -83,6 +84,37 @@ function repository(
 }
 
 describe('candidate workspace archive', () => {
+  it('restores staged, dirty, deleted and untracked files without changing the source', async () => {
+    const source = repository()
+    writeFileSync(join(source, 'README.md'), 'staged change\n')
+    git(source, ['add', 'README.md'])
+    writeFileSync(join(source, 'README.md'), 'later working change\n')
+    unlinkSync(join(source, 'bin', 'run'))
+    writeFileSync(join(source, 'untracked.bin'), Buffer.from([255, 0, 128, 1]))
+    const beforeStatus = git(source, ['status', '--porcelain=v1', '--untracked-files=all'])
+    const beforeIndex = git(source, ['show', ':README.md'])
+    const captured = await captureAgentCandidateWorkspace(source, {
+      includeRepository: true,
+      repositoryContents: 'working-tree',
+    })
+    const destination = join(temporaryRoot('working-tree-transfer-parent-'), 'restored')
+    await createAgentCandidateWorkspacePort().materialize({
+      role: 'task',
+      snapshot: captured.snapshot,
+      archive: captured.archive,
+      destination,
+    })
+    expect(readFileSync(join(destination, 'README.md'), 'utf8')).toBe('later working change\n')
+    expect(git(destination, ['show', ':README.md'])).toBe(beforeIndex)
+    expect([...readFileSync(join(destination, 'untracked.bin'))]).toEqual([255, 0, 128, 1])
+    expect(existsSync(join(destination, 'bin', 'run'))).toBe(false)
+    expect(existsSync(join(destination, 'ignored-cache'))).toBe(false)
+    expect(git(destination, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe(beforeStatus)
+    expect(git(source, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe(beforeStatus)
+    expect(git(source, ['show', ':README.md'])).toBe(beforeIndex)
+    expect(readFileSync(join(source, 'README.md'), 'utf8')).toBe('later working change\n')
+  })
+
   it.each(['sha1', 'sha256'] as const)(
     'captures and restores exact Git HEAD files for %s repositories',
     async (objectFormat) => {

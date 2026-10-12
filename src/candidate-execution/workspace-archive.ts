@@ -100,6 +100,8 @@ interface DecodedWorkspaceArchive {
 export interface CaptureAgentCandidateWorkspaceOptions {
   /** Include Git HEAD so task preparation can prove its exact commit and tree. */
   includeRepository?: boolean
+  /** Preserve selected working files and staged changes instead of only HEAD. Requires includeRepository. */
+  repositoryContents?: 'head' | 'working-tree'
   limits?: Partial<AgentCandidateWorkspaceArchiveLimits>
   /** Use the evaluator-owned artifact store when manifest or archive bytes should not be embedded. */
   artifactPersistence?: {
