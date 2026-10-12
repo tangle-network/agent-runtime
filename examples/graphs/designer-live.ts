@@ -1,12 +1,12 @@
 /**
- * The LIVE designer: a real model (Router :free lane, $0) driving the designer
+ * The live designer: a real model through profile-owned Router execution driving the designer
  * tools as a graph root, registry in a workspace directory that persists
  * across processes — run this twice and the second run REPLAYS.
  *
  *   SESSION=1 npx tsx examples/graphs/designer-live.ts   # authors + records
  *   SESSION=2 npx tsx examples/graphs/designer-live.ts   # looks up → replays
  *
- * Env: ROUTER_URL, ROUTER_KEY (defaults: the factory test lane), MODEL
+ * Env: ROUTER_URL, ROUTER_KEY or TANGLE_ROUTER_API_KEY, MODEL
  * (default glm-5.3), DESIGNER_WORKSPACE (default
  * ./.designer-workspace). The WORKER leaves are offline (the designer's
  * decisions are the subject; worker quality is not).
@@ -21,7 +21,6 @@ import {
   kernelPromptRegistry,
   runGraph,
 } from '../../src/runtime/index'
-import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { scriptedBrain } from '../../tests/kernel/scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from '../../tests/kernel/test-agent-profile'
 
@@ -36,53 +35,6 @@ const TASK_SHAPE = JSON.parse(
 const WORKSPACE = process.env.DESIGNER_WORKSPACE ?? join(process.cwd(), '.designer-workspace')
 
 if (!ROUTER_KEY) throw new Error('ROUTER_KEY / TANGLE_ROUTER_API_KEY required')
-
-/** The REAL brain: one Router chat completion per driver turn, tools passed OpenAI-style. */
-const routerBrain: ToolLoopChat = async (messages, tools) => {
-  const res = await fetch(`${ROUTER_URL}/chat/completions`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${ROUTER_KEY}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: messages.map((m) => ({
-        role: m.role,
-        ...(typeof m.content === 'string' ? { content: m.content } : {}),
-        ...('tool_calls' in m && m.tool_calls ? { tool_calls: m.tool_calls } : {}),
-        ...('tool_call_id' in m && m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
-      })),
-      ...(tools.length > 0
-        ? {
-            tools: tools.map((t) => ({
-              type: 'function',
-              function: {
-                name: t.function.name,
-                description: t.function.description,
-                parameters: t.function.parameters,
-              },
-            })),
-          }
-        : {}),
-    }),
-  })
-  if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const choice = ((await res.json()) as { choices: Array<{ message: Record<string, unknown> }> })
-    .choices[0]!
-  const message = choice.message
-  const rawCalls = (message.tool_calls ?? []) as Array<{
-    id: string
-    function: { name: string; arguments: string }
-  }>
-  return {
-    ...(typeof message.content === 'string' && message.content
-      ? { content: message.content }
-      : { content: '' }),
-    toolCalls: rawCalls.map((c) => ({
-      id: c.id,
-      name: c.function.name,
-      arguments: c.function.arguments,
-    })),
-  }
-}
 
 const DESIGNER_PROMPT = `You are the graph designer. Your job is NOT to do the work — it is to pick or design the GRAPH that does the work.
 
@@ -105,6 +57,7 @@ Never invent fields outside the template. Never include a check function.`
 
 const designerProfile: AgentProfile = testAgentProfile('designer', {
   harness: 'cli-base',
+  model: { provider: 'tangle-router', default: MODEL },
   prompt: { systemPrompt: DESIGNER_PROMPT },
   tools: runtimeToolDeclarations(
     'designer_lookup_graph',
@@ -198,7 +151,7 @@ async function main() {
   )
   const result: GraphResult = await runGraph(designerGraph(), {
     runId: `designer-live-${SESSION}-${Date.now()}`,
-    brain: routerBrain,
+    router: { routerBaseUrl: ROUTER_URL, routerKey: ROUTER_KEY },
     registry: kernelPromptRegistry(),
     makeLeafAgent: leafSeam as never,
     extraTools: tools.extraTools,
