@@ -805,6 +805,13 @@ export {
   defaultDelegateBudget,
   delegate,
 } from './supervise/delegate'
+// The designer's toolset on the existing extraTools seam: lookup / run-and-record / history.
+export {
+  type DesignerRunGraphEnv,
+  type DesignerToolsEnv,
+  type GraphDesignerExtraTools,
+  graphDesignerExtraTools,
+} from './supervise/designer-tools'
 // The ONLINE analyst: watch a TraceSource and raise a `finding` the moment a worker loops/error-storms.
 export {
   defaultToolDetectors,
@@ -912,13 +919,6 @@ export {
   storedGraphDigests,
   taskShapeDigest,
 } from './supervise/graph-registry'
-// The designer's toolset on the existing extraTools seam: lookup / run-and-record / history.
-export {
-  type DesignerRunGraphEnv,
-  type DesignerToolsEnv,
-  graphDesignerExtraTools,
-  type GraphDesignerExtraTools,
-} from './supervise/designer-tools'
 // The in-place CLI leaf executor: the same authored AgentProfile on the same local harness CLI,
 // running in a workspace the CALLER supplies, so the edits stay in that directory for the next
 // spawn. `createExecutor({ backend: 'cli-in-place', workspacePath })` routes to this leaf.
@@ -987,6 +987,17 @@ export {
   peerMailTools,
   peerMailVerbNames,
 } from './supervise/peer-mail'
+// Named AgentProfiles with run receipts: which prompt revision is winning, per name.
+export {
+  bestProfileFor,
+  loadProfile,
+  type ProfileRegistryDir,
+  type ProfileRunRecord,
+  pickBestProfile,
+  profileRegistry,
+  profileRunsForName,
+  recordProfileRun,
+} from './supervise/profile-registry'
 // The LIVE read-model of a RUNNING worker — last activity, idle time, derived stall, turns,
 // tokens so far, recent tool/file activity, unread steers. What `observe_agent` now returns
 // mid-flight, and the evidence a supervisor steers FROM.

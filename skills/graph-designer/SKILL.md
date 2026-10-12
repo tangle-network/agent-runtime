@@ -41,6 +41,15 @@ one axis at a time so the next record attributes the difference. When an optimiz
 (agent-eval) is available, feed it the losing graph's journal; otherwise your reasoned
 mutation IS the search step.
 
+## Profiles improve the same way graphs do
+
+A worker profile is named and content-addressed; when a mutation rewrites a node's
+prompt, record the run in the profile registry too (`recordProfileRun`) — same shape
+as the graph registry, one level down. The winning revision per name is then an
+answered question (`bestProfileFor`), not an argument: delivered beats failed, then
+cheaper, then recent, and revisions never overwrite so old-vs-new is always a
+controlled diff.
+
 ## Then consider
 
 - `agent-graphs` for the authoring contract (roles, edges, deliverable, budget).
