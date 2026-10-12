@@ -12,6 +12,7 @@ import {
   symlinkSync,
   truncateSync,
   unlinkSync,
+  watch,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -84,6 +85,31 @@ function repository(
 }
 
 describe('candidate workspace archive', () => {
+  it('preserves a destination file added while restoration is in progress', async () => {
+    const source = repository()
+    const captured = await captureAgentCandidateWorkspace(source, {
+      includeRepository: true,
+      repositoryContents: 'working-tree',
+    })
+    const parent = temporaryRoot('working-tree-concurrent-destination-')
+    const destination = join(parent, 'restored')
+    mkdirSync(destination)
+    const observer = watch(parent, (_event, name) => {
+      if (name !== null && String(name) !== 'restored') {
+        writeFileSync(join(destination, 'keep'), 'concurrent owner data')
+        observer.close()
+      }
+    })
+    try {
+      await expect(createAgentCandidateWorkspacePort().materialize({
+        role: 'task', snapshot: captured.snapshot, archive: captured.archive, destination,
+      })).rejects.toThrow()
+      expect(readFileSync(join(destination, 'keep'), 'utf8')).toBe('concurrent owner data')
+    } finally {
+      observer.close()
+    }
+  })
+
   it('restores staged, dirty, deleted and untracked files without changing the source', async () => {
     const source = repository()
     writeFileSync(join(source, 'README.md'), 'staged change\n')
