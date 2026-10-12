@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as workspaceArtifacts from '../src/candidate-execution/artifacts'
 import type { AgentCandidateArtifactPort } from '../src/candidate-execution/types'
 import {
   captureAgentWorkspaceSnapshot,
@@ -157,10 +158,10 @@ describe('portable workspace composition', () => {
   it('refuses another owner namespace and never falls back to a buffered read', async () => {
     const { root, snapshot, artifacts } = await fixture()
     const destination = join(root, 'unauthorized')
-    const wrongOwner = createPrivateCasArtifactPort(join(root, 'other-owner'), 'other-owner')
+    const wrongOwner = createPrivateCasArtifactPort(join(root, 'artifacts'), 'other-owner')
     await expect(
       materializeAgentWorkspaceSnapshot({ snapshot, destination, artifacts: wrongOwner }),
-    ).rejects.toThrow()
+    ).rejects.toThrow('digest and namespace')
     expect(existsSync(destination)).toBe(false)
     const read = vi.fn(artifacts.read)
     await expect(
@@ -260,5 +261,27 @@ describe('portable workspace composition', () => {
       }),
     ).rejects.toThrow('artifact read cancelled')
     expect(existsSync(destination)).toBe(false)
+  })
+
+  it('refuses publication when cancelled after staged files and Git have been restored', async () => {
+    const { root, snapshot, artifacts } = await fixture()
+    const destination = join(root, 'cancelled-staging')
+    const controller = new AbortController()
+    const verify = workspaceArtifacts.verifyMaterializedWorkspace
+    const verification = vi.spyOn(workspaceArtifacts, 'verifyMaterializedWorkspace').mockImplementation(async (...args) => {
+      await verify(...args)
+      expect(args[0]).toContain(`${destination}.materializing-`)
+      expect(readFileSync(join(args[0], 'tracked.txt'), 'utf8')).toBe('dirty source\n')
+      expect(existsSync(join(args[0], '.git'))).toBe(true)
+      controller.abort(new Error('staged restore cancelled'))
+    })
+    try {
+      await expect(materializeAgentWorkspaceSnapshot({ snapshot, destination, artifacts, signal: controller.signal })).rejects.toThrow('staged restore cancelled')
+      expect(verification).toHaveBeenCalledOnce()
+      expect(existsSync(destination)).toBe(false)
+      expect((await readdir(root)).filter((entry) => entry.includes('.materializing-'))).toEqual([])
+    } finally {
+      verification.mockRestore()
+    }
   })
 })
