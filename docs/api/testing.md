@@ -1107,7 +1107,7 @@ WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`extraTools`](runtime.md#extratools-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`extraTools`](runtime.md#extratools-2)
 
 ##### executeExtraTool?
 
@@ -1131,7 +1131,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`executeExtraTool`](runtime.md#executeextratool-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`executeExtraTool`](runtime.md#executeextratool-2)
 
 ##### perWorker?
 
@@ -2167,7 +2167,7 @@ WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`extraTools`](runtime.md#extratools-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`extraTools`](runtime.md#extratools-2)
 
 ##### executeExtraTool?
 
@@ -2191,7 +2191,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`executeExtraTool`](runtime.md#executeextratool-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`executeExtraTool`](runtime.md#executeextratool-2)
 
 ##### perWorker?
 
@@ -2932,7 +2932,7 @@ WORK tools the supervisor may call DIRECTLY (router arm) — so it can do simple
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`extraTools`](runtime.md#extratools-2)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`extraTools`](runtime.md#extratools-3)
 
 ##### executeExtraTool?
 
@@ -2956,7 +2956,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`executeExtraTool`](runtime.md#executeextratool-2)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`executeExtraTool`](runtime.md#executeextratool-3)
 
 ##### analysts?
 

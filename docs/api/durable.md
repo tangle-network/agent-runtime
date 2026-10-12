@@ -2583,7 +2583,7 @@ WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`extraTools`](runtime.md#extratools-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`extraTools`](runtime.md#extratools-2)
 
 ##### executeExtraTool?
 
@@ -2607,7 +2607,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`executeExtraTool`](runtime.md#executeextratool-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`executeExtraTool`](runtime.md#executeextratool-2)
 
 ##### perWorker?
 
