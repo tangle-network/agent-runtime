@@ -3494,7 +3494,7 @@ Include Git HEAD so task preparation can prove its exact commit and tree.
 **`Experimental`**
 
 `working-tree` preserves tracked and unignored untracked regular files, deletions, exact modes,
-and the staged binary patch. Git-ignored files stay excluded. Requires includeRepository.
+and the complete bounded Git index. Git-ignored files stay excluded. Requires includeRepository.
 The caller must hold the workspace lease against writers; observed drift fails capture.
 The manifest digest covers files, while the archive digest also binds HEAD and the index.
 

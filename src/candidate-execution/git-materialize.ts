@@ -455,7 +455,8 @@ export async function runCandidateGit(
 ): Promise<GitResult> {
   if (
     options.readUserExclusions &&
-    (args.length !== 7 || args.slice(0, 4).join(',') !== 'config,--includes,--path,--default' ||
+    (args.length !== 7 ||
+      args.slice(0, 4).join(',') !== 'config,--includes,--path,--default' ||
       args.slice(5).join(',') !== '--get,core.excludesFile')
   ) {
     throw new Error('user Git configuration may only supply the effective exclusion path')

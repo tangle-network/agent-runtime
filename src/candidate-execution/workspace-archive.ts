@@ -421,31 +421,59 @@ async function readRepositoryWorkingState(
   files: Array<{ path: string; mode: number; bytes: Uint8Array }>
 }> {
   const env = { GIT_OPTIONAL_LOCKS: '0' }
-  const listingLimit = Math.min(limits.maxArchiveBytes, limits.maxFiles * (limits.maxPathBytes + 256))
-  const index = new TextDecoder('utf-8', { fatal: true }).decode((
-    await runCandidateGit(root, ['ls-files', '--stage', '-z'], undefined, env, { maxOutputBytes: listingLimit })
-  ).stdout)
-  const entries = index.split('\0').filter(Boolean).map((entry) => {
-    const match = /^(100644|100755) ([a-f0-9]{40}|[a-f0-9]{64}) 0\t(.+)$/u.exec(entry)
-    if (!match) throw new Error('candidate working-tree capture requires a resolved regular-file Git index')
-    const [, mode, object, path] = match
-    if (!object || !path) throw new Error('candidate Git index is invalid')
-    return { path: safeArchivePath(path, limits.maxPathBytes), mode: mode === '100755' ? 0o755 : 0o644, object }
-  })
+  const listingLimit = Math.min(
+    limits.maxArchiveBytes,
+    limits.maxFiles * (limits.maxPathBytes + 256),
+  )
+  const index = new TextDecoder('utf-8', { fatal: true }).decode(
+    (
+      await runCandidateGit(root, ['ls-files', '--stage', '-z'], undefined, env, {
+        maxOutputBytes: listingLimit,
+      })
+    ).stdout,
+  )
+  const entries = index
+    .split('\0')
+    .filter(Boolean)
+    .map((entry) => {
+      const match = /^(100644|100755) ([a-f0-9]{40}|[a-f0-9]{64}) 0\t(.+)$/u.exec(entry)
+      if (!match)
+        throw new Error('candidate working-tree capture requires a resolved regular-file Git index')
+      const [, mode, object, path] = match
+      if (!object || !path) throw new Error('candidate Git index is invalid')
+      return {
+        path: safeArchivePath(path, limits.maxPathBytes),
+        mode: mode === '100755' ? 0o755 : 0o644,
+        object,
+      }
+    })
   if (entries.length > limits.maxFiles) throw new Error('candidate Git index exceeds maxFiles')
-  const debugIndex = (await runCandidateGit(root, ['ls-files', '--debug', '-z'], undefined, env, {
-    maxOutputBytes: listingLimit,
-  })).stdout.toString('utf8')
+  const debugIndex = (
+    await runCandidateGit(root, ['ls-files', '--debug', '-z'], undefined, env, {
+      maxOutputBytes: listingLimit,
+    })
+  ).stdout.toString('utf8')
   if ([...debugIndex.matchAll(/\tflags: ([a-f0-9]+)\n/gu)].some((match) => match[1] !== '0')) {
     throw new Error('candidate working-tree capture does not support special Git index flags')
   }
   // Inspect every staged blob's size before reading any blob. A deleted or shortened working file
   // must not conceal an oversized staged version, including highly compressible binary content.
-  const sizes = entries.length ? (await runCandidateGit(root, ['cat-file', '--batch-check'],
-    Buffer.from(entries.map((entry) => entry.object).join('\n') + '\n'), env,
-    { maxOutputBytes: listingLimit },
-  )).stdout.toString('utf8').trimEnd().split('\n') : []
-  if (sizes.length !== entries.length) throw new Error('candidate Git index blob metadata is incomplete')
+  const sizes = entries.length
+    ? (
+        await runCandidateGit(
+          root,
+          ['cat-file', '--batch-check'],
+          Buffer.from(entries.map((entry) => entry.object).join('\n') + '\n'),
+          env,
+          { maxOutputBytes: listingLimit },
+        )
+      ).stdout
+        .toString('utf8')
+        .trimEnd()
+        .split('\n')
+    : []
+  if (sizes.length !== entries.length)
+    throw new Error('candidate Git index blob metadata is incomplete')
   let totalBytes = 0
   const byteLengths = entries.map((entry, index) => {
     const match = /^([a-f0-9]{40}|[a-f0-9]{64}) blob (\d+)$/u.exec(sizes[index] ?? '')
@@ -453,30 +481,71 @@ async function readRepositoryWorkingState(
     if (!match || match[1] !== entry.object || !Number.isSafeInteger(size) || size < 0) {
       throw new Error('candidate Git index blob metadata is invalid')
     }
-    if (size > limits.maxFileBytes) throw new Error(`candidate Git index file exceeds maxFileBytes: ${entry.path}`)
-    if (size > limits.maxTotalFileBytes - totalBytes) throw new Error('candidate Git index exceeds maxTotalFileBytes')
+    if (size > limits.maxFileBytes)
+      throw new Error(`candidate Git index file exceeds maxFileBytes: ${entry.path}`)
+    if (size > limits.maxTotalFileBytes - totalBytes)
+      throw new Error('candidate Git index exceeds maxTotalFileBytes')
     totalBytes += size
     return size
   })
   const files: Array<{ path: string; mode: number; bytes: Uint8Array }> = []
   for (const [index, entry] of entries.entries()) {
-    const bytes = (await runCandidateGit(root, ['cat-file', 'blob', entry.object], undefined, env, {
-      maxOutputBytes: limits.maxFileBytes,
-    })).stdout
-    if (bytes.byteLength !== byteLengths[index]) throw new Error('candidate Git index blob size changed')
+    const bytes = (
+      await runCandidateGit(root, ['cat-file', 'blob', entry.object], undefined, env, {
+        maxOutputBytes: limits.maxFileBytes,
+      })
+    ).stdout
+    if (bytes.byteLength !== byteLengths[index])
+      throw new Error('candidate Git index blob size changed')
     files.push({ path: entry.path, mode: entry.mode, bytes: Uint8Array.from(bytes) })
   }
-  files.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+  files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   assertWorkspaceFilesWithinLimits(files, limits)
-  const defaultExcludes = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'git', 'ignore')
-  const excludes = new TextDecoder('utf-8', { fatal: true }).decode((await runCandidateGit(root,
-    ['config', '--includes', '--path', '--default', defaultExcludes, '--get', 'core.excludesFile'], undefined, {},
-    { maxOutputBytes: limits.maxPathBytes, readUserExclusions: true },
-  )).stdout).replace(/\n$/u, '')
-  const paths = new TextDecoder('utf-8', { fatal: true }).decode((await runCandidateGit(root,
-    ['-c', `core.excludesFile=${excludes}`, 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
-    undefined, env, { maxOutputBytes: listingLimit },
-  )).stdout)
+  const defaultExcludes = join(
+    process.env.XDG_CONFIG_HOME || join(homedir(), '.config'),
+    'git',
+    'ignore',
+  )
+  const excludes = new TextDecoder('utf-8', { fatal: true })
+    .decode(
+      (
+        await runCandidateGit(
+          root,
+          [
+            'config',
+            '--includes',
+            '--path',
+            '--default',
+            defaultExcludes,
+            '--get',
+            'core.excludesFile',
+          ],
+          undefined,
+          {},
+          { maxOutputBytes: limits.maxPathBytes, readUserExclusions: true },
+        )
+      ).stdout,
+    )
+    .replace(/\n$/u, '')
+  const paths = new TextDecoder('utf-8', { fatal: true }).decode(
+    (
+      await runCandidateGit(
+        root,
+        [
+          '-c',
+          `core.excludesFile=${excludes}`,
+          'ls-files',
+          '--cached',
+          '--others',
+          '--exclude-standard',
+          '-z',
+        ],
+        undefined,
+        env,
+        { maxOutputBytes: listingLimit },
+      )
+    ).stdout,
+  )
   for (const path of paths.split('\0').filter(Boolean)) safeArchivePath(path, limits.maxPathBytes)
   return { paths, index, files }
 }
@@ -568,7 +637,8 @@ async function writeWorkspaceArchiveEntries(
   }
   if (!repository) return
   const indexManifest = repository.workingTree
-    ? canonicalCandidateBytes(candidateWorkspaceManifest(repository.workingTree.files)) : undefined
+    ? canonicalCandidateBytes(candidateWorkspaceManifest(repository.workingTree.files))
+    : undefined
   const metadata = canonicalCandidateBytes({
     kind: archiveKind,
     headCommit: repository.headCommit,
@@ -578,7 +648,14 @@ async function writeWorkspaceArchiveEntries(
       byteLength: repository.bundle.byteLength,
     },
     ...(indexManifest
-      ? { workingTree: { indexManifest: { sha256: sha256Bytes(indexManifest), byteLength: indexManifest.byteLength } } }
+      ? {
+          workingTree: {
+            indexManifest: {
+              sha256: sha256Bytes(indexManifest),
+              byteLength: indexManifest.byteLength,
+            },
+          },
+        }
       : {}),
   } satisfies WorkspaceArchiveRepositoryMetadata)
   await writeTarEntry(archive, repositoryMetadataEntry, 0o600, metadata)
@@ -681,20 +758,33 @@ async function parseWorkspaceArchive(
         )
         retainedEntryBytes += repositoryIndex.byteLength
       } else if (name.startsWith(repositoryIndexPrefix)) {
-        if (!repositoryMetadata?.workingTree || !repositoryIndex || indexFiles.length >= limits.maxFiles) {
+        if (
+          !repositoryMetadata?.workingTree ||
+          !repositoryIndex ||
+          indexFiles.length >= limits.maxFiles
+        ) {
           throw new Error('candidate Git index evidence is incomplete or exceeds maxFiles')
         }
         const path = safeArchivePath(name.slice(repositoryIndexPrefix.length), limits.maxPathBytes)
         if (entry.header.mode !== 0o644 && entry.header.mode !== 0o755) {
           throw new Error('candidate Git index contains an unsupported mode')
         }
-        assertWorkspacePathOrder(path, previousIndexPath, indexPaths, 'candidate Git index paths must be unique and sorted')
+        assertWorkspacePathOrder(
+          path,
+          previousIndexPath,
+          indexPaths,
+          'candidate Git index paths must be unique and sorted',
+        )
         previousIndexPath = path
         assertRetainedArchiveSize(bytes.byteLength, retainedEntryBytes, entry.header.size, limits)
-        if (entry.header.size === undefined || entry.header.size > limits.maxTotalFileBytes - indexBytes) {
+        if (
+          entry.header.size === undefined ||
+          entry.header.size > limits.maxTotalFileBytes - indexBytes
+        ) {
           throw new Error('candidate Git index exceeds maxTotalFileBytes')
         }
-        if (entry.header.size > limits.maxFileBytes) throw new Error('candidate Git index exceeds maxFileBytes')
+        if (entry.header.size > limits.maxFileBytes)
+          throw new Error('candidate Git index exceeds maxFileBytes')
         const fileBytes = await readTarEntry(entry, limits.maxFileBytes, `Git index file ${path}`)
         retainedEntryBytes += fileBytes.byteLength
         indexBytes += fileBytes.byteLength
@@ -827,7 +917,11 @@ function repositoryFromTar(
       metadata.workingTree.indexManifest.byteLength,
       'candidate Git index manifest',
     )
-    if (!Buffer.from(indexManifest).equals(Buffer.from(canonicalCandidateBytes(candidateWorkspaceManifest(indexFiles))))) {
+    if (
+      !Buffer.from(indexManifest).equals(
+        Buffer.from(canonicalCandidateBytes(candidateWorkspaceManifest(indexFiles))),
+      )
+    ) {
       throw new Error('candidate Git index files do not match the captured manifest')
     }
   }
@@ -835,9 +929,7 @@ function repositoryFromTar(
     headCommit: metadata.headCommit,
     headTree: metadata.headTree,
     bundle: { ...metadata.bundle, bytes: bundle },
-    ...(metadata.workingTree && indexManifest
-      ? { workingTree: { files: indexFiles } }
-      : {}),
+    ...(metadata.workingTree && indexManifest ? { workingTree: { files: indexFiles } } : {}),
   }
 }
 
@@ -1007,17 +1099,38 @@ async function materializeRepository(
       await runCandidateGit(destination, ['read-tree', '--empty'])
       const entries: string[] = []
       for (const file of repository.workingTree.files) {
-        const object = (await runCandidateGit(destination, ['hash-object', '-w', '--stdin'], file.bytes,
-          {}, { maxOutputBytes: 256 })).stdout.toString('utf8').trim()
+        const object = (
+          await runCandidateGit(
+            destination,
+            ['hash-object', '-w', '--stdin'],
+            file.bytes,
+            {},
+            { maxOutputBytes: 256 },
+          )
+        ).stdout
+          .toString('utf8')
+          .trim()
         assertGitObjectId(object, 'staged blob')
         entries.push(`${file.mode === 0o755 ? '100755' : '100644'} ${object}\t${file.path}\0`)
       }
-      if (entries.length) await runCandidateGit(destination, ['update-index', '-z', '--index-info'], Buffer.from(entries.join('')))
-      const indexTree = (await runCandidateGit(destination, ['write-tree'])).stdout.toString('utf8').trim()
+      if (entries.length)
+        await runCandidateGit(
+          destination,
+          ['update-index', '-z', '--index-info'],
+          Buffer.from(entries.join('')),
+        )
+      const indexTree = (await runCandidateGit(destination, ['write-tree'])).stdout
+        .toString('utf8')
+        .trim()
       const observed = await readCandidateGitTreeFiles(destination, indexTree, {}, limits)
-      if (!Buffer.from(canonicalCandidateBytes(candidateWorkspaceManifest(observed))).equals(
-        Buffer.from(canonicalCandidateBytes(candidateWorkspaceManifest(repository.workingTree.files))),
-      )) throw new Error('candidate repository staged files do not match the captured index')
+      if (
+        !Buffer.from(canonicalCandidateBytes(candidateWorkspaceManifest(observed))).equals(
+          Buffer.from(
+            canonicalCandidateBytes(candidateWorkspaceManifest(repository.workingTree.files)),
+          ),
+        )
+      )
+        throw new Error('candidate repository staged files do not match the captured index')
       return
     }
 
