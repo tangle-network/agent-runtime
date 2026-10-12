@@ -4193,7 +4193,7 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-16)
+> **budget**: [`Budget`](runtime.md#budget-17)
 
 ##### readinessCheck?
 
@@ -4519,7 +4519,7 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-16)
+> **budget**: [`Budget`](runtime.md#budget-17)
 
 ##### backend?
 
@@ -4682,7 +4682,7 @@ The supervisor-authored harness profiles — one fanout item (one worktree-CLI l
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-16)
+> **budget**: [`Budget`](runtime.md#budget-17)
 
 **`Experimental`**
 
