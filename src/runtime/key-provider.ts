@@ -57,15 +57,32 @@ export function envKeyProvider(env: Record<string, string | undefined> = process
 
 /** The `AgentProfileMcpServer.metadata` key the declarative secret-env map
  *  rides under: `{ ENV_VAR_NAME: 'PROVIDER_KEY_NAME' }`. Names only — values
- *  are resolved at materialize time and never stored. */
+ *  are resolved at materialize time and never stored.
+ *
+ *  DEPRECATED (2026-10-12): this is the interface <0.40 channel. Author
+ *  `profile.mcp[key].env.ENV_VAR_NAME = { kind: 'secret-ref', key }` instead —
+ *  the canonical form since 0.40. The legacy map keeps resolving (profiles
+ *  are data in the wild and must not break at boot) but every use now warns
+ *  once per server; removal lands at the next interface major. */
 export const mcpSecretEnvMetadataKey = 'secretEnv'
+
+const warnedSecretEnv = new Set<string>()
 
 /** Read (and validate) a server entry's declared secret-env map, if any.
  *  Malformed metadata throws — a half-declared secret must never half-boot. */
 export function secretEnvOfMcpServer(
   server: AgentProfileMcpServer,
+  label = 'profile.mcp server',
 ): Record<string, string> | undefined {
   const raw = server.metadata?.[mcpSecretEnvMetadataKey]
+  if (raw !== undefined && !warnedSecretEnv.has(label)) {
+    warnedSecretEnv.add(label)
+    // Loud, once per server per process: the legacy channel works but is
+    // closing; the canonical secret-ref form is the one new profiles use.
+    console.warn(
+      `${label}: metadata.${mcpSecretEnvMetadataKey} is deprecated — author env secret-refs (profile.mcp[key].env.ENV = { kind: 'secret-ref', key }) instead; support is removed at the next interface major`,
+    )
+  }
   if (raw === undefined || raw === null) return undefined
   if (typeof raw !== 'object' || Array.isArray(raw)) {
     throw new ValidationError(
