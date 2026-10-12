@@ -453,8 +453,10 @@ export async function runCandidateGit(
   extraEnv: Record<string, string> = {},
   options: { maxOutputBytes?: number } = {},
 ): Promise<GitResult> {
-  if (options.maxOutputBytes !== undefined &&
-      (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 0)) {
+  if (
+    options.maxOutputBytes !== undefined &&
+    (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 0)
+  ) {
     throw new Error('candidate Git maxOutputBytes must be a nonnegative safe integer')
   }
   const env = Object.fromEntries(

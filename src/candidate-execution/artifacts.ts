@@ -293,8 +293,13 @@ async function walkWorkspace(
   const selected = options.selectedPaths ? new Set(options.selectedPaths) : undefined
   const selectedDirectories = new Set<string>()
   for (const path of selected ?? []) {
-    if (!path || path.includes('\\') || path.includes('\0') || isAbsolute(path) ||
-        path.split('/').some((part) => !part || part === '.' || part === '..')) {
+    if (
+      !path ||
+      path.includes('\\') ||
+      path.includes('\0') ||
+      isAbsolute(path) ||
+      path.split('/').some((part) => !part || part === '.' || part === '..')
+    ) {
       throw new Error('workspace selected path must be a safe relative file path')
     }
     let parent = dirname(path)
@@ -348,7 +353,8 @@ async function walkWorkspace(
         throw new Error(await symlinkRefusal(absolute, relPath, absoluteRoot))
       }
       if (stats.isDirectory()) {
-        if (selected?.has(relPath)) throw new Error(`workspace selected file is a directory: ${relPath}`)
+        if (selected?.has(relPath))
+          throw new Error(`workspace selected file is a directory: ${relPath}`)
         await visit(absolute)
         continue
       }
