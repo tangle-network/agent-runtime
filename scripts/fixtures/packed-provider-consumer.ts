@@ -119,6 +119,8 @@ assert.equal(
 assert.throws(() => createContextTransferRequest({ ...transferMaterial, profile: undefined }))
 
 const calls: string[] = []
+let lookupCount = 0
+let rejectLookupAt: number | undefined
 const transport: typeof fetch = async (input, options) => {
   const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)
   calls.push(`${options?.method ?? 'GET'} ${url.pathname}`)
@@ -143,7 +145,10 @@ const transport: typeof fetch = async (input, options) => {
   }
   if (url.pathname === `/v1/context-transfers/${request.operationId}`) {
     assert.equal(url.searchParams.get('request_digest'), request.requestDigest)
-    return Response.json({ ...receipt, status: 'replayed' })
+    lookupCount++
+    return Response.json({ ...receipt, status: 'replayed',
+      ...(lookupCount === rejectLookupAt ? { executionId: 'different-authoritative-execution' } : {}),
+    })
   }
   if (url.pathname === `/v1/context-transfer-environments/${receipt.environmentId}`)
     return Response.json(receipt)
@@ -205,8 +210,29 @@ assert.deepEqual(admissions, ['intent', 'environment', 'dispatched'])
 assert.deepEqual(calls.filter(call => !call.endsWith('/v1/capabilities')), [
   'POST /v1/context-transfers',
   `GET /v1/context-transfers/${request.operationId}`,
+  // Attachment and first dispatch independently confirm the authoritative receipt.
+  `GET /v1/context-transfers/${request.operationId}`,
   'POST /v1/chat/completions',
 ])
+// A receipt that changes between attachment and dispatch must stop before model execution.
+calls.length = 0
+lookupCount = 0
+rejectLookupAt = 2
+const refusingReceiver = local()
+refusingReceiver.create = async () => { throw new Error('refused attachment must never allocate') }
+const refusedAdmissions: string[] = []
+await assert.rejects(startRetainedRun({ provider: refusingReceiver,
+  environment: { profile, backend: 'codex', idempotencyKey: 'packed-refused-admission' },
+  turn: { prompt: 'must not dispatch', turnId: 'packed-refused-turn', contextTransfer: request },
+  contextTransferReceipt: JSON.parse(JSON.stringify(accepted)),
+  onAdmission: async admission => { refusedAdmissions.push(admission.phase) },
+}))
+assert.deepEqual(refusedAdmissions, ['intent', 'environment'])
+assert.deepEqual(calls.filter(call => !call.endsWith('/v1/capabilities')), [
+  `GET /v1/context-transfers/${request.operationId}`,
+  `GET /v1/context-transfers/${request.operationId}`,
+])
+assert.equal(lookupCount, 2)
 console.log(
   JSON.stringify({
     kind: 'packed-provider-consumer',
@@ -217,7 +243,9 @@ console.log(
     retainedSession: run.controlRef.sessionId,
     receiptMatched: true,
     restartLookupMatched: true,
+    authoritativeLookupCount: 2,
     firstDispatchMatched: true,
+    changedDispatchReceiptRefusedBeforeModel: true,
     realAllocations: 0,
     realModelCalls: 0,
   }),
