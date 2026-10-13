@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -528,6 +529,11 @@ try {
   }
   assertNoEdgeUnsafeStaticImports(installedScope)
   run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], appDir)
+  copyFileSync(
+    join(repoRoot, 'scripts', 'fixtures', 'router-tool-replay-consumer.mjs'),
+    join(appDir, 'router-tool-replay-consumer.mjs'),
+  )
+  run(process.execPath, ['router-tool-replay-consumer.mjs'], appDir)
 
   run(
     process.execPath,

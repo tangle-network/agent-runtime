@@ -1008,6 +1008,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
               role: 'assistant',
               content: res.content ?? '',
               tool_calls: toolCalls.map((tc) => ({
+                ...tc.providerFields,
                 id: tc.id,
                 type: 'function',
                 function: {
