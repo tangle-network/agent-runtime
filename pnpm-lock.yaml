@@ -25,8 +25,8 @@ catalogs:
       specifier: ^2.0.0
       version: 2.0.0
     '@tangle-network/sandbox':
-      specifier: 0.60.41
-      version: 0.60.41
+      specifier: 0.60.49
+      version: 0.60.49
     '@types/node':
       specifier: 26.4.0
       version: 26.4.0
@@ -161,7 +161,7 @@ importers:
         version: link:..
       '@tangle-network/sandbox':
         specifier: 'catalog:'
-        version: 0.60.41(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
+        version: 0.60.49(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: 'catalog:'
@@ -1308,14 +1308,6 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@tangle-network/agent-core@0.10.3':
-    resolution: {integrity: sha512-PMnibf/yXFlMjIpCwF8jzJJdfFp3Wm/eIj6n7tLZ5vBIB4tsinyk+iOBQd85K4ASYbU1qX/kGbz+jN5/mxaBNA==}
-    peerDependencies:
-      '@modelcontextprotocol/sdk': ^1.30.0
-    peerDependenciesMeta:
-      '@modelcontextprotocol/sdk':
-        optional: true
-
   '@tangle-network/agent-core@0.11.0':
     resolution: {integrity: sha512-INAox1kAIZ3I4bMqIK+A3Qh5Nsr0gYtC0JX/WJhIgwJGbtXJlEkkJaWWjgwlgcbsU7CkRRBXpXa/Z+jujiIwsQ==}
     peerDependencies:
@@ -1336,9 +1328,6 @@ packages:
     resolution: {integrity: sha512-K6jvHzuMRXas9VTeoYX1uJKCuSVkQexBS1ZamDdHFXjICfdUVmU2ZBQPuOVWe41drtXh6aEt/nprL8TiDCQjRg==}
     engines: {node: '>=20.19.0'}
     hasBin: true
-
-  '@tangle-network/agent-interface@3.1.1':
-    resolution: {integrity: sha512-53YmcHkkip2lBZtQKuk/eQrZvsv6uxS7S03787X3jKVRdFOx1OXzVF0oSo/1Du69+g0QAx1xJl7zAuFJ6soifA==}
 
   '@tangle-network/agent-interface@4.0.0':
     resolution: {integrity: sha512-pPqvAogdW5rSLZqQ5g+0xxPMGEoLTEPwkb5tF0b8kj7i6gxWLhpqNxiV0qx+jHWnVzvzkbZjFB1P9IeUx0fogQ==}
@@ -1394,26 +1383,6 @@ packages:
     resolution: {integrity: sha512-NccSUO+pj9dmkx0uAB5C33gvTP52pjk3U7iZtyGoOzKPPj2s0JCbu/zRbo93G8hU6w0Xet79WRWbPEbAlFoeWQ==}
     engines: {node: '>=22.13.0'}
     hasBin: true
-
-  '@tangle-network/sandbox@0.60.41':
-    resolution: {integrity: sha512-sDFbJqAGNWFDRyq9HsXP8y4grbSRToQQj7UC6SDDA3zfIEMWISKkxNECaHk4Gn0ef5OdXtJVUKfJJrXr/FZ8Rw==}
-    peerDependencies:
-      '@mastra/core': ^1.36.0
-      '@modelcontextprotocol/sdk': ^1.30.0
-      ai: ^6.0.175 || ^7.0.107
-      openai: ^6.36.0
-      viem: ^2.0.0
-    peerDependenciesMeta:
-      '@mastra/core':
-        optional: true
-      '@modelcontextprotocol/sdk':
-        optional: true
-      ai:
-        optional: true
-      openai:
-        optional: true
-      viem:
-        optional: true
 
   '@tangle-network/sandbox@0.60.49':
     resolution: {integrity: sha512-boHCuUIexnkNwv1X/ra2bLGrwpwosyYEpq12c4FbofmKZI3xUpvVB1BMqgPqgaABpbts3JT7AmTcF3XvLg7Gmg==}
@@ -3683,14 +3652,6 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@tangle-network/agent-core@0.10.3(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))':
-    dependencies:
-      '@tangle-network/agent-interface': 3.1.1
-      '@tangle-network/agent-trace-contract': 2.0.0
-      zod: 4.6.5
-    optionalDependencies:
-      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.6.5)
-
   '@tangle-network/agent-core@0.11.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))':
     dependencies:
       '@tangle-network/agent-interface': 4.0.0
@@ -3722,12 +3683,6 @@ snapshots:
       zod: 4.6.5
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
-
-  '@tangle-network/agent-interface@3.1.1':
-    dependencies:
-      '@noble/hashes': 2.4.0
-      spdx-expression-parse: 5.0.0
-      zod: 4.6.5
 
   '@tangle-network/agent-interface@4.0.0':
     dependencies:
@@ -3782,20 +3737,6 @@ snapshots:
   '@tangle-network/harness-sessions@0.1.1':
     dependencies:
       '@tangle-network/agent-trace-contract': 2.0.0
-
-  '@tangle-network/sandbox@0.60.41(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))':
-    dependencies:
-      '@tangle-network/agent-core': 0.10.3(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
-      '@tangle-network/agent-interface': 3.1.1
-      tar-stream: 3.2.1
-      zod: 4.6.5
-    optionalDependencies:
-      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.6.5)
-      viem: 2.56.9(typescript@6.0.3)(zod@4.6.5)
-    transitivePeerDependencies:
-      - bare-abort-controller
-      - bare-buffer
-      - react-native-b4a
 
   '@tangle-network/sandbox@0.60.49(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))':
     dependencies:
