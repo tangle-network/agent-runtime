@@ -535,7 +535,10 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   if (signal?.aborted) return 'terminal'
   // A failed retained read does not settle or replace its execution. A contract violation
   // requires a repaired reader/provider; repeating that read unchanged cannot recover it.
-  if (error instanceof RetainedExecutionPendingError && error.pendingCause === 'provider-contract')
+  if (
+    error instanceof RetainedExecutionPendingError &&
+    (error.pendingCause === 'provider-contract' || error.pendingCause === 'terminal-event-lost')
+  )
     return 'terminal'
   const admission = retainedAdmissionCause(error)
   // A dispatch that Sandbox did not admit gets the same refusal while the owning execution holds
@@ -974,6 +977,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       const after = run.progress()
       const progressed = madeProgress(before, after)
       if (progressed) abandonments = 0
+      const retainedFailure = error instanceof RetainedExecutionPendingError ? error : undefined
       const pending = abandonablePending(error)
       samePending =
         pending === undefined || classification !== 'transient'
@@ -1110,7 +1114,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
           classification,
           madeProgress: progressed,
           stop: retryStop,
-          ...(unresolved ? { pendingCause: pending.pendingCause } : {}),
+          ...(retainedFailure === undefined ? {} : { pendingCause: retainedFailure.pendingCause }),
         })
         throw new DriverAttemptsExhaustedError(error, attempts, retryStop)
       }
