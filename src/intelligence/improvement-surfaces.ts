@@ -98,6 +98,7 @@ type ProfileResourceDifferHandledField =
   | 'skills'
   | 'agents'
   | 'commands'
+  | 'knowledge'
   | 'instructions'
   | 'failOnError'
 type MissingProfileResourceDifferField = Exclude<
