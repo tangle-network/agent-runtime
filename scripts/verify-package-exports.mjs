@@ -646,6 +646,11 @@ try {
     '@tangle-network/sandbox',
     packageJson.peerDependencies['@tangle-network/sandbox'],
   )
+  copyFileSync(
+    join(repoRoot, 'scripts', 'fixtures', 'packed-sandbox-contract-consumer.mjs'),
+    join(standaloneAppDir, 'sandbox-contract-consumer.mjs'),
+  )
+  run(process.execPath, ['sandbox-contract-consumer.mjs'], standaloneAppDir)
   run(
     process.execPath,
     [

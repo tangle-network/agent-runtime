@@ -352,6 +352,11 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
       const pagesDirectory = stateScope?.pagesDirectory ?? 'knowledge'
       await withKb(async (root) => {
         const artifacts = createCandidateOutputFixture().outputArtifacts
+        const researchEvent = createKnowledgeEvent({
+          type: 'research.iteration',
+          metadata: { rounds: 1 },
+          now: () => new Date('2026-09-07T00:00:00.000Z'),
+        })
         const update = async (
           _profile: SupervisorProfile,
           task: unknown,
@@ -372,13 +377,7 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
               claims: [],
               questions: [],
             })
-            await store.putEvent(
-              createKnowledgeEvent({
-                type: 'research.iteration',
-                metadata: { rounds: 1 },
-                now: () => new Date('2026-09-07T00:00:00.000Z'),
-              }),
-            )
+            await store.putEvent(researchEvent)
           }
           await expectReadyDeliverable(opts)
           return winner()
@@ -416,7 +415,7 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
         const rig = createCandidateExperimentFixture({
           baseline: bundles.baseline,
           candidate: bundles.candidate,
-          scoreForRequest: (request) => {
+          scoreForRequest: async (request) => {
             expect(request.knowledge?.stateScope).toEqual(expectedScope)
             if (
               stateScope?.researchState &&
@@ -427,9 +426,22 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
               expect(request.knowledge?.files.map((file) => file.path)).toEqual(
                 expect.arrayContaining([
                   '.agent-knowledge/claim-ledgers/episode.json',
-                  '.agent-knowledge/events.json',
+                  '.agent-knowledge/event-log/state.json',
                 ]),
               )
+              // Reopen the exact execution bytes through the authoritative event-log reader.
+              const restoredRoot = makeTempRoot('agent-runtime-knowledge-request-')
+              try {
+                for (const file of request.knowledge.files) {
+                  const path = join(restoredRoot, file.path)
+                  await mkdir(dirname(path), { recursive: true })
+                  await writeFile(path, file.bytes)
+                }
+                const restoredStore = new FileSystemKbStore({ root: restoredRoot })
+                expect(await restoredStore.listEvents()).toContainEqual(researchEvent)
+              } finally {
+                await rm(restoredRoot, { recursive: true, force: true })
+              }
             }
             const page = request.knowledge?.files.find(
               (file) => file.path === `${pagesDirectory}/runtime-job.md`,

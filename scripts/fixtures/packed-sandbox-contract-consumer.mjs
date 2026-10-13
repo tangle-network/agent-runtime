@@ -2,6 +2,16 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import * as current from '@tangle-network/agent-interface'
+import { materializeCandidateProfile } from '@tangle-network/agent-profile-materialize'
+import { assertProfileMaterializes } from '@tangle-network/agent-runtime/agent'
+import {
+  agentCandidateProfileAsAgentProfile,
+  assertCandidateProfileBinding,
+  buildAgentCandidateBundle,
+  sealAgentCandidateBundle,
+  verifyAgentCandidateBundle,
+  freezeGenericAgentCandidateProfile,
+} from '@tangle-network/agent-runtime/candidate-execution'
 const sdkRequire = createRequire(createRequire(import.meta.url).resolve('@tangle-network/sandbox'))
 const sdk = await import(pathToFileURL(sdkRequire.resolve('@tangle-network/agent-interface')).href)
 import { readTokenUsage, readTokenCostUsd } from '@tangle-network/agent-core'
@@ -79,13 +89,90 @@ for (const event of [
   assert.deepEqual(sdkUsage(event), readTokenUsage(event))
   assert.deepEqual(sdkCost(event), readTokenCostUsd(event))
 }
+// Interface 5.2 adds execution-owned knowledge references that the SDK's private
+// Interface 4 schema does not understand. Refuse them before crossing that boundary;
+// qualifying this tuple never means dropping a field the older SDK cannot carry.
+let unresolvedKnowledgeRefusals = 0
+let candidateKnowledgeConversionRefusals = 0
+let candidateKnowledgeAdmissionRefusals = 0
+const knowledge = [{ sourceId: 'source_1', generation: `kg_${'a'.repeat(64)}` }]
+if (current.agentProfileSchema.safeParse({ resources: { knowledge } }).success) {
+  for (const harness of ['codex', 'claude-code', 'opencode', 'kimi-code', 'pi']) {
+    for (const failOnError of [true, false]) {
+      const profile = { resources: { knowledge, failOnError } }
+      assert.equal(current.agentProfileSchema.safeParse(profile).success, true)
+      assert.equal(sdk.agentProfileSchema.safeParse(profile).success, false)
+      assert.throws(
+        () => assertProfileMaterializes(profile, harness, 'packed SDK boundary'),
+        /must be owner-authorized and resolved/,
+      )
+      unresolvedKnowledgeRefusals += 1
+    }
+  }
+  const baselineBundle = buildAgentCandidateBundle({
+    profile: { kind: 'profile', profile: { name: 'knowledge-boundary', harness: 'codex' } },
+    code: { kind: 'disabled' },
+    execution: {
+      harness: 'codex',
+      harnessVersion: '1.0.0',
+      launch: { kind: 'container-command', executable: 'codex' },
+      instructionDelivery: { kind: 'stdin-utf8' },
+      cwd: { workspace: 'task', path: '.' },
+      env: { PATH: { kind: 'public', value: '/usr/local/bin:/usr/bin:/bin' } },
+      environment: { kind: 'evaluator-task-container' },
+      isolation: {
+        network: 'disabled',
+        remoteIntegrations: 'disabled',
+        candidateSecrets: 'disabled',
+      },
+    },
+    memory: { mode: 'disabled' },
+  })
+  const { digest: _digest, ...baselineMaterial } = baselineBundle
+  let artifactReads = 0
+  const forbiddenRead = async () => { artifactReads += 1; throw new Error('unexpected artifact read') }
+  for (const pins of [[], knowledge]) {
+    for (const failOnError of [true, false]) {
+      const profile = { resources: { knowledge: pins, failOnError } }
+      const stripped = { resources: { failOnError: true } }
+      for (const convert of [
+        () => freezeGenericAgentCandidateProfile(profile),
+        () => agentCandidateProfileAsAgentProfile(profile),
+        () => assertCandidateProfileBinding(profile, stripped),
+      ]) {
+        assert.throws(convert, /must be owner-authorized and resolved/)
+        candidateKnowledgeConversionRefusals += 1
+      }
+    }
+    const bundle = sealAgentCandidateBundle({
+      ...baselineMaterial,
+      profile: { ...baselineBundle.profile, resources: { knowledge: pins, failOnError: true } },
+    })
+    await assert.rejects(
+      verifyAgentCandidateBundle(bundle, {
+        artifacts: { read: forbiddenRead },
+        repositories: { resolve: forbiddenRead },
+      }),
+      /must be owner-authorized and resolved/,
+    )
+    candidateKnowledgeAdmissionRefusals += 1
+  }
+  assert.equal(artifactReads, 0)
+  assert.throws(
+    () => materializeCandidateProfile({ resources: { knowledge, failOnError: true } }, 'codex'),
+    /must be owner-authorized and resolved/,
+  )
+}
+
 const result = {
   kind: 'packed-sandbox-contract-boundary',
   profileParsingAndDigest: true,
   runCancellationAndControl: true,
   terminalAdmissionAndUnknownKeyRefusal: true,
   usageAndCostReadParity: true,
-  providerConsumerTypesCompiled: true,
+  unresolvedKnowledgeRefusals,
+  candidateKnowledgeConversionRefusals,
+  candidateKnowledgeAdmissionRefusals,
   liveProviderCalls: 0,
 }
 console.log(JSON.stringify(result))

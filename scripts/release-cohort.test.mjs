@@ -26,12 +26,24 @@ describe('release cohort', () => {
         readFileSync(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8'),
       )
       const runtime = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
-      const declared = runtime.dependencies?.[name] ?? runtime.devDependencies?.[name]
-      const range = declared === 'catalog:' ? catalog[name] : declared
       expect(
-        range === version || rangeAdmits(range, version),
-        `${name}@${version} must be admitted by Runtime dependency ${String(range)}`,
-      ).toBe(true)
+        runtime.dependencies?.[name] ?? runtime.devDependencies?.[name],
+        `${name} must remain a Runtime dependency or development dependency`,
+      ).toBeDefined()
+      const declarations = {
+        catalog: catalog[name],
+        dependencies: runtime.dependencies?.[name],
+        devDependencies: runtime.devDependencies?.[name],
+        peerDependencies: runtime.peerDependencies?.[name],
+      }
+      for (const [section, declared] of Object.entries(declarations)) {
+        if (declared === undefined) continue
+        const range = declared === 'catalog:' ? catalog[name] : declared
+        expect(
+          range === version || rangeAdmits(range, version),
+          `${name}@${version} must be admitted by Runtime ${section} ${String(range)}`,
+        ).toBe(true)
+      }
     },
   )
 
