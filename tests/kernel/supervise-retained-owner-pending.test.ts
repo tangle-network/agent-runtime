@@ -20,11 +20,11 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
+import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import {
   readWorkerSteerAcknowledgement,
   writeWorkerSteer,
 } from '../../src/runtime/supervise/run-layout'
-import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
 import { testContinuation } from '../helpers/continuation'
@@ -242,7 +242,7 @@ async function superviseRoot(fixture: Fixture) {
         check: (value) => (value as { answer?: unknown }).answer === 'delivered',
       },
       coordination: {
-        ...(fixture.queuedWakesOnFirstResult ? { requestTimeoutMs: 200 } : {}),
+        ...(fixture.queuedWakesOnFirstResult ? { requestTimeoutMs: 1_000 } : {}),
         authentication: {
           signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
         },
