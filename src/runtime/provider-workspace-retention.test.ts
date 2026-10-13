@@ -285,6 +285,7 @@ function pendingRetainedProvider(
                 metadata: {
                   runId: controlRef.runId,
                   executionId: controlRef.executionId,
+                  requestDigest: controlRef.requestDigest,
                 },
               }
             },

@@ -20,6 +20,10 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
+import {
+  readWorkerSteerAcknowledgement,
+  writeWorkerSteer,
+} from '../../src/runtime/supervise/run-layout'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
@@ -67,6 +71,8 @@ interface Fixture {
   readonly unresolvable?: (dispatched: number) => boolean
   /** A terminal-less provider stream whose exact result read never settles. */
   readonly resultNeverOn?: (dispatched: number) => boolean
+  /** Queue a root steer and a failed asynchronous method at the first exact result. */
+  readonly queuedWakesOnFirstResult?: boolean
   /** The successful dispatch on which the director submits. */
   readonly submitOn: number
 }
@@ -77,7 +83,8 @@ async function superviseRoot(fixture: Fixture) {
   const proxy = await coordinationProxy()
   proxies.push(proxy)
   const stateFile = join(directory, 'provider.json')
-  const context = createFileRunContext(join(directory, 'run'))
+  const runDir = join(directory, 'run')
+  const context = createFileRunContext(runDir)
   let port = 0
   let token = ''
   let calls = 0
@@ -85,6 +92,13 @@ async function superviseRoot(fixture: Fixture) {
   const lost = new Set<string>()
   const neverReturns = new Set<string>()
   const stopped: string[] = []
+  let rejectMethod!: (error: Error) => void
+  const methodResult = new Promise<unknown>((_resolve, reject) => {
+    rejectMethod = reject
+  })
+  let methodReceipt: string | undefined
+  let firstResultWakesQueued = false
+  let steerReplayed = false
   const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
     ...environment,
     dispatch: async (turn) => {
@@ -95,6 +109,25 @@ async function superviseRoot(fixture: Fixture) {
       if (fixture.unresolvable?.(dispatched.length) && turn.executionId) lost.add(turn.executionId)
       if (fixture.resultNeverOn?.(dispatched.length) && turn.executionId)
         neverReturns.add(turn.executionId)
+      if (fixture.queuedWakesOnFirstResult && dispatched.length === 1) {
+        const response = await fetch(`http://127.0.0.1:${port}/manager`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 'method',
+            method: 'tools/call',
+            params: { name: 'failing_record', arguments: { text: 'save evidence' } },
+          }),
+        })
+        if (!response.ok) throw new Error(`failing_record returned ${response.status}`)
+        const reply = (await response.json()) as {
+          result?: { structuredContent?: { running?: boolean; receipt?: string } }
+        }
+        if (reply.result?.structuredContent?.running !== true)
+          throw new Error('failing_record did not return an asynchronous receipt')
+        methodReceipt = reply.result.structuredContent.receipt
+      }
       if (dispatched.length === fixture.submitOn) {
         const response = await fetch(`http://127.0.0.1:${port}/manager`, {
           method: 'POST',
@@ -120,7 +153,25 @@ async function superviseRoot(fixture: Fixture) {
             return await new Promise<Awaited<ReturnType<typeof session.result>>>(() => {})
           if (executionId !== undefined && lost.has(executionId))
             throw Object.assign(new Error('retained run not found'), { status: 404 })
-          return session.result()
+          const result = await session.result()
+          if (fixture.queuedWakesOnFirstResult && !firstResultWakesQueued) {
+            firstResultWakesQueued = true
+            const steer = {
+              eventDir: runDir,
+              operationId: 'retained-root-correction',
+              message: 'use the corrected evidence',
+              interrupt: false,
+            }
+            writeWorkerSteer(directory, 'pending-root', 'pending-root', steer)
+            steerReplayed = writeWorkerSteer(
+              directory,
+              'pending-root',
+              'pending-root',
+              steer,
+            ).replayed
+            rejectMethod(new Error('knowledge store is locked by this process'))
+          }
+          return result
         },
         // Sandbox stops one run without ending the session the next turn continues.
         cancelRun: async (request): Promise<AgentRunCancellationAcknowledgement> => {
@@ -153,10 +204,16 @@ async function superviseRoot(fixture: Fixture) {
     },
   }
   const result = await supervise(
-    testAgentProfile('root', { harness: 'codex', tools: runtimeToolDeclarations('submit_result') }),
+    testAgentProfile('root', {
+      harness: 'codex',
+      tools: runtimeToolDeclarations(
+        'submit_result',
+        ...(fixture.queuedWakesOnFirstResult ? ['failing_record'] : []),
+      ),
+    }),
     'Produce the answer.',
     {
-      runDir: join(directory, 'run'),
+      runDir,
       journal: context.journal,
       blobs: context.blobs,
       runId: 'pending-root',
@@ -183,6 +240,7 @@ async function superviseRoot(fixture: Fixture) {
         check: (value) => (value as { answer?: unknown }).answer === 'delivered',
       },
       coordination: {
+        ...(fixture.queuedWakesOnFirstResult ? { requestTimeoutMs: 200 } : {}),
         authentication: {
           signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
         },
@@ -192,6 +250,18 @@ async function superviseRoot(fixture: Fixture) {
           return `${proxy.url}/manager`
         },
       },
+      ...(fixture.queuedWakesOnFirstResult
+        ? {
+            resolveSupervisorTools: async () => [
+              {
+                name: 'failing_record',
+                description: 'Persist one result',
+                inputSchema: { type: 'object', properties: { text: { type: 'string' } } },
+                handler: async () => methodResult,
+              },
+            ],
+          }
+        : {}),
     },
   )
   const events = ((await context.journal.loadTree('pending-root')) ?? []).filter(
@@ -200,7 +270,7 @@ async function superviseRoot(fixture: Fixture) {
   const attempts = events.flatMap((event): DriverAttemptRecord[] =>
     event.kind === 'driver-attempt' ? [event.record] : [],
   )
-  return { result, events, attempts, dispatched, stopped }
+  return { result, events, attempts, dispatched, stopped, runDir, methodReceipt, steerReplayed }
 }
 
 function count(events: readonly SpawnEvent[], kind: SpawnEvent['kind']): number {
@@ -216,6 +286,23 @@ describe('supervised root with a pending retained turn', () => {
     expect(count(run.events, 'execution-input')).toBe(1)
     expect(count(run.events, 'execution-result')).toBe(1)
     expect(run.dispatched).toHaveLength(1)
+  })
+
+  it('wakes a retained root with one accepted steer and a failed asynchronous tool outcome', async () => {
+    const run = await superviseRoot({ queuedWakesOnFirstResult: true, submitOn: 2 })
+    expect(run.result.kind).toBe('winner')
+    expect(run.dispatched).toHaveLength(2)
+    expect(run.steerReplayed).toBe(true)
+    expect(run.methodReceipt).toBeTruthy()
+    const nextTurn = JSON.stringify(run.dispatched[1])
+    expect(nextTurn).toContain('use the corrected evidence')
+    expect(nextTurn).toContain('knowledge store is locked by this process')
+    expect(nextTurn).toContain(run.methodReceipt!)
+    expect(nextTurn.split('use the corrected evidence')).toHaveLength(2)
+    expect(readWorkerSteerAcknowledgement(run.runDir, 'retained-root-correction')).toMatchObject({
+      effect: 'delivered',
+      operationId: 'retained-root-correction',
+    })
   })
 
   it('reports a bounded lost-terminal root instead of waiting forever for its exact result', async () => {
