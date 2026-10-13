@@ -2632,12 +2632,16 @@ async function providerExecutionSource(
           while (true) {
             let next: IteratorResult<AgentEnvironmentEvent>
             try {
+              const remaining = observationIdleMs - (Date.now() - lastObservedAt)
+              if (remaining <= 0) {
+                throw new RetainedReadTimeoutError('event stream', observationIdleMs)
+              }
               next = await awaitRetainedRead(
                 awaitAbortable(
                   Promise.resolve().then(() => iterator!.next()),
                   signal,
                 ),
-                Math.max(1, observationIdleMs - (Date.now() - lastObservedAt)),
+                remaining,
                 'event stream',
               )
             } catch (error) {
@@ -2647,7 +2651,6 @@ async function providerExecutionSource(
               break
             }
             if (next.done) break
-            lastObservedAt = Date.now()
             // A received event for another execution must never be accepted as evidence — and
             // it is the PROVIDER's contract that was broken, so it must classify as such (#1204).
             try {
@@ -2681,6 +2684,9 @@ async function providerExecutionSource(
               }
               seenEvents.set(eventId, digest)
             }
+            // A replayed frame is not progress. Only new evidence extends the silence bound;
+            // otherwise a provider repeating one cursor could keep a finished turn open forever.
+            lastObservedAt = Date.now()
             if (identity.cursor !== undefined) lastReplayPosition = identity.cursor
             else if (eventId !== undefined) lastReplayPosition = eventId
             if (isTerminalEnvironmentEvent(next.value)) sawTerminal = true

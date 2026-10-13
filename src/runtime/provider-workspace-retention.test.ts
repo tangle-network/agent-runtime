@@ -636,6 +636,53 @@ describe('provider workspace retention', () => {
     expect(executor.resultArtifact().spent.tokens).toMatchObject({ input: 3, output: 4 })
   })
 
+  it('does not let an endless duplicate replay extend the retained observation bound', async () => {
+    let dispatches = 0
+    const admissions: RetainedRunAdmission[] = []
+    const repeated: AgentEnvironmentEvent = {
+      id: 'one-frame',
+      type: 'message.part.updated',
+      data: { delta: 'still the same frame' },
+    }
+    const provider = pendingRetainedProvider({
+      onDispatch: () => {
+        dispatches += 1
+      },
+      events: async function* () {
+        yield repeated
+        for (;;) {
+          await new Promise((resolve) => setTimeout(resolve, 1))
+          yield repeated
+        }
+      },
+      result: async () => await new Promise<{ text: string; success: boolean }>(() => {}),
+    })
+    const retention: RetainedExecutorContext = {
+      executionId: 'endless-duplicate-worker',
+      admissions,
+      onAdmission: async (admission) => {
+        admissions.push(admission)
+      },
+      onResult: async () => {
+        throw new Error('an unresolved result cannot settle')
+      },
+    }
+    const signal = new AbortController().signal
+    const executor = providerAsExecutor(provider, {
+      retainedObservationIdleMs: 20,
+      retainedResultWaitMs: 20,
+    })(
+      { profile: testProfile('endless-duplicate-worker'), harness: null },
+      { signal, seams: { [retainedExecutorSeamKey]: retention } },
+    )
+    await expect(async () => {
+      for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+      }
+    }).rejects.toMatchObject({ pendingCause: 'terminal-event-lost' })
+    expect(dispatches).toBe(1)
+    expect(await executor.teardown('brutalKill')).toMatchObject({ destroyed: false })
+  })
+
   it('retains the admitted native reference across pre-harness failure and cold executor recovery', async () => {
     const artifacts = artifactStore()
     let dispatches = 0
