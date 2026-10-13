@@ -459,17 +459,21 @@ describe('provider workspace retention', () => {
         },
       },
     )
-    expect(
-      scope.spawn(agent, 'write result', {
-        label: 'delayed-retained-child',
-        budget: { maxIterations: 1, maxTokens: 100 },
-      }).ok,
-    ).toBe(true)
+    const spawned = scope.spawn(agent, 'write result', {
+      label: 'delayed-retained-child',
+      budget: { maxIterations: 1, maxTokens: 100 },
+    })
+    if (!spawned.ok) throw new Error(`child spawn refused: ${spawned.reason}`)
     const delivered = scope.next()
     finish({ text: 'child result after terminal loss', success: true })
     const settled = await delivered
     expect(settled?.kind).toBe('done')
     expect(dispatches).toBe(1)
+    expect(scope.progress(spawned.handle.id)).toMatchObject({
+      status: 'done',
+      steerable: false,
+    })
+    expect(scope.send(spawned.handle.id, { steer: 'late correction' })).toBe(false)
     const terminals = (await journal.loadTree('retained-parent'))?.filter(
       (event) => event.kind === 'settled',
     )

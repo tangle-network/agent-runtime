@@ -98,6 +98,7 @@ async function superviseRoot(fixture: Fixture) {
   })
   let methodReceipt: string | undefined
   let firstResultWakesQueued = false
+  let steerRecorded = false
   let steerReplayed = false
   const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
     ...environment,
@@ -162,7 +163,8 @@ async function superviseRoot(fixture: Fixture) {
               message: 'use the corrected evidence',
               interrupt: false,
             }
-            writeWorkerSteer(directory, 'pending-root', 'pending-root', steer)
+            const admitted = writeWorkerSteer(directory, 'pending-root', 'pending-root', steer)
+            steerRecorded = !admitted.replayed && admitted.acknowledgement === undefined
             steerReplayed = writeWorkerSteer(
               directory,
               'pending-root',
@@ -270,7 +272,17 @@ async function superviseRoot(fixture: Fixture) {
   const attempts = events.flatMap((event): DriverAttemptRecord[] =>
     event.kind === 'driver-attempt' ? [event.record] : [],
   )
-  return { result, events, attempts, dispatched, stopped, runDir, methodReceipt, steerReplayed }
+  return {
+    result,
+    events,
+    attempts,
+    dispatched,
+    stopped,
+    runDir,
+    methodReceipt,
+    steerRecorded,
+    steerReplayed,
+  }
 }
 
 function count(events: readonly SpawnEvent[], kind: SpawnEvent['kind']): number {
@@ -292,6 +304,7 @@ describe('supervised root with a pending retained turn', () => {
     const run = await superviseRoot({ queuedWakesOnFirstResult: true, submitOn: 2 })
     expect(run.result.kind).toBe('winner')
     expect(run.dispatched).toHaveLength(2)
+    expect(run.steerRecorded).toBe(true)
     expect(run.steerReplayed).toBe(true)
     expect(run.methodReceipt).toBeTruthy()
     const nextTurn = JSON.stringify(run.dispatched[1])
@@ -302,6 +315,7 @@ describe('supervised root with a pending retained turn', () => {
     expect(readWorkerSteerAcknowledgement(run.runDir, 'retained-root-correction')).toMatchObject({
       effect: 'delivered',
       operationId: 'retained-root-correction',
+      detail: 'the root inbox accepted the steer; consumption is not confirmed',
     })
   })
 
