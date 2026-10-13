@@ -305,6 +305,19 @@ export interface RouterToolCall {
   name: string
   /** Raw JSON arguments string as emitted by the model. */
   arguments: string
+  /** Opaque fields echoed on this call's assistant tool_calls entry, such as a provider signature. */
+  providerFields?: Record<string, unknown>
+}
+
+/** Keep provider extensions beside, never in place of, the canonical call identity and function.
+ * Stream indices identify assembly slots and are not replay fields. */
+function toolCallProviderFields(
+  call: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const fields = Object.fromEntries(
+    Object.entries(call).filter(([key]) => !['id', 'type', 'function', 'index'].includes(key)),
+  )
+  return Object.keys(fields).length === 0 ? undefined : fields
 }
 
 /** Exact buffered HTTP evidence. Authentication and cookie headers are excluded. */
@@ -436,7 +449,12 @@ export async function routerChatWithTools(
     choices?: Array<{
       message?: {
         content?: string | null
-        tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>
+        tool_calls?: Array<
+          Record<string, unknown> & {
+            id?: string
+            function?: { name?: string; arguments?: string }
+          }
+        >
       }
       finish_reason?: string
     }>
@@ -444,11 +462,15 @@ export async function routerChatWithTools(
   }
   const msg = data.choices?.[0]?.message
   if (!msg) throw new ValidationError('router completion: no choices[0].message')
-  const toolCalls: RouterToolCall[] = (msg?.tool_calls ?? []).map((tc, i) => ({
-    id: tc.id ?? `call_${i}`,
-    name: tc.function?.name ?? '',
-    arguments: tc.function?.arguments ?? '{}',
-  }))
+  const toolCalls: RouterToolCall[] = (msg?.tool_calls ?? []).map((tc, i) => {
+    const providerFields = toolCallProviderFields(tc)
+    return {
+      id: tc.id ?? `call_${i}`,
+      name: tc.function?.name ?? '',
+      arguments: tc.function?.arguments ?? '{}',
+      ...(providerFields ? { providerFields } : {}),
+    }
+  })
   const { usage, resources, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(
     data.usage,
     cfg.model,
@@ -691,6 +713,7 @@ interface ChatCompletionChunk {
       reasoning?: string | null
       reasoning_content?: string | null
       tool_calls?: Array<{
+        [key: string]: unknown
         index?: number
         id?: string
         function?: { name?: string; arguments?: string }
@@ -706,6 +729,7 @@ interface StreamingToolCall {
   id?: string
   name?: string
   arguments: string
+  providerFields?: Record<string, unknown>
 }
 
 /**
@@ -760,6 +784,7 @@ export async function streamRouterChatWithTools(
       id: call.id ?? `call_${index}`,
       name: call.name ?? '',
       arguments: call.arguments || '{}',
+      ...(call.providerFields ? { providerFields: call.providerFields } : {}),
     }))
   const { usage, resources, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(
     streamed.rawUsage,
@@ -982,6 +1007,10 @@ async function streamChatCompletion(
       if (tc.id) acc.id = tc.id
       if (tc.function?.name) acc.name = tc.function.name
       if (tc.function?.arguments) acc.arguments += tc.function.arguments
+      const providerFields = toolCallProviderFields(tc)
+      // Extension values are opaque, complete top-level fields, not argument fragments.
+      // A later occurrence replaces that field; no provider-specific deep merge is inferred.
+      if (providerFields) acc.providerFields = { ...acc.providerFields, ...providerFields }
       calls.set(index, acc)
     }
   }

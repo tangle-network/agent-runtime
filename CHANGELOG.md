@@ -1,3 +1,7 @@
+## 0.318.1
+
+Preserve response-derived provider tool-call fields, including Gemini thought signatures, through buffered and streamed Router responses and both Runtime tool loops. Each parallel call keeps its own fields when replayed with its result, while Runtime retains authority over the call ID and function. Opaque streamed extension values replace earlier values only at their top-level key. This repairs live request replay without changing the published tool-call type or dependency cohort; retained transcript reconstruction remains a separate boundary.
+
 ## 0.318.0
 
 A release's checkpoint captures share one 15-minute bound (`RELEASE_CHECKPOINT_CAPTURES_MS`): a capture it cuts short keeps its checkpoint and source, as a failed capture does, and the run settles instead of waiting on each capture's own port bound in turn. Live workspace captures stop whenever a turn ends, the copy in flight included, even for a turn closed by its consumer (a deadline or budget stop) in an environment kept for recovery; before, those kept capturing until the process exited, on the capture slots the release shares, and kept a settled supervisor's process alive. The release's checkpoint handle lookups share the same bound.

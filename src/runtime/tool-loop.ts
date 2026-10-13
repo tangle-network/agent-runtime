@@ -340,11 +340,23 @@ export async function runBrainLoop(opts: {
     messages.push({
       role: 'assistant',
       content: r.content ?? '',
-      tool_calls: r.toolCalls.map((tc) => ({
-        id: tc.id,
-        type: 'function',
-        function: { name: tc.name, arguments: tc.arguments },
-      })),
+      // Router parsing may carry opaque call metadata internally. Keep the published
+      // call interface unchanged while retaining those response fields on the wire.
+      tool_calls: r.toolCalls.map((tc) => {
+        const providerFields =
+          'providerFields' in tc &&
+          tc.providerFields !== null &&
+          typeof tc.providerFields === 'object' &&
+          !Array.isArray(tc.providerFields)
+            ? tc.providerFields
+            : {}
+        return {
+          ...providerFields,
+          id: tc.id,
+          type: 'function',
+          function: { name: tc.name, arguments: tc.arguments },
+        }
+      }),
     })
     const images: Array<{ type: 'image_url'; image_url: { url: string } }> = []
     for (const tc of r.toolCalls) {
