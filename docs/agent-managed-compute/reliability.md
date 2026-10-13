@@ -15,8 +15,8 @@ Runtime joins local observers and preserves retained invocations for recovery us
 The pursuit records a failure when storage permits, without creating its terminal `result.json` guard.
 After restoring storage, resume the same run; Runtime does not start a replacement invocation or a local restart loop.
 If retained event observation fails, Runtime reads the exact terminal result before leaving the invocation unresolved.
-An admitted retained stream that ends without a terminal event has one minute to return that exact result.
-Silence during event observation is bounded to eight minutes from the last event; the same exact-result read follows.
+An admitted retained stream that ends without a terminal event gets a bounded exact-result read.
+Silence during event observation is bounded from the last event; the same exact-result read follows. `environment-provider.ts` owns both limits.
 A valid exact result settles the original invocation with incomplete event observation recorded.
 A result read that does not settle within the bound records `terminal-event-lost` and keeps the admitted execution for reconciliation; a definite read error keeps its own classified cause. Neither becomes success or a replacement dispatch.
 Replay of an event with the same provider identity does not charge usage twice, and changed content under that identity is a provider contract error.

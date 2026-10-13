@@ -276,11 +276,18 @@ function pendingRetainedProvider(
               async function* () {
                 yield* []
               },
-            result:
-              fixture.result ??
-              (async () => {
-                throw new Error('retained result unavailable')
-              }),
+            result: async () => {
+              if (fixture.result === undefined) throw new Error('retained result unavailable')
+              const result = await fixture.result()
+              return {
+                ...result,
+                sessionId: controlRef.sessionId,
+                metadata: {
+                  runId: controlRef.runId,
+                  executionId: controlRef.executionId,
+                },
+              }
+            },
             async cancel() {},
             async prompt() {
               return { text: '', success: true, sessionId: controlRef.sessionId }

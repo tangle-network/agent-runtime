@@ -977,6 +977,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       const after = run.progress()
       const progressed = madeProgress(before, after)
       if (progressed) abandonments = 0
+      const retainedFailure = error instanceof RetainedExecutionPendingError ? error : undefined
       const pending = abandonablePending(error)
       samePending =
         pending === undefined || classification !== 'transient'
@@ -1113,7 +1114,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
           classification,
           madeProgress: progressed,
           stop: retryStop,
-          ...(unresolved ? { pendingCause: pending.pendingCause } : {}),
+          ...(retainedFailure === undefined ? {} : { pendingCause: retainedFailure.pendingCause }),
         })
         throw new DriverAttemptsExhaustedError(error, attempts, retryStop)
       }
