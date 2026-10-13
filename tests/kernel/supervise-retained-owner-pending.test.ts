@@ -65,6 +65,8 @@ interface Fixture {
   readonly beforeDispatch?: (call: number) => void
   /** Executions whose result the provider can never return. */
   readonly unresolvable?: (dispatched: number) => boolean
+  /** A terminal-less provider stream whose exact result read never settles. */
+  readonly resultNeverOn?: (dispatched: number) => boolean
   /** The successful dispatch on which the director submits. */
   readonly submitOn: number
 }
@@ -81,6 +83,7 @@ async function superviseRoot(fixture: Fixture) {
   let calls = 0
   const dispatched: AgentTurnInput[] = []
   const lost = new Set<string>()
+  const neverReturns = new Set<string>()
   const stopped: string[] = []
   const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
     ...environment,
@@ -90,6 +93,8 @@ async function superviseRoot(fixture: Fixture) {
       const session = await environment.dispatch!(turn)
       if (!dispatched.some((prior) => prior.executionId === turn.executionId)) dispatched.push(turn)
       if (fixture.unresolvable?.(dispatched.length) && turn.executionId) lost.add(turn.executionId)
+      if (fixture.resultNeverOn?.(dispatched.length) && turn.executionId)
+        neverReturns.add(turn.executionId)
       if (dispatched.length === fixture.submitOn) {
         const response = await fetch(`http://127.0.0.1:${port}/manager`, {
           method: 'POST',
@@ -111,6 +116,8 @@ async function superviseRoot(fixture: Fixture) {
       return {
         ...session,
         result: async () => {
+          if (executionId !== undefined && neverReturns.has(executionId))
+            return await new Promise<Awaited<ReturnType<typeof session.result>>>(() => {})
           if (executionId !== undefined && lost.has(executionId))
             throw Object.assign(new Error('retained run not found'), { status: 404 })
           return session.result()
@@ -154,7 +161,11 @@ async function superviseRoot(fixture: Fixture) {
       blobs: context.blobs,
       runId: 'pending-root',
       backend: { backend: 'provider', provider },
-      driverBackend: { backend: 'provider', provider },
+      driverBackend: {
+        backend: 'provider',
+        provider,
+        ...(fixture.resultNeverOn === undefined ? {} : { retainedResultWaitMs: 20 }),
+      },
       budget: { maxIterations: 100, maxTokens: 1000, deadlineMs: 60_000 },
       // Strict: three barren failures end the run, with no outage window to shelter them.
       driverRetry: {
@@ -197,6 +208,30 @@ function count(events: readonly SpawnEvent[], kind: SpawnEvent['kind']): number 
 }
 
 describe('supervised root with a pending retained turn', () => {
+  it('settles a root from its exact result when its provider stream has no terminal event', async () => {
+    // The durable provider emits only nonterminal frames. The root can still commit its result and
+    // enter the existing continuation path after the exact retained result is read.
+    const run = await superviseRoot({ submitOn: 1 })
+    expect(run.result.kind).toBe('winner')
+    expect(count(run.events, 'execution-input')).toBe(1)
+    expect(count(run.events, 'execution-result')).toBe(1)
+    expect(run.dispatched).toHaveLength(1)
+  })
+
+  it('reports a bounded lost-terminal root instead of waiting forever for its exact result', async () => {
+    const run = await superviseRoot({
+      resultNeverOn: (dispatched) => dispatched === 1,
+      submitOn: Number.POSITIVE_INFINITY,
+    })
+    expect(run.result.kind).toBe('no-winner')
+    expect(run.attempts.at(-1)).toMatchObject({
+      classification: 'terminal',
+      pendingCause: 'terminal-event-lost',
+    })
+    expect(count(run.events, 'execution-result')).toBe(0)
+    expect(run.dispatched).toHaveLength(1)
+  })
+
   it('waits out a credential capacity refusal before dispatch instead of ending the run', async () => {
     // The second turn's dispatch is refused eight times: run d's root met 20 such refusals.
     const run = await superviseRoot({

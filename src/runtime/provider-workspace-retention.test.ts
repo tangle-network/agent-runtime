@@ -10,7 +10,10 @@ import type {
   AgentExactRunControlRef,
   AgentProfile,
 } from '@tangle-network/agent-interface'
-import type { AgentSession, AgentTurnInput } from '@tangle-network/agent-interface/environment-provider'
+import type {
+  AgentSession,
+  AgentTurnInput,
+} from '@tangle-network/agent-interface/environment-provider'
 import type { SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -218,11 +221,13 @@ function providerFor(
   return { provider, environment, destroyed: () => destroyCount }
 }
 
-function pendingRetainedProvider(fixture: {
-  readonly events?: AgentSession['events']
-  readonly result?: () => Promise<{ text: string; success: boolean }>
-  readonly onDispatch?: () => void
-} = {}): AgentEnvironmentProvider {
+function pendingRetainedProvider(
+  fixture: {
+    readonly events?: AgentSession['events']
+    readonly result?: () => Promise<{ text: string; success: boolean }>
+    readonly onDispatch?: () => void
+  } = {},
+): AgentEnvironmentProvider {
   const providerName = 'retained-provider-workspace-retention-test'
   let destroyCount = 0
   let environment: AgentEnvironment | undefined
@@ -266,8 +271,16 @@ function pendingRetainedProvider(fixture: {
             id: sessionId,
             controlRef,
             status: async () => 'running',
-            events: fixture.events ?? (async function* () { yield* [] }),
-            result: fixture.result ?? (async () => { throw new Error('retained result unavailable') }),
+            events:
+              fixture.events ??
+              async function* () {
+                yield* []
+              },
+            result:
+              fixture.result ??
+              (async () => {
+                throw new Error('retained result unavailable')
+              }),
             async cancel() {},
             async prompt() {
               return { text: '', success: true, sessionId: controlRef.sessionId }
@@ -299,7 +312,9 @@ describe('provider workspace retention', () => {
     let results = 0
     const admissions: RetainedRunAdmission[] = []
     const provider = pendingRetainedProvider({
-      onDispatch: () => { dispatches += 1 },
+      onDispatch: () => {
+        dispatches += 1
+      },
       events: async function* () {
         yield { type: 'message.part.updated', data: { delta: 'partial' } }
       },
@@ -308,15 +323,20 @@ describe('provider workspace retention', () => {
     const retention: RetainedExecutorContext = {
       executionId: 'lost-terminal-root',
       admissions,
-      onAdmission: async (admission) => { admissions.push(admission) },
-      onResult: async () => { results += 1 },
+      onAdmission: async (admission) => {
+        admissions.push(admission)
+      },
+      onResult: async () => {
+        results += 1
+      },
     }
     const signal = new AbortController().signal
     const executor = providerAsExecutor(provider)(
       { profile: testProfile('lost-terminal-root'), harness: null },
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
-    for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {}
+    for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+    }
     expect(executor.resultArtifact().out).toMatchObject({ content: 'exact finished result' })
     expect(results).toBe(1)
     expect(dispatches).toBe(1)
@@ -328,15 +348,23 @@ describe('provider workspace retention', () => {
     let results = 0
     const admissions: RetainedRunAdmission[] = []
     const provider = pendingRetainedProvider({
-      onDispatch: () => { dispatches += 1 },
-      events: async function* () { yield* [] },
+      onDispatch: () => {
+        dispatches += 1
+      },
+      events: async function* () {
+        yield* []
+      },
       result: async () => await new Promise<{ text: string; success: boolean }>(() => {}),
     })
     const retention: RetainedExecutorContext = {
       executionId: 'lost-terminal-worker',
       admissions,
-      onAdmission: async (admission) => { admissions.push(admission) },
-      onResult: async () => { results += 1 },
+      onAdmission: async (admission) => {
+        admissions.push(admission)
+      },
+      onResult: async () => {
+        results += 1
+      },
     }
     const signal = new AbortController().signal
     const executor = providerAsExecutor(provider, { retainedResultWaitMs: 20 })(
@@ -344,7 +372,8 @@ describe('provider workspace retention', () => {
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
     await expect(async () => {
-      for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {}
+      for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+      }
     }).rejects.toMatchObject({ pendingCause: 'terminal-event-lost' })
     expect(dispatches).toBe(1)
     expect(results).toBe(0)
@@ -356,7 +385,9 @@ describe('provider workspace retention', () => {
     let dispatches = 0
     const admissions: RetainedRunAdmission[] = []
     const provider = pendingRetainedProvider({
-      onDispatch: () => { dispatches += 1 },
+      onDispatch: () => {
+        dispatches += 1
+      },
       events: async function* () {
         yield { type: 'message.part.updated', data: { delta: 'turn output' } }
         await new Promise<void>(() => {})
@@ -366,7 +397,9 @@ describe('provider workspace retention', () => {
     const retention: RetainedExecutorContext = {
       executionId: 'quiet-retained-root',
       admissions,
-      onAdmission: async (admission) => { admissions.push(admission) },
+      onAdmission: async (admission) => {
+        admissions.push(admission)
+      },
       onResult: async () => {},
     }
     const signal = new AbortController().signal
@@ -374,7 +407,8 @@ describe('provider workspace retention', () => {
       { profile: testProfile('quiet-retained-root'), harness: null },
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
-    for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {}
+    for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+    }
     expect(executor.resultArtifact().out).toMatchObject({ content: 'settled exact turn' })
     expect(dispatches).toBe(1)
   })
@@ -386,8 +420,12 @@ describe('provider workspace retention', () => {
     })
     let dispatches = 0
     const provider = pendingRetainedProvider({
-      onDispatch: () => { dispatches += 1 },
-      events: async function* () { yield* [] },
+      onDispatch: () => {
+        dispatches += 1
+      },
+      events: async function* () {
+        yield* []
+      },
       result: async () => exactResult,
     })
     const journal = new InMemorySpawnJournal()
@@ -403,21 +441,26 @@ describe('provider workspace retention', () => {
       depth: 0,
       signal: new AbortController().signal,
     })
-    const agent = Object.assign({ name: 'delayed-retained-child', act: async () => 'unused' }, {
-      executorSpec: {
-        profile: testProfile('delayed-retained-child'),
-        harness: null,
-        executorFactory: createExecutor({ backend: 'provider', provider }),
+    const agent = Object.assign(
+      { name: 'delayed-retained-child', act: async () => 'unused' },
+      {
+        executorSpec: {
+          profile: testProfile('delayed-retained-child'),
+          harness: null,
+          executorFactory: createExecutor({ backend: 'provider', provider }),
+        },
       },
-    })
-    expect(scope.spawn(agent, 'write result', {
-      label: 'delayed-retained-child',
-      budget: { maxIterations: 1, maxTokens: 100 },
-    }).ok).toBe(true)
+    )
+    expect(
+      scope.spawn(agent, 'write result', {
+        label: 'delayed-retained-child',
+        budget: { maxIterations: 1, maxTokens: 100 },
+      }).ok,
+    ).toBe(true)
     const delivered = scope.next()
     finish({ text: 'child result after terminal loss', success: true })
     const settled = await delivered
-    expect(settled?.status).toBe('done')
+    expect(settled?.kind).toBe('done')
     expect(dispatches).toBe(1)
     const terminals = (await journal.loadTree('retained-parent'))?.filter(
       (event) => event.kind === 'settled',
@@ -430,7 +473,9 @@ describe('provider workspace retention', () => {
     let acceptedResults = 0
     const admissions: RetainedRunAdmission[] = []
     const provider = pendingRetainedProvider({
-      onDispatch: () => { dispatches += 1 },
+      onDispatch: () => {
+        dispatches += 1
+      },
       events: async function* () {
         yield { type: 'message.part.updated', data: { delta: 'in progress' } }
         await new Promise<void>(() => {})
@@ -440,8 +485,12 @@ describe('provider workspace retention', () => {
     const retention: RetainedExecutorContext = {
       executionId: 'cancelled-retained-worker',
       admissions,
-      onAdmission: async (admission) => { admissions.push(admission) },
-      onResult: async () => { acceptedResults += 1 },
+      onAdmission: async (admission) => {
+        admissions.push(admission)
+      },
+      onResult: async () => {
+        acceptedResults += 1
+      },
     }
     const controller = new AbortController()
     const executor = providerAsExecutor(provider, { retainedObservationIdleMs: 1_000 })(
@@ -449,7 +498,11 @@ describe('provider workspace retention', () => {
       { signal: controller.signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
     const running = (async () => {
-      for await (const _event of executor.execute('task', controller.signal) as AsyncIterable<UsageEvent>) {}
+      for await (const _event of executor.execute(
+        'task',
+        controller.signal,
+      ) as AsyncIterable<UsageEvent>) {
+      }
     })()
     await vi.waitFor(() => expect(admissions.at(-1)?.phase).toBe('dispatched'))
     controller.abort('caller cancelled')
@@ -471,7 +524,9 @@ describe('provider workspace retention', () => {
       usage: { inputTokens: 3, outputTokens: 4 },
     }
     const provider = pendingRetainedProvider({
-      onDispatch: () => { dispatches += 1 },
+      onDispatch: () => {
+        dispatches += 1
+      },
       events: async function* (options) {
         streams += 1
         yield usage
@@ -483,15 +538,20 @@ describe('provider workspace retention', () => {
     const retention: RetainedExecutorContext = {
       executionId: 'duplicate-retained-worker',
       admissions,
-      onAdmission: async (admission) => { admissions.push(admission) },
-      onResult: async () => { acceptedResults += 1 },
+      onAdmission: async (admission) => {
+        admissions.push(admission)
+      },
+      onResult: async () => {
+        acceptedResults += 1
+      },
     }
     const signal = new AbortController().signal
     const executor = providerAsExecutor(provider)(
       { profile: testProfile('duplicate-retained-worker'), harness: null },
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
-    for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {}
+    for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+    }
     expect(streams).toBe(2)
     expect(dispatches).toBe(1)
     expect(acceptedResults).toBe(1)
@@ -501,7 +561,11 @@ describe('provider workspace retention', () => {
   it('retains the admitted native reference across pre-harness failure and cold executor recovery', async () => {
     const artifacts = artifactStore()
     let dispatches = 0
-    const provider = pendingRetainedProvider({ onDispatch: () => { dispatches += 1 } })
+    const provider = pendingRetainedProvider({
+      onDispatch: () => {
+        dispatches += 1
+      },
+    })
     const get = provider.get!.bind(provider)
     provider.get = async (id) => {
       const environment = await get(id)

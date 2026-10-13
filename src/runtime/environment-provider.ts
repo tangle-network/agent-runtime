@@ -1739,11 +1739,7 @@ function retainedWaitBound(value: number | undefined, maximum: number, name: str
 /** Bound a provider read without confusing a lost observer with a cancelled execution. */
 function awaitRetainedRead<T>(read: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const clear = armDeadlineTimer(
-      ms,
-      () => reject(new RetainedReadTimeoutError(label, ms)),
-      true,
-    )
+    const clear = armDeadlineTimer(ms, () => reject(new RetainedReadTimeoutError(label, ms)), true)
     void read.then(
       (value) => {
         clear()
@@ -2637,7 +2633,10 @@ async function providerExecutionSource(
             let next: IteratorResult<AgentEnvironmentEvent>
             try {
               next = await awaitRetainedRead(
-                awaitAbortable(Promise.resolve().then(() => iterator!.next()), signal),
+                awaitAbortable(
+                  Promise.resolve().then(() => iterator!.next()),
+                  signal,
+                ),
                 Math.max(1, observationIdleMs - (Date.now() - lastObservedAt)),
                 'event stream',
               )
@@ -2666,7 +2665,9 @@ async function providerExecutionSource(
                 type: next.value.type,
                 data: next.value.data,
                 ...(next.value.usage === undefined ? {} : { usage: next.value.usage }),
-                ...(next.value.normalized === undefined ? {} : { normalized: next.value.normalized }),
+                ...(next.value.normalized === undefined
+                  ? {}
+                  : { normalized: next.value.normalized }),
               })
               const prior = seenEvents.get(eventId)
               if (prior !== undefined) {
@@ -2740,7 +2741,7 @@ async function providerExecutionSource(
         )
       } catch (error) {
         if (signal.aborted) throw error
-        if (!sawTerminal) {
+        if (!sawTerminal && error instanceof RetainedReadTimeoutError) {
           throw new RetainedExecutionPendingError(
             new AggregateError(
               [observationFailure?.error, error],
