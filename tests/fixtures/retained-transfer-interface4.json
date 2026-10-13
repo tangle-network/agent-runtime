@@ -1,1 +1,70 @@
-{"operationId":"old-transfer","plan":{"planId":"p","source":{"source":{"runId":"r","messageId":"m","provider":"source","environmentId":"e","sessionId":"s","executionId":"x","requestDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"completeness":"complete","messages":[{"id":"m","role":"user","parts":[{"type":"text","text":"Synthetic retained context"}],"timestamp":"2026-10-12T00:00:00.000Z"}],"attachments":[],"digest":"sha256:eaa748bfdaee4dfd1d7c47ae6c9e846fab3f7549ba0e5dd2c789c702f3ea6ae0"},"context":{"source":{"runId":"r","messageId":"m","provider":"source","environmentId":"e","sessionId":"s","executionId":"x","requestDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"completeness":"complete","messages":[{"id":"m","role":"user","parts":[{"type":"text","text":"Synthetic retained context"}],"timestamp":"2026-10-12T00:00:00.000Z"}],"attachments":[],"digest":"sha256:eaa748bfdaee4dfd1d7c47ae6c9e846fab3f7549ba0e5dd2c789c702f3ea6ae0"},"destination":{"runner":"opencode","provider":"destination","sessionId":"s2","runId":"r2","executionId":"x2","profileDigest":"sha256:bc0d7675f145dc30b0e802d1c24014216533587c1f38bdf60d86d680bdb03b6a"},"messages":[{"messageId":"m","action":"include","parts":[{"partIndex":0,"action":"include"}]}],"requiresAcceptance":false,"digest":"sha256:f8840ac2c24c684e3067f2344c8fb8f70703c2ba00dbdae648250bb0523d1227"},"profile":{"name":"compat-proof","harness":"opencode"},"acceptance":{"planDigest":"sha256:f8840ac2c24c684e3067f2344c8fb8f70703c2ba00dbdae648250bb0523d1227","acceptedAt":"2026-10-12T00:00:01.000Z","acceptedBy":"system"},"requestDigest":"sha256:6355cde08eeeb721d33a7a8326d540da041ed506ad3b3ee36d3df76930e1b24f"}
+{
+  "operationId": "old-transfer",
+  "plan": {
+    "planId": "p",
+    "source": {
+      "source": {
+        "runId": "r",
+        "messageId": "m",
+        "provider": "source",
+        "environmentId": "e",
+        "sessionId": "s",
+        "executionId": "x",
+        "requestDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "completeness": "complete",
+      "messages": [
+        {
+          "id": "m",
+          "role": "user",
+          "parts": [{ "type": "text", "text": "Synthetic retained context" }],
+          "timestamp": "2026-10-12T00:00:00.000Z"
+        }
+      ],
+      "attachments": [],
+      "digest": "sha256:eaa748bfdaee4dfd1d7c47ae6c9e846fab3f7549ba0e5dd2c789c702f3ea6ae0"
+    },
+    "context": {
+      "source": {
+        "runId": "r",
+        "messageId": "m",
+        "provider": "source",
+        "environmentId": "e",
+        "sessionId": "s",
+        "executionId": "x",
+        "requestDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "completeness": "complete",
+      "messages": [
+        {
+          "id": "m",
+          "role": "user",
+          "parts": [{ "type": "text", "text": "Synthetic retained context" }],
+          "timestamp": "2026-10-12T00:00:00.000Z"
+        }
+      ],
+      "attachments": [],
+      "digest": "sha256:eaa748bfdaee4dfd1d7c47ae6c9e846fab3f7549ba0e5dd2c789c702f3ea6ae0"
+    },
+    "destination": {
+      "runner": "opencode",
+      "provider": "destination",
+      "sessionId": "s2",
+      "runId": "r2",
+      "executionId": "x2",
+      "profileDigest": "sha256:bc0d7675f145dc30b0e802d1c24014216533587c1f38bdf60d86d680bdb03b6a"
+    },
+    "messages": [
+      { "messageId": "m", "action": "include", "parts": [{ "partIndex": 0, "action": "include" }] }
+    ],
+    "requiresAcceptance": false,
+    "digest": "sha256:f8840ac2c24c684e3067f2344c8fb8f70703c2ba00dbdae648250bb0523d1227"
+  },
+  "profile": { "name": "compat-proof", "harness": "opencode" },
+  "acceptance": {
+    "planDigest": "sha256:f8840ac2c24c684e3067f2344c8fb8f70703c2ba00dbdae648250bb0523d1227",
+    "acceptedAt": "2026-10-12T00:00:01.000Z",
+    "acceptedBy": "system"
+  },
+  "requestDigest": "sha256:6355cde08eeeb721d33a7a8326d540da041ed506ad3b3ee36d3df76930e1b24f"
+}

@@ -1,9 +1,9 @@
 import {
-  type ContextTransferRequest,
-  createContextTransferRequest,
-  canonicalAgentProfileDigest,
   type AgentProfile,
   type ContextTransferReceipt,
+  type ContextTransferRequest,
+  canonicalAgentProfileDigest,
+  createContextTransferRequest,
   type PortableContextDestination,
   portableContextPlanDigest,
   portableConversationContextDigest,
@@ -13,7 +13,10 @@ const retainedRequestDigest = `sha256:${'a'.repeat(64)}` as const
 
 export const retainedContextProfile: AgentProfile = { name: 'worker', harness: 'codex' }
 
-export function retainedContextTransfer(operationId = 'retained-transfer', destinationOverrides: Partial<PortableContextDestination> = {}): ContextTransferRequest {
+export function retainedContextTransfer(
+  operationId = 'retained-transfer',
+  destinationOverrides: Partial<PortableContextDestination> = {},
+): ContextTransferRequest {
   const sourceMaterial = {
     source: {
       runId: 'source-run',
@@ -90,12 +93,31 @@ export function retainedContextTransfer(operationId = 'retained-transfer', desti
   return createContextTransferRequest(material)
 }
 
-export function retainedContextTransferReceipt(request: ContextTransferRequest): ContextTransferReceipt {
+export function retainedContextTransferReceipt(
+  request: ContextTransferRequest,
+): ContextTransferReceipt {
   const destination = request.plan.destination
-  return { status: 'accepted', operationId: request.operationId, requestDigest: request.requestDigest, planDigest: request.plan.digest,
-    contextDigest: request.plan.context.digest, source: request.plan.source.source, destination, provider: destination.provider,
-    environmentId: destination.environmentId!, sessionId: destination.sessionId, executionId: destination.executionId, runId: destination.runId,
-    sessionCreatedForOperationId: request.operationId, sessionCreatedAt: '2026-08-01T20:01:01.000Z', admittedAt: '2026-08-01T20:01:02.000Z',
-    transferredMessageIds: request.plan.messages.filter(m => m.action === 'include').map(m => m.messageId),
-    omittedMessageIds: request.plan.messages.filter(m => m.action === 'omit').map(m => m.messageId) }
+  return {
+    status: 'accepted',
+    operationId: request.operationId,
+    requestDigest: request.requestDigest,
+    planDigest: request.plan.digest,
+    contextDigest: request.plan.context.digest,
+    source: request.plan.source.source,
+    destination,
+    provider: destination.provider,
+    environmentId: destination.environmentId!,
+    sessionId: destination.sessionId,
+    executionId: destination.executionId,
+    runId: destination.runId,
+    sessionCreatedForOperationId: request.operationId,
+    sessionCreatedAt: '2026-08-01T20:01:01.000Z',
+    admittedAt: '2026-08-01T20:01:02.000Z',
+    transferredMessageIds: request.plan.messages
+      .filter((m) => m.action === 'include')
+      .map((m) => m.messageId),
+    omittedMessageIds: request.plan.messages
+      .filter((m) => m.action === 'omit')
+      .map((m) => m.messageId),
+  }
 }
