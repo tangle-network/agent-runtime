@@ -207,6 +207,7 @@ export function freezeGenericAgentCandidateProfile(input: AgentProfile): AgentCa
  * profile is exactly the profile in an existing candidate.
  */
 function candidateProfileFromGenericProfile(profile: AgentProfile): AgentCandidateProfile {
+  assertResolvedKnowledgeResources(profile.resources)
   if (profile.connections !== undefined) unsupportedProfileField('connections')
   if (profile.metadata !== undefined) unsupportedProfileField('metadata')
   if (profile.extensions !== undefined) unsupportedProfileField('extensions')
@@ -305,6 +306,7 @@ export function parseExactCandidateProfile(input: unknown): AgentCandidateProfil
 
 /** Reject profile fields whose behavioral effect is not yet proven by candidate executors. */
 export function assertCandidateProfileExecutionSupport(profile: AgentCandidateProfile): void {
+  assertResolvedKnowledgeResources(profile.resources)
   const fields = ['tools', 'permissions', 'modes', 'confidential'] as const
   const unsupported = fields.filter((field) => hasEntries(profile[field]))
   if (unsupported.length > 0) {
@@ -318,6 +320,7 @@ export function assertCandidateProfileExecutionSupport(profile: AgentCandidatePr
 export function agentCandidateProfileAsAgentProfile(
   candidate: AgentCandidateProfile,
 ): AgentProfile {
+  assertResolvedKnowledgeResources(candidate.resources)
   const output: Record<string, unknown> = {}
   copyDirectProfileFields(output, candidate as unknown as Record<string, unknown>)
   if (candidate.model) output.model = { ...candidate.model }
@@ -438,6 +441,20 @@ function freezeMcpServers(servers: Record<string, AgentProfileMcpServer>): Recor
       ]
     }),
   )
+}
+
+/** A newer peer may admit knowledge pins that these candidate conversions cannot preserve. */
+function assertResolvedKnowledgeResources(resources: unknown): void {
+  if (
+    resources !== null &&
+    typeof resources === 'object' &&
+    'knowledge' in resources &&
+    resources.knowledge !== undefined
+  ) {
+    throw new Error(
+      'candidate profile resources.knowledge must be owner-authorized and resolved before candidate conversion or execution',
+    )
+  }
 }
 
 function freezeResources(resources: NonNullable<AgentProfile['resources']>): unknown {

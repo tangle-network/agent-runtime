@@ -3,16 +3,26 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, relative } from 'node:path'
 
-// Exact published artifacts: 47 SDK imports / 30 shared modules were independently
-// verified, then the packed behavioral fixture proved profile/control/usage parity.
+// Exact published package tuples, qualified at the Runtime/Sandbox adapter boundary.
+// The .41 tuple has byte-identical shared contracts. The .49 tuple preserves shared
+// execution fields and explicitly refuses unresolved Interface 5.2 knowledge pins.
 // Qualification is limited to the Linux npm packed-consumer layout used by this gate.
-// Remove this temporary adapter boundary when Sandbox adopts the Runtime cohort.
-const qualified = [
-  ['sandbox', '0.60.41', '5b2f978e58af165f50248f41f92fd5a5406b70e8faa34331154de6dae7787ef2'],
-  ['agent-interface', '5.0.0', '8f40f58b7f3c67e15648de88763770e0aee8a4eaea1fa7ce6f28993f5b572bf9'],
-  ['agent-core', '0.12.0', '81c0e698c4f08418cdbf7aa4901a5278d23b5cdac3d35260504b2112d3e4999e'],
-  ['sandbox/node_modules/@tangle-network/agent-interface', '3.2.0', '662d92cd1d64f200cb7c4725e291700dd3ea42a44888039ade450080c2be0c9b'],
-  ['sandbox/node_modules/@tangle-network/agent-core', '0.10.3', '19d424cdd6693a3f06831cfc929790ec6e5e5ddd7ad1faf6beffdd658d73cd4b'],
+// Keep unknown versions and changed bytes fail-closed.
+const qualifiedCohorts = [
+  [
+    ['sandbox', '0.60.41', '5b2f978e58af165f50248f41f92fd5a5406b70e8faa34331154de6dae7787ef2'],
+    ['agent-interface', '5.0.0', '8f40f58b7f3c67e15648de88763770e0aee8a4eaea1fa7ce6f28993f5b572bf9'],
+    ['agent-core', '0.12.0', '81c0e698c4f08418cdbf7aa4901a5278d23b5cdac3d35260504b2112d3e4999e'],
+    ['sandbox/node_modules/@tangle-network/agent-interface', '3.2.0', '662d92cd1d64f200cb7c4725e291700dd3ea42a44888039ade450080c2be0c9b'],
+    ['sandbox/node_modules/@tangle-network/agent-core', '0.10.3', '19d424cdd6693a3f06831cfc929790ec6e5e5ddd7ad1faf6beffdd658d73cd4b'],
+  ],
+  [
+    ['sandbox', '0.60.49', '9811efcaaab04ea8e23b903accb415ff550eb4d3ef6dfa51fb7e542545ee2be5'],
+    ['agent-interface', '5.2.0', '48c44c1d837212f0bd39f4cb6d61943abfe423ff374fed94ed1095ecabda49f2'],
+    ['agent-core', '0.12.0', '81c0e698c4f08418cdbf7aa4901a5278d23b5cdac3d35260504b2112d3e4999e'],
+    ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
+    ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
+  ],
 ]
 
 function ownFiles(directory) {
@@ -25,8 +35,11 @@ function ownFiles(directory) {
 
 /** Exempt only these exact SDK-owned implementation copies from the Runtime cohort count. */
 export function sandboxOwnedContractCopies(scopeDir) {
-  const nested = qualified.slice(3).map(([path]) => join(scopeDir, path))
+  const nested = qualifiedCohorts[0].slice(3).map(([path]) => join(scopeDir, path))
   if (nested.every(path => !existsSync(path))) return new Set()
+  const sandbox = JSON.parse(readFileSync(join(scopeDir, 'sandbox', 'package.json'), 'utf8'))
+  const qualified = qualifiedCohorts.find(cohort => cohort[0][1] === sandbox.version)
+  if (!qualified) throw new Error(`unqualified Sandbox contract artifact: sandbox@${sandbox.version}`)
   for (const [path, version, fingerprint] of qualified) {
     const directory = join(scopeDir, path)
     const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))

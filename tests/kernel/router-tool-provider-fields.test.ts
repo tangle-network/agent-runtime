@@ -4,6 +4,7 @@ import { createExecutor, streamAgentTurn } from '../../src/runtime'
 import { routerBrain, routerChatWithTools, type ToolSpec } from '../../src/runtime/router-client'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import { runBrainLoop } from '../../src/runtime/tool-loop'
+import { runtimeToolDeclarations } from './test-agent-profile'
 
 const tool: ToolSpec = {
   type: 'function',
@@ -39,6 +40,7 @@ function stubTurns(stream: boolean, content: '' | null): Record<string, unknown>
       if (!stream) {
         return new Response(
           JSON.stringify({
+            model: cfg.model,
             choices: [{ message: first ? { content, tool_calls: calls } : { content: 'done' } }],
             usage,
           }),
@@ -87,7 +89,7 @@ function stubTurns(stream: boolean, content: '' | null): Record<string, unknown>
         ...chunks,
         { choices: [{ delta: {}, finish_reason: first ? 'tool_calls' : 'stop' }], usage },
       ]
-        .map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
+        .map((chunk) => `data: ${JSON.stringify({ model: cfg.model, ...chunk })}\n\n`)
         .join('')}data: [DONE]\n\n`
       const bytes = new TextEncoder().encode(wire)
       return new Response(
@@ -148,12 +150,12 @@ describe('provider tool-call fields through maintained Runtime loops', () => {
                   default: cfg.model,
                   metadata: { stream, maxTurns: 3 },
                 },
-                tools: { echo: true },
+                tools: runtimeToolDeclarations('echo'),
               },
               'Echo 1 and 2, then finish.',
               {
                 budget: { maxIterations: 20, maxTokens: 10_000, deadlineMs: 5_000 },
-                router: { ...cfg, stream },
+                router: { routerBaseUrl: cfg.routerBaseUrl, routerKey: cfg.routerKey },
                 backend: {
                   backend: 'router',
                   routerBaseUrl: cfg.routerBaseUrl,
@@ -180,6 +182,7 @@ describe('provider tool-call fields through maintained Runtime loops', () => {
             expect(result.toolCalls).toBe(2)
           }
           expect(requests).toHaveLength(2)
+          expect(requests[0]?.stream ?? false).toBe(stream)
           expect(execute.mock.calls.map(([name, args]) => [name, args])).toEqual([
             ['echo', { value: 1 }],
             ['echo', { value: 2 }],
