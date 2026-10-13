@@ -302,6 +302,20 @@ describe('supervised root with a pending retained turn', () => {
 
   it('wakes a retained root with one accepted steer and a failed asynchronous tool outcome', async () => {
     const run = await superviseRoot({ queuedWakesOnFirstResult: true, submitOn: 2 })
+    if (run.result.kind !== 'winner') {
+      throw new Error(
+        JSON.stringify({
+          result: run.result,
+          attempts: run.attempts,
+          dispatched: run.dispatched,
+          methodReceipt: run.methodReceipt,
+          steerAcknowledgement: readWorkerSteerAcknowledgement(
+            run.runDir,
+            'retained-root-correction',
+          ),
+        }),
+      )
+    }
     expect(run.result.kind).toBe('winner')
     expect(run.dispatched).toHaveLength(2)
     expect(run.steerRecorded).toBe(true)

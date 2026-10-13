@@ -389,6 +389,72 @@ describe('provider workspace retention', () => {
     expect(await executor.teardown('brutalKill')).toMatchObject({ destroyed: false })
   })
 
+  it('reattaches after a restart and settles the original terminal-less turn from its exact result', async () => {
+    let dispatches = 0
+    let results = 0
+    let resultReady = false
+    const admissions: RetainedRunAdmission[] = []
+    const provider = pendingRetainedProvider({
+      onDispatch: () => {
+        dispatches += 1
+      },
+      events: async function* () {
+        yield* []
+      },
+      result: async () =>
+        resultReady
+          ? { text: 'original result after restart', success: true }
+          : await new Promise<{ text: string; success: boolean }>(() => {}),
+    })
+    const get = provider.get!.bind(provider)
+    provider.get = async (id) => {
+      const environment = await get(id)
+      return environment === null ? null : { ...environment }
+    }
+    const retention: RetainedExecutorContext = {
+      executionId: 'restarted-terminal-less-worker',
+      admissions,
+      onAdmission: async (admission) => {
+        admissions.push(admission)
+      },
+      onResult: async () => {
+        results += 1
+      },
+    }
+    const factory = providerAsExecutor(provider, { retainedResultWaitMs: 20 })
+    const makeExecutor = () => {
+      const signal = new AbortController().signal
+      return {
+        signal,
+        executor: factory(
+          { profile: testProfile('restarted-terminal-less-worker'), harness: null },
+          { signal, seams: { [retainedExecutorSeamKey]: retention } },
+        ),
+      }
+    }
+    const first = makeExecutor()
+    await expect(async () => {
+      for await (const _event of first.executor.execute(
+        'task',
+        first.signal,
+      ) as AsyncIterable<UsageEvent>) {
+      }
+    }).rejects.toMatchObject({ pendingCause: 'terminal-event-lost' })
+    expect(await first.executor.teardown('brutalKill')).toMatchObject({ destroyed: false })
+    resultReady = true
+    const resumed = makeExecutor()
+    for await (const _event of resumed.executor.recover!(
+      'task',
+      resumed.signal,
+    ) as AsyncIterable<UsageEvent>) {
+    }
+    expect(resumed.executor.resultArtifact().out).toMatchObject({
+      content: 'original result after restart',
+    })
+    expect(dispatches).toBe(1)
+    expect(results).toBe(1)
+  })
+
   it('reconciles a quiet retained stream from its exact result after the observation bound', async () => {
     let dispatches = 0
     const admissions: RetainedRunAdmission[] = []
