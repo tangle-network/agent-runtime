@@ -31,6 +31,7 @@ const EXPECTED_CANONICAL_AXES = [
   'systemPrompt',
   'appendSystemPrompt',
   'instructions',
+  'knowledge',
   'modelDefault',
   'modelSmall',
   'modelProvider',
