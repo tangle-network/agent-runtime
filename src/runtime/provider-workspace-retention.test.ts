@@ -10,7 +10,7 @@ import type {
   AgentExactRunControlRef,
   AgentProfile,
 } from '@tangle-network/agent-interface'
-import type { AgentTurnInput } from '@tangle-network/agent-interface/environment-provider'
+import type { AgentSession, AgentTurnInput } from '@tangle-network/agent-interface/environment-provider'
 import type { SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -21,6 +21,7 @@ import {
   verifyAgentCandidateWorkspaceTree,
 } from '../candidate-execution'
 import { sha256Bytes } from '../candidate-execution/digest'
+import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/spawn-journal'
 import {
   type ProviderLeafOut,
   type ProviderWorkspaceRetentionContext,
@@ -35,8 +36,11 @@ import {
 import type { RetainedRunAdmission } from './retained-run-types'
 import { runAgentRounds } from './run-loop'
 import { captureBeforeDestroy } from './sandbox-evidence-retention'
+import { createBudgetPool } from './supervise/budget'
 import type { RetainedExecutorContext } from './supervise/retained-executor'
 import { retainedExecutorSeamKey } from './supervise/retained-executor'
+import { createExecutor, createExecutorRegistry } from './supervise/runtime'
+import { createScope } from './supervise/scope'
 import type { UsageEvent } from './supervise/types'
 
 type MemoryArtifacts = AgentCandidateOutputArtifactPort & {
@@ -214,8 +218,8 @@ function providerFor(
   return { provider, environment, destroyed: () => destroyCount }
 }
 
-function pendingRetainedProvider(options: {
-  readonly events?: () => AsyncIterable<AgentEnvironmentEvent>
+function pendingRetainedProvider(fixture: {
+  readonly events?: AgentSession['events']
   readonly result?: () => Promise<{ text: string; success: boolean }>
   readonly onDispatch?: () => void
 } = {}): AgentEnvironmentProvider {
@@ -242,7 +246,7 @@ function pendingRetainedProvider(options: {
           yield* []
         },
         async dispatch(input) {
-          options.onDispatch?.()
+          fixture.onDispatch?.()
           const sessionId = input.sessionId ?? 'retained-workspace-session'
           const executionId = input.executionId ?? 'retained-workspace-execution'
           const controlRef: AgentExactRunControlRef = {
@@ -262,8 +266,8 @@ function pendingRetainedProvider(options: {
             id: sessionId,
             controlRef,
             status: async () => 'running',
-            events: options.events ?? (async function* () { yield* [] }),
-            result: options.result ?? (async () => { throw new Error('retained result unavailable') }),
+            events: fixture.events ?? (async function* () { yield* [] }),
+            result: fixture.result ?? (async () => { throw new Error('retained result unavailable') }),
             async cancel() {},
             async prompt() {
               return { text: '', success: true, sessionId: controlRef.sessionId }
@@ -348,9 +352,156 @@ describe('provider workspace retention', () => {
     expect(await executor.teardown('brutalKill')).toMatchObject({ destroyed: false })
   })
 
+  it('reconciles a quiet retained stream from its exact result after the observation bound', async () => {
+    let dispatches = 0
+    const admissions: RetainedRunAdmission[] = []
+    const provider = pendingRetainedProvider({
+      onDispatch: () => { dispatches += 1 },
+      events: async function* () {
+        yield { type: 'message.part.updated', data: { delta: 'turn output' } }
+        await new Promise<void>(() => {})
+      },
+      result: async () => ({ text: 'settled exact turn', success: true }),
+    })
+    const retention: RetainedExecutorContext = {
+      executionId: 'quiet-retained-root',
+      admissions,
+      onAdmission: async (admission) => { admissions.push(admission) },
+      onResult: async () => {},
+    }
+    const signal = new AbortController().signal
+    const executor = providerAsExecutor(provider, { retainedObservationIdleMs: 20 })(
+      { profile: testProfile('quiet-retained-root'), harness: null },
+      { signal, seams: { [retainedExecutorSeamKey]: retention } },
+    )
+    for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {}
+    expect(executor.resultArtifact().out).toMatchObject({ content: 'settled exact turn' })
+    expect(dispatches).toBe(1)
+  })
+
+  it('delivers a delayed retained child result through Scope after its stream loses the terminal event', async () => {
+    let finish!: (result: { text: string; success: boolean }) => void
+    const exactResult = new Promise<{ text: string; success: boolean }>((resolve) => {
+      finish = resolve
+    })
+    let dispatches = 0
+    const provider = pendingRetainedProvider({
+      onDispatch: () => { dispatches += 1 },
+      events: async function* () { yield* [] },
+      result: async () => exactResult,
+    })
+    const journal = new InMemorySpawnJournal()
+    await journal.beginTree('retained-parent', new Date(0).toISOString())
+    const scope = createScope({
+      parentId: 'retained-parent',
+      root: 'retained-parent',
+      journal,
+      blobs: new InMemoryResultBlobStore(),
+      pool: createBudgetPool({ maxIterations: 2, maxTokens: 100 }, 0),
+      executors: createExecutorRegistry(),
+      seams: {},
+      depth: 0,
+      signal: new AbortController().signal,
+    })
+    const agent = Object.assign({ name: 'delayed-retained-child', act: async () => 'unused' }, {
+      executorSpec: {
+        profile: testProfile('delayed-retained-child'),
+        harness: null,
+        executorFactory: createExecutor({ backend: 'provider', provider }),
+      },
+    })
+    expect(scope.spawn(agent, 'write result', {
+      label: 'delayed-retained-child',
+      budget: { maxIterations: 1, maxTokens: 100 },
+    }).ok).toBe(true)
+    const delivered = scope.next()
+    finish({ text: 'child result after terminal loss', success: true })
+    const settled = await delivered
+    expect(settled?.status).toBe('done')
+    expect(dispatches).toBe(1)
+    const terminals = (await journal.loadTree('retained-parent'))?.filter(
+      (event) => event.kind === 'settled',
+    )
+    expect(terminals).toHaveLength(1)
+  })
+
+  it('keeps an admitted retained execution unresolved when its caller cancels observation', async () => {
+    let dispatches = 0
+    let acceptedResults = 0
+    const admissions: RetainedRunAdmission[] = []
+    const provider = pendingRetainedProvider({
+      onDispatch: () => { dispatches += 1 },
+      events: async function* () {
+        yield { type: 'message.part.updated', data: { delta: 'in progress' } }
+        await new Promise<void>(() => {})
+      },
+      result: async () => ({ text: 'must not be accepted', success: true }),
+    })
+    const retention: RetainedExecutorContext = {
+      executionId: 'cancelled-retained-worker',
+      admissions,
+      onAdmission: async (admission) => { admissions.push(admission) },
+      onResult: async () => { acceptedResults += 1 },
+    }
+    const controller = new AbortController()
+    const executor = providerAsExecutor(provider, { retainedObservationIdleMs: 1_000 })(
+      { profile: testProfile('cancelled-retained-worker'), harness: null },
+      { signal: controller.signal, seams: { [retainedExecutorSeamKey]: retention } },
+    )
+    const running = (async () => {
+      for await (const _event of executor.execute('task', controller.signal) as AsyncIterable<UsageEvent>) {}
+    })()
+    await vi.waitFor(() => expect(admissions.at(-1)?.phase).toBe('dispatched'))
+    controller.abort('caller cancelled')
+    await expect(running).rejects.toBeDefined()
+    expect(dispatches).toBe(1)
+    expect(acceptedResults).toBe(0)
+    expect(await executor.teardown('brutalKill')).toMatchObject({ destroyed: false })
+  })
+
+  it('deduplicates a replayed retained event before charging usage or delivering a result', async () => {
+    let dispatches = 0
+    let acceptedResults = 0
+    let streams = 0
+    const admissions: RetainedRunAdmission[] = []
+    const usage: AgentEnvironmentEvent = {
+      id: 'usage-1',
+      type: 'usage',
+      data: { usageMode: 'delta' },
+      usage: { inputTokens: 3, outputTokens: 4 },
+    }
+    const provider = pendingRetainedProvider({
+      onDispatch: () => { dispatches += 1 },
+      events: async function* (options) {
+        streams += 1
+        yield usage
+        if (options?.since === undefined) throw new Error('live stream dropped')
+        yield { id: 'done-2', type: 'done', data: { finalText: 'finished' } }
+      },
+      result: async () => ({ text: 'finished', success: true }),
+    })
+    const retention: RetainedExecutorContext = {
+      executionId: 'duplicate-retained-worker',
+      admissions,
+      onAdmission: async (admission) => { admissions.push(admission) },
+      onResult: async () => { acceptedResults += 1 },
+    }
+    const signal = new AbortController().signal
+    const executor = providerAsExecutor(provider)(
+      { profile: testProfile('duplicate-retained-worker'), harness: null },
+      { signal, seams: { [retainedExecutorSeamKey]: retention } },
+    )
+    for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {}
+    expect(streams).toBe(2)
+    expect(dispatches).toBe(1)
+    expect(acceptedResults).toBe(1)
+    expect(executor.resultArtifact().spent.tokens).toMatchObject({ input: 3, output: 4 })
+  })
+
   it('retains the admitted native reference across pre-harness failure and cold executor recovery', async () => {
     const artifacts = artifactStore()
-    const provider = pendingRetainedProvider()
+    let dispatches = 0
+    const provider = pendingRetainedProvider({ onDispatch: () => { dispatches += 1 } })
     const get = provider.get!.bind(provider)
     provider.get = async (id) => {
       const environment = await get(id)
@@ -442,6 +593,7 @@ describe('provider workspace retention', () => {
     const admission = admissions.find((entry) => entry.phase === 'dispatched')!
     if (admission.phase !== 'dispatched') throw new Error('expected admitted execution')
     expect(contexts).toHaveLength(2)
+    expect(dispatches).toBe(1)
     expect(evidence).toHaveLength(2)
     for (const out of evidence) {
       expect(out.workspaceCapture).toMatchObject({

@@ -90,6 +90,7 @@ import {
   canonicalSandboxUsageMode,
   createSandboxToolPartState,
   createSandboxUsageLedger,
+  extractTransportEventIdentity,
   isSandboxTerminalEvent,
   sandboxProgressEvents,
   sandboxTerminalUsageField,
@@ -2617,6 +2618,8 @@ async function providerExecutionSource(
       // so this is where a reconnect resumes from.
       let lastReplayPosition: string | undefined
       let sawTerminal = false
+      let lastObservedAt = Date.now()
+      const seenEvents = new Map<string, string>()
       const drain = async function* (
         open: () => AsyncIterable<AgentEnvironmentEvent>,
       ): AsyncGenerator<AgentEnvironmentEvent, boolean> {
@@ -2635,7 +2638,7 @@ async function providerExecutionSource(
             try {
               next = await awaitRetainedRead(
                 awaitAbortable(Promise.resolve().then(() => iterator!.next()), signal),
-                observationIdleMs,
+                Math.max(1, observationIdleMs - (Date.now() - lastObservedAt)),
                 'event stream',
               )
             } catch (error) {
@@ -2645,6 +2648,7 @@ async function providerExecutionSource(
               break
             }
             if (next.done) break
+            lastObservedAt = Date.now()
             // A received event for another execution must never be accepted as evidence — and
             // it is the PROVIDER's contract that was broken, so it must classify as such (#1204).
             try {
@@ -2655,7 +2659,29 @@ async function providerExecutionSource(
                 { code: 'RETAINED_EVENT_BINDING_INVALID', cause: error },
               )
             }
-            if (next.value.id !== undefined) lastReplayPosition = next.value.id
+            const identity = extractTransportEventIdentity(next.value)
+            const eventId = identity.eventId ?? identity.cursor
+            if (eventId !== undefined) {
+              const digest = canonicalCandidateDigest({
+                type: next.value.type,
+                data: next.value.data,
+                ...(next.value.usage === undefined ? {} : { usage: next.value.usage }),
+                ...(next.value.normalized === undefined ? {} : { normalized: next.value.normalized }),
+              })
+              const prior = seenEvents.get(eventId)
+              if (prior !== undefined) {
+                if (prior !== digest) {
+                  throw new RetainedRunProviderContractError(
+                    `provider replay changed retained event ${eventId}`,
+                    { code: 'RETAINED_EVENT_DUPLICATE_CHANGED' },
+                  )
+                }
+                continue
+              }
+              seenEvents.set(eventId, digest)
+            }
+            if (identity.cursor !== undefined) lastReplayPosition = identity.cursor
+            else if (eventId !== undefined) lastReplayPosition = eventId
             if (isTerminalEnvironmentEvent(next.value)) sawTerminal = true
             yield next.value
           }
