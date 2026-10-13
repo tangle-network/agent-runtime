@@ -12,7 +12,10 @@ import {
 import { createPrivateCasArtifactPort } from '../../src/runtime/private-cas'
 import { diskS3StreamStore } from './disk-s3-stream-store'
 
-const root = await mkdtemp(join(tmpdir(), 'workspace-streaming-memory-'))
+// The test passes its own root so it can remove the tree even when its hang guard kills this process.
+const root =
+  process.env.WORKSPACE_STREAMING_MEMORY_ROOT ??
+  (await mkdtemp(join(tmpdir(), 'workspace-streaming-memory-')))
 let peakRss = 0
 let peakHeap = 0
 let peakExternal = 0
