@@ -98,7 +98,7 @@ import type { SandboxOutcomeCarrier } from './sandbox-outcome'
 import { linkAbort, RunCancellationReason } from './supervise/abortable'
 import { bridgeStopSignalKey } from './supervise/bridge-config'
 import { priceUnreceiptedWork } from './supervise/cost-estimate'
-import { isDeadlineAbortReason } from './supervise/deadline'
+import { armDeadlineTimer, isDeadlineAbortReason } from './supervise/deadline'
 import { errorText } from './supervise/error-message'
 import { readOptionalAbortSignal } from './supervise/executor-seams'
 import {
@@ -493,6 +493,10 @@ export interface ProviderExecutorOptions {
   runtime?: Runtime
   destroyOnSettle?: boolean
   requireTerminalEvent?: boolean
+  /** Maximum silence while observing an admitted retained turn. Activity resets this bound. */
+  retainedObservationIdleMs?: number
+  /** Maximum wait for the exact retained result after observation ends without a terminal frame. */
+  retainedResultWaitMs?: number
   /**
    * Per-run prompt options merged UNDER every streamed turn: a mapped turn's own field wins, and
    * the runtime's abort signal is applied last. `providerOptions` merges one level, so a
@@ -1712,6 +1716,45 @@ const NATIVE_STOP_TIMEOUT_MS = 30_000
 /** How long the final copy of a stopped harness waits for the provider to record how it ended. */
 const NATIVE_SETTLE_WINDOW_MS = 15_000
 const NATIVE_SETTLE_POLL_MS = 1_000
+/** The two waits together leave a minute for Runtime to record a pending result before ten minutes. */
+const RETAINED_OBSERVATION_IDLE_MS = 8 * 60_000
+const RETAINED_RESULT_WAIT_MS = 60_000
+
+class RetainedReadTimeoutError extends Error {
+  constructor(label: string, ms: number) {
+    super(`retained provider ${label} did not settle within ${ms} ms`)
+    this.name = 'RetainedReadTimeoutError'
+  }
+}
+
+function retainedWaitBound(value: number | undefined, maximum: number, name: string): number {
+  if (value === undefined) return maximum
+  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+    throw new ValidationError(`${name} must be a positive integer at most ${maximum} ms`)
+  }
+  return value
+}
+
+/** Bound a provider read without confusing a lost observer with a cancelled execution. */
+function awaitRetainedRead<T>(read: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const clear = armDeadlineTimer(
+      ms,
+      () => reject(new RetainedReadTimeoutError(label, ms)),
+      true,
+    )
+    void read.then(
+      (value) => {
+        clear()
+        resolve(value)
+      },
+      (error) => {
+        clear()
+        reject(error)
+      },
+    )
+  })
+}
 
 /** The environment id the latest durable admission names, when creation got that far. */
 function admittedEnvironmentId(retention: RetainedExecutorContext | undefined): string | undefined {
@@ -2423,6 +2466,16 @@ async function providerExecutionSource(
     return { environment, events: environment.stream(selectedTurn), retained: false }
   }
   const retention = args.retention!
+  const observationIdleMs = retainedWaitBound(
+    args.options.retainedObservationIdleMs,
+    RETAINED_OBSERVATION_IDLE_MS,
+    'retainedObservationIdleMs',
+  )
+  const resultWaitMs = retainedWaitBound(
+    args.options.retainedResultWaitMs,
+    RETAINED_RESULT_WAIT_MS,
+    'retainedResultWaitMs',
+  )
   let admitted = args.recovering
   let executionAdmitted =
     args.recovering && retention.admissions.some((admission) => admission.phase === 'dispatched')
@@ -2580,9 +2633,10 @@ async function providerExecutionSource(
           while (true) {
             let next: IteratorResult<AgentEnvironmentEvent>
             try {
-              next = await awaitAbortable(
-                Promise.resolve().then(() => iterator!.next()),
-                signal,
+              next = await awaitRetainedRead(
+                awaitAbortable(Promise.resolve().then(() => iterator!.next()), signal),
+                observationIdleMs,
+                'event stream',
               )
             } catch (error) {
               if (signal.aborted) throw error
@@ -2619,7 +2673,12 @@ async function providerExecutionSource(
       const completed = yield* drain(() =>
         session.events({ executionId: handle.controlRef.executionId, signal }),
       )
-      if (!completed && !sawTerminal && lastReplayPosition !== undefined) {
+      if (
+        !completed &&
+        !sawTerminal &&
+        lastReplayPosition !== undefined &&
+        !(observationFailure?.error instanceof RetainedReadTimeoutError)
+      ) {
         // The live stream broke before the terminal receipt. That receipt is where a Sandbox
         // execution reports its token usage, and the exact result read below does not carry it,
         // so a break here used to settle a 15-minute turn at 0 tokens with tokensKnown: false,
@@ -2639,13 +2698,33 @@ async function providerExecutionSource(
         )
         if (!resumed) observationFailure = firstFailure
       }
+      if (!sawTerminal && observationFailure === undefined) {
+        observationFailure = {
+          error: new Error('retained provider stream ended without a terminal event'),
+        }
+      }
       // Observation failure does not establish execution failure. Only the exact retained
       // result can settle the invocation; retain incomplete observation beside that result.
       let result: AgentTurnResult
       try {
-        result = await awaitAbortable(handle.result(), signal)
+        result = await awaitRetainedRead(
+          awaitAbortable(handle.result(), signal),
+          resultWaitMs,
+          'exact result',
+        )
       } catch (error) {
-        if (observationFailure === undefined || signal.aborted) throw error
+        if (signal.aborted) throw error
+        if (!sawTerminal) {
+          throw new RetainedExecutionPendingError(
+            new AggregateError(
+              [observationFailure?.error, error],
+              'retained event stream had no terminal event and its exact result is unavailable',
+              { cause: error },
+            ),
+            'terminal-event-lost',
+          )
+        }
+        if (observationFailure === undefined) throw error
         throw new AggregateError(
           [observationFailure.error, error],
           'retained event observation failed and its exact result could not be reconciled',

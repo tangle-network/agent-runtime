@@ -214,7 +214,11 @@ function providerFor(
   return { provider, environment, destroyed: () => destroyCount }
 }
 
-function pendingRetainedProvider(): AgentEnvironmentProvider {
+function pendingRetainedProvider(options: {
+  readonly events?: () => AsyncIterable<AgentEnvironmentEvent>
+  readonly result?: () => Promise<{ text: string; success: boolean }>
+  readonly onDispatch?: () => void
+} = {}): AgentEnvironmentProvider {
   const providerName = 'retained-provider-workspace-retention-test'
   let destroyCount = 0
   let environment: AgentEnvironment | undefined
@@ -238,6 +242,7 @@ function pendingRetainedProvider(): AgentEnvironmentProvider {
           yield* []
         },
         async dispatch(input) {
+          options.onDispatch?.()
           const sessionId = input.sessionId ?? 'retained-workspace-session'
           const executionId = input.executionId ?? 'retained-workspace-execution'
           const controlRef: AgentExactRunControlRef = {
@@ -257,12 +262,8 @@ function pendingRetainedProvider(): AgentEnvironmentProvider {
             id: sessionId,
             controlRef,
             status: async () => 'running',
-            async *events() {
-              yield* []
-            },
-            async result() {
-              throw new Error('retained result unavailable')
-            },
+            events: options.events ?? (async function* () { yield* [] }),
+            result: options.result ?? (async () => { throw new Error('retained result unavailable') }),
             async cancel() {},
             async prompt() {
               return { text: '', success: true, sessionId: controlRef.sessionId }
@@ -289,6 +290,64 @@ function doneStream(text = 'done') {
 }
 
 describe('provider workspace retention', () => {
+  it('settles a retained turn from its exact result when the provider loses the terminal event', async () => {
+    let dispatches = 0
+    let results = 0
+    const admissions: RetainedRunAdmission[] = []
+    const provider = pendingRetainedProvider({
+      onDispatch: () => { dispatches += 1 },
+      events: async function* () {
+        yield { type: 'message.part.updated', data: { delta: 'partial' } }
+      },
+      result: async () => ({ text: 'exact finished result', success: true }),
+    })
+    const retention: RetainedExecutorContext = {
+      executionId: 'lost-terminal-root',
+      admissions,
+      onAdmission: async (admission) => { admissions.push(admission) },
+      onResult: async () => { results += 1 },
+    }
+    const signal = new AbortController().signal
+    const executor = providerAsExecutor(provider)(
+      { profile: testProfile('lost-terminal-root'), harness: null },
+      { signal, seams: { [retainedExecutorSeamKey]: retention } },
+    )
+    for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {}
+    expect(executor.resultArtifact().out).toMatchObject({ content: 'exact finished result' })
+    expect(results).toBe(1)
+    expect(dispatches).toBe(1)
+    expect(admissions.map((entry) => entry.phase)).toEqual(['intent', 'environment', 'dispatched'])
+  })
+
+  it('reports lost terminal evidence within the retained bound without replaying the dispatch', async () => {
+    let dispatches = 0
+    let results = 0
+    const admissions: RetainedRunAdmission[] = []
+    const provider = pendingRetainedProvider({
+      onDispatch: () => { dispatches += 1 },
+      events: async function* () { yield* [] },
+      result: async () => await new Promise<{ text: string; success: boolean }>(() => {}),
+    })
+    const retention: RetainedExecutorContext = {
+      executionId: 'lost-terminal-worker',
+      admissions,
+      onAdmission: async (admission) => { admissions.push(admission) },
+      onResult: async () => { results += 1 },
+    }
+    const signal = new AbortController().signal
+    const executor = providerAsExecutor(provider, { retainedResultWaitMs: 20 })(
+      { profile: testProfile('lost-terminal-worker'), harness: null },
+      { signal, seams: { [retainedExecutorSeamKey]: retention } },
+    )
+    await expect(async () => {
+      for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {}
+    }).rejects.toMatchObject({ pendingCause: 'terminal-event-lost' })
+    expect(dispatches).toBe(1)
+    expect(results).toBe(0)
+    expect(admissions.at(-1)?.phase).toBe('dispatched')
+    expect(await executor.teardown('brutalKill')).toMatchObject({ destroyed: false })
+  })
+
   it('retains the admitted native reference across pre-harness failure and cold executor recovery', async () => {
     const artifacts = artifactStore()
     const provider = pendingRetainedProvider()
