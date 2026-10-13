@@ -564,6 +564,11 @@ function replaceChangedProfileResources(
     resourceRemoval.commands = true
     if (candidate?.commands !== undefined) resourceSet.commands = candidate.commands
   }
+  if (profileValuesDiffer(baseline?.knowledge, candidate?.knowledge)) {
+    changedSubfields += 1
+    resourceRemoval.knowledge = true
+    if (candidate?.knowledge !== undefined) resourceSet.knowledge = candidate.knowledge
+  }
   if (profileValuesDiffer(baseline?.instructions, candidate?.instructions)) {
     changedSubfields += 1
     resourceRemoval.instructions = true
@@ -580,8 +585,17 @@ function replaceChangedProfileResources(
     if (candidate !== undefined) set.resources = candidate
     return
   }
+  // Interface's granular removal also prunes unchanged empty resource arrays.
+  for (const field of ['files', 'tools', 'skills', 'agents', 'commands', 'knowledge'] as const) {
+    if (candidate?.[field]?.length === 0) resourceSet[field] = []
+  }
   remove.resources = resourceRemoval
-  if (Object.keys(resourceSet).length > 0) set.resources = resourceSet
+  if (
+    Object.keys(resourceSet).length > 0 ||
+    (candidate !== undefined && Object.keys(candidate).length === 0)
+  ) {
+    set.resources = resourceSet
+  }
 }
 
 function profileValuesDiffer(baseline: unknown, candidate: unknown): boolean {

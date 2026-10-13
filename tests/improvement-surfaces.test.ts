@@ -2,6 +2,7 @@ import {
   type AgentProfile,
   agentProfileSchema,
   applyAgentProfileDiff,
+  canonicalAgentProfileDigest,
   defineInlineResource,
 } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
@@ -494,6 +495,196 @@ describe('agent improvement profile delivery', () => {
       changes.reduce((profile, change) => applyAgentProfileDiff(profile, change), baseline),
     ).toEqual(candidate)
     expect(profileImprovementChangedSurfaces(changes)).toEqual(['agent-profile'])
+  })
+
+  for (const resource of ['skills', 'tools'] as const) {
+    it.each(['add', 'replace', 'empty', 'remove'] as const)(
+      `reproduces knowledge %s alongside changed ${resource} resources`,
+      (operation) => {
+        const previousKnowledge = [
+          { sourceId: 'docs', generation: `kg_${'a'.repeat(64)}` },
+          { sourceId: 'retired', generation: `kg_${'b'.repeat(64)}` },
+        ]
+        const nextKnowledge = [{ sourceId: 'docs', generation: `kg_${'c'.repeat(64)}` }]
+        const baseline: AgentProfile = {
+          name: 'researcher',
+          resources: {
+            failOnError: true,
+            instructions: 'Preserve the audit trail',
+            [resource]: [defineInlineResource('old.md', 'Old resource')],
+            ...(operation === 'add' ? {} : { knowledge: previousKnowledge }),
+          },
+        }
+        const candidate: AgentProfile = {
+          name: baseline.name,
+          resources: {
+            failOnError: true,
+            instructions: baseline.resources?.instructions,
+            [resource]: [defineInlineResource('new.md', 'Measured resource')],
+            ...(operation === 'remove'
+              ? {}
+              : { knowledge: operation === 'empty' ? [] : nextKnowledge }),
+          },
+        }
+        const baselineDigest = canonicalAgentProfileDigest(baseline)
+        const changes = agentImprovementProfileDiffs(baseline, candidate, {
+          id: `knowledge-${operation}-with-${resource}`,
+        })
+        const applied = changes.reduce(
+          (profile, change) => applyAgentProfileDiff(profile, change),
+          baseline,
+        )
+
+        expect(changes).toHaveLength(2)
+        expect(changes[0]?.remove).toEqual({
+          resources: { [resource]: true, knowledge: true },
+        })
+        expect(changes[1]?.set).toEqual({
+          resources: {
+            [resource]: candidate.resources?.[resource],
+            ...(operation === 'remove' ? {} : { knowledge: candidate.resources?.knowledge }),
+          },
+        })
+        expect(applied).toEqual(candidate)
+        expect(canonicalAgentProfileDigest(applied)).toBe(canonicalAgentProfileDigest(candidate))
+        expect(canonicalAgentProfileDigest(baseline)).toBe(baselineDigest)
+        expect(profileImprovementChangedSurfaces(changes)).toEqual([resource, 'agent-profile'])
+      },
+    )
+  }
+
+  it('removes knowledge and skill resources without leaving an empty resource container', () => {
+    const baseline: AgentProfile = {
+      name: 'researcher',
+      resources: {
+        skills: [defineInlineResource('old.SKILL.md', 'Old skill')],
+        knowledge: [{ sourceId: 'docs', generation: `kg_${'a'.repeat(64)}` }],
+      },
+    }
+    const candidate: AgentProfile = { name: baseline.name }
+    const changes = agentImprovementProfileDiffs(baseline, candidate, {
+      id: 'remove-knowledge-and-skills',
+    })
+    const applied = changes.reduce(
+      (profile, change) => applyAgentProfileDiff(profile, change),
+      baseline,
+    )
+
+    expect(changes).toHaveLength(1)
+    expect(changes[0]?.remove).toEqual({ resources: { skills: true, knowledge: true } })
+    expect(changes[0]?.set).toBeUndefined()
+    expect(applied).toEqual(candidate)
+    expect(canonicalAgentProfileDigest(applied)).toBe(canonicalAgentProfileDigest(candidate))
+  })
+
+  it.each([false, true])(
+    'preserves an explicitly empty resource container after removing knowledge (skills=%s)',
+    (withSkills) => {
+      const baseline: AgentProfile = {
+        resources: {
+          knowledge: [{ sourceId: 'docs', generation: `kg_${'a'.repeat(64)}` }],
+          ...(withSkills ? { skills: [defineInlineResource('old.SKILL.md', 'Old skill')] } : {}),
+        },
+      }
+      const candidate: AgentProfile = { resources: {} }
+      const changes = agentImprovementProfileDiffs(baseline, candidate, {
+        id: 'empty-resources',
+      })
+      const applied = changes.reduce(
+        (profile, change) => applyAgentProfileDiff(profile, change),
+        baseline,
+      )
+
+      expect(changes).toHaveLength(2)
+      expect(changes[1]?.set).toEqual({ resources: {} })
+      expect(applied).toEqual(candidate)
+      expect(canonicalAgentProfileDigest(applied)).toBe(canonicalAgentProfileDigest(candidate))
+    },
+  )
+
+  for (const sibling of ['files', 'tools', 'skills', 'agents', 'commands'] as const) {
+    it.each(['add', 'replace', 'remove'] as const)(
+      `preserves unchanged empty ${sibling} resources during knowledge %s`,
+      (operation) => {
+        const instructions = {
+          kind: 'github' as const,
+          repository: 'owner/research-agents',
+          path: 'instructions.md',
+          ref: '0123456789abcdef',
+        }
+        const baseline: AgentProfile = {
+          resources: {
+            [sibling]: [],
+            instructions,
+            ...(operation === 'add'
+              ? {}
+              : { knowledge: [{ sourceId: 'docs', generation: `kg_${'a'.repeat(64)}` }] }),
+          },
+        }
+        const candidate: AgentProfile = {
+          resources: {
+            [sibling]: [],
+            instructions,
+            ...(operation === 'remove'
+              ? {}
+              : { knowledge: [{ sourceId: 'docs', generation: `kg_${'b'.repeat(64)}` }] }),
+          },
+        }
+        const changes = agentImprovementProfileDiffs(baseline, candidate, {
+          id: `knowledge-${operation}-empty-${sibling}`,
+        })
+        const applied = changes.reduce(
+          (profile, change) => applyAgentProfileDiff(profile, change),
+          baseline,
+        )
+
+        expect(changes[0]?.remove).toEqual({ resources: { knowledge: true } })
+        expect(changes[1]?.set).toEqual({
+          resources: {
+            [sibling]: [],
+            ...(operation === 'remove' ? {} : { knowledge: candidate.resources?.knowledge }),
+          },
+        })
+        expect(applied).toEqual(candidate)
+        expect(canonicalAgentProfileDigest(applied)).toBe(canonicalAgentProfileDigest(candidate))
+        // Interface classifies every restored slot as touched, including empty arrays.
+        expect(profileImprovementChangedSurfaces(changes)).toEqual([
+          ...(sibling === 'skills' || sibling === 'tools'
+            ? [sibling]
+            : sibling === 'agents'
+              ? ['subagents']
+              : []),
+          'agent-profile',
+        ])
+      },
+    )
+  }
+
+  it('preserves unchanged empty knowledge resources during a skill replacement', () => {
+    const baseline: AgentProfile = {
+      resources: {
+        knowledge: [],
+        skills: [defineInlineResource('old.SKILL.md', 'Old skill')],
+      },
+    }
+    const candidate: AgentProfile = {
+      resources: {
+        knowledge: [],
+        skills: [defineInlineResource('new.SKILL.md', 'Measured skill')],
+      },
+    }
+    const changes = agentImprovementProfileDiffs(baseline, candidate, {
+      id: 'skills-empty-knowledge',
+    })
+    const applied = changes.reduce(
+      (profile, change) => applyAgentProfileDiff(profile, change),
+      baseline,
+    )
+
+    expect(changes[0]?.remove).toEqual({ resources: { skills: true } })
+    expect(changes[1]?.set).toEqual(candidate)
+    expect(applied).toEqual(candidate)
+    expect(canonicalAgentProfileDigest(applied)).toBe(canonicalAgentProfileDigest(candidate))
   })
 
   it('does not copy unchanged external resources into direct-field changes', () => {

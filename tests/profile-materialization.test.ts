@@ -51,6 +51,7 @@ const EXPECTED_CANONICAL_AXES = [
   'skills',
   'resourceAgents',
   'commands',
+  'knowledge',
   'resourceInstructions',
   'resourceFailOnError',
   'hooks',
@@ -122,6 +123,21 @@ describe('canonical axis set', () => {
       'modelMaxTotalOutputTokens',
       'modelMetadata',
     ])
+  })
+
+  it('requires knowledge support for a compound resource change', () => {
+    const contract = defineProfileMaterializationContract({
+      name: 'resources-without-knowledge',
+      axes: CANONICAL_AXES.filter((axis) => axis !== 'knowledge'),
+    })
+    const changedAxes = changedAgentProfileAxes({
+      kind: 'agent-profile-diff',
+      set: { resources: { knowledge: [] } },
+    })
+    expect(changedAxes).toEqual(['resources'])
+    expect(
+      validateProfileMaterialization({ contract, changedAxes }).map((issue) => issue.axis),
+    ).toEqual(['knowledge'])
   })
 
   it('keeps every compound expansion inside the canonical leaf set', () => {
@@ -462,7 +478,7 @@ describe('profile materialization contracts', () => {
         axes: ['resources' as never],
       }),
     ).toThrow(
-      'compound-path.axes: "resources" is a compound AgentProfile property, not a materialization axis. Name the exact leaves this path carries: files, resourceTools, skills, resourceAgents, commands, resourceInstructions, resourceFailOnError.',
+      'compound-path.axes: "resources" is a compound AgentProfile property, not a materialization axis. Name the exact leaves this path carries: files, resourceTools, skills, resourceAgents, commands, knowledge, resourceInstructions, resourceFailOnError.',
     )
   })
 })
