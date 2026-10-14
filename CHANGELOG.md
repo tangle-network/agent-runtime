@@ -1,3 +1,7 @@
+## 0.319.4
+
+Retained provider turns now reconcile as soon as their exact execution result completes, even when the event stream stays open. This wakes the calling agent for completed child turns and queued work while recording incomplete stream observation.
+
 ## 0.319.3
 
 Fixed packed Runtime release verification on CI runners without a configured Git identity.
