@@ -81,6 +81,28 @@ export function deadlineWarningAt(
   return deadlineMs - lead
 }
 
+/**
+ * A wake brought up to date at dispatch. A retained turn starts only after the previous turn's
+ * workspace capture, which took 25.8 minutes in test-retained-root-wake-20261014c; the wake
+ * composed before that wait omitted the child that settled during it and still called it running.
+ * `later` is what arrived since `earlier` was taken, or undefined when no work is open.
+ */
+export function refreshedWake(
+  earlier: ManagerWake,
+  later: ManagerWake | undefined,
+  heldMs: number,
+): ManagerWake {
+  const events = [...earlier.events, ...(later?.events ?? [])]
+  return {
+    reason:
+      earlier.reason === 'deadline' ? 'deadline' : events.length > 0 ? 'events' : earlier.reason,
+    events,
+    live: later?.live ?? [],
+    freeSlots: later?.freeSlots ?? earlier.freeSlots,
+    idleMs: earlier.idleMs + Math.max(0, heldMs),
+  }
+}
+
 /** The input a woken manager's next turn receives. */
 export function composeWakeInput(
   wake: ManagerWake,

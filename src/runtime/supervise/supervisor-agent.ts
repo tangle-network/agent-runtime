@@ -32,6 +32,7 @@ import type {
   CoordinationTools,
   EscalateQuestion,
   MakeWorkerAgent,
+  ManagerWake,
   SpawnPreflight,
   SuperviseProfileEntry,
   WorkerWatchOptions,
@@ -118,6 +119,7 @@ import {
   composeWakeInput,
   deadlineWarningAt,
   type ManagerWakePolicy,
+  refreshedWake,
   resolveWakePolicy,
 } from './wake'
 import { observeWorkerControls } from './worker-control-observer'
@@ -480,6 +482,9 @@ export interface DriveHarness {
       readonly reason: DriverReentry
       readonly compose: (continuity: ReentryContinuity) => string
       readonly onContinuity?: (continuity: ReentryContinuity) => void
+      /** Bring a wake up to date immediately before `compose`, after any wait for the previous
+       *  turn's workspace capture, so the turn names what settled during that wait. */
+      readonly refresh?: () => Promise<void>
     }
   }): Promise<void>
   /** Optional live inbox for the manager session this adapter currently drives. Return `false`
@@ -1320,6 +1325,10 @@ function buildSupervisorAgent(
         }
         const loopRecords: DriverAttemptRecord[] = []
         let deadlineWarned = false
+        // The wake a re-entered drive was given, kept so `refresh` can bring it up to date.
+        let pendingWake:
+          | { readonly attempt: number; readonly wake: ManagerWake; readonly at: number }
+          | undefined
         const managerStartedAt = Date.now()
         let environmentReplacements = 0
         let workspaceRestores = 0
@@ -1359,15 +1368,43 @@ function buildSupervisorAgent(
               // A re-entered drive receives the original objective and the coordinator's run state
               // unless the harness proves the turn continues the same session. The unmet items
               // alone are the whole turn only then: a replacement sandbox knows nothing else.
+              let current = reentry
+              const held = pendingWake?.attempt === attempt ? pendingWake : undefined
+              pendingWake = undefined
+              const refresh =
+                held === undefined || current?.reason !== 'wake'
+                  ? undefined
+                  : async () => {
+                      const signal = AbortSignal.any([scope.signal, stopController.signal])
+                      // No wait: publish what settled since the wake and take it for this turn.
+                      const later = await controls.awaitWake({
+                        attempt,
+                        signal,
+                        heartbeatMs: 0,
+                        debounceMs: 0,
+                      })
+                      if (signal.aborted || current?.reason !== 'wake') return
+                      current = {
+                        ...current,
+                        input: composeWakeInput(
+                          refreshedWake(held.wake, later, Date.now() - held.at),
+                          {
+                            tools: runtimeToolNames,
+                            deadlineMs: scope.budget.deadlineMs,
+                            now: Date.now(),
+                          },
+                        ),
+                      }
+                    }
               const compose =
-                reentry === undefined
+                current === undefined
                   ? undefined
                   : (continuity: ReentryContinuity) =>
                       composeReentryTask({
                         originalTask: task,
                         tools: runtimeToolNames,
                         ...(describe === undefined ? {} : { contract: describe }),
-                        reentry,
+                        reentry: current!,
                         continuity,
                         state: controls.reentryState(),
                         attempt,
@@ -1387,6 +1424,7 @@ function buildSupervisorAgent(
                         reentry: {
                           reason: reentry!,
                           compose,
+                          ...(refresh === undefined ? {} : { refresh }),
                           onContinuity: (continuity: ReentryContinuity) => {
                             if (continuity.environment === 'replaced') environmentReplacements += 1
                             if (continuity.workspace === 'restored') workspaceRestores += 1
@@ -1455,6 +1493,7 @@ function buildSupervisorAgent(
                   })
                   if (wake === undefined || stopController.signal.aborted) return undefined
                   if (wake.reason === 'deadline') deadlineWarned = true
+                  pendingWake = { attempt: nextAttempt, wake, at: Date.now() }
                   return {
                     input: composeWakeInput(wake, {
                       tools: runtimeToolNames,
