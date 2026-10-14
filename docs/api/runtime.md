@@ -25047,7 +25047,7 @@ Data-only product tool surface mounted on the coordination MCP. Runtime-owned dr
 
 ###### reentry?
 
-\{ `reason`: [`DriverReentry`](#driverreentry); `compose`: (`continuity`) => `string`; `onContinuity?`: (`continuity`) => `void`; \}
+\{ `reason`: [`DriverReentry`](#driverreentry); `compose`: (`continuity`) => `string`; `onContinuity?`: (`continuity`) => `void`; `refresh?`: () => `Promise`\<`void`\>; \}
 
 Present when this drive re-enters the run. `task` then carries the original objective and
  the coordinator's run state, which is right for any backend. A harness that can prove what
@@ -25066,6 +25066,13 @@ Why Runtime is re-entering; a typed usage limit may advance an authored seat cha
 ###### reentry.onContinuity?
 
 (`continuity`) => `void`
+
+###### reentry.refresh?
+
+() => `Promise`\<`void`\>
+
+Bring a wake up to date immediately before `compose`, after any wait for the previous
+ turn's workspace capture, so the turn names what settled during that wait.
 
 #### Returns
 

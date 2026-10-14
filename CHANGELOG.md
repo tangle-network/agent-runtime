@@ -1,3 +1,7 @@
+## 0.320.0
+
+A retained manager woken while its previous turn's workspace capture was still running now receives what settled during that capture, and no longer lists a finished worker as running. `DriveHarness` reentry gains optional `refresh(): Promise<void>`: a custom harness should await it after any wait for the previous turn's workspace capture and before `compose`, or its woken turns keep the wake composed before that wait.
+
 ## 0.319.10
 
 Publish the retained workspace recovery repair with a packed consumer qualified against Sandbox 0.60.51. The release guard continues to reject changed or unknown Sandbox contract artifacts.
