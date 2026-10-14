@@ -25,7 +25,7 @@ Start from a profile that already ran (in a Discovery play, `inputs/profile-exam
 | `prompt` | The role in `instructions[0]`, the procedure after it. No `systemPrompt`: it replaces the harness's own guidance (17,730 characters on Codex), and Discovery refuses one under 4,000 characters. No `appendSystemPrompt` on Codex or Gemini. |
 | `resources` | `failOnError: true`. Hand each file by path, `{"path": "<mount>", "resource": {"kind": "inline", "name": "<name>", "path": "<file in your workspace>"}}`: Runtime reads the bytes (UTF-8, at most 4 MiB). Never retype a file into `content`: a manager that did delivered 5 wrong characters in 24,008. |
 
-Native tool ids (agent-dev-container `packages/agent-profile-materialize/src/control-maps.ts` and `execution-controls.ts`; matching ignores case and all but letters, digits and `_`):
+Native tool ids (agent-container `packages/agent-profile-materialize/src/control-maps.ts` and `execution-controls.ts`; matching ignores case and all but letters, digits and `_`):
 
 | Harness | Accepted | Refused |
 |---|---|---|

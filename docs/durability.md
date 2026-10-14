@@ -35,7 +35,7 @@ Durable work breaks into six separate questions. Each has one owner.
 
 `/durable` holds the chat turn envelope and the records of one supervised run directory. It does not own execution recovery: that lives in `/kernel`.
 
-### Sandbox: Orchestrator, Sidecar and host agent (`agent-dev-container`)
+### Sandbox: Orchestrator, Sidecar and host agent (`agent-container`)
 
 | Primitive | Class | Public | Status | Durably owns |
 |---|---|---|---|---|
@@ -143,7 +143,7 @@ A supervised manager's turn that stays pending is resolved, not retried until th
 - Workspaces come back from a confirmed snapshot.
 - The dead host is fenced before the sandbox is rebuilt.
 
-Runtime's file run context survives only if its directory does. The fenced SQL context survives any single coordinator host: another process takes over after the lease expires. A create admitted before a host's drain blocks that host's deletion until the create releases its reservation. agent-dev-container `retirement-admission-fence.test.ts` proves this against real Redis.
+Runtime's file run context survives only if its directory does. The fenced SQL context survives any single coordinator host: another process takes over after the lease expires. A create admitted before a host's drain blocks that host's deletion until the create releases its reservation. agent-container `retirement-admission-fence.test.ts` proves this against real Redis.
 
 **What is a native harness session versus a transcript?** A native session is the harness's own resumable conversation: Claude's session id, Codex's thread id, an OpenCode session. Continuing it keeps the model's context. A transcript is a captured copy of that conversation, kept as evidence. Runtime never replays a transcript into a different harness to fake continuation.
 
@@ -170,7 +170,7 @@ An effect without provider idempotency is reconciled, not assumed exactly-once. 
 
 A notify retry repeats only the POST, under the same `Idempotency-Key`. It never re-runs the agent action before it. The product stores that remain are listed above.
 
-**How do Pi, Claude and Codex differ?** In native session identity and resume. Claude Code resumes a session id, Codex resumes a thread id, and OpenCode and Pi resume through the CLI provider base and session persistence. The cross-harness recovery matrix, with receipts from the real CLIs, is in agent-dev-container `tests/harness-conformance/README.md`. Pi Durable is not covered: it has no adapter, and it must not silently replace `pi`.
+**How do Pi, Claude and Codex differ?** In native session identity and resume. Claude Code resumes a session id, Codex resumes a thread id, and OpenCode and Pi resume through the CLI provider base and session persistence. The cross-harness recovery matrix, with receipts from the real CLIs, is in agent-container `tests/harness-conformance/README.md`. Pi Durable is not covered: it has no adapter, and it must not silently replace `pi`.
 
 **Which substrate runs it, and can that change?** The Orchestrator places sandboxes on hosts. Runtime's provider placement picks the provider environment. Placement can change only at admission or at a supported checkpoint, and never by migrating a live process. The admitted harness and model stay the same.
 
@@ -194,8 +194,8 @@ Passing `journal`, `blobs` and `resume` directly is an advanced test seam, not a
 | Snapshot lag | `host-loss`: the restored workspace lacks the work done after the snapshot, and the keyed effect made then is accepted once | Same |
 | Duplicate wake | Platform `workflow-suspensions.test.ts`: of two concurrent deliveries to one wait, exactly one resumes the run. In `host-loss`, the second of two coordinators started together exits | Platform tests; end to end |
 | Cancellation during recovery | `host-loss`, cancel scenario: no model call or admission follows the cancel. Platform `workflow-suspensions.test.ts`: a settle after a cancel is refused | End to end; Platform tests |
-| Host retirement against a create admission | agent-dev-container `retirement-admission-fence.test.ts` | Real Redis |
-| Park, evacuate, retire, resume elsewhere | agent-dev-container `parked-evacuation-resume-elsewhere.test.ts` | Orchestrator unit tests |
+| Host retirement against a create admission | agent-container `retirement-admission-fence.test.ts` | Real Redis |
+| Park, evacuate, retire, resume elsewhere | agent-container `parked-evacuation-resume-elsewhere.test.ts` | Orchestrator unit tests |
 | A notify retry after agent work | Platform `workflow-engine.test.ts`: the agent runs once, and every attempt carries one key | Platform tests |
 | A notify or Hub write in flight at a crash | Platform `workflow-runner-engine.test.ts`, `workflow-crash-resume-process.test.ts` | Real processes |
 
@@ -222,7 +222,7 @@ Limits by capability:
 | Four product copies of the plan follow-up attach (GTM, Tax, Legal, Creative) | Agent App `/chat-routes` | four products | `planFollowUpExecutionId`, `resolvePlanFollowUpRequest`, `streamPlanFollowUpEvents`, `createD1PlanFollowUpGate` | `tests/chat-routes/plan-follow-up.test.ts` |
 | `runDetachedTurn({ resetBuffer })` and the raw `DELETE FROM turn_events` callbacks | `TurnEventStore.resetEvents` | Relationships, Workcomp | store method | `tests/turn-buffer.test.ts`, `tests/chat-routes/detached-turn.test.ts` |
 | Supervise wait-state nodes (#1622): `Scope.wait`, `timerAt`, `pollFor`, `waitUntil`, the probe registry, the journal's `waiting` and `woken` events, and the `waiting` status | Platform workflow suspensions and timers | none outside Runtime | `wait.*` in Platform workflows | Runtime vitest; durability conformance |
-| `probeSandboxCapabilities`, `SandboxCapabilities`, `SandboxClient.criuStatus` and the checkpoint-fork lineage path (#1623), and the sandbox CLI's `criuStatus` forward (agent-dev-container#9496) | the box's `branch(count)` | none: the SDK dropped `criuStatus()` in agent-dev-container#5227 | `branch(count)` | Runtime vitest |
-| Prime's copy of the ACP session client (agent-dev-container#9491) | `AcpProviderAdapterBase` in `sdk-provider-cli-base` | Prime, ACP | the shared base | provider tests |
+| `probeSandboxCapabilities`, `SandboxCapabilities`, `SandboxClient.criuStatus` and the checkpoint-fork lineage path (#1623), and the sandbox CLI's `criuStatus` forward (agent-container#9496) | the box's `branch(count)` | none: the SDK dropped `criuStatus()` in agent-container#5227 | `branch(count)` | Runtime vitest |
+| Prime's copy of the ACP session client (agent-container#9491) | `AcpProviderAdapterBase` in `sdk-provider-cli-base` | Prime, ACP | the shared base | provider tests |
 
-Runtime's measured surface went from 2,166 public exports to 2,138: `/durable` from 74 to 62, `/kernel` from 1,059 to 1,048, and the root from 313 to 308. Slices D to I removed 5,157 lines and added 1,595 across #1622, #1623 and agent-dev-container#9491, as GitHub counts them. Line counts for each pull request are recorded on #1585.
+Runtime's measured surface went from 2,166 public exports to 2,138: `/durable` from 74 to 62, `/kernel` from 1,059 to 1,048, and the root from 313 to 308. Slices D to I removed 5,157 lines and added 1,595 across #1622, #1623 and agent-container#9491, as GitHub counts them. Line counts for each pull request are recorded on #1585.

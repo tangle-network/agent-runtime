@@ -1,5 +1,5 @@
 /**
- * Platform's `selectAgentPlacement` decision table (agent-dev-container
+ * Platform's `selectAgentPlacement` decision table (agent-container
  * products/platform/api/tests/workflow-agent-placement.test.ts, describe
  * "selectAgentPlacement"), run against the moved `placeExecution`.
  *

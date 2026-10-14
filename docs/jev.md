@@ -156,4 +156,4 @@ No new Runtime dependency or public orchestration primitive is needed. Productio
 consumers need the released Eval adapter and the native Router endpoint; do not
 claim support merely because an unpublished import appears in a snippet.
 
-Related changes: agent-eval #761, tangle-router #531, agent-dev-container #7620.
+Related changes: agent-eval #761, tangle-router #531, agent-container #7620.

@@ -17,7 +17,7 @@ The law: *an agent IS its AgentProfile; you change behavior by authoring the pro
 | Layer | Owns | Why |
 |---|---|---|
 | **agent-runtime** (this repo) | The recursion and ports: the coordination MCP over the `Scope`, the existing provider-backed `Executor`, the shared `Workspace` contract, and completed-tree replay. Durable coordinator recovery is still missing. | The runtime stays agent-runner-agnostic. It drives; it never spawns tmux or knows what opencode is. |
-| **agent-dev-container** (adc) | The **materialization**: given an `AgentProfile` + cwd + mcp config, stand up the harness as an **interactive tmux window** (the TUI, not `run`), materialize the FULL profile (skills as real SKILL.md files, tools, model, mcp), capture (`pipe-pane`) + stream (`ttyd`). Exposes a **session API** (create / send / observe / status / kill). | "the container where the agents actually live" — Drew. This is the harness-specific layer; it belongs in the substrate, never the runtime. |
+| **agent-container** (adc) | The **materialization**: given an `AgentProfile` + cwd + mcp config, stand up the harness as an **interactive tmux window** (the TUI, not `run`), materialize the FULL profile (skills as real SKILL.md files, tools, model, mcp), capture (`pipe-pane`) + stream (`ttyd`). Exposes a **session API** (create / send / observe / status / kill). | "the container where the agents actually live" — Drew. This is the harness-specific layer; it belongs in the substrate, never the runtime. |
 | **cli-bridge** | Stays the *headless* harness materializer (the test target + the fast path). Optionally grows the same session API for local runs. | Already proven; the adc is the richer/interactive home. |
 | **sandbox SDK** | The `AgentProfile` manifest + box abstraction the adc is a flavor of. | Where the profile shape + `resources.skills` materialization already live. |
 
@@ -25,7 +25,7 @@ The law: *an agent IS its AgentProfile; you change behavior by authoring the pro
 `POST /sessions {profile, cwd, mcp} → {id, ttydUrl}` · `POST /sessions/:id/send {text}` · `GET /sessions/:id/stream` (SSE: harness output + a done/settle signal) · `GET /sessions/:id/status` · `DELETE /sessions/:id`. The runtime drives the recursion through the coordination MCP; the substrate drives the *harness* through this API.
 
 ## Where the issue goes
-- **Primary issue → `tangle-network/agent-dev-container`** (the materialization + the session API + ttyd). This spec is the design ref.
+- **Primary issue → `tangle-network/agent-container`** (the materialization + the session API + ttyd). This spec is the design ref.
 - **Companion issue → `tangle-network/agent-runtime`** (the generic `session` Executor + the shared `Workspace` wiring + replay-compose). Small; mostly the executor seam.
 - **Track on `ops-board`** (lane: eng, owner: claude) with measurable done-criteria = the e2e checklist below.
 
@@ -80,4 +80,4 @@ The law: *an agent IS its AgentProfile; you change behavior by authoring the pro
 ## Net
 The runtime has the coordination MCP, execution port, environment-provider adapter, and completed-tree replay.
 It still needs durable coordinator recovery and secure remote MCP access.
-Interactive tmux materialization remains an agent-dev-container capability reached through the provider contract.
+Interactive tmux materialization remains an agent-container capability reached through the provider contract.

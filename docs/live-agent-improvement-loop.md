@@ -38,7 +38,7 @@ Failure mining alone changes the task mix and cannot establish a population lift
 | Promote or revert | Runtime `src/intelligence/activation.ts`, `src/intelligence/delivery.ts`; product atomic state and promotion ledger | Bind approval to the exact proposal and current state, then atomically activate. Verify the served digest and one user flow. Use `revert-to-baseline` against the same sealed proposal if the canary crosses a stop threshold. Only the product owns these writes. |
 
 `proposeAgentProfileImprovement` already joins analysis, search, profile diffs, paired measurement, and a reviewable proposal.
-The product adapter in `agent-dev-container/products/intelligence/api/src/lib/platform-agent-profile-runtime-job.ts` snapshots profile state and stores the proposal.
+The product adapter in `agent-container/products/intelligence/api/src/lib/platform-agent-profile-runtime-job.ts` snapshots profile state and stores the proposal.
 Ops-board #1428 owns the ongoing ADC Intelligence path from ordinary experience to reusable profile candidates.
 This lane consumes that path and does not build a second profile store or promotion service.
 Ops-board #1426 completed executable worker-state retention in Runtime PR #1319.
