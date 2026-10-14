@@ -5062,6 +5062,22 @@ Select exactly one caller-declared placement from each child's unchanged profile
 
 **`Experimental`**
 
+##### retainedObservationIdleMs?
+
+> `optional` **retainedObservationIdleMs?**: `number`
+
+**`Experimental`**
+
+Maximum silence while observing an admitted retained turn. Activity resets this bound.
+
+##### retainedResultWaitMs?
+
+> `optional` **retainedResultWaitMs?**: `number`
+
+**`Experimental`**
+
+Maximum wait for the exact retained result after observation ends without a terminal frame.
+
 ##### promptOptions?
 
 > `optional` **promptOptions?**: [`ProviderPromptOptions`](#providerpromptoptions)
@@ -10283,6 +10299,12 @@ Reuse an environment whose retained ownership key is verified instead of creatin
 
 > `readonly` **turn**: [`RetainedRunTurnInput`](#retainedrunturninput)
 
+##### contextTransferReceipt?
+
+> `readonly` `optional` **contextTransferReceipt?**: \{ \} \| \{ \}
+
+Accepted destination to attach, without creating or replacing its environment.
+
 ##### identity?
 
 > `readonly` `optional` **identity?**: `object`
@@ -10344,6 +10366,16 @@ Reuse an environment whose retained ownership key is verified instead of creatin
 ###### Inherited from
 
 [`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`turn`](#turn)
+
+##### contextTransferReceipt?
+
+> `readonly` `optional` **contextTransferReceipt?**: \{ \} \| \{ \}
+
+Accepted destination to attach, without creating or replacing its environment.
+
+###### Inherited from
+
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`contextTransferReceipt`](#contexttransferreceipt)
 
 ##### identity?
 
@@ -10538,6 +10570,22 @@ can pass that record after a crash before the dispatched record landed.
 ##### executionId
 
 > `readonly` **executionId**: `string`
+
+##### contextTransfer?
+
+> `readonly` `optional` **contextTransfer?**: `object`
+
+Transfer replay identity, when the crashed run started from an ACCEPTED
+context transfer: the original request and its authoritative receipt.
+Recovery repeats the receipt-authorized lookup and verifies the receipt's
+run binding — without it, an adapter that requires receipt-authorized
+lookup answers not_found, and one that does not can return a run the
+receipt never bound. Callers that persisted the turn's context-transfer
+material supply these; behavior is unchanged for runs that had none.
+
+##### transferReceipt?
+
+> `readonly` `optional` **transferReceipt?**: \{ \} \| \{ \}
 
 ##### now?
 
@@ -20453,6 +20501,70 @@ Publish one attempt as a coordination event. Awaited, so a durable subscriber co
 
 ***
 
+### ProfileRunRecord
+
+One completed run of one exact profile revision, under its stable NAME.
+
+#### Properties
+
+##### name
+
+> `readonly` **name**: `string`
+
+The profile's stable name — the registry key (routing identity).
+
+##### profileDigest
+
+> `readonly` **profileDigest**: `string`
+
+Canonical digest of the EXACT profile revision that ran.
+
+##### startedAt
+
+> `readonly` **startedAt**: `string`
+
+##### finishedAt
+
+> `readonly` **finishedAt**: `string`
+
+##### outcome
+
+> `readonly` **outcome**: \{ `kind`: `"delivered"`; `summary?`: `string`; \} \| \{ `kind`: `"failed"`; `reason?`: `string`; \}
+
+##### cost
+
+> `readonly` **cost**: `object`
+
+###### iterations?
+
+> `readonly` `optional` **iterations?**: `number`
+
+###### tokens?
+
+> `readonly` `optional` **tokens?**: `number`
+
+###### usd?
+
+> `readonly` `optional` **usd?**: `number`
+
+##### origin?
+
+> `readonly` `optional` **origin?**: `string`
+
+Where this run came from — a graph run id, a product surface, a bench.
+
+***
+
+### ProfileRegistryDir
+
+#### Properties
+
+##### root
+
+> `readonly` **root**: `string`
+
+***
+
 ### ActivityNote
 
 The most recent activity the executor can name — one tool call, one turn, or a free-form note.
@@ -22072,6 +22184,26 @@ Select exactly one caller-declared placement from each child's unchanged profile
 ###### Inherited from
 
 [`ProviderExecutorOptions`](#providerexecutoroptions).[`requireTerminalEvent`](#requireterminalevent-1)
+
+##### retainedObservationIdleMs?
+
+> `optional` **retainedObservationIdleMs?**: `number`
+
+Maximum silence while observing an admitted retained turn. Activity resets this bound.
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](#providerexecutoroptions).[`retainedObservationIdleMs`](#retainedobservationidlems)
+
+##### retainedResultWaitMs?
+
+> `optional` **retainedResultWaitMs?**: `number`
+
+Maximum wait for the exact retained result after observation ends without a terminal frame.
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](#providerexecutoroptions).[`retainedResultWaitMs`](#retainedresultwaitms)
 
 ##### promptOptions?
 
@@ -29635,6 +29767,12 @@ One provider-neutral tool request emitted by a tool-loop model.
 
 Raw JSON arguments emitted by the model.
 
+##### providerFields?
+
+> `optional` **providerFields?**: `Record`\<`string`, `unknown`\>
+
+Opaque fields echoed on this call's assistant tool_calls entry, such as a provider signature.
+
 ***
 
 ### ToolLoopCallContext
@@ -33566,7 +33704,7 @@ Why an attempt did not reach a sibling. Each value is a fact the sender can read
 
 ### RetainedPendingCause
 
-> **RetainedPendingCause** = `"unobservable"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"`
+> **RetainedPendingCause** = `"unobservable"` \| `"terminal-event-lost"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"`
 
 Why a retained execution has no accepted terminal result, classified where the cause is still
 a typed value rather than a string in a journal.
@@ -36974,6 +37112,12 @@ The `AgentProfileMcpServer.metadata` key the declarative secret-env map
  rides under: `{ ENV_VAR_NAME: 'PROVIDER_KEY_NAME' }`. Names only — values
  are resolved at materialize time and never stored.
 
+ DEPRECATED (2026-10-12): this is the interface <0.40 channel. Author
+ `profile.mcp[key].env.ENV_VAR_NAME = { kind: 'secret-ref', key }` instead —
+ the canonical form since 0.40. The legacy map keeps resolving (profiles
+ are data in the wild and must not break at boot) but every use now warns
+ once per server; removal lands at the next interface major.
+
 ***
 
 ### defaultAnalystInstruction
@@ -38601,7 +38745,7 @@ The env-backed provider: reads the (dotenvx-loaded) process env. Empty /
 
 ### secretEnvOfMcpServer()
 
-> **secretEnvOfMcpServer**(`server`): `Record`\<`string`, `string`\> \| `undefined`
+> **secretEnvOfMcpServer**(`server`, `label?`): `Record`\<`string`, `string`\> \| `undefined`
 
 Read (and validate) a server entry's declared secret-env map, if any.
  Malformed metadata throws — a half-declared secret must never half-boot.
@@ -38611,6 +38755,10 @@ Read (and validate) a server entry's declared secret-env map, if any.
 ##### server
 
 `AgentProfileMcpServer`
+
+##### label?
+
+`string` = `'profile.mcp server'`
 
 #### Returns
 
@@ -39836,7 +39984,7 @@ Dispatch one detached, replayable run and return only after exact durable
 coordinates are confirmed by the provider and persisted by the caller.
 
 The required `onAdmission` hook first records a digest-only intent before
-creation, then records recovery coordinates and the verified exact control
+creation or receipt-authorized attachment, then records recovery coordinates and the verified exact control
 reference. The returned promise resolves only after the dispatched admission
 is durable, so a crash cannot lose a successful start's exact reference.
 
@@ -42659,6 +42807,140 @@ authority rule, because the receiving model reads them as part of the channel's 
 
 ***
 
+### profileRegistry()
+
+> **profileRegistry**(`root`): [`ProfileRegistryDir`](#profileregistrydir)
+
+Open (or lazily create) a profile registry rooted at a workspace directory.
+
+#### Parameters
+
+##### root
+
+`string`
+
+#### Returns
+
+[`ProfileRegistryDir`](#profileregistrydir)
+
+***
+
+### recordProfileRun()
+
+> **recordProfileRun**(`reg`, `profile`, `record`): `Promise`\<`void`\>
+
+Record one run and persist the exact profile revision beside it. The
+ record's digest must match the supplied profile — a record always names
+ the revision that actually ran. The revision file is write-once: a
+ different profile under the same digest is refused.
+
+#### Parameters
+
+##### reg
+
+[`ProfileRegistryDir`](#profileregistrydir)
+
+##### profile
+
+`AgentProfile`
+
+##### record
+
+[`ProfileRunRecord`](#profilerunrecord)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### profileRunsForName()
+
+> **profileRunsForName**(`reg`, `name`): `Promise`\<[`ProfileRunRecord`](#profilerunrecord)[]\>
+
+All records for one name, newest last.
+
+#### Parameters
+
+##### reg
+
+[`ProfileRegistryDir`](#profileregistrydir)
+
+##### name
+
+`string`
+
+#### Returns
+
+`Promise`\<[`ProfileRunRecord`](#profilerunrecord)[]\>
+
+***
+
+### pickBestProfile()
+
+> **pickBestProfile**(`records`): [`ProfileRunRecord`](#profilerunrecord) \| `undefined`
+
+The best revision of a name by the same documented heuristic as the graph
+ registry: delivered beats failed, then cheaper (tokens, then iterations),
+ then most recent. This is the answer to "which prompt revision is winning?"
+ — and every alternative is a controlled diff away (versions never overwrite).
+
+#### Parameters
+
+##### records
+
+readonly [`ProfileRunRecord`](#profilerunrecord)[]
+
+#### Returns
+
+[`ProfileRunRecord`](#profilerunrecord) \| `undefined`
+
+***
+
+### loadProfile()
+
+> **loadProfile**(`reg`, `digest`): `Promise`\<`AgentProfile` \| `undefined`\>
+
+Load a stored profile revision by digest (for replaying the winning revision).
+
+#### Parameters
+
+##### reg
+
+[`ProfileRegistryDir`](#profileregistrydir)
+
+##### digest
+
+`string`
+
+#### Returns
+
+`Promise`\<`AgentProfile` \| `undefined`\>
+
+***
+
+### bestProfileFor()
+
+> **bestProfileFor**(`reg`, `name`): `Promise`\<\{ `profile`: `AgentProfile`; `record`: [`ProfileRunRecord`](#profilerunrecord); \} \| `undefined`\>
+
+The winning revision of a name, ready to mount.
+
+#### Parameters
+
+##### reg
+
+[`ProfileRegistryDir`](#profileregistrydir)
+
+##### name
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `profile`: `AgentProfile`; `record`: [`ProfileRunRecord`](#profilerunrecord); \} \| `undefined`\>
+
+***
+
 ### createActivityLog()
 
 > **createActivityLog**(`limit?`): [`ActivityLog`](#activitylog)
@@ -44937,6 +45219,12 @@ The clone is removed after; durable state lives only in the ref.
 `Promise`\<[`WorkspaceRun`](#workspacerun)\<`T`\>\>
 
 ## References
+
+### assertProfileMaterializes
+
+Re-exports [assertProfileMaterializes](agent.md#assertprofilematerializes)
+
+***
 
 ### WorktreeCheckRunner
 

@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.318.0` and `@tangle-network/agent-eval@0.211.3` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.319.0` and `@tangle-network/agent-eval@0.213.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -197,11 +197,12 @@ Import from `@tangle-network/agent-runtime` — 313 exports.
 
 ### Vertical agent — manifest + surface proposal source
 
-Import from `@tangle-network/agent-runtime/agent` — 48 exports.
+Import from `@tangle-network/agent-runtime/agent` — 49 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `assertProfileMaterialization` | function | Throw when a candidate changes axes the selected run path cannot carry. |
+| `assertProfileMaterializes` | function | Throw when the CHOSEN HARNESS has no control for a dimension the profile asks for. |
 | `collectAgentRun` | function | Drain `act`'s `events` into an array AND await its `output`. Useful for |
 | `createSandboxAct` | function | Build an `AgentRuntime.act` implementation backed by a single prod-profile |
 | `createSurfaceImprovementProposer` | function | Resolve each finding to a real surface and draft a detached patch candidate. |
@@ -475,7 +476,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1069 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1078 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -494,12 +495,14 @@ Import from `@tangle-network/agent-runtime/kernel` — 1069 exports.
 | `assertCoordinationBinding` | function | Validate a manager's coordination authentication and request limits before execution. |
 | `assertDeclaredCheck` | function | Refuse a malformed declaration before any compute. |
 | `assertModelAllowed` | function | Throw a `ConfigError` when `allowed` is set, `model` is defined, and `model` is not a |
+| `assertProfileMaterializes` | function | Throw when the CHOSEN HARNESS has no control for a dimension the profile asks for. |
 | `assertProfileModelsAllowed` | function | Check every canonical model-bearing field in a complete profile, including the models a |
 | `assertSandboxServedModel` | function | Fail the execution when the platform reports serving a model other than the exact one asked for. |
 | `assertStrategyContract` | function | Static CONTRACT lint over an authored strategy module — the module-boundary |
 | `assessAuthoredProfile` | function | OBSERVE one authored `AgentProfile` and score its richness (no judge verdict is read). The task |
 | `attachWorker` | function | Reconstruct the exact provider-owned interactive process bound to one supervised worker. |
 | `authorStrategy` | function | Author + load a strategy from losses. Throws when the author emits no loadable module; |
+| `bestProfileFor` | function | The winning revision of a name, ready to mount. |
 | `bestSoFar` | function | The best-so-far fold — the ONE definition of "how good was the run after k results", shared by |
 | `boxSurfaceReader` | function | A {@link SurfaceReader} over a sandbox box's filesystem — the same `box.fs.read` seam |
 | `breadthStrategy` | function | BREADTH: K independent rollouts (each own artifact), verifier picks the best. |
@@ -620,6 +623,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1069 exports.
 | `legacySupervisorRunsRoot` | function | The pre-rename runs root (`<root>/.loops/supervisor`). Only readers that ENUMERATE historical |
 | `listGraphRuns` | function | All records, newest last. |
 | `loadGraph` | function | Load a stored graph by digest. |
+| `loadProfile` | function | Load a stored profile revision by digest (for replaying the winning revision). |
 | `loadSpawnForest` | function | Load every journal tree owned by one recursive supervision run and flatten its nodes/events. |
 | `localSandboxClient` | function | A same-host `SandboxClient` adapter with no process isolation. Local MCP is |
 | `localShell` | function | Host-process `Shell`: run a command via `execFile`, resolving `{ stdout, stderr, code }` (never throws on non-zero exit). |
@@ -650,13 +654,16 @@ Import from `@tangle-network/agent-runtime/kernel` — 1069 exports.
 | `persistHarnessTranscript` | function | Persist a capture under its own content ref and return the receipt a settlement carries. |
 | `pickBestDelivered` | function | The single argmax both the default finalizer and `finalizeBestDelivered` share: highest |
 | `pickBestGraph` | function | The documented heuristic: delivered beats failed; among delivered, cheaper |
+| `pickBestProfile` | function | The best revision of a name by the same documented heuristic as the graph |
 | `pipeline` | function | `pipeline(stages)` — run the stages in order, feeding each stage's `done` deliverable into the |
 | `plateau` | function | "The objective has stopped climbing." Fires when the best-so-far curve has risen by no more than |
 | `plateauLength` | function | How many trailing entries of a best-so-far curve are within `minDelta` of the curve's value |
 | `printBenchmarkReport` | function | Pretty-print a report — the "free optimization" verdict, with the cost vector. |
 | `profileChatClient` | function | Profile-exact adapter for packages that consume agent-eval's ChatClient contract. |
 | `profileOptimizerModelCall` | function | Profile-exact adapter for agent-eval's external optimizer callback. |
+| `profileRegistry` | function | Open (or lazily create) a profile registry rooted at a workspace directory. |
 | `profileRichnessFinding` | function | Turn a {@link ProfileRichness} verdict into a bus-routable `AnalystFinding` (area `profile-quality`). |
+| `profileRunsForName` | function | All records for one name, newest last. |
 | `promptHandle` | function | Parse `'<surface>/v<n>'` into a {@link PromptHandle}. The shorthand for authoring a graph edge: |
 | `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
 | `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
@@ -676,6 +683,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1069 exports.
 | `reconnectRetainedInteractiveRun` | function | Rebuild controls for one exact provider-owned coding-agent process. |
 | `reconnectRetainedRun` | function | Rebuild a retained-run client without retaining any object from the starter. |
 | `recordGraphRun` | function | Append one run record; the exact graph is content-addressed beside it. |
+| `recordProfileRun` | function | Record one run and persist the exact profile revision beside it. The |
 | `recoverRetainedInteractiveRun` | function | Retry one exact start after its provider response may have been lost. |
 | `recoverRetainedRun` | function | Rebuild the exact run named by a persisted pre-create intent or pre-dispatch |
 | `registerShape` | function | Register a composed shape on the default `builtinShapes` registry — the one-call extension |
@@ -1040,6 +1048,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1069 exports.
 | `PrivateCasOffloadReport` | interface | One offload pass: what reached the durable store and what the host still holds. |
 | `ProfileRichness` | interface | Per-field verdict on one authored profile — the raw material the bench renders + scores. |
 | `ProfileRichnessThresholds` | interface | Thresholds below which a system prompt is treated as a thin stub. Tunable per call. |
+| `ProfileRunRecord` | interface | One completed run of one exact profile revision, under its stable NAME. |
 | `ProgressSample` | interface | One settled unit of work, reduced to what a stop rule reads. `objective` is the run's own |
 | `ProgressTracker` | interface | Accumulates settlements and materializes a `ProgressView`. Idempotent by settlement id, so a |
 | `ProgressView` | interface | The read-model a `StopRule` decides from — the run's progress, not its budget. |
@@ -1366,7 +1375,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1069 exports.
 | `WorktreeCheckRunner` | type | The single shell-command-in-worktree runner seam (replaces the per-executor copies). |
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcquireOptions`, `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentGraph`, `AgenticOptions`, `AgenticRunResult`, `AgenticTask`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `AnytimeTaskCurve`, `ArtifactHandle`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CliWorktreeBridgeSeam`, `CodeModeOptions`, `CodeModeTool`, `CodeModeToolContext`, `CodeModeToolset`, `ContinuationPanelResult`, `CoordinationAuthentication`, `CoordinationHttpAudit`, `CoordinationMcpHandle`, `CoordinationPublicAddress`, `CoordinationTransportOptions`, `CopyOptions`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DesignerToolsEnv`, `DispatchReport`, `Driver`, `EvolutionAuthor`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ExecutorResultMapping`, `ForkRequest`, `GitWorkspaceOptions`, `GraphDesignerExtraTools`, `GraphRegistryDir`, `GraphResult`, `HarnessTranscriptArtifact`, `HarnessTranscriptFile`, `HarnessTranscriptMetadata`, `HarnessTranscriptReadOptions`, `HarnessTranscriptUnavailable`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InPlaceCliExecutorOptions`, `InProcessSandboxClientOptions`, `IsolatedCheckOptions`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LocalSandboxClientOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NodeSnapshot`, `NoProgressForOptions`, `Observation`, `ObserveInput`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PeerMailbox`, `PeerMailboxOptions`, `PeerMailSendInput`, `PlacementInfo`, `PlateauOptions`, `PrivateCasArtifactPort`, `PrivateCasOptions`, `ProgressTrackerOptions`, `ProviderWorkspaceCaptureResult`, `PublishOptions`, `ReentryTaskInput`, `ResolveSandboxClientOptions`, `ResourceRequest`, `RetainedHarnessTranscriptCapture`, `RollingDispatchOptions`, `RunAgenticOptions`, `RunAgentRoundsOptions`, `RunCodeModeOptions`, `SandboxEvidenceContext`, `SandboxEvidenceReceipt`, `SandboxRun`, `SeatSegment`, `SeatSelectionInput`, `ShotSpec`, `SpawnOpts`, `SqlRunContextOptions`, `SqlRunLease`, `SqlRunStoreOptions`, `StdioMcpConnection`, `StdioMcpServerSpec`, `SteerableSandboxArgs`, `Strategy`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SupervisorSpanOptions`, `SupervisorSpanRecorder`, `SurfaceScore`, `TaskQueueOptions`, `ToolSpec`, `ToolStepInput`, `TournamentRow`, `TraceSource`, `TrajectoryAnalysis`, `UntrackedCopyStats`, `ValidationCtx`, `Validator`, `VerdictSummary`, `VerifierEnvironmentOptions`, `WatchTraceOptions`, `WaterfallCollector`, `WaterfallReport`, `WaterfallSpan`, `WorkerEvidenceInput`, `WorkerSpawnRetryHooks`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `CodeModeResult`, `CodeModeStore`, `EdgeDeliveryOutcome`, `GraphEdge`, `GraphSelection`, `HarvestCorpusOptions`, `InboxMessage`, `IsolatedCheckResult`, `LoopTraceEvent`, `MakeWorkerAgent`, `ObserveOptions`, `PeerMailOutcome`, `RepairStop`, `SandboxControlClient`, `SeatSelection`, `SpawnEvent`, `UsageEvent`, `WorkspaceCommit`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcquireOptions`, `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentGraph`, `AgenticOptions`, `AgenticRunResult`, `AgenticTask`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `AnytimeTaskCurve`, `ArtifactHandle`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CliWorktreeBridgeSeam`, `CodeModeOptions`, `CodeModeTool`, `CodeModeToolContext`, `CodeModeToolset`, `ContinuationPanelResult`, `CoordinationAuthentication`, `CoordinationHttpAudit`, `CoordinationMcpHandle`, `CoordinationPublicAddress`, `CoordinationTransportOptions`, `CopyOptions`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DesignerToolsEnv`, `DispatchReport`, `Driver`, `EvolutionAuthor`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ExecutorResultMapping`, `ForkRequest`, `GitWorkspaceOptions`, `GraphDesignerExtraTools`, `GraphRegistryDir`, `GraphResult`, `HarnessTranscriptArtifact`, `HarnessTranscriptFile`, `HarnessTranscriptMetadata`, `HarnessTranscriptReadOptions`, `HarnessTranscriptUnavailable`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InPlaceCliExecutorOptions`, `InProcessSandboxClientOptions`, `IsolatedCheckOptions`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LocalSandboxClientOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NodeSnapshot`, `NoProgressForOptions`, `Observation`, `ObserveInput`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PeerMailbox`, `PeerMailboxOptions`, `PeerMailSendInput`, `PlacementInfo`, `PlateauOptions`, `PrivateCasArtifactPort`, `PrivateCasOptions`, `ProfileRegistryDir`, `ProgressTrackerOptions`, `ProviderWorkspaceCaptureResult`, `PublishOptions`, `ReentryTaskInput`, `ResolveSandboxClientOptions`, `ResourceRequest`, `RetainedHarnessTranscriptCapture`, `RollingDispatchOptions`, `RunAgenticOptions`, `RunAgentRoundsOptions`, `RunCodeModeOptions`, `SandboxEvidenceContext`, `SandboxEvidenceReceipt`, `SandboxRun`, `SeatSegment`, `SeatSelectionInput`, `ShotSpec`, `SpawnOpts`, `SqlRunContextOptions`, `SqlRunLease`, `SqlRunStoreOptions`, `StdioMcpConnection`, `StdioMcpServerSpec`, `SteerableSandboxArgs`, `Strategy`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SupervisorSpanOptions`, `SupervisorSpanRecorder`, `SurfaceScore`, `TaskQueueOptions`, `ToolSpec`, `ToolStepInput`, `TournamentRow`, `TraceSource`, `TrajectoryAnalysis`, `UntrackedCopyStats`, `ValidationCtx`, `Validator`, `VerdictSummary`, `VerifierEnvironmentOptions`, `WatchTraceOptions`, `WaterfallCollector`, `WaterfallReport`, `WaterfallSpan`, `WorkerEvidenceInput`, `WorkerSpawnRetryHooks`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `CodeModeResult`, `CodeModeStore`, `EdgeDeliveryOutcome`, `GraphEdge`, `GraphSelection`, `HarvestCorpusOptions`, `InboxMessage`, `IsolatedCheckResult`, `LoopTraceEvent`, `MakeWorkerAgent`, `ObserveOptions`, `PeerMailOutcome`, `RepairStop`, `SandboxControlClient`, `SeatSelection`, `SpawnEvent`, `UsageEvent`, `WorkspaceCommit`.
 
 ### Analyst loop — trace findings on a running loop
 
@@ -1770,39 +1779,59 @@ Import from `@tangle-network/agent-runtime/task-queue` — 4 exports.
 
 ### Workspace store — versioned per-tenant memory and files, tools, pinned memory, adapter contract
 
-Import from `@tangle-network/agent-runtime/workspace-store` — 35 exports.
+Import from `@tangle-network/agent-runtime/workspace-store` — 59 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `aesGcmContentCodecFromEnv` | function | The AES-256-GCM codec from an app's env, or `null` when neither variable is |
 | `assertWorkspacePath` | function | Refuse anything but an absolute, normalized path such as `/files/report.md`. |
+| `captureHarnessMemory` | function | What the harness added during the turn, outside the generated block: new |
 | `checkOperationId` | function | Refuse an `operationId` that is present but empty, not a string, or over 256 chars. |
 | `checkWorkspacePut` | function | Validate a put before any adapter touches storage; adapters call this first. |
+| `createAesGcmContentCodec` | function | AES-256-GCM with a key id per value. `keys` maps key id to 32 raw bytes |
 | `createFileTools` | function | `files.list`, `files.read`, `files.write`, `files.delete`, `files.search` over `/files/**` and `/knowledge/**`. |
 | `createInMemoryWorkspaceStore` | function | Process-local adapter for tests, previews, and single-instance hosts. |
 | `createMemoryTools` | function | `memory.remember`, `memory.recall`, `memory.forget`. |
 | `defaultMemoryPolicy` | function | Default authority. Reads: workspace memory, the speaker's own member memory, |
+| `harnessActor` | function | The entry `actor` for a captured memory, so `createdBy` carries its provenance. |
+| `ingestHarnessMemories` | function | Save captured facts as workspace memories through the same policy as |
 | `isSameWorkspaceWrite` | function | Whether `entry` is exactly what `input` would write: same kind, content and bytes. |
 | `memberIdFromPath` | function | The member a path belongs to, or `null` for workspace-scoped paths. |
+| `memoryDivergence` | function | Compare each native file with the store as `turn` sees it, after ingest ran. |
+| `normalizeMemoryText` | function | Lowercase, collapse spaces, drop a leading "Remember:" and trailing punctuation: the duplicate key. |
+| `openWorkspaceBytes` | function | Open bytes a host downloaded for an entry's `bytes` reference. |
+| `parseHarnessActor` | function | Read the harness, turn, and member provenance encoded by {@link harnessActor}. |
+| `projectHarnessMemory` | function | Replace the generated block in `native`, or append one; text outside it is kept byte for byte. |
 | `rankEntries` | function | BM25 over entry text (and path words), highest score first, ties by path. |
 | `readTurnMemories` | function | Workspace memories plus the speaker's own member memories, the set a turn may see. |
+| `renderHarnessMemory` | function | The generated block a host writes into a harness's native memory location. |
 | `renderPinnedMemory` | function | Render the memories a turn sees as one stable block for the per-turn preamble. |
 | `runWorkspaceStoreContract` | function | Run every contract case against fresh stores; never throws for a failing case. |
+| `sealWorkspaceBytes` | function | Seal bytes a host is about to upload (an R2 object) under the entry's tenant and path. |
+| `withContentCodec` | function | `store` with every entry's `content` sealed at rest. Index fields, `bytes` |
 | `workspaceStoreContractCases` | function | The contract as named cases; each case builds its own store. |
+| `HARNESS_MEMORY_BEGIN` | const | Opening marker for the generated block in a harness's native memory file. |
+| `HARNESS_MEMORY_END` | const | Closing marker for the generated block in a harness's native memory file. |
+| `SEALED_CONTENT_PREFIX` | const | Stored text of a sealed `content`: a prefix, then the sealed bytes in base64. |
+| `WorkspaceCodecError` | class | A value did not open: unknown key, wrong tenant or path, tampering, or plaintext where a seal was required. |
 | `WorkspaceConflictError` | class | A write lost a compare-and-set race or targeted the wrong revision. Re-read and retry. |
 | `WorkspacePolicyError` | class | A policy or path rule refused the call. |
+| `HarnessProvenance` | interface | Where a captured memory came from. |
 | `WorkspaceBytesRef` | interface | Large content kept outside the index, e.g. an R2 object. The adapter owns `key`. |
+| `WorkspaceCodecContext` | interface | Where a value lives; bound into the ciphertext. |
 | `WorkspaceEntry` | interface | One live document. Exactly one of `content` and `bytes` is present. |
 | `WorkspaceStore` | interface | Versioned path store for one or many tenants. Every write is a compare-and-set |
 | `WorkspaceTombstone` | interface | Erasure record: the content and bytes are gone; only this audit row remains. |
 | `WorkspaceToolDefinition` | interface | Structural tool shape, assignable to agent-app's `McpToolDefinition` |
 | `WorkspaceTurn` | interface | The speaker of the running turn, resolved by the host from its trusted session. |
+| `HarnessNativeFiles` | type | Native files keyed by path, as the host read them. A missing file is absent or `undefined`. |
 | `MakeWorkspaceStore` | type | Make a fresh, empty store for one case. |
 | `WorkspaceEntryKind` | type | What an entry holds; memory kinds are written through `memory.remember`, files through `files.write`. |
 | `WorkspaceEntryScope` | type | `member` entries live under `/memories/members/<memberId>/`; everything else is `workspace`. |
 | `WorkspacePolicyDecision` | type | `null` allows; a string refuses and is shown to the model as the reason. |
 | `WorkspaceRole` | type | `viewer` and `guest` are read-only under the default policy. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `MemoryPolicy`, `WorkspaceAccess`, `WorkspaceDeleteInput`, `WorkspacePutInput`, `WorkspaceStoreContractCase`, `WorkspaceStoreContractOptions`, `WorkspaceStoreContractResult`, `WorkspaceToolContext`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `ContentCodecOptions`, `HarnessIngestResult`, `MemoryDivergence`, `MemoryPolicy`, `WorkspaceAccess`, `WorkspaceContentCodec`, `WorkspaceDeleteInput`, `WorkspacePutInput`, `WorkspaceStoreContractCase`, `WorkspaceStoreContractOptions`, `WorkspaceStoreContractResult`, `WorkspaceToolContext`.
 
 ## 2. agent-eval — substrate primitives to REUSE
 

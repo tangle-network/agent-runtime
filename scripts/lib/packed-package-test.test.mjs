@@ -345,7 +345,8 @@ describe('Interface transfer contract cohort', () => {
     const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
     const name = '@tangle-network/agent-interface'
     expect(() => assertPeerMatchesDevelopmentDependency(manifest, name)).not.toThrow()
-    expect(rangeAdmits(manifest.peerDependencies[name], '5.0.0')).toBe(true)
+    expect(rangeAdmits(manifest.peerDependencies[name], '5.2.0')).toBe(true)
+    expect(rangeAdmits(manifest.peerDependencies[name], '5.0.0')).toBe(false)
     expect(rangeAdmits(manifest.peerDependencies[name], '4.0.0')).toBe(false)
     expect(rangeAdmits(manifest.peerDependencies[name], '6.0.0')).toBe(false)
     const workspace = readFileSync(new URL('../../pnpm-workspace.yaml', import.meta.url), 'utf8')

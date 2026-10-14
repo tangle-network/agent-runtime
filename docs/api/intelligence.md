@@ -4752,7 +4752,7 @@ Bind caller-owned target identities to the exact source state Runtime measured.
 
 ##### surfaces
 
-readonly (`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"hooks"` \| `"knowledge"` \| `"prompt"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`)[]
+readonly (`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"knowledge"` \| `"hooks"` \| `"prompt"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`)[]
 
 ##### experiment
 
@@ -4782,7 +4782,7 @@ Return whether a measured surface can be delivered through an agent profile.
 
 ##### surface
 
-`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"hooks"` \| `"knowledge"` \| `"prompt"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`
+`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"knowledge"` \| `"hooks"` \| `"prompt"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`
 
 #### Returns
 

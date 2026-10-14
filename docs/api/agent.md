@@ -1363,6 +1363,43 @@ Throw when a candidate changes axes the selected run path cannot carry.
 
 ***
 
+### assertProfileMaterializes()
+
+> **assertProfileMaterializes**(`profile`, `harness`, `context`, `skip?`): `WorkspacePlan`
+
+Throw when the CHOSEN HARNESS has no control for a dimension the profile asks for.
+
+The contract above answers which axes a run path carries; this answers whether the harness can
+execute them. `materializeProfile` is pure, so the verdict costs no process and no IO.
+
+`skip` must mirror what the EXECUTING caller skips, or this refuses a profile that would have
+run: a dimension handled by the executor's own native control is not unsupported, it is simply
+not the plan's to lower.
+
+#### Parameters
+
+##### profile
+
+`AgentProfile`
+
+##### harness
+
+`"claude-code"` \| `"codex"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
+
+##### context
+
+`string`
+
+##### skip?
+
+readonly (`"mcp"` \| `"extensions"`)[]
+
+#### Returns
+
+`WorkspacePlan`
+
+***
+
 ### renderProfileMaterializationIssues()
 
 > **renderProfileMaterializationIssues**(`issues`, `context?`): `string`

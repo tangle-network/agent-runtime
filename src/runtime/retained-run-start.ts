@@ -585,11 +585,7 @@ export async function recoverRetainedRun(
         })
   if (!environment) return { outcome: 'not_found' }
   if (contextTransfer !== undefined && options.transferReceipt !== undefined) {
-    assertRetainedContextTransferEnvironment(
-      environment,
-      contextTransfer,
-      options.transferReceipt,
-    )
+    assertRetainedContextTransferEnvironment(environment, contextTransfer, options.transferReceipt)
   }
   const capabilities = retainedCapabilitiesForEnvironment(
     options.provider.name,
