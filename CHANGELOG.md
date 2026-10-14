@@ -1,3 +1,7 @@
+## 0.319.9
+
+Recover a completed retained turn’s missing workspace evidence before its environment can run another turn. Preserve prompt result journaling and accepted spend; a failed root capture remains re-enterable without repeating inference or destroying its source.
+
 ## 0.319.8
 
 Retained provider turns now deliver committed results before their final native session copy. The retained owner completes that copy before workspace capture and before reusing or releasing the environment, so slow evidence export no longer delays a completed child turn from reaching its caller.
