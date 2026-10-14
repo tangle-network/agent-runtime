@@ -4,6 +4,7 @@ import {
   type AgentProfile,
   AgentTurnInputSchema,
   canonicalAgentProfileDigest,
+  type TokenUsage,
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
@@ -1264,6 +1265,252 @@ describe('environment provider adapters', () => {
       backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
     })
     expect(await box.prompt('hello')).toMatchObject({ response, success: true })
+  })
+
+  describe('prompt usage uses the shared receipt ledger', () => {
+    const event = (
+      type: string,
+      usage?: TokenUsage,
+      usageMode?: 'delta' | 'cumulative',
+      id?: string,
+      data: Record<string, unknown> = {},
+    ): AgentEnvironmentEvent => ({
+      type,
+      data,
+      ...(usage ? { usage } : {}),
+      ...(usageMode ? { usageMode } : {}),
+      ...(id ? { id } : {}),
+    })
+    const u = {
+      inputTokens: 100,
+      outputTokens: 10,
+      totalTokens: 110,
+      reasoningTokens: 2,
+      cacheReadInputTokens: 20,
+      cacheCreationInputTokens: 10,
+      cost: 0.2,
+    }
+    const native = (usage: Record<string, unknown>): AgentEnvironmentEvent => ({
+      type: 'raw',
+      data: { type: 'turn.completed', usage },
+    })
+    const cu = {
+      input_tokens: 100,
+      output_tokens: 10,
+      cached_input_tokens: 20,
+      cache_write_input_tokens: 10,
+      reasoning_output_tokens: 2,
+    }
+    const cases = [
+      {
+        name: 'repeated cumulative',
+        events: [
+          event('raw', { inputTokens: 60, outputTokens: 6 }, 'cumulative'),
+          event('result', { inputTokens: 100, outputTokens: 10 }, 'cumulative'),
+          event('done', { inputTokens: 100, outputTokens: 10 }, 'cumulative'),
+        ],
+        expected: { inputTokens: 100, outputTokens: 10 },
+      },
+      {
+        name: 'delta plus repeated total',
+        events: [
+          event('llm_call', { inputTokens: 40, outputTokens: 4 }, 'delta', 'd'),
+          event('result', { inputTokens: 100, outputTokens: 10 }, 'cumulative', 'c'),
+          event('done', { inputTokens: 100, outputTokens: 10 }, 'cumulative', 'c'),
+        ],
+        expected: { inputTokens: 100, outputTokens: 10 },
+      },
+      {
+        name: 'duplicate delta ID',
+        events: [
+          event('llm_call', { inputTokens: 40, outputTokens: 4 }, 'delta', 'd'),
+          event('llm_call', { inputTokens: 40, outputTokens: 4 }, 'delta', 'd'),
+          event('done'),
+        ],
+        expected: { inputTokens: 40, outputTokens: 4 },
+      },
+      {
+        name: 'repeated optional totals and cost',
+        events: [event('result', u, 'cumulative'), event('done', u, 'cumulative')],
+        expected: u,
+      },
+      {
+        name: 'delta optional fields',
+        events: [
+          event('llm_call', u, 'delta', 'a'),
+          event('llm_call', u, 'delta', 'b'),
+          event('done'),
+        ],
+        expected: Object.fromEntries(Object.entries(u).map(([k, v]) => [k, v * 2])),
+      },
+      { name: 'no receipt', events: [event('done')], expected: undefined },
+      {
+        name: 'measured zero',
+        events: [event('done', { inputTokens: 0, outputTokens: 0 })],
+        expected: { inputTokens: 0, outputTokens: 0 },
+      },
+      {
+        name: 'optional measured zero',
+        events: [
+          event('done', {
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            reasoningTokens: 0,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            cost: 0,
+          }),
+        ],
+        expected: {
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          reasoningTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          cost: 0,
+        },
+      },
+      {
+        name: 'native fallback',
+        events: [native(cu), event('done')],
+        expected: {
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadInputTokens: 20,
+          cacheCreationInputTokens: 10,
+        },
+      },
+      {
+        name: 'canonical precedence',
+        events: [native(cu), event('done', { inputTokens: 150, outputTokens: 20 })],
+        expected: { inputTokens: 150, outputTokens: 20 },
+      },
+      {
+        name: 'late cache classification',
+        events: [
+          event('llm_call', { inputTokens: 100, outputTokens: 10 }, 'delta'),
+          event('done', {
+            inputTokens: 100,
+            outputTokens: 10,
+            cacheReadInputTokens: 20,
+            cacheCreationInputTokens: 10,
+          }),
+        ],
+        expected: {
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadInputTokens: 20,
+          cacheCreationInputTokens: 10,
+        },
+      },
+      {
+        name: 'changed receipt ID',
+        events: [
+          event('llm_call', { inputTokens: 40, outputTokens: 4 }, 'delta', 'a'),
+          event('llm_call', { inputTokens: 41, outputTokens: 4 }, 'delta', 'a'),
+          event('done'),
+        ],
+        expected: undefined,
+      },
+      {
+        name: 'changed only reasoning ID',
+        events: [
+          event('llm_call', u, 'delta', 'a'),
+          event('llm_call', { ...u, reasoningTokens: 3 }, 'delta', 'a'),
+          event('done'),
+        ],
+        expected: undefined,
+      },
+      {
+        name: 'unknown mode',
+        events: [event('raw', { inputTokens: 40, outputTokens: 4 }), event('done')],
+        expected: undefined,
+      },
+      {
+        name: 'falling cumulative',
+        events: [
+          event('result', { inputTokens: 100, outputTokens: 10 }, 'cumulative'),
+          event('done', { inputTokens: 60, outputTokens: 6 }, 'cumulative'),
+        ],
+        expected: undefined,
+      },
+      {
+        name: 'malformed native then valid native',
+        events: [native({ input_tokens: 1 }), native(cu), event('done')],
+        expected: undefined,
+      },
+      {
+        name: 'reported terminal cost after token delta',
+        events: [
+          event('llm_call', { inputTokens: 100, outputTokens: 10 }, 'delta'),
+          event(
+            'done',
+            { inputTokens: 100, outputTokens: 10, cost: 0.2 },
+            'cumulative',
+            undefined,
+            { costProvenance: 'provider-receipt' },
+          ),
+        ],
+        expected: { inputTokens: 100, outputTokens: 10, cost: 0.2 },
+      },
+      {
+        name: 'catalog estimate not reported cost',
+        events: [
+          event(
+            'done',
+            { inputTokens: 100, outputTokens: 10, cost: 0.2 },
+            'cumulative',
+            undefined,
+            { costProvenance: 'catalog-estimate' },
+          ),
+        ],
+        expected: { inputTokens: 100, outputTokens: 10 },
+      },
+      {
+        name: 'nonfinite optional',
+        events: [event('done', { inputTokens: 100, outputTokens: 10, totalTokens: NaN })],
+        expected: undefined,
+      },
+    ]
+    it.each(cases)('$name', async ({ events, expected }) => {
+      const provider: AgentEnvironmentProvider = {
+        name: 'prompt-usage-fixture',
+        capabilities: fakeCapabilities,
+        async create() {
+          return fakeEnvironment({
+            async *stream(): AsyncIterable<AgentEnvironmentEvent> {
+              yield* events
+            },
+          })
+        },
+      }
+      const box = await providerAsSandboxClient(provider).create({
+        backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
+      })
+      expect((await box.prompt('hello')).usage).toEqual(expected)
+    })
+
+    it('starts a fresh usage ledger for each prompt', async () => {
+      let turn = 0
+      const provider: AgentEnvironmentProvider = {
+        name: 'successive-prompt-fixture',
+        capabilities: fakeCapabilities,
+        async create() {
+          return fakeEnvironment({
+            async *stream(): AsyncIterable<AgentEnvironmentEvent> {
+              yield event('done', turn++ === 0 ? u : undefined)
+            },
+          })
+        },
+      }
+      const box = await providerAsSandboxClient(provider).create({
+        backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
+      })
+      expect((await box.prompt('first')).usage).toEqual(u)
+      expect((await box.prompt('second')).usage).toBeUndefined()
+    })
   })
 
   it.each([

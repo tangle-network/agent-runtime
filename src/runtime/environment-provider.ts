@@ -2941,7 +2941,7 @@ function environmentAsSandboxInstance(
     ): Promise<PromptResult> {
       let lastResultText: string | undefined
       let text = ''
-      let usage: TokenUsage | undefined
+      const usageLedger = createSandboxUsageLedger()
       let terminal = false
       const failures = createProviderFailureLedger()
       const input = turnInputFromPrompt(message, promptOptions)
@@ -2950,15 +2950,20 @@ function environmentAsSandboxInstance(
       for await (const event of environment.stream(input)) {
         lastResultText = resultTextFromData(event.data) ?? lastResultText
         if (isTerminalEnvironmentEvent(event)) terminal = true
-        failures.observe(event, sandboxEventFromEnvironmentEvent(event))
+        const sandboxEvent = sandboxEventFromEnvironmentEvent(event)
+        failures.observe(event, sandboxEvent)
+        const usageEvent = usageSandboxEvent(event)
+        if (usageEvent) usageLedger.observe(usageEvent, environment.id)
+        usageLedger.observe(sandboxEvent, environment.id)
         text += textFromEnvironmentEvent(event)
-        usage = mergeTokenUsage(usage, event.usage)
       }
       if (options.requireTerminalEvent && !terminal) {
         throw new ValidationError(
           `providerAsSandboxClient(${environment.provider}): prompt ended without a terminal result/done/status event`,
         )
       }
+      usageLedger.settleTurn(environment.id)
+      const usage = usageLedger.settledUsage()
       const outcome = failures.finish()
       return {
         response: lastResultText ?? text,
@@ -3683,39 +3688,6 @@ function isUsageType(type: string): boolean {
 /** A terminal event whose usage rides `data.usage` — the nested shape this transport unwraps. */
 function isNestedUsageType(type: string): boolean {
   return isSandboxTerminalEvent(type) && sandboxTerminalUsageField(type) === 'usage'
-}
-
-function mergeTokenUsage(
-  left: TokenUsage | undefined,
-  right: TokenUsage | undefined,
-): TokenUsage | undefined {
-  if (!left) return right
-  if (!right) return left
-  return {
-    inputTokens: left.inputTokens + right.inputTokens,
-    outputTokens: left.outputTokens + right.outputTokens,
-    ...(left.totalTokens !== undefined || right.totalTokens !== undefined
-      ? { totalTokens: (left.totalTokens ?? 0) + (right.totalTokens ?? 0) }
-      : {}),
-    ...(left.cacheReadInputTokens !== undefined || right.cacheReadInputTokens !== undefined
-      ? {
-          cacheReadInputTokens:
-            (left.cacheReadInputTokens ?? 0) + (right.cacheReadInputTokens ?? 0),
-        }
-      : {}),
-    ...(left.cacheCreationInputTokens !== undefined || right.cacheCreationInputTokens !== undefined
-      ? {
-          cacheCreationInputTokens:
-            (left.cacheCreationInputTokens ?? 0) + (right.cacheCreationInputTokens ?? 0),
-        }
-      : {}),
-    ...(left.reasoningTokens !== undefined || right.reasoningTokens !== undefined
-      ? { reasoningTokens: (left.reasoningTokens ?? 0) + (right.reasoningTokens ?? 0) }
-      : {}),
-    ...(left.cost !== undefined || right.cost !== undefined
-      ? { cost: (left.cost ?? 0) + (right.cost ?? 0) }
-      : {}),
-  }
 }
 
 function stringValue(value: unknown): string | undefined {

@@ -16,7 +16,7 @@
  * fold and the once-per-turn precedence rule between the two sources.
  */
 
-import type { HarnessType, StreamEvent } from '@tangle-network/agent-interface'
+import type { HarnessType, StreamEvent, TokenUsage } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import type { RuntimeStreamEvent } from '../types'
 import { decodeHarnessUsage, type HarnessUsage } from './harness-usage'
@@ -262,6 +262,11 @@ export function extractLlmCallEvent(
   event: SandboxEvent,
   agentRunName: string,
 ): (RuntimeStreamEvent & { type: 'llm_call' }) | undefined {
+  const data = canonicalUsageData(event)
+  return data === undefined ? undefined : buildLlmCall(data, agentRunName)
+}
+
+function canonicalUsageData(event: SandboxEvent): Record<string, unknown> | undefined {
   if (!event || typeof event !== 'object') return undefined
   const type = String(event.type ?? '')
   const data =
@@ -270,7 +275,7 @@ export function extractLlmCallEvent(
       : ({} as Record<string, unknown>)
 
   if (type === 'llm_call' || type === 'cost.usage' || type === 'usage') {
-    return buildLlmCall(usageReceiptData(data, plainRecord(data.usage)), agentRunName)
+    return usageReceiptData(data, plainRecord(data.usage))
   }
   if (type === 'error' || isSandboxTerminalEvent(type)) {
     const field = type === 'error' ? 'tokenUsage' : sandboxTerminalUsageField(type)
@@ -278,7 +283,7 @@ export function extractLlmCallEvent(
       plainRecord(data[field]) ?? plainRecord(data[field === 'usage' ? 'tokenUsage' : 'usage'])
     // Completeness and cost provenance describe the receipt from its envelope.
     // Keep that envelope instead of projecting only counters from the nested usage.
-    return buildLlmCall(usageReceiptData(data, usage), agentRunName)
+    return usageReceiptData(data, usage)
   }
   return undefined
 }
@@ -303,6 +308,10 @@ export function extractLlmCallEvent(
 export interface SandboxUsageLedger {
   /** Cumulative worker tokens, including cache classifications reported after the prompt total. */
   tokenUsage(): LoopTokenUsage
+  /** Read a detached snapshot of the latest settled turn, without settling the active turn.
+   *  Absent/incomplete usage stays absent; cost is the reported number, not a billing-completeness
+   *  claim or a catalog estimate. A later empty settlement replaces the snapshot with undefined. */
+  settledUsage(): TokenUsage | undefined
   /** Account one event. Returns the canonical usage receipt to credit now, if the event is one. */
   observe(
     event: SandboxEvent,
@@ -321,7 +330,10 @@ export function createSandboxUsageLedger(harness?: HarnessType): SandboxUsageLed
   const receipts = new Map<string, string>()
   const settledTokens = zeroTokenUsage()
   let turnTokens = zeroTokenUsage()
+  let turnUsageUnknown = false
+  let settledUsage: TokenUsage | undefined
   return {
+    settledUsage: () => (settledUsage === undefined ? undefined : { ...settledUsage }),
     tokenUsage() {
       const total = cloneTokenUsage(settledTokens)
       addTokenUsage(total, turnTokens)
@@ -334,13 +346,17 @@ export function createSandboxUsageLedger(harness?: HarnessType): SandboxUsageLed
         const receipt = creditCanonicalUsage(event, call, credited, receipts, (receipt, mode) => {
           refineCanonicalTokens(turnTokens, call, receipt, mode)
         })
-        if (receipt?.tokensKnown === false) turnTokens.tokensKnown = false
+        if (receipt?.tokensKnown === false) {
+          turnTokens.tokensKnown = false
+          turnUsageUnknown = true
+        }
         return receipt
       }
       let usage: HarnessUsage | undefined
       try {
         usage = decodeHarnessUsage(event, harness)
       } catch (err) {
+        turnUsageUnknown = true
         // A receipt the ledger cannot read is a measurement fact, not an outcome fact. It is
         // answered like any other receipt, marked unknown with the decode message, so every
         // consumer marks the spend unknown through the fold it already applies and none decides
@@ -364,19 +380,41 @@ export function createSandboxUsageLedger(harness?: HarnessType): SandboxUsageLed
       const canonical = sawCanonical
       held = []
       sawCanonical = false
-      for (const key of Object.keys(credited)) delete credited[key]
-      receipts.clear()
       const receipt =
         !canonical && reports.length > 0 ? harnessUsageLlmCall(reports, agentRunName) : undefined
       if (receipt) {
-        addTokenUsage(turnTokens, {
-          input: receipt.tokensIn ?? 0,
-          output: receipt.tokensOut ?? 0,
-          ...promptCacheTokenClasses(receipt.tokensIn, receipt.promptCache),
-        })
+        creditCanonicalUsage(
+          { type: 'llm_call', data: {} },
+          receipt,
+          credited,
+          receipts,
+          (credit, mode) => refineCanonicalTokens(turnTokens, receipt, credit, mode),
+        )
       }
+      // The same credit pass owns totals, presence, replay and mode semantics for this projection.
+      settledUsage =
+        !turnUsageUnknown && credited.tokensIn !== undefined && credited.tokensOut !== undefined
+          ? {
+              inputTokens: credited.tokensIn,
+              outputTokens: credited.tokensOut,
+              ...(credited.totalTokens === undefined ? {} : { totalTokens: credited.totalTokens }),
+              ...(credited.reasoningTokens === undefined
+                ? {}
+                : { reasoningTokens: credited.reasoningTokens }),
+              ...(credited['promptCache.readTokens'] === undefined
+                ? {}
+                : { cacheReadInputTokens: credited['promptCache.readTokens'] }),
+              ...(credited['promptCache.writeTokens'] === undefined
+                ? {}
+                : { cacheCreationInputTokens: credited['promptCache.writeTokens'] }),
+              ...(credited.costUsd === undefined ? {} : { cost: credited.costUsd }),
+            }
+          : undefined
+      for (const key of Object.keys(credited)) delete credited[key]
+      receipts.clear()
       addTokenUsage(settledTokens, turnTokens)
       turnTokens = zeroTokenUsage()
+      turnUsageUnknown = false
       return receipt
     },
   }
@@ -408,6 +446,15 @@ function creditCanonicalUsage(
   // A cost-only receipt says nothing about token completeness. A later complete token total
   // can still establish it; a stream containing only cost receipts stays unknown at its fold.
   const data = plainRecord(event.data) ?? {}
+  const usageData = canonicalUsageData(event) ?? {}
+  const supplemental = Object.fromEntries(
+    ['totalTokens', 'reasoningTokens'].flatMap((key) => {
+      const value = usageData[key]
+      return value === undefined
+        ? []
+        : [[key, typeof value === 'number' && Number.isFinite(value) ? value : null]]
+    }),
+  )
   const explicitTokensUnknown = [data, plainRecord(data.usage), plainRecord(data.tokenUsage)].some(
     (receipt) =>
       ['tokensKnown', 'tokens_known'].some(
@@ -425,7 +472,7 @@ function creditCanonicalUsage(
   let reason =
     mode === undefined ? 'usage receipt has no declared delta or cumulative semantics' : undefined
   if (event.id) {
-    const signature = JSON.stringify({ mode, call })
+    const signature = JSON.stringify({ mode, call, supplemental })
     const previous = receipts.get(event.id)
     if (previous === signature) return undefined
     if (previous !== undefined) {
@@ -455,6 +502,10 @@ function creditCanonicalUsage(
   }
   for (const key of ['tokensIn', 'tokensOut', 'costUsd', 'estimatedCostUsd'] as const) {
     if (call[key] !== undefined) result[key] = credit(key, call[key])
+  }
+  for (const [key, value] of Object.entries(supplemental)) {
+    if (typeof value !== 'number') reason = `usage receipt has an invalid ${key}`
+    else credit(key, value)
   }
   if (call.promptCache) {
     result.promptCache = Object.fromEntries(
