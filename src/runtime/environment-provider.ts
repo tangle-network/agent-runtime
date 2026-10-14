@@ -1965,25 +1965,33 @@ async function* streamProviderExecutor(
     reported: object,
     captureOutcome: AgentRunOutcome | undefined,
     publish: boolean,
+    beforeCapture?: () => Promise<void>,
   ): void => {
     args.retention?.onEndOfTurnWork?.(
-      args.captureWorkspace(environment, captureOutcome).then(
-        async (snapshot) => {
-          if (publish) args.onPublishedSnapshot(snapshot)
-          if (snapshot === undefined) return
-          await args.retention?.onEvidence?.({
-            ...reported,
-            workspaceSnapshot: snapshot,
-            workspaceCapture: providerWorkspaceCaptureReceipt(
-              args,
-              environment,
-              snapshot,
-              turn.sessionId ?? null,
-            ),
-          })
-        },
-        () => undefined,
-      ),
+      (async () => {
+        // The final native copy must precede the workspace capture, but neither copy holds the
+        // completed turn open. The retained owner waits for this work before reuse or release.
+        // A native copy is best-effort evidence; its failure must still leave the workspace
+        // capture a chance to retain the session before the owner reuses or releases it.
+        try {
+          await beforeCapture?.()
+        } catch {
+          // The workspace receipt remains the owner's retention boundary.
+        }
+        const snapshot = await args.captureWorkspace(environment, captureOutcome)
+        if (publish) args.onPublishedSnapshot(snapshot)
+        if (snapshot === undefined) return
+        await args.retention?.onEvidence?.({
+          ...reported,
+          workspaceSnapshot: snapshot,
+          workspaceCapture: providerWorkspaceCaptureReceipt(
+            args,
+            environment,
+            snapshot,
+            turn.sessionId ?? null,
+          ),
+        })
+      })().catch(() => undefined),
     )
   }
   // A deadline or a cancellation stops the harness once, before any capture of its session, so
@@ -2198,9 +2206,11 @@ async function* streamProviderExecutor(
     if (deferCapture) {
       // The session copy this turn settles with is taken first, on the native queue, which never
       // waits behind workspace captures; the workspace capture then reads a session that ended.
-      await args.finishNativeMirror(environment, 'settled')
+      // Both copies belong to the owner so neither delays delivery of this result to the caller.
       finalCopyTaken = true
-      handCaptureToOwner(settledResult, outcome, true)
+      handCaptureToOwner(settledResult, outcome, true, () =>
+        args.finishNativeMirror(environment, 'settled'),
+      )
     }
   } catch (error) {
     // A limit or transport stop may omit the terminal aggregate. Credit completed native
