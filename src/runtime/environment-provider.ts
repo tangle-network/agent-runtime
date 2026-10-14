@@ -64,6 +64,7 @@ import {
   type ProviderWorkspaceCaptureReceipt,
   type ProviderWorkspaceCaptureTiming,
   type ProviderWorkspaceRetentionPort,
+  workspaceCaptureReceipt,
 } from './provider-workspace-retention'
 import { environmentGone } from './retained-interactive-lifecycle'
 import {
@@ -399,38 +400,6 @@ export interface ProviderLeafOut {
   workspaceCaptureFailure?: string
   /** How many streamed part updates the archive left out because a later frame superseded them. */
   supersededPartUpdates?: number
-}
-
-/** Only a verified, single-session capture may supply a scalar session identity. */
-function capturedSessionIdentity(
-  provenance: ProviderWorkspaceCaptureProvenance | undefined,
-  coverageComplete: boolean,
-  executionId: string,
-  providerSessionId: string | null,
-): { providerSessionId: string | null; nativeSessionId: string | null } {
-  const unknown = { providerSessionId, nativeSessionId: null }
-  if (
-    !coverageComplete ||
-    provenance?.status !== 'reported' ||
-    provenance.executionId !== executionId ||
-    provenance.sessions?.length !== 1
-  )
-    return unknown
-  const session = provenance.sessions[0]!
-  if (
-    session.executionId !== executionId ||
-    (providerSessionId !== null && session.id !== providerSessionId)
-  )
-    return unknown
-  const ids = new Set(
-    (provenance.attempts ?? [])
-      .filter((attempt) => session.executionIds?.includes(attempt.executionId))
-      .flatMap((attempt) => attempt.nativeSessionIds),
-  )
-  const nativeSessionId = ids.size === 1 ? [...ids][0]! : null
-  if (session.nativeSessionId != null && nativeSessionId !== session.nativeSessionId)
-    return { providerSessionId, nativeSessionId: null }
-  return { providerSessionId, nativeSessionId }
 }
 
 /**
@@ -1840,31 +1809,29 @@ function providerWorkspaceCaptureReceipt(
   snapshot: AgentCandidateWorkspaceSnapshotEvidence,
   fallbackSessionId: string | null,
 ): ProviderWorkspaceCaptureReceipt {
-  const provenance = args.workspaceProvenance()
   const coverage = args.workspaceCoverage()
   const controlRef = args.workspaceControlRef()
-  return {
-    executionId: args.executionId,
-    ...(controlRef === undefined ? {} : { controlRef }),
-    ...(args.node === undefined ? {} : { node: args.node }),
-    environmentId: environment.id,
-    profileDigest: canonicalAgentProfileDigest(args.profile),
-    ...capturedSessionIdentity(
-      provenance,
-      coverage.complete,
-      args.executionId,
-      controlRef?.sessionId ?? fallbackSessionId,
-    ),
-    snapshot,
-    provenance: provenance ?? {
-      status: 'unavailable',
-      missing: ['Capture coverage metadata was not retained'],
+  return workspaceCaptureReceipt(
+    {
+      executionId: args.executionId,
+      ...(controlRef === undefined ? {} : { controlRef }),
+      ...(args.node === undefined ? {} : { node: args.node }),
+      environment,
+      profile: args.profile,
+      providerSessionId: controlRef?.sessionId ?? fallbackSessionId,
     },
-    coverageComplete: coverage.complete,
-    ...(coverage.incompleteReason === undefined
-      ? {}
-      : { incompleteReason: coverage.incompleteReason }),
-  }
+    {
+      snapshot,
+      provenance: args.workspaceProvenance() ?? {
+        status: 'unavailable',
+        missing: ['Capture coverage metadata was not retained'],
+      },
+      coverageComplete: coverage.complete,
+      ...(coverage.incompleteReason === undefined
+        ? {}
+        : { incompleteReason: coverage.incompleteReason }),
+    },
+  )
 }
 
 /** How one invocation ended, for the executor that may continue it. */
@@ -3120,23 +3087,19 @@ function environmentAsSandboxInstance(
           providerSessionId,
           nativeSessionId: null,
           profile: identity.profile,
-        }).then(({ snapshot, provenance, coverageComplete, incompleteReason }) => ({
-          executionId: identity.executionId,
-          ...(controlRef === undefined ? {} : { controlRef }),
-          ...(identity.node === undefined ? {} : { node: identity.node }),
-          environmentId: environment.id,
-          profileDigest: canonicalAgentProfileDigest(identity.profile),
-          ...capturedSessionIdentity(
-            provenance,
-            coverageComplete === true,
-            identity.executionId,
-            providerSessionId,
+        }).then((captured) =>
+          workspaceCaptureReceipt(
+            {
+              environment,
+              executionId: identity.executionId,
+              ...(controlRef === undefined ? {} : { controlRef }),
+              ...(identity.node === undefined ? {} : { node: identity.node }),
+              profile: identity.profile,
+              providerSessionId,
+            },
+            captured,
           ),
-          snapshot,
-          provenance,
-          coverageComplete: coverageComplete ?? false,
-          ...(incompleteReason === undefined ? {} : { incompleteReason }),
-        }))
+        )
         const receipt = await capture
         publication ??= Promise.resolve().then(async () => {
           await options.onWorkspaceCaptured?.(receipt)

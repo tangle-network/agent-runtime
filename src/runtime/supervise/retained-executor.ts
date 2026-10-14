@@ -316,6 +316,17 @@ export function classifyRetainedPendingCause(
   return 'unobservable'
 }
 
+/** @internal Evidence recovery failed; the accepted turn stands and a root pursuit stays open. */
+export class RetainedWorkspaceCapturePendingError extends Error {
+  constructor(executionId: string, cause: unknown) {
+    super(
+      `retained workspace capture pending for ${executionId}; source environment preserved: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    )
+    this.name = 'RetainedWorkspaceCapturePendingError'
+  }
+}
+
 /**
  * Local observation stopped; the retained provider execution has no accepted terminal result.
  *

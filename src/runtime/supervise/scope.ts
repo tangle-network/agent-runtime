@@ -2587,7 +2587,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   })
   registerScopeRetainedOwner(scope as Scope<unknown>, {
     rootId: args.root,
+    executionRootId: args.ownerMaterialization?.journalRoot ?? args.root,
     nodeId: args.parentId,
+    depth: args.depth,
     journal: args.journal,
     blobs: args.blobs,
     priorEvents: args.resumeFrom?.events ?? [],
