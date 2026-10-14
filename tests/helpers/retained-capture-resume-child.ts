@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
@@ -58,6 +59,9 @@ const retention: ProviderWorkspaceRetentionPort = {
       what: 'capture-started',
       environmentId: captureContext.environment.id,
       executionId: captureContext.executionId,
+      node: captureContext.node,
+      profileDigest: canonicalAgentProfileDigest(captureContext.profile),
+      profile: captureContext.profile,
     })
     if (phase === 'kill' || phase === 'seat-kill') process.kill(process.pid, 'SIGKILL')
     if (phase === 'reject' || phase === 'live-reject')
@@ -73,6 +77,8 @@ const retention: ProviderWorkspaceRetentionPort = {
       what: 'capture-finished',
       environmentId: captureContext.environment.id,
       executionId: captureContext.executionId,
+      node: captureContext.node,
+      profileDigest: canonicalAgentProfileDigest(captureContext.profile),
     })
     if (phase === 'partial')
       return {
@@ -95,6 +101,8 @@ const retention: ProviderWorkspaceRetentionPort = {
         what: 'native-started',
         environmentId: captureContext.environment.id,
         executionId: captureContext.executionId,
+        node: captureContext.node,
+        profileDigest: canonicalAgentProfileDigest(captureContext.profile),
       })
       process.kill(process.pid, 'SIGKILL')
     }

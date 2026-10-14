@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { contentAddress } from '../../src/durable/spawn-journal'
 import {
@@ -9,10 +10,9 @@ import {
   workspaceCaptureReceipt,
 } from '../../src/runtime/provider-workspace-retention'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
-import type { SpawnEvent } from '../../src/runtime/supervise/types'
+import type { ExecutorNodeContext, SpawnEvent } from '../../src/runtime/supervise/types'
 import { completeCapture, fileWorkspaceArtifacts } from '../helpers/complete-workspace-capture'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
-import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
 const script = new URL('../helpers/retained-capture-resume-child.ts', import.meta.url).pathname
 const runId = 'retained-capture-restart'
@@ -54,6 +54,9 @@ interface Moment {
   what: string
   environmentId: string
   executionId: string
+  node?: ExecutorNodeContext
+  profileDigest?: string
+  profile?: AgentProfile
 }
 const moments = async (directory: string): Promise<Moment[]> =>
   (await readFile(join(directory, 'moments.jsonl'), 'utf8'))
@@ -105,7 +108,9 @@ async function expectReenterable(directory: string, phase: string) {
 }
 
 async function expectRecovered(directory: string, phase = 'resume') {
-  const before = resultsIn(await eventsIn(directory))[0]!
+  const beforeEvents = await eventsIn(directory)
+  const before = resultsIn(beforeEvents)[0]!
+  const beforeSequence = Math.max(...beforeEvents.map((event) => event.seq))
   const result = await runPhase(directory, phase)
   expect(result.code, result.stderr + result.stdout).toBe(0)
   const history = await moments(directory)
@@ -124,7 +129,29 @@ async function expectRecovered(directory: string, phase = 'resume') {
   expect(nextDispatch).toBeGreaterThan(-1)
   expect(recovered, JSON.stringify(history, null, 2)).toBeGreaterThan(-1)
   expect(recovered).toBeLessThan(nextDispatch)
+  expect(interrupted.node).toBeDefined()
+  expect(interrupted.profileDigest).toBeDefined()
+  expect(history[recovered]?.node).toEqual(interrupted.node)
+  expect(history[recovered]?.profileDigest).toBe(interrupted.profileDigest)
   expect(history[nextDispatch]?.environmentId).toBe(interrupted.environmentId)
+  const recoveredEvents = await eventsIn(directory)
+  const evidence = recoveredEvents.find(
+    (event) => event.kind === 'execution-evidence' && event.seq > beforeSequence,
+  )
+  expect(evidence?.kind).toBe('execution-evidence')
+  if (evidence?.kind !== 'execution-evidence') throw new Error('missing recovered evidence')
+  expect(await contextFor(directory).blobs.get(evidence.outRef)).toMatchObject({
+    workspaceCapture: {
+      executionId: interrupted.executionId,
+      node: interrupted.node,
+      profileDigest: interrupted.profileDigest,
+    },
+  })
+  const nextInput = recoveredEvents.find(
+    (event) => event.kind === 'execution-input' && event.seq > beforeSequence,
+  )
+  expect(nextInput).toBeDefined()
+  expect(evidence.seq).toBeLessThan(nextInput!.seq)
   // Capture recovery neither republishes accepted output nor redispatches the paid invocation.
   expect(
     resultsIn(await eventsIn(directory)).filter((event) => event.outRef === before.outRef),
@@ -237,7 +264,21 @@ describe('retained workspace capture across a real process kill', () => {
     ).toHaveLength(0)
   })
 
-  it.each(['execution', 'environment', 'control', 'coverage', 'snapshot'])(
+  it.each([
+    'execution',
+    'environment',
+    'control',
+    'coverage',
+    'snapshot',
+    'profile',
+    'profile-missing',
+    'node-root',
+    'node-parent',
+    'node-id',
+    'node-depth',
+    'node-attempt',
+    'node-missing',
+  ])(
     'refuses a durable %s-mismatched receipt before a fresh dispatch',
     { timeout: 60_000 },
     async (mismatch) => {
@@ -256,21 +297,27 @@ describe('retained workspace capture across a real process kill', () => {
       if (!environment) throw new Error('missing source')
       const artifacts = fileWorkspaceArtifacts(join(directory, 'artifacts'))
       const input = events.find((event) => event.kind === 'execution-input')!
+      const originalCapture = (await moments(directory)).find(
+        (moment) => moment.what === 'capture-started',
+      )!
+      expect(originalCapture.node).toBeDefined()
+      expect(originalCapture.profileDigest).toBeDefined()
+      if (originalCapture.profile === undefined) throw new Error('missing original profile')
       const captureContext = {
         environment,
         executionId: `${runId}:input:${input.seq}`,
         controlRef,
         providerSessionId: controlRef.sessionId,
-        profile: testAgentProfile('root', {
-          harness: 'claude-code',
-          tools: runtimeToolDeclarations('submit_result'),
-        }),
+        node: originalCapture.node,
+        profile: originalCapture.profile,
       }
       const captured = await captureProviderWorkspaceSnapshot(
         { timeoutMs: 10_000, artifacts, capture: (next) => completeCapture(next, artifacts) },
         captureContext,
       )
       const receipt = workspaceCaptureReceipt(captureContext, captured)
+      expect(receipt.node).toEqual(originalCapture.node)
+      expect(receipt.profileDigest).toBe(originalCapture.profileDigest)
       const output = {
         workspaceSnapshot: captured.snapshot,
         workspaceCapture: {
@@ -281,6 +328,24 @@ describe('retained workspace capture across a real process kill', () => {
             ? { controlRef: { ...controlRef, executionId: 'foreign-control' } }
             : {}),
           ...(mismatch === 'coverage' ? { coverageComplete: false } : {}),
+          ...(mismatch === 'profile' ? { profileDigest: `sha256:${'f'.repeat(64)}` } : {}),
+          ...(mismatch === 'profile-missing' ? { profileDigest: undefined } : {}),
+          ...(mismatch === 'node-root'
+            ? { node: { ...originalCapture.node, rootId: 'foreign-root' } }
+            : {}),
+          ...(mismatch === 'node-parent'
+            ? { node: { ...originalCapture.node, parentId: 'foreign-parent' } }
+            : {}),
+          ...(mismatch === 'node-id'
+            ? { node: { ...originalCapture.node, nodeId: 'foreign-node' } }
+            : {}),
+          ...(mismatch === 'node-depth'
+            ? { node: { ...originalCapture.node, depth: (originalCapture.node?.depth ?? 0) + 1 } }
+            : {}),
+          ...(mismatch === 'node-attempt'
+            ? { node: { ...originalCapture.node, attemptId: 'foreign-attempt' } }
+            : {}),
+          ...(mismatch === 'node-missing' ? { node: undefined } : {}),
           ...(mismatch === 'snapshot'
             ? { snapshot: { ...captured.snapshot, digest: `sha256:${'f'.repeat(64)}` } }
             : {}),

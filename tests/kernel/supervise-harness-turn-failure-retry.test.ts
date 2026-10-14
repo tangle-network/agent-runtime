@@ -70,6 +70,8 @@ async function harnessFailureFixture(options: {
   readonly workspaceRetention?: boolean | 'timeout'
   /** A turn that completes without submitting, leaving the contract unmet. */
   readonly withholdsSubmit?: (dispatch: number) => boolean
+  /** Explicit caller cancellation arrives after capture recovery failed, during source cleanup. */
+  readonly cancelDuringTeardown?: boolean
 }) {
   const directory = await mkdtemp(join(tmpdir(), 'harness-turn-failure-'))
   directories.push(directory)
@@ -219,7 +221,17 @@ async function harnessFailureFixture(options: {
       {
         runDir: join(directory, 'run'),
         runId: options.runId,
-        journal: context.journal,
+        journal: options.cancelDuringTeardown
+          ? {
+              beginTree: context.journal.beginTree.bind(context.journal),
+              loadTree: context.journal.loadTree.bind(context.journal),
+              async appendEvent(root, event) {
+                await context.journal.appendEvent(root, event)
+                if (event.kind === 'teardown-unconfirmed')
+                  abort.abort(new Error('operator cancelled during capture cleanup'))
+              },
+            }
+          : context.journal,
         blobs: context.blobs,
         signal: abort.signal,
         backend: {
@@ -566,6 +578,28 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(ofKind(recovered, 'execution-abandoned')).toHaveLength(0)
     expect(fixture.dispatches()).toBe(2)
     expect(new Set(fixture.environmentIds).size).toBe(1)
+  })
+
+  it('honors explicit cancellation during failed-capture cleanup while keeping the accepted source', async () => {
+    const fixture = await harnessFailureFixture({
+      runId: 'harness-retention-cancel-cleanup',
+      failures: () => undefined,
+      withholdsSubmit: () => true,
+      workspaceRetention: 'timeout',
+      cancelDuringTeardown: true,
+    })
+    const { result } = await fixture.run({})
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled', source: 'signal' })
+    expect(result.teardownUnconfirmed?.[0]?.kept).toMatchObject([
+      { environmentId: fixture.environmentIds[0], keptFor: 'evidence' },
+    ])
+    const events = await fixture.events()
+    expect(ofKind(events, 'execution-result')).toHaveLength(1)
+    expect(ofKind(events, 'execution-input')).toHaveLength(1)
+    expect(ofKind(events, 'execution-evidence')).toHaveLength(0)
+    expect(ofKind(events, 'execution-abandoned')).toHaveLength(0)
+    expect(fixture.dispatches()).toBe(1)
+    expect(fixture.destroys()).toBe(0)
   })
 
   it('keeps an accepted submission when the turn that submitted it then fails', async () => {

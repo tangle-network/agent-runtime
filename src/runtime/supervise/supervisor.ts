@@ -967,11 +967,6 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // carried in, so `tree` covers the same work `spentTotal` bills for. Identical to `scope.view`
       // on every run that did not resume.
       persistence.assertAvailable()
-      // A missing capture must not seal an otherwise accepted pursuit as driver-failed.
-      // Its source survived the barrier; a later entry can retry evidence without inference.
-      if (!actOutcome.ok && actOutcome.error instanceof RetainedWorkspaceCapturePendingError) {
-        throw actOutcome.error
-      }
       const tree = runTree(scope)
       // Reservations still open once every child has settled, read once at the barrier and named
       // by their holders. A leak breaks `total ≡ free + reserved + committed`, so the winner path
@@ -981,6 +976,12 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // settlement with an exception discards a whole pursuit over cleanup bookkeeping (#1181).
       const leakedReservations = pool.openReservations()
       if (controller.signal.reason instanceof RunCancellationReason) return noWinner()
+      // A missing capture must not seal an otherwise accepted pursuit as driver-failed.
+      // Its source survived the barrier; a later entry can retry evidence without inference.
+      // Explicit cancellation still settles above, including cancellation during that barrier.
+      if (!actOutcome.ok && actOutcome.error instanceof RetainedWorkspaceCapturePendingError) {
+        throw actOutcome.error
+      }
       if (actOutcome.ok) {
         if (executionAborted) return noWinner()
         const out = actOutcome.out

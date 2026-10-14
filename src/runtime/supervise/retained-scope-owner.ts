@@ -44,6 +44,7 @@ import {
 import { detachedSnapshot } from './snapshot'
 import type {
   ExecutionBindingReceipt,
+  ExecutorNodeContext,
   ExecutorResult,
   NodeId,
   ResultBlobStore,
@@ -1460,7 +1461,7 @@ async function releaseOwnerEnvironment(
         event.workspaceRetention === true,
     )
   const retentionFailures = retentionConfigured
-    ? await ownerWorkspaceRetentionFailures(events, args.nodeId, args.blobs)
+    ? await ownerWorkspaceRetentionFailures(events, args)
     : new Set<string>()
   const unconfirmed: string[] = []
   // Sources preserved for lack of a verified workspace receipt: evidence, never swept.
@@ -1739,7 +1740,9 @@ function ownerWorkspaceAttempts(events: readonly SpawnEvent[], nodeId: NodeId): 
     } else if (event.kind === 'execution-admitted') {
       current?.admissions.push(event.admission)
     } else if (event.kind === 'execution-bound') {
-      if (current !== undefined) current.binding = event.binding
+      // A later coordinator may finalize without running another invocation. Its bookkeeping
+      // binding cannot rename the provider attempt whose result was already accepted.
+      if (current !== undefined && current.result === undefined) current.binding = event.binding
     } else if (event.kind === 'execution-result') {
       current ??= fresh()
       current.result = event
@@ -1756,16 +1759,15 @@ function ownerWorkspaceAttempts(events: readonly SpawnEvent[], nodeId: NodeId): 
  *
  * The receipt is the attempt's committed result, or an evidence record of the same attempt: a
  * turn its manager stopped commits its result first and journals its capture as evidence after
- * it, and a turn that failed journals the capture it took of the stopped session. This runs only
- * at a release no process will resume, so a complete, verified capture of the exact execution is
- * the whole of what keeping the source would preserve.
+ * it, and a turn that failed journals the capture it took of the stopped session. A root capture
+ * failure can enter this cleanup barrier and still be resumed, so any receipt refused before
+ * reuse must also preserve its source here.
  */
 async function ownerWorkspaceRetentionFailures(
   events: readonly SpawnEvent[],
-  nodeId: NodeId,
-  blobs: ResultBlobStore,
+  owner: OwnerRegistration,
 ): Promise<ReadonlySet<string>> {
-  const attempts = ownerWorkspaceAttempts(events, nodeId)
+  const attempts = ownerWorkspaceAttempts(events, owner.nodeId)
   const failures = new Set<string>()
   for (const attempt of attempts) {
     if (attempt.environmentIds.size === 0) continue
@@ -1777,7 +1779,12 @@ async function ownerWorkspaceRetentionFailures(
       continue
     }
     const environmentId = [...attempt.environmentIds][0]!
-    const verified = await ownerAttemptHasCapture(attempt, environmentId, blobs)
+    const verified = await ownerAttemptHasCapture(
+      attempt,
+      environmentId,
+      owner.blobs,
+      attempt.workspaceRetention === true ? owner : undefined,
+    )
     if (!verified) failures.add(environmentId)
   }
   return failures
@@ -1787,6 +1794,7 @@ async function ownerAttemptHasCapture(
   attempt: OwnerAttempt,
   environmentId: string,
   blobs: ResultBlobStore,
+  owner?: OwnerRegistration,
 ): Promise<boolean> {
   const controlRef = attempt.controlByEnvironment.get(environmentId)
   const receipts = [
@@ -1801,13 +1809,35 @@ async function ownerAttemptHasCapture(
         ? (output as { readonly workspaceSnapshot?: unknown }).workspaceSnapshot
         : undefined
     if (
-      hasDurableWorkspaceCapture(output, snapshot, environmentId, attempt.executionId, controlRef)
+      hasDurableWorkspaceCapture(
+        output,
+        snapshot,
+        environmentId,
+        attempt.executionId,
+        controlRef,
+        owner === undefined ? undefined : ownerCaptureIdentity(attempt, owner),
+      )
     ) {
       verified = true
       break
     }
   }
   return verified
+}
+
+function ownerCaptureIdentity(attempt: OwnerAttempt, owner: OwnerRegistration) {
+  const intent = attempt.admissions.find((admission) => admission.phase === 'intent')
+  const node: ExecutorNodeContext | undefined =
+    attempt.binding === undefined
+      ? undefined
+      : {
+          rootId: owner.executionRootId ?? owner.rootId,
+          parentId: owner.nodeId,
+          nodeId: owner.nodeId,
+          ...(owner.depth === undefined ? {} : { depth: owner.depth }),
+          attemptId: attempt.binding.attemptId,
+        }
+  return { profileDigest: intent?.requestedProfileDigest, node }
 }
 
 /** Recover evidence only, before a later turn or checkpoint can change the accepted workspace. */
@@ -1829,7 +1859,7 @@ async function reconcileOwnerWorkspaceBeforeReuse(
     if (attempt.workspaceRetention !== true || attempt.result === undefined) continue
     for (const environmentId of attempt.environmentIds) {
       if (!reusing.has(environmentId) || unusable.has(environmentId)) continue
-      if (await ownerAttemptHasCapture(attempt, environmentId, args.blobs)) continue
+      if (await ownerAttemptHasCapture(attempt, environmentId, args.blobs, args)) continue
       try {
         if (attempt.environmentIds.size !== 1 || attempt.executionId === undefined) {
           throw new Error('accepted workspace has ambiguous admission identity')
@@ -1886,6 +1916,7 @@ async function reconcileOwnerWorkspaceBeforeReuse(
           environment.provider !== provider.name
         )
           throw new Error('accepted workspace source is unavailable')
+        const identity = ownerCaptureIdentity(attempt, args)
         const context = {
           environment,
           executionId: attempt.executionId,
@@ -1893,17 +1924,7 @@ async function reconcileOwnerWorkspaceBeforeReuse(
           providerSessionId: controlRef.sessionId,
           nativeSessionId: null,
           profile: capture.profile,
-          ...(attempt.binding === undefined
-            ? {}
-            : {
-                node: {
-                  rootId: args.executionRootId ?? args.rootId,
-                  parentId: args.nodeId,
-                  nodeId: args.nodeId,
-                  ...(args.depth === undefined ? {} : { depth: args.depth }),
-                  attemptId: attempt.binding.attemptId,
-                },
-              }),
+          ...(identity.node === undefined ? {} : { node: identity.node }),
         }
         const captured = await runAbortable(
           () => captureProviderWorkspaceSnapshot(capture.port, context),
@@ -1922,6 +1943,7 @@ async function reconcileOwnerWorkspaceBeforeReuse(
             environmentId,
             attempt.executionId,
             controlRef,
+            identity,
           )
         )
           throw new Error(captured.incompleteReason ?? 'accepted workspace capture is incomplete')
@@ -1950,6 +1972,7 @@ function hasDurableWorkspaceCapture(
   environmentId: string,
   executionId: string | undefined,
   controlRef: AgentExactRunControlRef | undefined,
+  identity?: ReturnType<typeof ownerCaptureIdentity>,
 ): boolean {
   const parsed = agentCandidateWorkspaceSnapshotEvidenceSchema.safeParse(snapshot)
   if (
@@ -1962,6 +1985,18 @@ function hasDurableWorkspaceCapture(
   const capture = (output as { readonly workspaceCapture?: unknown }).workspaceCapture
   if (capture === null || typeof capture !== 'object') return false
   const receipt = capture as Record<string, unknown>
+  // Both reuse and release check persisted invocation identity. Release retains the older
+  // receipt contract only for legacy inputs without a persisted retention obligation.
+  if (
+    identity !== undefined &&
+    (identity.profileDigest === undefined ||
+      receipt.profileDigest !== identity.profileDigest ||
+      (identity.node === undefined
+        ? receipt.node !== undefined
+        : receipt.node === undefined ||
+          contentAddress(receipt.node) !== contentAddress(identity.node)))
+  )
+    return false
   const capturedControl = AgentExactRunControlRefSchema.safeParse(receipt.controlRef)
   if (
     executionId === undefined ||
