@@ -2609,6 +2609,14 @@ async function providerExecutionSource(
     const session = exactSession(environment, handle.controlRef).session
     async function* events(): AsyncIterable<AgentEnvironmentEvent> {
       let observationFailure: { error: unknown } | undefined
+      // The exact result is an independent terminal authority. A provider can finish an
+      // execution while its event subscription stays open, so begin this read before waiting
+      // for the next frame and let its success wake the observer.
+      const exactResult = awaitAbortable(handle.result(), signal)
+      const exactWake: Promise<void> = exactResult.then(
+        () => undefined,
+        () => new Promise<never>(() => {}),
+      )
       // The last frame that carried a replay position, and whether any frame ended the turn. The
       // SSE contract lets a frame arrive with no position; such a frame does not move the cursor,
       // so this is where a reconnect resumes from.
@@ -2621,6 +2629,7 @@ async function providerExecutionSource(
       ): AsyncGenerator<AgentEnvironmentEvent, boolean> {
         let iterator: AsyncIterator<AgentEnvironmentEvent> | undefined
         let failed = false
+        let exactResultReady = false
         try {
           iterator = open()[Symbol.asyncIterator]()
         } catch (error) {
@@ -2636,14 +2645,22 @@ async function providerExecutionSource(
               if (remaining <= 0) {
                 throw new RetainedReadTimeoutError('event stream', observationIdleMs)
               }
-              next = await awaitRetainedRead(
-                awaitAbortable(
-                  Promise.resolve().then(() => iterator!.next()),
-                  signal,
-                ),
+              const observed = await awaitRetainedRead(
+                Promise.race([
+                  awaitAbortable(
+                    Promise.resolve().then(() => iterator!.next()),
+                    signal,
+                  ).then((value) => ({ kind: 'event' as const, value })),
+                  exactWake.then(() => ({ kind: 'exact-result' as const })),
+                ]),
                 remaining,
                 'event stream',
               )
+              if (observed.kind === 'exact-result') {
+                exactResultReady = true
+                break
+              }
+              next = observed.value
             } catch (error) {
               if (signal.aborted) throw error
               observationFailure = { error }
@@ -2689,11 +2706,13 @@ async function providerExecutionSource(
             lastObservedAt = Date.now()
             if (identity.cursor !== undefined) lastReplayPosition = identity.cursor
             else if (eventId !== undefined) lastReplayPosition = eventId
-            if (isTerminalEnvironmentEvent(next.value)) sawTerminal = true
+            const terminal = isTerminalEnvironmentEvent(next.value)
+            if (terminal) sawTerminal = true
             yield next.value
+            if (terminal) break
           }
         } finally {
-          if (signal.aborted || failed) {
+          if (signal.aborted || failed || exactResultReady || sawTerminal) {
             void Promise.resolve()
               .then(() => iterator?.return?.())
               .catch(() => undefined)
@@ -2733,18 +2752,14 @@ async function providerExecutionSource(
       }
       if (!sawTerminal && observationFailure === undefined) {
         observationFailure = {
-          error: new Error('retained provider stream ended without a terminal event'),
+          error: new Error('retained provider stream did not yield a terminal event'),
         }
       }
       // Observation failure does not establish execution failure. Only the exact retained
       // result can settle the invocation; retain incomplete observation beside that result.
       let result: AgentTurnResult
       try {
-        result = await awaitRetainedRead(
-          awaitAbortable(handle.result(), signal),
-          resultWaitMs,
-          'exact result',
-        )
+        result = await awaitRetainedRead(exactResult, resultWaitMs, 'exact result')
       } catch (error) {
         if (signal.aborted) throw error
         if (!sawTerminal && error instanceof RetainedReadTimeoutError) {
