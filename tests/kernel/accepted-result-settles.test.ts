@@ -42,7 +42,13 @@ type Role = 'root' | 'director'
 
 interface Moment {
   readonly at: number
-  readonly what: 'dispatched' | 'capture-started' | 'capture-finished' | 'destroyed'
+  readonly what:
+    | 'dispatched'
+    | 'capture-started'
+    | 'capture-finished'
+    | 'native-started'
+    | 'native-finished'
+    | 'destroyed'
   readonly role: Role
   readonly environmentId: string
 }
@@ -166,6 +172,8 @@ async function completeCapture(
 interface TreeOptions {
   /** Hold the director's workspace capture until the test opens the gate. */
   readonly gateDirectorCapture?: boolean
+  /** Hold the director's settled native copy until the test opens the gate. */
+  readonly gateDirectorNative?: boolean
   /** Hold the root's first, non-submitting turn capture until the test opens the gate. */
   readonly gateRootFirstCapture?: boolean
   /** Hold the end of the director's turn (its event stream) this long after its dispatch. */
@@ -330,6 +338,13 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
       return captured
     },
     async captureNative(captureContext) {
+      if (
+        captureContext.phase === 'settled' &&
+        roles.get(captureContext.environment.id) === 'director'
+      ) {
+        note('native-started', captureContext.environment.id)
+        if (options.gateDirectorNative) await gate
+      }
       const { snapshot } = await captureAgentCandidateWorkspaceFiles(
         [{ path: 'native.jsonl', mode: 0o600, bytes: Uint8Array.from(Buffer.from('{}\n')) }],
         {
@@ -339,6 +354,12 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
           },
         },
       )
+      if (
+        captureContext.phase === 'settled' &&
+        roles.get(captureContext.environment.id) === 'director'
+      ) {
+        note('native-finished', captureContext.environment.id)
+      }
       return {
         snapshot,
         provenance: {
@@ -428,6 +449,44 @@ function lastMomentOf(moments: readonly Moment[], what: Moment['what'], role: Ro
 }
 
 describe('an accepted submit_result settles its node', () => {
+  it('settles a retained director before its slow final native copy, then captures before release', async () => {
+    const tree = await acceptedTree('accepted-before-native', { gateDirectorNative: true })
+    try {
+      await expect
+        .poll(
+          () =>
+            tree.moments.some(
+              (moment) => moment.role === 'director' && moment.what === 'native-started',
+            ),
+          { timeout: 10_000, interval: 50 },
+        )
+        .toBe(true)
+      await expect
+        .poll(
+          async () =>
+            ofKind(await tree.rootEvents(), 'settled').some(
+              (event) => event.id !== 'accepted-before-native' && event.status === 'done',
+            ),
+          { timeout: 2_000, interval: 50 },
+        )
+        .toBe(true)
+      expect(
+        tree.moments.some(
+          (moment) => moment.role === 'director' && moment.what === 'native-finished',
+        ),
+      ).toBe(false)
+    } finally {
+      tree.openGate()
+      await tree.settling
+    }
+    expect(momentOf(tree.moments, 'native-finished', 'director')).toBeLessThanOrEqual(
+      momentOf(tree.moments, 'capture-started', 'director'),
+    )
+    expect(momentOf(tree.moments, 'capture-finished', 'director')).toBeLessThanOrEqual(
+      momentOf(tree.moments, 'destroyed', 'director'),
+    )
+  }, 40_000)
+
   it('journals a retained non-submitting turn before its slow workspace capture', async () => {
     const tree = await acceptedTree('ordinary-before-capture', { gateRootFirstCapture: true })
     try {
