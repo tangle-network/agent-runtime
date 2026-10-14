@@ -17,7 +17,15 @@ After restoring storage, resume the same run; Runtime does not start a replaceme
 If retained event observation fails, Runtime reads the exact terminal result before leaving the invocation unresolved.
 An admitted retained stream that ends without a terminal event gets a bounded exact-result read.
 Silence during event observation is bounded from the last event; the same exact-result read follows. `environment-provider.ts` owns both limits.
-A valid exact result settles the original invocation with incomplete event observation recorded.
+The exact result is terminal authority for the admitted turn; a provider must not resolve it while that turn is still running.
+Runtime starts the exact-result read after the first validated event, or at the next scheduler turn if no event arrives.
+Each pending event read gets one scheduler turn before an exact result can close a quiet subscription; terminal frames do not discard ready trailing evidence.
+Runtime yields to the scheduler every 1,024 iterator frames, including duplicates, so a busy stream cannot starve result transport or cancellation.
+After the result settles, at most 1,024 further frames are observed across the live subscription and its one replay. This is an observation-work limit, not a provider buffering or latency guarantee.
+Exhausting that limit leaves the original invocation unresolved with its admission preserved: unobserved binding or refusal evidence cannot become accepted success.
+A valid exact result can settle a quiet open subscription, with incomplete observation recorded even if a terminal frame was seen. Incomplete token and dollar totals remain unknown while observed subtotals are retained; exact cumulative token usage can cover missing stream receipts, but a bare numeric cost is not a billing receipt.
+Subscription cleanup cannot block that exact result or a provider contract verdict; workspace capture and source teardown retain their separate verified-receipt requirements.
+This scheduler ordering does not certify that later provider or network events were observed.
 A result read that does not settle within the bound records `terminal-event-lost` and keeps the admitted execution for reconciliation; a definite read error keeps its own classified cause. Neither becomes success or a replacement dispatch.
 Replay of an event with the same provider identity neither charges usage twice nor extends the observation bound, and changed content under that identity is a provider contract error.
 Recovered results preserve incomplete event observation and a bounded, redacted error summary.

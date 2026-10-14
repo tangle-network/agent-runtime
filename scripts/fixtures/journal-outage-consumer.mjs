@@ -344,6 +344,8 @@ if (mode === 'controller') {
         ]
         if (alive) await completed
       } else if (method === 'result') {
+        // The exact result waits for native completion independently of event observation.
+        if (alive) await completed
         assert.equal(alive, false)
         value = {
           success: true,

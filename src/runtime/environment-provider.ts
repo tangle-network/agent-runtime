@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { clearImmediate, setImmediate } from 'node:timers'
 import {
   captureHarnessTranscript,
   type HarnessTranscriptCapture,
@@ -1720,6 +1721,8 @@ const NATIVE_SETTLE_POLL_MS = 1_000
 /** The two waits together leave a minute for Runtime to record a pending result before ten minutes. */
 const RETAINED_OBSERVATION_IDLE_MS = 8 * 60_000
 const RETAINED_RESULT_WAIT_MS = 60_000
+// Bound observation work, not elapsed provider latency. AsyncIterable has no buffered frontier.
+const RETAINED_OBSERVATION_BATCH_EVENTS = 1_024
 
 class RetainedReadTimeoutError extends Error {
   constructor(label: string, ms: number) {
@@ -2025,6 +2028,14 @@ async function* streamProviderExecutor(
         usageLedger.observe(sandboxEvent, args.profile.name ?? 'agent'),
         sandboxEvent,
       )
+      if (
+        source.retained &&
+        event.type === 'result' &&
+        event.data.eventStreamComplete === false &&
+        event.data.usdKnown === false
+      ) {
+        sawUnknownCostReceipt = true
+      }
       if (isTerminalEnvironmentEvent(event)) terminal = true
     }
     yield* creditUsage(usageLedger.settleTurn(args.profile.name ?? 'agent'))
@@ -2473,9 +2484,6 @@ async function providerExecutionSource(
     RETAINED_RESULT_WAIT_MS,
     'retainedResultWaitMs',
   )
-  // A completed exact result shortens the event silence bound, but a provider may still be
-  // delivering buffered frames or finishing a turn that accepted a coordination tool call.
-  const resultDrainGraceMs = Math.min(15_000, Math.max(50, Math.floor(observationIdleMs / 10)))
   let admitted = args.recovering
   let executionAdmitted =
     args.recovering && retention.admissions.some((admission) => admission.phase === 'dispatched')
@@ -2612,17 +2620,26 @@ async function providerExecutionSource(
     const session = exactSession(environment, handle.controlRef).session
     async function* events(): AsyncIterable<AgentEnvironmentEvent> {
       let observationFailure: { error: unknown } | undefined
-      // The exact result can wake a quiet event subscription. Start it only after a bound
-      // frame has been checked, or after observation ends: a foreign frame must fail before
-      // the provider's exact result is read.
+      // Give an immediately available frame its binding check before reading the exact result.
+      // A quiet first read starts the same result read at the next scheduler turn instead.
       let exactResult: Promise<AgentTurnResult> | undefined
-      let exactWake: Promise<void> | undefined
-      const readExactResult = (): Promise<AgentTurnResult> => {
+      let exactResultSettled = false
+      let observedFrames = 0
+      let framesAfterResult = 0
+      let observationBudgetExceeded = false
+      const readExactResult = () => {
         if (exactResult === undefined) {
-          exactResult = awaitAbortable(handle.result(), signal)
-          exactWake = exactResult.then(
-            () => undefined,
-            () => new Promise<never>(() => {}),
+          exactResult = awaitAbortable(
+            Promise.resolve().then(() => handle.result()),
+            signal,
+          )
+          void exactResult.then(
+            () => {
+              exactResultSettled = true
+            },
+            () => {
+              exactResultSettled = true
+            },
           )
         }
         return exactResult
@@ -2639,7 +2656,6 @@ async function providerExecutionSource(
       ): AsyncGenerator<AgentEnvironmentEvent, boolean> {
         let iterator: AsyncIterator<AgentEnvironmentEvent> | undefined
         let failed = false
-        let exactResultReady = false
         try {
           iterator = open()[Symbol.asyncIterator]()
         } catch (error) {
@@ -2649,48 +2665,61 @@ async function providerExecutionSource(
         }
         try {
           while (true) {
+            if (framesAfterResult >= RETAINED_OBSERVATION_BATCH_EVENTS) {
+              observationBudgetExceeded = true
+              break
+            }
+            if (observedFrames > 0 && observedFrames % RETAINED_OBSERVATION_BATCH_EVENTS === 0) {
+              // Ready iterators can otherwise monopolize the microtask queue and starve the
+              // result transport, cancellation, and deadlines. Duplicates count as work too.
+              await awaitAbortable(new Promise<void>((resolve) => setImmediate(resolve)), signal)
+            }
             let next: IteratorResult<AgentEnvironmentEvent>
+            let wake: ReturnType<typeof setImmediate> | undefined
             try {
               const remaining = observationIdleMs - (Date.now() - lastObservedAt)
               if (remaining <= 0) {
                 throw new RetainedReadTimeoutError('event stream', observationIdleMs)
               }
-              const eventRead = awaitAbortable(
-                Promise.resolve().then(() => iterator!.next()),
-                signal,
-              ).then((value) => ({ kind: 'event' as const, value }))
+              // Give this event read one scheduler turn before an exact result closes a quiet
+              // subscription. Ready tails are observed only within the finite work allowance.
+              const exactWake = new Promise<{ kind: 'exact-result' }>((resolve) => {
+                wake = setImmediate(() => {
+                  void readExactResult().then(
+                    () => resolve({ kind: 'exact-result' }),
+                    () => resolve({ kind: 'exact-result' }),
+                  )
+                })
+              })
               const observed = await awaitRetainedRead(
-                exactWake !== undefined && !sawTerminal
-                  ? Promise.race([
-                      eventRead,
-                      exactWake.then(() => ({ kind: 'exact-result' as const })),
-                    ])
-                  : eventRead,
+                Promise.race([
+                  awaitAbortable(
+                    Promise.resolve().then(() => iterator!.next()),
+                    signal,
+                  ).then((value) => ({ kind: 'event' as const, value })),
+                  exactWake,
+                ]),
                 remaining,
                 'event stream',
               )
               if (observed.kind === 'exact-result') {
-                // The result can beat frames that the subscription has already queued.
-                // Let those frames drain before treating a genuinely quiet stream as lost.
-                try {
-                  next = (
-                    await awaitRetainedRead(eventRead, resultDrainGraceMs, 'buffered event stream')
-                  ).value
-                } catch (error) {
-                  if (!(error instanceof RetainedReadTimeoutError)) throw error
-                  exactResultReady = true
-                  break
+                observationFailure ??= {
+                  error: new Error('retained provider stream remained open after its exact result'),
                 }
-              } else {
-                next = observed.value
+                break
               }
+              next = observed.value
             } catch (error) {
               if (signal.aborted) throw error
               observationFailure = { error }
               failed = true
               break
+            } finally {
+              if (wake !== undefined) clearImmediate(wake)
             }
             if (next.done) break
+            observedFrames += 1
+            if (exactResultSettled) framesAfterResult += 1
             // A received event for another execution must never be accepted as evidence — and
             // it is the PROVIDER's contract that was broken, so it must classify as such (#1204).
             try {
@@ -2731,17 +2760,15 @@ async function providerExecutionSource(
             else if (eventId !== undefined) lastReplayPosition = eventId
             const terminal = isTerminalEnvironmentEvent(next.value)
             if (terminal) sawTerminal = true
-            else readExactResult()
+            readExactResult()
             yield next.value
           }
         } finally {
-          if (signal.aborted || failed || exactResultReady || sawTerminal) {
-            void Promise.resolve()
-              .then(() => iterator?.return?.())
-              .catch(() => undefined)
-          } else {
-            await iterator?.return?.()
-          }
+          // Subscription cleanup cannot establish execution readiness or suppress a binding
+          // verdict. A provider may never resolve return(); source teardown has its own proof.
+          void Promise.resolve()
+            .then(() => iterator?.return?.())
+            .catch(() => undefined)
         }
         return !failed
       }
@@ -2772,6 +2799,18 @@ async function providerExecutionSource(
           }),
         )
         if (!resumed) observationFailure = firstFailure
+      }
+      if (observationBudgetExceeded) {
+        // Preserve a definite exact-result error instead of masking it as observation loss.
+        await readExactResult()
+        // A result does not prove that unobserved queued frames were bound or non-refusals.
+        // Preserve the original admission rather than accepting success at an arbitrary cut.
+        throw new RetainedExecutionPendingError(
+          new Error(
+            `retained provider observation exceeded ${RETAINED_OBSERVATION_BATCH_EVENTS} frames after its exact result`,
+          ),
+          'unobservable',
+        )
       }
       if (!sawTerminal && observationFailure === undefined) {
         observationFailure = {
@@ -2813,6 +2852,8 @@ async function providerExecutionSource(
             ? {}
             : {
                 eventStreamComplete: false,
+                ...(result.usage === undefined ? { tokensKnown: false } : {}),
+                ...(result.usage?.cost === undefined ? { usdKnown: false } : {}),
                 eventStreamError: String(
                   defaultRedactor(
                     observationFailure.error instanceof Error

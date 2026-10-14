@@ -55,6 +55,8 @@ function inFlight(base: AgentEnvironmentProvider): AgentEnvironmentProvider {
       const session = environment.session!(id, options)
       return {
         ...session,
+        // These workers are still running; their exact result must remain pending too.
+        result: async () => await new Promise<never>(() => {}),
         async *events(eventOptions) {
           for await (const event of session.events(eventOptions)) {
             if (event.type === 'status') yield event

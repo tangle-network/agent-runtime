@@ -823,6 +823,10 @@ describe('retained external supervisor recovery', () => {
     const prompts: string[] = []
     let lostEnvironment: AgentEnvironment | undefined
     let terminalCleanupCalls = 0
+    let resolveFirstTurnStopped!: () => void
+    const firstTurnStopped = new Promise<void>((resolve) => {
+      resolveFirstTurnStopped = resolve
+    })
     let port = 0
     let token = ''
     const callTool = async (name: string, args: Record<string, unknown>) => {
@@ -901,15 +905,24 @@ describe('retained external supervisor recovery', () => {
           // The first director writes its objective, makes one coordination call, and then its
           // sandbox is deleted mid-turn.
           async *events() {
-            filesOf(environment.id).set('objective.md', 'nonce-first-turn')
-            await callTool('read_journal', {})
-            for (let waited = 0; !(await journaled('workspace-checkpoint')); waited += 10) {
-              if (waited > 5_000) throw new Error('no workspace checkpoint was journaled')
-              await new Promise((resolve) => setTimeout(resolve, 10))
+            try {
+              filesOf(environment.id).set('objective.md', 'nonce-first-turn')
+              await callTool('read_journal', {})
+              for (let waited = 0; !(await journaled('workspace-checkpoint')); waited += 10) {
+                if (waited > 5_000) throw new Error('no workspace checkpoint was journaled')
+                await new Promise((resolve) => setTimeout(resolve, 10))
+              }
+              lostEnvironment = environment
+              await environment.destroy?.()
+              throw new Error('Sandbox not found')
+            } finally {
+              resolveFirstTurnStopped()
             }
-            lostEnvironment = environment
-            await environment.destroy?.()
-            throw new Error('Sandbox not found')
+          },
+          result: async () => {
+            // Exact readiness follows the same checkpoint and loss as event observation.
+            await firstTurnStopped
+            return session.result()
           },
         }
       },
