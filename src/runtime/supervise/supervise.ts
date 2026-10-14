@@ -1117,6 +1117,8 @@ function driveHarnessFromBackend(
         throw new ValidationError('same-provider seat continuation lost its native environment')
       }
       reentry.onContinuity?.(continuity)
+      // After the capture wait above: a wake names what settled while the turn was held.
+      await reentry.refresh?.()
       driveTask = reentry.compose(continuity)
       if (
         activeSeat?.previous &&
