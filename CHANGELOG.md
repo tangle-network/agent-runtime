@@ -1,3 +1,7 @@
+## 0.319.2
+
+Declare compatible first-party dependency ranges in the published Runtime package so consumers can share their existing Core, Knowledge, and Profile Materialize installations.
+
 ## 0.319.1
 
 Publish the retained-turn recovery fix after correcting release verification for temporary Git fixtures and independently delivered wake events.
