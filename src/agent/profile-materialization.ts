@@ -97,6 +97,7 @@ const compoundAxisLeaves: Record<string, readonly CanonicalAgentProfileMateriali
     'skills',
     'resourceAgents',
     'commands',
+    'knowledge',
     'resourceInstructions',
     'resourceFailOnError',
   ],

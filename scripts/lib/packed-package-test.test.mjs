@@ -341,11 +341,13 @@ describe('requiredPackedPeerCandidateVersion', () => {
 })
 
 describe('Interface transfer contract cohort', () => {
-  it('admits the tested v5 contract and rejects incompatible major versions', () => {
+  it('admits the fixed v5 floor and rejects earlier patches and incompatible majors', () => {
     const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
     const name = '@tangle-network/agent-interface'
     expect(() => assertPeerMatchesDevelopmentDependency(manifest, name)).not.toThrow()
-    expect(rangeAdmits(manifest.peerDependencies[name], '5.2.0')).toBe(true)
+    expect(rangeAdmits(manifest.peerDependencies[name], '5.2.1')).toBe(true)
+    expect(rangeAdmits(manifest.peerDependencies[name], '5.2.0')).toBe(false)
+    expect(rangeAdmits(manifest.peerDependencies[name], '5.1.0')).toBe(false)
     expect(rangeAdmits(manifest.peerDependencies[name], '5.0.0')).toBe(false)
     expect(rangeAdmits(manifest.peerDependencies[name], '4.0.0')).toBe(false)
     expect(rangeAdmits(manifest.peerDependencies[name], '6.0.0')).toBe(false)
