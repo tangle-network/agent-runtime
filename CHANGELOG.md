@@ -1,3 +1,7 @@
+## 0.319.8
+
+Retained provider turns now deliver committed results before their final native session copy. The retained owner completes that copy before workspace capture and before reusing or releasing the environment, so slow evidence export no longer delays a completed child turn from reaching its caller.
+
 ## 0.319.7
 
 Journal completed retained turns before their workspace capture so slow evidence export cannot hide a child result or root turn from its caller.
