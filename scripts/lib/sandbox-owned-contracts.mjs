@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { join, relative } from 'node:path'
 
 // Exact published package tuples, qualified at the Runtime/Sandbox adapter boundary.
-// The .41 tuple has byte-identical shared contracts. The .49, .50, and .51 tuples preserve
+// The .41 tuple has byte-identical shared contracts. The .49, .50, .51 and .53 tuples preserve
 // shared execution fields and explicitly refuse unresolved Interface 5.2 knowledge pins.
 // Qualification is limited to the Linux npm packed-consumer layout used by this gate.
 // Keep unknown versions and changed bytes fail-closed.
@@ -46,6 +46,13 @@ const qualifiedCohorts = [
   ],
   [
     ['sandbox', '0.60.51', '38b7cb3029e294acb0c796fe9d33ebc31d176b09ab5a7028b2217d0ec0c45b6b'],
+    ['agent-interface', '5.2.1', '8b7fb911efa58195c926f9a7f1e76db0edaf2bf57f086531304fdc10d5e3b559'],
+    ['agent-core', '0.12.0', '81c0e698c4f08418cdbf7aa4901a5278d23b5cdac3d35260504b2112d3e4999e'],
+    ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
+    ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
+  ],
+  [
+    ['sandbox', '0.60.53', 'c2f7faf11b8e001f81774a61f3a41196f41f669762777fba3435f2a3e4c021f9'],
     ['agent-interface', '5.2.1', '8b7fb911efa58195c926f9a7f1e76db0edaf2bf57f086531304fdc10d5e3b559'],
     ['agent-core', '0.12.0', '81c0e698c4f08418cdbf7aa4901a5278d23b5cdac3d35260504b2112d3e4999e'],
     ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
