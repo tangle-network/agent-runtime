@@ -22,7 +22,11 @@ async function fixture() {
   roots.push(root)
   const source = join(root, 'source')
   await mkdir(source)
-  const git = (args: string[]) => execFileSync('git', args, { cwd: source }).toString('utf8')
+  const git = (args: string[]) =>
+    execFileSync('git', args, {
+      cwd: source,
+      env: { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1' },
+    }).toString('utf8')
   git(['init', '--initial-branch=main'])
   writeFileSync(join(source, '.gitignore'), 'ignored-cache\n')
   writeFileSync(join(source, 'tracked.txt'), 'original\n')
