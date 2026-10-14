@@ -1,3 +1,11 @@
+## 0.319.6
+
+Require Interface 5.2.1 and reuse its canonical profile differ instead of maintaining a second complete-profile field/resource algorithm. Preserve Runtime provenance, stored activation changes, and the final exact candidate digest guard while restoring explicit empty resource siblings and immutable knowledge generations.
+
+Require knowledge-axis support when a compound resource change is validated against an execution materialization contract. Retain the existing knowledge/resource regressions and qualify the published Interface 5.2.1 release cohort.
+
+Reconcile retained exact results from quiet subscriptions before the first event and after terminal frames. Preserve ready binding, replay, refusal, and usage evidence within a finite observation-work budget, retain the original invocation if that budget is exhausted, and keep partial usage totals unknown without blocking on subscription cleanup.
+
 ## 0.319.5
 
 Preserve buffered retained provider events and accepted turn completion when an exact result becomes available, while still settling a completed turn whose event subscription stays open.
