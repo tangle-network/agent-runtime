@@ -10,7 +10,18 @@ export async function verifyWorkingTreeConsumer(candidates, kernel) {
   const source = join(root, 'source')
   const destination = join(root, 'destination')
   mkdirSync(source)
-  const git = (args, cwd = source) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
+  // Keep the disposable fixture independent of the caller's Git identity.
+  const git = (args, cwd = source) => execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'Runtime packed consumer',
+      GIT_AUTHOR_EMAIL: 'runtime-packed-consumer@example.invalid',
+      GIT_COMMITTER_NAME: 'Runtime packed consumer',
+      GIT_COMMITTER_EMAIL: 'runtime-packed-consumer@example.invalid',
+    },
+  }).trim()
   try {
     git(['init', '--quiet', '--initial-branch=main'])
     writeFileSync(join(source, 'file.txt'), 'committed\n')
