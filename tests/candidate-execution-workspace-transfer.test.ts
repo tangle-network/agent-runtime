@@ -30,7 +30,15 @@ async function fixture() {
   writeFileSync(join(source, 'executable'), 'original executable\n')
   chmodSync(join(source, 'executable'), 0o755)
   git(['add', '.'])
-  git(['commit', '-m', 'test fixture'])
+  git([
+    '-c',
+    'user.name=Workspace Fixture',
+    '-c',
+    'user.email=workspace-fixture@example.invalid',
+    'commit',
+    '-m',
+    'test fixture',
+  ])
   writeFileSync(join(source, 'tracked.txt'), 'staged source\n')
   git(['add', 'tracked.txt'])
   writeFileSync(join(source, 'tracked.txt'), 'dirty source\n')
