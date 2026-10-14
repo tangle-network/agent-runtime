@@ -2939,7 +2939,7 @@ function environmentAsSandboxInstance(
       message: string | PromptInputPart[],
       promptOptions?: PromptOptions,
     ): Promise<PromptResult> {
-      const events: AgentEnvironmentEvent[] = []
+      let lastResultText: string | undefined
       let text = ''
       let usage: TokenUsage | undefined
       let terminal = false
@@ -2948,7 +2948,7 @@ function environmentAsSandboxInstance(
       providerSessionId = input.sessionId ?? null
       noteControlRef(input.controlRef)
       for await (const event of environment.stream(input)) {
-        events.push(event)
+        lastResultText = resultTextFromData(event.data) ?? lastResultText
         if (isTerminalEnvironmentEvent(event)) terminal = true
         failures.observe(event, sandboxEventFromEnvironmentEvent(event))
         text += textFromEnvironmentEvent(event)
@@ -2961,7 +2961,7 @@ function environmentAsSandboxInstance(
       }
       const outcome = failures.finish()
       return {
-        response: resultFromEvents(events, text).content,
+        response: lastResultText ?? text,
         success: outcome?.success ?? true,
         status: outcome?.status ?? 'success',
         durationMs: 0,

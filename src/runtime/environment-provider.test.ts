@@ -1203,6 +1203,70 @@ describe('environment provider adapters', () => {
   })
 
   it.each([
+    {
+      name: 'an explicit empty final answer',
+      events: [
+        { type: 'result', data: { finalText: 'earlier answer' } },
+        { type: 'done', data: { finalText: '' } },
+      ],
+      response: '',
+    },
+    {
+      name: 'result-field priority',
+      events: [
+        {
+          type: 'done',
+          data: { finalText: '', text: 'text', response: 'response', content: 'content' },
+        },
+      ],
+      response: '',
+    },
+    {
+      name: 'the last nonterminal result text',
+      events: [
+        { type: 'raw', data: { response: 'earlier' } },
+        { type: 'raw', data: { content: 'later' } },
+        { type: 'done', data: {} },
+      ],
+      response: 'later',
+    },
+    {
+      name: 'the existing raw text precedence',
+      events: [
+        { type: 'text', data: { text: 'A' } },
+        { type: 'text', data: { text: 'B' } },
+        { type: 'done', data: {} },
+      ],
+      response: 'B',
+    },
+    {
+      name: 'delta fallback without result text',
+      events: [
+        { type: 'message.part.updated', data: { delta: 'A' } },
+        { type: 'message.part.updated', data: { delta: 'B' } },
+        { type: 'done', data: {} },
+      ],
+      response: 'AB',
+    },
+  ])('preserves $name without retaining prompt events', async ({ events, response }) => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'prompt-text-fixture',
+      capabilities: fakeCapabilities,
+      async create() {
+        return fakeEnvironment({
+          async *stream(): AsyncIterable<AgentEnvironmentEvent> {
+            yield* events
+          },
+        })
+      },
+    }
+    const box = await providerAsSandboxClient(provider).create({
+      backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
+    })
+    expect(await box.prompt('hello')).toMatchObject({ response, success: true })
+  })
+
+  it.each([
     ['error', false],
     ['done', false],
     ['result', false],
