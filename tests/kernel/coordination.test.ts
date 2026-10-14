@@ -1591,6 +1591,103 @@ describe('coordination tools', () => {
 })
 
 describe('a manager that ends its turn waits in Runtime and is woken', () => {
+  function pendingLead(verb: 'submit_result' | 'stop' = 'submit_result') {
+    let release!: () => void
+    const publication = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const publishing = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const tb = createCoordinationTools({
+      scope: mockScope({ children: false }).scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      ...(verb === 'submit_result' ? { deliverable: { check: () => true } } : {}),
+      onEvent: async (event) => {
+        if (event.type !== 'lead-message') return
+        started()
+        await publication
+      },
+    })
+    return { tb, release, publishing }
+  }
+
+  for (const verb of ['submit_result', 'stop'] as const) {
+    it(`refuses ${verb} until an inbox-accepted correction is published and read`, async () => {
+      const { tb, release, publishing } = pendingLead(verb)
+      try {
+        expect(tb.receiveLeadMessage({ steer: 'use the corrected evidence' })).toBe(true)
+        await publishing
+        const receipt = tb.openToolReceipt('failing_record')
+        await tb.settleToolReceipt(receipt, { ok: false, error: 'knowledge store is locked' })
+        // Independently delivered events may wake different turns. No coalescing is required.
+        const firstWake = await tb.awaitWake(wakeInput({ attempt: 2 }))
+        expect(firstWake?.events).toMatchObject([{ type: 'tool-outcome', receipt }])
+        tb.beginDriverAttempt(2)
+        await tb.endDriverAttempt('completed')
+        const close = () => tool(tb, verb).handler({ result: 'checked result', reason: 'done' })
+        expect(await close()).toMatchObject({
+          error: 'open-work',
+          reason: expect.stringContaining('1 lead message is still being published'),
+        })
+        expect(tb.isStopped()).toBe(false)
+        expect(tb.submittedResult()).toBeUndefined()
+
+        release()
+        const nextWake = await tb.awaitWake(wakeInput({ attempt: 3 }))
+        expect(nextWake?.events).toMatchObject([
+          { type: 'lead-message', text: 'use the corrected evidence' },
+        ])
+        tb.beginDriverAttempt(3)
+        await tb.endDriverAttempt('completed')
+        await tb.endDriverAttempt('completed')
+        expect(await tb.awaitWake(wakeInput())).toBeUndefined()
+        const leadSeq = nextWake?.events[0]?.eventSeq
+        const acknowledgements = tb.history().flatMap((record) =>
+          record.event.type === 'acknowledgement' ? record.event.acknowledgement.seqs : [],
+        )
+        expect(acknowledgements.filter((seq) => seq === leadSeq)).toHaveLength(1)
+        expect(tb.history().filter((record) => record.event.type === 'lead-message')).toHaveLength(1)
+        expect(await close()).not.toHaveProperty('error')
+        expect(tb.isStopped()).toBe(true)
+      } finally {
+        release()
+      }
+    })
+  }
+
+  for (const bound of ['cancel', 'heartbeat', 'deadline'] as const) {
+    it(`preserves the ${bound} boundary while a lead publication is pending`, async () => {
+      const { tb, release, publishing } = pendingLead()
+      try {
+        expect(tb.receiveLeadMessage({ steer: 'use the corrected evidence' })).toBe(true)
+        await publishing
+        const abort = new AbortController()
+        const waking = tb.awaitWake(
+          wakeInput({
+            signal: abort.signal,
+            ...(bound === 'heartbeat' ? { heartbeatMs: 0 } : {}),
+            ...(bound === 'deadline' ? { deadlineAt: 0 } : {}),
+          }),
+        )
+        if (bound === 'cancel') abort.abort()
+        const wake = await waking
+        if (bound === 'cancel') expect(wake).toBeUndefined()
+        else expect(wake).toMatchObject({ reason: bound, events: [] })
+        expect(tb.hasOpenWork()).toBe(true)
+        const submission = await tool(tb, 'submit_result').handler({ result: 'best result' })
+        // The existing deadline notice explicitly permits best-effort completion.
+        if (bound === 'deadline') expect(submission).toMatchObject({ accepted: true })
+        else expect(submission).toMatchObject({ accepted: false, error: 'open-work' })
+      } finally {
+        release()
+      }
+    })
+  }
+
   it('coalesces events that land within the debounce while other workers still run', async () => {
     const { scope } = mockScope()
     const settlements = [settledWorker('w7')]
