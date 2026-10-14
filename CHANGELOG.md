@@ -1,3 +1,7 @@
+## 0.319.5
+
+Preserve buffered retained provider events and accepted turn completion when an exact result becomes available, while still settling a completed turn whose event subscription stays open.
+
 ## 0.319.4
 
 Retained provider turns now reconcile as soon as their exact execution result completes, even when the event stream stays open. This wakes the calling agent for completed child turns and queued work while recording incomplete stream observation.
