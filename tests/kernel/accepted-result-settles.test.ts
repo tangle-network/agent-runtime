@@ -278,10 +278,18 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
                 )
               }
             },
-            result: async () => ({
-              ...(await session.result()),
-              usage: { inputTokens: 3, outputTokens: 2 },
-            }),
+            result: async () => {
+              // The exact result is terminal authority, so it cannot precede the turn's end.
+              if (endsAt !== undefined) {
+                await new Promise((resolve) =>
+                  setTimeout(resolve, Math.max(0, endsAt - Date.now())),
+                )
+              }
+              return {
+                ...(await session.result()),
+                usage: { inputTokens: 3, outputTokens: 2 },
+              }
+            },
           }
         },
         destroy: async () => {
