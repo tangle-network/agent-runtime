@@ -1,5 +1,5 @@
 /**
- * ORACLE — Platform's agent-placement/2, copied verbatim from agent-dev-container
+ * ORACLE — Platform's agent-placement/2, copied verbatim from agent-container
  * origin/develop d60344a49e (last change df10dcdb06):
  *   products/platform/api/src/lib/workflow-agent-placement.ts (selectAgentPlacement)
  *   products/platform/api/src/lib/workflow-actions.ts (workerProfileRefusal)

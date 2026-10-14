@@ -41,7 +41,7 @@ import type { Workspace } from '../workspace'
  * artifacts into the shared ref — in the source they are untracked, and a
  * delivery must not silently start tracking them.
  *
- * Promoted verbatim from `loops/src/worker-clone.ts` (see agent-dev-container#4519): any harness
+ * Promoted verbatim from `loops/src/worker-clone.ts` (see agent-container#4519): any harness
  * that materializes workers via `git clone` needs the working tree, not just the history.
  *
  * @experimental

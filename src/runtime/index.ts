@@ -1064,7 +1064,7 @@ export {
 } from './supervise/run-context'
 // The durable, cross-process face of a run: the `<root>/.agent/supervisor/<id>` layout that
 // published `traces analyze --supervisor-run-dir` reads (`.loops/…` is the pre-rename location
-// readers fall back to). Promoted from the loops repo (#4519 in agent-dev-container) so the
+// readers fall back to). Promoted from the loops repo (#4519 in agent-container) so the
 // writer contract is published alongside its reader.
 export {
   cancelRun,

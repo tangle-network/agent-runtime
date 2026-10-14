@@ -7,7 +7,7 @@
  *     (provider-pinned: you / exa / …). The agent's only web access is the MCP.
  *
  * The disable directive is the harness-agnostic `tools` map landed in
- * agent-dev-container#1810 (claude `--disallowed-tools`, codex
+ * agent-container#1810 (claude `--disallowed-tools`, codex
  * `-c tools.web_search=false`, opencode `tools.{websearch,webfetch}`). We set
  * both canonical (`web_search`/`web_fetch`) and opencode-native
  * (`websearch`/`webfetch`) keys so a single profile is correct on every harness
