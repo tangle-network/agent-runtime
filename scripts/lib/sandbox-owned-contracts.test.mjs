@@ -49,10 +49,10 @@ describe('Sandbox-owned contract qualification', () => {
     )
     expect(() => sandboxOwnedContractCopies(scope)).toThrow(/changed Sandbox contract artifact/)
   })
-  it('rejects changed bytes for the qualified standalone Sandbox 0.60.49 tuple', () => {
+  it.each(['0.60.49', '0.60.50'])('rejects changed bytes for the qualified standalone Sandbox %s tuple', (version) => {
     const { scope, write } = fixture()
-    write(join(scope, 'sandbox'), '0.60.49')
-    write(join(scope, 'agent-interface'), '5.2.0')
+    write(join(scope, 'sandbox'), version)
+    write(join(scope, 'agent-interface'), '5.2.1')
     write(join(scope, 'agent-core'), '0.12.0')
     const nested = join(scope, 'sandbox', 'node_modules', '@tangle-network')
     write(join(nested, 'agent-interface'), '4.0.0')
