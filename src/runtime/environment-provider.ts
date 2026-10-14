@@ -2122,14 +2122,12 @@ async function* streamProviderExecutor(
       }),
       signal: linked,
     })
-    // A turn its manager stopped is that manager's last turn of this drive, and the node's output
-    // is the submission the manager's check accepted, not this turn's workspace. The workspace
-    // capture waits on a queue every recursive environment shares: measured on Discovery Lab run
-    // terraform-economics-20261005f, turns returned 4 to 28 minutes after their streams ended, and
-    // five nodes with accepted results were settled `down` by deadlines inside that wait. The
-    // owner therefore takes the capture over: the result is committed now, with the turn's usage,
-    // and the capture runs afterwards.
-    const deferCapture = ownerTakesCapture() && args.managerStopped()
+    // Every retained owner with a native copy commits its turn before the slow workspace capture.
+    // The owner waits for that capture before its next turn or environment release, so a queued or
+    // failed capture cannot hide a completed provider result from the caller. Discovery's contract
+    // canary had both exact Sandbox executions complete while their results stayed unjournaled for
+    // over 18 minutes behind capture (2026-10-14).
+    const deferCapture = ownerTakesCapture()
     // The turn has settled, so a capture that fails or exceeds its deadline is a fact about the
     // evidence, never the turn's outcome. Measured 2026-10-03 on Runtime 0.295.4: one capture that
     // waited past its 1,200,000 ms deadline behind a two-slot queue shared by 34 workers threw an

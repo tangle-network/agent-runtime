@@ -166,6 +166,8 @@ async function completeCapture(
 interface TreeOptions {
   /** Hold the director's workspace capture until the test opens the gate. */
   readonly gateDirectorCapture?: boolean
+  /** Hold the root's first, non-submitting turn capture until the test opens the gate. */
+  readonly gateRootFirstCapture?: boolean
   /** Hold the end of the director's turn (its event stream) this long after its dispatch. */
   readonly directorTurnEndsAfterMs?: number
   /** Hold the end of the root's accepting turn until this instant. */
@@ -316,6 +318,13 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
       const environmentId = captureContext.environment.id
       note('capture-started', environmentId)
       if (options.gateDirectorCapture && roles.get(environmentId) === 'director') await gate
+      if (
+        options.gateRootFirstCapture &&
+        roles.get(environmentId) === 'root' &&
+        moments.filter((moment) => moment.role === 'root' && moment.what === 'capture-started')
+          .length === 1
+      )
+        await gate
       const captured = await completeCapture(captureContext, artifacts)
       note('capture-finished', environmentId)
       return captured
@@ -419,6 +428,37 @@ function lastMomentOf(moments: readonly Moment[], what: Moment['what'], role: Ro
 }
 
 describe('an accepted submit_result settles its node', () => {
+  it('journals a retained non-submitting turn before its slow workspace capture', async () => {
+    const tree = await acceptedTree('ordinary-before-capture', { gateRootFirstCapture: true })
+    try {
+      await expect
+        .poll(
+          () =>
+            tree.moments.some(
+              (moment) => moment.role === 'root' && moment.what === 'capture-started',
+            ),
+          { timeout: 10_000, interval: 50 },
+        )
+        .toBe(true)
+      await expect
+        .poll(
+          async () =>
+            (await tree.rootEvents()).some(
+              (event) =>
+                event.kind === 'execution-result' && event.id === 'ordinary-before-capture',
+            ),
+          { timeout: 2_000, interval: 50 },
+        )
+        .toBe(true)
+      expect(
+        tree.moments.some((moment) => moment.role === 'root' && moment.what === 'capture-finished'),
+      ).toBe(false)
+    } finally {
+      tree.openGate()
+      await tree.settling
+    }
+  }, 40_000)
+
   it('settles an accepted director before its slow end-of-turn capture, which still precedes the destroy', async () => {
     const tree = await acceptedTree('accepted-before-capture', { gateDirectorCapture: true })
 
