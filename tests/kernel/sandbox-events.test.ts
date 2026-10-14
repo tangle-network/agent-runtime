@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assertSandboxServedModel,
   createSandboxToolPartState,
+  createSandboxUsageLedger,
   extractLlmCallEvent,
   mapSandboxEvent,
   mapSandboxToolEvent,
@@ -511,4 +512,64 @@ describe('mapSandboxToolEvent — a liveness frame is not a tool call', () => {
     const progress = [call, ...liveness].flatMap((event) => sandboxProgressEvents(event, fresh))
     expect(progress.filter((event) => event.kind === 'tool_call')).toHaveLength(1)
   })
+})
+
+describe('SandboxUsageLedger settled usage projection', () => {
+  it('uses one deduplicated credit pass and returns a detached last-turn snapshot', () => {
+    const ledger = createSandboxUsageLedger()
+    const event: SandboxEvent = {
+      id: 'receipt',
+      type: 'done',
+      data: {
+        tokenUsage: {
+          inputTokens: 100,
+          outputTokens: 10,
+          totalTokens: 110,
+          reasoningTokens: 2,
+          cacheReadInputTokens: 20,
+          cacheCreationInputTokens: 10,
+          totalCostUsd: 0,
+        },
+      },
+    }
+    expect(ledger.settledUsage()).toBeUndefined()
+    ledger.observe(event, 'worker')
+    expect(ledger.observe(event, 'worker')).toBeUndefined()
+    ledger.settleTurn('worker')
+    const usage = ledger.settledUsage()
+    expect(usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 10,
+      totalTokens: 110,
+      reasoningTokens: 2,
+      cacheReadInputTokens: 20,
+      cacheCreationInputTokens: 10,
+      cost: 0,
+    })
+    if (!usage) throw new Error('Expected a settled receipt')
+    usage.inputTokens = 999
+    expect(ledger.settledUsage()?.inputTokens).toBe(100)
+    ledger.settleTurn('worker')
+    expect(ledger.settledUsage()).toBeUndefined()
+    expect(ledger.tokenUsage()).toMatchObject({ input: 100, output: 10 })
+  })
+
+  it.each([1n, { invalid: true }, Number.NaN, Number.POSITIVE_INFINITY])(
+    'keeps malformed optional counters unknown without throwing',
+    (totalTokens) => {
+      const ledger = createSandboxUsageLedger()
+      expect(() =>
+        ledger.observe(
+          {
+            id: 'malformed-optional',
+            type: 'done',
+            data: { tokenUsage: { inputTokens: 100, outputTokens: 10, totalTokens } },
+          },
+          'worker',
+        ),
+      ).not.toThrow()
+      ledger.settleTurn('worker')
+      expect(ledger.settledUsage()).toBeUndefined()
+    },
+  )
 })

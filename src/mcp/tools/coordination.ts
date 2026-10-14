@@ -3365,7 +3365,13 @@ export function createCoordinationToolsForManager(
   const openWorkRefusal = (verb: 'submit_result' | 'stop'): Record<string, unknown> | undefined => {
     if (deadlineNoticeDelivered) return undefined
     const { running, unqueued, queued } = openWork()
-    if (running.length === 0 && unqueued.length === 0 && queued.length === 0) return undefined
+    if (
+      running.length === 0 &&
+      unqueued.length === 0 &&
+      queued.length === 0 &&
+      leadPublishing === 0
+    )
+      return undefined
     const parts: string[] = []
     if (running.length > 0)
       parts.push(
@@ -3374,6 +3380,10 @@ export function createCoordinationToolsForManager(
     const waiting = unqueued.length + queued.length
     if (waiting > 0)
       parts.push(`${waiting} event${waiting === 1 ? ' is' : 's are'} waiting for you`)
+    if (leadPublishing > 0)
+      parts.push(
+        `${leadPublishing} lead message${leadPublishing === 1 ? ' is' : 's are'} still being published`,
+      )
     return {
       error: 'open-work' as const,
       reason:
