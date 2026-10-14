@@ -46,6 +46,8 @@ describe('retained root wake held behind its workspace capture', () => {
       releaseChild = resolve
     })
     let rootCaptures = 0
+    // A settled event names the worker and its status; the worker's answer is read separately.
+    const childSettledEvent = `\\"settled\\":\\"${runId}:s0\\",\\"status\\":\\"done\\"`
     const worker = testAgentProfile('delay', {
       harness: 'claude-code',
       tools: runtimeToolDeclarations('submit_result'),
@@ -93,7 +95,7 @@ describe('retained root wake held behind its workspace capture', () => {
               rootTurns.push(JSON.stringify(turn))
               if (rootTurns.length === 1) {
                 await call('spawn_worker', { profile: worker, task: 'Wait, then report.' })
-              } else if (rootTurns.at(-1)!.includes('CHILD: ready')) {
+              } else if (rootTurns.at(-1)!.includes(childSettledEvent)) {
                 await call('submit_result', { result: { answer: 'ROOT: child received' } })
               }
             } else {
@@ -184,13 +186,14 @@ describe('retained root wake held behind its workspace capture', () => {
       },
     )
     expect(rootCaptures).toBeGreaterThanOrEqual(1)
-    // The turn dispatched after the held capture carries the child's result and no stale worker.
+    // The turn dispatched after the held capture carries the child's settlement and no stale worker.
     const second = rootTurns[1]
     expect(second).toBeDefined()
-    expect(second).toContain('CHILD: ready')
+    expect(second).toContain(childSettledEvent)
     expect(second).toContain('Workers running: none.')
+    expect(second).not.toContain(`Workers running: ${runId}:s0`)
     expect(result).toMatchObject({ kind: 'winner', out: { answer: 'ROOT: child received' } })
-    // Exactly once: the child's result reaches one root turn.
-    expect(rootTurns.filter((turn) => turn.includes('CHILD: ready'))).toHaveLength(1)
+    // Exactly once: the child's settlement reaches one root turn.
+    expect(rootTurns.filter((turn) => turn.includes(childSettledEvent))).toHaveLength(1)
   })
 })
