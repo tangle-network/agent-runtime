@@ -1,3 +1,7 @@
+## 0.319.3
+
+Fixed packed Runtime release verification on CI runners without a configured Git identity.
+
 ## 0.319.2
 
 Declare compatible first-party dependency ranges in the published Runtime package so consumers can share their existing Core, Knowledge, and Profile Materialize installations.
