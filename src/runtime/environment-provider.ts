@@ -2473,6 +2473,9 @@ async function providerExecutionSource(
     RETAINED_RESULT_WAIT_MS,
     'retainedResultWaitMs',
   )
+  // A completed exact result shortens the event silence bound, but a provider may still be
+  // delivering buffered frames or finishing a turn that accepted a coordination tool call.
+  const resultDrainGraceMs = Math.min(15_000, Math.max(50, Math.floor(observationIdleMs / 10)))
   let admitted = args.recovering
   let executionAdmitted =
     args.recovering && retention.admissions.some((admission) => admission.phase === 'dispatched')
@@ -2609,14 +2612,21 @@ async function providerExecutionSource(
     const session = exactSession(environment, handle.controlRef).session
     async function* events(): AsyncIterable<AgentEnvironmentEvent> {
       let observationFailure: { error: unknown } | undefined
-      // The exact result is an independent terminal authority. A provider can finish an
-      // execution while its event subscription stays open, so begin this read before waiting
-      // for the next frame and let its success wake the observer.
-      const exactResult = awaitAbortable(handle.result(), signal)
-      const exactWake: Promise<void> = exactResult.then(
-        () => undefined,
-        () => new Promise<never>(() => {}),
-      )
+      // The exact result can wake a quiet event subscription. Start it only after a bound
+      // frame has been checked, or after observation ends: a foreign frame must fail before
+      // the provider's exact result is read.
+      let exactResult: Promise<AgentTurnResult> | undefined
+      let exactWake: Promise<void> | undefined
+      const readExactResult = (): Promise<AgentTurnResult> => {
+        if (exactResult === undefined) {
+          exactResult = awaitAbortable(handle.result(), signal)
+          exactWake = exactResult.then(
+            () => undefined,
+            () => new Promise<never>(() => {}),
+          )
+        }
+        return exactResult
+      }
       // The last frame that carried a replay position, and whether any frame ended the turn. The
       // SSE contract lets a frame arrive with no position; such a frame does not move the cursor,
       // so this is where a reconnect resumes from.
@@ -2645,22 +2655,35 @@ async function providerExecutionSource(
               if (remaining <= 0) {
                 throw new RetainedReadTimeoutError('event stream', observationIdleMs)
               }
+              const eventRead = awaitAbortable(
+                Promise.resolve().then(() => iterator!.next()),
+                signal,
+              ).then((value) => ({ kind: 'event' as const, value }))
               const observed = await awaitRetainedRead(
-                Promise.race([
-                  awaitAbortable(
-                    Promise.resolve().then(() => iterator!.next()),
-                    signal,
-                  ).then((value) => ({ kind: 'event' as const, value })),
-                  exactWake.then(() => ({ kind: 'exact-result' as const })),
-                ]),
+                exactWake !== undefined && !sawTerminal
+                  ? Promise.race([
+                      eventRead,
+                      exactWake.then(() => ({ kind: 'exact-result' as const })),
+                    ])
+                  : eventRead,
                 remaining,
                 'event stream',
               )
               if (observed.kind === 'exact-result') {
-                exactResultReady = true
-                break
+                // The result can beat frames that the subscription has already queued.
+                // Let those frames drain before treating a genuinely quiet stream as lost.
+                try {
+                  next = (
+                    await awaitRetainedRead(eventRead, resultDrainGraceMs, 'buffered event stream')
+                  ).value
+                } catch (error) {
+                  if (!(error instanceof RetainedReadTimeoutError)) throw error
+                  exactResultReady = true
+                  break
+                }
+              } else {
+                next = observed.value
               }
-              next = observed.value
             } catch (error) {
               if (signal.aborted) throw error
               observationFailure = { error }
@@ -2708,8 +2731,8 @@ async function providerExecutionSource(
             else if (eventId !== undefined) lastReplayPosition = eventId
             const terminal = isTerminalEnvironmentEvent(next.value)
             if (terminal) sawTerminal = true
+            else readExactResult()
             yield next.value
-            if (terminal) break
           }
         } finally {
           if (signal.aborted || failed || exactResultReady || sawTerminal) {
@@ -2759,7 +2782,7 @@ async function providerExecutionSource(
       // result can settle the invocation; retain incomplete observation beside that result.
       let result: AgentTurnResult
       try {
-        result = await awaitRetainedRead(exactResult, resultWaitMs, 'exact result')
+        result = await awaitRetainedRead(readExactResult(), resultWaitMs, 'exact result')
       } catch (error) {
         if (signal.aborted) throw error
         if (!sawTerminal && error instanceof RetainedReadTimeoutError) {
