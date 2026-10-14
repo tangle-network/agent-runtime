@@ -1,3 +1,7 @@
+## 0.319.10
+
+Publish the retained workspace recovery repair with a packed consumer qualified against Sandbox 0.60.51. The release guard continues to reject changed or unknown Sandbox contract artifacts.
+
 ## 0.319.9
 
 Recover a completed retained turn’s missing workspace evidence before its environment can run another turn. Preserve prompt result journaling and accepted spend; a failed root capture remains re-enterable without repeating inference or destroying its source.
