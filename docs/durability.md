@@ -35,6 +35,20 @@ Durable work breaks into six separate questions. Each has one owner.
 
 `/durable` holds the chat turn envelope and the records of one supervised run directory. It does not own execution recovery: that lives in `/kernel`.
 
+### Runtime-owned file persistence
+
+Spawn, observer, coordination, and corpus stores share the committed-JSONL writer for torn-tail
+recovery, complete writes, and fsync before acknowledgement. Each store still owns its validation,
+append ordering, and failure policy. The root stream retains its distinct per-attempt fsync boundary.
+
+Graph and profile run registries keep keyed JSONL snapshots, with replacements ordered newest last.
+They share Corpus's canonical-path cross-process file lock and the existing durable atomic file writer.
+Readers stream a fixed committed snapshot; missing files mean an empty registry, while committed
+corruption and other I/O failures propagate. Registry updates remain linear in the number of distinct
+run keys, and repeated updates do not create a revision archive or an additional state index.
+Revision artifacts are published before the run snapshot; these two files are not one transaction.
+A failed record update can leave an unreferenced revision, as before.
+
 ### Sandbox: Orchestrator, Sidecar and host agent (`agent-container`)
 
 | Primitive | Class | Public | Status | Durably owns |

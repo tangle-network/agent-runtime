@@ -7,7 +7,7 @@ import {
   type RuntimeHooks,
   withPursuitContext,
 } from '../runtime-hooks'
-import { prepareJsonlAppend, readCommittedJsonLines, writeAllBytes } from './jsonl-file'
+import { appendCommittedJsonLine, readCommittedJsonLines } from './jsonl-file'
 
 export type ObserverRecordKind = 'event' | 'decision'
 
@@ -139,7 +139,10 @@ export class FileObserverJournal implements ObserverJournal {
         digest: observerRecordDigest(unsigned),
       })
       try {
-        await this.writeRecord(record)
+        const fs = await import('node:fs/promises')
+        const { dirname } = await import('node:path')
+        await fs.mkdir(dirname(this.path), { recursive: true })
+        await appendCommittedJsonLine(this.path, record)
       } catch (error) {
         this.appendFailure ??= toError(error)
         throw error
@@ -175,20 +178,6 @@ export class FileObserverJournal implements ObserverJournal {
 
   private readExistingUnsafe(): AsyncGenerator<ObserverRecord> {
     return readCommittedJsonLines<ObserverRecord>(this.path, { allowMissing: true })
-  }
-
-  private async writeRecord(record: ObserverRecord): Promise<void> {
-    const fs = await import('node:fs/promises')
-    const path = await import('node:path')
-    await fs.mkdir(path.dirname(this.path), { recursive: true })
-    const needsSeparator = await prepareJsonlAppend(this.path)
-    const handle = await fs.open(this.path, 'a')
-    try {
-      await writeAllBytes(handle, `${needsSeparator ? '\n' : ''}${JSON.stringify(record)}\n`)
-      await handle.sync()
-    } finally {
-      await handle.close()
-    }
   }
 
   private assertComplete(): void {

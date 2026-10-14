@@ -16,7 +16,7 @@
  * @experimental
  */
 
-import { prepareJsonlAppend, readCommittedJsonLines, writeAllBytes } from '../../durable/jsonl-file'
+import { appendCommittedJsonLine, readCommittedJsonLines } from '../../durable/jsonl-file'
 import type {
   AnalystFindingEvent,
   ContinuationInstruction,
@@ -125,21 +125,14 @@ export class FileCoordinationLog implements CoordinationLog {
     ownerId?: CoordinationOwnerId,
   ): Promise<void> {
     const fs = await import('node:fs/promises')
-    const path = await import('node:path')
-    await fs.mkdir(path.dirname(this.path), { recursive: true })
+    const { dirname } = await import('node:path')
+    await fs.mkdir(dirname(this.path), { recursive: true })
     const record: CoordinationLogRecord = {
       runId,
       ...(ownerId !== undefined ? { ownerId } : {}),
       ...busRecord,
     }
-    const needsSeparator = await prepareJsonlAppend(this.path)
-    const fh = await fs.open(this.path, 'a')
-    try {
-      await writeAllBytes(fh, `${needsSeparator ? '\n' : ''}${JSON.stringify(record)}\n`)
-      await fh.sync()
-    } finally {
-      await fh.close()
-    }
+    await appendCommittedJsonLine(this.path, record)
   }
 
   async load(runId: string, ownerId?: CoordinationOwnerId): Promise<PriorCoordination> {

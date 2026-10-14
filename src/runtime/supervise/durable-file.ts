@@ -19,6 +19,7 @@ import {
   lstatSync,
   openSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
   writeSync,
@@ -74,9 +75,10 @@ export function syncDurableDirectory(directoryPath: string): void {
 }
 
 /** Fsync one durable file after its contents reach stable storage. */
-export function syncDurableFile(filePath: string): void {
+export function syncDurableFile(filePath: string, exactMode?: number): void {
   const fd = openSync(filePath, 'r')
   try {
+    if (exactMode !== undefined && process.platform !== 'win32') fchmodSync(fd, exactMode)
     fsyncSync(fd)
   } finally {
     closeSync(fd)
@@ -132,17 +134,29 @@ export function assertNoSymlinkDescendant(root: string, target: string, label = 
   }
 }
 
-/** Write, fsync, atomically replace, and fsync one Runtime-owned state file. */
+/** Write, fsync, atomically replace, and fsync one Runtime-owned state file.
+ * preserveMode retains ordinary access permissions despite the current umask; a new
+ * file keeps normal creation semantics. Callers still own path validation and write exclusion. */
 export function writeAtomicDurableFile(
   filePath: string,
   content: string,
-  options: DurableFileOptions = {},
+  options: DurableFileOptions & { readonly preserveMode?: boolean } = {},
 ): void {
   const temporaryPath = `${filePath}.${randomUUID()}.tmp`
   let operationFailed = false
   let operationError: unknown
   try {
-    writeExclusiveDurableFile(temporaryPath, content, options)
+    let mode = options.mode
+    let exactMode = false
+    if (options.preserveMode) {
+      try {
+        mode = statSync(filePath).mode & 0o777
+        exactMode = true
+      } catch (error) {
+        if (!isNoEntryError(error)) throw error
+      }
+    }
+    writeExclusiveDurableFile(temporaryPath, content, { mode }, exactMode)
     renameSync(temporaryPath, filePath)
     syncDurableDirectory(dirname(filePath))
   } catch (error) {
@@ -164,13 +178,14 @@ function writeExclusiveDurableFile(
   filePath: string,
   content: string,
   options: DurableFileOptions,
+  exactMode = false,
 ): void {
   if (options.mode === undefined) {
     writeFileSync(filePath, content, { encoding: 'utf8', flag: 'wx' })
   } else {
     writeFileSync(filePath, content, { encoding: 'utf8', flag: 'wx', mode: options.mode })
   }
-  syncDurableFile(filePath)
+  syncDurableFile(filePath, exactMode ? options.mode : undefined)
 }
 
 export function isAlreadyExistsError(error: unknown): boolean {

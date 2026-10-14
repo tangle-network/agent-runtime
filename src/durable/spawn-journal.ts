@@ -50,12 +50,7 @@ import type {
 } from '../runtime/supervise/types'
 import { addSpend, cloneSpend, zeroSpend } from '../runtime/util'
 import { contentAddress } from './content-address'
-import {
-  isNoEntError,
-  prepareJsonlAppend,
-  readCommittedJsonLines,
-  writeAllBytes,
-} from './jsonl-file'
+import { appendCommittedJsonLine, isNoEntError, readCommittedJsonLines } from './jsonl-file'
 
 export { contentAddress } from './content-address'
 
@@ -404,22 +399,16 @@ export class FileSpawnJournal implements SpawnJournal {
 
   private async writeRecord(record: SpawnJournalRecord): Promise<string> {
     const fs = await import('node:fs/promises')
-    const path = await import('node:path')
+    const { dirname } = await import('node:path')
     try {
-      await fs.mkdir(path.dirname(this.path), { recursive: true })
-      const needsSeparator = await prepareJsonlAppend(this.path)
-      const fh = await fs.open(this.path, 'a')
-      try {
-        await writeAllBytes(fh, `${needsSeparator ? '\n' : ''}${JSON.stringify(record)}\n`)
-        await fh.sync()
-        const stamp = journalFileStamp(await fh.stat({ bigint: true }))
+      await fs.mkdir(dirname(this.path), { recursive: true })
+      return await appendCommittedJsonLine(this.path, record, async (handle) => {
+        const stamp = journalFileStamp(await handle.stat({ bigint: true }))
         if ((await this.fileStamp()) !== stamp) {
           throw new Error('spawn journal changed while acknowledging its append')
         }
         return stamp
-      } finally {
-        await fh.close()
-      }
+      })
     } catch (error) {
       this.appendIndex = undefined
       throw error

@@ -2,7 +2,12 @@ import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { prepareJsonlAppend } from '../jsonl-file'
+import {
+  appendCommittedJsonLine,
+  prepareJsonlAppend,
+  readCommittedJsonFile,
+  readCommittedJsonLines,
+} from '../jsonl-file'
 
 vi.mock('node:fs/promises', async (load) => {
   const actual = await load<typeof import('node:fs/promises')>()
@@ -109,5 +114,121 @@ describe('journal append tail recovery', () => {
     })
     expect(await prepareJsonlAppend(path)).toBe(true)
     expect(await fs.readFile(path, 'utf8')).toBe(bytes)
+  })
+})
+
+describe('shared durable JSONL append', () => {
+  it('allows historical registry separators without weakening strict append journals', async () => {
+    const path = join(root, 'records.jsonl')
+    await fs.writeFile(path, ' \t\r\n{"record":1}\n  \n')
+    expect(await readCommittedJsonFile(path)).toEqual([{ record: 1 }])
+    await expect(readCommittedJsonLines(path).next()).rejects.toThrow(/malformed JSONL/)
+  })
+
+  it.each([
+    ['', '{"next":"🙂"}\n'],
+    ['{"prior":1}\n', '{"prior":1}\n{"next":"🙂"}\n'],
+    ['{"prior":1}', '{"prior":1}\n{"next":"🙂"}\n'],
+    ['{"prior":1}\n{"torn":', '{"prior":1}\n{"next":"🙂"}\n'],
+  ])('keeps the committed prefix %j and completes short writes', async (prefix, expected) => {
+    const path = join(root, 'records.jsonl')
+    await fs.writeFile(path, prefix)
+    const { open } = await vi.importActual<typeof fs>('node:fs/promises')
+    vi.mocked(fs.open).mockImplementation(async (...args) => {
+      const handle = await open(...args)
+      if (args[1] === 'a') {
+        const write = handle.write.bind(handle)
+        vi.spyOn(handle, 'write').mockImplementation((...writeArgs: any[]) => {
+          const [buffer, offset, length, position] = writeArgs
+          return write(buffer, offset, Math.min(length, 3), position)
+        })
+      }
+      return handle
+    })
+    await appendCommittedJsonLine(path, { next: '🙂' })
+    expect(await fs.readFile(path, 'utf8')).toBe(expected)
+  })
+
+  it('acknowledges only after sync and keeps the descriptor open until acknowledgement completes', async () => {
+    const path = join(root, 'records.jsonl')
+    const { open } = await vi.importActual<typeof fs>('node:fs/promises')
+    const stages: string[] = []
+    vi.mocked(fs.open).mockImplementation(async (...args) => {
+      const handle = await open(...args)
+      if (args[1] === 'a') {
+        const sync = handle.sync.bind(handle)
+        const close = handle.close.bind(handle)
+        vi.spyOn(handle, 'sync').mockImplementation(async () => {
+          await sync()
+          stages.push('synced')
+        })
+        vi.spyOn(handle, 'close').mockImplementation(async () => {
+          stages.push('closed')
+          await close()
+        })
+      }
+      return handle
+    })
+    const bytes = await appendCommittedJsonLine(path, { record: 1 }, async (handle) => {
+      expect(stages).toEqual(['synced'])
+      await Promise.resolve()
+      const { size } = await handle.stat()
+      stages.push('acknowledged')
+      return size
+    })
+    expect(bytes).toBe(Buffer.byteLength('{"record":1}\n'))
+    expect(stages).toEqual(['synced', 'acknowledged', 'closed'])
+  })
+
+  it.each(['write', 'sync', 'acknowledge', 'close'] as const)(
+    'propagates a %s failure and closes the append descriptor',
+    async (stage) => {
+      const path = join(root, 'records.jsonl')
+      const failure = new Error(`${stage} failed`)
+      const { open } = await vi.importActual<typeof fs>('node:fs/promises')
+      const closed = vi.fn()
+      vi.mocked(fs.open).mockImplementation(async (...args) => {
+        const handle = await open(...args)
+        if (args[1] === 'a') {
+          const close = handle.close.bind(handle)
+          vi.spyOn(handle, 'close').mockImplementation(async () => {
+            await close()
+            closed()
+            if (stage === 'close') throw failure
+          })
+          if (stage === 'write' || stage === 'sync')
+            vi.spyOn(handle, stage).mockRejectedValue(failure)
+        }
+        return handle
+      })
+      const acknowledge = vi.fn(async () => {
+        if (stage === 'acknowledge') throw failure
+      })
+      await expect(appendCommittedJsonLine(path, { record: 1 }, acknowledge)).rejects.toBe(failure)
+      expect(closed).toHaveBeenCalledOnce()
+      expect(acknowledge).toHaveBeenCalledTimes(
+        stage === 'acknowledge' || stage === 'close' ? 1 : 0,
+      )
+    },
+  )
+
+  it('rejects a no-progress write and never acknowledges it', async () => {
+    const path = join(root, 'records.jsonl')
+    const { open } = await vi.importActual<typeof fs>('node:fs/promises')
+    const acknowledge = vi.fn()
+    vi.mocked(fs.open).mockImplementation(async (...args) => {
+      const handle = await open(...args)
+      if (args[1] === 'a') {
+        vi.spyOn(handle, 'write').mockImplementation(async (buffer: any) => ({
+          bytesWritten: 0,
+          buffer,
+        }))
+      }
+      return handle
+    })
+    await expect(appendCommittedJsonLine(path, { record: 1 }, acknowledge)).rejects.toThrow(
+      /made no progress/,
+    )
+    expect(acknowledge).not.toHaveBeenCalled()
   })
 })
