@@ -455,7 +455,7 @@ describe('provider workspace retention', () => {
     expect(results).toBe(1)
   })
 
-  it('reconciles a quiet retained stream from its exact result after the observation bound', async () => {
+  it('reconciles a completed retained execution without waiting for its quiet event stream', async () => {
     let dispatches = 0
     const admissions: RetainedRunAdmission[] = []
     const provider = pendingRetainedProvider({
@@ -477,12 +477,21 @@ describe('provider workspace retention', () => {
       onResult: async () => {},
     }
     const signal = new AbortController().signal
-    const executor = providerAsExecutor(provider, { retainedObservationIdleMs: 20 })(
+    const executor = providerAsExecutor(provider, { retainedObservationIdleMs: 2_000 })(
       { profile: testProfile('quiet-retained-root'), harness: null },
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
-    for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
-    }
+    const completed = (async () => {
+      for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+      }
+      return true
+    })()
+    expect(
+      await Promise.race([
+        completed,
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
+      ]),
+    ).toBe(true)
     expect(executor.resultArtifact().out).toMatchObject({ content: 'settled exact turn' })
     expect(dispatches).toBe(1)
   })
@@ -558,7 +567,7 @@ describe('provider workspace retention', () => {
         yield { type: 'message.part.updated', data: { delta: 'in progress' } }
         await new Promise<void>(() => {})
       },
-      result: async () => ({ text: 'must not be accepted', success: true }),
+      result: async () => await new Promise<{ text: string; success: boolean }>(() => {}),
     })
     const retention: RetainedExecutorContext = {
       executionId: 'cancelled-retained-worker',
@@ -601,6 +610,10 @@ describe('provider workspace retention', () => {
       data: { usageMode: 'delta' },
       usage: { inputTokens: 3, outputTokens: 4 },
     }
+    let finish!: (result: { text: string; success: boolean }) => void
+    const exactResult = new Promise<{ text: string; success: boolean }>((resolve) => {
+      finish = resolve
+    })
     const provider = pendingRetainedProvider({
       onDispatch: () => {
         dispatches += 1
@@ -609,9 +622,13 @@ describe('provider workspace retention', () => {
         streams += 1
         yield usage
         if (options?.since === undefined) throw new Error('live stream dropped')
-        yield { id: 'done-2', type: 'done', data: { finalText: 'finished' } }
+        try {
+          yield { id: 'done-2', type: 'done', data: { finalText: 'finished' } }
+        } finally {
+          finish({ text: 'finished', success: true })
+        }
       },
-      result: async () => ({ text: 'finished', success: true }),
+      result: async () => exactResult,
     })
     const retention: RetainedExecutorContext = {
       executionId: 'duplicate-retained-worker',
