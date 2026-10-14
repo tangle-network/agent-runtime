@@ -132,8 +132,15 @@ Root and child scopes use the same durable writer.
 A bounded capture can finish after cancellation; its evidence remains appendable after the terminal record.
 Evidence publication does not accept a result, finalize spend, or authorize replacing a retained invocation.
 A failed capture keeps its live source and records missing evidence.
-A retained manager whose port has `captureNative` hands its turn's workspace capture to its scope owner instead of waiting for it, when the manager stopped or the turn failed.
+A retained manager whose port has `captureNative` commits each completed turn before handing its workspace capture to its scope owner.
 The node settles once the turn's usage is metered; the owner awaits the capture before the environment's next turn and before its release, so the capture still precedes the destroy.
+Before another invocation or seat-switch checkpoint can change that environment, the owner requires a durable, complete capture matching the prior input, profile, original execution node/attempt, and exact admitted provider execution.
+After coordinator loss or a failed live handoff, it recovers only the missing evidence through the original retention port and matching profile; accepted output and spend are not replayed.
+The obligation comes from the prior input's persisted `workspaceRetention`, not the resumed backend configuration.
+A failed or mismatched capture preserves the source. For a root owner, it throws a recoverable evidence error; `supervisePursuit` writes `failure.json` without sealing `result.json`, so a later entry can retry capture. Nested managers retain the existing pending-execution settlement policy; this does not make a terminally settled pursuit re-enterable.
+The normal child cleanup barrier still runs; this is not a pause that preserves every live child. Explicit cancellation, including cancellation during cleanup, still settles as cancelled while unverified source environments remain preserved.
+An old uncaptured workspace that a later invocation already admitted cannot be recaptured as historical evidence and blocks further reuse.
+The credential-free two-process regression is `tests/runtime/retained-capture-resume.test.ts`; it covers real SIGKILL/re-entry, rejected and foreign evidence, and recovery without another dispatch of the accepted invocation.
 A deadline or abort that reaches a manager whose submission was accepted waits, for at most 5 minutes, for the turn that submitted it to end, and the node settles `done` with the accepted result.
 A nested manager releases its own environment once its scope finishes, and the run settlement waits for every manager's capture and release.
 One release spends at most 15 minutes (`RELEASE_CHECKPOINT_CAPTURES_MS`) capturing the owner's pending checkpoints; a capture it cuts short keeps its checkpoint and the source, as a failed capture does, and the release goes on to settle.

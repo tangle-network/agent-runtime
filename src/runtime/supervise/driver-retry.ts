@@ -105,6 +105,7 @@ import {
   DISPATCH_NOT_ADMITTED_CODE,
   RetainedExecutionPendingError,
   type RetainedPendingCause,
+  RetainedWorkspaceCapturePendingError,
 } from './retained-executor'
 import { subscriptionUsageLimitSignal } from './seat-chain'
 import type { Scope } from './types'
@@ -972,6 +973,8 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     try {
       await run.drive(attempt, reentry)
     } catch (error) {
+      // Evidence recovery is not another model attempt, nor an execution to abandon.
+      if (error instanceof RetainedWorkspaceCapturePendingError) throw error
       const durationMs = now() - startedAt
       const classification = classifyDriverFailure(error, run.signal)
       const after = run.progress()

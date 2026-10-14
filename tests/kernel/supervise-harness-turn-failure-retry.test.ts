@@ -15,6 +15,7 @@ import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
 import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
+import { completeCapture } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
@@ -69,6 +70,8 @@ async function harnessFailureFixture(options: {
   readonly workspaceRetention?: boolean | 'timeout'
   /** A turn that completes without submitting, leaving the contract unmet. */
   readonly withholdsSubmit?: (dispatch: number) => boolean
+  /** Explicit caller cancellation arrives after capture recovery failed, during source cleanup. */
+  readonly cancelDuringTeardown?: boolean
 }) {
   const directory = await mkdtemp(join(tmpdir(), 'harness-turn-failure-'))
   directories.push(directory)
@@ -82,6 +85,7 @@ async function harnessFailureFixture(options: {
   let creates = 0
   let destroys = 0
   let dispatches = 0
+  let captureResumed = false
   let port = 0
   let token = ''
 
@@ -171,12 +175,13 @@ async function harnessFailureFixture(options: {
             artifacts: outputArtifacts,
             async capture(context) {
               // A multi-GB transfer that is still running when its deadline aborts it.
-              if (timesOut)
+              if (timesOut && !captureResumed)
                 await new Promise((_, reject) =>
                   context.signal.addEventListener('abort', () => reject(context.signal.reason), {
                     once: true,
                   }),
                 )
+              if (timesOut) return completeCapture(context, outputArtifacts)
               return (
                 await captureAgentCandidateWorkspaceFiles(
                   [
@@ -216,7 +221,17 @@ async function harnessFailureFixture(options: {
       {
         runDir: join(directory, 'run'),
         runId: options.runId,
-        journal: context.journal,
+        journal: options.cancelDuringTeardown
+          ? {
+              beginTree: context.journal.beginTree.bind(context.journal),
+              loadTree: context.journal.loadTree.bind(context.journal),
+              async appendEvent(root, event) {
+                await context.journal.appendEvent(root, event)
+                if (event.kind === 'teardown-unconfirmed')
+                  abort.abort(new Error('operator cancelled during capture cleanup'))
+              },
+            }
+          : context.journal,
         blobs: context.blobs,
         signal: abort.signal,
         backend: {
@@ -271,6 +286,9 @@ async function harnessFailureFixture(options: {
     creates: () => creates,
     destroys: () => destroys,
     dispatches: () => dispatches,
+    resumeCapture: () => {
+      captureResumed = true
+    },
   }
 }
 
@@ -495,27 +513,24 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(fixture.destroys()).toBe(1)
   })
 
-  // research-harness-20261003system2 and research-oratomic-20261003system2 (Runtime 0.295.4) ended
-  // `no-winner` on `terminal-error` because one capture exceeded its 1,200,000 ms deadline.
-  it('continues the root when workspace retention exceeds its timeout and records the capture as failed', async () => {
+  // A capture timeout must preserve the accepted turn, but cannot authorize another mutation of
+  // that turn's source environment. The caller can re-enter evidence recovery without inference.
+  it('keeps an accepted root turn re-enterable when workspace retention times out without reusing its source', async () => {
     const fixture = await harnessFailureFixture({
       runId: 'harness-retention-timeout',
       failures: () => undefined,
-      // The first turn ends without a submission, so nothing accepted can mask its capture failure.
+      // The ordinary turn is accepted without a submission, so continuation requires safe reuse.
       withholdsSubmit: (dispatch) => dispatch === 1,
       workspaceRetention: 'timeout',
     })
-    const { result, attempts } = await fixture.run({})
+    await expect(fixture.run({})).rejects.toMatchObject({
+      name: 'RetainedWorkspaceCapturePendingError',
+    })
     const events = await fixture.events()
 
-    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
-    expect(attempts.some((attempt) => attempt.stop === 'terminal-error')).toBe(false)
-    expect(attempts.at(-1)).toMatchObject({ stop: 'completed', contract: 'met' })
-    // Each turn ran once and kept its own result: the failed capture neither re-ran a turn nor
-    // replaced its result, and the root's continuation was the only reason for the second turn.
-    expect(fixture.dispatches()).toBe(2)
+    expect(fixture.dispatches()).toBe(1)
     const results = ofKind(events, 'execution-result')
-    expect(results).toHaveLength(2)
+    expect(results).toHaveLength(1)
     for (const settled of results) {
       const out = (await fixture.blobs.get(settled.outRef)) as Record<string, unknown>
       expect(out.workspaceCaptureFailure).toMatch(
@@ -523,11 +538,68 @@ describe('a root harness turn that ends with a failed outcome', () => {
       )
       expect(out).not.toHaveProperty('workspaceSnapshot')
     }
-    // No receipt exists, so the source is kept as evidence rather than deleted.
+    // A second entry retries only the capture. Neither the accepted result nor source is replaced.
+    await expect(fixture.run({})).rejects.toMatchObject({
+      name: 'RetainedWorkspaceCapturePendingError',
+    })
+    const resumed = await fixture.events()
+    expect(ofKind(resumed, 'execution-result')).toEqual(results)
+    expect(ofKind(resumed, 'execution-input')).toHaveLength(1)
+    expect(ofKind(resumed, 'execution-input')[0]?.workspaceRetention).toBe(true)
+    expect(ofKind(resumed, 'execution-evidence')).toHaveLength(0)
+    expect(ofKind(resumed, 'execution-abandoned')).toHaveLength(0)
+    expect(fixture.dispatches()).toBe(1)
+    expect(fixture.creates()).toBe(1)
     expect(fixture.destroys()).toBe(0)
+
+    fixture.resumeCapture()
+    const { result, attempts } = await fixture.run({})
+    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
+    expect(attempts.at(-1)).toMatchObject({ stop: 'completed', contract: 'met' })
+    const recovered = await fixture.events()
+    expect(ofKind(recovered, 'execution-result')).toHaveLength(2)
+    expect(ofKind(recovered, 'execution-result')[0]).toEqual(results[0])
+    expect(ofKind(recovered, 'execution-evidence')).toHaveLength(1)
+    const originalInput = ofKind(events, 'execution-input')[0]!
+    const originalControl = ofKind(events, 'execution-admitted').flatMap((event) =>
+      event.admission.phase === 'dispatched' ? [event.admission.controlRef] : [],
+    )[0]
+    expect(originalControl).toBeDefined()
+    const evidence = ofKind(recovered, 'execution-evidence')[0]!
+    expect(await fixture.blobs.get(evidence.outRef)).toMatchObject({
+      workspaceCapture: {
+        executionId: `${originalInput.id}:input:${originalInput.seq}`,
+        controlRef: originalControl,
+        environmentId: fixture.environmentIds[0],
+        coverageComplete: true,
+      },
+    })
+    expect(evidence.seq).toBeLessThan(ofKind(recovered, 'execution-input')[1]!.seq)
+    expect(ofKind(recovered, 'execution-abandoned')).toHaveLength(0)
+    expect(fixture.dispatches()).toBe(2)
+    expect(new Set(fixture.environmentIds).size).toBe(1)
+  })
+
+  it('honors explicit cancellation during failed-capture cleanup while keeping the accepted source', async () => {
+    const fixture = await harnessFailureFixture({
+      runId: 'harness-retention-cancel-cleanup',
+      failures: () => undefined,
+      withholdsSubmit: () => true,
+      workspaceRetention: 'timeout',
+      cancelDuringTeardown: true,
+    })
+    const { result } = await fixture.run({})
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled', source: 'signal' })
     expect(result.teardownUnconfirmed?.[0]?.kept).toMatchObject([
       { environmentId: fixture.environmentIds[0], keptFor: 'evidence' },
     ])
+    const events = await fixture.events()
+    expect(ofKind(events, 'execution-result')).toHaveLength(1)
+    expect(ofKind(events, 'execution-input')).toHaveLength(1)
+    expect(ofKind(events, 'execution-evidence')).toHaveLength(0)
+    expect(ofKind(events, 'execution-abandoned')).toHaveLength(0)
+    expect(fixture.dispatches()).toBe(1)
+    expect(fixture.destroys()).toBe(0)
   })
 
   it('keeps an accepted submission when the turn that submitted it then fails', async () => {

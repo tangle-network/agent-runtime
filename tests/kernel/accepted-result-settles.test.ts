@@ -12,14 +12,11 @@ import {
   captureAgentCandidateWorkspaceFiles,
 } from '../../src/candidate-execution'
 import { sha256Bytes } from '../../src/candidate-execution/digest'
-import type {
-  ProviderWorkspaceCaptureResult,
-  ProviderWorkspaceRetentionContext,
-  ProviderWorkspaceRetentionPort,
-} from '../../src/runtime/provider-workspace-retention'
+import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
+import { completeCapture } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
@@ -84,87 +81,6 @@ function inMemoryArtifacts(): AgentCandidateOutputArtifactPort {
       const stored = bytes.get(reference.sha256)
       if (stored === undefined) throw new Error('artifact is unavailable')
       return Uint8Array.from(stored)
-    },
-  }
-}
-
-/** A capture whose coverage is complete, so a release may destroy the source it came from. */
-async function completeCapture(
-  context: ProviderWorkspaceRetentionContext,
-  artifacts: AgentCandidateOutputArtifactPort,
-): Promise<ProviderWorkspaceCaptureResult> {
-  const { snapshot } = await captureAgentCandidateWorkspaceFiles(
-    [{ path: 'turn.txt', mode: 0o644, bytes: Uint8Array.from(Buffer.from(context.executionId)) }],
-    { artifactPersistence: { executionId: context.executionId, outputArtifacts: artifacts } },
-  )
-  const controlRef = context.controlRef!
-  const nativeId = `native-${controlRef.sessionId}`
-  return {
-    snapshot,
-    provenance: {
-      status: 'reported',
-      environmentId: context.environment.id,
-      executionId: context.executionId,
-      controlRef,
-      workspace: {
-        scannedFiles: 1,
-        scannedDirectories: 0,
-        reportedFiles: 1,
-        reportedDirectories: 0,
-        complete: true,
-      },
-      sessions: [
-        {
-          id: controlRef.sessionId,
-          executionId: context.executionId,
-          transportEvents: 'complete',
-          eventCount: 1,
-          messageCount: 1,
-          backendType: context.profile.harness,
-          executionIds: [controlRef.executionId],
-          eventCountsByExecutionId: { [controlRef.executionId]: 1 },
-          nativeSessionId: nativeId,
-          sidecarImageDigest: `sha256:${'1'.repeat(64)}`,
-          sidecarBundleRevision: '2'.repeat(40),
-          nativeStore: {
-            scope: 'session',
-            roots: [],
-            complete: true,
-            entries: [],
-            excludedPaths: [],
-            inventory: {
-              scannedFiles: 0,
-              reportedFiles: 0,
-              scannedDirectories: 0,
-              reportedDirectories: 0,
-              scannedSymlinks: 0,
-              reportedSymlinks: 0,
-              skippedEntries: 0,
-            },
-          },
-          processStreams: {
-            complete: true,
-            streamCount: 0,
-            stdinBytes: 0,
-            stdoutBytes: 0,
-            stderrBytes: 0,
-            protocolBytes: 0,
-          },
-          nativeEvents: { complete: true, count: 1 },
-        },
-      ],
-      attempts: [
-        {
-          executionId: controlRef.executionId,
-          ordinal: 1,
-          providerSessionId: controlRef.sessionId,
-          nativeSessionIds: [nativeId],
-          processIds: [],
-          outcome: 'succeeded',
-          missingReasons: [],
-        },
-      ],
-      missing: [],
     },
   }
 }

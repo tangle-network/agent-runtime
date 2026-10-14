@@ -6,7 +6,10 @@ import type {
   AgentProfile,
   WorkspaceCheckpointRef,
 } from '@tangle-network/agent-interface'
-import { AgentExactRunControlRefSchema } from '@tangle-network/agent-interface'
+import {
+  AgentExactRunControlRefSchema,
+  canonicalAgentProfileDigest,
+} from '@tangle-network/agent-interface'
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
 import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
 import { verifyWorkspaceSnapshotArtifacts } from '../candidate-execution/artifacts'
@@ -420,6 +423,63 @@ export interface ProviderWorkspaceCaptureReceipt {
   readonly provenance: ProviderWorkspaceCaptureProvenance
   readonly coverageComplete: boolean
   readonly incompleteReason?: string
+}
+
+/** @internal Construct the same exact receipt for a live capture and evidence-only recovery. */
+export function workspaceCaptureReceipt(
+  context: Omit<ProviderWorkspaceRetentionContext, 'signal'>,
+  captured: ProviderWorkspaceCaptureResult,
+): ProviderWorkspaceCaptureReceipt {
+  const { snapshot, provenance, coverageComplete = false, incompleteReason } = captured
+  return {
+    executionId: context.executionId,
+    ...(context.controlRef === undefined ? {} : { controlRef: context.controlRef }),
+    ...(context.node === undefined ? {} : { node: context.node }),
+    environmentId: context.environment.id,
+    profileDigest: canonicalAgentProfileDigest(context.profile),
+    ...capturedSessionIdentity(
+      provenance,
+      coverageComplete,
+      context.executionId,
+      context.providerSessionId ?? null,
+    ),
+    snapshot,
+    provenance,
+    coverageComplete,
+    ...(incompleteReason === undefined ? {} : { incompleteReason }),
+  }
+}
+
+/** Only a verified, single-session capture may supply a scalar session identity. */
+function capturedSessionIdentity(
+  provenance: ProviderWorkspaceCaptureProvenance | undefined,
+  coverageComplete: boolean,
+  executionId: string,
+  providerSessionId: string | null,
+): { providerSessionId: string | null; nativeSessionId: string | null } {
+  const unknown = { providerSessionId, nativeSessionId: null }
+  if (
+    !coverageComplete ||
+    provenance?.status !== 'reported' ||
+    provenance.executionId !== executionId ||
+    provenance.sessions?.length !== 1
+  )
+    return unknown
+  const session = provenance.sessions[0]!
+  if (
+    session.executionId !== executionId ||
+    (providerSessionId !== null && session.id !== providerSessionId)
+  )
+    return unknown
+  const ids = new Set(
+    (provenance.attempts ?? [])
+      .filter((attempt) => session.executionIds?.includes(attempt.executionId))
+      .flatMap((attempt) => attempt.nativeSessionIds),
+  )
+  const nativeSessionId = ids.size === 1 ? [...ids][0]! : null
+  if (session.nativeSessionId != null && nativeSessionId !== session.nativeSessionId)
+    return { providerSessionId, nativeSessionId: null }
+  return { providerSessionId, nativeSessionId }
 }
 
 /** Validate the executable retention port at the create boundary. */
