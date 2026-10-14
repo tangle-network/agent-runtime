@@ -1,3 +1,7 @@
+## 0.320.1
+
+Qualify the Sandbox 0.60.53 packed cohort. Its published files differ from 0.60.51 only in bundler chunk names and a development dependency, with no type or code changes; the release guard still rejects changed or unknown Sandbox contract artifacts.
+
 ## 0.320.0
 
 A retained manager woken while its previous turn's workspace capture was still running now receives what settled during that capture, and no longer lists a finished worker as running. `DriveHarness` reentry gains optional `refresh(): Promise<void>`: a custom harness should await it after any wait for the previous turn's workspace capture and before `compose`, or its woken turns keep the wake composed before that wait.
