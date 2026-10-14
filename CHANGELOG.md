@@ -1,3 +1,7 @@
+## 0.319.1
+
+Publish the retained-turn recovery fix after correcting release verification for temporary Git fixtures and independently delivered wake events.
+
 ## 0.319.0
 
 Align the executable release cohort with Runtime's Interface 5, Eval 0.213 and Knowledge 22 requirements, and lock the published Materialize 0.25.2 artifact. Qualify the exact Sandbox 0.60.49 SDK-owned contract boundary alongside the retained 0.60.41 tuple without relaxing artifact checks or changing the Sandbox development pin.
