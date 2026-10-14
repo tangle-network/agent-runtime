@@ -1,7 +1,5 @@
 type: patch
 ---
-Restore catalog-backed compatible published ranges for Core, Knowledge and Materialize while retaining exact development pins. Align the Interface peer and catalog floor with the tested 5.2.0 development version, and select the published Interface 5.2.0 and Knowledge 22.0.1 source commits for release-cohort qualification.
+Require Interface 5.2.1 and reuse its canonical profile differ instead of maintaining a second complete-profile field/resource algorithm. Preserve Runtime provenance, stored activation changes, and the final exact candidate digest guard while restoring explicit empty resource siblings and immutable knowledge generations.
 
-Reproduce profile knowledge changes exactly when they accompany other profile resource changes, including adding, replacing or removing pinned knowledge.
-
-Require knowledge-axis support when a compound resource change is validated against an execution materialization contract.
+Require knowledge-axis support when a compound resource change is validated against an execution materialization contract. Retain the existing knowledge/resource regressions and qualify the published Interface 5.2.1 release cohort.

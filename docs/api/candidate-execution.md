@@ -1900,7 +1900,7 @@ any archive encoding, or no-op when the exact workspace is already present.
 
 ###### role
 
-`"task"` \| `"knowledge"` \| `"memory"` \| `"candidate"`
+`"knowledge"` \| `"task"` \| `"memory"` \| `"candidate"`
 
 ###### snapshot
 
@@ -3664,7 +3664,7 @@ The bytes this capture added to the store; every other file was already there.
 
 ##### role
 
-> **role**: `"task"` \| `"knowledge"` \| `"memory"` \| `"candidate"`
+> **role**: `"knowledge"` \| `"task"` \| `"memory"` \| `"candidate"`
 
 **`Experimental`**
 

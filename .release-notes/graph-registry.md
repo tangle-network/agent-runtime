@@ -1,3 +1,0 @@
-type: minor
----
-`graph-registry`: the designer's memory — graphs and their outcomes as files in a workspace. One JSONL record per run (graph digest, task-shape digest, outcome, terminal cost, ledger shape), the exact graph content-addressed beside it; the deliverable's check stays environment-owned. `lookupGraph` returns replay (the delivered-and-cheapest graph for the task shape — near-zero inference on a rerun over the same sandbox) or author, with the reason stated. Ships with `skills/graph-designer`: an agent whose job is designing graphs, recording every run, replaying winners, and mutating losers one axis at a time.

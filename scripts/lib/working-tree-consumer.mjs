@@ -10,13 +10,21 @@ export async function verifyWorkingTreeConsumer(candidates, kernel) {
   const source = join(root, 'source')
   const destination = join(root, 'destination')
   mkdirSync(source)
-  const git = (args, cwd = source) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
+  const git = (args, cwd = source) => execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1' },
+  }).trim()
   try {
     git(['init', '--quiet', '--initial-branch=main'])
     writeFileSync(join(source, 'file.txt'), 'committed\n')
     writeFileSync(join(source, 'deleted.txt'), 'committed deletion target\n')
     git(['add', '.'])
-    git(['commit', '-qm', 'fixture'])
+    git([
+      '-c', 'user.name=Workspace Fixture',
+      '-c', 'user.email=workspace-fixture@example.invalid',
+      'commit', '-qm', 'fixture',
+    ])
     writeFileSync(join(source, 'file.txt'), 'staged\n')
     git(['add', 'file.txt'])
     writeFileSync(join(source, 'file.txt'), 'working\n')

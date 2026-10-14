@@ -542,7 +542,7 @@ hub. Apps consume these to avoid rolling their own OAuth, session,
 and connection storage.
 
 See:
-  - [PlatformAuthClient](#platformauthclient) for legacy cross-site "Login with Tangle" (returns an API key)
+  - [PlatformAuthClient](#platformauthclient) for the cross-site "Login with Tangle" API-key exchange (the classic mode; OIDC is the newer one — both are live)
   - [PlatformOidcClient](#platformoidcclient) for standard OIDC authorization code + PKCE and device grants
   - [PlatformHubClient](#platformhubclient) for the `/v1/hub/*` surface
 
@@ -583,7 +583,7 @@ hub. Apps consume these to avoid rolling their own OAuth, session,
 and connection storage.
 
 See:
-  - [PlatformAuthClient](#platformauthclient) for legacy cross-site "Login with Tangle" (returns an API key)
+  - [PlatformAuthClient](#platformauthclient) for the cross-site "Login with Tangle" API-key exchange (the classic mode; OIDC is the newer one — both are live)
   - [PlatformOidcClient](#platformoidcclient) for standard OIDC authorization code + PKCE and device grants
   - [PlatformHubClient](#platformhubclient) for the `/v1/hub/*` surface
 

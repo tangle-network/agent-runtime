@@ -1,5 +1,6 @@
 import {
   type AgentProfile,
+  agentProfileDiffSchema,
   agentProfileSchema,
   applyAgentProfileDiff,
   canonicalAgentProfileDigest,
@@ -7,6 +8,7 @@ import {
 } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
+  canonicalCandidateBytes,
   canonicalCandidateDigest,
   embeddedCandidateArtifact,
 } from '../src/candidate-execution/digest'
@@ -737,6 +739,102 @@ describe('agent improvement profile delivery', () => {
         changes.reduce((profile, change) => applyAgentProfileDiff(profile, change), baseline),
       ).toEqual(candidate)
     }
+  })
+
+  it('adapts canonical resource diffs without changing provenance or exactness', () => {
+    const baseline: AgentProfile = {
+      resources: { files: [], skills: [], knowledge: [] },
+    }
+    const candidate: AgentProfile = {
+      resources: {
+        files: [],
+        skills: [],
+        knowledge: [{ sourceId: 'source', generation: `kg_${'a'.repeat(64)}` }],
+      },
+    }
+    const source = { kind: 'frontier-author' as const, artifacts: ['traces://measured'] }
+    const changes = agentImprovementProfileDiffs(baseline, candidate, {
+      id: 'measured',
+      source,
+      metadata: { receipt: 'receipt-1', surface: 'caller-value' },
+    })
+    expect(
+      changes.map(({ id, title, source: provenance, metadata }) => ({
+        id,
+        title,
+        source: provenance,
+        metadata,
+      })),
+    ).toEqual([
+      {
+        id: 'measured:agent-profile:reset',
+        title: 'Reset changed agent profile fields',
+        source,
+        metadata: { receipt: 'receipt-1', surface: 'agent-profile' },
+      },
+      {
+        id: 'measured:agent-profile:set',
+        title: 'Set changed agent profile fields',
+        source,
+        metadata: { receipt: 'receipt-1', surface: 'agent-profile' },
+      },
+    ])
+    expect(changes[0]?.remove?.resources).toEqual({ knowledge: true })
+    expect(changes[1]?.set?.resources).toEqual(candidate.resources)
+    expect(canonicalAgentProfileDigest(changes.reduce(applyAgentProfileDiff, baseline))).toBe(
+      canonicalAgentProfileDigest(candidate),
+    )
+    expect(() => agentImprovementProfileDiffs(candidate, candidate, { id: 'unchanged' })).toThrow(
+      'profile improvement candidate does not change the profile',
+    )
+  })
+
+  it('preserves own data keys in complete-profile metadata and provenance', () => {
+    const metadata = JSON.parse(
+      '{"__proto__":{"retained":true},"constructor":"own","prototype":"data"}',
+    )
+    const candidate: AgentProfile = { metadata, extensions: { boundary: metadata } }
+    const changes = agentImprovementProfileDiffs({}, candidate, {
+      id: 'own-data',
+      metadata,
+    })
+    const applied = changes.reduce(applyAgentProfileDiff, {})
+    expect(applied).toEqual(candidate)
+    expect(canonicalAgentProfileDigest(applied)).toBe(canonicalAgentProfileDigest(candidate))
+    for (const change of changes) {
+      expect(Object.hasOwn(change.metadata ?? {}, '__proto__')).toBe(true)
+      expect(change.metadata).toEqual({ ...metadata, surface: 'agent-profile' })
+    }
+    expect(Object.hasOwn(applied.metadata ?? {}, '__proto__')).toBe(true)
+    expect(Object.hasOwn(Object.prototype, 'retained')).toBe(false)
+  })
+
+  it('preserves canonical durable bytes for historical member ordering', () => {
+    const historical = [
+      agentProfileDiffSchema.parse({
+        kind: 'agent-profile-diff',
+        id: 'stable:agent-profile:reset',
+        title: 'Reset changed agent profile fields',
+        remove: { metadata: true },
+        metadata: { surface: 'agent-profile' },
+      }),
+      agentProfileDiffSchema.parse({
+        kind: 'agent-profile-diff',
+        id: 'stable:agent-profile:set',
+        title: 'Set changed agent profile fields',
+        set: { metadata: { z: 1, a: 2 } },
+        metadata: { surface: 'agent-profile' },
+      }),
+    ]
+    const storedJson = JSON.stringify(historical)
+    const candidate: AgentProfile = { metadata: { z: 1, a: 2 } }
+    const changes = agentImprovementProfileDiffs({}, candidate, { id: 'stable' })
+    expect(canonicalCandidateBytes(changes)).toEqual(canonicalCandidateBytes(historical))
+    expect(canonicalCandidateDigest({ kind: 'apply-change', changes })).toBe(
+      canonicalCandidateDigest({ kind: 'apply-change', changes: historical }),
+    )
+    expect(historical.reduce(applyAgentProfileDiff, {})).toEqual(candidate)
+    expect(JSON.stringify(historical)).toBe(storedJson)
   })
 
   it('reproduces a complete profile using removal-only changes', () => {

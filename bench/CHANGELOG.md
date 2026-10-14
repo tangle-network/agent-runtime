@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.3
+
+Align benchmark package dependencies with the Runtime release cohort in `release/cohort.json`.
+Benchmark execution and grading are unchanged.
+
 ## 0.14.2
 
 Use the qualified Eval 0.203 through 0.205, Interface 2.17, and Knowledge 19 cohort.

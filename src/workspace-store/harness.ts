@@ -24,8 +24,10 @@ import {
   type WorkspaceTurn,
 } from './tools'
 
+/** Opening marker for the generated block in a harness's native memory file. */
 export const HARNESS_MEMORY_BEGIN =
   '<!-- workspace-store:memory begin. Generated from the workspace store; save memories with memory.remember. -->'
+/** Closing marker for the generated block in a harness's native memory file. */
 export const HARNESS_MEMORY_END = '<!-- workspace-store:memory end -->'
 
 /** The generated block a host writes into a harness's native memory location. */
@@ -158,6 +160,7 @@ export function harnessActor({ harness, turnId, memberId }: HarnessProvenance): 
   return actor
 }
 
+/** Read the harness, turn, and member provenance encoded by {@link harnessActor}. */
 export function parseHarnessActor(actor: string): HarnessProvenance | null {
   const match = ACTOR.exec(actor)
   return match ? { harness: match[1]!, turnId: match[2]!, memberId: match[3]! } : null

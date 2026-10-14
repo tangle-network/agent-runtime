@@ -22,7 +22,11 @@ async function fixture() {
   roots.push(root)
   const source = join(root, 'source')
   await mkdir(source)
-  const git = (args: string[]) => execFileSync('git', args, { cwd: source }).toString('utf8')
+  const git = (args: string[]) =>
+    execFileSync('git', args, {
+      cwd: source,
+      env: { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1' },
+    }).toString('utf8')
   git(['init', '--initial-branch=main'])
   writeFileSync(join(source, '.gitignore'), 'ignored-cache\n')
   writeFileSync(join(source, 'tracked.txt'), 'original\n')
@@ -30,7 +34,15 @@ async function fixture() {
   writeFileSync(join(source, 'executable'), 'original executable\n')
   chmodSync(join(source, 'executable'), 0o755)
   git(['add', '.'])
-  git(['commit', '-m', 'test fixture'])
+  git([
+    '-c',
+    'user.name=Workspace Fixture',
+    '-c',
+    'user.email=workspace-fixture@example.invalid',
+    'commit',
+    '-m',
+    'test fixture',
+  ])
   writeFileSync(join(source, 'tracked.txt'), 'staged source\n')
   git(['add', 'tracked.txt'])
   writeFileSync(join(source, 'tracked.txt'), 'dirty source\n')

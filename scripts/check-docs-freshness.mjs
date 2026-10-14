@@ -2,7 +2,7 @@
 // Docs freshness gate for the hand-authored judgment docs.
 //
 // Fails loud (non-zero exit) when a judgment doc drifts from ground truth:
-//   CLASS 1  version / substrate-peer pins        != package.json
+//   CLASS 1  version pin / substrate-peer owner    != package.json
 //   CLASS 2  `path:line` citations                -> cited file does not exist on disk
 //   CLASS 3  §2 decision-table "Use ___" code-spans -> symbol is not a real export
 //   CLASS 4  §3 signature prose PascalCase Types   -> symbol resolves to no source export
@@ -187,13 +187,28 @@ for (let i = 0; i < docLines.length; i++) {
   }
 }
 
-// Substrate peer pins: agent-eval / agent-interface / sandbox ranges in the header.
+// The header must name the source of compatible peer ranges. Existing copied
+// ranges are still checked for drift, but repeating each floor is unnecessary.
 const peers = pkg.peerDependencies || {}
 const peerChecks = [
   { name: 'agent-eval', range: peers['@tangle-network/agent-eval'] },
   { name: 'agent-interface', range: peers['@tangle-network/agent-interface'] },
   { name: 'sandbox', range: peers['@tangle-network/sandbox'] },
 ]
+const introEnd = docLines.findIndex((line) => line.startsWith('## '))
+const peerOwnerLine = docLines.slice(0, introEnd < 0 ? docLines.length : introEnd).findIndex(
+  (line) =>
+    line.includes('package.json') &&
+    line.includes('peerDependencies') &&
+    peerChecks.every(({ name }) => line.includes(name)),
+)
+if (peerOwnerLine < 0) {
+  report(
+    'SUBSTRATE',
+    lineOf('Version'),
+    'the doc must direct readers to package.json peerDependencies for agent-eval, agent-interface, and sandbox compatibility',
+  )
+}
 for (const { name, range } of peerChecks) {
   const floor = lowerBound(range)
   if (!floor) continue
@@ -206,10 +221,8 @@ for (const { name, range } of peerChecks) {
   // range, so the doc may assert either `^x.y.z` or `>=x.y.z`. Both name the same
   // floor, which is the value this check compares.
   const re = new RegExp(`${name}[^\\n]*?(?:>=|\\^)(\\d+\\.\\d+\\.\\d+)`, 'g')
-  let matched = 0
   for (let i = 0; i < docLines.length; i++) {
     for (const m of docLines[i].matchAll(re)) {
-      matched++
       if (m[1] !== floor) {
         report(
           'SUBSTRATE',
@@ -219,16 +232,8 @@ for (const { name, range } of peerChecks) {
       }
     }
   }
-  // Presence assertion: the banner claims to check all 3 substrate peers. A peer floor
-  // declared in package.json but never asserted in the doc is an unguarded pin
-  // masquerading as "checked" — fail loud rather than silently verify nothing.
-  if (matched === 0) {
-    report(
-      'SUBSTRATE',
-      lineOf('Version'),
-      `substrate peer "${name}" has a package.json floor (>=${floor}) but the doc never asserts it — the "${peerChecks.length} substrate peers" claim is unmet; state the pin (e.g. \`>=${floor} <1.0.0\`)`,
-    )
-  }
+  // The owner reference above supplies the compatibility claim. Any copied
+  // floor still needs to agree with that owner, as checked by the loop.
 }
 
 // =========================================================================
@@ -641,7 +646,7 @@ for (const d of drift) (byClass[d.cls] ||= []).push(d)
 
 if (drift.length === 0) {
   console.log('docs freshness: OK — no drift detected in the curated docs')
-  console.log(`  checked: version pin (present + accurate), ${peerChecks.length} substrate peers (present + accurate),`)
+  console.log(`  checked: version pin (present + accurate), ${peerChecks.length} substrate peers (owner cited; copied floors checked),`)
   console.log(
     `  ${seenCitations.size} local citations, §2 table symbols against ${universe.size} public exports,`,
   )
