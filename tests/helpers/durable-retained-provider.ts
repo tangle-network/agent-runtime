@@ -25,10 +25,13 @@ import type {
   AgentSessionStatus,
   AgentTurnInput,
   ProxySecretBinding,
+  ProxySecretParents,
   ProxySecretReceipt,
 } from '@tangle-network/agent-interface/environment-provider'
 import {
+  isProxySecretParentsTotal,
   mergeProxySecretBindings,
+  ProxySecretParentsSchema,
   ProxySecretReceiptSchema,
 } from '@tangle-network/agent-interface/environment-provider'
 import { proxySecretCapabilities } from './proxy-coordination'
@@ -64,6 +67,7 @@ interface StoredEnvironment {
   readonly metadata?: Record<string, unknown>
   readonly sessions: Record<string, StoredSession>
   proxySecrets?: ProxySecretBinding[]
+  proxySecretParents?: ProxySecretParents
   proxySecretReceipt?: ProxySecretReceipt
 }
 
@@ -96,6 +100,9 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
           mergeProxySecretBindings(authored, input.proxySecrets),
         )
       }
+      const stored = state.environments[id]
+      const parents = fixtureProxySecretParents(stored, stored.proxySecrets ?? [], input.proxySecretParents)
+      if (parents !== undefined) stored.proxySecretParents = parents
       writeState(stateFile, state)
       return environmentFor(stateFile, providerName, id)
     },
@@ -108,7 +115,9 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
         if (expected !== undefined && expected !== (stored.proxySecretReceipt?.generation ?? 0)) {
           throw new Error('fixture proxy-secret generation conflict')
         }
+        const parents = fixtureProxySecretParents(stored, options.proxySecrets, options.proxySecretParents)
         installProxySecrets(stored, options.proxySecrets)
+        if (parents !== undefined) stored.proxySecretParents = parents
         writeState(stateFile, state)
       }
       return environmentFor(stateFile, providerName, id)
@@ -128,11 +137,34 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
   }
 }
 
+/** Test state records public pins; it does not authenticate a server or issue real authority. */
+function fixtureProxySecretParents(
+  stored: StoredEnvironment,
+  bindings: readonly ProxySecretBinding[],
+  requested: ProxySecretParents | undefined,
+): ProxySecretParents | undefined {
+  if (requested === undefined && stored.proxySecretParents === undefined) return undefined
+  const parents = requested === undefined ? {} : ProxySecretParentsSchema.parse(requested)
+  for (const binding of bindings) {
+    const prior = stored.proxySecrets?.find(entry => entry.envName === binding.envName &&
+      canonicalCandidateDigest(entry.secretRef) === canonicalCandidateDigest(binding.secretRef))
+    const priorPin = stored.proxySecretParents?.[binding.envName]
+    if (requested === undefined) {
+      if (prior === undefined || priorPin === undefined) throw new Error('fixture parent pin is missing')
+      Object.defineProperty(parents, binding.envName, { value: priorPin, enumerable: true })
+    } else if (prior !== undefined && priorPin !== undefined && requested[binding.envName] !== priorPin) {
+      throw new Error('fixture parent pin changes before revocation')
+    }
+  }
+  if (!isProxySecretParentsTotal(bindings, parents)) throw new Error('fixture parent map is not total')
+  return structuredClone(parents)
+}
+
 /** Metadata-only installed receipt at the fake provider boundary, not a real proxy/materializer. */
-function installProxySecrets(stored: StoredEnvironment, bindings: ProxySecretBinding[]) {
+function installProxySecrets(stored: StoredEnvironment, bindings: readonly ProxySecretBinding[]) {
   const generation = (stored.proxySecretReceipt?.generation ?? -1) + 1
   const issuedAt = new Date().toISOString()
-  stored.proxySecrets = structuredClone(bindings)
+  stored.proxySecrets = structuredClone([...bindings])
   stored.proxySecretReceipt = ProxySecretReceiptSchema.parse({
     protocolVersion: 1,
     sandboxId: stored.id,
@@ -174,6 +206,9 @@ function environmentFor(stateFile: string, provider: string, id: string): AgentE
   return {
     id,
     provider,
+    get proxySecretParents() {
+      return readState(stateFile).environments[id]?.proxySecretParents
+    },
     get proxySecretReceipt() {
       return readState(stateFile).environments[id]?.proxySecretReceipt
     },
