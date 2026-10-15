@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.320.1` and `@tangle-network/agent-eval@0.213.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.320.1` and `@tangle-network/agent-eval@0.214.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -476,7 +476,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1081 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1086 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -826,6 +826,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 1081 exports.
 | `strategyAuthorSystemPrompt` | const | Standing behavior callers put in the strategy-author AgentProfile. |
 | `SUBTREE_RESULT_LIMIT` | const | How many of a manager's direct children its summary lists; the counts always cover all. |
 | `TERMINAL_DECISIONS` | const | Decision values the kernel treats as terminal. Every other value returned by |
+| `TRACE_ROOT_SCHEMA` | const | Schema identifier for archived turn Merkle-root artifacts. |
+| `TRACE_SUMMARY_SCHEMA` | const | Schema identifier for the final trace leaf carrying event and tool counts. |
 | `UNPROVEN_CONTINUITY` | const | Continuity when nothing is proven: compose the full state. |
 | `VERIFY_TAIL_CHARS` | const | Tail of the verify output — the failing assertion lives at the END of a test log. |
 | `WORKER_TOOL_TRACE_SCHEMA_VERSION` | const | Schema version for content-addressed worker tool-trace artifacts. |
@@ -1205,6 +1207,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 1081 exports.
 | `ToolLoopToolCall` | interface | One provider-neutral tool request emitted by a tool-loop model. |
 | `ToolOutcomeEvent` | interface | A tool call that outlived its response fence, and its outcome once it settled. |
 | `TournamentCell` | interface | One strategy on one task at one repeat: the settled cell's final attempt. |
+| `TraceRootArtifact` | interface | The stored trace-root artifact. `leaves[i]` and `salts[i]` belong to `events[i]` of the |
+| `TraceRootReceipt` | interface | The Merkle root over the events an output archived, as a journal record carries it beside that |
+| `TraceSummary` | interface | The last leaf of a trace root: how many events the archive holds and the tool calls among them, |
 | `TrajectoryNode` | interface | One node in the reconstructed trajectory tree — a driver OR a leaf, with its OWN spend and the |
 | `TrajectoryReport` | interface | The whole reconstructed trajectory — the realized tree + its root-rolled-up total. The |
 | `TrajectoryReportOptions` | interface | `trajectoryReport(journal, blobs, root, { withOutputs? })` — reconstruct the whole tree with |
