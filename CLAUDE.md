@@ -3,6 +3,14 @@
 This package owns agent execution and composes evaluation and knowledge workflows.
 Domain policy belongs in adapters and agent profiles.
 
+## Delivery
+
+Work on a feature branch, run relevant checks while developing, and report actual results. Push the branch and land the exact intended head in `main`. Source integration does not require a green CI run, local signoff, a version bump, published dependencies, or a queue label. A draft or explicit hold is not permission to merge. Post-merge CI is a safety net, not a condition for finishing a source-only task.
+
+The shared command is `tangle-ops merge` after the companion tooling change is installed. Until then, use the ordinary GitHub merge endpoint with the exact expected head SHA. Native restrictions still apply; never forge statuses, remove a hold or use an administrator bypass. Removing obsolete required-check settings is a separate administrator rollout.
+
+Release qualification and package publication remain separate, explicitly authorized operations. The existing publishing workflow owns tag/source identity, packed artifacts, cohort compatibility, credential isolation and publication. Do not dispatch publication or alter release controls to finish a source task. A merge is not a package release or a production result.
+
 ## Read for the task
 
 - Before implementation, read [BUILDING.md](docs/BUILDING.md) for build discipline and [ANTI_PATTERNS.md](docs/ANTI_PATTERNS.md) for known failure modes.
@@ -56,7 +64,7 @@ Keep run status and measurements in those records rather than this entrypoint.
 ## Local conventions
 
 Use the repository's package scripts for checks and build commands.
-For changes to published code, run the package verification path; a source build alone does not prove the packed artifact.
+Run relevant checks while developing. Package verification is required at publication, not as a source-merge prerequisite; a source build alone does not prove the packed artifact.
 Comments explain current behavior and reasons; change history belongs in commits and pull requests.
 Do not add AI-attribution trailers to commits or artifacts.
 External-boundary calls return typed outcomes with explicit success or failure and diagnostic information.
