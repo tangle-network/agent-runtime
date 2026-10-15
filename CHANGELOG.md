@@ -10,6 +10,8 @@ Commit every archived turn to a trace root. The journal record that cites an out
 
 `mapSandboxToolEvent` now projects codex tool items (`raw` events carrying `item.started` or `item.completed` for a command, MCP, collaboration, web search or file change item) as one `tool_call` per item id and one `tool_result` when the item completes. Codex turns previously projected no tool calls, so `SandboxLeafOut.toolCalls` and streamed tool events now include them.
 
+The candidate profile conversions (`freezeGenericAgentCandidateProfile`, `assertCandidateProfileBinding`, `agentCandidateProfileAsAgentProfile` and `assertCandidateProfileExecutionSupport`) now refuse Interface 5.3 profile `proxySecrets` and secret-ref config values in MCP and hook `args` or `env` with a `ValidationError` that names the field, instead of dropping them. The refusal is temporary: Sandbox still ships its own Interface 4.0.0, which cannot carry these fields, and the refusal lifts once Sandbox adopts Interface 5.3. The packed release gate qualifies Sandbox 0.60.58 with Interface 5.2.1 and 5.3.1; Sandbox's own contract copies are byte-identical to 0.60.53's.
+
 ## 0.320.1
 
 Qualify the Sandbox 0.60.53 packed cohort. Its published files differ from 0.60.51 only in bundler chunk names and a development dependency, with no type or code changes; the release guard still rejects changed or unknown Sandbox contract artifacts.

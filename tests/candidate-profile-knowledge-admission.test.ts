@@ -6,6 +6,7 @@ import {
   assertCandidateProfileExecutionSupport,
   freezeGenericAgentCandidateProfile,
 } from '../src/candidate-execution/profile'
+import { ValidationError } from '../src/errors'
 
 describe('candidate profile knowledge admission', () => {
   for (const knowledge of [[], [{ sourceId: 'source', generation: `kg_${'a'.repeat(64)}` }]]) {
@@ -34,4 +35,66 @@ describe('candidate profile knowledge admission', () => {
     expect(() => assertCandidateProfileBinding(profile, candidate)).not.toThrow()
     expect(() => assertCandidateProfileExecutionSupport(candidate)).not.toThrow()
   })
+})
+
+describe('candidate profile fields Sandbox cannot carry', () => {
+  // Interface 5.3 admits these; the pinned development types do not expose them yet.
+  // The packed consumer repeats this under the Interface the registry serves.
+  const proxySecrets = [
+    {
+      hosts: ['api.example.com'],
+      envName: 'EXAMPLE_API_KEY',
+      secretRef: { kind: 'secret-ref', key: 'example' },
+      presentation: { type: 'bearer' },
+    },
+  ]
+  const secretRef = { kind: 'secret-ref', key: 'example' }
+  const cases = [
+    { field: 'proxySecrets', profile: { harness: 'codex', proxySecrets } },
+    { field: 'proxySecrets', profile: { harness: 'codex', proxySecrets: [] } },
+    {
+      field: 'mcp.search.env.SEARCH_REGION (secret-ref)',
+      profile: { mcp: { search: { command: 'search-mcp', env: { SEARCH_REGION: secretRef } } } },
+    },
+    {
+      field: 'mcp.search.args[1] (secret-ref)',
+      profile: {
+        mcp: {
+          search: {
+            command: 'search-mcp',
+            args: [{ kind: 'public', value: '--region' }, secretRef],
+          },
+        },
+      },
+    },
+    {
+      field: 'hooks.PreToolUse[0].args[0] (secret-ref)',
+      profile: { hooks: { PreToolUse: [{ executable: 'audit', args: [secretRef] }] } },
+    },
+  ]
+  for (const { field, profile } of cases) {
+    it(`refuses ${field} by name instead of dropping it`, () => {
+      const refusal = (convert: () => unknown) => {
+        let thrown: unknown
+        try {
+          convert()
+        } catch (error) {
+          thrown = error
+        }
+        expect(thrown).toBeInstanceOf(ValidationError)
+        expect((thrown as Error).message).toBe(
+          `candidate profile field ${field} is refused: Sandbox's Interface 4.0.0 cannot carry it yet, and Runtime does not drop it`,
+        )
+      }
+      const candidate = profile as unknown as AgentCandidateProfile
+      // Generic hooks are commands, not executable/args, so only candidate profiles carry hook args.
+      if (!field.startsWith('hooks.')) {
+        const generic = profile as unknown as AgentProfile
+        refusal(() => freezeGenericAgentCandidateProfile(generic))
+        refusal(() => assertCandidateProfileBinding(generic, {} as AgentCandidateProfile))
+      }
+      refusal(() => agentCandidateProfileAsAgentProfile(candidate))
+      refusal(() => assertCandidateProfileExecutionSupport(candidate))
+    })
+  }
 })
