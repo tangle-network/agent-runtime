@@ -83,10 +83,16 @@ it('rebinds a retained environment in place before continuing and preserves auth
     provider,
     controlRef: initial.controlRef,
     proxySecrets: [authored, binding],
-    onAdmission: async admission => { admissions.push(admission) },
+    onAdmission: async (admission) => {
+      admissions.push(admission)
+    },
   })
   expect(reconnected?.controlRef).toEqual(initial.controlRef)
-  expect(admissions.some(admission => admission.phase === 'proxy-secrets' && admission.stage === 'installed')).toBe(true)
+  expect(
+    admissions.some(
+      (admission) => admission.phase === 'proxy-secrets' && admission.stage === 'installed',
+    ),
+  ).toBe(true)
   expect(lookups.at(-1)).toMatchObject({
     requireInPlace: true,
     proxySecrets: [authored, binding],
@@ -204,7 +210,8 @@ it('verifies original identity but refuses native reattachment after an unacknow
       if (!environment) return null
       return {
         ...environment,
-        proxySecretReceipt: options?.proxySecrets === undefined ? environment.proxySecretReceipt : undefined,
+        proxySecretReceipt:
+          options?.proxySecrets === undefined ? environment.proxySecretReceipt : undefined,
         session(id) {
           if (options?.proxySecrets === undefined) ownershipChecks++
           else sessions++
@@ -244,13 +251,21 @@ it('refuses a changed reference returned by an omitted-update public reconnect b
       const current = await base.get!(id, options)
       if (!current || Reflect.get(options ?? {}, 'readOnly') === true) return current
       reconnectGets++
-      expect(admissions.some(admission => admission.phase === 'proxy-secrets' && admission.stage === 'replacement'),
-        'omitted protected reconnect must durably admit its exact discovered selection before resuming').toBe(true)
+      expect(
+        admissions.some(
+          (admission) => admission.phase === 'proxy-secrets' && admission.stage === 'replacement',
+        ),
+        'omitted protected reconnect must durably admit its exact discovered selection before resuming',
+      ).toBe(true)
       return {
         ...current,
-        proxySecretReceipt: { ...current.proxySecretReceipt!, bindings: current.proxySecretReceipt!.bindings.map(entry => ({
-          ...entry, secretRef: { kind: 'secret-ref' as const, key: 'unadmitted-reference' },
-        })) },
+        proxySecretReceipt: {
+          ...current.proxySecretReceipt!,
+          bindings: current.proxySecretReceipt!.bindings.map((entry) => ({
+            ...entry,
+            secretRef: { kind: 'secret-ref' as const, key: 'unadmitted-reference' },
+          })),
+        },
         session(id, sessionOptions) {
           nativeSessions++
           return current.session!(id, sessionOptions)
@@ -258,13 +273,25 @@ it('refuses a changed reference returned by an omitted-update public reconnect b
       }
     },
   }
-  await expect(reconnectRetainedRun({
-    provider, controlRef: initial.controlRef,
-    onAdmission: async admission => { admissions.push(admission) },
-  })).rejects.toThrow('did not confirm proxy-secret installation')
+  await expect(
+    reconnectRetainedRun({
+      provider,
+      controlRef: initial.controlRef,
+      onAdmission: async (admission) => {
+        admissions.push(admission)
+      },
+    }),
+  ).rejects.toThrow('did not confirm proxy-secret installation')
   expect(reconnectGets).toBe(1)
-  expect(nativeSessions, 'changed proxy references must refuse before public native reattachment').toBe(0)
-  expect(admissions.some(admission => admission.phase === 'proxy-secrets' && admission.stage === 'installed')).toBe(false)
+  expect(
+    nativeSessions,
+    'changed proxy references must refuse before public native reattachment',
+  ).toBe(0)
+  expect(
+    admissions.some(
+      (admission) => admission.phase === 'proxy-secrets' && admission.stage === 'installed',
+    ),
+  ).toBe(false)
 })
 
 it('refuses a raw protected executor without durable admission before provider allocation', async () => {
@@ -282,13 +309,15 @@ it('refuses a raw protected executor without durable admission before provider a
     { profile, harness: null },
     { signal, seams: { 'runtime.proxySecretParents': rootParents } },
   )
-  await expect((async () => {
-    const execution = executor.execute('work', signal)
-    if (!(Symbol.asyncIterator in execution)) throw new Error('expected streamed execution')
-    for await (const _event of execution) {
-      /* consume the actual public raw executor */
-    }
-  })()).rejects.toThrow('requires awaited durable parent admission')
+  await expect(
+    (async () => {
+      const execution = executor.execute('work', signal)
+      if (!(Symbol.asyncIterator in execution)) throw new Error('expected streamed execution')
+      for await (const _event of execution) {
+        /* consume the actual public raw executor */
+      }
+    })(),
+  ).rejects.toThrow('requires awaited durable parent admission')
   expect(creates).toBe(0)
 })
 

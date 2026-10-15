@@ -64,6 +64,7 @@ function assertDetachedAdmissionPhase(admission: RetainedRunAdmission): void {
     case 'intent':
     case 'environment':
     case 'dispatched':
+    case 'proxy-secrets':
       return
     default: {
       const exhaustive: never = admission
@@ -566,11 +567,13 @@ describe('retained runtime run control', () => {
     const reached = abortGate()
     const release = abortGate()
     const provider = providerWithEnvironment({
-      async dispatch() { throw new Error('ordinary create observed') },
+      async dispatch() {
+        throw new Error('ordinary create observed')
+      },
     })
     const create = provider.create.bind(provider)
     let created: CreateAgentEnvironmentInput | undefined
-    provider.create = async input => {
+    provider.create = async (input) => {
       created = input
       return create(input)
     }
@@ -582,7 +585,7 @@ describe('retained runtime run control', () => {
       provider,
       environment,
       turn: { prompt: 'work', turnId: 'ordinary-admission-snapshot' },
-      onAdmission: async admission => {
+      onAdmission: async (admission) => {
         if (admission.phase === 'intent') {
           reached.resolve()
           await release.promise

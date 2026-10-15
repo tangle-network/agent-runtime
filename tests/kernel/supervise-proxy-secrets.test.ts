@@ -206,7 +206,9 @@ describe('public supervise proxy-secret descendant admission', () => {
     }
   })
 
-  it('preserves the protected public supervisor source without checkpoint inspection forks', { timeout: 10_000 }, async () => {
+  it('preserves the protected public supervisor source without checkpoint inspection forks', {
+    timeout: 10_000,
+  }, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'supervise-protected-checkpoint-'))
     const proxy = await proxyCoordination()
     const journal = new InMemorySpawnJournal()
@@ -215,64 +217,132 @@ describe('public supervise proxy-secret descendant admission', () => {
     const runId = 'protected-checkpoint-root'
     const files = new Map<string, string>([['notes.md', 'protected workspace']])
     const checkpoints = new Map<string, ReadonlyMap<string, string>>()
-    const capture = checkpointCaptureFixture({ provider: base.name, snapshotFiles: id => checkpoints.get(id) })
+    const capture = checkpointCaptureFixture({
+      provider: base.name,
+      snapshotFiles: (id) => checkpoints.get(id),
+    })
     let sourceId: string | undefined
     let destroyed = 0
     let deleted = 0
-    const wrap = (environment: AgentEnvironment, coordinate: () => Promise<void>): AgentEnvironment => ({
+    const wrap = (
+      environment: AgentEnvironment,
+      coordinate: () => Promise<void>,
+    ): AgentEnvironment => ({
       ...environment,
-      read: async path => {
+      read: async (path) => {
         const content = files.get(path)
         if (content === undefined) throw new Error('fixture workspace file absent')
         return content
       },
-      write: async (path, content) => { files.set(path, content) },
+      write: async (path, content) => {
+        files.set(path, content)
+      },
       workspaceBranching: {
         ...capture.branching,
         async checkpoint(request) {
           const checkpointId = `protected-checkpoint-${checkpoints.size + 1}`
           checkpoints.set(checkpointId, new Map(files))
-          return { status: 'created', idempotencyKey: request.idempotencyKey, requestDigest: request.requestDigest,
-            checkpoint: { checkpointId, provider: environment.provider, source: request.source,
-              idempotencyKey: request.idempotencyKey, requestDigest: request.requestDigest, createdAt: new Date().toISOString() } }
+          return {
+            status: 'created',
+            idempotencyKey: request.idempotencyKey,
+            requestDigest: request.requestDigest,
+            checkpoint: {
+              checkpointId,
+              provider: environment.provider,
+              source: request.source,
+              idempotencyKey: request.idempotencyKey,
+              requestDigest: request.requestDigest,
+              createdAt: new Date().toISOString(),
+            },
+          }
         },
-        lookupCheckpoint: async request => ({ ...request, status: 'not_found' }),
-        deleteCheckpoint: async request => { deleted++; checkpoints.delete(request.targetId); return { ...request, status: 'deleted' } },
+        lookupCheckpoint: async (request) => ({ ...request, status: 'not_found' }),
+        deleteCheckpoint: async (request) => {
+          deleted++
+          checkpoints.delete(request.targetId)
+          return { ...request, status: 'deleted' }
+        },
       },
       session(id, options) {
         const session = environment.session!(id, options)
-        return { ...session,
-          async *events(eventOptions) { await coordinate(); yield* session.events(eventOptions) },
-          async result() { await coordinate(); return session.result() },
+        return {
+          ...session,
+          async *events(eventOptions) {
+            await coordinate()
+            yield* session.events(eventOptions)
+          },
+          async result() {
+            await coordinate()
+            return session.result()
+          },
         }
       },
-      async destroy() { destroyed++; await environment.destroy?.() },
+      async destroy() {
+        destroyed++
+        await environment.destroy?.()
+      },
     })
-    let coordinate: () => Promise<void> = async () => { throw new Error('fixture source not created') }
+    let coordinate: () => Promise<void> = async () => {
+      throw new Error('fixture source not created')
+    }
     const provider: AgentEnvironmentProvider = {
       ...base,
-      capabilities: async () => ({ ...(await base.capabilities()), create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities, workspaceCheckpoint: true } }),
+      capabilities: async () => ({
+        ...(await base.capabilities()),
+        create: {
+          runtimeAttachments: { mcp: true },
+          proxySecrets: proxySecretCapabilities,
+          workspaceCheckpoint: true,
+        },
+      }),
       async create(input) {
         const environment = await base.create(input)
         sourceId = environment.id
         const attachment = input.runtimeAttachments?.mcp?.['agent-runtime-coordination']
-        if (attachment?.transport !== 'http') throw new Error('fixture coordination attachment absent')
+        if (attachment?.transport !== 'http')
+          throw new Error('fixture coordination attachment absent')
         let completed: Promise<void> | undefined
         const request = async (name: string, args: Record<string, unknown>) => {
-          const response = await fetch(attachment.url, { method: 'POST', signal: AbortSignal.timeout(2_000),
-            headers: { Authorization: proxy.authorizationFor(input), 'content-type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: name, method: 'tools/call', params: { name, arguments: args } }) })
+          const response = await fetch(attachment.url, {
+            method: 'POST',
+            signal: AbortSignal.timeout(2_000),
+            headers: {
+              Authorization: proxy.authorizationFor(input),
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: name,
+              method: 'tools/call',
+              params: { name, arguments: args },
+            }),
+          })
           const reply: unknown = await response.json()
           expect(response.ok).toBe(true)
-          if (reply === null || typeof reply !== 'object' || Object.hasOwn(reply, 'error')) throw new Error('fixture coordination refused')
+          if (reply === null || typeof reply !== 'object' || Object.hasOwn(reply, 'error'))
+            throw new Error('fixture coordination refused')
           const result: unknown = Reflect.get(reply, 'result')
-          if (result !== null && typeof result === 'object' && Reflect.get(result, 'isError') === true) throw new Error('fixture tool refused')
+          if (
+            result !== null &&
+            typeof result === 'object' &&
+            Reflect.get(result, 'isError') === true
+          )
+            throw new Error('fixture tool refused')
         }
-        coordinate = () => completed ??= (async () => {
-          await request('read_journal', {})
-          await expect.poll(async () => ((await journal.loadTree(runId)) ?? []).some(event => event.kind === 'workspace-checkpoint'), { timeout: 1_000 }).toBe(true)
-          await request('submit_result', { result: { answer: 'retained safely' } })
-        })()
+        coordinate = () =>
+          (completed ??= (async () => {
+            await request('read_journal', {})
+            await expect
+              .poll(
+                async () =>
+                  ((await journal.loadTree(runId)) ?? []).some(
+                    (event) => event.kind === 'workspace-checkpoint',
+                  ),
+                { timeout: 1_000 },
+              )
+              .toBe(true)
+            await request('submit_result', { result: { answer: 'retained safely' } })
+          })())
         return wrap(environment, coordinate)
       },
       async get(id, options) {
@@ -280,24 +350,60 @@ describe('public supervise proxy-secret descendant admission', () => {
         return environment ? wrap(environment, coordinate) : capture.forkEnvironment(id)
       },
     }
-    const retention: ProviderWorkspaceRetentionPort = { ...capture.port, timeoutMs: 1_000, requireCompleteProvenance: true,
-      capture: context => completeCapture(context, capture.cas) }
+    const retention: ProviderWorkspaceRetentionPort = {
+      ...capture.port,
+      timeoutMs: 1_000,
+      requireCompleteProvenance: true,
+      capture: (context) => completeCapture(context, capture.cas),
+    }
     const backend = { backend: 'provider' as const, provider, workspaceRetention: retention }
     try {
-      await supervise(testAgentProfile('root', { tools: runtimeToolDeclarations('read_journal', 'submit_result') }), 'retain the protected workspace', {
-        runId, journal, blobs, signal: AbortSignal.timeout(5_000), backend, driverBackend: backend,
-        budget: { maxIterations: 4, maxTokens: 4_000 }, driverRetry: { enabled: false },
-        retainedAtSettlement: 'release', teardownConfirmMs: 0,
-        continuation: testContinuation({ deadline: Date.now() + 5_000 }),
-        deliverable: { check: out => out !== null && typeof out === 'object' && Reflect.get(out, 'answer') === 'retained safely' },
-        coordination: { authentication: true, publicUrl: proxy.publicUrl, proxySecret: proxy.proxySecret },
-      })
+      await supervise(
+        testAgentProfile('root', {
+          tools: runtimeToolDeclarations('read_journal', 'submit_result'),
+        }),
+        'retain the protected workspace',
+        {
+          runId,
+          journal,
+          blobs,
+          signal: AbortSignal.timeout(5_000),
+          backend,
+          driverBackend: backend,
+          budget: { maxIterations: 4, maxTokens: 4_000 },
+          driverRetry: { enabled: false },
+          retainedAtSettlement: 'release',
+          teardownConfirmMs: 0,
+          continuation: testContinuation({ deadline: Date.now() + 5_000 }),
+          deliverable: {
+            check: (out) =>
+              out !== null &&
+              typeof out === 'object' &&
+              Reflect.get(out, 'answer') === 'retained safely',
+          },
+          coordination: {
+            authentication: true,
+            publicUrl: proxy.publicUrl,
+            proxySecret: proxy.proxySecret,
+          },
+        },
+      )
       const events = (await journal.loadTree(runId)) ?? []
-      expect(events.some(event => event.kind === 'workspace-checkpoint')).toBe(true)
-      expect(capture.forks.size, 'protected public checkpoint cleanup must refuse before inspection allocation').toBe(0)
-      expect(events.some(event => event.kind === 'workspace-checkpoint-fork-requested')).toBe(false)
-      expect(events).toContainEqual(expect.objectContaining({ kind: 'workspace-checkpoint-cleanup', confirmed: false,
-        refused: 'proxy-secret checkpoint capture refused: no checkpoint-specific custody proof' }))
+      expect(events.some((event) => event.kind === 'workspace-checkpoint')).toBe(true)
+      expect(
+        capture.forks.size,
+        'protected public checkpoint cleanup must refuse before inspection allocation',
+      ).toBe(0)
+      expect(events.some((event) => event.kind === 'workspace-checkpoint-fork-requested')).toBe(
+        false,
+      )
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: 'workspace-checkpoint-cleanup',
+          confirmed: false,
+          refused: 'proxy-secret checkpoint capture refused: no checkpoint-specific custody proof',
+        }),
+      )
       expect(deleted).toBe(0)
       expect(destroyed).toBe(0)
       expect(sourceId).toBeDefined()
@@ -338,7 +444,9 @@ describe('public supervise proxy-secret descendant admission', () => {
         controller.signal.addEventListener('abort', () => resolve(), { once: true })
       })
       const rootPolicy = steering ? parentBinding : { ...parentBinding, paths: ['/v1/*'] }
-      const childPolicy = steering ? childBinding : { ...childBinding, paths: ['/v1/events/nested'] }
+      const childPolicy = steering
+        ? childBinding
+        : { ...childBinding, paths: ['/v1/events/nested'] }
       const child = profile('child', [childPolicy], true)
       const grandchild = profile('grandchild', [{ ...childPolicy, ttlSeconds: 30 }], !steering)
       const defaults = { env: { PUBLIC_FIXTURE_SETTING: 'preserved' } }
@@ -368,7 +476,13 @@ describe('public supervise proxy-secret descendant admission', () => {
             .map((event) => Reflect.get(event, 'proxySecretParents'))
           mapsBeforeAllocation.push({ name, parents, inputMaps })
           const environment = await base.create(input)
-          allocations.push({ name, environment, parents, readback: environment.proxySecretParents, declared: input.profile.proxySecrets })
+          allocations.push({
+            name,
+            environment,
+            parents,
+            readback: environment.proxySecretParents,
+            declared: input.profile.proxySecrets,
+          })
           if (steering && name === 'grandchild') {
             expect(input.runtimeAttachments?.mcp?.['agent-runtime-coordination']).toBeUndefined()
             return {
@@ -384,7 +498,11 @@ describe('public supervise proxy-secret descendant admission', () => {
           const attachment = input.runtimeAttachments?.mcp?.['agent-runtime-coordination']
           if (!attachment || attachment.transport !== 'http')
             throw new Error('manager coordination URL required by fixture')
-          const request = async (tool: string, args: Record<string, unknown>, expectRefusal = false) => {
+          const request = async (
+            tool: string,
+            args: Record<string, unknown>,
+            expectRefusal = false,
+          ) => {
             const response = await fetch(attachment.url, {
               method: 'POST',
               signal: controller.signal,
@@ -425,8 +543,15 @@ describe('public supervise proxy-secret descendant admission', () => {
               dispatchedNames.push(name)
               if (name === 'grandchild') releaseAncestors()
               if (name === 'child' && !steering) {
-                await request('spawn_worker', { profile: profile('widened', [parentBinding]),
-                  task: 'must refuse inherited widening', key: 'widened-reports' }, true)
+                await request(
+                  'spawn_worker',
+                  {
+                    profile: profile('widened', [parentBinding]),
+                    task: 'must refuse inherited widening',
+                    key: 'widened-reports',
+                  },
+                  true,
+                )
               }
               if (name === 'root' || name === 'child') {
                 await request('spawn_worker', {
@@ -479,7 +604,9 @@ describe('public supervise proxy-secret descendant admission', () => {
         const forest = await loadSpawnForest(journal, 'proxy-parent-tree')
         const failures = forest.events.flatMap(({ event }) =>
           event.kind === 'settled' && event.status === 'down'
-            ? [{ id: event.id, reason: event.reason }] : [])
+            ? [{ id: event.id, reason: event.reason }]
+            : [],
+        )
         expect(
           allocations.map((entry) => entry.name),
           `root and descendant allocations must preserve admitted parent maps; failures=${JSON.stringify(failures)}`,
@@ -677,9 +804,11 @@ describe('public supervise proxy-secret descendant admission', () => {
   })
 
   it('refuses a subtree prefix escape before allocating a child', async () => {
-    const { seen, replies } = await spawnOne(profile('child', [{ ...childBinding, paths: ['/v10/events'] }]), undefined, [
-      { ...parentBinding, paths: ['/v1/*'] },
-    ])
+    const { seen, replies } = await spawnOne(
+      profile('child', [{ ...childBinding, paths: ['/v10/events'] }]),
+      undefined,
+      [{ ...parentBinding, paths: ['/v1/*'] }],
+    )
     expect(seen).toEqual([])
     expect(JSON.stringify(replies)).toContain('proxySecrets')
   })

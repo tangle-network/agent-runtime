@@ -24,9 +24,8 @@ import type {
   AgentTurnResult,
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
-
-import type { ProxySecretParents } from './proxy-secret-parents'
 import type { ProxySecretBindingAdmission } from './proxy-secret-admission'
+import type { ProxySecretParents } from './proxy-secret-parents'
 import type { CoordinationProxySecretSourceIdentity } from './supervise/coordination-credential'
 
 /** Cursor plus runtime sequence needed to continue one ordered replay. @stable */

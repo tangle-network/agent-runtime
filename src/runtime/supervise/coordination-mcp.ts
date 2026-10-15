@@ -23,9 +23,9 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { createServer, type Server } from 'node:http'
 import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import {
+  isProxySecretScopeAttenuation,
   type ProxySecretBinding,
   ProxySecretBindingSchema,
-  isProxySecretScopeAttenuation,
   ProxySecretScopeSchema,
 } from '@tangle-network/agent-interface/environment-provider'
 import { ConfigError, ValidationError } from '../../errors'
@@ -54,23 +54,23 @@ import {
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import { runAbortable } from './abortable'
 import {
-  type CoordinationHttpOptions,
-  coordinationHttpHandler,
-  coordinationHttpLimits,
-} from './coordination-http'
-import {
-  type CoordinationSignedCredentialGeneration,
   type CoordinationProxySecretSourceIdentity,
+  type CoordinationSignedCredentialGeneration,
   captureCoordinationProxySecretSourceIdentity,
   createCoordinationSignedCredentialGeneration,
   signCoordinationCredentialGeneration,
 } from './coordination-credential'
+import {
+  type CoordinationHttpOptions,
+  coordinationHttpHandler,
+  coordinationHttpLimits,
+} from './coordination-http'
 import { preflightPublicCoordination } from './coordination-preflight'
 import {
   noteScopeRetainedOwnerCoordination,
   scopeRetainedOwnerCoordinationGeneration,
-  scopeRetainedOwnerCoordinationGenerationRevoked,
   scopeRetainedOwnerCoordinationGenerationRegistered,
+  scopeRetainedOwnerCoordinationGenerationRevoked,
   scopeRetainedOwnerCoordinationSource,
   scopeRetainedOwnerResourceReader,
 } from './retained-scope-owner'
@@ -228,7 +228,8 @@ function assertCoordinationProxySecret(
     binding.paths?.length !== 1 ||
     binding.paths[0] !== address.pathname ||
     binding.ttlSeconds === undefined ||
-    source.key !== binding.secretRef.key || source.expiresAt !== registered.expiresAt ||
+    source.key !== binding.secretRef.key ||
+    source.expiresAt !== registered.expiresAt ||
     !isProxySecretScopeAttenuation(source.proxyPolicy, binding) ||
     binding.ttlSeconds > source.proxyPolicy.maxTtlSeconds
   ) {
@@ -482,14 +483,23 @@ export async function serveCoordinationMcpForManager(
   let registeredProxySecret: CoordinationProxySecretRegistration | undefined
   let signedGeneration: CoordinationSignedCredentialGeneration | undefined
   let replayCredential = false
-  let expectedRegistration: { readonly binding: ProxySecretBinding; readonly sourceIdentity: CoordinationProxySecretSourceIdentity } | undefined
+  let expectedRegistration:
+    | {
+        readonly binding: ProxySecretBinding
+        readonly sourceIdentity: CoordinationProxySecretSourceIdentity
+      }
+    | undefined
   let rotation: Promise<void> | undefined
   let proxyRevocation: Promise<void> | undefined
-  const queueRevocation = (registered: CoordinationProxySecretRegistration, generation: CoordinationSignedCredentialGeneration | undefined) => {
+  const queueRevocation = (
+    registered: CoordinationProxySecretRegistration,
+    generation: CoordinationSignedCredentialGeneration | undefined,
+  ) => {
     proxyRevocation = Promise.resolve().then(async () => {
       try {
         if ((await registered.revoke())?.confirmed !== true) throw new Error('unconfirmed')
-        if (generation) await scopeRetainedOwnerCoordinationGenerationRevoked(opts.scope, generation)
+        if (generation)
+          await scopeRetainedOwnerCoordinationGenerationRevoked(opts.scope, generation)
       } catch {
         throw new ConfigError('coordination proxySecret revocation was not confirmed')
       }
@@ -523,29 +533,50 @@ export async function serveCoordinationMcpForManager(
     expectedRegistration = undefined
     let text: string
     if (signingKeys) {
-      const createGeneration = () => createCoordinationSignedCredentialGeneration({
-        ...identity, audience: credentialAudience, grants: grantDigest,
-        keyId: signingKeys.activeKeyId, expiresAt: expiresAt ?? null,
-      })
+      const createGeneration = () =>
+        createCoordinationSignedCredentialGeneration({
+          ...identity,
+          audience: credentialAudience,
+          grants: grantDigest,
+          keyId: signingKeys.activeKeyId,
+          expiresAt: expiresAt ?? null,
+        })
       let created = false
       signedGeneration = opts.proxySecret
-        ? await scopeRetainedOwnerCoordinationGeneration(opts.scope, () => {
-            created = true
-            return createGeneration()
-          }, renew)
+        ? await scopeRetainedOwnerCoordinationGeneration(
+            opts.scope,
+            () => {
+              created = true
+              return createGeneration()
+            },
+            renew,
+          )
         : createGeneration()
-      if (!signedGeneration) throw new ConfigError('coordination signed generation admission is unavailable')
+      if (!signedGeneration)
+        throw new ConfigError('coordination signed generation admission is unavailable')
       replayCredential = Boolean(opts.proxySecret) && !created
       if (replayCredential) {
-        expectedRegistration = await scopeRetainedOwnerCoordinationSource(opts.scope, signedGeneration)
-        if (!expectedRegistration) throw new ConfigError('coordination credential replay has no confirmed source identity')
+        expectedRegistration = await scopeRetainedOwnerCoordinationSource(
+          opts.scope,
+          signedGeneration,
+        )
+        if (!expectedRegistration)
+          throw new ConfigError('coordination credential replay has no confirmed source identity')
       }
-      text = signCoordinationCredentialGeneration(signedGeneration, signingKeys.keys, {
-        ...identity, audience: credentialAudience, grants: grantDigest,
-      }, auth?.ttlMs)
+      text = signCoordinationCredentialGeneration(
+        signedGeneration,
+        signingKeys.keys,
+        {
+          ...identity,
+          audience: credentialAudience,
+          grants: grantDigest,
+        },
+        auth?.ttlMs,
+      )
       credentialExpiresAt = signedGeneration.expiresAt ?? undefined
     } else {
-      if (opts.proxySecret) await scopeRetainedOwnerCoordinationGeneration(opts.scope, undefined, renew)
+      if (opts.proxySecret)
+        await scopeRetainedOwnerCoordinationGeneration(opts.scope, undefined, renew)
       signedGeneration = undefined
       credentialExpiresAt = expiresAt
       text = randomBytes(32).toString('base64url')
@@ -559,17 +590,35 @@ export async function serveCoordinationMcpForManager(
     try {
       addressLifetime.signal.throwIfAborted()
       prepared = await opts.proxySecret.prepare({
-        ...identity, url: credentialAudience, authorization: headers.Authorization!,
+        ...identity,
+        url: credentialAudience,
+        authorization: headers.Authorization!,
         replay: replayCredential,
-        ...(expectedRegistration ? { expectedSourceIdentity: expectedRegistration.sourceIdentity } : {}),
-        credentialExpiresAt, signal: addressLifetime.signal,
+        ...(expectedRegistration
+          ? { expectedSourceIdentity: expectedRegistration.sourceIdentity }
+          : {}),
+        credentialExpiresAt,
+        signal: addressLifetime.signal,
       })
-      const { binding, sourceIdentity } = assertCoordinationProxySecret(prepared, new URL(credentialAudience), credentialExpiresAt)
-      if (expectedRegistration && (canonicalCandidateDigest(binding) !== canonicalCandidateDigest(expectedRegistration.binding) ||
-          canonicalCandidateDigest(sourceIdentity) !== canonicalCandidateDigest(expectedRegistration.sourceIdentity))) {
+      const { binding, sourceIdentity } = assertCoordinationProxySecret(
+        prepared,
+        new URL(credentialAudience),
+        credentialExpiresAt,
+      )
+      if (
+        expectedRegistration &&
+        (canonicalCandidateDigest(binding) !==
+          canonicalCandidateDigest(expectedRegistration.binding) ||
+          canonicalCandidateDigest(sourceIdentity) !==
+            canonicalCandidateDigest(expectedRegistration.sourceIdentity))
+      ) {
         throw new ConfigError('coordination credential replay differs from its admitted source')
       }
-      if (signedGeneration) await scopeRetainedOwnerCoordinationGenerationRegistered(opts.scope, signedGeneration, { binding, sourceIdentity })
+      if (signedGeneration)
+        await scopeRetainedOwnerCoordinationGenerationRegistered(opts.scope, signedGeneration, {
+          binding,
+          sourceIdentity,
+        })
       addressLifetime.signal.throwIfAborted()
       registeredProxySecret = {
         binding: detachedSnapshot(binding, 'coordination proxySecret binding'),
@@ -620,7 +669,11 @@ export async function serveCoordinationMcpForManager(
   }
   const validCredential = (supplied: Buffer): boolean => {
     if (revoked.has(supplied.toString())) return false
-    if (opts.proxySecret && (token === undefined || supplied.length !== token.length || !timingSafeEqual(supplied, token))) return false
+    if (
+      opts.proxySecret &&
+      (token === undefined || supplied.length !== token.length || !timingSafeEqual(supplied, token))
+    )
+      return false
     if (!signingKeys)
       return (
         token !== undefined &&
@@ -918,7 +971,11 @@ export async function serveCoordinationMcpForManager(
     },
     get proxySecret() {
       return registeredProxySecret && Date.now() < Date.parse(registeredProxySecret.expiresAt)
-        ? { binding: registeredProxySecret.binding, sourceIdentity: registeredProxySecret.sourceIdentity, expiresAt: registeredProxySecret.expiresAt }
+        ? {
+            binding: registeredProxySecret.binding,
+            sourceIdentity: registeredProxySecret.sourceIdentity,
+            expiresAt: registeredProxySecret.expiresAt,
+          }
         : undefined
     },
     rotateCredential,
@@ -937,7 +994,11 @@ export async function serveCoordinationMcpForManager(
       closed = true
       fenceCredential()
       const failures: unknown[] = []
-      try { await rotation } catch (error) { failures.push(error) }
+      try {
+        await rotation
+      } catch (error) {
+        failures.push(error)
+      }
       revokeProxySecret()
       const cleanup = await Promise.allSettled([
         new Promise<void>((resolve) => {
@@ -949,7 +1010,8 @@ export async function serveCoordinationMcpForManager(
       ])
       for (const result of cleanup) if (result.status === 'rejected') failures.push(result.reason)
       if (failures.length === 1) throw failures[0]
-      if (failures.length > 1) throw new AggregateError(failures, 'coordination listener cleanup failed')
+      if (failures.length > 1)
+        throw new AggregateError(failures, 'coordination listener cleanup failed')
     },
   }
   return { handle, controls: coord }

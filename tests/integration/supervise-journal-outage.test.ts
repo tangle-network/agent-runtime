@@ -24,14 +24,18 @@ describe.skipIf(process.platform !== 'linux')(
     it('replays the exact live coordination source after a managed controller SIGKILL', async () => {
       const directory = await mkdtemp(join(tmpdir(), 'coordination-generation-crash-'))
       roots.push(directory)
-      await execute(process.execPath, ['--import', tsx, fixture, 'root-credential-crash', directory], {
-        env: {
-          ...process.env,
-          RUNTIME_KERNEL_MODULE: new URL('../../src/runtime/index.ts', import.meta.url).href,
-          RUNTIME_DURABLE_MODULE: new URL('../../src/durable/index.ts', import.meta.url).href,
+      await execute(
+        process.execPath,
+        ['--import', tsx, fixture, 'root-credential-crash', directory],
+        {
+          env: {
+            ...process.env,
+            RUNTIME_KERNEL_MODULE: new URL('../../src/runtime/index.ts', import.meta.url).href,
+            RUNTIME_DURABLE_MODULE: new URL('../../src/durable/index.ts', import.meta.url).href,
+          },
+          timeout: 120_000,
         },
-        timeout: 120_000,
-      })
+      )
       const receipt = JSON.parse(await readFile(join(directory, 'receipt.json'), 'utf8'))
       expect(receipt).toMatchObject({
         passed: true,

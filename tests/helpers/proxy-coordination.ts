@@ -5,11 +5,11 @@ import type {
   ProxySecretBinding,
   ProxySecretCapabilities,
 } from '@tangle-network/agent-interface/environment-provider'
+import type { CoordinationProxySecretSourceIdentity } from '../../src/runtime/supervise/coordination-credential'
 import type {
   CoordinationProxySecretOptions,
   CoordinationPublicAddress,
 } from '../../src/runtime/supervise/coordination-mcp'
-import type { CoordinationProxySecretSourceIdentity } from '../../src/runtime/supervise/coordination-credential'
 
 /** Canonical capability declaration for the bounded test transport, never a production driver. */
 export const proxySecretCapabilities = {
@@ -98,18 +98,38 @@ export async function proxyCoordination() {
       const identity = `${actor}:${createHash('sha256').update(input.authorization).digest('hex')}`
       const key = createHash('sha256').update(identity).digest('hex')
       const prior = credentials.get(key)
-      if ((input.replay && (!prior || !input.expectedSourceIdentity || canonicalCandidateDigest(prior.sourceIdentity) !== canonicalCandidateDigest(input.expectedSourceIdentity))) || retired.has(key)) {
-        throw Object.assign(new Error('fixture credential generation is unavailable'), { status: 409 })
+      if (
+        (input.replay &&
+          (!prior ||
+            !input.expectedSourceIdentity ||
+            canonicalCandidateDigest(prior.sourceIdentity) !==
+              canonicalCandidateDigest(input.expectedSourceIdentity))) ||
+        retired.has(key)
+      ) {
+        throw Object.assign(new Error('fixture credential generation is unavailable'), {
+          status: 409,
+        })
       }
       if (prior && (prior.authorization !== input.authorization || prior.url !== input.url)) {
         throw Object.assign(new Error('fixture immutable credential conflict'), { status: 409 })
       }
-      const expiresAt = prior?.expiresAt ?? Math.min(Date.now() + 300_000, input.credentialExpiresAt ?? Infinity)
+      const expiresAt =
+        prior?.expiresAt ?? Math.min(Date.now() + 300_000, input.credentialExpiresAt ?? Infinity)
       if (expiresAt - Date.now() < 1_000) throw new Error('fixture credential already expired')
-      const policy = { hosts: [new URL(input.url).hostname], methods: ['POST'], paths: [new URL(input.url).pathname], maxTtlSeconds: 60 }
+      const policy = {
+        hosts: [new URL(input.url).hostname],
+        methods: ['POST'],
+        paths: [new URL(input.url).pathname],
+        maxTtlSeconds: 60,
+      }
       const credential: Credential = prior ?? {
         sourceIdentity: {
-          identity: { tenantId: 'fixture-tenant', issuerId: 'durable-test', secretId: key, revision: 'fixture-source' },
+          identity: {
+            tenantId: 'fixture-tenant',
+            issuerId: 'durable-test',
+            secretId: key,
+            revision: 'fixture-source',
+          },
           key,
           sourceValidUntil: new Date(expiresAt).toISOString(),
           proxyPolicy: policy,

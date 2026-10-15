@@ -6,8 +6,8 @@ import type {
   RetainedRunAdmissionHook,
   RetainedRunEnvironmentAdmission,
 } from '../retained-run-types'
-import { detachedSnapshot } from './snapshot'
 import type { CoordinationProxySecretSourceIdentity } from './coordination-credential'
+import { detachedSnapshot } from './snapshot'
 import { type TraceRootWriter, traceRootWriter } from './trace-root'
 import type {
   AgentSpec,

@@ -17,10 +17,12 @@ interface AuthorityOwner {
 }
 
 /** Private host evidence shares the existing CAS and journal, never the model evidence writer. */
-export function runtimeAuthorityEvidence<T>(args: AuthorityOwner & {
-  readonly authority: 'coordination-credential-generation' | 'proxy-secret-binding-admission'
-  readonly capture: (value: unknown) => T
-}): {
+export function runtimeAuthorityEvidence<T>(
+  args: AuthorityOwner & {
+    readonly authority: 'coordination-credential-generation' | 'proxy-secret-binding-admission'
+    readonly capture: (value: unknown) => T
+  },
+): {
   readonly write: (value: unknown) => Promise<void>
   readonly read: () => Promise<readonly T[]>
 } {
@@ -42,8 +44,12 @@ export function runtimeAuthorityEvidence<T>(args: AuthorityOwner & {
       const events = (await args.journal.loadTree(args.rootId)) ?? []
       const records: T[] = []
       for (const event of events) {
-        if (event.kind !== 'execution-evidence' || event.id !== args.nodeId ||
-            event.authority !== args.authority) continue
+        if (
+          event.kind !== 'execution-evidence' ||
+          event.id !== args.nodeId ||
+          event.authority !== args.authority
+        )
+          continue
         const artifact = await args.blobs.get(event.outRef)
         if (artifact === undefined || contentAddress(artifact) !== event.outRef) {
           throw new ValidationError('host authority evidence does not match its content reference')
@@ -55,7 +61,6 @@ export function runtimeAuthorityEvidence<T>(args: AuthorityOwner & {
   }
 }
 
-
 /** The fixed wrapper distinguishes host admission artifacts from arbitrary executor payloads. */
 export function proxySecretBindingEvidence(args: AuthorityOwner): {
   readonly write: (admission: ProxySecretBindingAdmission) => Promise<void>
@@ -65,8 +70,13 @@ export function proxySecretBindingEvidence(args: AuthorityOwner): {
     ...args,
     authority: 'proxy-secret-binding-admission',
     capture: (value: unknown) => {
-      if (value === null || typeof value !== 'object' || Array.isArray(value) ||
-          !('kind' in value) || value.kind !== 'proxy-secret-binding-admission') {
+      if (
+        value === null ||
+        typeof value !== 'object' ||
+        Array.isArray(value) ||
+        !('kind' in value) ||
+        value.kind !== 'proxy-secret-binding-admission'
+      ) {
         throw new ValidationError('proxy-secret binding evidence is invalid')
       }
       const { kind: _kind, ...admission } = value
@@ -77,10 +87,11 @@ export function proxySecretBindingEvidence(args: AuthorityOwner): {
     },
   })
   return {
-    write: (admission) => channel.write({
-      ...captureProxySecretBindingAdmission(admission),
-      kind: 'proxy-secret-binding-admission',
-    }),
+    write: (admission) =>
+      channel.write({
+        ...captureProxySecretBindingAdmission(admission),
+        kind: 'proxy-secret-binding-admission',
+      }),
     read: async () => (await channel.read()).map(({ kind: _kind, ...admission }) => admission),
   }
 }

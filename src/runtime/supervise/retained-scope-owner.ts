@@ -36,15 +36,14 @@ import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../r
 import { addSpend, zeroSpend } from '../util'
 import { abortError, runAbortable } from './abortable'
 import { assertValidSpend } from './budget'
+import {
+  type CoordinationProxySecretSourceIdentity,
+  type CoordinationSignedCredentialGeneration,
+  captureCoordinationProxySecretSourceIdentity,
+  captureCoordinationSignedCredentialGeneration,
+} from './coordination-credential'
 import { errMessage, errorText } from './error-message'
 import { executorFailureReason } from './executor-outcome'
-import {
-  captureCoordinationSignedCredentialGeneration,
-  captureCoordinationProxySecretSourceIdentity,
-  type CoordinationSignedCredentialGeneration,
-  type CoordinationProxySecretSourceIdentity,
-} from './coordination-credential'
-import { proxySecretBindingEvidence, runtimeAuthorityEvidence } from './runtime-authority-evidence'
 import { assertProxySecretParentInput } from './proxy-secret-parent-state'
 import {
   executorEvidenceWriter,
@@ -55,6 +54,7 @@ import {
   type RetainedWorkspaceRestoreReceipt,
   workspaceCaptureWriter,
 } from './retained-executor'
+import { proxySecretBindingEvidence, runtimeAuthorityEvidence } from './runtime-authority-evidence'
 import { detachedSnapshot } from './snapshot'
 import { traceRootWriter } from './trace-root'
 import type {
@@ -83,7 +83,9 @@ interface OwnerState {
   readonly admissions: RetainedRunAdmission[]
   readonly context: RetainedExecutorContext
   readonly args: OwnerRegistration
-  readonly credentialGenerations: ReturnType<typeof runtimeAuthorityEvidence<CoordinationGenerationRecord>>
+  readonly credentialGenerations: ReturnType<
+    typeof runtimeAuthorityEvidence<CoordinationGenerationRecord>
+  >
   readonly proxySecretAdmissions: ReturnType<typeof proxySecretBindingEvidence>
   coordinationWrite?: Promise<void>
   coordinationRegistration?: CoordinationRegistration
@@ -150,8 +152,10 @@ interface OwnerRegistration {
 const owners = new WeakMap<object, OwnerState>()
 
 function bindingAdmissionProtectsCustody(admission: ProxySecretBindingAdmission): boolean {
-  return admission.proxySecrets.length > 0 ||
+  return (
+    admission.proxySecrets.length > 0 ||
     ('priorReceipt' in admission && (admission.priorReceipt?.bindings.length ?? 0) > 0)
+  )
 }
 
 interface CoordinationRegistration {
@@ -168,8 +172,12 @@ interface CoordinationGenerationRecord {
 }
 
 function captureCoordinationRegistration(value: unknown): CoordinationRegistration {
-  if (value === null || typeof value !== 'object' || Array.isArray(value) ||
-      Object.keys(value).sort().join(',') !== 'binding,sourceIdentity') {
+  if (
+    value === null ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    Object.keys(value).sort().join(',') !== 'binding,sourceIdentity'
+  ) {
     throw new ValidationError('coordination registration evidence is invalid')
   }
   const registration = value as Record<string, unknown>
@@ -181,9 +189,12 @@ function captureCoordinationRegistration(value: unknown): CoordinationRegistrati
   return { binding: binding.data, sourceIdentity }
 }
 
-function coordinationRegistration(record: CoordinationGenerationRecord): CoordinationRegistration | undefined {
+function coordinationRegistration(
+  record: CoordinationGenerationRecord,
+): CoordinationRegistration | undefined {
   return record.binding === undefined || record.sourceIdentity === undefined
-    ? undefined : Object.freeze({ binding: record.binding, sourceIdentity: record.sourceIdentity })
+    ? undefined
+    : Object.freeze({ binding: record.binding, sourceIdentity: record.sourceIdentity })
 }
 
 function captureCoordinationGenerationRecord(value: unknown): CoordinationGenerationRecord {
@@ -193,14 +204,20 @@ function captureCoordinationGenerationRecord(value: unknown): CoordinationGenera
   const record = value as Record<string, unknown>
   const registered = 'binding' in record || 'sourceIdentity' in record
   const keys = registered
-    ? 'binding,credential,generation,kind,sourceIdentity,status' : 'credential,generation,kind,status'
-  if (Object.keys(record).sort().join(',') !== keys ||
-      record.kind !== 'coordination-credential-generation' ||
-      typeof record.generation !== 'number' || !Number.isSafeInteger(record.generation) ||
-      record.generation < 1 ||
-      (record.status !== 'admitted' && record.status !== 'registered' && record.status !== 'revoked') ||
-      (record.status === 'registered' && !registered) ||
-      (record.status === 'admitted' && registered)) {
+    ? 'binding,credential,generation,kind,sourceIdentity,status'
+    : 'credential,generation,kind,status'
+  if (
+    Object.keys(record).sort().join(',') !== keys ||
+    record.kind !== 'coordination-credential-generation' ||
+    typeof record.generation !== 'number' ||
+    !Number.isSafeInteger(record.generation) ||
+    record.generation < 1 ||
+    (record.status !== 'admitted' &&
+      record.status !== 'registered' &&
+      record.status !== 'revoked') ||
+    (record.status === 'registered' && !registered) ||
+    (record.status === 'admitted' && registered)
+  ) {
     throw new ValidationError('coordination credential evidence is invalid')
   }
   return {
@@ -208,10 +225,12 @@ function captureCoordinationGenerationRecord(value: unknown): CoordinationGenera
     generation: record.generation,
     status: record.status,
     credential: captureCoordinationSignedCredentialGeneration(record.credential),
-    ...(registered ? captureCoordinationRegistration({
-      binding: record.binding,
-      sourceIdentity: record.sourceIdentity,
-    }) : {}),
+    ...(registered
+      ? captureCoordinationRegistration({
+          binding: record.binding,
+          sourceIdentity: record.sourceIdentity,
+        })
+      : {}),
   }
 }
 
@@ -220,17 +239,21 @@ function latestCoordinationGeneration(
 ): CoordinationGenerationRecord | undefined {
   let latest: CoordinationGenerationRecord | undefined
   for (const record of records) {
-    const sameCredential = latest !== undefined &&
+    const sameCredential =
+      latest !== undefined &&
       record.generation === latest.generation &&
       contentAddress(record.credential) === contentAddress(latest.credential)
-    const valid = record.status === 'admitted'
-      ? record.generation === (latest?.generation ?? 0) + 1 &&
-        record.credential.nonce !== latest?.credential.nonce
-      : record.status === 'registered'
-        ? latest?.status === 'admitted' && sameCredential
-        : latest !== undefined && latest.status !== 'revoked' && sameCredential &&
-          contentAddress(coordinationRegistration(record) ?? null) ===
-            contentAddress(coordinationRegistration(latest) ?? null)
+    const valid =
+      record.status === 'admitted'
+        ? record.generation === (latest?.generation ?? 0) + 1 &&
+          record.credential.nonce !== latest?.credential.nonce
+        : record.status === 'registered'
+          ? latest?.status === 'admitted' && sameCredential
+          : latest !== undefined &&
+            latest.status !== 'revoked' &&
+            sameCredential &&
+            contentAddress(coordinationRegistration(record) ?? null) ===
+              contentAddress(coordinationRegistration(latest) ?? null)
     if (!valid) throw new ValidationError('coordination credential history is inconsistent')
     latest = record
   }
@@ -239,7 +262,10 @@ function latestCoordinationGeneration(
 
 function serializeCoordinationWrite<T>(state: OwnerState, work: () => Promise<T>): Promise<T> {
   const pending = (state.coordinationWrite ?? Promise.resolve()).then(work)
-  state.coordinationWrite = pending.then(() => undefined, () => undefined)
+  state.coordinationWrite = pending.then(
+    () => undefined,
+    () => undefined,
+  )
   return pending
 }
 
@@ -260,7 +286,9 @@ export async function scopeRetainedOwnerCoordinationGeneration(
     scope.signal.throwIfAborted()
     if (create === undefined) {
       if (latest !== undefined || (!renew && state.inputSequence !== undefined)) {
-        throw new ValidationError('coordination credential recovery requires signed generation admission')
+        throw new ValidationError(
+          'coordination credential recovery requires signed generation admission',
+        )
       }
       return undefined
     }
@@ -298,8 +326,8 @@ export async function scopeRetainedOwnerCoordinationSource(
     if (latest === undefined || contentAddress(latest.credential) !== contentAddress(captured)) {
       throw new ValidationError('coordination source does not match its admitted generation')
     }
-    state.coordinationRegistration = latest.status === 'registered'
-      ? coordinationRegistration(latest) : undefined
+    state.coordinationRegistration =
+      latest.status === 'registered' ? coordinationRegistration(latest) : undefined
     return state.coordinationRegistration
   })
 }
@@ -311,15 +339,22 @@ export async function scopeRetainedOwnerCoordinationGenerationRegistered(
   registration: CoordinationRegistration,
 ): Promise<void> {
   const state = owners.get(scope)
-  if (state === undefined) throw new ValidationError('coordination registration requires a durable owner')
+  if (state === undefined)
+    throw new ValidationError('coordination registration requires a durable owner')
   const captured = captureCoordinationSignedCredentialGeneration(credential)
-  const source = detachedSnapshot(captureCoordinationRegistration(registration), 'coordination registration')
+  const source = detachedSnapshot(
+    captureCoordinationRegistration(registration),
+    'coordination registration',
+  )
   await serializeCoordinationWrite(state, async () => {
     scope.signal.throwIfAborted()
     const latest = latestCoordinationGeneration(await state.credentialGenerations.read())
     scope.signal.throwIfAborted()
-    if (latest === undefined || latest.status === 'revoked' ||
-        contentAddress(latest.credential) !== contentAddress(captured)) {
+    if (
+      latest === undefined ||
+      latest.status === 'revoked' ||
+      contentAddress(latest.credential) !== contentAddress(captured)
+    ) {
       throw new ValidationError('coordination registration does not match its admitted generation')
     }
     if (latest.status === 'registered') {
@@ -347,7 +382,9 @@ export async function scopeRetainedOwnerCoordinationGenerationRevoked(
   await serializeCoordinationWrite(state, async () => {
     const latest = latestCoordinationGeneration(await state.credentialGenerations.read())
     if (latest === undefined || contentAddress(latest.credential) !== contentAddress(captured)) {
-      throw new ValidationError('coordination credential revocation does not match its admitted generation')
+      throw new ValidationError(
+        'coordination credential revocation does not match its admitted generation',
+      )
     }
     if (latest.status !== 'revoked') {
       await state.credentialGenerations.write({ ...latest, status: 'revoked' })
@@ -441,9 +478,12 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
           scope.signal.throwIfAborted()
           return
         }
-        const parents = admission.phase === 'intent' || admission.phase === 'environment'
-          ? admission.proxySecretParents : undefined
-        state.checkpointCustodyProtected ||= parents !== undefined && Object.keys(parents).length > 0
+        const parents =
+          admission.phase === 'intent' || admission.phase === 'environment'
+            ? admission.proxySecretParents
+            : undefined
+        state.checkpointCustodyProtected ||=
+          parents !== undefined && Object.keys(parents).length > 0
         const prior = admissions.find((record) => record.phase === admission.phase)
         if (prior !== undefined) {
           if (contentAddress(prior) !== contentAddress(admission)) {
@@ -1045,7 +1085,8 @@ async function checkpointHandle(
           )
         }
         const source = await provider.get?.(sourceEnvironmentId)
-        if (source?.id !== sourceEnvironmentId || source.provider !== provider.name) return undefined
+        if (source?.id !== sourceEnvironmentId || source.provider !== provider.name)
+          return undefined
         state.checkpointCustodyProtected ||=
           source.proxySecretReceipt !== undefined ||
           Object.keys(source.proxySecretParents ?? {}).length > 0
@@ -1308,15 +1349,22 @@ async function captureBeforeCleanup(
           : undefined
     return parents !== undefined && Object.keys(parents).length > 0
   })
-  const custodyRefusal = 'proxy-secret checkpoint capture refused: no checkpoint-specific custody proof'
+  const custodyRefusal =
+    'proxy-secret checkpoint capture refused: no checkpoint-specific custody proof'
   const protectedOwner = (): boolean => {
     state.checkpointCustodyProtected ||=
       historicallyProtected || Boolean(state.checkpointCapture?.profile.proxySecrets?.length)
     return state.checkpointCustodyProtected
   }
   if (protectedOwner()) return refuse(custodyRefusal, true)
-  if (events.some((prior) => prior.kind === 'execution-evidence' &&
-      prior.id === args.nodeId && prior.authority === 'proxy-secret-binding-admission')) {
+  if (
+    events.some(
+      (prior) =>
+        prior.kind === 'execution-evidence' &&
+        prior.id === args.nodeId &&
+        prior.authority === 'proxy-secret-binding-admission',
+    )
+  ) {
     try {
       const admissions = await state.proxySecretAdmissions.read()
       if (admissions.length === 0) {
@@ -1324,7 +1372,10 @@ async function captureBeforeCleanup(
       }
       state.checkpointCustodyProtected ||= admissions.some(bindingAdmissionProtectsCustody)
     } catch {
-      return refuse('proxy-secret checkpoint capture refused: binding admission history is unavailable', true)
+      return refuse(
+        'proxy-secret checkpoint capture refused: binding admission history is unavailable',
+        true,
+      )
     }
     if (protectedOwner()) return refuse(custodyRefusal, true)
   }

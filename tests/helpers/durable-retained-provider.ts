@@ -101,7 +101,11 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
         )
       }
       const stored = state.environments[id]
-      const parents = fixtureProxySecretParents(stored, stored.proxySecrets ?? [], input.proxySecretParents)
+      const parents = fixtureProxySecretParents(
+        stored,
+        stored.proxySecrets ?? [],
+        input.proxySecretParents,
+      )
       if (parents !== undefined) stored.proxySecretParents = parents
       writeState(stateFile, state)
       return environmentFor(stateFile, providerName, id)
@@ -115,7 +119,11 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
         if (expected !== undefined && expected !== (stored.proxySecretReceipt?.generation ?? 0)) {
           throw new Error('fixture proxy-secret generation conflict')
         }
-        const parents = fixtureProxySecretParents(stored, options.proxySecrets, options.proxySecretParents)
+        const parents = fixtureProxySecretParents(
+          stored,
+          options.proxySecrets,
+          options.proxySecretParents,
+        )
         installProxySecrets(stored, options.proxySecrets)
         if (parents !== undefined) stored.proxySecretParents = parents
         writeState(stateFile, state)
@@ -146,17 +154,26 @@ function fixtureProxySecretParents(
   if (requested === undefined && stored.proxySecretParents === undefined) return undefined
   const parents = requested === undefined ? {} : ProxySecretParentsSchema.parse(requested)
   for (const binding of bindings) {
-    const prior = stored.proxySecrets?.find(entry => entry.envName === binding.envName &&
-      canonicalCandidateDigest(entry.secretRef) === canonicalCandidateDigest(binding.secretRef))
+    const prior = stored.proxySecrets?.find(
+      (entry) =>
+        entry.envName === binding.envName &&
+        canonicalCandidateDigest(entry.secretRef) === canonicalCandidateDigest(binding.secretRef),
+    )
     const priorPin = stored.proxySecretParents?.[binding.envName]
     if (requested === undefined) {
-      if (prior === undefined || priorPin === undefined) throw new Error('fixture parent pin is missing')
+      if (prior === undefined || priorPin === undefined)
+        throw new Error('fixture parent pin is missing')
       Object.defineProperty(parents, binding.envName, { value: priorPin, enumerable: true })
-    } else if (prior !== undefined && priorPin !== undefined && requested[binding.envName] !== priorPin) {
+    } else if (
+      prior !== undefined &&
+      priorPin !== undefined &&
+      requested[binding.envName] !== priorPin
+    ) {
       throw new Error('fixture parent pin changes before revocation')
     }
   }
-  if (!isProxySecretParentsTotal(bindings, parents)) throw new Error('fixture parent map is not total')
+  if (!isProxySecretParentsTotal(bindings, parents))
+    throw new Error('fixture parent map is not total')
   return structuredClone(parents)
 }
 

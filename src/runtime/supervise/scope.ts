@@ -107,7 +107,6 @@ import {
   type WorkerProgress,
 } from './progress'
 import { providerVisibleProfile } from './provider-visible-profile'
-import { proxySecretBindingEvidence } from './runtime-authority-evidence'
 import { assertProxySecretParentInput, proxySecretParentState } from './proxy-secret-parent-state'
 import { prepareScopeResume } from './recover-executors'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
@@ -129,6 +128,7 @@ import {
   retainedOwnerWorkspaceRetentionSeamKey,
   scopeRetainedOwnerSettled,
 } from './retained-scope-owner'
+import { proxySecretBindingEvidence } from './runtime-authority-evidence'
 import { authoredSeatStages, seatExecutionProfile } from './seat-chain'
 import { detachedSnapshot } from './snapshot'
 import {

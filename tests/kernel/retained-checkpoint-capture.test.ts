@@ -1,6 +1,10 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AgentProfile, ProxySecretParents, WorkspaceCheckpointRef } from '@tangle-network/agent-interface'
+import type {
+  AgentProfile,
+  ProxySecretParents,
+  WorkspaceCheckpointRef,
+} from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
@@ -12,8 +16,8 @@ import {
 } from '../../src/candidate-execution/workspace-streams'
 import { InMemoryResultBlobStore } from '../../src/durable/spawn-journal'
 import { createPrivateCasArtifactPort } from '../../src/runtime/private-cas'
-import { createProxySecretBindingAdmission } from '../../src/runtime/proxy-secret-admission'
 import { captureProviderCheckpointWorkspace } from '../../src/runtime/provider-workspace-retention'
+import { createProxySecretBindingAdmission } from '../../src/runtime/proxy-secret-admission'
 import {
   bindScopeRetainedOwnerProvider,
   noteScopeRetainedOwnerCoordination,
@@ -182,7 +186,9 @@ function ownerModel(
     bindScopeRetainedOwnerProvider(
       scope,
       environmentProvider,
-      options.capture === false ? undefined : { port: capturePort, profile: options.profile ?? captureProfile },
+      options.capture === false
+        ? undefined
+        : { port: capturePort, profile: options.profile ?? captureProfile },
     )
   }
   return {
@@ -277,36 +283,48 @@ async function assertNothingLost(model: Model): Promise<void> {
 describe('checkpoint capture before cleanup', () => {
   const protectedProfile: AgentProfile = {
     ...captureProfile,
-    proxySecrets: [{
-      envName: 'REPORTS_TOKEN',
-      secretRef: { kind: 'secret-ref', key: 'checkpoint-reporting-reference' },
-      hosts: ['reports.example.test'],
-      presentation: { type: 'bearer' },
-    }],
+    proxySecrets: [
+      {
+        envName: 'REPORTS_TOKEN',
+        secretRef: { kind: 'secret-ref', key: 'checkpoint-reporting-reference' },
+        hosts: ['reports.example.test'],
+        presentation: { type: 'bearer' },
+      },
+    ],
   }
 
   it.each(['current profile', 'historical coordination admission'] as const)(
     'refuses checkpoint capture before fork allocation for a protected %s and retains its source',
-    async evidence => {
+    async (evidence) => {
       const model = ownerModel(evidence === 'current profile' ? { profile: protectedProfile } : {})
-      await model.start(evidence === 'historical coordination admission'
-        ? { AGENT_RUNTIME_COORDINATION_TOKEN: null } : undefined)
+      await model.start(
+        evidence === 'historical coordination admission'
+          ? { AGENT_RUNTIME_COORDINATION_TOKEN: null }
+          : undefined,
+      )
       await model.coordinate()
       // Reconstruct from the journal with an ordinary current profile: old admitted custody remains.
       if (evidence === 'historical coordination admission') model.crash()
       const kept = await model.release()
       expect(model.capture.forks.size).toBe(0)
-      expect(model.events.some(event => event.kind === 'workspace-checkpoint-fork-requested')).toBe(false)
+      expect(
+        model.events.some((event) => event.kind === 'workspace-checkpoint-fork-requested'),
+      ).toBe(false)
       expect(model.deletes).toEqual([])
       expect(model.snapshots.size).toBe(1)
       expect(model.live()).toBe(true)
-      expect(kept).toContainEqual(expect.objectContaining({
-        kept: [expect.objectContaining({ environmentId: 'model-source' })],
-      }))
-      expect(model.events).toContainEqual(expect.objectContaining({
-        kind: 'workspace-checkpoint-cleanup', confirmed: false,
-        refused: expect.stringMatching(/proxy.*checkpoint|checkpoint.*custody/),
-      }))
+      expect(kept).toContainEqual(
+        expect.objectContaining({
+          kept: [expect.objectContaining({ environmentId: 'model-source' })],
+        }),
+      )
+      expect(model.events).toContainEqual(
+        expect.objectContaining({
+          kind: 'workspace-checkpoint-cleanup',
+          confirmed: false,
+          refused: expect.stringMatching(/proxy.*checkpoint|checkpoint.*custody/),
+        }),
+      )
     },
   )
 
@@ -315,31 +333,41 @@ describe('checkpoint capture before cleanup', () => {
     async (evidence) => {
       const model = ownerModel()
       await model.start()
-      await scopeRetainedOwnerContext(model.scope())!.onAdmission(createProxySecretBindingAdmission({
-        phase: 'proxy-secrets',
-        stage: 'selected',
-        provider: 'model-provider',
-        environmentId: 'model-source',
-        proxySecrets: protectedProfile.proxySecrets,
-        proxySecretParents: { REPORTS_TOKEN: null },
-      }))
+      await scopeRetainedOwnerContext(model.scope())!.onAdmission(
+        createProxySecretBindingAdmission({
+          phase: 'proxy-secrets',
+          stage: 'selected',
+          provider: 'model-provider',
+          environmentId: 'model-source',
+          proxySecrets: protectedProfile.proxySecrets,
+          proxySecretParents: { REPORTS_TOKEN: null },
+        }),
+      )
       await model.coordinate()
       model.crash()
       if (evidence === 'missing') vi.spyOn(model.blobs, 'get').mockResolvedValue(undefined)
-      if (evidence === 'corrupt') vi.spyOn(model.blobs, 'get').mockResolvedValue({ corrupted: true })
+      if (evidence === 'corrupt')
+        vi.spyOn(model.blobs, 'get').mockResolvedValue({ corrupted: true })
       const kept = await model.release()
       expect(model.capture.forks.size).toBe(0)
-      expect(model.events.some((event) => event.kind === 'workspace-checkpoint-fork-requested')).toBe(false)
+      expect(
+        model.events.some((event) => event.kind === 'workspace-checkpoint-fork-requested'),
+      ).toBe(false)
       expect(model.deletes).toEqual([])
       expect(model.snapshots.size).toBe(1)
       expect(model.live()).toBe(true)
-      expect(kept).toContainEqual(expect.objectContaining({
-        kept: [expect.objectContaining({ environmentId: 'model-source' })],
-      }))
-      expect(model.events).toContainEqual(expect.objectContaining({
-        kind: 'workspace-checkpoint-cleanup', confirmed: false,
-        refused: expect.stringMatching(/proxy.*checkpoint|checkpoint.*custody/),
-      }))
+      expect(kept).toContainEqual(
+        expect.objectContaining({
+          kept: [expect.objectContaining({ environmentId: 'model-source' })],
+        }),
+      )
+      expect(model.events).toContainEqual(
+        expect.objectContaining({
+          kind: 'workspace-checkpoint-cleanup',
+          confirmed: false,
+          refused: expect.stringMatching(/proxy.*checkpoint|checkpoint.*custody/),
+        }),
+      )
     },
   )
 
@@ -348,21 +376,26 @@ describe('checkpoint capture before cleanup', () => {
     await model.start()
     model.knobs.delete = 'unanswered-kept'
     for (let turn = 0; turn < 3; turn++) await model.coordinate()
-    expect(model.events.some(event => event.kind === 'workspace-checkpoint-capture')).toBe(true)
+    expect(model.events.some((event) => event.kind === 'workspace-checkpoint-capture')).toBe(true)
     const forksBefore = model.capture.forks.size
     const deletesBefore = [...model.deletes]
     bindScopeRetainedOwnerProvider(model.scope(), model.provider, {
-      port: model.capturePort, profile: protectedProfile,
+      port: model.capturePort,
+      profile: protectedProfile,
     })
     await model.release()
     expect(model.capture.forks.size).toBe(forksBefore)
     expect(model.deletes).toEqual(deletesBefore)
     expect(model.snapshots.has('checkpoint-1')).toBe(true)
     expect(model.live()).toBe(true)
-    expect(model.events).toContainEqual(expect.objectContaining({
-      kind: 'workspace-checkpoint-cleanup', checkpointId: 'checkpoint-1', confirmed: false,
-      refused: expect.stringMatching(/proxy.*checkpoint|checkpoint.*custody/),
-    }))
+    expect(model.events).toContainEqual(
+      expect.objectContaining({
+        kind: 'workspace-checkpoint-cleanup',
+        checkpointId: 'checkpoint-1',
+        confirmed: false,
+        refused: expect.stringMatching(/proxy.*checkpoint|checkpoint.*custody/),
+      }),
+    )
   })
 
   it('waits for capture capacity before creating a checkpoint fork', async () => {

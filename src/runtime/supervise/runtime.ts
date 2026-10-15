@@ -2534,9 +2534,11 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             suppliedParents === undefined ? undefined : captureProxySecretParents(suppliedParents)
           const { proxySecretParents: _ambientParents, ...defaults } = providerSeam.defaults ?? {}
           const sandboxClient = providerAsSandboxClient(provider, {
-            ...(retained?.proxySecretSourceIdentity === undefined ? {} : {
-              proxySecretSourceIdentity: retained.proxySecretSourceIdentity,
-            }),
+            ...(retained?.proxySecretSourceIdentity === undefined
+              ? {}
+              : {
+                  proxySecretSourceIdentity: retained.proxySecretSourceIdentity,
+                }),
             defaults: {
               ...defaults,
               ...(proxySecretParents === undefined ? {} : { proxySecretParents }),

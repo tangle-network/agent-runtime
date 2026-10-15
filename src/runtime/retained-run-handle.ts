@@ -21,9 +21,8 @@ import type {
   AgentSession,
   AgentSessionStatus,
 } from '@tangle-network/agent-interface/environment-provider'
-import { assertProxySecretInstallation, assertProxySecretReceiptLive } from './proxy-secret-custody'
 import { assertProxySecretSourceIdentity } from './proxy-secret-admission'
-import { captureCoordinationProxySecretSourceIdentity, type CoordinationProxySecretSourceIdentity } from './supervise/coordination-credential'
+import { assertProxySecretInstallation, assertProxySecretReceiptLive } from './proxy-secret-custody'
 import { assertProxySecretParentReadback, type ProxySecretParents } from './proxy-secret-parents'
 import {
   abortError,
@@ -54,6 +53,10 @@ import type {
   RetainedRunHandle,
   RetainedRunSnapshot,
 } from './retained-run-types'
+import {
+  type CoordinationProxySecretSourceIdentity,
+  captureCoordinationProxySecretSourceIdentity,
+} from './supervise/coordination-credential'
 
 type NativeContinuationAdmissionCallback = (controlRef: AgentExactRunControlRef) => void
 
@@ -73,8 +76,10 @@ export function createRetainedRunHandle(
   proxySecretParents?: ProxySecretParents,
   sourceValue?: CoordinationProxySecretSourceIdentity,
 ): RetainedRunHandle {
-  const sourceIdentity = sourceValue === undefined ? undefined
-    : captureCoordinationProxySecretSourceIdentity(sourceValue)
+  const sourceIdentity =
+    sourceValue === undefined
+      ? undefined
+      : captureCoordinationProxySecretSourceIdentity(sourceValue)
   assertProxySecretSourceIdentity(environment.proxySecretReceipt, sourceIdentity)
   const clock = now ?? Date.now
   assertProxySecretReceiptLive(environment)

@@ -3,14 +3,17 @@ import {
   canonicalCandidateDigest,
   isProxySecretParentsTotal,
   ProxySecretParentsSchema,
-  ProxySecretReceiptSchema,
   type ProxySecretReceipt,
+  ProxySecretReceiptSchema,
   ProxySecretsSchema,
 } from '@tangle-network/agent-interface'
 import { z } from 'zod'
 import { ValidationError } from '../errors'
+import {
+  type CoordinationProxySecretSourceIdentity,
+  captureCoordinationProxySecretSourceIdentity,
+} from './supervise/coordination-credential'
 import { detachedSnapshot } from './supervise/snapshot'
-import { captureCoordinationProxySecretSourceIdentity, type CoordinationProxySecretSourceIdentity } from './supervise/coordination-credential'
 
 const sourceIdentitySchema = z.unknown().transform((value, context) => {
   try {
@@ -61,22 +64,34 @@ export function captureProxySecretBindingAdmission(value: unknown): ProxySecretB
     (admission.environmentId === undefined && admission.idempotencyKey === undefined) ||
     !isProxySecretParentsTotal(admission.proxySecrets, admission.proxySecretParents) ||
     (admission.sourceIdentity !== undefined &&
-      !admission.proxySecrets.some(binding => binding.secretRef.key === admission.sourceIdentity?.key)) ||
-    (admission.stage !== 'selected' && admission.priorReceipt !== undefined &&
+      !admission.proxySecrets.some(
+        (binding) => binding.secretRef.key === admission.sourceIdentity?.key,
+      )) ||
+    (admission.stage !== 'selected' &&
+      admission.priorReceipt !== undefined &&
       (admission.priorReceipt.sandboxId !== admission.environmentId ||
         admission.expectedProxySecretGeneration !== admission.priorReceipt.generation)) ||
     (admission.stage === 'installed' &&
       (admission.receipt.sandboxId !== admission.environmentId ||
         (admission.priorReceipt === undefined &&
-          (admission.idempotencyKey === undefined || admission.expectedProxySecretGeneration !== undefined))))
-  ) throw invalidAdmission()
+          (admission.idempotencyKey === undefined ||
+            admission.expectedProxySecretGeneration !== undefined))))
+  )
+    throw invalidAdmission()
   if (admission.stage === 'installed') {
     if (
-      admission.receipt.status !== (admission.proxySecrets.length === 0 ? 'revoked' : 'installed') ||
+      admission.receipt.status !==
+        (admission.proxySecrets.length === 0 ? 'revoked' : 'installed') ||
       admission.receipt.bindings.length !== admission.proxySecrets.length ||
-      admission.proxySecrets.some(binding => !admission.receipt.bindings.some(entry =>
-        entry.envName === binding.envName && entry.secretRef.key === binding.secretRef.key))
-    ) throw invalidAdmission()
+      admission.proxySecrets.some(
+        (binding) =>
+          !admission.receipt.bindings.some(
+            (entry) =>
+              entry.envName === binding.envName && entry.secretRef.key === binding.secretRef.key,
+          ),
+      )
+    )
+      throw invalidAdmission()
     assertProxySecretSourceIdentity(admission.receipt, admission.sourceIdentity)
   }
   return detachedSnapshot(admission, 'proxy-secret binding admission')
@@ -92,7 +107,9 @@ export function createProxySecretBindingAdmission(
 }
 
 function invalidAdmission(): ValidationError {
-  return new ValidationError('proxy-secret binding admission is invalid or conflicts with its public metadata')
+  return new ValidationError(
+    'proxy-secret binding admission is invalid or conflicts with its public metadata',
+  )
 }
 
 /** The new grant must resolve the exact metadata-only source the host admitted. */
@@ -104,12 +121,20 @@ export function assertProxySecretSourceIdentity(
   const expected = captureCoordinationProxySecretSourceIdentity(source)
   const parsed = ProxySecretReceiptSchema.safeParse(receipt)
   const entries = parsed.success
-    ? parsed.data.bindings.filter(entry => entry.secretRef.key === expected.key)
+    ? parsed.data.bindings.filter((entry) => entry.secretRef.key === expected.key)
     : []
-  if (!parsed.success || entries.length === 0 ||
-      entries.some(entry =>
-        canonicalCandidateDigest(entry.grant.identity) !== canonicalCandidateDigest(expected.identity) ||
-        Date.parse(entry.grant.expiresAt) > Date.parse(expected.expiresAt))) {
-    throw new ValidationError('provider custody does not match the admitted proxy-secret source identity')
+  if (
+    !parsed.success ||
+    entries.length === 0 ||
+    entries.some(
+      (entry) =>
+        canonicalCandidateDigest(entry.grant.identity) !==
+          canonicalCandidateDigest(expected.identity) ||
+        Date.parse(entry.grant.expiresAt) > Date.parse(expected.expiresAt),
+    )
+  ) {
+    throw new ValidationError(
+      'provider custody does not match the admitted proxy-secret source identity',
+    )
   }
 }
