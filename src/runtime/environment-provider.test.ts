@@ -2301,7 +2301,6 @@ describe('environment provider adapters', () => {
       providerOptions: {
         region: 'us-west',
         tenancy: 'team-a',
-        sandboxCreateOptions: { backend: { type: 'pi' } },
       },
     })
     expect(usage).toEqual([
@@ -2455,7 +2454,6 @@ describe('environment provider adapters', () => {
     expect(created).toMatchObject({
       backend: 'pi',
       profile: spec.profile,
-      providerOptions: { sandboxCreateOptions: { backend: { type: 'pi' } } },
     })
     expect(executor.progress?.()).toMatchObject({
       recentActivity: [

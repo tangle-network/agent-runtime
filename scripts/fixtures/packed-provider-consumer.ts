@@ -254,7 +254,12 @@ const proxySecrets = ProxySecretsSchema.parse([{
   paths: ['/tasks'],
   ttlSeconds: 60,
 }])
-const protectedProfile = agentProfileSchema.parse({ ...profile, proxySecrets })
+const fixtureModel = { provider: 'fixture', model: 'fixture/model' }
+const protectedProfile = agentProfileSchema.parse({
+  ...profile,
+  model: { provider: fixtureModel.provider, default: fixtureModel.model },
+  proxySecrets,
+})
 const sdkProtectedProfile = sdkInterface.agentProfileSchema.safeParse(protectedProfile)
 const sdkProxySchemaSupported = sdkProtectedProfile.success &&
   sdkProtectedProfile.data.proxySecrets !== undefined
@@ -312,11 +317,12 @@ try {
       const body = JSON.parse(String(options?.body))
       assert.deepEqual(body.proxySecrets, proxySecrets)
       assert.deepEqual(body.backend.profile.proxySecrets, proxySecrets)
+      assert.deepEqual(body.backend.profile.model, protectedProfile.model)
       for (const binding of proxySecrets) {
         assert.equal(Object.hasOwn(body.env ?? {}, binding.envName), false)
         assert.equal(Object.hasOwn(body.env ?? {}, binding.secretRef.key), false)
       }
-      assert.equal(body.secrets, undefined)
+      assert.deepEqual(body.secrets, [])
       return Response.json({
         id: proxyReceipt.sandboxId,
         status: 'running',
@@ -355,7 +361,7 @@ try {
   })
   const runtimeSandbox = providerAsSandboxClient(sandboxProvider)
   const createProtected = () => runtimeSandbox.create({
-    backend: { type: 'codex', profile: protectedProfile },
+    backend: { type: 'codex', profile: protectedProfile, model: fixtureModel },
     proxySecrets,
   })
   if (sdkProxySchemaSupported) {
@@ -364,6 +370,19 @@ try {
     assert.ok(proxyReceiptReads >= 2, 'provider must confirm live declarations and receipt')
     mismatchedLiveReceipt = true
     await assert.rejects(createProtected(), /reference|receipt|custody/i)
+    // Only an exact duplicate of the profile's model is portable. A different
+    // selection or extra credential control must remain visible for refusal.
+    for (const model of [
+      { ...fixtureModel, model: 'fixture/different-model' },
+      { ...fixtureModel, authMode: 'oauth' as const },
+    ]) {
+      const allocationsBefore = proxyCalls.filter(call => call === 'POST /v1/sandboxes').length
+      await assert.rejects(runtimeSandbox.create({
+        backend: { type: 'codex', profile: protectedProfile, model },
+        proxySecrets,
+      }), /providerOptions|unsupported/i)
+      assert.equal(proxyCalls.filter(call => call === 'POST /v1/sandboxes').length, allocationsBefore)
+    }
   } else {
     await assert.rejects(createProtected())
     assert.equal(proxyCalls.some(call => call === 'POST /v1/sandboxes'), false)
@@ -380,6 +399,7 @@ console.log(
     sdkProxySchemaSupported,
     proxyReferenceAdapterCreateMatched: sdkProxySchemaSupported,
     mismatchedProxyReceiptRefused: sdkProxySchemaSupported,
+    modelMismatchAndCredentialControlRefusedBeforeAllocation: sdkProxySchemaSupported,
     unsupportedSdkProxyRefusedBeforeAllocation: !sdkProxySchemaSupported,
     proxyReceiptReads,
     proofScope: 'public adapter transport fixture; no live receiver or provider allocation',

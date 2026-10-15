@@ -2904,6 +2904,14 @@ function createInputFromSandboxOptions(
   } = options ?? {}
   const { type: backend, profile, ...backendOptions } = sandboxBackend ?? {}
   const { url, ref, ...gitOptions } = git ?? {}
+  // Runtime also projects the profile's model tuple into Sandbox options. It has
+  // no second authority when exact; credentials and conflicting overrides remain explicit.
+  const model = backendOptions.model
+  if (
+    profile && typeof profile !== 'string' && model &&
+    Object.entries(model).every(([key, value]) => value === undefined || key === 'provider' || key === 'model') &&
+    model.provider === profile.model?.provider && model.model === profile.model?.default
+  ) delete backendOptions.model
   // Portable fields have one owner. Preserve only unsupported transport fields so a
   // provider can refuse them explicitly instead of receiving an opaque duplicate.
   const sandboxCreateOptions = {
