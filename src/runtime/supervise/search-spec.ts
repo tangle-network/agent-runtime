@@ -336,8 +336,22 @@ export const searchPresets = Object.freeze({
     }),
 })
 
+/** A `SuperviseOptions` key that an axis or a typed input decides. */
+export type SearchSpecOwnedOption =
+  | 'budget'
+  | 'deliverable'
+  | 'continuation'
+  | 'workerSlots'
+  | 'allowedModels'
+  | 'peerMail'
+  | 'analysts'
+  | 'analyzeOnSettle'
+  | 'stopRule'
+  | 'maxDepth'
+  | 'inheritSpawnRights'
+
 /** The `SuperviseOptions` an axis decides. A caller value for one is refused, naming the axis. */
-const ownedBy = Object.freeze({
+const ownedBy: Readonly<Record<SearchSpecOwnedOption, string>> = Object.freeze({
   budget: 'inputs.budget',
   deliverable: 'inputs.deliverable',
   continuation: 'context, evaluate, stop and inputs.continuation',
@@ -349,10 +363,7 @@ const ownedBy = Object.freeze({
   stopRule: 'stop.plateau',
   maxDepth: "select 'advisor'",
   inheritSpawnRights: "select 'advisor'",
-} as const)
-
-/** A `SuperviseOptions` key that an axis or a typed input decides. */
-export type SearchSpecOwnedOption = keyof typeof ownedBy
+})
 
 /** Everything a compiled call needs besides the spec: the problem, its bounds, and the call's
  *  other options. */
