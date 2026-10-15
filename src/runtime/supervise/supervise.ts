@@ -4566,6 +4566,9 @@ function superviseInternal(
         ...(rootStream === undefined ? {} : { rootStream }),
         ...(rootHarnessTranscript === undefined ? {} : { rootHarnessTranscript }),
         ...(rootContinuation === undefined ? {} : { continuation: rootContinuation }),
+        // The settle record names the attribution the root registered under, so a reader of
+        // result.json can group or compare runs without the journal.
+        ...(rootExecution.ref === undefined ? {} : { execution: rootExecution.ref }),
       }
     }
     if (!recorder) return settle()

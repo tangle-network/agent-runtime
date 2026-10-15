@@ -2503,6 +2503,9 @@ export type SupervisedResult<Out> =
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
       readonly continuation?: import('./driver-retry').DriverContinuationRecord
+      /** The root's caller-supplied attribution as it registered (`SuperviseOptions.execution`):
+       *  a fork's lineage keys, a SearchSpec's `searchSpecDigest`. Absent when the caller set none. */
+      readonly execution?: AgentExecutionRef
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
       /** Settled children whose teardown stayed unconfirmed after the settlement retry window
@@ -2552,6 +2555,9 @@ export type SupervisedResult<Out> =
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
       readonly continuation?: import('./driver-retry').DriverContinuationRecord
+      /** The root's caller-supplied attribution as it registered (`SuperviseOptions.execution`):
+       *  a fork's lineage keys, a SearchSpec's `searchSpecDigest`. Absent when the caller set none. */
+      readonly execution?: AgentExecutionRef
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
       /** Settled children whose teardown stayed unconfirmed after the settlement retry window
@@ -2635,6 +2641,9 @@ export type SupervisedResult<Out> =
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
       readonly continuation?: import('./driver-retry').DriverContinuationRecord
+      /** The root's caller-supplied attribution as it registered (`SuperviseOptions.execution`):
+       *  a fork's lineage keys, a SearchSpec's `searchSpecDigest`. Absent when the caller set none. */
+      readonly execution?: AgentExecutionRef
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
       /** Settled children whose teardown stayed unconfirmed after the settlement retry window

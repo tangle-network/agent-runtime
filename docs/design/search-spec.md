@@ -39,7 +39,8 @@ edges), the budget, the check, the continuation deadline and note words, the nam
 option of the call (`backend`, `coordination`, `runDir`, ...). An input for an option an axis decides is refused.
 
 The compiled call records the spec's digest as the root's `execution.correlation.searchSpecDigest`, the mechanism a
-fork uses for its lineage keys. The journal's root `spawned` record and the settle record's `tree` both carry it.
+fork uses for its lineage keys. The journal's root `spawned` record carries it, and the settle record carries the root's
+whole attribution as `execution`, so `result.json` alone says which design a run was.
 
 `state: conversation` is deliberately not a value: research memory that lives only in a harness conversation cannot be
 checkpointed, inspected, or ablated, and every measured long-horizon comparison in §6 favours harness-owned state.
@@ -93,8 +94,9 @@ before spend, and the settle record carries the spec digest.
 
 ## 5. Determinism and replay contract
 
-- Same spec digest, same inputs, same recorded decisions ⇒ same journal. A test replays recorded decisions through the
-  compiled run with injected execution and compares journals.
+- Same spec digest, same inputs, same recorded decisions ⇒ same journal, apart from wall-clock fields and the kernel's
+  random per-attempt ids. A test replays recorded decisions through the compiled run with injected execution and
+  compares journals.
 - Any single axis can be changed on a run resumed from a shared workspace checkpoint, so an ablation measures one
   difference from the same state (the method the SLA paper used for its strongest evidence).
 - Dynamic topology (a lead or advisor spawning more workers) is a recorded decision bounded by `workerSlots`, budgets and

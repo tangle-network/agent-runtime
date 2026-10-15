@@ -541,24 +541,30 @@ describe('SearchSpec presets', () => {
     for (const task of driven.tasks.slice(1)) {
       expect(task).toContain('## Run state, from the coordinator')
     }
-    // The digest is on the root's registration and on the settle record's tree.
+    // The digest is on the root's registration and on the settle record.
     const events = (await journal.loadTree('sla')) ?? []
     const registered = events.find(
       (event): event is Extract<SpawnEvent, { kind: 'spawned' }> =>
         event.kind === 'spawned' && event.id === 'sla',
     )
     expect(registered?.identity?.correlation?.[SEARCH_SPEC_CORRELATION_KEY]).toBe(compiled.digest)
-    const rootNode = result.tree.nodes.find((node) => node.id === result.tree.root)
-    expect(rootNode?.identity?.correlation?.[SEARCH_SPEC_CORRELATION_KEY]).toBe(compiled.digest)
+    expect(result.execution?.correlation?.[SEARCH_SPEC_CORRELATION_KEY]).toBe(compiled.digest)
   })
 })
 
 describe('SearchSpec replay', () => {
-  /** Strip wall-clock fields; every other journal field is a function of spec, inputs and decisions. */
+  /** Strip wall-clock fields and the kernel's random per-attempt ids; every other journal field is
+   *  a function of spec, inputs and decisions. */
   const normalized = (events: ReadonlyArray<SpawnEvent>): unknown =>
     JSON.parse(
       JSON.stringify(events, (key, value) =>
-        key === 'at' || key === 'ms' || key.endsWith('At') ? undefined : value,
+        key === 'at' ||
+        key === 'ms' ||
+        key.endsWith('At') ||
+        key.endsWith('Ms') ||
+        key === 'attemptId'
+          ? undefined
+          : value,
       ),
     )
 
