@@ -46,7 +46,6 @@ import type {
   ResourceRequest,
 } from '@tangle-network/agent-interface/environment-provider'
 import type {
-  CreateSandboxOptions,
   PromptInputPart,
   PromptOptions,
   PromptResult,
