@@ -29,6 +29,9 @@ export interface RetainedExecutorContext {
   readonly executionId?: string
   /** Prior committed environment admission to reuse for a deliberate later invocation. */
   readonly priorSession?: RetainedRunEnvironmentAdmission
+  /** Reuse only `priorSession`'s environment and start a new harness session in it, under the
+   *  identity minted from this invocation's own keys (`continuation.session: 'fresh'`). */
+  readonly newSession?: boolean
   /** Cumulative committed spend before this invocation; restored without summing prior totals. */
   readonly priorSpent?: Spend
   /** Keep the retained provider environment alive across deliberate invocations. */
