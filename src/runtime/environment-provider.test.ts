@@ -1578,6 +1578,7 @@ describe('environment provider adapters', () => {
       capabilities: () => fakeCapabilities(),
       async create() {
         return fakeEnvironment({
+          creation: 'created',
           stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {},
           async destroy() {
             destroyed += 1

@@ -635,6 +635,7 @@ describe('retained runtime run control', () => {
   it('keeps an environment after dispatch becomes uncertain, but cleans an unused one', async () => {
     let destroys = 0
     const uncertain = providerWithEnvironment({
+      creation: 'created',
       async dispatch() {
         throw new Error('connection lost after dispatch')
       },
@@ -659,6 +660,7 @@ describe('retained runtime run control', () => {
     ])
 
     const unusable = providerWithEnvironment({
+      creation: 'created',
       dispatch: undefined,
       session: undefined,
       async destroy() {
