@@ -100,6 +100,7 @@ import {
   type ContinuationContext,
   type ContinuationEntry,
 } from './continuation'
+import { isCredentialRefusal } from './credential-refusal'
 import { errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
 import {
   DISPATCH_NOT_ADMITTED_CODE,
@@ -467,6 +468,7 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
   const admission = retainedAdmissionCause(error)
   if (admission !== undefined) return upstreamUnavailableSignal(admission)
   if (!(error instanceof Error)) return undefined
+  if (isCredentialRefusal(error)) return undefined
   if (isProviderSchemaRejection(error)) return undefined
   // The check could not run. It is not a verdict on the director, so the loop pauses as it does
   // for an upstream out of capacity and never counts the turn for or against the run.
@@ -549,6 +551,7 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   if (admission !== undefined) return classifyDriverFailure(admission, signal)
   if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') return 'terminal'
   if (error instanceof Error && isProviderSchemaRejection(error)) return 'terminal'
+  if (isCredentialRefusal(error)) return 'terminal'
   if (error instanceof HarnessTurnFailedError) {
     // The same never-retry classes a bridge refusal carries, now arriving as a turn's outcome.
     // Without a code the failure is foreign: an upstream timeout, a cut stream, an expired key.
@@ -624,6 +627,7 @@ function retainedAdmissionCause(error: unknown): Error | undefined {
         (value instanceof AgentEvalError ||
           isProviderSchemaRejection(value) ||
           isDispatchNotAdmitted(value) ||
+          isCredentialRefusal(value) ||
           // A capacity refusal before dispatch: the same request is admitted when room returns.
           capacityCode(value) !== undefined)
       )
