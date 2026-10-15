@@ -581,13 +581,13 @@ try {
     assertSingleFirstPartyPackageVersion(installedScope, packageName, expectedVersion)
   }
   assertNoEdgeUnsafeStaticImports(installedScope)
-  run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], appDir)
-  run(process.execPath, ['--experimental-strip-types', 'provider-consumer.ts'], appDir)
   copyFileSync(
     join(repoRoot, 'scripts', 'fixtures', 'packed-sandbox-contract-consumer.mjs'),
     join(appDir, 'sandbox-contract-consumer.mjs'),
   )
   run(process.execPath, ['sandbox-contract-consumer.mjs', ...(suppliedMaterializerTarball ? ['--require-proxy-materializer'] : [])], appDir)
+  run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], appDir)
+  run(process.execPath, ['--experimental-strip-types', 'provider-consumer.ts'], appDir)
 
   run(
     process.execPath,
