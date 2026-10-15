@@ -313,6 +313,7 @@ export function parseExactCandidateProfile(input: unknown): AgentCandidateProfil
 export function assertCandidateProfileExecutionSupport(profile: AgentCandidateProfile): void {
   assertResolvedKnowledgeResources(profile.resources)
   refuseFieldsSandboxCannotCarry(profile)
+  assertLocalCandidateCustody(profile)
   const fields = ['tools', 'permissions', 'modes', 'confidential'] as const
   const unsupported = fields.filter((field) => hasEntries(profile[field]))
   if (unsupported.length > 0) {
