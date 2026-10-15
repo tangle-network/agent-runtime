@@ -36,6 +36,13 @@ import {
 import { Sandbox } from '@tangle-network/sandbox'
 import { assertProfileMaterializes as assertAgentProfileMaterializes } from '@tangle-network/agent-runtime/agent'
 
+let fixtureStage = 'initial contract preparation'
+let lastFixtureRequest = 'none'
+const fixtureDeadline = setTimeout(() => {
+  throw new Error('Packed provider fixture deadline: stage=' + fixtureStage + '; last_request=' + lastFixtureRequest)
+}, 30_000)
+fixtureDeadline.unref()
+
 // Exercise public packed adapters with a bounded transport fixture, never a provider allocation.
 const profile: AgentProfile = { name: 'packed-transfer', harness: 'codex' }
 assert.deepEqual(assertProfileMaterializes(profile, 'codex', 'packed kernel consumer').unsupported, [])
@@ -130,6 +137,7 @@ let lookupCount = 0
 let rejectLookupAt: number | undefined
 const transport: typeof fetch = async (input, options) => {
   const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)
+  lastFixtureRequest = (options?.method ?? 'GET') + ' ' + url.pathname
   calls.push(`${options?.method ?? 'GET'} ${url.pathname}`)
   if (url.pathname === '/v1/chat/completions' && options?.method === 'POST') {
     const body = JSON.parse(String(options.body))
@@ -191,6 +199,7 @@ assert.equal(capabilities.contextTransfer.freshSession, true)
 assert.equal(capabilities.contextTransfer.requestIdempotency, true)
 assert.equal(capabilities.contextTransfer.lookup, true)
 assert.ok(selected.contextTransfer)
+fixtureStage = 'context transfer acceptance'
 const accepted = await selected.contextTransfer.transfer(request)
 if (accepted.status !== 'accepted' && accepted.status !== 'replayed')
   throw new Error(`fixture transfer was refused: ${accepted.status}`)
@@ -201,6 +210,7 @@ const resumed = createAgentEnvironmentProviderRegistry([local()])
 const receiver = resumed.require(accepted.provider)
 receiver.create = async () => { throw new Error('accepted attachment must never allocate') }
 const admissions: string[] = []
+fixtureStage = 'retained attachment and first dispatch'
 const run = await startRetainedRun({ provider: receiver,
   environment: { profile, backend: 'codex', idempotencyKey: 'packed-product-admission' },
   turn: { prompt: 'first imported turn', turnId: 'packed-product-turn', contextTransfer: request },
@@ -228,6 +238,7 @@ rejectLookupAt = 2
 const refusingReceiver = local()
 refusingReceiver.create = async () => { throw new Error('refused attachment must never allocate') }
 const refusedAdmissions: string[] = []
+fixtureStage = 'changed dispatch receipt refusal'
 await assert.rejects(startRetainedRun({ provider: refusingReceiver,
   environment: { profile, backend: 'codex', idempotencyKey: 'packed-refused-admission' },
   turn: { prompt: 'must not dispatch', turnId: 'packed-refused-turn', contextTransfer: request },
@@ -319,6 +330,7 @@ try {
     assert.equal(url.origin, 'https://packed-sandbox.invalid')
     const method = options?.method ?? 'GET'
     proxyCalls.push(method + ' ' + url.pathname)
+    lastFixtureRequest = method + ' ' + url.pathname
     if (url.pathname === '/v1/capabilities') return Response.json({ proxySecrets: proxyCapabilities })
     if (url.pathname === '/v1/sandboxes' && method === 'POST') {
       const body = JSON.parse(String(options?.body))
@@ -369,13 +381,16 @@ try {
     proxySecrets,
   })
   if (sdkProxySchemaSupported) {
+    fixtureStage = 'installed SDK proxy create'
     const created = await createProtected()
     assert.equal(created.id, proxyReceipt.sandboxId)
     assert.ok(proxyReceiptReads >= 2, 'provider must confirm live declarations and receipt')
+    fixtureStage = 'live receipt mismatch refusal'
     mismatchedLiveReceipt = true
     await assert.rejects(createProtected(), /reference|receipt|custody/i)
     // Only an exact duplicate of the profile's model is portable. A different
     // selection or extra credential control must remain visible for refusal.
+    fixtureStage = 'model selection and credential control refusals'
     for (const model of [
       { ...fixtureModel, model: 'fixture/different-model' },
       { ...fixtureModel, authMode: 'oauth' as const },
@@ -388,6 +403,7 @@ try {
       assert.equal(proxyCalls.filter(call => call === 'POST /v1/sandboxes').length, allocationsBefore)
     }
   } else {
+    fixtureStage = 'unsupported SDK proxy refusal'
     await assert.rejects(createProtected())
     assert.equal(proxyCalls.some(call => call === 'POST /v1/sandboxes'), false)
   }
@@ -395,6 +411,7 @@ try {
 } finally {
   globalThis.fetch = originalFetch
 }
+clearTimeout(fixtureDeadline)
 console.log(
   JSON.stringify({
     kind: 'packed-provider-consumer',
