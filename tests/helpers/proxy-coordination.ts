@@ -147,8 +147,8 @@ export async function proxyCoordination() {
   return {
     url,
     proxySecret,
-    forwardTo(port: number, host = '127.0.0.1') {
-      route(`${url}/manager`, port, host)
+    forwardTo(port: number, host = '127.0.0.1', publicUrl = `${url}/manager`) {
+      route(publicUrl, port, host)
     },
     publicUrl(address: Pick<CoordinationPublicAddress, 'port' | 'actorId' | 'runId'>) {
       const actor = createHash('sha256')

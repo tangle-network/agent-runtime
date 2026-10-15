@@ -7,7 +7,7 @@ import type {
   ProxySecretParents,
 } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import { providerAsSandboxClient } from '../../src/runtime/environment-provider'
+import { type ProviderAsSandboxClientOptions, providerAsSandboxClient } from '../../src/runtime/environment-provider'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 
 const adapterProxyBinding: ProxySecretBinding = {
@@ -58,6 +58,9 @@ describe('public provider adapter proxy-secret parent admission', () => {
     const base = durableRetainedProvider(join(directory, 'provider.json'))
     const entered = deferred()
     const durable = deferred()
+    const installed = deferred()
+    const acknowledged = deferred()
+    const stages: string[] = []
     const callerParents: ProxySecretParents = { REPORTS_TOKEN: null }
     let admitted: unknown
     let creates = 0
@@ -72,17 +75,24 @@ describe('public provider adapter proxy-secret parent admission', () => {
         return base.create(input)
       },
     }
-    const options = {
+    const options: ProviderAsSandboxClientOptions = {
       defaults: {
         profile: { name: 'protected' },
         proxySecrets: [adapterProxyBinding],
         proxySecretParents: callerParents,
         idempotencyKey: 'protected-adapter',
       },
-      async onAdmission(admission: { readonly proxySecretParents: ProxySecretParents }) {
+      async onAdmission(admission) {
+        stages.push(admission.stage)
         admitted = admission.proxySecretParents
-        entered.resolve()
-        await durable.promise
+        if (admission.stage === 'selected') {
+          entered.resolve()
+          await durable.promise
+        } else if (admission.stage === 'installed') {
+          expect(admission.receipt.sandboxId).toBe(admission.environmentId)
+          installed.resolve()
+          await acknowledged.promise
+        }
       },
     }
     const creating = providerAsSandboxClient(provider, options).create()
@@ -100,6 +110,14 @@ describe('public provider adapter proxy-secret parent admission', () => {
       expect(creates).toBe(0)
       callerParents.REPORTS_TOKEN = 'caller-mutated-after-admission'
       durable.resolve()
+      const second = await Promise.race([
+        installed.promise.then(() => 'installed'),
+        creating.then(() => 'returned', () => 'failure'),
+      ])
+      expect(second, 'protected adapter must await installed receipt acknowledgement before returning').toBe('installed')
+      expect(stages).toEqual(['selected', 'installed'])
+      expect(creates).toBe(1)
+      acknowledged.resolve()
       const box = await creating
       expect(creates).toBe(1)
       expect(admitted).toEqual({ REPORTS_TOKEN: null })
@@ -109,6 +127,7 @@ describe('public provider adapter proxy-secret parent admission', () => {
       expect(current?.proxySecretParents).toEqual({ REPORTS_TOKEN: null })
     } finally {
       durable.resolve()
+      acknowledged.resolve()
       await creating.catch(() => {})
       await rm(directory, { recursive: true, force: true })
     }
@@ -165,6 +184,97 @@ describe('public provider adapter proxy-secret parent admission', () => {
     }
   })
 
+
+  it('refuses a different source revision from the protected public adapter before installed acknowledgement', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'protected-adapter-source-'))
+    const base = durableRetainedProvider(join(directory, 'provider.json'))
+    const stages: string[] = []
+    let creates = 0
+    let destroys = 0
+    let dispatches = 0
+    const provider: AgentEnvironmentProvider = {
+      ...base,
+      async create(input) {
+        creates++
+        const environment = await base.create(input)
+        return {
+          ...environment,
+          creation: 'created',
+          async *stream() { dispatches++; yield* [] },
+          async destroy() { destroys++; await environment.destroy?.() },
+        }
+      },
+    }
+    const expiresAt = new Date(Date.now() + 300_000).toISOString()
+    try {
+      await expect(providerAsSandboxClient(provider, {
+        defaults: {
+          profile: { name: 'protected' }, proxySecrets: [adapterProxyBinding],
+          proxySecretParents: { REPORTS_TOKEN: null }, idempotencyKey: 'wrong-source-revision',
+        },
+        proxySecretSourceIdentity: {
+          identity: { tenantId: 'fixture-tenant', issuerId: 'durable-test', secretId: adapterProxyBinding.secretRef.key, revision: 'host-admitted-source-revision' },
+          key: adapterProxyBinding.secretRef.key,
+          sourceValidUntil: expiresAt, expiresAt,
+          proxyPolicy: { hosts: [...adapterProxyBinding.hosts], methods: adapterProxyBinding.methods?.slice(), paths: adapterProxyBinding.paths?.slice(), maxTtlSeconds: 60 },
+        },
+        async onAdmission(admission) { stages.push(admission.stage) },
+      }).create()).rejects.toThrow('provider custody does not match the admitted proxy-secret source identity')
+      expect(stages).toEqual(['selected'])
+      expect(creates).toBe(1)
+      expect(dispatches).toBe(0)
+      expect(destroys).toBe(1)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('preserves a created protected environment when durable installed acknowledgement is uncertain', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'protected-adapter-ack-'))
+    const base = durableRetainedProvider(join(directory, 'provider.json'))
+    const stages: string[] = []
+    let environmentId: string | undefined
+    let creates = 0
+    let destroys = 0
+    let dispatches = 0
+    const provider: AgentEnvironmentProvider = {
+      ...base,
+      async create(input) {
+        creates++
+        const environment = await base.create(input)
+        environmentId = environment.id
+        return {
+          ...environment,
+          creation: 'created',
+          async *stream() { dispatches++; yield* [] },
+          async destroy() { destroys++; await environment.destroy?.() },
+        }
+      },
+    }
+    try {
+      await expect(providerAsSandboxClient(provider, {
+        defaults: {
+          profile: { name: 'protected' }, proxySecrets: [adapterProxyBinding],
+          proxySecretParents: { REPORTS_TOKEN: null }, idempotencyKey: 'uncertain-installed-ack',
+        },
+        async onAdmission(admission) {
+          stages.push(admission.stage)
+          if (admission.stage === 'installed') throw new Error('durable installed acknowledgement lost')
+        },
+      }).create()).rejects.toThrow('durable installed acknowledgement lost')
+      expect(stages).toEqual(['selected', 'installed'])
+      expect(creates).toBe(1)
+      expect(dispatches).toBe(0)
+      expect(destroys, 'an uncertain durable acknowledgement must preserve the admitted allocation').toBe(0)
+      expect(environmentId).toBeDefined()
+      const current = await base.get!(environmentId!)
+      expect(current?.proxySecretParents).toEqual({ REPORTS_TOKEN: null })
+      expect(current?.proxySecretReceipt?.status).toBe('installed')
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('refuses protected public adapter forks before allocation even after receipt removal', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'protected-adapter-fork-'))
     const base = durableRetainedProvider(join(directory, 'provider.json'))
@@ -212,7 +322,6 @@ describe('public provider adapter proxy-secret parent admission', () => {
       await rm(directory, { recursive: true, force: true })
     }
   })
-
 })
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {

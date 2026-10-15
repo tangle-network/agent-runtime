@@ -21,6 +21,39 @@ afterEach(async () => {
 describe.skipIf(process.platform !== 'linux')(
   'durable storage outage across controller processes',
   () => {
+    it('replays the exact live coordination source after a managed controller SIGKILL', async () => {
+      const directory = await mkdtemp(join(tmpdir(), 'coordination-generation-crash-'))
+      roots.push(directory)
+      await execute(process.execPath, ['--import', tsx, fixture, 'root-credential-crash', directory], {
+        env: {
+          ...process.env,
+          RUNTIME_KERNEL_MODULE: new URL('../../src/runtime/index.ts', import.meta.url).href,
+          RUNTIME_DURABLE_MODULE: new URL('../../src/durable/index.ts', import.meta.url).href,
+        },
+        timeout: 120_000,
+      })
+      const receipt = JSON.parse(await readFile(join(directory, 'receipt.json'), 'utf8'))
+      expect(receipt).toMatchObject({
+        passed: true,
+        fault: { code: 'SIGKILL', at: 'coordination:dispatched' },
+        first: { status: 'killed', signal: 'SIGKILL', resultExists: false },
+        firstNativeAlive: true,
+        firstSourceRevokes: 0,
+        second: { status: 'settled', resultExists: true },
+        finalCreates: 1,
+        finalStarts: 1,
+        sourceCreates: 1,
+        sourceReplays: 1,
+        sourceRevokes: 1,
+        sameCredential: true,
+        sameSource: true,
+        authenticatedReplay: true,
+        noReadableCredentialPersisted: true,
+        originalIdentityAndDeadlinePreserved: true,
+        committedPrefixPreserved: true,
+      })
+    }, 150_000)
+
     it.each(['dispatch', 'partial', 'result', 'root-dispatch', 'root-result'])(
       'preserves the exact native child across a real ENOSPC at %s',
       async (fault) => {
