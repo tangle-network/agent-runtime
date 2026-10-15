@@ -21,8 +21,10 @@ import {
   createPushTraceSource,
   type Executor,
   type ExecutorResult,
+  type GraphNode,
   type GraphResult,
   type MakeWorkerAgent,
+  type RouterTransportConfig,
   type TraceSource,
   type WorkerSpawnContext,
 } from '@tangle-network/agent-runtime/kernel'
@@ -209,5 +211,132 @@ export function printLedger(tag: string, res: GraphResult): void {
   }
   if (res.exhaustedEdges.length > 0) {
     console.log(`exhausted edges: ${res.exhaustedEdges.join(', ')}`)
+  }
+}
+
+// ── Graph literals, shortened ──────────────────────────────────────────────────
+
+/** The root's spawn grant — the one tool a node needs to be a driver (or a nested supervisor). */
+export const SPAWN_TOOL = 'agent_runtime_coordination_spawn_worker'
+
+/** A root node: an offline profile that may spawn the graph's workers (plus any extra grants). */
+export function driverNode(
+  id: string,
+  systemPrompt: string,
+  extraTools: Record<string, boolean> = {},
+): GraphNode {
+  return {
+    id,
+    profile: { ...offlineProfile(id, systemPrompt), tools: { [SPAWN_TOOL]: true, ...extraTools } },
+  }
+}
+
+/** A worker or analyst node. `provider` names the model family, so a panel of nodes can differ in
+ *  the one axis a panel exists for (`anthropic`, `openai`, `google`); it defaults to `offline`. */
+export function workerNode(id: string, systemPrompt: string, provider = 'offline'): GraphNode {
+  return {
+    id,
+    profile: {
+      ...offlineProfile(id, systemPrompt),
+      model: { provider, default: `${provider}/${id}` },
+    },
+  }
+}
+
+// ── Reading what woke the driver ───────────────────────────────────────────────
+
+/** One event a wake listed (`- {json}` lines): a `settled` worker or an analyst `finding`. */
+export type WakeEvent = Record<string, unknown> & { type?: string }
+
+/** Every event the driver has been woken with so far, in arrival order. */
+export function wakeEvents(messages: ReadonlyArray<Record<string, unknown>>): WakeEvent[] {
+  const events: WakeEvent[] = []
+  for (const message of messages) {
+    if (typeof message.content !== 'string') continue
+    for (const line of message.content.split('\n')) {
+      if (!line.startsWith('- {')) continue
+      try {
+        events.push(JSON.parse(line.slice(2)) as WakeEvent)
+      } catch {
+        // a line that is not an event is simply not one
+      }
+    }
+  }
+  return events
+}
+
+/** The analyst findings among the events: who analyzed which worker, and what they said. */
+export function findingsOf(
+  events: ReadonlyArray<WakeEvent>,
+  analyst?: string,
+): Array<{ analyst: string; fromWorker: string; findings: Record<string, unknown> }> {
+  return events
+    .filter((e) => e.type === 'finding' && (analyst === undefined || e.analyst === analyst))
+    .map((e) => ({
+      analyst: String(e.analyst),
+      fromWorker: String(e.fromWorker),
+      findings: (e.findings ?? {}) as Record<string, unknown>,
+    }))
+}
+
+/** The settled workers among the events, with the leaf's own verdict (`valid`, `score`). */
+export function settledOf(
+  events: ReadonlyArray<WakeEvent>,
+): Array<{ id: string; valid: boolean; score: number }> {
+  return events
+    .filter((e) => e.type === 'settled')
+    .map((e) => ({ id: String(e.settled), valid: e.valid === true, score: Number(e.score ?? 0) }))
+}
+
+/** A driver whose next move depends on what the events SAY, not just that they arrived: `decide`
+ *  sees every event so far plus how many times it has been asked, and returns the next turn (a
+ *  turn with no tool call ends the driver's turn to wait). Tool-call ids are minted here. */
+export function reactiveBrain(
+  decide: (events: WakeEvent[], call: number) => ScriptedTurn,
+): ToolLoopChat {
+  let call = 0
+  return async (messages) => {
+    const turn = decide(wakeEvents(messages), call)
+    call += 1
+    return {
+      ...(turn.content !== undefined ? { content: turn.content } : {}),
+      toolCalls: (turn.toolCalls ?? []).map((tc, j) => ({
+        id: tc.id ?? `rc-${call}-${j}`,
+        name: tc.name,
+        arguments: JSON.stringify(tc.arguments),
+      })),
+    }
+  }
+}
+
+/** A scripted OpenAI-compatible transport for a NESTED supervisor's router brain — the HTTP peer,
+ *  faked at the process boundary (`RouterTransportConfig.complete`), so the nested supervisor runs
+ *  its real tool loop offline. Turns advance like `scriptedBrain` (the last repeats). */
+export function scriptedRouter(
+  turns: ScriptedTurn[],
+): NonNullable<RouterTransportConfig['complete']> {
+  let i = 0
+  return async (body) => {
+    const messages = (body.messages ?? []) as ReadonlyArray<Record<string, unknown>>
+    while (turns[i]?.until?.(messages) === true) i += 1
+    const turn = turns[Math.min(i, turns.length - 1)] ?? {}
+    if (turn.until === undefined) i += 1
+    return {
+      model: String(body.model ?? 'offline'),
+      choices: [
+        {
+          message: {
+            content: turn.content ?? null,
+            tool_calls: (turn.toolCalls ?? []).map((tc, j) => ({
+              id: tc.id ?? `rt-${i}-${j}`,
+              type: 'function',
+              function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+            })),
+          },
+          finish_reason: turn.toolCalls?.length ? 'tool_calls' : 'stop',
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, cost_usd: 0 },
+    }
   }
 }
