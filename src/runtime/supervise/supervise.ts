@@ -975,6 +975,7 @@ function driveHarnessFromBackend(
     stopSignal,
     coordinationTools,
     reentry,
+    session,
   }) => {
     const priorCommittedArtifact = managerArtifact
     managerArtifact = undefined
@@ -1098,7 +1099,7 @@ function driveHarnessFromBackend(
     // and the coordinator's run state.
     let driveTask = task
     if (reentry !== undefined) {
-      const continuity: ReentryContinuity =
+      const proven: ReentryContinuity =
         switchedProviderCheckpointAt === undefined
           ? await reentryContinuity(boundBackend, scope, retainedOwner !== undefined)
           : {
@@ -1112,10 +1113,17 @@ function driveHarnessFromBackend(
         activeSeat.previous.seat !== activeSeat.seat &&
         activeSeat.previous.provider === activeSeat.stage.provider &&
         activeSeat.previous.harness === activeSeat.stage.harness &&
-        (continuity.session !== 'continued' || continuity.environment !== 'same')
+        (proven.session !== 'continued' || proven.environment !== 'same')
       ) {
         throw new ValidationError('same-provider seat continuation lost its native environment')
       }
+      // A fresh re-entry keeps the environment the backend proves and starts a new session in it:
+      // the bridge under a new session id below, a retained provider owner under a new session id
+      // in its live environment (`prepareScopeRetainedOwnerTask`).
+      const continuity: ReentryContinuity =
+        session === 'fresh' && proven.session === 'continued'
+          ? { ...proven, session: 'new' }
+          : proven
       reentry.onContinuity?.(continuity)
       // After the capture wait above: a wake names what settled while the turn was held.
       await reentry.refresh?.()
@@ -1139,7 +1147,7 @@ function driveHarnessFromBackend(
       }
     }
     const originalTask = retainedOwner
-      ? await prepareScopeRetainedOwnerTask(scope, driveTask)
+      ? await prepareScopeRetainedOwnerTask(scope, driveTask, session ?? 'native')
       : driveTask
     const acceptedOwner = retainedOwner ? await scopeRetainedOwnerResult(scope) : undefined
     if (acceptedOwner) {
@@ -1225,7 +1233,20 @@ function driveHarnessFromBackend(
       ...(coordinationMcpHeaders ? { headers: coordinationMcpHeaders } : {}),
       metadata: { toolTimeoutMs: COORDINATION_CLIENT_TOOL_TIMEOUT_MS },
     }
-    let factory = baseFactory
+    // A bridge keys the harness conversation by session id. A fresh re-entry binds a new one,
+    // derived from the owner's attempt id, which is new for every re-entry and every process.
+    let factory =
+      session === 'fresh' && reentry !== undefined && boundBackend.backend === 'bridge'
+        ? createExecutor(
+            bindReusableExecutorExecutionId(
+              boundBackend,
+              externalExecutionId('supervised-manager-session', {
+                sessionId: boundBackend.sessionId ?? executionId,
+                attemptId: scopeOwnerExecutorNodeContext(scope).attemptId,
+              }),
+            ),
+          )
+        : baseFactory
     if (boundBackend.backend === 'provider') {
       const credentialName = 'AGENT_RUNTIME_COORDINATION_TOKEN'
       const authorization = coordinationMcpHeaders?.Authorization

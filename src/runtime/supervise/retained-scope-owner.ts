@@ -74,6 +74,10 @@ interface OwnerState {
   priorSession?: RetainedRunEnvironmentAdmission
   /** A changed native provider starts a new harness session from a verified checkpoint. */
   forceNewSession?: boolean
+  /** `continuation.session: 'fresh'`: a later invocation keeps the environment and starts a new
+   *  harness session in it. Set on every prepare, so a recovered invocation replays the identity
+   *  it committed. */
+  freshSessions?: boolean
   provider?: AgentEnvironmentProvider
   /** The provider backend captures executable workspace evidence for unsettled owner turns. */
   workspaceRetention: boolean
@@ -157,6 +161,9 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
       },
       get priorSession() {
         return state.priorSession
+      },
+      get newSession() {
+        return state.freshSessions === true && state.priorSession !== undefined
       },
       // The first retained turn must stay alive so a later deliberate invocation can reuse it.
       // The owning scope releases it once the complete manager scope finishes.
@@ -2143,14 +2150,18 @@ export async function reconcileScopeRetainedOwnerEnvironment(
   return { state: 'lost', environmentId }
 }
 
-/** Resume the original backend prompt; rebuilt coordination observations cannot replace it. */
+/** Resume the original backend prompt; rebuilt coordination observations cannot replace it.
+ *  `session: 'fresh'` makes every invocation after the first start a new harness session in the
+ *  environment it continues. */
 export async function prepareScopeRetainedOwnerTask(
   scope: Scope<unknown>,
   task: unknown,
+  session: 'native' | 'fresh' = 'native',
 ): Promise<unknown> {
   const state = owners.get(scope)
   if (!state) return task
   const { args } = state
+  state.freshSessions = session === 'fresh'
   scope.signal.throwIfAborted()
   const journal = (await args.journal.loadTree(args.rootId)) ?? []
   const owned = journal.filter((event) => event.id === args.nodeId)

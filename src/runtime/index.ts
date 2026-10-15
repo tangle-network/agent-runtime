@@ -1047,6 +1047,19 @@ export {
   type ReentryTaskInput,
   UNPROVEN_CONTINUITY,
 } from './supervise/reentry'
+// One data value per multi-agent research configuration (seven axes, a canonical digest, five
+// presets) and the compiler that maps it onto exactly one `supervise` or `runGraph` call.
+export {
+  assertSearchSpec,
+  type CompiledSearchSpec,
+  compileSearchSpec,
+  SEARCH_SPEC_CORRELATION_KEY,
+  type SearchSpec,
+  type SearchSpecInputs,
+  type SearchSpecOwnedOption,
+  searchPresets,
+  searchSpecDigest,
+} from './supervise/search-spec'
 // The one-call store bundle for a supervised run: a journal + blob store + executor registry,
 // shaped to spread straight into `SupervisorOpts`. `createInMemoryRunContext` is the default
 // (fresh, process-lifetime); `createFileRunContext(dir)` is the durable one — file-backed stores

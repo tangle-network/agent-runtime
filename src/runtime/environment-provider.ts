@@ -2489,8 +2489,12 @@ async function providerExecutionSource(
       ? {}
       : {
           existingEnvironmentId: priorSession.environmentId,
+          // A new session in the same environment is minted from this invocation's own keys,
+          // exactly as a first invocation's is, so a recovery replays the same identity.
           identity: {
-            sessionId: priorSession.sessionId,
+            sessionId: retention.newSession
+              ? mintRetainedIdentity(environmentKey, turnId).sessionId
+              : priorSession.sessionId,
             executionId: mintRetainedIdentity(environmentKey, turnId).executionId,
           },
         }),
