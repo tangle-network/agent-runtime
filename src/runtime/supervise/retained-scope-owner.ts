@@ -100,6 +100,8 @@ interface OwnerState {
   /** The checkpoint in progress, so two never run at once. */
   checkpointing?: Promise<void>
   checkpointHandles?: Map<string, AgentWorkspaceBranching>
+  /** Observed source custody stays protective even after its current receipt is cleared. */
+  checkpointCustodyProtected?: boolean
   lastCheckpointAt?: number
   /** Set once checkpoints cannot be taken for this owner, with why; no later call retries. */
   checkpointsUnavailable?: string
@@ -197,6 +199,9 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
       },
       onAdmission: async (admission) => {
         scope.signal.throwIfAborted()
+        const parents = admission.phase === 'intent' || admission.phase === 'environment'
+          ? admission.proxySecretParents : undefined
+        state.checkpointCustodyProtected ||= parents !== undefined && Object.keys(parents).length > 0
         const prior = admissions.find((record) => record.phase === admission.phase)
         if (prior !== undefined) {
           if (contentAddress(prior) !== contentAddress(admission)) {
@@ -401,7 +406,10 @@ export function bindScopeRetainedOwnerProvider(
   const state = owners.get(scope)
   if (state === undefined) return
   state.provider = provider
-  if (checkpointCapture !== undefined) state.checkpointCapture = checkpointCapture
+  if (checkpointCapture !== undefined) {
+    state.checkpointCustodyProtected ||= Boolean(checkpointCapture.profile.proxySecrets?.length)
+    state.checkpointCapture = checkpointCapture
+  }
 }
 
 /** Bind the owner cleanup policy selected by its provider executor. */
@@ -706,6 +714,9 @@ async function checkpointOwnerWorkspace(scope: Scope<unknown>, state: OwnerState
     environment.provider !== provider.name
   )
     return
+  state.checkpointCustodyProtected ||=
+    environment.proxySecretReceipt !== undefined ||
+    Object.keys(environment.proxySecretParents ?? {}).length > 0
   const branching = environment.workspaceBranching
   if (branching === undefined) {
     state.checkpointsUnavailable = `environment ${environment.id} offers no durable checkpoint`
@@ -792,9 +803,11 @@ async function checkpointHandle(
           )
         }
         const source = await provider.get?.(sourceEnvironmentId)
-        return source?.id === sourceEnvironmentId && source.provider === provider.name
-          ? source.workspaceBranching
-          : undefined
+        if (source?.id !== sourceEnvironmentId || source.provider !== provider.name) return undefined
+        state.checkpointCustodyProtected ||=
+          source.proxySecretReceipt !== undefined ||
+          Object.keys(source.proxySecretParents ?? {}).length > 0
+        return source.workspaceBranching
       },
       signal,
       'retained owner checkpoint handle lookup timed out',
@@ -1037,6 +1050,29 @@ async function captureBeforeCleanup(
   parent?: AbortSignal,
 ): Promise<{ readonly digest: Sha256Digest } | CaptureRefusal> {
   const { args } = state
+  const refuse = (reason: string, needsSource: boolean): CaptureRefusal => ({
+    event,
+    reason,
+    needsSource,
+  })
+  const historicallyProtected = events.some((prior) => {
+    if (prior.id !== args.nodeId) return false
+    const parents =
+      prior.kind === 'execution-admitted' &&
+      (prior.admission.phase === 'intent' || prior.admission.phase === 'environment')
+        ? prior.admission.proxySecretParents
+        : prior.kind === 'spawned' || prior.kind === 'execution-input'
+          ? prior.proxySecretParents
+          : undefined
+    return parents !== undefined && Object.keys(parents).length > 0
+  })
+  const custodyRefusal = 'proxy-secret checkpoint capture refused: no checkpoint-specific custody proof'
+  const protectedOwner = (): boolean => {
+    state.checkpointCustodyProtected ||=
+      historicallyProtected || Boolean(state.checkpointCapture?.profile.proxySecrets?.length)
+    return state.checkpointCustodyProtected
+  }
+  if (protectedOwner()) return refuse(custodyRefusal, true)
   const checkpointId = event.checkpoint.checkpointId
   const recorded = events.find(
     (prior): prior is CheckpointCaptureEvent =>
@@ -1047,11 +1083,6 @@ async function captureBeforeCleanup(
       prior.checkpointId === checkpointId,
   )
   if (recorded !== undefined) return { digest: recorded.tree.digest }
-  const refuse = (reason: string, needsSource: boolean): CaptureRefusal => ({
-    event,
-    reason,
-    needsSource,
-  })
   const capture = state.checkpointCapture
   if (capture?.port.captureCheckpoint === undefined)
     return refuse('no checkpoint capture: the owner backend has no captureCheckpoint', false)
@@ -1079,6 +1110,8 @@ async function captureBeforeCleanup(
     const tree = await captureProviderCheckpointWorkspace(
       capture.port,
       async (captureSignal) => {
+        // Capacity waits may outlive the admission that made this owner protected.
+        if (protectedOwner()) throw new Error(custodyRefusal)
         const forkSignal = AbortSignal.any([
           captureSignal,
           ...(parent === undefined ? [] : [parent]),
@@ -1096,8 +1129,9 @@ async function captureBeforeCleanup(
           at: new Date(args.now()).toISOString(),
         })
         const result = await runAbortable(
-          () =>
-            branching.fork(request, { signal: forkSignal }).then(async (result) => {
+          () => {
+            if (protectedOwner()) throw new Error(custodyRefusal)
+            return branching.fork(request, { signal: forkSignal }).then(async (result) => {
               if (result.status === 'created' || result.status === 'replayed') {
                 const forkId = result.environment.environmentId
                 if (captureEnded)
@@ -1110,7 +1144,8 @@ async function captureBeforeCleanup(
                 else forkEnvironmentId = forkId
               }
               return result
-            }),
+            })
+          },
           forkSignal,
           'checkpoint fork timed out',
         )
