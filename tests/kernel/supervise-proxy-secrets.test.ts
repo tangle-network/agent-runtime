@@ -358,7 +358,7 @@ describe('public supervise proxy-secret descendant admission', () => {
     }
     const backend = { backend: 'provider' as const, provider, workspaceRetention: retention }
     try {
-      await supervise(
+      const outcome = await supervise(
         testAgentProfile('root', {
           tools: runtimeToolDeclarations('read_journal', 'submit_result'),
         }),
@@ -389,7 +389,18 @@ describe('public supervise proxy-secret descendant admission', () => {
         },
       )
       const events = (await journal.loadTree(runId)) ?? []
-      expect(events.some((event) => event.kind === 'workspace-checkpoint')).toBe(true)
+      const progress = {
+        result: outcome.kind,
+        ...(outcome.kind === 'no-winner'
+          ? { reason: outcome.reason, ...(outcome.reason === 'driver-failed' ? { failure: outcome.error.message } : {}) }
+          : {}),
+        allocated: sourceId !== undefined,
+        eventKinds: [...new Set(events.map((event) => event.kind))],
+      }
+      expect(
+        events.some((event) => event.kind === 'workspace-checkpoint'),
+        `public checkpoint must precede capture refusal; progress=${JSON.stringify(progress)}`,
+      ).toBe(true)
       expect(
         capture.forks.size,
         'protected public checkpoint cleanup must refuse before inspection allocation',
