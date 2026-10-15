@@ -514,6 +514,93 @@ describe('mapSandboxToolEvent — a liveness frame is not a tool call', () => {
   })
 })
 
+describe('mapSandboxToolEvent — codex tool items', () => {
+  // The sidecar's codex shape, read from archived Discovery turns on 2026-10-15: every tool is an
+  // `item.*` event inside `raw`, and 83 of 83 codex turns projected no tool call before this.
+  const item = (phase: string, fields: Record<string, unknown>) =>
+    ({
+      type: 'raw',
+      data: { type: 'raw', backend: 'codex', event: { type: phase, item: fields } },
+    }) as unknown as SandboxEvent
+  const mcp = {
+    id: 'item_1',
+    type: 'mcp_tool_call',
+    server: 'agent-runtime-coordination',
+    tool: 'read_journal',
+    arguments: { sinceRow: 0 },
+    result: null,
+    error: null,
+    status: 'in_progress',
+  }
+  const command = {
+    id: 'item_2',
+    type: 'command_execution',
+    command: 'npm test',
+    aggregated_output: '',
+    exit_code: null,
+    status: 'in_progress',
+  }
+
+  it('projects one call per item id and its result, named as Eval names codex tools', () => {
+    const state = createSandboxToolPartState()
+    const projected = [
+      item('item.started', mcp),
+      item('item.completed', { ...mcp, result: { content: [] }, status: 'completed' }),
+      item('item.started', command),
+      item('item.completed', { ...command, aggregated_output: 'fail', exit_code: 1 }),
+      item('item.completed', { id: 'item_3', type: 'file_change', changes: [{ path: 'a.ts' }] }),
+      item('item.started', { id: 'item_4', type: 'reasoning', text: 'thinking' }),
+      item('turn.completed', {}),
+      {
+        type: 'raw',
+        data: { type: 'raw', backend: 'opencode', event: { type: 'tool_use', part: {} } },
+      } as unknown as SandboxEvent,
+    ].flatMap((event) => mapSandboxToolEvent(event, state))
+    expect(projected).toEqual([
+      {
+        type: 'tool_call',
+        toolName: 'agent-runtime-coordination/read_journal',
+        toolCallId: 'item_1',
+        args: {
+          server: 'agent-runtime-coordination',
+          tool: 'read_journal',
+          arguments: { sinceRow: 0 },
+        },
+      },
+      {
+        type: 'tool_result',
+        toolName: 'agent-runtime-coordination/read_journal',
+        toolCallId: 'item_1',
+        result: { content: [] },
+      },
+      {
+        type: 'tool_call',
+        toolName: 'command_execution',
+        toolCallId: 'item_2',
+        args: { command: 'npm test' },
+      },
+      {
+        type: 'tool_result',
+        toolName: 'command_execution',
+        toolCallId: 'item_2',
+        result: { error: 'command_execution failed', status: 'failed', output: 'fail' },
+      },
+      {
+        type: 'tool_call',
+        toolName: 'file_change',
+        toolCallId: 'item_3',
+        args: { changes: [{ path: 'a.ts' }] },
+      },
+      {
+        type: 'tool_result',
+        toolName: 'file_change',
+        toolCallId: 'item_3',
+        result: [{ path: 'a.ts' }],
+      },
+    ])
+  })
+})
+
 describe('SandboxUsageLedger settled usage projection', () => {
   it('uses one deduplicated credit pass and returns a detached last-turn snapshot', () => {
     const ledger = createSandboxUsageLedger()

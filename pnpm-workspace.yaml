@@ -26,7 +26,7 @@ catalog:
   '@modelcontextprotocol/sdk': 1.30.0
   '@tangle-network/agent-core': '>=0.12.0 <0.13.0'
   '@types/node': 26.4.0
-  '@tangle-network/agent-eval': '>=0.213.0 <0.214.0'
+  '@tangle-network/agent-eval': '>=0.214.0 <0.215.0'
   '@tangle-network/agent-interface': '^5.3.0'
   '@tangle-network/agent-knowledge': ^22.0.1
   '@tangle-network/agent-profile-materialize': '^0.25.0'
@@ -40,3 +40,10 @@ catalog:
   # compiler API that TypeScript 7 removes. The packed-consumer check below
   # keeps an exact TypeScript 7.0.2 alias for consumer compatibility proof.
   typescript: 6.0.3
+
+peerDependencyRules:
+  allowedVersions:
+    # Knowledge 22.0.1 declares Eval <0.214.0. Eval 0.214.0 only adds the ledger-core
+    # Merkle exports, so Knowledge runs unchanged on it. Remove this entry when Runtime
+    # adopts a Knowledge release whose peer range admits Eval 0.214.
+    "@tangle-network/agent-knowledge>@tangle-network/agent-eval": 0.214.0
