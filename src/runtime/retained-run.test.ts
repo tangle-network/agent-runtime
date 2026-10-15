@@ -634,8 +634,8 @@ describe('retained runtime run control', () => {
 
   it('keeps an environment after dispatch becomes uncertain, but cleans an unused one', async () => {
     let destroys = 0
+    // An unknown creation receipt does not prove this caller owns the uncertain allocation.
     const uncertain = providerWithEnvironment({
-      creation: 'created',
       async dispatch() {
         throw new Error('connection lost after dispatch')
       },
