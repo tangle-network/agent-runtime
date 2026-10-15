@@ -25,6 +25,8 @@ import type {
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
 
+import type { ProxySecretParents } from './proxy-secret-parents'
+
 /** Cursor plus runtime sequence needed to continue one ordered replay. @stable */
 export interface RetainedRunReplayPoint {
   readonly cursor: string
@@ -127,6 +129,8 @@ export interface RetainedRunHandle {
  * @stable
  */
 export interface RetainedRunIntentAdmission {
+  /** Runtime-owned exact parent pins, persisted before provider effects. */
+  readonly proxySecretParents?: ProxySecretParents
   readonly phase: 'intent'
   readonly provider: string
   readonly idempotencyKey: string
@@ -140,6 +144,7 @@ export interface RetainedRunIntentAdmission {
 
 /** Recovery coordinates durable after environment creation and before dispatch. @stable */
 export interface RetainedRunEnvironmentAdmission {
+  readonly proxySecretParents?: ProxySecretParents
   readonly phase: 'environment'
   readonly provider: string
   readonly environmentId: string
@@ -223,6 +228,8 @@ export type RetainedRunAdmissionHook = (admission: RetainedRunAdmission) => Prom
 
 /** Environment, turn, and optional identity needed to replay one retained start. @stable */
 export interface RetainedRunStartMaterial {
+  /** Runtime-owned exact parent pins, persisted before provider effects. */
+  readonly proxySecretParents?: ProxySecretParents
   readonly environment: CreateAgentEnvironmentInput & { idempotencyKey: string }
   /** Reuse an environment whose retained ownership key is verified instead of creating one. */
   readonly existingEnvironmentId?: string
@@ -255,6 +262,7 @@ export interface StartRetainedRunInEnvironmentOptions
     AgentEnvironmentGetOptions,
     'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'
   > {
+  readonly proxySecretParents?: ProxySecretParents
   readonly provider: AgentEnvironmentProvider
   readonly environment: {
     /** Stable provider environment identifier used by `provider.get`. */
@@ -281,6 +289,7 @@ export interface ReconnectRetainedRunOptions
     AgentEnvironmentGetOptions,
     'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'
   > {
+  readonly proxySecretParents?: ProxySecretParents
   readonly provider: AgentEnvironmentProvider
   readonly controlRef: AgentExactRunControlRef
   readonly now?: () => number
@@ -309,6 +318,7 @@ export interface RecoverRetainedRunOptions
     AgentEnvironmentGetOptions,
     'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'
   > {
+  readonly proxySecretParents?: ProxySecretParents
   readonly provider: AgentEnvironmentProvider
   readonly environmentId: string
   readonly sessionId: string

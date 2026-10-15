@@ -26,6 +26,12 @@
  */
 
 import {
+  captureProxySecretParents,
+  proxySecretParentsSeamKey,
+  type ProxySecretParents,
+} from '../proxy-secret-parents'
+import { proxySecretParentState } from './proxy-secret-parent-state'
+import {
   agentProfileSchema,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
@@ -915,7 +921,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   // what makes a keyed spawn idempotent per key across process lifetimes: `done` returns the
   // committed result, `live` refuses a concurrent duplicate, `down` retries after a terminal
   // receipt, and `in-doubt` refuses until the exact prior execution is recovered.
-  type KeyState =
+  type KeyState = { readonly proxySecretParents?: ProxySecretParents } & (
     | { readonly state: 'live'; readonly id: NodeId; readonly identity: NodeExecutionIdentity }
     | {
         readonly state: 'done'
@@ -930,6 +936,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         readonly reason: string
       }
     | { readonly state: 'in-doubt'; readonly id: NodeId; readonly identity: NodeExecutionIdentity }
+  )
   const keyed = new Map<string, KeyState>()
   for (const [key, prior] of args.resumeFrom?.keys ?? []) {
     if (prior.state === 'completed' && prior.settled?.kind === 'done') {
@@ -962,6 +969,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     } else if (prior.identity !== undefined) {
       keyed.set(key, { state: 'in-doubt', id: prior.id, identity: prior.identity })
     }
+    const seeded = keyed.get(key)
+    const spawned = args.resumeFrom?.events.find(event => event.kind === 'spawned' && event.id === prior.id)
+    if (seeded && spawned?.kind === 'spawned' && spawned.proxySecretParents !== undefined) {
+      keyed.set(key, { ...seeded, proxySecretParents: captureProxySecretParents(spawned.proxySecretParents) })
+    }
   }
   /** Fold a keyed child's terminal settlement back into the registry, so a later spawn with the
    *  same key resolves to it (done → committed result; down → explicit retry). */
@@ -970,12 +982,15 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     if (identity === undefined) {
       throw new ValidationError(`scope: keyed settlement '${key}' lost its execution identity`)
     }
+    const existing = keyed.get(key)
+    const pins = existing?.id === settled.handle.id && existing.proxySecretParents !== undefined
+      ? { proxySecretParents: existing.proxySecretParents } : {}
     if (children.get(settled.handle.id)?.recoveryPending) {
-      keyed.set(key, { state: 'in-doubt', id: settled.handle.id, identity })
+      keyed.set(key, { state: 'in-doubt', id: settled.handle.id, identity, ...pins })
     } else if (settled.kind === 'done') {
-      keyed.set(key, { state: 'done', id: settled.handle.id, identity, settled })
+      keyed.set(key, { state: 'done', id: settled.handle.id, identity, settled, ...pins })
     } else {
-      keyed.set(key, { state: 'down', id: settled.handle.id, identity, reason: settled.reason })
+      keyed.set(key, { state: 'down', id: settled.handle.id, identity, reason: settled.reason, ...pins })
     }
   }
 
@@ -1004,6 +1019,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           readonly agent: Agent<unknown, C>
           readonly spec: AgentSpec
           readonly identity: NodeExecutionIdentity | undefined
+          readonly proxySecretParents?: ProxySecretParents
         }
       | undefined
     const prepare = () => {
@@ -1015,7 +1031,10 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         )
       }
       const spec = executableAgentSpecSnapshot(rawSpec, 'scope.spawn')
-      return { agent, spec, identity: deriveNodeExecutionIdentity(spec, task) }
+      return {
+        agent, spec, identity: deriveNodeExecutionIdentity(spec, task),
+        proxySecretParents: proxySecretParentState(agent),
+      }
     }
     if (opts.key !== undefined) {
       const existing = keyed.get(opts.key)
@@ -1029,7 +1048,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         if (!isCompleteIdentity(prepared.identity)) {
           return { ok: false, reason: 'invalid-identity' }
         }
-        if (!sameNodeExecutionIdentity(existing.identity, prepared.identity)) {
+        if (
+          !sameNodeExecutionIdentity(existing.identity, prepared.identity) ||
+          contentAddress(existing.proxySecretParents ?? {}) !==
+            contentAddress(prepared.proxySecretParents ?? {})
+        ) {
           return { ok: false, reason: 'key-conflict' }
         }
       }
@@ -1355,6 +1378,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               kind: 'execution-input',
               id,
               taskRef,
+              ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
               seq: nextSeq,
               at: new Date(now()).toISOString(),
             })
@@ -1372,6 +1396,19 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           })
         },
       })
+      const originalParents = recovery?.spawned.proxySecretParents
+      if (recovery && spec.profile.proxySecrets?.length && originalParents === undefined) {
+        throw new ValidationError('recovered child has no original proxy-secret parent pins')
+      }
+      const proxySecretParents = originalParents === undefined
+        ? prepared?.proxySecretParents
+        : captureProxySecretParents(originalParents)
+      if (
+        recovery && prepared?.proxySecretParents !== undefined &&
+        contentAddress(prepared.proxySecretParents) !== contentAddress(proxySecretParents)
+      ) {
+        throw new ValidationError('recovered child proxy-secret parent pins changed')
+      }
       const ctx: ExecutorContext = {
         signal: controller.signal,
         node: {
@@ -1384,6 +1421,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         },
         seams: {
           ...args.seams,
+          // Parent authority never inherits through the ambient seams.
+          [proxySecretParentsSeamKey]: proxySecretParents,
           [retainedExecutorSeamKey]: retainedContext(
             recovery?.continuation === undefined
               ? undefined
@@ -1528,6 +1567,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           state: 'live',
           id,
           identity: identity as NodeExecutionIdentity,
+          ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
         })
       }
 
@@ -1562,6 +1602,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
                   ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
                   ...(identity ? { identity } : {}),
                   profileRef,
+                  ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
                   seq: ordinal,
                   at: new Date(now()).toISOString(),
                 },
@@ -1571,6 +1612,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
                   kind: 'execution-input',
                   id,
                   taskRef,
+                  ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
                   seq: ordinal,
                   at: new Date(now()).toISOString(),
                 })

@@ -52,6 +52,12 @@ import type {
   RetainedRunSnapshot,
 } from './retained-run-types'
 
+import {
+  assertProxySecretParentWireAvailable,
+  prepareProxySecretParents,
+  type ProxySecretParents,
+} from './proxy-secret-parents'
+
 type NativeContinuationAdmissionCallback = (controlRef: AgentExactRunControlRef) => void
 
 interface NativeContinuationAdmissionState {
@@ -67,6 +73,7 @@ export function createRetainedRunHandle(
   initialControlRef: AgentExactRunControlRef,
   capabilities: AgentEnvironmentCapabilities,
   now: (() => number) | undefined,
+  proxySecretParents?: ProxySecretParents,
 ): RetainedRunHandle {
   const clock = now ?? Date.now
   assertProxySecretReceiptLive(environment)
@@ -79,6 +86,10 @@ export function createRetainedRunHandle(
         presentation: grant.presentation,
         placeholderFormat: grant.placeholderFormat,
       }),
+  )
+  const parentPins = prepareProxySecretParents(
+    proxySecretParents,
+    proxyBindings?.length ? proxyBindings : undefined,
   )
   const measuredCapabilities = structuredClone(capabilities)
   let activeControlRef = freezeControlRef(initialControlRef)
@@ -214,6 +225,7 @@ export function createRetainedRunHandle(
               ...(admission === undefined ? {} : { onAdmission: admission.onAdmission }),
             }
             assertProxySecretInstallation(environment, proxyBindings)
+            assertProxySecretParentWireAvailable(parentPins)
             assertProxySecretReceiptLive(environment)
             return session.continueNative!(exactRequest, providerOptions)
           }),

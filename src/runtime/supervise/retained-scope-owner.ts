@@ -1,3 +1,4 @@
+import { captureProxySecretParents, type ProxySecretParents } from '../proxy-secret-parents'
 import {
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
@@ -422,6 +423,23 @@ export function bindScopeRetainedOwnerEnvironmentId(
   if (state) state.liveEnvironmentId = liveEnvironmentId
 }
 
+/** Prefer the active receipt; admissions name only this owner's current invocation. */
+function currentOwnerEnvironmentId(state: OwnerState): string | undefined {
+  return state.liveEnvironmentId?.() ?? [...state.admissions]
+    .reverse()
+    .flatMap(admission => admission.phase === 'environment' ? [admission.environmentId] : [])[0]
+}
+
+/** The current provider allocation, never a logical node id or caller attribution. */
+export function scopeProxySecretParentEnvironment(
+  scope: Scope<unknown>,
+): { readonly provider: string; readonly environmentId: string } | undefined {
+  const state = owners.get(scope)
+  if (!state?.provider) return undefined
+  const environmentId = currentOwnerEnvironmentId(state)
+  return environmentId === undefined ? undefined : { provider: state.provider.name, environmentId }
+}
+
 /**
  * The owner's environment as a source of by-path spawn resources.
  *
@@ -441,13 +459,7 @@ export function scopeRetainedOwnerResourceReader(
 ): SpawnResourceReader | undefined {
   const state = owners.get(scope)
   if (state === undefined) return undefined
-  const latestEnvironmentId = (): string | undefined =>
-    state.liveEnvironmentId?.() ??
-    [...state.admissions]
-      .reverse()
-      .flatMap((admission) =>
-        admission.phase === 'environment' ? [admission.environmentId] : [],
-      )[0]
+  const latestEnvironmentId = (): string | undefined => currentOwnerEnvironmentId(state)
   return {
     get describe() {
       return `environment ${latestEnvironmentId() ?? '<not yet admitted>'}`
@@ -2164,6 +2176,7 @@ export async function prepareScopeRetainedOwnerTask(
   scope: Scope<unknown>,
   task: unknown,
   session: 'native' | 'fresh' = 'native',
+  proxySecretParents?: ProxySecretParents,
 ): Promise<unknown> {
   const state = owners.get(scope)
   if (!state) return task
@@ -2281,6 +2294,15 @@ export async function prepareScopeRetainedOwnerTask(
         }
   }
   if (state.taskRef !== undefined) {
+    if (proxySecretParents !== undefined) {
+      if (
+        latestInput?.proxySecretParents === undefined ||
+        contentAddress(captureProxySecretParents(latestInput.proxySecretParents)) !==
+          contentAddress(captureProxySecretParents(proxySecretParents))
+      ) {
+        throw new ValidationError('retained owner proxy-secret parent pins are missing or changed')
+      }
+    }
     const original = await args.blobs.get(state.taskRef)
     if (original === undefined || contentAddress(original) !== state.taskRef) {
       throw new ValidationError('retained owner task is missing or corrupt')
@@ -2305,6 +2327,9 @@ export async function prepareScopeRetainedOwnerTask(
     kind: 'execution-input',
     id: args.nodeId,
     taskRef,
+    ...(proxySecretParents === undefined
+      ? {}
+      : { proxySecretParents: captureProxySecretParents(proxySecretParents) }),
     ...(state.workspaceRetention ? { workspaceRetention: true } : {}),
     seq: inputSequence,
     at: new Date(args.now()).toISOString(),

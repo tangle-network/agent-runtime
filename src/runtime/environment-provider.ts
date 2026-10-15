@@ -148,6 +148,13 @@ import {
   unavailableSignalOfFailure,
 } from './supervise/upstream-unavailable'
 import { verifyWorkspaceMarker } from './supervise/workspace-checkpoint'
+import {
+  assertProxySecretParentWireAvailable,
+  captureProxySecretParents,
+  prepareProxySecretParents,
+  proxySecretParentsSeamKey,
+  type ProxySecretParents,
+} from './proxy-secret-parents'
 import type { SandboxClient, Validator } from './types'
 import { addSpend, addTokenUsage, cloneTokenUsage, sleep, zeroTokenUsage } from './util'
 
@@ -620,6 +627,9 @@ function createProviderExecutor(
       `providerAsExecutor(${provider.name})`,
     )
   }
+  const parentPins = ctx.seams[proxySecretParentsSeamKey]
+  const proxySecretParents =
+    parentPins === undefined ? undefined : captureProxySecretParents(parentPins)
   const controller = new AbortController()
   const node =
     ctx.node === undefined ? undefined : detachedSnapshot(ctx.node, 'provider executor node')
@@ -1328,6 +1338,7 @@ function createProviderExecutor(
           workspacePreservationRequired = options.workspaceRetention !== undefined
         }
         const ended = yield* streamProviderExecutor({
+          ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
           provider,
           profile,
           createProfile,
@@ -1765,6 +1776,7 @@ function admittedEnvironmentId(retention: RetainedExecutorContext | undefined): 
 }
 
 interface StreamProviderExecutorArgs {
+  proxySecretParents?: ProxySecretParents
   provider: AgentEnvironmentProvider
   profile: AgentProfile
   /** The exact profile handed to `provider.create` — the authored profile unless the caller
@@ -2464,6 +2476,11 @@ async function providerExecutionSource(
   events: AsyncIterable<AgentEnvironmentEvent>
   retained: boolean
 }> {
+  const proxySecrets = retainedProxySecretBindings({
+    ...args.options.defaults,
+    profile: args.createProfile,
+  })
+  const proxySecretParents = prepareProxySecretParents(args.proxySecretParents, proxySecrets)
   const selectedTurn = subscriptionTurnProfile(turn, args.profile)
   AgentTurnInputSchema.parse(selectedTurn)
   const capabilities = args.retention ? await args.provider.capabilities() : undefined
@@ -2471,18 +2488,19 @@ async function providerExecutionSource(
   if (!useRetained) {
     if (args.recovering)
       throw new Error(`provider ${args.provider.name} cannot recover retained executions`)
-    const proxySecrets = retainedProxySecretBindings({
-      ...args.options.defaults,
-      profile: args.createProfile,
-    })
     if (proxySecrets !== undefined)
       assertProxySecretCapabilities(await args.provider.capabilities(), proxySecrets)
+    assertProxySecretParentWireAvailable(proxySecretParents)
     const environment = await args.provider.create({
       ...args.options.defaults,
       profile: args.createProfile,
       signal,
     })
     try {
+      prepareProxySecretParents(
+        proxySecretParents,
+        environment.proxySecretReceipt?.bindings.length ? environment.proxySecretReceipt.bindings : undefined,
+      )
       assertProxySecretInstallation(environment, proxySecrets)
     } catch (error) {
       return rejectUnmaterializedProviderEnvironment(environment, error)
@@ -2516,6 +2534,7 @@ async function providerExecutionSource(
   // the re-entered manager keeps its files. An environment that is continued needs none.
   const restore = priorSession === undefined ? retention.restoreWorkspace : undefined
   const material = {
+    ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
     environment: {
       ...args.options.defaults,
       ...(restore === undefined
@@ -2569,6 +2588,7 @@ async function providerExecutionSource(
         provider: args.provider,
         controlRef: dispatched.controlRef,
         proxySecrets: retainedProxySecretBindings(material.environment),
+        proxySecretParents,
         signal,
       })
       if (!reconnected) throw new Error('retained provider environment is unavailable')
@@ -2590,6 +2610,7 @@ async function providerExecutionSource(
               sessionId: environmentAdmission.sessionId,
               executionId: environmentAdmission.executionId,
               proxySecrets: retainedProxySecretBindings(material.environment),
+              proxySecretParents,
               signal,
             })
       if (recovered.outcome === 'unverifiable' && intent?.phase === 'intent') {

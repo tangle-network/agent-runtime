@@ -61,6 +61,12 @@ import type {
   StartRetainedRunInEnvironmentOptions,
   StartRetainedRunOptions,
 } from './retained-run-types'
+import {
+  assertProxySecretParentWireAvailable,
+  captureProxySecretParents,
+  prepareProxySecretParents,
+  type ProxySecretParents,
+} from './proxy-secret-parents'
 import { detachedSnapshot } from './supervise/snapshot'
 import { freshTurnInput } from './turn-input'
 
@@ -79,10 +85,13 @@ export function retainedProxySecretBindings(environment: CreateAgentEnvironmentI
 async function getRetainedEnvironment(
   provider: AgentEnvironmentProvider,
   id: string,
-  options?: AgentEnvironmentGetOptions,
+  options?: AgentEnvironmentGetOptions & { readonly proxySecretParents?: ProxySecretParents },
   verifyOwner?: (environment: AgentEnvironment) => Promise<void> | void,
 ): Promise<AgentEnvironment | null> {
   const bindings = options?.proxySecrets
+  const parents = prepareProxySecretParents(options?.proxySecretParents, bindings)
+  const { proxySecretParents: _parents, ...providerOptions } = options ?? {}
+  assertProxySecretParentWireAvailable(parents)
   if (bindings !== undefined) {
     assertProxySecretCapabilities(await provider.capabilities(), bindings)
     if (verifyOwner) {
@@ -102,13 +111,17 @@ async function getRetainedEnvironment(
   const environment = await provider.get!(
     id,
     bindings === undefined
-      ? options
+      ? options === undefined ? undefined : providerOptions
       : {
-          ...options,
+          ...providerOptions,
           requireInPlace: true,
         },
   )
   if (!environment) return environment
+  prepareProxySecretParents(
+    parents,
+    environment.proxySecretReceipt?.bindings.length ? environment.proxySecretReceipt.bindings : undefined,
+  )
   if (bindings === undefined) assertProxySecretReceiptLive(environment)
   else assertProxySecretInstallation(environment, bindings, id, 'rebind')
 
@@ -157,6 +170,7 @@ export async function startRetainedRun(
   }
   const contextTransfer = retainedContextTransfer(options.turn.contextTransfer)
   const proxySecrets = retainedProxySecretBindings(options.environment)
+  const proxySecretParents = prepareProxySecretParents(options.proxySecretParents, proxySecrets)
   if (contextTransfer !== undefined && proxySecrets !== undefined) {
     throw new Error('retained context transfer cannot rebind proxy-secret declarations')
   }
@@ -215,6 +229,7 @@ export async function startRetainedRun(
     const existing = await getRetainedEnvironment(options.provider, transferReceipt.environmentId, {
       contextTransfer,
       proxySecrets: retainedProxySecretBindings(options.environment),
+      proxySecretParents,
       ...(attachmentSignal === undefined ? {} : { signal: attachmentSignal }),
     })
     attachmentSignal?.throwIfAborted()
@@ -229,6 +244,7 @@ export async function startRetainedRun(
       options.existingEnvironmentId,
       {
         proxySecrets: retainedProxySecretBindings(options.environment),
+      proxySecretParents,
         ...(attachmentSignal === undefined ? {} : { signal: attachmentSignal }),
       },
       (current) =>
@@ -252,6 +268,7 @@ export async function startRetainedRun(
     )
     environment = existing
   } else {
+    assertProxySecretParentWireAvailable(proxySecretParents)
     environment = await options.provider.create({
       ...options.environment,
       metadata: retainedEnvironmentMetadata(
@@ -262,6 +279,10 @@ export async function startRetainedRun(
   }
   let capabilities: AgentEnvironmentCapabilities
   try {
+    prepareProxySecretParents(
+      proxySecretParents,
+      environment.proxySecretReceipt?.bindings.length ? environment.proxySecretReceipt.bindings : undefined,
+    )
     assertProxySecretInstallation(environment, proxySecrets)
     capabilities = retainedCapabilitiesForEnvironment(
       options.provider.name,
@@ -295,6 +316,7 @@ export async function startRetainedRun(
     signal: attachmentSignal,
     environmentIdempotencyKey: options.environment.idempotencyKey,
     proxySecrets,
+    proxySecretParents,
     turn: options.turn,
     contextTransfer,
     expectedRunId: transferReceipt?.runId,
@@ -355,6 +377,7 @@ export async function startRetainedRunInEnvironment(
     options.environment.id,
     {
       proxySecrets: options.proxySecrets,
+      proxySecretParents: options.proxySecretParents,
       expectedProxySecretGeneration: options.expectedProxySecretGeneration,
       signal: options.signal,
     },
@@ -397,6 +420,7 @@ export async function startRetainedRunInEnvironment(
     environment,
     environmentIdempotencyKey: options.environment.idempotencyKey,
     proxySecrets: options.proxySecrets,
+    proxySecretParents: options.proxySecretParents,
     turn: options.turn,
     contextTransfer,
     identity,
@@ -455,6 +479,7 @@ interface DispatchRetainedRunOptions {
   readonly environment: AgentEnvironment
   readonly environmentIdempotencyKey: string
   readonly proxySecrets?: AgentEnvironmentGetOptions['proxySecrets']
+  readonly proxySecretParents?: ProxySecretParents
   readonly turn: StartRetainedRunOptions['turn']
   readonly contextTransfer?: ContextTransferRequest
   readonly identity: { readonly sessionId: string; readonly executionId: string }
@@ -475,6 +500,7 @@ async function dispatchRetainedRun(
   // The environment admission fires only for a dispatch-capable environment.
   await admitDurably(options.onAdmission, {
     phase: 'environment',
+    ...(options.proxySecretParents === undefined ? {} : { proxySecretParents: options.proxySecretParents }),
     provider: options.provider.name,
     environmentId: environment.id,
     idempotencyKey: options.environmentIdempotencyKey,
@@ -494,6 +520,10 @@ async function dispatchRetainedRun(
   options.turn.signal?.throwIfAborted()
   let reference: AgentSessionRef
   try {
+    prepareProxySecretParents(
+      options.proxySecretParents,
+      environment.proxySecretReceipt?.bindings.length ? environment.proxySecretReceipt.bindings : undefined,
+    )
     if (options.proxySecrets === undefined) assertProxySecretReceiptLive(environment)
     else assertProxySecretInstallation(environment, options.proxySecrets)
     reference = await environment.dispatch!(
@@ -563,6 +593,7 @@ async function dispatchRetainedRun(
     exact.controlRef,
     options.capabilities,
     options.now,
+    options.proxySecretParents,
   )
 }
 
@@ -659,6 +690,7 @@ export async function recoverRetainedRun(
           options.environmentId,
           {
             proxySecrets: options.proxySecrets,
+            proxySecretParents: options.proxySecretParents,
             expectedProxySecretGeneration: options.expectedProxySecretGeneration,
             signal: options.signal,
           },
@@ -678,6 +710,7 @@ export async function recoverRetainedRun(
       : await getRetainedEnvironment(options.provider, options.environmentId, {
           contextTransfer,
           proxySecrets: options.proxySecrets,
+          proxySecretParents: options.proxySecretParents,
           expectedProxySecretGeneration: options.expectedProxySecretGeneration,
           signal: options.signal,
         })
@@ -721,6 +754,7 @@ export async function recoverRetainedRun(
       exact.controlRef,
       capabilities,
       options.now,
+      options.proxySecretParents,
     ),
   }
 }
@@ -749,6 +783,10 @@ function retainedRunIntent(
   identity: { readonly sessionId: string; readonly executionId: string },
   contextTransfer: ContextTransferRequest | undefined,
 ): RetainedRunIntentAdmission {
+  const proxySecretParents = prepareProxySecretParents(
+    options.proxySecretParents,
+    retainedProxySecretBindings(options.environment),
+  )
   const receipt = retainedContextTransferReceipt(options, options.provider.name, contextTransfer)
   assertRetainedContextTransferIdentity(receipt, identity)
   // A named profile is only its name until the provider resolves it; an inline
@@ -778,10 +816,12 @@ function retainedRunIntent(
           }),
         }),
     create: retainedCreateMaterial(options.environment),
+    ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
     turn: retainedTurnMaterial(options.turn, contextTransfer),
   })
   return {
     phase: 'intent',
+    ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
     provider: options.provider.name,
     idempotencyKey: options.environment.idempotencyKey,
     turnId: options.turn.turnId,
@@ -833,6 +873,7 @@ function parseRetainedRunIntent(value: unknown): RetainedRunIntentAdmission {
     'runId',
     'requestedProfileDigest',
     'requestDigest',
+    'proxySecretParents',
   ])
   if (Object.keys(record).some((key) => !allowed.has(key))) {
     throw new Error('retained run intent contains unsupported material')
@@ -842,6 +883,10 @@ function parseRetainedRunIntent(value: unknown): RetainedRunIntentAdmission {
   }
   for (const [key, value] of Object.entries(record)) {
     if (key === 'phase') continue
+    if (key === 'proxySecretParents') {
+      captureProxySecretParents(value)
+      continue
+    }
     if (typeof value !== 'string' || value.length === 0) {
       throw new Error(`retained run intent field "${key}" is invalid`)
     }
@@ -876,6 +921,7 @@ export async function reconnectRetainedRun(
     controlRef.environmentId,
     {
       proxySecrets: options.proxySecrets,
+      proxySecretParents: options.proxySecretParents,
       expectedProxySecretGeneration: options.expectedProxySecretGeneration,
       signal: options.signal,
     },
@@ -896,6 +942,7 @@ export async function reconnectRetainedRun(
     exact.controlRef,
     capabilities,
     options.now,
+    options.proxySecretParents,
   )
 }
 

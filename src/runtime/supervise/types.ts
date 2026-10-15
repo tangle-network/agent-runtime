@@ -25,6 +25,7 @@
  * @experimental
  */
 
+import type { ProxySecretParents } from '../proxy-secret-parents'
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
 import type {
   AgentCandidateArtifactRef,
@@ -1438,6 +1439,8 @@ export type SpawnEvent =
        *  names the agent, while this is the blob store's own content address, which retrieves its
        *  bytes. Absent on records written before the body was persisted. */
       profileRef?: string
+      /** Runtime-owned complete parent request pins, persisted before provider creation. */
+      proxySecretParents?: ProxySecretParents
       seq: number
       at: string
     }
@@ -1446,6 +1449,8 @@ export type SpawnEvent =
       kind: 'execution-input'
       id: NodeId
       taskRef: string
+      /** Runtime-owned exact parent request pins for this invocation. */
+      proxySecretParents?: ProxySecretParents
       /** @internal Whether this owner must preserve an unreceipted provider workspace on resume. */
       workspaceRetention?: boolean
       seq: number
