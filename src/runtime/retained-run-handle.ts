@@ -21,6 +21,7 @@ import type {
   AgentSession,
   AgentSessionStatus,
 } from '@tangle-network/agent-interface/environment-provider'
+import { assertProxySecretInstallation, assertProxySecretReceiptLive } from './proxy-secret-custody'
 import {
   abortError,
   assertBoundaryBinding,
@@ -68,6 +69,16 @@ export function createRetainedRunHandle(
   now: (() => number) | undefined,
 ): RetainedRunHandle {
   const clock = now ?? Date.now
+  assertProxySecretReceiptLive(environment)
+  const proxyBindings = environment.proxySecretReceipt?.bindings.map(({ envName, secretRef, grant }) =>
+    structuredClone({
+      envName,
+      secretRef,
+      ...grant.scope,
+      presentation: grant.presentation,
+      placeholderFormat: grant.placeholderFormat,
+    }),
+  )
   const measuredCapabilities = structuredClone(capabilities)
   let activeControlRef = freezeControlRef(initialControlRef)
   // A provider may expose the previous reference while a terminal read catches up.
@@ -201,6 +212,8 @@ export function createRetainedRunHandle(
               ...(signal === undefined ? {} : { signal }),
               ...(admission === undefined ? {} : { onAdmission: admission.onAdmission }),
             }
+            assertProxySecretInstallation(environment, proxyBindings)
+            assertProxySecretReceiptLive(environment)
             return session.continueNative!(exactRequest, providerOptions)
           }),
           signal,

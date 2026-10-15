@@ -31,6 +31,7 @@ import {
   mergeProxySecretBindings,
   ProxySecretReceiptSchema,
 } from '@tangle-network/agent-interface/environment-provider'
+import { proxySecretCapabilities } from './proxy-coordination'
 
 interface StoredSession {
   readonly id: string
@@ -678,6 +679,7 @@ function writeState(file: string, state: DurableProviderState): void {
 
 function retainedCapabilities(): AgentEnvironmentCapabilities {
   return {
+    create: { proxySecrets: proxySecretCapabilities },
     profile: {
       namedProfiles: true,
       systemPrompt: { replace: true, append: true },

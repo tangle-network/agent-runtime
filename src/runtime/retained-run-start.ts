@@ -454,18 +454,8 @@ async function dispatchRetainedRun(
   // caller's workspace when it did not. The provider's creation receipt is what separates the two:
   // only `created` is destroyed, and `replayed` or an absent receipt is kept, because an
   // environment whose creation cannot be proven may be held by someone else.
-  const destroyIfCreated = async (cause: unknown): Promise<never> => {
-    if (options.preserveEnvironment || environment.creation !== 'created') throw cause
-    try {
-      await environment.destroy?.()
-    } catch (cleanupError) {
-      throw new AggregateError(
-        [cause, cleanupError],
-        'retained run dispatch failed and the environment it created could not be destroyed',
-      )
-    }
-    throw cause
-  }
+  const destroyIfCreated = (cause: unknown): Promise<never> =>
+    rejectUnmaterializedProviderEnvironment(environment, cause, options.preserveEnvironment)
 
   options.signal?.throwIfAborted()
   options.turn.signal?.throwIfAborted()
