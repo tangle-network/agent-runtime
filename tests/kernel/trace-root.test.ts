@@ -48,8 +48,8 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { completeCapture } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
-import { proxyCoordination, proxySecretCapabilities } from '../helpers/proxy-coordination'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
+import { proxyCoordination, proxySecretCapabilities } from '../helpers/proxy-coordination'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []

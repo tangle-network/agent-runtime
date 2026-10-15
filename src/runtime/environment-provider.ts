@@ -2899,8 +2899,18 @@ function createInputFromSandboxOptions(
   options: Parameters<SandboxClient['create']>[0],
 ): Partial<CreateAgentEnvironmentInput> {
   const {
-    backend: sandboxBackend, git, environment, cwd: sandboxCwd, resources, env,
-    secrets, proxySecrets, metadata, name, idempotencyKey, ...transportOptions
+    backend: sandboxBackend,
+    git,
+    environment,
+    cwd: sandboxCwd,
+    resources,
+    env,
+    secrets,
+    proxySecrets,
+    metadata,
+    name,
+    idempotencyKey,
+    ...transportOptions
   } = options ?? {}
   const { type: backend, profile, ...backendOptions } = sandboxBackend ?? {}
   const { url, ref, ...gitOptions } = git ?? {}
@@ -2908,10 +2918,16 @@ function createInputFromSandboxOptions(
   // no second authority when exact; credentials and conflicting overrides remain explicit.
   const model = backendOptions.model
   if (
-    profile && typeof profile !== 'string' && model &&
-    Object.entries(model).every(([key, value]) => value === undefined || key === 'provider' || key === 'model') &&
-    model.provider === profile.model?.provider?.trim() && model.model === concreteProfileModel(profile)
-  ) delete backendOptions.model
+    profile &&
+    typeof profile !== 'string' &&
+    model &&
+    Object.entries(model).every(
+      ([key, value]) => value === undefined || key === 'provider' || key === 'model',
+    ) &&
+    model.provider === profile.model?.provider?.trim() &&
+    model.model === concreteProfileModel(profile)
+  )
+    delete backendOptions.model
   // Portable fields have one owner. Preserve only unsupported transport fields so a
   // provider can refuse them explicitly instead of receiving an opaque duplicate.
   const sandboxCreateOptions = {
@@ -2942,7 +2958,9 @@ function createInputFromSandboxOptions(
     ...(metadata ? { metadata } : {}),
     ...(name ? { name } : {}),
     ...(idempotencyKey ? { idempotencyKey } : {}),
-    ...(Object.keys(sandboxCreateOptions).length ? { providerOptions: { sandboxCreateOptions } } : {}),
+    ...(Object.keys(sandboxCreateOptions).length
+      ? { providerOptions: { sandboxCreateOptions } }
+      : {}),
   }
 }
 
