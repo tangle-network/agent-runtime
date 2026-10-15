@@ -59,6 +59,17 @@ describe('Sandbox-owned contract qualification', () => {
     write(join(nested, 'agent-core'), '0.11.0')
     expect(() => sandboxOwnedContractCopies(scope)).toThrow(/changed Sandbox contract artifact/)
   })
+  it.each(['0.60.49', '0.60.58'])('rejects changed bytes for the Interface 5.3 Sandbox %s tuple', version => {
+    const { scope, write } = fixture()
+    write(join(scope, 'sandbox'), version)
+    write(join(scope, 'agent-interface'), '5.3.0')
+    write(join(scope, 'agent-core'), '0.12.0')
+    const ownedCore = join(scope, 'sandbox', 'node_modules', '@tangle-network', 'agent-core')
+    write(ownedCore, '0.11.0')
+    const interfaceOwner = version === '0.60.58' ? ownedCore : join(scope, 'sandbox')
+    write(join(interfaceOwner, 'node_modules', '@tangle-network', 'agent-interface'), '4.0.0')
+    expect(() => sandboxOwnedContractCopies(scope)).toThrow(/changed Sandbox contract artifact/)
+  })
   it('measures a deduped interface and SDK-owned core without admitting an unknown tuple', () => {
     const { scope, write } = fixture()
     write(join(scope, 'sandbox'), '0.60.999')

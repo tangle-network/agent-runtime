@@ -6,6 +6,7 @@ import { join, relative } from 'node:path'
 // Exact immutable package tuples, qualified at the Runtime/Sandbox adapter boundary.
 // The .41 tuple has byte-identical shared contracts. The .49, .50, .51 and .53 tuples preserve
 // shared execution fields and explicitly refuse unresolved Interface 5.2 knowledge pins.
+// The .58 tuple uses the immutable staged SDK archive; final publisher bytes must requalify.
 // Qualification is limited to the Linux npm packed-consumer layout used by this gate.
 // Keep unknown versions and changed bytes fail-closed.
 const qualifiedCohorts = [
@@ -57,6 +58,20 @@ const qualifiedCohorts = [
     ['agent-core', '0.12.0', '81c0e698c4f08418cdbf7aa4901a5278d23b5cdac3d35260504b2112d3e4999e'],
     ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
     ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
+  ],
+  [
+    ['sandbox', '0.60.49', '9811efcaaab04ea8e23b903accb415ff550eb4d3ef6dfa51fb7e542545ee2be5'],
+    ['agent-interface', '5.3.0', '9c5da2d4f04d124254762140ea18eea3187ea9fec994df5bae95728c588c9217'],
+    ['agent-core', '0.12.0', '81c0e698c4f08418cdbf7aa4901a5278d23b5cdac3d35260504b2112d3e4999e'],
+    ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
+    ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
+  ],
+  [
+    ['sandbox', '0.60.58', '534a30775ddfc45de947fc29ea174d4dfcdbc223d4b7169a192759ce93a452c4'],
+    ['agent-interface', '5.3.0', '9c5da2d4f04d124254762140ea18eea3187ea9fec994df5bae95728c588c9217'],
+    ['agent-core', '0.12.0', '81c0e698c4f08418cdbf7aa4901a5278d23b5cdac3d35260504b2112d3e4999e'],
+    ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
+    ['sandbox/node_modules/@tangle-network/agent-core/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
   ],
 ]
 
