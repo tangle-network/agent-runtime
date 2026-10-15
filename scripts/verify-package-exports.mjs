@@ -1287,11 +1287,21 @@ function ownJavascriptFiles(directory) {
 }
 
 function run(command, args, cwd) {
+  const observed = command === process.execPath || command === 'npm'
+  const phase = [command === process.execPath ? 'node' : command, ...args.slice(0, 2)].join(' ')
+  const started = Date.now()
+  if (observed) console.log(`Package check started: ${phase}`)
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  if (observed) {
+    console.log(`Package check finished: ${phase}; exit=${result.status}; duration_ms=${Date.now() - started}`)
+    if (args[0]?.endsWith('consumer.mjs') || args[1] === 'provider-consumer.ts') {
+      if (result.stdout.trim()) console.log(result.stdout.trim())
+    }
+  }
   if (result.status !== 0) {
     throw new Error(
       [
