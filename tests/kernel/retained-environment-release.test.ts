@@ -1171,6 +1171,66 @@ describe('retained environments at root settlement', () => {
     })
   })
 
+  it('closes a nested manager that settled retained-pending though its teardown answered destroyed', async () => {
+    // A director whose own retained execution cannot be reconciled settles retained-pending, and
+    // its executor answers teardown `destroyed: true` once its descendants are confirmed, while
+    // its own owner environment is still held. Neither the release sweep nor the final close
+    // reached it, so it kept only its `reconciled` floor. Measured 2026-10-15: 38 such directors
+    // over 45 Discovery runs, every one counted never-settled (#1189).
+    const context = createInMemoryRunContext({ withDriver: true })
+    const manager = driverChild(
+      testAgentProfile('manager'),
+      {
+        name: 'manager',
+        async act() {
+          throw new RetainedExecutionPendingError(
+            new Error('manager observation interrupted'),
+            'nested-recovery',
+          )
+        },
+      },
+      context.journal,
+    )
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          expect(
+            scope.spawn(manager, 'manage', { budget: { maxIterations: 2, maxTokens: 20 } }).ok,
+          ).toBe(true)
+          expect(await scope.next()).toMatchObject({ kind: 'down', retainedExecution: 'pending' })
+          return 'finished'
+        },
+      },
+      'task',
+      { ...context, runId: 'root', budget: { maxIterations: 4, maxTokens: 100 } },
+    )
+    expect(result.kind, JSON.stringify(result)).toBe('winner')
+    const events = (await context.journal.loadTree('root')) ?? []
+    const floor = events.find(
+      (event): event is Extract<SpawnEvent, { kind: 'reconciled' }> =>
+        event.kind === 'reconciled' && event.id === 'root:s0',
+    )
+    expect(floor?.retainedPendingCause).toBe('nested-recovery')
+    expect(terminalRecords(events, 'root:s0')).toMatchObject([
+      {
+        kind: 'settled',
+        status: 'down',
+        retainedExecution: 'release-unconfirmed',
+        retainedPendingCause: 'nested-recovery',
+        seq: floor?.settledSeq,
+      },
+    ])
+    expect(result.fleetYield).toMatchObject({
+      spawned: 1,
+      neverSettled: 0,
+      releaseUnconfirmed: 1,
+    })
+    expect(await replaySpawnTree(context.journal, context.blobs, 'root')).toMatchObject([
+      { kind: 'down', retainedExecution: 'release-unconfirmed' },
+    ])
+  })
+
   it("closes a nested manager's refused grandchild unconfirmed, in the nested tree", async () => {
     const fleet = retainedProvider(directory)
     fleet.state.destroyFailure = new Error('409 Conflict: environment is still stopping')

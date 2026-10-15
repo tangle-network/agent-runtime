@@ -832,6 +832,32 @@ interface JournalNodeIndex {
   unusableEnvironments: Set<string>
 }
 
+/**
+ * A trace root is valid only beside the output it commits to, with a well-formed root, artifact
+ * reference and leaf count (at least the summary leaf). Records written before trace roots carry
+ * none and stay valid.
+ */
+function assertTraceRoot(event: SpawnEvent, root: NodeId): void {
+  if (!('traceRoot' in event) || event.traceRoot === undefined) return
+  const receipt: unknown = event.traceRoot
+  const fields =
+    receipt !== null && typeof receipt === 'object' ? (receipt as Record<string, unknown>) : {}
+  if (
+    typeof event.outRef !== 'string' ||
+    typeof fields.root !== 'string' ||
+    !/^sha256:[0-9a-f]{64}$/.test(fields.root) ||
+    typeof fields.ref !== 'string' ||
+    !/^sha256:[0-9a-f]{64}$/.test(fields.ref) ||
+    typeof fields.leafCount !== 'number' ||
+    !Number.isSafeInteger(fields.leafCount) ||
+    fields.leafCount < 1
+  ) {
+    throw new Error(
+      `spawn journal corrupted: ${event.kind} for node '${event.id}' carries a malformed trace root in tree '${root}'`,
+    )
+  }
+}
+
 /** One validation implementation for memory, durable append, and cold replay. */
 /** @internal shared with the SQL-backed store. */
 export class SpawnEventIndex {
@@ -843,6 +869,7 @@ export class SpawnEventIndex {
   assert(event: SpawnEvent): void {
     const node = this.nodes.get(event.id)
     this.assertRetained(node, event)
+    assertTraceRoot(event, this.root)
     if (event.kind === 'execution-evidence') {
       if (!node?.spawned || !/^sha256:[0-9a-f]{64}$/.test(event.outRef)) {
         throw new Error(
