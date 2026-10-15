@@ -879,6 +879,7 @@ function createProviderExecutor(
         })
         .catch((error: unknown) => {
           workspaceCaptureFailure = error
+          noteCaptureFailure(error)
           throw error
         })
     }
@@ -955,6 +956,29 @@ function createProviderExecutor(
   // Whether `harnessTranscript` currently holds a native copy. A settled workspace capture is the
   // fuller record and replaces it; a native copy never replaces a settled workspace capture.
   let nativeHoldsTranscript = false
+  // A copy that failed while none is held names the failure instead of leaving the placeholder.
+  // Measured 2026-10-15: 64 nodes whose every capture failed (connect timeouts, HTTP 503 from the
+  // evidence archive, byte limits) settled `capture-did-not-run`, which reads as nobody trying
+  // (#1360). A later copy that succeeds replaces this receipt.
+  const noteCaptureFailure = (error: unknown): void => {
+    if (nativeHoldsTranscript || harnessTranscript.status !== 'unavailable') return
+    if (
+      harnessTranscript.reason !== 'capture-did-not-run' &&
+      harnessTranscript.reason !== 'enumeration-failed'
+    ) {
+      return
+    }
+    harnessTranscript = {
+      status: 'unavailable',
+      reason: 'enumeration-failed',
+      skipped: [
+        {
+          path: workspaceExecutionId,
+          reason: errorText(error instanceof Error ? error.message : error),
+        },
+      ],
+    }
+  }
   const stopNativeMirror = async (): Promise<void> => {
     if (nativeTimer !== undefined) clearTimeout(nativeTimer)
     nativeTimer = undefined
@@ -1033,9 +1057,10 @@ function createProviderExecutor(
         if (nativeHoldsTranscript && !(copy.status === 'retained' && copy.fileCount > 0)) return
         harnessTranscript = copy
         nativeHoldsTranscript = true
-      } catch {
+      } catch (error) {
         // A failed copy keeps the previous one. The final copy at the end of the turn, or the
         // settled workspace capture, is the next chance; the transcript names what was kept.
+        noteCaptureFailure(error)
       }
     })
     const tracked = run.finally(() => {

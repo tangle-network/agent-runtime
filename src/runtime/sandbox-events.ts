@@ -967,6 +967,10 @@ const TERMINAL_FAILURE = /^(error|errored|failed|failure|cancelled|canceled|time
  *     surfaced in-band, never dropped).
  *   - bare `tool*` event types (`tool.call`, `tool_result`, …) — stateless:
  *     `*result*` types project to `tool_result`, the rest to `tool_call`.
+ *   - codex `raw` events whose inner `item.started` / `item.updated` /
+ *     `item.completed` carries a command, MCP, collaboration, web search or
+ *     file change item — stateful on the item id, like a tool part. Other raw
+ *     events, including opencode's raw `tool_use` echoes, project nothing.
  *
  * Returns `[]` for every non-tool event.
  *
@@ -989,6 +993,9 @@ export function mapSandboxToolEvent(
     if (String(part.type ?? '') !== 'tool') return []
     return projectToolPart(part, state, typeof event.id === 'string' ? event.id : undefined)
   }
+  // Codex reports a tool only as an `item.*` event inside a `raw` event, never as a tool part.
+  // Measured 2026-10-15: 83 of 83 archived codex turns held 3,320 tool items and projected none.
+  if (type === 'raw') return projectCodexItem(data, state)
   // `tool-heartbeat` and `tool-slow` report that a call is STILL RUNNING. They carry the call's
   // `partId`, not a call id, so projecting them as calls recorded a new `tool_call` every 5 s of
   // every long call: measured 2026-10-05, 432 of a root's 448 recorded `await_event` calls were
@@ -1074,6 +1081,84 @@ function projectToolPart(
     })
   }
   return out
+}
+
+/** Codex item types that are tool calls. Reasoning, messages and todo lists are not. */
+const CODEX_TOOL_ITEMS: ReadonlySet<string> = new Set([
+  'command_execution',
+  'mcp_tool_call',
+  'collab_tool_call',
+  'web_search',
+  'file_change',
+])
+
+/** Item fields that describe the call's progress or outcome rather than what it was asked to do. */
+const CODEX_ITEM_OUTCOME_FIELDS: ReadonlySet<string> = new Set([
+  'id',
+  'type',
+  'status',
+  'result',
+  'error',
+  'aggregated_output',
+  'exit_code',
+])
+
+/**
+ * Project a codex `item.started` / `item.updated` / `item.completed` tool item through the same
+ * per-call state as a tool part, keyed on the item id: one `tool_call` on its first frame and one
+ * `tool_result` when it completes. Tool names follow Eval's codex intake: `server/tool` for MCP.
+ */
+function projectCodexItem(
+  data: Record<string, unknown>,
+  state: SandboxToolPartState,
+): (RuntimeStreamEvent & { type: 'tool_call' | 'tool_result' })[] {
+  if (data.backend !== 'codex' || !data.event || typeof data.event !== 'object') return []
+  const inner = data.event as Record<string, unknown>
+  const phase = inner.type
+  if (phase !== 'item.started' && phase !== 'item.updated' && phase !== 'item.completed') return []
+  if (!inner.item || typeof inner.item !== 'object') return []
+  const item = inner.item as Record<string, unknown>
+  const itemType = pickString(item, ['type'])
+  if (itemType === undefined || !CODEX_TOOL_ITEMS.has(itemType)) return []
+  const error =
+    item.error && typeof item.error === 'object'
+      ? (pickString(item.error as Record<string, unknown>, ['message']) ?? `${itemType} failed`)
+      : undefined
+  const failed =
+    item.status === 'failed' ||
+    error !== undefined ||
+    (itemType === 'command_execution' && typeof item.exit_code === 'number' && item.exit_code !== 0)
+  const status = phase !== 'item.completed' ? 'running' : failed ? 'failed' : 'completed'
+  const input = Object.fromEntries(
+    Object.entries(item).filter(([key]) => !CODEX_ITEM_OUTCOME_FIELDS.has(key)),
+  )
+  const output = item.result ?? item.aggregated_output ?? item.changes
+  return projectToolPart(
+    {
+      ...(typeof item.id === 'string' ? { callID: item.id } : {}),
+      tool: codexToolName(itemType, item),
+      state: {
+        status,
+        input,
+        ...(output === undefined || output === null ? {} : { output }),
+        ...(status === 'failed' ? { error: error ?? `${itemType} failed` } : {}),
+      },
+    },
+    state,
+    undefined,
+  )
+}
+
+function codexToolName(itemType: string, item: Record<string, unknown>): string {
+  if (itemType === 'mcp_tool_call') {
+    const name = [pickString(item, ['server']), pickString(item, ['tool'])]
+      .filter((part) => part !== undefined)
+      .join('/')
+    return name === '' ? 'mcp' : name
+  }
+  if (itemType === 'collab_tool_call') return pickString(item, ['tool']) ?? 'subagent'
+  if (itemType === 'web_search' || itemType === 'file_change') return itemType
+  return pickString(item, ['name']) ?? itemType
 }
 
 function pickString(data: Record<string, unknown>, keys: string[]): string | undefined {
