@@ -171,15 +171,17 @@ describe('sharedBoxRefusal', () => {
 })
 
 describe('sharedBoxPlacement', () => {
-  const proxySecrets: NonNullable<AgentProfile['proxySecrets']> = [{
-    envName: 'SERVICE_TOKEN',
-    secretRef: { kind: 'secret-ref', key: 'service-reference' },
-    hosts: ['service.shared.invalid'],
-    presentation: { type: 'bearer' },
-    methods: ['POST'],
-    paths: ['/tasks'],
-    ttlSeconds: 60,
-  }]
+  const proxySecrets: NonNullable<AgentProfile['proxySecrets']> = [
+    {
+      envName: 'SERVICE_TOKEN',
+      secretRef: { kind: 'secret-ref', key: 'service-reference' },
+      hosts: ['service.shared.invalid'],
+      presentation: { type: 'bearer' },
+      methods: ['POST'],
+      paths: ['/tasks'],
+      ttlSeconds: 60,
+    },
+  ]
   it.each([
     ['profile bindings', { profile: leaf({ proxySecrets }) }],
     ['direct bindings', { proxySecrets }],
@@ -200,7 +202,9 @@ describe('sharedBoxPlacement', () => {
   it('accepts an empty profile proxySecrets declaration without requesting custody', async () => {
     const { client, boxes } = fakeClient(() => ({ stdout: [], exit: 0 }))
     const placement = sharedBoxPlacement({ client })
-    const environment = await placement.providerFor().create({ profile: leaf({ proxySecrets: [] }) })
+    const environment = await placement
+      .providerFor()
+      .create({ profile: leaf({ proxySecrets: [] }) })
     expect(boxes).toHaveLength(1)
     expect(placement.stats().workersPlaced).toBe(1)
     await environment.destroy?.()
