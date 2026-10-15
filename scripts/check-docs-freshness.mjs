@@ -297,6 +297,11 @@ for (const n of exportsFromDts(
   join(repoRoot, 'node_modules', '@tangle-network', 'agent-eval', 'dist', 'index.d.ts'),
 ))
   universe.add(n)
+// Trace-root proofs cite the Merkle primitives Runtime imports from agent-eval/ledger-core.
+for (const n of exportsFromDts(
+  join(repoRoot, 'node_modules', '@tangle-network', 'agent-eval', 'dist', 'ledger-core', 'index.d.ts'),
+))
+  universe.add(n)
 // Neutral-contract + substrate types the doc recommends importing directly
 // (AgentProfile / defineAgentProfile / AgentProfileMcpServer ... live in agent-interface + sandbox).
 for (const n of exportsFromDts(
