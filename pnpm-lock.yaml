@@ -19,8 +19,8 @@ catalogs:
       specifier: ^5.2.1
       version: 5.2.1
     '@tangle-network/agent-knowledge':
-      specifier: ^22.0.1
-      version: 22.0.1
+      specifier: ^22.0.2
+      version: 22.0.2
     '@tangle-network/agent-trace-contract':
       specifier: ^2.0.0
       version: 2.0.0
@@ -57,8 +57,8 @@ importers:
         specifier: '>=0.12.0 <0.13.0'
         version: 0.12.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
       '@tangle-network/agent-knowledge':
-        specifier: ^22.0.1
-        version: 22.0.1(@tangle-network/agent-eval@0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.2.1)
+        specifier: ^22.0.2
+        version: 22.0.2(@tangle-network/agent-eval@0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.2.1)
       '@tangle-network/agent-profile-materialize':
         specifier: '>=0.25.2 <0.26.0'
         version: 0.25.2(@tangle-network/agent-interface@5.2.1)
@@ -155,7 +155,7 @@ importers:
         version: 5.2.1
       '@tangle-network/agent-knowledge':
         specifier: 'catalog:'
-        version: 22.0.1(@tangle-network/agent-eval@0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.2.1)
+        version: 22.0.2(@tangle-network/agent-eval@0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.2.1)
       '@tangle-network/agent-runtime':
         specifier: workspace:^
         version: link:..
@@ -1335,13 +1335,13 @@ packages:
   '@tangle-network/agent-interface@5.2.1':
     resolution: {integrity: sha512-JSMUrb+lGD/1aoBMK24bi88HtZkM4Wd2HpVfpNwjTLUDwAoHxV4nYSp7WCne8biFphIEsD7nE5+0APOfx1oauw==}
 
-  '@tangle-network/agent-knowledge@22.0.1':
-    resolution: {integrity: sha512-yHrb073dXoATW5n6YrulacbKzXh0DRW6NQvjulu7DY60Fnb2YioFlsw1uNoje88roa7gfzo7+xg9WbMc4GjvVg==}
+  '@tangle-network/agent-knowledge@22.0.2':
+    resolution: {integrity: sha512-wLsiSc70k89uI3/qOoHIGNqi0vX5sjJdm+w2o21XnRtx+aBvr2T9bvUNaiI/YF+aDjzZiZkA6TkGR9f1U7lzIw==}
     engines: {node: '>=22.12.0'}
     hasBin: true
     peerDependencies:
-      '@tangle-network/agent-eval': '>=0.213.0 <0.214.0'
-      '@tangle-network/agent-interface': ^5.0.0
+      '@tangle-network/agent-eval': '>=0.213.0 <0.215.0'
+      '@tangle-network/agent-interface': ^5.2.0
 
   '@tangle-network/agent-profile-materialize@0.25.2':
     resolution: {integrity: sha512-W0stC2dOyDEg+ZlcNAvjlq8Np2VIdt5kirRgJYffyn5tYcpOjtPU6FvPK6C+7XMOHfzR2RtHFmI8Vtx4yccssA==}
@@ -3693,7 +3693,7 @@ snapshots:
       spdx-expression-parse: 5.0.0
       zod: 4.6.5
 
-  '@tangle-network/agent-knowledge@22.0.1(@tangle-network/agent-eval@0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.2.1)':
+  '@tangle-network/agent-knowledge@22.0.2(@tangle-network/agent-eval@0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.2.1)':
     dependencies:
       '@tangle-network/agent-eval': 0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
       '@tangle-network/agent-interface': 5.2.1

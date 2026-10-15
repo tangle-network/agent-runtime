@@ -11,13 +11,13 @@
       "name": "@tangle-network/agent-eval",
       "repository": "tangle-network/agent-eval",
       "version": "0.214.0",
-      "ref": "3861cee5c2f832f2e3cd7aac54ad035ae60990e1"
+      "ref": "80ad2b2d120c13f6af9cd918c4d7fdee50d0d713"
     },
     "agentKnowledge": {
       "name": "@tangle-network/agent-knowledge",
       "repository": "tangle-network/agent-knowledge",
-      "version": "22.0.1",
-      "ref": "91b8f0da4c3638e46fc0c07f184fe159a311c869"
+      "version": "22.0.2",
+      "ref": "2e4fd25c151b93ea5809b07fab776b50f9d82885"
     }
   }
 }

@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.320.1` and `@tangle-network/agent-eval@0.213.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.321.0` and `@tangle-network/agent-eval@0.214.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -476,7 +476,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1078 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1092 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -498,6 +498,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1078 exports.
 | `assertProfileMaterializes` | function | Throw when the CHOSEN HARNESS has no control for a dimension the profile asks for. |
 | `assertProfileModelsAllowed` | function | Check every canonical model-bearing field in a complete profile, including the models a |
 | `assertSandboxServedModel` | function | Fail the execution when the platform reports serving a model other than the exact one asked for. |
+| `assertSearchSpec` | function | Check a spec and return its canonical frozen form: every axis present, no unknown key, no |
 | `assertStrategyContract` | function | Static CONTRACT lint over an authored strategy module — the module-boundary |
 | `assessAuthoredProfile` | function | OBSERVE one authored `AgentProfile` and score its richness (no judge verdict is read). The task |
 | `attachWorker` | function | Reconstruct the exact provider-owned interactive process bound to one supervised worker. |
@@ -524,6 +525,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1078 exports.
 | `closingWorkerNote` | function | The worker's closing commentary off a local harness run: the TAIL of its |
 | `collectAgentTurn` | function | Drain a `streamAgentTurn` stream (or any `RuntimeStreamEvent` stream that |
 | `compareCheckOutcomes` | function | The selection order: crash < ran; then official pass-fraction; authored guesses only |
+| `compileSearchSpec` | function | Compile a spec onto exactly one existing call. Every refusal names the axis or input and what |
 | `completionAuthorizes` | function | Decide whether a `CompletionVerdict` may end the node under the policy: authority scales with the verdict's determinism, and probabilistic verdicts must clear `minConfidence`. |
 | `composeCheckSources` | function | Concatenate check sources (official first by convention — ordering does not affect |
 | `composeReentryTask` | function | Compose the task for one re-entered drive. |
@@ -727,6 +729,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1078 exports.
 | `sandboxProgressEvents` | function | Project one `SandboxEvent` onto Runtime's executor progress vocabulary: incremental text and |
 | `sandboxSessionTraceSource` | function | The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool |
 | `sanitizeMcpToolSchema` | function | Coerce an MCP inputSchema to an OpenAI-tool-valid top-level object schema. |
+| `searchSpecDigest` | function | The canonical digest of a spec: equal for two specs that mean the same, different otherwise. |
 | `secretEnvOfMcpServer` | function | Read (and validate) a server entry's declared secret-env map, if any. |
 | `selectBestIndex` | function | Argmax by `compareCheckOutcomes`, FIRST index wins ties (deterministic; with zero |
 | `selectValidWinner` | function | The single content-free valid-only winner selector. Among the gated-VALID children only |
@@ -822,10 +825,14 @@ Import from `@tangle-network/agent-runtime/kernel` — 1078 exports.
 | `ROUTER_CLIENT_HEADER` | const | The request header the router records as a usage row's `clientName`. |
 | `sample` | const | Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N / resample). |
 | `sampleThenRefine` | const | The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open), |
+| `SEARCH_SPEC_CORRELATION_KEY` | const | The correlation key the compiled call records the spec's digest under. Runtime writes it; a |
+| `searchPresets` | const | The five configurations Runtime ships, as specs. Each is an ordinary spec: its digest is its |
 | `strategyAuthorContract` | const | The compressed consumable a skill carries: everything an author needs to emit a loop. |
 | `strategyAuthorSystemPrompt` | const | Standing behavior callers put in the strategy-author AgentProfile. |
 | `SUBTREE_RESULT_LIMIT` | const | How many of a manager's direct children its summary lists; the counts always cover all. |
 | `TERMINAL_DECISIONS` | const | Decision values the kernel treats as terminal. Every other value returned by |
+| `TRACE_ROOT_SCHEMA` | const | Schema identifier of a stored {@link TraceRootArtifact}. |
+| `TRACE_SUMMARY_SCHEMA` | const | Schema identifier of the {@link TraceSummary} carried by a trace root's last leaf. |
 | `UNPROVEN_CONTINUITY` | const | Continuity when nothing is proven: compose the full state. |
 | `VERIFY_TAIL_CHARS` | const | Tail of the verify output — the failing assertion lives at the END of a test log. |
 | `WORKER_TOOL_TRACE_SCHEMA_VERSION` | const | Schema version for content-addressed worker tool-trace artifacts. |
@@ -1144,6 +1151,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 1078 exports.
 | `ScopeArgs` | interface | Construction args for `createScope`. The supervisor threads the shared pool, journal, |
 | `ScopeProgressInput` | interface | The scope-side facts about a child, independent of whether its executor cooperates. |
 | `ScopeWidenGate` | interface | The runtime widening gate (the reactive analogue of the keystone's `WidenGate`, lifted to read |
+| `SearchSpec` | interface | One multi-agent research configuration: seven orthogonal axes, all data. |
+| `SearchSpecInputs` | interface | Everything a compiled call needs besides the spec: the problem, its bounds, and the call's |
 | `SeatStage` | interface | A stage is authored in the immutable profile. A selection is a concrete, private placement. |
 | `SelectionReceipt` | interface | A record of one candidate-selection decision: which iteration the selector |
 | `SessionCapableBox` | interface | Loop-side widening of the box's optional session accessor. The real |
@@ -1204,6 +1213,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 1078 exports.
 | `ToolLoopToolCall` | interface | One provider-neutral tool request emitted by a tool-loop model. |
 | `ToolOutcomeEvent` | interface | A tool call that outlived its response fence, and its outcome once it settled. |
 | `TournamentCell` | interface | One strategy on one task at one repeat: the settled cell's final attempt. |
+| `TraceRootArtifact` | interface | The stored trace-root artifact. `leaves[i]` and `salts[i]` belong to `events[i]` of the |
+| `TraceRootReceipt` | interface | The Merkle root over the events an output archived, as a journal record carries it beside that |
+| `TraceSummary` | interface | The last leaf of a trace root: how many events the archive holds and the tool calls among them, |
 | `TrajectoryNode` | interface | One node in the reconstructed trajectory tree — a driver OR a leaf, with its OWN spend and the |
 | `TrajectoryReport` | interface | The whole reconstructed trajectory — the realized tree + its root-rolled-up total. The |
 | `TrajectoryReportOptions` | interface | `trajectoryReport(journal, blobs, root, { withOutputs? })` — reconstruct the whole tree with |
@@ -1247,6 +1259,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1078 exports.
 | `ChatCompletionsTransport` | type | Buffered OpenAI-compatible completion port used only for offline execution. |
 | `CodexForkBoundary` | type | How this reader isolated the session's own rows from the parent rows prepended to its file. |
 | `CombinatorShape` | type | A combinator is just a `LoopShape`: a factory `(ShapeContext) => Agent` whose `Agent.act` |
+| `CompiledSearchSpec` | type | The one call a spec compiles to, with every option inspectable before spend. |
 | `ContinuationAppend` | type | A play's own section for one note. Return `undefined` to add nothing this time. |
 | `ContinuationPanel` | type | Ask the panel's questions over the run's own traces. |
 | `ContinuityMode` | type | How a spawn CONTINUES a node's prior work: `'fresh'` starts a brand-new session (the default, |
@@ -1331,6 +1344,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1078 exports.
 | `Runtime` | type | The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name. |
 | `SandboxOutputMarker` | type | What a settled turn produced, as an explicit marker. |
 | `ScoreOf` | type | Pull the headline score in [0,1] from a record. Default: the held-out split, else the search split, |
+| `SearchSpecOwnedOption` | type | A `SuperviseOptions` key that an axis or a typed input decides. |
 | `SelectSeat` | type | The caller owns account eligibility and credential resolution; Runtime owns the chain order. |
 | `Settled` | type | A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order |
 | `Shell` | type | Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.exec`. |
