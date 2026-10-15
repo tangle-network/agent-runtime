@@ -118,6 +118,7 @@ import {
 } from './otel-spans'
 import type { PeerMailLimits } from './peer-mail'
 import { createActivityLog } from './progress'
+import { assertNoInheritedProxySecrets, assertProxySecretDescendant } from './proxy-secrets'
 import { type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import { registerRetainedExecutorPreparation, retainedExecutorSeamKey } from './retained-executor'
@@ -761,13 +762,17 @@ function coordinationChannelSpawnPreflight(
     return async (profile) => {
       if (!isExternalSupervisor(profile) || declaredRuntimeToolNames(profile).length === 0)
         return undefined
-      return (await providerAcceptsCoordinationAttachments(managerBackend))
-        ? undefined
-        : {
-            cause: 'unmountable-tool',
-            detail:
-              "the 'provider' backend does not advertise create.runtimeAttachments.mcp; Runtime cannot mount this manager's coordination tools before dispatch",
-          }
+      if (!(await providerAcceptsCoordinationAttachments(managerBackend))) {
+        return {
+          cause: 'unmountable-tool',
+          detail:
+            "the 'provider' backend does not advertise create.runtimeAttachments.mcp; Runtime cannot mount this manager's coordination tools before dispatch",
+        }
+      }
+      return coordination?.proxySecret ? undefined : {
+        cause: 'unmountable-tool',
+        detail: 'provider coordination requires proxy-held credential placement through coordination.proxySecret',
+      }
     }
   }
   const missingChannel =
@@ -819,10 +824,11 @@ export const DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY: AgentProfileSecurityPolic
 })
 
 /**
- * A manager keeps a dedicated environment. It serves its coordination credential through
- * create-time environment, and every co-tenant of a shared box could read it.
+ * A manager keeps a dedicated environment: a proxy cannot distinguish co-tenants with different
+ * coordination authority inside one shared box.
  */
 function managerExecutorConfig(config: ExecutorConfig): ExecutorConfig {
+  assertNoInheritedProxySecrets(config)
   if (config.backend !== 'provider' || config.shared === undefined) return config
   const { shared: _shared, ...dedicated } = config
   return Object.freeze(dedicated)
@@ -972,6 +978,7 @@ function driveHarnessFromBackend(
     scope,
     coordinationMcpUrl,
     coordinationMcpHeaders,
+    coordinationProxySecret,
     stopSignal,
     coordinationTools,
     reentry,
@@ -1219,24 +1226,33 @@ function driveHarnessFromBackend(
           : AbortSignal.any([stopSignal, turnStop.signal])
     // The harness is asked for a 300 s tool-call timeout so a fenced tool can hold its response
     // longer than the 60 s harness default; a sidecar that applies it says so on each request.
+    if (coordinationProxySecret && boundBackend.backend !== 'provider') {
+      throw new ValidationError('proxy-held coordination requires a provider that enforces proxy bindings')
+    }
     const attachment = {
       transport: 'http' as const,
       url: coordinationMcpUrl,
-      ...(coordinationMcpHeaders ? { headers: coordinationMcpHeaders } : {}),
+      ...(boundBackend.backend !== 'provider' && coordinationMcpHeaders
+        ? { headers: coordinationMcpHeaders }
+        : {}),
       metadata: { toolTimeoutMs: COORDINATION_CLIENT_TOOL_TIMEOUT_MS },
     }
     let factory = baseFactory
     if (boundBackend.backend === 'provider') {
       const credentialName = 'AGENT_RUNTIME_COORDINATION_TOKEN'
-      const authorization = coordinationMcpHeaders?.Authorization
-      if (!authorization?.startsWith('Bearer ')) {
+      if (!coordinationProxySecret || Date.parse(coordinationProxySecret.expiresAt) <= now()) {
         throw new ValidationError(
-          'driveHarnessFromBackend: provider coordination requires a bearer credential',
+          'driveHarnessFromBackend: provider coordination requires unexpired proxy-held credential placement',
         )
       }
       if (Object.hasOwn(boundBackend.defaults?.env ?? {}, credentialName)) {
         throw new ValidationError(
           'driveHarnessFromBackend: provider defaults contain the reserved coordination credential name',
+        )
+      }
+      if (boundBackend.defaults?.proxySecrets?.some((binding) => binding.envName === credentialName)) {
+        throw new ValidationError(
+          'driveHarnessFromBackend: provider defaults contain the reserved coordination proxy binding',
         )
       }
       if (
@@ -1260,8 +1276,11 @@ function driveHarnessFromBackend(
               ? { [CLAUDE_CODE_ONE_HOUR_CACHE]: '1' }
               : {}),
             ...(boundBackend.defaults?.env ?? {}),
-            [credentialName]: authorization.slice(7),
           },
+          proxySecrets: [
+            ...(boundBackend.defaults?.proxySecrets ?? []),
+            coordinationProxySecret.binding,
+          ],
           runtimeAttachments: {
             mcp: {
               ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
@@ -2887,11 +2906,14 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     coordination === undefined
       ? undefined
       : (() => {
-          const { publicUrl, onAudit, ...configuration } = coordination
+          const { publicUrl, onAudit, proxySecret, ...configuration } = coordination
           return Object.freeze({
             ...detachedSnapshot(configuration, 'supervise coordination configuration'),
             ...(publicUrl === undefined ? {} : { publicUrl }),
             ...(onAudit === undefined ? {} : { onAudit }),
+            ...(proxySecret === undefined ? {} : {
+              proxySecret: Object.freeze({ prepare: proxySecret.prepare }),
+            }),
           })
         })()
   const capturedBackend = backend === undefined ? undefined : snapshotExecutorConfig(backend)
@@ -3462,6 +3484,8 @@ function superviseInternal(
   testBrain?: ToolLoopChat,
 ) {
   const options = captureSuperviseOptions(opts)
+  assertNoInheritedProxySecrets(options.backend)
+  assertNoInheritedProxySecrets(options.driverBackend)
   if (options.runContext?.durability === 'sql') {
     if (
       options.runDir !== undefined ||
@@ -3938,6 +3962,7 @@ function superviseInternal(
           throw new ValidationError('supervise: authorizeSpawn must return an AuthorizedSpawn')
         }
         const authorized = freezeDetachedProfile(decision.profile)
+        assertProxySecretDescendant(parent, authorized, options.authorizeSpawn !== undefined)
         const childExecution = canonicalExecution(
           authorized,
           spawnContext.task,

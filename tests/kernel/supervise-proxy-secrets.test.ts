@@ -1,8 +1,11 @@
 import type { AgentProfile, ProxySecretBinding } from '@tangle-network/agent-interface'
+import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import { supervise, type SuperviseOptions } from '../../src/runtime/supervise/supervise'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
+import { proxyCoordination } from '../helpers/proxy-coordination'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const parentBinding: ProxySecretBinding = {
@@ -61,12 +64,13 @@ function leaf(authored: AgentProfile, seen: AgentProfile[]): Agent<unknown, unkn
 async function spawnOne(
   requested: AgentProfile,
   authorizeSpawn: SuperviseOptions['authorizeSpawn'] | null = ({ profile: child }) => ({ profile: child }),
+  parentBindings: ProxySecretBinding[] = [parentBinding],
 ) {
   const seen: AgentProfile[] = []
   const journal = new InMemorySpawnJournal()
   const replies: unknown[] = []
   let turns = 0
-  await supervise(profile('root', [parentBinding], true), 'delegate', {
+  await supervise(profile('root', parentBindings, true), 'delegate', {
     budget: { maxIterations: 20, maxTokens: 20_000 },
     perWorker: { maxIterations: 2, maxTokens: 1_000 },
     inheritSpawnRights: false,
@@ -85,6 +89,63 @@ async function spawnOne(
 
 // These checks establish Runtime admission, not authenticated Sandbox grants or expiry/revocation.
 describe('public supervise proxy-secret descendant admission', () => {
+  it.each([
+    ['backend', 'defaults'],
+    ['backend', 'placement'],
+    ['driverBackend', 'defaults'],
+    ['driverBackend', 'placement'],
+  ] as const)('refuses implicit proxy bindings in %s %s before execution', (key, source) => {
+    const backend: ExecutorConfig = {
+      backend: 'provider', provider: 'must-not-be-resolved',
+      ...(source === 'defaults'
+        ? { defaults: { proxySecrets: [parentBinding] } }
+        : { placements: [{ id: 'seat', match: { harness: 'opencode' },
+          create: { backend: 'opencode', proxySecrets: [parentBinding] } }] }),
+    }
+    expect(() => supervise(profile('root', undefined, true), 'delegate', {
+      budget: { maxIterations: 20, maxTokens: 20_000 },
+      [key]: backend,
+      makeLeafAgent: () => { throw new Error('must not execute') },
+      driveHarness: async () => { throw new Error('must not execute') },
+    })).toThrow(/profile\.proxySecrets/)
+  })
+
+  it('refuses proxy defaults smuggled through selectSeat before creating an environment', async () => {
+    const proxy = await proxyCoordination()
+    const journal = new InMemorySpawnJournal()
+    let selections = 0
+    let creates = 0
+    const provider = {
+      name: 'selected-seat-test',
+      capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
+      create: async () => { creates += 1; throw new Error('must not create') },
+    } as unknown as AgentEnvironmentProvider
+    try {
+      await supervise(testAgentProfile('root', {
+        harness: 'codex', model: { provider: 'openai', default: 'offline-seat-model' },
+        tools: runtimeToolDeclarations('stop'),
+        seats: [{ harness: 'codex', provider: 'openai', model: 'offline-seat-model',
+          selector: { kind: 'all-eligible' } }],
+      }), 'select without implicit authority', {
+        budget: { maxIterations: 10, maxTokens: 10_000 },
+        backend: { backend: 'provider', provider },
+        coordination: { authentication: true, publicUrl: proxy.publicUrl, proxySecret: proxy.proxySecret },
+        selectSeat: async () => {
+          selections += 1
+          return { seat: 'selected', backend: {
+            backend: 'provider', provider, defaults: { proxySecrets: [parentBinding] },
+          } }
+        },
+        journal, runId: 'proxy-selected-seat',
+      })
+      expect(selections).toBeGreaterThan(0)
+      expect(creates).toBe(0)
+      expect(JSON.stringify(await journal.loadTree('proxy-selected-seat'))).toContain('profile.proxySecrets')
+    } finally {
+      await proxy.close()
+    }
+  })
+
   it('requires product authorization before admitting a child reference', async () => {
     const { seen, replies } = await spawnOne(profile('child', [childBinding]), null)
     expect(seen).toEqual([])
@@ -108,6 +169,24 @@ describe('public supervise proxy-secret descendant admission', () => {
     expect(seen).toEqual([])
     expect(JSON.stringify(replies)).toContain('proxySecrets')
     expect(events?.filter((event) => event.kind === 'spawned')).toHaveLength(1)
+  })
+
+  it('refuses a declared child secret absent from its parent', async () => {
+    const { seen, replies } = await spawnOne(profile('child', [childBinding]), undefined, [])
+    expect(seen).toEqual([])
+    expect(JSON.stringify(replies)).toContain('proxySecrets')
+  })
+
+  it.each([
+    ['/v1/events/nested', true],
+    ['/v10/events', false],
+  ] as const)('checks subtree boundary for %s', async (path, allowed) => {
+    const requested = profile('child', [{ ...childBinding, paths: [path] }])
+    const { seen, replies } = await spawnOne(requested, undefined, [
+      { ...parentBinding, paths: ['/v1/*'] },
+    ])
+    expect(seen).toEqual(allowed ? [requested] : [])
+    if (!allowed) expect(JSON.stringify(replies)).toContain('proxySecrets')
   })
 
   it('checks the final profile returned by authorizeSpawn', async () => {

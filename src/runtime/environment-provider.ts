@@ -2873,6 +2873,7 @@ function createInputFromSandboxOptions(
     ...(options?.env ? { env: options.env } : {}),
     // Sandbox's "all" selector stays in the transport options; neutral inputs name secrets.
     ...(Array.isArray(options?.secrets) ? { secrets: options.secrets } : {}),
+    ...(options?.proxySecrets === undefined ? {} : { proxySecrets: options.proxySecrets }),
     ...(options?.metadata ? { metadata: options.metadata } : {}),
     ...(options?.name ? { name: options.name } : {}),
     ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),

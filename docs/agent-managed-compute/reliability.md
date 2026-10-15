@@ -366,9 +366,19 @@ Remove a verification key to revoke its credentials across coordinator restarts.
 Listener-local `rotateCredential()` revocation does not survive restart.
 The file run lock remains the single-owner fence; these credentials do not enable concurrent distributed failover.
 
-Provider managers require `capabilities.create.runtimeAttachments.mcp` and an authenticated public endpoint.
-Runtime passes the MCP server through `CreateAgentEnvironmentInput.runtimeAttachments`, preserving the canonical profile.
-Credential headers remain runtime-only and must not appear in receipts or journals.
+Provider managers require `capabilities.create.runtimeAttachments.mcp`, proxy-secret enforcement, and a caller-owned HTTPS endpoint on port 443 with an exact FQDN.
+Configure `coordination.proxySecret.prepare` on the trusted coordinator host.
+It receives the current actor endpoint, bearer credential, credential expiry and listener signal, and registers that credential in the existing encrypted secret store.
+Return a canonical proxy-secret binding, a finite UTC registration expiry, and a `revoke` callback that confirms removal.
+The binding must name `AGENT_RUNTIME_COORDINATION_TOKEN`, the actor endpoint's exact hostname and path, the POST method, bearer presentation and a finite TTL.
+Runtime narrows the TTL to the remaining registration lifetime and refuses expired or mismatched bindings before provider dispatch.
+The callback must observe cancellation and clean partial registrations before rejecting.
+Registration does not prove installation: the provider must verify its sandbox-bound installed receipt before launching the harness.
+Runtime passes the binding and secret-reference MCP header through provider create options, preserving the canonical profile.
+The bearer never enters provider environment or runtime attachment headers.
+Closing or cancelling the listener revokes registration, and close fails if removal is unconfirmed.
+Synchronous `rotateCredential()` immediately rejects the previous bearer and clears the exposed binding; rebind the listener to prepare a new registration before continuing.
+Credential headers remain trusted-host-only and must not appear in receipts or journals.
 Retained manager recovery uses the original admitted backend input and validates its intent before reconnecting.
 Deliberate re-prompts retain the manager's environment and conversation, with a fresh execution and turn identity.
 Retrying an interrupted turn retains its original identities and does not create replacement work.

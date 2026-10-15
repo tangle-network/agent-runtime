@@ -21,7 +21,9 @@
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
+import { isIP } from 'node:net'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { ProxySecretBinding } from '@tangle-network/agent-interface/environment-provider'
 import { ConfigError, ValidationError } from '../../errors'
 import type { JsonRpcMessage } from '../../mcp/protocol'
 import type { McpToolDescriptor } from '../../mcp/server'
@@ -58,6 +60,7 @@ import {
   scopeRetainedOwnerResourceReader,
 } from './retained-scope-owner'
 import { singleFlightTools } from './single-flight-tools'
+import { detachedSnapshot } from './snapshot'
 
 export type {
   CoordinationHttpAudit,
@@ -79,6 +82,8 @@ export interface CoordinationMcpHandle {
   /** The current credential's expiry under `authentication.ttlMs`; undefined when it lives as long
    *  as the scope. */
   readonly credentialExpiresAt: number | undefined
+  /** Metadata only; absent after rotation or registration expiry. */
+  readonly proxySecret: CoordinationProxySecret | undefined
   /** Revoke this listener’s current token and mint another. Remove a signing key to revoke across restarts. */
   rotateCredential(): void
   /** The coordination tools' settled-worker ledger (for the driver's finalize). */
@@ -136,7 +141,68 @@ export interface CoordinationPublicAddress {
   readonly signal: AbortSignal
 }
 
+/** An actor credential registered by the trusted host; installation belongs to the provider. */
+export interface CoordinationProxySecret {
+  readonly binding: ProxySecretBinding
+  readonly expiresAt: string
+}
+
+export interface CoordinationProxySecretRegistration extends CoordinationProxySecret {
+  /** Confirm removal from the trusted secret store. A failed or unconfirmed revoke fails close. */
+  revoke(): Promise<{ readonly confirmed: true }>
+}
+
+export interface CoordinationProxySecretOptions {
+  /** Host-only callback. Register in the existing encrypted secret store, never guest env/files.
+   *  Observe signal and clean up partial registration before rejecting. The provider must verify
+   *  its sandbox-bound installed receipt before it launches the harness. */
+  prepare(input: {
+    readonly runId: string
+    readonly actorId: string
+    readonly url: string
+    readonly authorization: string
+    readonly credentialExpiresAt: number | undefined
+    readonly signal: AbortSignal
+  }): Promise<CoordinationProxySecretRegistration>
+}
+
+/** Proxy bindings support public HTTPS on its default port, never a dynamic local HTTP port. */
+function assertProxySecretAddress(address: URL): void {
+  if (
+    address.protocol !== 'https:' || address.port || isIP(address.hostname) ||
+    isLoopbackHost(address.hostname) ||
+    !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(address.hostname)
+  ) {
+    throw new ConfigError('coordination proxySecret requires an exact public FQDN on HTTPS port 443')
+  }
+}
+
+function assertCoordinationProxySecret(
+  registered: CoordinationProxySecretRegistration,
+  address: URL,
+  credentialExpiresAt: number | undefined,
+): void {
+  const { binding } = registered
+  const expiresAt = Date.parse(registered.expiresAt)
+  if (
+    typeof registered.revoke !== 'function' ||
+    !Number.isFinite(expiresAt) || expiresAt - Date.now() < 1000 ||
+    (credentialExpiresAt !== undefined && expiresAt > credentialExpiresAt) ||
+    binding.envName !== 'AGENT_RUNTIME_COORDINATION_TOKEN' ||
+    binding.secretRef.kind !== 'secret-ref' || !binding.secretRef.key ||
+    binding.hosts.length !== 1 || binding.hosts[0] !== address.hostname ||
+    binding.presentation.type !== 'bearer' ||
+    binding.methods?.length !== 1 || binding.methods[0] !== 'POST' ||
+    binding.paths?.length !== 1 || binding.paths[0] !== address.pathname ||
+    !Number.isSafeInteger(binding.ttlSeconds) || binding.ttlSeconds! <= 0
+  ) {
+    throw new ConfigError('coordination proxySecret registration must bind the actor endpoint and a bounded lifetime')
+  }
+}
+
 export interface CoordinationTransportOptions extends CoordinationHttpOptions {
+  /** Trusted registration for provider managers; never an authored profile credential. */
+  readonly proxySecret?: CoordinationProxySecretOptions
   readonly host?: string
   readonly port?: number
   /** Required for remote binds. Each server mints a distinct run/actor credential. */
@@ -174,6 +240,13 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
   }
   if (options.publicUrl !== undefined && !options.authentication) {
     throw new ConfigError('coordination publicUrl requires authentication')
+  }
+  if (options.proxySecret !== undefined) {
+    if (!options.authentication || options.publicUrl === undefined ||
+        typeof options.proxySecret.prepare !== 'function') {
+      throw new ConfigError('coordination proxySecret requires authentication, publicUrl and prepare')
+    }
+    if (typeof options.publicUrl === 'string') assertProxySecretAddress(new URL(options.publicUrl))
   }
   const signingKeys =
     typeof options.authentication === 'object' ? options.authentication.signingKeys : undefined
@@ -362,6 +435,22 @@ export async function serveCoordinationMcpForManager(
   let headers: Readonly<Record<string, string>> = Object.freeze({})
   let credentialAudience = ''
   let closed = false
+  let registeredProxySecret: CoordinationProxySecretRegistration | undefined
+  let proxyRevocation: Promise<void> | undefined
+  const revokeProxySecret = () => {
+    const registered = registeredProxySecret
+    registeredProxySecret = undefined
+    if (!registered) return
+    proxyRevocation = Promise.resolve().then(async () => {
+      try {
+        if ((await registered.revoke())?.confirmed !== true) throw new Error('unconfirmed')
+      } catch {
+        throw new ConfigError('coordination proxySecret revocation was not confirmed')
+      }
+    })
+    // Scope cancellation and synchronous rotation cannot await; close observes the same promise.
+    void proxyRevocation.catch(() => undefined)
+  }
   const revoked = new Map<string, number>()
   const grantDigest = createHash('sha256')
     .update(JSON.stringify([...opts.toolNames].sort()))
@@ -369,6 +458,7 @@ export async function serveCoordinationMcpForManager(
   const rotateCredential = () => {
     if (!opts.authentication) throw new ConfigError('coordination authentication is not configured')
     if (closed) throw new ConfigError('coordination server is closed')
+    revokeProxySecret()
     // Without `ttlMs` the credential carries no expiry: it lives as long as the scope
     // (`refusedCredential`), and a scope's deadline is not always its stop.
     const expiresAt = auth?.ttlMs === undefined ? undefined : Date.now() + auth.ttlMs
@@ -415,6 +505,8 @@ export async function serveCoordinationMcpForManager(
     supplied: Buffer,
   ): 'scope-stopped' | 'credential-refused' | undefined => {
     if (opts.scope.signal.aborted) return 'scope-stopped'
+    if (registeredProxySecret && Date.now() >= Date.parse(registeredProxySecret.expiresAt))
+      return 'credential-refused'
     return validCredential(supplied) ? undefined : 'credential-refused'
   }
   const validCredential = (supplied: Buffer): boolean => {
@@ -628,7 +720,10 @@ export async function serveCoordinationMcpForManager(
   })
 
   const addressLifetime = new AbortController()
-  const abortAddress = () => addressLifetime.abort(opts.scope.signal.reason)
+  const abortAddress = () => {
+    addressLifetime.abort(opts.scope.signal.reason)
+    revokeProxySecret()
+  }
   opts.scope.signal.addEventListener('abort', abortAddress, { once: true })
   if (opts.scope.signal.aborted) abortAddress()
   const releaseAddress = () => {
@@ -669,6 +764,7 @@ export async function serveCoordinationMcpForManager(
     ) {
       throw new ConfigError('remote coordination publicUrl must use HTTPS')
     }
+    if (opts.proxySecret) assertProxySecretAddress(publicAddress)
     url = publicAddress.href
     credentialAudience = url
     if (opts.authentication) rotateCredential()
@@ -685,13 +781,36 @@ export async function serveCoordinationMcpForManager(
         toolNames: selectedNames,
       })
     }
+    if (opts.proxySecret) {
+      try {
+        registeredProxySecret = await opts.proxySecret.prepare({
+          ...identity, url, authorization: headers.Authorization!, credentialExpiresAt,
+          signal: addressLifetime.signal,
+        })
+        assertCoordinationProxySecret(registeredProxySecret, publicAddress, credentialExpiresAt)
+        registeredProxySecret = {
+          binding: detachedSnapshot({
+            ...registeredProxySecret.binding,
+            ttlSeconds: Math.min(registeredProxySecret.binding.ttlSeconds!,
+              Math.floor((Date.parse(registeredProxySecret.expiresAt) - Date.now()) / 1000)),
+          }, 'coordination proxySecret binding'),
+          expiresAt: registeredProxySecret.expiresAt,
+          revoke: registeredProxySecret.revoke.bind(registeredProxySecret),
+        }
+        if (addressLifetime.signal.aborted) throw new Error('cancelled')
+      } catch {
+        throw new ConfigError('coordination proxySecret registration failed')
+      }
+    }
   } catch (error) {
     releaseAddress()
     closed = true
+    revokeProxySecret()
     await new Promise<void>((resolve) => {
       server.close(() => resolve())
       server.closeAllConnections()
     })
+    await proxyRevocation
     throw error
   }
 
@@ -707,6 +826,11 @@ export async function serveCoordinationMcpForManager(
     get credentialExpiresAt() {
       return credentialExpiresAt
     },
+    get proxySecret() {
+      return registeredProxySecret && Date.now() < Date.parse(registeredProxySecret.expiresAt)
+        ? { binding: registeredProxySecret.binding, expiresAt: registeredProxySecret.expiresAt }
+        : undefined
+    },
     rotateCredential,
     settled: () => coord.settled(),
     submittedResult: () => coord.submittedResult(),
@@ -721,10 +845,13 @@ export async function serveCoordinationMcpForManager(
     close: async () => {
       releaseAddress()
       closed = true
+      revokeProxySecret()
       await new Promise<void>((resolve) => {
         server.close(() => resolve())
+        server.closeAllConnections()
       })
       await mailListener?.close()
+      await proxyRevocation
     },
   }
   return { handle, controls: coord }

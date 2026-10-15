@@ -30,6 +30,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import { coordinationProxy } from '../helpers/coordination-proxy'
+import { proxyCoordination } from '../helpers/proxy-coordination'
 import { supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
@@ -2075,4 +2076,172 @@ describe('public coordination address lifetime', () => {
     if (!addressSignal) throw new Error(JSON.stringify(result))
     expect(addressSignal?.aborted).toBe(true)
   })
+})
+
+
+describe('proxy-held coordination transport', () => {
+  it.each([
+    'http://coordination.example/mcp',
+    'https://127.0.0.1/mcp',
+    'https://[::1]/mcp',
+    'https://localhost/mcp',
+    'https://coordination.example:8443/mcp',
+    'https://singlelabel/mcp',
+  ])('refuses unsupported proxy address %s before secret registration', async (publicUrl) => {
+    const prepare = vi.fn()
+    await expect(withBoundHttp({ publicUrl, proxySecret: { prepare } }, async () => {
+      throw new Error('must not admit an unsupported proxy transport')
+    })).rejects.toThrow(/HTTPS|FQDN/)
+    expect(prepare).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('proxy-held actor registration over the real coordination HTTP boundary', () => {
+  // The fixture maps HTTPS to the real local listener and substitutes opaque markers in a
+  // trusted test adapter. It does not establish production TLS or Sandbox installation custody.
+  it('spawns a child using only a placeholder and rejects it immediately after rotation', async () => {
+    const proxy = await proxyCoordination()
+    try {
+      await withBoundHttp({
+        publicUrl: proxy.publicUrl,
+        proxySecret: proxy.proxySecret,
+        toolNames: ['spawn_worker', 'observe_agent'],
+        makeWorkerAgent: () => deliveringLeaf('proxy-worker', { answer: 42 }),
+      }, async (mcp) => {
+        expect(mcp.proxySecret).toBeDefined()
+        const visible = mcp.proxySecret!
+        const headers = proxy.guestHeadersFor(visible.binding)
+        expect(JSON.stringify({ headers, visible }).includes(mcp.headers.Authorization!)).toBe(false)
+        const response = await jsonRpc(mcp.url, 'tools/call', {
+          name: 'spawn_worker', arguments: { profile: {}, task: 'check' },
+        }, headers)
+        expect(response.error).toBeUndefined()
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        await mcp.drainResolved()
+        expect(mcp.settled().some((worker) => worker.status === 'done')).toBe(true)
+        mcp.rotateCredential()
+        expect(mcp.proxySecret).toBeUndefined()
+        const refused = await fetch(mcp.url, {
+          method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+        })
+        expect([401, 403]).toContain(refused.status)
+      })
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it('rebinds the same actor address with a fresh reference and fences the previous placeholder', async () => {
+    const proxy = await proxyCoordination()
+    let firstUrl = ''
+    let firstPort = 0
+    let staleHeaders: Record<string, string> = {}
+    let firstReference = ''
+    const options = { publicUrl: proxy.publicUrl, proxySecret: proxy.proxySecret }
+    try {
+      await withBoundHttp(options, async (mcp) => {
+        firstUrl = mcp.url
+        firstPort = mcp.port
+        firstReference = mcp.proxySecret!.binding.secretRef.key
+        staleHeaders = proxy.guestHeadersFor(mcp.proxySecret!.binding)
+        expect((await jsonRpc(mcp.url, 'tools/list', {}, staleHeaders)).error).toBeUndefined()
+      })
+      const occupied = createServer((_req, res) => res.writeHead(503).end())
+      await new Promise<void>((resolve) => occupied.listen(firstPort, '127.0.0.1', resolve))
+      try {
+        await withBoundHttp(options, async (mcp) => {
+          expect(mcp.url).toBe(firstUrl)
+          expect(mcp.port).not.toBe(firstPort)
+          expect(mcp.proxySecret!.binding.secretRef.key === firstReference).toBe(false)
+          const currentHeaders = proxy.guestHeadersFor(mcp.proxySecret!.binding)
+          expect((await jsonRpc(mcp.url, 'tools/list', {}, currentHeaders)).error).toBeUndefined()
+          const refused = await fetch(mcp.url, {
+            method: 'POST', headers: { ...staleHeaders, 'content-type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+          })
+          expect(refused.status).toBe(403)
+        })
+      } finally {
+        await new Promise<void>((resolve) => occupied.close(() => resolve()))
+      }
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it('cleans a mismatched registration before refusing the manager', async () => {
+    const proxy = await proxyCoordination()
+    const revoke = vi.fn()
+    try {
+      await expect(withBoundHttp({
+        publicUrl: proxy.publicUrl,
+        proxySecret: {
+          async prepare(input) {
+            const registration = await proxy.proxySecret.prepare(input)
+            return {
+              ...registration,
+              binding: { ...registration.binding, hosts: ['attacker.example'] },
+              async revoke() {
+                revoke()
+                return registration.revoke()
+              },
+            }
+          },
+        },
+      }, async () => {
+        throw new Error('must not admit a mismatched registration')
+      })).rejects.toThrow('coordination proxySecret registration failed')
+      expect(revoke).toHaveBeenCalledTimes(1)
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it('reports unconfirmed revocation as failure after closing the listener', async () => {
+    const proxy = await proxyCoordination()
+    const revoke = vi.fn().mockResolvedValue({ confirmed: false })
+    let localUrl = ''
+    try {
+      await expect(withBoundHttp({
+        publicUrl: proxy.publicUrl,
+        proxySecret: {
+          async prepare(input) {
+            return { ...await proxy.proxySecret.prepare(input), revoke }
+          },
+        },
+      }, async (mcp) => {
+        localUrl = `http://127.0.0.1:${mcp.port}/manager`
+      })).rejects.toThrow('coordination proxySecret revocation was not confirmed')
+      expect(revoke).toHaveBeenCalledTimes(1)
+      await expect(fetch(localUrl)).rejects.toThrow()
+    } finally {
+      await proxy.close()
+    }
+  })
+})
+
+
+it('fences an expired proxy registration at the listener even when its scope remains live', async () => {
+  const proxy = await proxyCoordination()
+  try {
+    await withBoundHttp({ publicUrl: proxy.publicUrl, proxySecret: proxy.proxySecret }, async (mcp) => {
+      const visible = mcp.proxySecret!
+      const headers = proxy.guestHeadersFor(visible.binding)
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(visible.expiresAt) + 1)
+      try {
+        expect(mcp.proxySecret).toBeUndefined()
+        const response = await fetch(mcp.url, {
+          method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+        })
+        expect(response.status).toBe(401)
+      } finally {
+        clock.mockRestore()
+      }
+    })
+  } finally {
+    await proxy.close()
+  }
 })

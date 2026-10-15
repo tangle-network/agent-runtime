@@ -59,6 +59,7 @@ import type { PriorCoordination } from './coordination-log'
 import {
   assertCoordinationTransport,
   type CoordinationTransportOptions,
+  type CoordinationProxySecret,
   serveCoordinationMcpForManager,
 } from './coordination-mcp'
 import {
@@ -469,6 +470,7 @@ export interface DriveHarness {
     readonly coordinationMcpUrl: string
     /** Runtime-only transport credentials; never append them to the authored profile or task. */
     readonly coordinationMcpHeaders?: Readonly<Record<string, string>>
+    readonly coordinationProxySecret?: CoordinationProxySecret
     /** Fires when the coordination server accepts a result or declares completion. */
     readonly stopSignal?: AbortSignal
     /** Data-only product tool surface mounted on the coordination MCP. Runtime-owned drivers include
@@ -1434,6 +1436,7 @@ function buildSupervisorAgent(
                   scope,
                   coordinationMcpUrl: mcp.url,
                   coordinationMcpHeaders: mcp.headers,
+                  ...(mcp.proxySecret ? { coordinationProxySecret: mcp.proxySecret } : {}),
                   stopSignal: stopController.signal,
                   coordinationTools,
                 })
