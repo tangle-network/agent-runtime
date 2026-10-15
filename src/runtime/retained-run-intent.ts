@@ -71,6 +71,9 @@ export function retainedCreateMaterial(
       : {
           resourcesDigest: canonicalCandidateDigest(publicResourceMaterial(environment.resources)),
         }),
+    ...(environment.proxySecrets === undefined
+      ? {}
+      : { proxySecretsDigest: canonicalCandidateDigest(environment.proxySecrets) }),
     ...(environment.runtimeAttachments === undefined
       ? {}
       : { runtimeAttachmentsDigest: canonicalCandidateDigest(environment.runtimeAttachments) }),

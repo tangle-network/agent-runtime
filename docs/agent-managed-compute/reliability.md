@@ -373,6 +373,10 @@ Return a canonical proxy-secret binding, a finite UTC registration expiry, and a
 The binding must name `AGENT_RUNTIME_COORDINATION_TOKEN`, the actor endpoint's exact hostname and path, the POST method, bearer presentation and a finite TTL.
 Runtime narrows the TTL to the remaining registration lifetime and refuses expired or mismatched bindings before provider dispatch.
 The callback must observe cancellation and clean partial registrations before rejecting.
+For recovery of the same retained actor, return the same secret reference and complete declaration, including TTL.
+Renew the stored source value behind that reference and rebind the retained provider in place before dispatch.
+Runtime binds the complete declaration into retained intent; a changed reference or scope refuses exact replay.
+The registration lease should exceed the declared TTL so elapsed setup time does not change that declaration.
 Registration does not prove installation: the provider must verify its sandbox-bound installed receipt before launching the harness.
 Runtime passes the binding and secret-reference MCP header through provider create options, preserving the canonical profile.
 The bearer never enters provider environment or runtime attachment headers.

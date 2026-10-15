@@ -81,6 +81,7 @@ import { RunCancellationReason } from './abortable'
 import { assertValidBudget, meterUsageEvent, newUsageTotals, spendFromUsageTotals } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { CONTINUATIONS_DIR, type ContinuationPolicy } from './continuation'
+import { ProxySecretCapabilitiesSchema } from '@tangle-network/agent-interface/environment-provider'
 import { isLoopbackHost } from './coordination-mcp'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, type DeadlineCheckIn, teardownExecutor } from './deadline'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
@@ -762,11 +763,11 @@ function coordinationChannelSpawnPreflight(
     return async (profile) => {
       if (!isExternalSupervisor(profile) || declaredRuntimeToolNames(profile).length === 0)
         return undefined
-      if (!(await providerAcceptsCoordinationAttachments(managerBackend))) {
+      const unsupported = await providerCoordinationRefusal(managerBackend)
+      if (unsupported) {
         return {
           cause: 'unmountable-tool',
-          detail:
-            "the 'provider' backend does not advertise create.runtimeAttachments.mcp; Runtime cannot mount this manager's coordination tools before dispatch",
+          detail: `the 'provider' backend does not advertise ${unsupported}; Runtime cannot mount this manager's coordination tools before dispatch`,
         }
       }
       return coordination?.proxySecret ? undefined : {
@@ -851,22 +852,23 @@ function automaticDriverBackendSupported(
   )
 }
 
-async function providerAcceptsCoordinationAttachments(
+async function providerCoordinationRefusal(
   backend: Extract<ExecutorConfig, { backend: 'provider' }>,
-): Promise<boolean> {
+): Promise<'create.runtimeAttachments.mcp' | 'create.proxySecrets' | undefined> {
   const capabilities = await resolveAgentEnvironmentProvider(
     backend.provider,
     backend.registry,
   ).capabilities()
   const create = capabilities.create
-  if (!create || !('runtimeAttachments' in create)) return false
+  if (!create || !('runtimeAttachments' in create)) return 'create.runtimeAttachments.mcp'
   const attachments = create.runtimeAttachments
-  return Boolean(
-    attachments &&
-      typeof attachments === 'object' &&
-      'mcp' in attachments &&
-      attachments.mcp === true,
-  )
+  if (!attachments || typeof attachments !== 'object' || !('mcp' in attachments) || attachments.mcp !== true)
+    return 'create.runtimeAttachments.mcp'
+  const proxySecrets = ProxySecretCapabilitiesSchema.safeParse(create.proxySecrets)
+  return proxySecrets.success && proxySecrets.data.presentations.includes('bearer') &&
+    proxySecrets.data.placeholderFormats.includes('opaque')
+    ? undefined
+    : 'create.proxySecrets'
 }
 
 /**
@@ -1262,9 +1264,10 @@ function driveHarnessFromBackend(
           'driveHarnessFromBackend: provider defaults contain the reserved coordination attachment alias',
         )
       }
-      if (!(await providerAcceptsCoordinationAttachments(boundBackend))) {
+      const unsupported = await providerCoordinationRefusal(boundBackend)
+      if (unsupported) {
         throw new ValidationError(
-          'driveHarnessFromBackend: provider does not advertise create.runtimeAttachments.mcp; no environment was created',
+          `driveHarnessFromBackend: provider does not advertise ${unsupported}; no environment was created`,
         )
       }
       factory = createExecutor({
@@ -4286,6 +4289,13 @@ function superviseInternal(
   // The root driver loop reports what it did once it ends; the settle record carries it.
   let rootContinuation: DriverContinuationRecord | undefined
   const start = async () => {
+    if (isExternalSupervisor(canonicalProfile) && !hasCustomDriveHarness && managerBackend?.backend === 'provider') {
+      if (!options.coordination?.proxySecret) {
+        throw new ValidationError('provider coordination requires proxy-held credential placement through coordination.proxySecret')
+      }
+      const unsupported = await providerCoordinationRefusal(managerBackend)
+      if (unsupported) throw new ValidationError(`provider coordination does not advertise ${unsupported}`)
+    }
     if (ctx.durability === 'sql') {
       if (
         options.backend?.backend !== 'provider' ||

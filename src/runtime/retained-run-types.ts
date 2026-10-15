@@ -19,6 +19,7 @@ import type {
   AgentEnvironment,
   AgentEnvironmentCapabilities,
   AgentEnvironmentProvider,
+  AgentEnvironmentGetOptions,
   AgentTurnInput,
   AgentTurnResult,
   CreateAgentEnvironmentInput,
@@ -271,7 +272,7 @@ export interface StartRetainedRunInEnvironmentOptions {
 }
 
 /** Inputs sufficient to rebuild a control client in a new process. @stable */
-export interface ReconnectRetainedRunOptions {
+export interface ReconnectRetainedRunOptions extends Pick<AgentEnvironmentGetOptions, 'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'> {
   readonly provider: AgentEnvironmentProvider
   readonly controlRef: AgentExactRunControlRef
   readonly now?: () => number
@@ -295,7 +296,7 @@ export interface RecoverRetainedRunIntentOptions {
  *
  * @stable
  */
-export interface RecoverRetainedRunOptions {
+export interface RecoverRetainedRunOptions extends Pick<AgentEnvironmentGetOptions, 'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'> {
   readonly provider: AgentEnvironmentProvider
   readonly environmentId: string
   readonly sessionId: string

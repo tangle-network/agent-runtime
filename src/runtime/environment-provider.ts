@@ -82,8 +82,11 @@ import {
 } from './retained-run-binding'
 import {
   assertRetainedRunReplayMaterial,
+  assertProxySecretInstallation,
+  assertProxySecretCapabilities,
   mintRetainedIdentity,
   reconnectRetainedRun,
+  retainedProxySecretBindings,
   recoverRetainedRun,
   startRetainedRun,
 } from './retained-run-start'
@@ -2441,11 +2444,17 @@ async function providerExecutionSource(
   if (!useRetained) {
     if (args.recovering)
       throw new Error(`provider ${args.provider.name} cannot recover retained executions`)
+    const proxySecrets = retainedProxySecretBindings({
+      ...args.options.defaults, profile: args.createProfile,
+    })
+    if (proxySecrets !== undefined)
+      assertProxySecretCapabilities(await args.provider.capabilities(), proxySecrets)
     const environment = await args.provider.create({
       ...args.options.defaults,
       profile: args.createProfile,
       signal,
     })
+    assertProxySecretInstallation(environment, proxySecrets)
     return { environment, events: environment.stream(selectedTurn), retained: false }
   }
   const retention = args.retention!
@@ -2523,6 +2532,8 @@ async function providerExecutionSource(
       const reconnected = await reconnectRetainedRun({
         provider: args.provider,
         controlRef: dispatched.controlRef,
+        proxySecrets: retainedProxySecretBindings(material.environment),
+        signal,
       })
       if (!reconnected) throw new Error('retained provider environment is unavailable')
       handle = reconnected
@@ -2542,6 +2553,8 @@ async function providerExecutionSource(
               environmentId: environmentAdmission.environmentId,
               sessionId: environmentAdmission.sessionId,
               executionId: environmentAdmission.executionId,
+              proxySecrets: retainedProxySecretBindings(material.environment),
+              signal,
             })
       if (recovered.outcome === 'unverifiable' && intent?.phase === 'intent') {
         // The environment admission precedes dispatch. Replay the validated original keys
