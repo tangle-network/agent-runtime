@@ -485,22 +485,32 @@ describe('trace root', () => {
       expect(verified.artifact.nodeId).toBe(record.id)
       expect(verified.artifact.summary.toolCalls).toEqual(STREAMED_TOOL_CALLS)
       // Events the session delivered without an id are archived like the rest, and are cited by
-      // their index in the archive, never by an id they do not have (#1205).
+      // their index in the archive, never by an id they do not have (#1205). The retained turn
+      // also appends its own terminal `result` projection, which carries no id either.
       const idless = verified.events.flatMap((event, index) =>
         (event as { id?: unknown }).id === undefined ? [index] : [],
       )
-      expect(idless.map((index) => (verified.events[index] as { type: string }).type)).toEqual([
-        'result',
-        'done',
-      ])
-      const terminal = idless[0]!
+      expect(
+        new Set(idless.map((index) => (verified.events[index] as { type: string }).type)),
+      ).toEqual(new Set(['result', 'done']))
+      const streamed = idless[0]!
       expect(
         verifyCitation(
           verified,
           record.traceRoot!.root,
-          JSON.stringify(verified.events[terminal]),
-          terminal,
+          JSON.stringify(verified.events[streamed]),
+          streamed,
           '"finalText":"The checks pass."',
+        ),
+      ).toBe(true)
+      const projected = idless.at(-1)!
+      expect(
+        verifyCitation(
+          verified,
+          record.traceRoot!.root,
+          JSON.stringify(verified.events[projected]),
+          projected,
+          '"type":"result"',
         ),
       ).toBe(true)
     }
