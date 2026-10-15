@@ -1141,6 +1141,19 @@ export {
   SUBTREE_RESULT_LIMIT,
   settledToIteration,
 } from './supervise/scope'
+// One data value per multi-agent research configuration (seven axes, a canonical digest, five
+// presets) and the compiler that maps it onto exactly one `supervise` or `runGraph` call.
+export {
+  assertSearchSpec,
+  type CompiledSearchSpec,
+  compileSearchSpec,
+  SEARCH_SPEC_CORRELATION_KEY,
+  type SearchSpec,
+  type SearchSpecInputs,
+  type SearchSpecOwnedOption,
+  searchPresets,
+  searchSpecDigest,
+} from './supervise/search-spec'
 export type {
   SeatSegment,
   SeatSelection,

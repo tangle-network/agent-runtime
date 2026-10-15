@@ -474,6 +474,11 @@ export interface DriveHarness {
     /** Data-only product tool surface mounted on the coordination MCP. Runtime-owned drivers include
      *  this in their materialization evidence without persisting executable handlers. */
     readonly coordinationTools: ReadonlyArray<Omit<McpToolDescriptor, 'handler'>>
+    /** The manager's `continuation.session` on every drive, re-entered or not. `fresh`: each drive
+     *  that carries `reentry` starts a new harness session, keeping the environment and its files;
+     *  `compose` then always writes the full re-entry task. Absent or `native`: today's
+     *  same-session continuation where the backend proves it. */
+    readonly session?: 'native' | 'fresh'
     /** Present when this drive re-enters the run. `task` then carries the original objective and
      *  the coordinator's run state, which is right for any backend. A harness that can prove what
      *  the next turn continues composes the task from that proof instead, and reports it. */
@@ -1333,6 +1338,7 @@ function buildSupervisorAgent(
         let environmentReplacements = 0
         let workspaceRestores = 0
         const describe = deps.deliverable?.describe
+        const session = deps.continuation?.session
         const settleLoop = () => {
           const stopReason = controls.stopReason() ?? progressStopReason
           const closedBy: DriverContinuationRecord['closedBy'] = mcp.submittedResult()
@@ -1396,6 +1402,8 @@ function buildSupervisorAgent(
                         ),
                       }
                     }
+              // A fresh session holds no earlier turn, so whatever a harness claims about the
+              // session, the task it composes is the full re-entry task.
               const compose =
                 current === undefined
                   ? undefined
@@ -1405,7 +1413,8 @@ function buildSupervisorAgent(
                         tools: runtimeToolNames,
                         ...(describe === undefined ? {} : { contract: describe }),
                         reentry: current!,
-                        continuity,
+                        continuity:
+                          session === 'fresh' ? { ...continuity, session: 'new' } : continuity,
                         state: controls.reentryState(),
                         attempt,
                       })
@@ -1417,6 +1426,7 @@ function buildSupervisorAgent(
                   authoredProfile: stableProfile,
                   ...(registeredProfile === stableProfile ? {} : { registeredProfile }),
                   ...(profilePrompt !== undefined ? { systemPrompt: profilePrompt } : {}),
+                  ...(session === undefined ? {} : { session }),
                   task: compose === undefined ? task : compose(UNPROVEN_CONTINUITY),
                   ...(compose === undefined
                     ? {}
