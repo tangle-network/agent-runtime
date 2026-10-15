@@ -10,9 +10,15 @@
  * the journal recorded. Leaf identity is `(outRef, index)`: an event's own `id` is a session
  * buffer offset and is absent on terminal events.
  *
+ * One event array has one root per node. A result always gets its own. Evidence whose events the
+ * node already rooted gets none: a retained owner's deferred workspace capture stores the turn it
+ * just committed again, with the workspace fields added, under another `outRef`. A second root
+ * over the same events would give one turn two count candidates and two run-root leaves.
+ *
  * Salts are random, so a trace root can never be recomputed from the archive alone. Recovery and
  * replay copy the recorded receipt; they never derive a new one.
  */
+import { createHash } from 'node:crypto'
 import {
   canonicalString,
   jsonDocument,
@@ -53,25 +59,50 @@ export interface TraceRootArtifact {
 
 /** @internal One trace root per archived output of one node, however many records cite it. */
 export interface TraceRootWriter {
-  /** Store the trace root of `out` stored under `outRef`; `undefined` when it archived no events. */
+  /** Store the trace root of the result `out` stored under `outRef`; `undefined` when it archived
+   *  no events. */
   write(outRef: string, out: unknown): Promise<TraceRootReceipt | undefined>
-  /** The receipt an earlier `write` produced for `outRef`, if any. */
+  /** As `write`, for evidence: also `undefined` when this node already rooted the same events
+   *  under another output. */
+  writeEvidence(outRef: string, out: unknown): Promise<TraceRootReceipt | undefined>
+  /** The receipt an earlier write produced for `outRef`, if any. */
   recorded(outRef: string | undefined): Promise<TraceRootReceipt | undefined>
 }
 
 /** @internal */
 export function traceRootWriter(blobs: ResultBlobStore, nodeId: string): TraceRootWriter {
   const roots = new Map<string, Promise<TraceRootReceipt | undefined>>()
+  /** Digests of the event arrays this node holds a stored root for. */
+  const rooted = new Set<string>()
+  const persist = async (
+    outRef: string,
+    out: unknown,
+    evidence: boolean,
+  ): Promise<TraceRootReceipt | undefined> => {
+    const events = archivedEvents(out)
+    if (events === undefined) return undefined
+    if (evidence) {
+      // A root still being written counts once it is stored.
+      await Promise.allSettled([...roots.values()])
+      if (rooted.has(await eventsDigest(events))) return undefined
+    }
+    const stored = await persistTraceRoot(blobs, nodeId, outRef, events)
+    if (stored === undefined) return undefined
+    rooted.add(stored.digest)
+    return stored.receipt
+  }
+  const memoized = (outRef: string, out: unknown, evidence: boolean) => {
+    const known = roots.get(outRef)
+    if (known !== undefined) return known
+    const pending = persist(outRef, out, evidence)
+    roots.set(outRef, pending)
+    // A failed write is retried by the next writer rather than remembered.
+    pending.catch(() => roots.delete(outRef))
+    return pending
+  }
   return {
-    write(outRef, out) {
-      const known = roots.get(outRef)
-      if (known !== undefined) return known
-      const pending = persistTraceRoot(blobs, nodeId, outRef, out)
-      roots.set(outRef, pending)
-      // A failed write is retried by the next writer rather than remembered.
-      pending.catch(() => roots.delete(outRef))
-      return pending
-    },
+    write: (outRef, out) => memoized(outRef, out, false),
+    writeEvidence: (outRef, out) => memoized(outRef, out, true),
     async recorded(outRef) {
       if (outRef === undefined) return undefined
       return roots.get(outRef)?.catch(() => undefined)
@@ -83,26 +114,25 @@ async function persistTraceRoot(
   blobs: ResultBlobStore,
   nodeId: string,
   outRef: string,
-  out: unknown,
-): Promise<TraceRootReceipt | undefined> {
-  const events = archivedEvents(out)
-  if (events === undefined) return undefined
-  let artifact: TraceRootArtifact
+  events: readonly unknown[],
+): Promise<{ receipt: TraceRootReceipt; digest: string } | undefined> {
+  let built: { artifact: TraceRootArtifact; digest: string }
   try {
-    artifact = await traceRootArtifact(nodeId, outRef, events)
+    built = await traceRootArtifact(nodeId, outRef, events)
   } catch (error) {
     // An event with no canonical JSON form (an unpaired surrogate) leaves the output unproven;
     // it never fails the turn that produced it. Measured 2026-10-15: 0 of 366 archives.
     if (error instanceof LedgerCanonicalizationError) return undefined
     throw error
   }
+  const { artifact, digest } = built
   // The content address and the store's own encoding each walk the whole artifact (9.2 MB for
   // the largest turn); each takes its own turn of the event loop.
   await nextTurn()
   const ref = contentAddress(artifact)
   await nextTurn()
   await blobs.put(ref, artifact)
-  return { root: artifact.root, ref, leafCount: artifact.leafCount }
+  return { receipt: { root: artifact.root, ref, leafCount: artifact.leafCount }, digest }
 }
 
 function archivedEvents(out: unknown): readonly unknown[] | undefined {
@@ -132,14 +162,28 @@ function nextTurn(): Promise<void> {
   return new Promise<void>((resolve) => setImmediate(resolve))
 }
 
+/** The identity of an event array as stored: the digest of each event's stored JSON, in order.
+ *  Two arrays with one digest have the same leaves' content. */
+async function eventsDigest(events: readonly unknown[]): Promise<string> {
+  const hash = createHash('sha256')
+  const slice = slicer()
+  for (const event of events) {
+    const yielded = slice()
+    if (yielded !== undefined) await yielded
+    hash.update(storedText(event)).update('\n')
+  }
+  return hash.digest('hex')
+}
+
 async function traceRootArtifact(
   nodeId: string,
   outRef: string,
   archived: readonly unknown[],
-): Promise<TraceRootArtifact> {
+): Promise<{ artifact: TraceRootArtifact; digest: string }> {
   const salts: string[] = []
   const leaves: LedgerHash[] = []
   const tree = merkleTree()
+  const identity = createHash('sha256')
   const tools = createSandboxToolPartState()
   const toolCalls = new Map<string, number>()
   const slice = slicer()
@@ -149,6 +193,7 @@ async function traceRootArtifact(
     // Hash the event as the blob store keeps it: a JSON document, read back the way a verifier
     // reads `events[i]`. The writer's copy is a structured clone and can hold values JSON drops.
     const text = storedText(event)
+    identity.update(text).update('\n')
     const stored: unknown = JSON.parse(text)
     const salt = merkleSalt()
     const leaf = merkleLeafHash(canonicalString(jsonDocument(stored)), salt)
@@ -171,14 +216,17 @@ async function traceRootArtifact(
   leaves.push(leaf)
   tree.push(leaf)
   return {
-    schema: TRACE_ROOT_SCHEMA,
-    nodeId,
-    outRef,
-    root: tree.root(),
-    leafCount: leaves.length,
-    salts,
-    leaves,
-    summary,
+    artifact: {
+      schema: TRACE_ROOT_SCHEMA,
+      nodeId,
+      outRef,
+      root: tree.root(),
+      leafCount: leaves.length,
+      salts,
+      leaves,
+      summary,
+    },
+    digest: identity.digest('hex'),
   }
 }
 

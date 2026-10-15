@@ -74,7 +74,7 @@ export function executorEvidenceWriter(args: {
   nodeId: string
   nextSequence: () => number
   now: () => number
-  /** The node's trace-root writer, so evidence and result citing one output share one root. */
+  /** The node's trace-root writer: evidence whose events its result already rooted gets none. */
   traceRoots?: TraceRootWriter
 }): (out: unknown) => Promise<void> {
   const traceRoots = args.traceRoots ?? traceRootWriter(args.blobs, args.nodeId)
@@ -82,7 +82,7 @@ export function executorEvidenceWriter(args: {
     const snapshot = detachedSnapshot(out, 'executor evidence')
     const outRef = contentAddress(snapshot)
     await args.blobs.put(outRef, snapshot)
-    const traceRoot = await traceRoots.write(outRef, snapshot)
+    const traceRoot = await traceRoots.writeEvidence(outRef, snapshot)
     await args.journal.appendEvent(args.rootId, {
       kind: 'execution-evidence',
       id: args.nodeId,

@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import {
   canonicalString,
   jsonDocument,
@@ -22,6 +23,7 @@ import {
   type TraceRootReceipt,
 } from '@tangle-network/agent-runtime/kernel'
 import { afterEach, describe, expect, it } from 'vitest'
+import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
 import {
   contentAddress,
   FileSpawnJournal,
@@ -30,6 +32,8 @@ import {
   replaySpawnTree,
 } from '../../src/durable/spawn-journal'
 import { type ProviderLeafOut, providerAsExecutor } from '../../src/runtime/environment-provider'
+import { createPrivateCasArtifactPort } from '../../src/runtime/private-cas'
+import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -42,6 +46,7 @@ import type {
   ResultBlobStore,
   SpawnEvent,
 } from '../../src/runtime/supervise/types'
+import { completeCapture } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
@@ -304,13 +309,68 @@ async function settledProviderChild(events: AgentEnvironmentEvent[]) {
 }
 
 /** A retained provider root whose one turn streams `events` and submits the deliverable. Its
- *  `execution-result` is written by the retained owner, the path Discovery roots take. */
-async function retainedRoot(runId: string, events: AgentEnvironmentEvent[]) {
+ *  `execution-result` is written by the retained owner, the path Discovery roots take.
+ *  `deferredCapture` gives it the workspace retention Discovery roots run with: a native session
+ *  copy, so the owner commits the turn first and stores it again with its workspace capture.
+ *  `abortWhileHashing` cancels the run as the first turn's trace root is stored. */
+async function retainedRoot(
+  runId: string,
+  events: AgentEnvironmentEvent[],
+  options: { deferredCapture?: boolean; abortWhileHashing?: boolean } = {},
+) {
   const directory = await mkdtemp(join(tmpdir(), 'trace-root-'))
   directories.push(directory)
   const proxy = await coordinationProxy()
   proxies.push(proxy)
   const context = createFileRunContext(join(directory, 'run'))
+  const abort = new AbortController()
+  let abortedWhileHashing = false
+  const blobs: ResultBlobStore = options.abortWhileHashing
+    ? {
+        get: (ref) => context.blobs.get(ref),
+        async put(ref, value) {
+          if (
+            !abort.signal.aborted &&
+            (value as TraceRootArtifact | null)?.schema === TRACE_ROOT_SCHEMA
+          ) {
+            abortedWhileHashing = true
+            abort.abort(new Error('the run was cancelled while its turn hashed'))
+          }
+          await context.blobs.put(ref, value)
+        },
+      }
+    : context.blobs
+  const artifacts = createPrivateCasArtifactPort(join(directory, 'cas'), runId)
+  const workspaceRetention: ProviderWorkspaceRetentionPort | undefined = options.deferredCapture
+    ? {
+        artifacts,
+        timeoutMs: 5_000,
+        capture: (captureContext) => completeCapture(captureContext, artifacts),
+        // No running copy: only the copy each turn takes as it ends.
+        nativeIntervalMs: 3_600_000,
+        async captureNative(captureContext) {
+          const { snapshot } = await captureAgentCandidateWorkspaceFiles(
+            [{ path: 'native.jsonl', mode: 0o600, bytes: new TextEncoder().encode('{}\n') }],
+            {
+              artifactPersistence: {
+                executionId: captureContext.executionId,
+                outputArtifacts: artifacts,
+              },
+            },
+          )
+          return {
+            snapshot,
+            provenance: {
+              status: 'reported',
+              environmentId: captureContext.environment.id,
+              executionId: captureContext.executionId,
+              workspaceScope: 'none',
+              missing: [],
+            },
+          }
+        },
+      }
+    : undefined
   let port = 0
   let token = ''
   const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
@@ -364,7 +424,6 @@ async function retainedRoot(runId: string, events: AgentEnvironmentEvent[]) {
       return environment ? wrap(environment) : null
     },
   }
-  const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(new Error('test run timed out')), 20_000)
   const result = await supervise(
     testAgentProfile('root', {
@@ -376,10 +435,10 @@ async function retainedRoot(runId: string, events: AgentEnvironmentEvent[]) {
       runDir: join(directory, 'run'),
       runId,
       journal: context.journal,
-      blobs: context.blobs,
+      blobs,
       signal: abort.signal,
-      backend: { backend: 'provider', provider },
-      driverBackend: { backend: 'provider', provider },
+      backend: { backend: 'provider', provider, workspaceRetention },
+      driverBackend: { backend: 'provider', provider, workspaceRetention },
       budget: { maxIterations: 20, maxTokens: 1_000, deadlineMs: 60_000 },
       driverRetry: { maxAttempts: 1, initialBackoffMs: 0, maxBackoffMs: 0 },
       retainedAtSettlement: 'release',
@@ -399,12 +458,15 @@ async function retainedRoot(runId: string, events: AgentEnvironmentEvent[]) {
         },
       },
     },
-  ).finally(() => clearTimeout(timer))
+  )
+    .catch((error: unknown) => ({ kind: 'threw' as const, error }))
+    .finally(() => clearTimeout(timer))
   return {
     result,
     journal: context.journal,
     blobs: context.blobs,
     journalPath: join(directory, 'run', 'spawn-journal.jsonl'),
+    abortedWhileHashing,
   }
 }
 
@@ -519,6 +581,54 @@ describe('trace root', () => {
     expect(
       cold?.filter((event) => event.kind === 'execution-result').map((event) => event.traceRoot),
     ).toEqual(recorded.map((record) => record.traceRoot))
+  })
+
+  it("roots a retained owner's turn once when its deferred capture stores the turn again", async () => {
+    // A Discovery root commits each turn before its workspace capture, then journals the capture
+    // as evidence: the same events with the workspace added, under another outRef. A second root
+    // over them gave the turn two count candidates and two run-root leaves.
+    const runId = 'trace-root-deferred'
+    const { result, journal, blobs } = await retainedRoot(runId, streamedTurn(), {
+      deferredCapture: true,
+    })
+    expect(result).toMatchObject({ kind: 'winner' })
+    const events = (await journal.loadTree(runId)) ?? []
+    const results = events.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'execution-result' }> =>
+        event.kind === 'execution-result',
+    )
+    const evidence = events.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'execution-evidence' }> =>
+        event.kind === 'execution-evidence',
+    )
+    expect(results.length).toBeGreaterThan(0)
+    const turns = await Promise.all(
+      results.map(async (record) => ({
+        outRef: record.outRef,
+        out: (await blobs.get(record.outRef)) as ProviderLeafOut,
+      })),
+    )
+    let recaptured = 0
+    for (const record of evidence) {
+      const out = (await blobs.get(record.outRef)) as ProviderLeafOut & {
+        workspaceSnapshot?: unknown
+      }
+      const turn = turns.find((committed) => isDeepStrictEqual(committed.out.events, out.events))
+      if (turn === undefined || out.workspaceSnapshot === undefined) continue
+      expect(turn.outRef).not.toBe(record.outRef)
+      expect(record).not.toHaveProperty('traceRoot')
+      recaptured += 1
+    }
+    expect(recaptured).toBeGreaterThan(0)
+    // One root per turn, each on the record that committed it.
+    const roots = new Set(
+      events.flatMap((event) =>
+        'traceRoot' in event && event.traceRoot !== undefined ? [event.traceRoot.ref] : [],
+      ),
+    )
+    expect(roots).toEqual(new Set(results.map((record) => record.traceRoot?.ref)))
+    expect(roots.size).toBe(results.length)
+    for (const record of results) await verifyStoredTrace(blobs, record)
   })
 
   it('builds the root merkleRoot gives its leaves, at every tree shape', async () => {
