@@ -1,7 +1,8 @@
 /**
- * per-item-pipeline — P05: each item moves through the stages on its own, with no barrier.
+ * per-item-pipeline — P05 (README catalog): each item moves through the stages on its own, with no
+ * barrier.
  *
- * 117 of the 660 Claude Workflow scripts run a pipeline per item (find, verify, then act on it).
+ * Workflows of this pattern run a pipeline per item (find, verify, then act on it).
  * Here the `finder` node is spawned once per item (one `delegates` edge, `maxTraversals: 3`), a
  * `verifier` analyst NODE runs on EACH finder settle, and the root spawns the `publisher` for an
  * item the moment ITS verification lands, while later finders are still running.

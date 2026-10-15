@@ -5,15 +5,19 @@
  * example's exported factory and the shipped `runGraphWithTestBrain` path. Nothing is mocked
  * below the leaf seam and the driver brain.
  *
- *   static-fanout-synthesize   3 delegates (one per dimension) + 3 analyzes rows into the root
+ *   static-fanout-synthesize   3 delegates (one per dimension) + 3 analyzes rows into the root;
+ *                              result.out is the joined synthesis, and it flips with one dimension
  *   per-item-pipeline          one verify row per finder settle; a publisher spawns BEFORE the
  *                              last verify (no barrier, or the run would deadlock)
- *   role-chain                 scout, builder, reviewer in order, each task carrying the last output
+ *   role-chain                 scout, builder, reviewer in order, each task carrying the output the
+ *                              root read from the stage before; result.out is the reviewed fix
  *   isolated-writers-integrate three writers, then the integrator
- *   discovered-fanout-reduce   4 traversals on ONE edge, 2 live at a time, then the reducer
- *   skeptic-majority           3 analyzes rows per settle; the 2-of-3 decision flips with the votes
+ *   discovered-fanout-reduce   4 traversals on ONE edge, then the reducer; peak live readers equals
+ *                              workerSlots (2, and 4 in the control)
+ *   skeptic-majority           3 analyzes rows per settle; result.out keeps the claim on 2 of 3 and
+ *                              carries no claim when the votes drop it
  *   conditional-skip           zero findings: zero traversals on the verify edge
- *   judge-panel                2 judges x 3 attempts = 6 scores; the winner is named
+ *   judge-panel                2 judges x 3 attempts = 6 scores; result.out is the top attempt's work
  *   loop-until-dry             stops at two dry rounds, under the cap
  *   hierarchical-nested        the lead's workers have ids nested under the lead's
  *   dependency-waves           ledger order respects the DAG
@@ -34,21 +38,30 @@ import { DAG, dependencyWaves } from '../../examples/graphs/dependency-waves'
 import { discoveredFanoutReduce } from '../../examples/graphs/discovered-fanout-reduce'
 import { hierarchicalNested } from '../../examples/graphs/hierarchical-nested'
 import { isolatedWritersIntegrate } from '../../examples/graphs/isolated-writers-integrate'
-import { judgePanel } from '../../examples/graphs/judge-panel'
+import { ATTEMPT_OUT, judgePanel, type PanelDecision } from '../../examples/graphs/judge-panel'
 import { loopUntilDry } from '../../examples/graphs/loop-until-dry'
 import { perItemPipeline } from '../../examples/graphs/per-item-pipeline'
 import { proofGate } from '../../examples/graphs/proof-gate'
-import { BUILDER_OUT, roleChain, SCOUT_OUT } from '../../examples/graphs/role-chain'
+import { roleChain, STAGE_OUT } from '../../examples/graphs/role-chain'
 import { sandboxE2e } from '../../examples/graphs/sandbox-e2e'
-import { skepticMajority } from '../../examples/graphs/skeptic-majority'
-import { staticFanoutSynthesize } from '../../examples/graphs/static-fanout-synthesize'
+import { CLAIM, skepticMajority } from '../../examples/graphs/skeptic-majority'
+import {
+  DIMENSIONS,
+  type Recommendation,
+  staticFanoutSynthesize,
+} from '../../examples/graphs/static-fanout-synthesize'
 
 const delegatesOf = (res: GraphResult) => res.ledger.filter((row) => row.kind === 'delegates')
 const analyzesOf = (res: GraphResult) => res.ledger.filter((row) => row.kind === 'analyzes')
 const edgesOf = (res: GraphResult, edge: string) => res.ledger.filter((row) => row.edge === edge)
+/** What the run delivered: `result.out` of a winner. */
+const delivered = (res: GraphResult): unknown => {
+  if (res.result.kind !== 'winner') throw new Error(`no winner: ${res.result.reason}`)
+  return res.result.out
+}
 
 describe('examples/graphs corpus — every pattern runs offline with a truthful ledger', () => {
-  it('static-fanout-synthesize: one delegates traversal per dimension, three findings into the root', async () => {
+  it('static-fanout-synthesize: one traversal per dimension, and the root delivers the joined synthesis', async () => {
     const { graph, opts } = staticFanoutSynthesize()
     const res = await runGraphWithTestBrain(graph, opts)
 
@@ -69,6 +82,19 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
       new Set(delegatesOf(res).map((r) => r.workerId)),
     )
     expect(res.exhaustedEdges).toEqual([])
+    // The result is the synthesis the root joined, one finding per dimension.
+    const out = delivered(res) as Recommendation
+    expect(out.recommendation).toBe('ship')
+    expect(out.basis.map((b) => b.dimension).sort()).toEqual([...DIMENSIONS].sort())
+    expect(out.basis.find((b) => b.dimension === 'cost')).toMatchObject({
+      level: 'medium',
+      supportsShipping: true,
+    })
+
+    // The control: one high-risk dimension, read by the synthesis, turns the delivery to hold.
+    const risky = staticFanoutSynthesize({ risk: 'high', cost: 'medium', fit: 'low' })
+    const held = await runGraphWithTestBrain(risky.graph, risky.opts)
+    expect((delivered(held) as Recommendation).recommendation).toBe('hold')
   })
 
   it('per-item-pipeline: a publisher spawns before the last verification, so there is no barrier', async () => {
@@ -92,8 +118,8 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
     expect(res.exhaustedEdges).toEqual([])
   })
 
-  it('role-chain: scout, builder, reviewer in order, each directive carrying the last output', async () => {
-    const { graph, opts } = roleChain()
+  it('role-chain: scout, builder, reviewer in order, each task carrying the output the root read', async () => {
+    const { graph, opts, tasks } = roleChain()
     const res = await runGraphWithTestBrain(graph, opts)
 
     expect(res.result.kind).toBe('winner')
@@ -103,11 +129,19 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
       ['delegates:lead->builder', 'delivered', 'chain:s1'],
       ['delegates:lead->reviewer', 'delivered', 'chain:s2'],
     ])
-    // A task that carries the previous stage's output is at least that many bytes longer.
-    const scout = rows[0]!.bytes
-    expect(rows[1]!.bytes).toBeGreaterThanOrEqual(scout + Buffer.byteLength(SCOUT_OUT))
-    expect(rows[2]!.bytes).toBeGreaterThanOrEqual(scout + Buffer.byteLength(BUILDER_OUT))
+    // Each brief carries what the previous worker produced, as observe_agent returned it.
+    expect(String(tasks().builder)).toContain(JSON.stringify(STAGE_OUT.scout))
+    expect(String(tasks().reviewer)).toContain(JSON.stringify(STAGE_OUT.builder))
+    expect(delivered(res)).toEqual({ fix: STAGE_OUT.builder, review: STAGE_OUT.reviewer })
     expect(res.exhaustedEdges).toEqual([])
+
+    // The control: a different scout finding changes the builder's brief, so the brief is read
+    // from the worker, not written into the script.
+    const other = { ...STAGE_OUT, scout: { file: 'src/lex.ts', defect: 'drops a byte-order mark' } }
+    const alt = roleChain(other)
+    await runGraphWithTestBrain(alt.graph, alt.opts)
+    expect(String(alt.tasks().builder)).toContain(JSON.stringify(other.scout))
+    expect(String(alt.tasks().builder)).not.toContain(JSON.stringify(STAGE_OUT.scout))
   })
 
   it('isolated-writers-integrate: three writer traversals, then the integrator', async () => {
@@ -125,8 +159,8 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
     expect(analyzesOf(res)).toEqual([])
   })
 
-  it('discovered-fanout-reduce: N traversals on one edge, two live at a time, then the reducer', async () => {
-    const { graph, opts, peakLive } = discoveredFanoutReduce()
+  it('discovered-fanout-reduce: N traversals on one edge, workerSlots live at a time, then the reducer', async () => {
+    const { graph, opts, peakLive } = discoveredFanoutReduce(2)
     const res = await runGraphWithTestBrain(graph, opts)
 
     expect(res.result.kind).toBe('winner')
@@ -143,9 +177,16 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
     // Concurrency is the run's workerSlots (2), reached and never exceeded.
     expect(peakLive()).toBe(2)
     expect(res.exhaustedEdges).toEqual([])
+
+    // The control: the same run with workerSlots 4 has all four readers live together, so the
+    // measurement sees the slot limit rather than a ceiling of its own.
+    const wide = discoveredFanoutReduce(4)
+    const wideRes = await runGraphWithTestBrain(wide.graph, wide.opts)
+    expect(edgesOf(wideRes, 'delegates:lead->reader')).toHaveLength(4)
+    expect(wide.peakLive()).toBe(4)
   })
 
-  it('skeptic-majority: three findings per settle, and the 2-of-3 decision follows the votes', async () => {
+  it('skeptic-majority: three findings per settle, and the delivered decision follows the votes', async () => {
     const kept = skepticMajority(['holds', 'holds', 'refuted'])
     const res = await runGraphWithTestBrain(kept.graph, kept.opts)
     expect(res.result.kind).toBe('winner')
@@ -159,17 +200,19 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
       ['analyzes:skeptic-repro:claimant->lead', 'lead', 'delivered'],
       ['analyzes:skeptic-scope:claimant->lead', 'lead', 'delivered'],
     ])
-    expect(kept.decision()).toEqual({ kept: true, holds: 2, refuted: 1 })
+    expect(delivered(res)).toEqual({ kept: true, holds: 2, refuted: 1, claim: CLAIM })
     // The panel is diverse by construction: three skeptics, three model families.
     const families = kept.graph.nodes
       .filter((n) => n.id.startsWith('skeptic-'))
       .map((n) => n.profile.model?.provider)
     expect(new Set(families).size).toBe(3)
 
-    // The negative control: the same graph with two refutations drops the claim.
+    // The negative control: the same graph with two refutations drops the claim, and the run
+    // returns the votes without it.
     const dropped = skepticMajority(['refuted', 'holds', 'refuted'])
-    await runGraphWithTestBrain(dropped.graph, dropped.opts)
-    expect(dropped.decision()).toEqual({ kept: false, holds: 1, refuted: 2 })
+    const droppedRes = await runGraphWithTestBrain(dropped.graph, dropped.opts)
+    expect(delivered(droppedRes)).toEqual({ kept: false, holds: 1, refuted: 2 })
+    expect(JSON.stringify(delivered(droppedRes))).not.toContain(CLAIM.claim)
   })
 
   it('conditional-skip: with zero findings the verify edge has zero traversals, by design', async () => {
@@ -189,8 +232,8 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
     expect(skipped.exhaustedEdges).toEqual([])
   })
 
-  it('judge-panel: two judges score all three attempts, and the winner is the top total', async () => {
-    const { graph, opts, decision } = judgePanel()
+  it('judge-panel: two judges score all three attempts, and the run delivers the top total', async () => {
+    const { graph, opts } = judgePanel()
     const res = await runGraphWithTestBrain(graph, opts)
 
     expect(res.result.kind).toBe('winner')
@@ -200,10 +243,12 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
     expect(scores.filter((r) => r.edge.startsWith('analyzes:judge-rigor:'))).toHaveLength(3)
     expect(scores.filter((r) => r.edge.startsWith('analyzes:judge-clarity:'))).toHaveLength(3)
 
-    const winner = decision()?.winner
-    const attemptB = delegatesOf(res).find((r) => r.to === 'attempt-b')
-    expect(winner).toBe(attemptB?.workerId)
-    expect(decision()?.totals[winner as string]).toBeCloseTo(1.7)
+    // result.out is attempt-b's own work (not attempt-a, the default finalizer's tie pick).
+    const out = delivered(res) as PanelDecision
+    expect(out.winner).toEqual(ATTEMPT_OUT['attempt-b'])
+    const attemptB = delegatesOf(res).find((r) => r.to === 'attempt-b')?.workerId as string
+    expect(out.totals[attemptB]).toBeCloseTo(1.7)
+    expect(Math.max(...Object.values(out.totals))).toBeCloseTo(1.7)
   })
 
   it('loop-until-dry: stops at two dry rounds, with the cap unused', async () => {

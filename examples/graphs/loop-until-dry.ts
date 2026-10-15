@@ -1,8 +1,9 @@
 /**
- * loop-until-dry — P09 + P10: re-run the finder until a completeness critic finds nothing new.
+ * loop-until-dry — P09 + P10 (README catalog): re-run the finder until a completeness critic finds
+ * nothing new.
  *
- * The corpus has a handful of scripts (3 primary, plus the 33 that end with a completeness
- * critic) that keep sweeping until a round turns up nothing new. The graph is a `finder` on a
+ * Some workflows keep sweeping until a round turns up nothing new, often closing with a
+ * completeness critic. The graph is a `finder` on a
  * `continuity: 'resume'` delegates edge, so every later sweep continues the finder's own session,
  * and a `critic` analyst NODE that reports how many NEW findings each sweep added. The stop rule
  * lives in the driver: two dry rounds in a row end the loop. `maxTraversals: 6` is only the

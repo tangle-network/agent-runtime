@@ -92,12 +92,37 @@ export function scriptedBrain(turns: ScriptedTurn[]): ToolLoopChat {
 
 /** What one settle of a node should produce (per spawn ordinal; the last entry repeats). */
 export interface LeafShot {
-  out: unknown
+  /** The settle output. */
+  out?: unknown
+  /** For an analyst node: build the settle output from the source worker's output exactly as this
+   *  spawn's task carried it (`sourceOutputOf`), so the finding reports what the analyst read. */
+  fromSource?: (source: unknown) => unknown
   valid: boolean
   score?: number
   /** Awaited just before this settle, so an example can hold one worker open until another
    *  event has happened (a rendezvous, or a downstream spawn). */
   after?: () => Promise<void>
+}
+
+const SOURCE_EXCERPT = 'Bounded source excerpt (omitted evidence is not inspected): '
+
+/** The settled worker's output as an analyst agent's task carries it: Runtime hands every analyst
+ *  run the source envelope (`{ worker, output }`) as a bounded excerpt. Throws when the task has no
+ *  excerpt or the excerpt was cut, so an analyst can never report on output it did not see. */
+export function sourceOutputOf(task: unknown): unknown {
+  const part =
+    typeof task === 'string'
+      ? task.split('\n\n').find((p) => p.startsWith(SOURCE_EXCERPT))
+      : undefined
+  if (part === undefined) throw new Error('not an analyst task: it carries no source excerpt')
+  const excerpt = JSON.parse(part.slice(SOURCE_EXCERPT.length)) as {
+    text: string
+    omittedChars: number
+  }
+  if (excerpt.omittedChars > 0) {
+    throw new Error(`the source excerpt omits ${excerpt.omittedChars} characters`)
+  }
+  return (JSON.parse(excerpt.text) as { output?: unknown }).output
 }
 
 export interface LeafOptions {
@@ -175,11 +200,15 @@ export function leafSeam(
           }
         }
         if (gate) await gate
-        await shot?.after?.()
+        if (shot?.after) await shot.after()
         const valid = shot ? shot.valid : true
         artifact = {
           outRef: `w:${name}:${attempt}`,
-          out: shot ? shot.out : { built: name, attempt },
+          out: shot?.fromSource
+            ? shot.fromSource(sourceOutputOf(context?.task))
+            : shot
+              ? shot.out
+              : { built: name, attempt },
           verdict: { valid, score: shot?.score ?? (valid ? 1 : 0) },
           spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
         }
@@ -222,6 +251,15 @@ export function printLedger(tag: string, res: GraphResult): void {
 
 /** The root's spawn grant — the one tool a node needs to be a driver (or a nested supervisor). */
 export const SPAWN_TOOL = 'agent_runtime_coordination_spawn_worker'
+
+/** The grants a root needs to DELIVER its own decision: `observe_agent` reads a settled worker's
+ *  output, and `submit_result` hands the result to the graph's deliverable check, which makes it
+ *  the run's `result.out`. Without them the run's output is whatever the default finalizer picks
+ *  (the first highest-scoring delivered worker), whatever the root decided. */
+export const DECIDING_ROOT_TOOLS: Readonly<Record<string, boolean>> = {
+  agent_runtime_coordination_observe_agent: true,
+  agent_runtime_coordination_submit_result: true,
+}
 
 /** A root node: an offline profile that may spawn the graph's workers (plus any extra grants). */
 export function driverNode(
@@ -292,15 +330,67 @@ export function settledOf(
     .map((e) => ({ id: String(e.settled), valid: e.valid === true, score: Number(e.score ?? 0) }))
 }
 
+/** Every tool result the driver has received, by tool-call id, parsed when it is JSON. */
+export function toolResults(
+  messages: ReadonlyArray<Record<string, unknown>>,
+): Map<string, unknown> {
+  const results = new Map<string, unknown>()
+  for (const message of messages) {
+    if (message.role !== 'tool' || typeof message.tool_call_id !== 'string') continue
+    const content = message.content
+    try {
+      results.set(message.tool_call_id, typeof content === 'string' ? JSON.parse(content) : content)
+    } catch {
+      results.set(message.tool_call_id, content)
+    }
+  }
+  return results
+}
+
+/** The worker output an `observe_agent` call (by its tool-call id) returned, if it has returned. */
+export function observedOutput(results: ReadonlyMap<string, unknown>, callId: string): unknown {
+  return (results.get(callId) as { output?: unknown } | undefined)?.output
+}
+
+/** The worker id a `spawn_worker` call (by its tool-call id) returned, if it has returned. */
+export function spawnedId(
+  results: ReadonlyMap<string, unknown>,
+  callId: string,
+): string | undefined {
+  return (results.get(callId) as { workerId?: string } | undefined)?.workerId
+}
+
+/** The driver's last step: submit `result` through `submit_result`. Once a submission is accepted
+ *  the turn ends; a submission refused because work is still open ends the turn too, and the next
+ *  wake submits again. */
+export function submitTurn(
+  results: ReadonlyMap<string, unknown>,
+  call: number,
+  result: unknown,
+): ScriptedTurn {
+  for (const [id, value] of results) {
+    if (id.startsWith('submit-') && (value as { accepted?: unknown }).accepted === true) {
+      return { content: 'delivered' }
+    }
+  }
+  if (results.has(`submit-${call - 1}`)) return { content: 'waiting to submit again' }
+  return { toolCalls: [{ id: `submit-${call}`, name: 'submit_result', arguments: { result } }] }
+}
+
 /** A driver whose next move depends on what the events SAY, not just that they arrived: `decide`
- *  sees every event so far plus how many times it has been asked, and returns the next turn (a
- *  turn with no tool call ends the driver's turn to wait). Tool-call ids are minted here. */
+ *  sees every event so far, how many times it has been asked, and every tool result so far (by
+ *  tool-call id), and returns the next turn (a turn with no tool call ends the driver's turn to
+ *  wait). Tool-call ids not given by the turn are minted here. */
 export function reactiveBrain(
-  decide: (events: WakeEvent[], call: number) => ScriptedTurn,
+  decide: (
+    events: WakeEvent[],
+    call: number,
+    results: ReadonlyMap<string, unknown>,
+  ) => ScriptedTurn,
 ): ToolLoopChat {
   let call = 0
   return async (messages) => {
-    const turn = decide(wakeEvents(messages), call)
+    const turn = decide(wakeEvents(messages), call, toolResults(messages))
     call += 1
     return {
       ...(turn.content !== undefined ? { content: turn.content } : {}),

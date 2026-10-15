@@ -1,7 +1,8 @@
 /**
- * conditional-skip — P13: a stage that runs only when the previous one found something.
+ * conditional-skip — P13 (README catalog): a stage that runs only when the previous one found
+ * something.
  *
- * 169 scripts gate a later stage on an earlier result (no findings means no verification). In a
+ * Workflows often gate a later stage on an earlier result (no findings means no verification). In a
  * graph the gate is the absence of a traversal: the `verifier` edge exists in the data, and the
  * root spawns the verifier only when the finder's own verdict says it found something. Run with
  * zero findings and the ledger has ONE row (the finder) and the verify edge has zero traversals,

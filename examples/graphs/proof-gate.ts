@@ -1,10 +1,12 @@
 /**
- * proof-gate — P25: a destructive step is delegated only after an analyst verifies its proof.
+ * proof-gate — P25 (README catalog): a destructive step is delegated only after an analyst verifies
+ * its proof.
  *
- * The corpus has destructive stages (purge, drop, delete) that must not run until a precondition
- * is proven. The `purge` node has its own `delegates` edge capped at one traversal, and a `proof`
- * analyst NODE reads the `backup` worker's settle and reports the bytes it actually wrote. The
- * root spawns `purge` only on a positive byte count. With a real backup the ledger shows the
+ * Destructive stages (purge, drop, delete) must not run until a precondition is proven. The `purge`
+ * node has its own `delegates` edge capped at one traversal, and a `proof` analyst NODE reads the
+ * `backup` worker's settled output, as its task carried it, and reports the bytes that output says
+ * were written. The proof has no input of its own: what it reports is derived from what it read.
+ * The root spawns `purge` only on a positive byte count. With a real backup the ledger shows the
  * purge spawn; with an empty one the destructive edge has ZERO traversals, which is the gate
  * working, not a failure.
  *
@@ -58,7 +60,18 @@ export function proofGate(backupBytes = 4096): { graph: AgentGraph; opts: RunGra
         withTrace: true,
         shots: [{ out: { snapshot: 'snap-1', bytes: backupBytes }, valid: true }],
       },
-      proof: { shots: [{ out: { bytes: backupBytes }, valid: true }] },
+      // The proof reads the backup's output from its own task, never from `backupBytes`.
+      proof: {
+        shots: [
+          {
+            fromSource: (backup: unknown) => {
+              const { snapshot, bytes } = backup as { snapshot?: string; bytes?: number }
+              return { snapshot, bytes: typeof bytes === 'number' ? bytes : 0 }
+            },
+            valid: true,
+          },
+        ],
+      },
       purge: { shots: [{ out: { purged: true }, valid: true }] },
     }),
     brain: reactiveBrain((events, call) => {

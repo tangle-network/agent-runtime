@@ -1,7 +1,8 @@
 /**
- * arm-comparison — P22: the same task under three graphs, each run recorded, the best one picked.
+ * arm-comparison — P22 (README catalog): the same task under three graphs, each run recorded, the
+ * best one picked.
  *
- * Two scripts in the corpus run one task under different arms and compare. Here the arms are three
+ * Some workflows run one task under different arms and compare. Here the arms are three
  * graphs for one task shape: `solo` (one worker), `reviewed` (a builder plus a reviewer analyst
  * node) and `best-of-3` (three builders). Each runs offline, and each run is recorded in the graph
  * registry with its terminal accounting, exactly as the designer does it
@@ -161,14 +162,16 @@ export async function compareArms(registryDir: string): Promise<ArmComparison> {
   for (const arm of all) {
     const startedAt = new Date().toISOString()
     const res = await runGraphWithTestBrain(arm.graph, arm.opts)
-    const delivered = res.result.kind === 'winner'
     const spent = res.result.spentTotal
     await recordGraphRun(registry, arm.graph, {
       graphDigest: digestOfGraph(arm.graph),
       taskDigest,
       startedAt,
       finishedAt: new Date().toISOString(),
-      outcome: delivered ? { kind: 'delivered' } : { kind: 'no-winner', reason: res.result.kind },
+      outcome:
+        res.result.kind === 'winner'
+          ? { kind: 'delivered' }
+          : { kind: 'no-winner', reason: res.result.reason },
       cost: {
         iterations: spent.iterations,
         tokens: spent.tokens.input + spent.tokens.output,

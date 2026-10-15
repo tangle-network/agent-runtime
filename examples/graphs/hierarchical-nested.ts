@@ -1,7 +1,8 @@
 /**
- * hierarchical-nested — P18 + P15: a planner, a team lead that runs its own workers, an integrator.
+ * hierarchical-nested — P18 + P15 (README catalog): a planner, a team lead that runs its own
+ * workers, an integrator.
  *
- * Seven scripts in the corpus are hierarchical. In a fixed graph the hierarchy is a node that
+ * In a fixed graph the hierarchy is a node that
  * declares the spawn tool: `lead` carries `agent_runtime_coordination_spawn_worker`, so the graph
  * runs it as a NESTED SUPERVISOR with its own brain and its own scope instead of a leaf. The lead
  * spawns `impl-a` and `impl-b`, which are graph nodes like any other, so every delegation is
@@ -61,13 +62,13 @@ export function hierarchicalNested(): { graph: AgentGraph; opts: RunGraphTestOpt
   const opts: RunGraphTestOptions = {
     runId: 'h',
     workerSlots: 3,
-    // The nested lead's brain: spawn its two workers, wait for both, finish.
+    // The nested lead's brain: spawn its two workers, wait until BOTH have settled, finish.
     router: {
       routerBaseUrl: 'http://offline.invalid/v1',
       routerKey: 'offline',
       complete: scriptedRouter([
         { toolCalls: [spawn('impl-a', 'first half'), spawn('impl-b', 'second half')] },
-        { content: 'waiting for the implementers' },
+        { content: 'waiting for the implementers', until: seen('"type":"settled"', 2) },
         { content: 'done' },
       ]),
     },

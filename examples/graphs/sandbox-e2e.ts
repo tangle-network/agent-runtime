@@ -6,7 +6,9 @@
  * real path: `backend: { backend: 'sandbox', sandboxClient, validator }` places the worker (and
  * each skeptic, since an analyst node runs through the same spawn machinery) in its own box, and
  * the validator runs `cat /work/answer.txt` INSIDE the worker's live box before it is torn down.
- * It prints the edge ledger, each node's measured cost, and the verdict the skeptics reached.
+ * It prints the edge ledger, each node's measured cost, and the run's result kind. The skeptics'
+ * findings reach the root as `analyzes` rows; this example does not tally them into a decision
+ * (`skeptic-majority.ts` is the offline form that does).
  *
  * It spends real money, so it is opt-in and it SKIPS CLEANLY: with any variable below unset it
  * prints which ones and exits 0 without creating anything. Credentials are read from the
@@ -159,13 +161,14 @@ export async function sandboxE2e(env: NodeJS.ProcessEnv = process.env): Promise<
   }
   const total = res.result.spentTotal
   console.log(`total: ${total.tokens.input + total.tokens.output} tokens, $${total.usd}`)
-  console.log(`verdict: ${res.result.kind}`)
+  console.log(`result.kind: ${res.result.kind}`)
   return { status: 'ran', kind: res.result.kind }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   sandboxE2e().catch((err) => {
-    console.error(err)
+    // Only the message: a thrown request or client error can carry headers or config with the key.
+    console.error(err instanceof Error ? err.message : String(err))
     process.exit(1)
   })
 }

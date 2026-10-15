@@ -1,7 +1,8 @@
 /**
- * isolated-writers-integrate — P12: parallel writers on isolated workspaces, then one integrator.
+ * isolated-writers-integrate — P12 (README catalog): parallel writers on isolated workspaces, then
+ * one integrator.
  *
- * 48 of the 660 scripts give each parallel writer its own git worktree so edits cannot collide,
+ * Workflows of this pattern give each parallel writer its own git worktree so edits cannot collide,
  * then merge. In agent-runtime the isolation is the NODE: each writer is its own worker with its
  * own execution environment (on the sandbox backend, its own box), so no worktree juggling is
  * needed. The integrator is a fourth worker the root spawns only after the last writer settles,

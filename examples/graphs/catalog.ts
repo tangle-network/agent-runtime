@@ -1,19 +1,32 @@
 /**
- * The catalog of graph examples, and the structural signature that keeps them from repeating.
+ * The catalog of graph examples, and the two fingerprints that keep them from repeating.
  *
- * Every example in this directory that builds a fixed `AgentGraph` is listed here with a factory
- * for its graph(s). `structuralSignature` reduces a graph to the facts that make one topology
- * different from another (node count by role, which tools the root holds, the model families,
- * each edge's kind, cap and continuity, where each analyst sits and where it reports). The audit
- * test (`tests/examples/graph-signature-audit.test.ts`) fails when two examples share a signature
- * or when a file in this directory is neither catalogued nor named in `NOT_GRAPH_FILES`, so a new
- * example cannot repeat an old shape and cannot dodge the check.
+ * Every graph an example in this directory builds is listed here ONCE, by name: an example that
+ * compares arms lists each arm. The audit test (`tests/examples/graph-signature-audit.test.ts`)
+ * compares graphs pairwise, in two steps.
  *
- * Prompts, directives and scripted outputs are deliberately NOT part of the signature: two graphs
- * that differ only in wording are the same topology.
+ *   1. `graphSignature` reduces a graph to its topology with the incidental numbers bucketed away:
+ *      node count by role (one or many), each edge's kind, continuity and destination role, each
+ *      analyst's form (node or lens), and whether an edge DECLARES repetition (an explicit cap
+ *      above one) — not the exact cap, not the width, not the model provider, not the root's
+ *      non-spawn grants, not any wording. Two graphs with equal signatures are the same topology.
+ *   2. For graphs with equal signatures, `ledgerShape` runs each example's offline scenarios and
+ *      fingerprints what the run DID: the driver's spawn waves in order (how many workers each
+ *      turn spawned, one or many, with consecutive equal waves collapsed), the analyzes rows, the
+ *      continuity stamps and the outcomes. Equal topology plus equal ledger shape is a duplicate.
+ *
+ * A graph that is another catalogued graph's topology on purpose says so with `reuses` (an arm of
+ * a comparison, the live run of an offline example); the audit checks that the named graph really
+ * has the same signature, so the claim cannot go stale. Prompts, directives and scripted outputs
+ * are never part of either fingerprint: two graphs that differ only in wording are one example.
  */
 
-import type { AgentGraph } from '@tangle-network/agent-runtime/kernel'
+import type { AgentGraph, GraphResult } from '@tangle-network/agent-runtime/kernel'
+import {
+  type RunGraphTestOptions,
+  runGraphWithTestBrain,
+  type ToolLoopChat,
+} from '../../src/testing'
 import { analystAgentReview } from './analyst-agent-review'
 import { arms } from './arm-comparison'
 import { bestOfN } from './best-of-n'
@@ -37,38 +50,103 @@ import { staticFanoutSynthesize } from './static-fanout-synthesize'
 import { userSimConversation } from './user-sim-conversation'
 import { watchdogSteer } from './watchdog-steer'
 
-export interface CatalogEntry {
-  /** The example file, without the extension. */
-  readonly file: string
-  /** The graph(s) it builds. An example that compares arms builds several. */
-  readonly graphs: () => AgentGraph[]
+/** One run of a catalogued graph. `opts` is absent when the graph cannot run offline. */
+export interface CatalogRun {
+  readonly graph: AgentGraph
+  readonly opts?: RunGraphTestOptions
 }
 
-export const catalog: readonly CatalogEntry[] = [
-  { file: 'analyst-agent-review', graphs: () => [analystAgentReview().graph] },
-  { file: 'best-of-n', graphs: () => [bestOfN().graph] },
-  { file: 'collaborates-review-loop', graphs: () => [collaboratesReviewLoop().graph] },
-  { file: 'shot-loop', graphs: () => [shotLoop().graph] },
-  { file: 'shot-loop-resumed', graphs: () => [shotLoopResumed().graph] },
-  { file: 'user-sim-conversation', graphs: () => [userSimConversation().graph] },
-  { file: 'watchdog-steer', graphs: () => [watchdogSteer().graph] },
-  { file: 'static-fanout-synthesize', graphs: () => [staticFanoutSynthesize().graph] },
-  { file: 'per-item-pipeline', graphs: () => [perItemPipeline().graph] },
-  { file: 'role-chain', graphs: () => [roleChain().graph] },
-  { file: 'isolated-writers-integrate', graphs: () => [isolatedWritersIntegrate().graph] },
-  { file: 'discovered-fanout-reduce', graphs: () => [discoveredFanoutReduce().graph] },
-  { file: 'skeptic-majority', graphs: () => [skepticMajority().graph] },
-  { file: 'conditional-skip', graphs: () => [conditionalSkip().graph] },
-  { file: 'judge-panel', graphs: () => [judgePanel().graph] },
-  { file: 'loop-until-dry', graphs: () => [loopUntilDry().graph] },
-  { file: 'hierarchical-nested', graphs: () => [hierarchicalNested().graph] },
-  { file: 'dependency-waves', graphs: () => [dependencyWaves().graph] },
-  { file: 'proof-gate', graphs: () => [proofGate().graph] },
-  { file: 'arm-comparison', graphs: () => arms().map((arm) => arm.graph) },
+export interface CatalogGraph {
+  /** The example file, without the extension. */
+  readonly file: string
+  /** The graph's name: the file, or `file/arm` for an example that builds several graphs. */
+  readonly name: string
+  /** Every scenario the example runs this graph in (one graph, different scripted inputs). */
+  readonly runs: () => CatalogRun[]
+  /** This graph is the named graph's topology on purpose, and why. */
+  readonly reuses?: { readonly name: string; readonly why: string }
+}
+
+const one = (file: string, run: () => CatalogRun, extra: Partial<CatalogGraph> = {}) => ({
+  file,
+  name: file,
+  runs: () => [run()],
+  ...extra,
+})
+
+export const catalog: readonly CatalogGraph[] = [
+  one('analyst-agent-review', analystAgentReview),
+  one('best-of-n', bestOfN),
+  one('collaborates-review-loop', collaboratesReviewLoop),
+  one('shot-loop', shotLoop),
+  one('shot-loop-resumed', shotLoopResumed),
+  one('user-sim-conversation', () => ({ graph: userSimConversation().graph }), {
+    reuses: {
+      name: 'shot-loop-resumed',
+      why: 'the resumed loop again, run on chatTransportExecutor: what it adds is the executor and the wire-level history, not a topology',
+    },
+  }),
+  one('watchdog-steer', watchdogSteer),
   {
-    file: 'sandbox-e2e',
-    graphs: () => [sandboxE2eGraph({ root: 'r', worker: 'w', skepticA: 'a', skepticB: 'b' })],
+    file: 'static-fanout-synthesize',
+    name: 'static-fanout-synthesize',
+    runs: () => [
+      staticFanoutSynthesize(),
+      staticFanoutSynthesize({ risk: 'high', cost: 'medium', fit: 'low' }),
+    ],
   },
+  one('per-item-pipeline', perItemPipeline),
+  one('role-chain', roleChain),
+  one('isolated-writers-integrate', isolatedWritersIntegrate),
+  one('discovered-fanout-reduce', discoveredFanoutReduce),
+  {
+    file: 'skeptic-majority',
+    name: 'skeptic-majority',
+    runs: () => [
+      skepticMajority(['holds', 'holds', 'refuted']),
+      skepticMajority(['refuted', 'holds', 'refuted']),
+    ],
+  },
+  {
+    file: 'conditional-skip',
+    name: 'conditional-skip',
+    runs: () => [conditionalSkip(['null deref', 'stale cache']), conditionalSkip([])],
+  },
+  one('judge-panel', judgePanel),
+  one('loop-until-dry', loopUntilDry),
+  one('hierarchical-nested', hierarchicalNested),
+  one('dependency-waves', dependencyWaves),
+  { file: 'proof-gate', name: 'proof-gate', runs: () => [proofGate(4096), proofGate(0)] },
+  ...['solo', 'reviewed', 'best-of-3'].map((arm) => ({
+    file: 'arm-comparison',
+    name: `arm-comparison/${arm}`,
+    runs: () => arms().filter((a) => a.name === arm),
+    ...(arm === 'reviewed'
+      ? {
+          reuses: {
+            name: 'analyst-agent-review',
+            why: 'an arm of the comparison: one builder reviewed by an analyst node, the existing shape',
+          },
+        }
+      : arm === 'best-of-3'
+        ? {
+            reuses: {
+              name: 'best-of-n',
+              why: 'an arm of the comparison: parallel candidates under one root, the existing shape',
+            },
+          }
+        : {}),
+  })),
+  one(
+    'sandbox-e2e',
+    () => ({ graph: sandboxE2eGraph({ root: 'r', worker: 'w', skepticA: 'a', skepticB: 'b' }) }),
+    {
+      reuses: {
+        name: 'skeptic-majority',
+        why: 'the live run of the skeptic panel on the sandbox backend; it cannot run offline',
+      },
+    },
+  ),
 ]
 
 /** Files here that are not a fixed-graph example, with the reason. */
@@ -78,44 +156,104 @@ export const NOT_GRAPH_FILES: Readonly<Record<string, string>> = {
   'designer-live': 'a live designer script that authors graphs at run time; it has no fixed graph',
 }
 
-/** The topology of one graph as a string: equal strings mean the same shape. */
-export function structuralSignature(graph: AgentGraph): string {
-  const nodes = new Map(graph.nodes.map((n) => [n.id, n]))
+type Role = 'root' | 'worker' | 'analyst-node' | 'nested-supervisor'
+
+/** Who each node is in the graph: the root, a worker, an analyst node, or a nested supervisor. */
+export function rolesOf(graph: AgentGraph): (id: string) => Role {
   const delegates = graph.edges.filter((e) => e.kind === 'delegates')
-  const analyzes = graph.edges.filter((e) => e.kind === 'analyzes')
   const delegated = new Set(delegates.map((e) => e.to))
   const root = delegates.map((e) => e.from).find((id) => !delegated.has(id)) ?? ''
-  const analystNodes = new Set(analyzes.map((e) => e.analyst).filter((id) => nodes.has(id)))
-
-  const roleOf = (id: string): string => {
+  const nodes = new Map(graph.nodes.map((n) => [n.id, n]))
+  const analysts = new Set(
+    graph.edges.flatMap((e) => (e.kind === 'analyzes' && nodes.has(e.analyst) ? [e.analyst] : [])),
+  )
+  return (id) => {
     if (id === root) return 'root'
-    if (analystNodes.has(id)) return 'analyst-node'
+    if (analysts.has(id)) return 'analyst-node'
     return nodes.get(id)?.profile.tools?.[SPAWN_TOOL] === true ? 'nested-supervisor' : 'worker'
   }
-  const roles: Record<string, number> = {}
-  for (const n of graph.nodes) roles[roleOf(n.id)] = (roles[roleOf(n.id)] ?? 0) + 1
+}
 
-  const cap = (e: { maxTraversals?: number }) => e.maxTraversals ?? 'default'
+/** One or many: the width bucket. */
+const width = (n: number): string => (n <= 1 ? String(n) : 'many')
+
+/** A multiset of tokens, each with its count bucketed. */
+function bucketed(tokens: ReadonlyArray<string>): string[] {
+  const counts = new Map<string, number>()
+  for (const t of tokens) counts.set(t, (counts.get(t) ?? 0) + 1)
+  return [...counts].map(([t, n]) => `${t}×${width(n)}`).sort()
+}
+
+/** An edge declares repetition only with an explicit cap above one. No cap is the cyclic-graph
+ *  backstop, not a declared loop, so it buckets with a cap of one. */
+const repeats = (e: { maxTraversals?: number }): string =>
+  e.maxTraversals !== undefined && e.maxTraversals > 1 ? 'repeat' : 'once'
+
+/** The topology of one graph as a string, incidental numbers bucketed away: equal strings mean
+ *  the same shape. */
+export function graphSignature(graph: AgentGraph): string {
+  const role = rolesOf(graph)
+  const nodes = new Set(graph.nodes.map((n) => n.id))
   return JSON.stringify({
-    roles: Object.fromEntries(Object.entries(roles).sort()),
-    rootTools: Object.keys(nodes.get(root)?.profile.tools ?? {}).sort(),
-    families: graph.nodes
-      .filter((n) => n.id !== root)
-      .map((n) => n.profile.model?.provider ?? '')
-      .sort(),
-    delegates: delegates
-      .map((e) => `${roleOf(e.to)}|cap=${cap(e)}|${e.continuity ?? 'fresh'}`)
-      .sort(),
-    analyzes: analyzes
-      .map(
-        (e) =>
-          `${nodes.has(e.analyst) ? 'node' : 'lens'}|over=${e.over.length}|to=${roleOf(e.to)}|cap=${cap(e)}`,
-      )
-      .sort(),
+    roles: bucketed(graph.nodes.map((n) => role(n.id))),
+    delegates: bucketed(
+      graph.edges.flatMap((e) =>
+        e.kind === 'delegates' ? [`${role(e.to)}|${repeats(e)}|${e.continuity ?? 'fresh'}`] : [],
+      ),
+    ),
+    analyzes: bucketed(
+      graph.edges.flatMap((e) =>
+        e.kind === 'analyzes'
+          ? [
+              `${nodes.has(e.analyst) ? 'node' : 'lens'}|over=${width(e.over.length)}|to=${role(e.to)}|${repeats(e)}`,
+            ]
+          : [],
+      ),
+    ),
   })
 }
 
-/** The signature of a catalogued example: one graph's, or the sorted set of its arms'. */
-export function exampleSignature(entry: CatalogEntry): string {
-  return entry.graphs().map(structuralSignature).sort().join(' || ')
+/** What one run DID, as a string: the driver's spawn waves in order (each wave the roles it
+ *  spawned or steered, counts bucketed, consecutive equal waves collapsed to `…`), the analyzes
+ *  rows by destination role, and the continuity stamps and outcomes the ledger recorded. */
+export async function ledgerShape(run: Required<CatalogRun>): Promise<string> {
+  const role = rolesOf(run.graph)
+  const waves: string[] = []
+  const inner = run.opts.brain
+  const brain: ToolLoopChat = async (messages, tools, context) => {
+    const turn = await inner(messages, tools, context)
+    const wave = turn.toolCalls.flatMap((tc) => {
+      if (tc.name === 'steer_agent') return ['steer']
+      if (tc.name !== 'spawn_worker') return []
+      const args = JSON.parse(tc.arguments) as { profile?: { name?: string } }
+      return [role(args.profile?.name ?? '')]
+    })
+    if (wave.length > 0) waves.push(bucketed(wave).join('+'))
+    return turn
+  }
+  const res: GraphResult = await runGraphWithTestBrain(run.graph, { ...run.opts, brain })
+  const collapsed: string[] = []
+  for (const wave of waves) {
+    const last = collapsed.at(-1)
+    if (last === wave || last === `${wave}…`) collapsed[collapsed.length - 1] = `${wave}…`
+    else collapsed.push(wave)
+  }
+  const kinds = (pick: (row: GraphResult['ledger'][number]) => string) =>
+    [...new Set(res.ledger.map(pick))].sort()
+  return JSON.stringify({
+    waves: collapsed,
+    analyzes: bucketed(res.ledger.filter((r) => r.kind === 'analyzes').map((r) => role(r.to))),
+    continuity: kinds((r) => r.continuity),
+    outcomes: kinds((r) => r.outcome),
+  })
+}
+
+/** The ledger shape of every offline scenario of a catalogued graph, deduplicated and sorted;
+ *  `undefined` when the graph cannot run offline. */
+export async function exampleShape(entry: CatalogGraph): Promise<string[] | undefined> {
+  const runs = entry.runs()
+  if (runs.some((r) => r.opts === undefined)) return undefined
+  const shapes = []
+  for (const run of runs) shapes.push(await ledgerShape(run as Required<CatalogRun>))
+  return [...new Set(shapes)].sort()
 }

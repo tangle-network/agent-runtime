@@ -1,7 +1,7 @@
 /**
- * dependency-waves — P23 + P24: nodes released in dependency order, in waves.
+ * dependency-waves — P23 + P24 (README catalog): nodes released in dependency order, in waves.
  *
- * Two scripts in the corpus run ordered waves and two a dependency DAG; the shape is the same: a
+ * Ordered waves and a dependency DAG are one shape: a
  * node starts only when the nodes it needs have settled. The graph holds the five workers (one
  * `delegates` edge each, one traversal apiece); the DAG itself (`schema` first; `api`, `ui`,
  * `docs` once `schema` settles; `e2e` once `api` and `ui` settle) is the driver's release rule,
