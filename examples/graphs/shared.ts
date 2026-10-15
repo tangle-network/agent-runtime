@@ -369,7 +369,7 @@ export function submitTurn(
   result: unknown,
 ): ScriptedTurn {
   for (const [id, value] of results) {
-    if (id.startsWith('submit-') && (value as { accepted?: unknown }).accepted === true) {
+    if (id.startsWith('submit-') && (value as { accepted?: unknown } | null)?.accepted === true) {
       return { content: 'delivered' }
     }
   }

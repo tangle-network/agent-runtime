@@ -67,12 +67,12 @@ export interface CatalogGraph {
   readonly reuses?: { readonly name: string; readonly why: string }
 }
 
-const one = (file: string, run: () => CatalogRun, extra: Partial<CatalogGraph> = {}) => ({
-  file,
-  name: file,
-  runs: () => [run()],
-  ...extra,
-})
+/** An example that builds one graph, run in one scenario. */
+const one = (
+  file: string,
+  run: () => CatalogRun,
+  reuses?: CatalogGraph['reuses'],
+): CatalogGraph => ({ file, name: file, runs: () => [run()], ...(reuses ? { reuses } : {}) })
 
 export const catalog: readonly CatalogGraph[] = [
   one('analyst-agent-review', analystAgentReview),
@@ -81,10 +81,8 @@ export const catalog: readonly CatalogGraph[] = [
   one('shot-loop', shotLoop),
   one('shot-loop-resumed', shotLoopResumed),
   one('user-sim-conversation', () => ({ graph: userSimConversation().graph }), {
-    reuses: {
-      name: 'shot-loop-resumed',
-      why: 'the resumed loop again, run on chatTransportExecutor: what it adds is the executor and the wire-level history, not a topology',
-    },
+    name: 'shot-loop-resumed',
+    why: 'the resumed loop again, run on chatTransportExecutor: what it adds is the executor and the wire-level history, not a topology',
   }),
   one('watchdog-steer', watchdogSteer),
   {
@@ -141,10 +139,8 @@ export const catalog: readonly CatalogGraph[] = [
     'sandbox-e2e',
     () => ({ graph: sandboxE2eGraph({ root: 'r', worker: 'w', skepticA: 'a', skepticB: 'b' }) }),
     {
-      reuses: {
-        name: 'skeptic-majority',
-        why: 'the live run of the skeptic panel on the sandbox backend; it cannot run offline',
-      },
+      name: 'skeptic-majority',
+      why: 'the live run of the skeptic panel on the sandbox backend; it cannot run offline',
     },
   ),
 ]
