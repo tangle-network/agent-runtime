@@ -652,9 +652,8 @@ try {
   `)
   run(process.execPath, ['code-mode-consumer.mjs'], appDir)
 
-  // Verify the install a new Runtime consumer actually performs. The app has
-  // no direct peer declarations, so npm must install every required peer from
-  // Runtime's metadata before any public entrypoint can load.
+  // Ordinary mode verifies automatic peer installation from Runtime metadata.
+  // A supplied SDK qualifies those same candidate bytes in both consumer layouts.
   writeFileSync(
     join(standaloneAppDir, 'package.json'),
     `${JSON.stringify(
@@ -664,6 +663,7 @@ try {
         dependencies: {
           '@tangle-network/agent-runtime': `file:${tarballs[0]}`,
           ...materializerDependencies,
+          ...(suppliedSandboxTarball ? { '@tangle-network/sandbox': `file:${suppliedSandboxTarball}` } : {}),
         },
       },
       null,
@@ -676,6 +676,10 @@ try {
     standaloneAppDir,
   )
   const standaloneScope = join(standaloneAppDir, 'node_modules', '@tangle-network')
+  if (suppliedSandboxTarball) {
+    assertSingleFirstPartyPackageVersion(standaloneScope, '@tangle-network/sandbox', sandboxVersion)
+    console.log('Standalone consumer: supplied SDK candidate; registry auto-peer proof is separate.')
+  }
   for (const [name, version] of Object.entries(materializerVersions)) {
     assertSingleFirstPartyPackageVersion(standaloneScope, name, version)
   }
