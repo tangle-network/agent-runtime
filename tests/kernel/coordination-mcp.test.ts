@@ -2147,6 +2147,58 @@ describe('proxy-held actor registration over the real coordination HTTP boundary
     }
   })
 
+  it('awaits immutable credential registration on rotation before continuing over HTTP', async () => {
+    const proxy = await proxyCoordination({ immutableCredentials: true })
+    let release: () => void = () => {}
+    const registering = new Promise<void>(resolve => { release = resolve })
+    let entered: () => void = () => {}
+    const enteredRegistration = new Promise<void>(resolve => { entered = resolve })
+    let registrations = 0
+    let original: Awaited<ReturnType<typeof proxy.proxySecret.prepare>> | undefined
+    try {
+      await withBoundHttp({
+        publicUrl: proxy.publicUrl,
+        proxySecret: {
+          async prepare(input) {
+            if (++registrations === 2) { entered(); await registering }
+            const registered = await proxy.proxySecret.prepare(input)
+            original ??= registered
+            return registered
+          },
+        },
+      }, async mcp => {
+        const prior = mcp.proxySecret!
+        const oldHeaders = proxy.guestHeadersFor(prior.binding)
+        expect((await jsonRpc(mcp.url, 'tools/list', {}, oldHeaders)).error).toBeUndefined()
+        const rotating = Promise.resolve(mcp.rotateCredential())
+        try {
+          const first = await Promise.race([
+            enteredRegistration.then(() => 'registration'),
+            rotating.then(() => 'completed'),
+          ])
+          expect(first, 'rotation must await a fresh immutable issuer registration').toBe('registration')
+          expect(mcp.proxySecret).toBeUndefined()
+          expect((await postHttp(mcp, oldHeaders)).status).toBe(403)
+          release()
+          await rotating
+          const current = mcp.proxySecret
+          expect(current, 'awaited rotation must expose the registered continuation binding').toBeDefined()
+          expect(current!.binding.secretRef.key).not.toBe(prior.binding.secretRef.key)
+          const currentHeaders = proxy.guestHeadersFor(current!.binding)
+          expect((await jsonRpc(mcp.url, 'tools/list', {}, currentHeaders)).error).toBeUndefined()
+          await original!.revoke()
+          expect((await jsonRpc(mcp.url, 'tools/list', {}, currentHeaders)).error).toBeUndefined()
+        } finally {
+          release()
+          await rotating
+        }
+      })
+    } finally {
+      release()
+      await proxy.close()
+    }
+  })
+
   it('rebinds the same actor address and reference while fencing the previous placeholder', async () => {
     const proxy = await proxyCoordination()
     let firstUrl = ''
