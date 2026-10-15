@@ -40,6 +40,8 @@ const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
 const suppliedTarball = process.argv[2] ? resolve(process.argv[2]) : undefined
 const suppliedKnowledgeTarball = process.argv[3] ? resolve(process.argv[3]) : undefined
 const suppliedSandboxTarball = process.argv[4] ? resolve(process.argv[4]) : undefined
+const suppliedMaterializerTarball = process.argv[5] ? resolve(process.argv[5]) : undefined
+const suppliedRuntimeContractsTarball = process.argv[6] ? resolve(process.argv[6]) : undefined
 
 try {
   const packDir = join(tempRoot, 'pack')
@@ -59,6 +61,12 @@ try {
   }
   if (suppliedSandboxTarball && !existsSync(suppliedSandboxTarball)) {
     throw new Error(`supplied sandbox tarball does not exist: ${suppliedSandboxTarball}`)
+  }
+  if (Boolean(suppliedMaterializerTarball) !== Boolean(suppliedRuntimeContractsTarball)) {
+    throw new Error('staged materializer and runtime-contracts archives must be supplied together')
+  }
+  for (const archive of [suppliedMaterializerTarball, suppliedRuntimeContractsTarball]) {
+    if (archive && !existsSync(archive)) throw new Error(`supplied materializer pair archive does not exist: ${archive}`)
   }
   if (!suppliedTarball) {
     run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
@@ -187,6 +195,28 @@ try {
   if (suppliedSandboxTarball) {
     peerDependencies['@tangle-network/sandbox'] = `file:${suppliedSandboxTarball}`
   }
+  const materializerDependencies = {}
+  const materializerVersions = {}
+  if (suppliedMaterializerTarball) {
+    const materializer = JSON.parse(run('tar', ['-xOf', suppliedMaterializerTarball, 'package/package.json'], repoRoot))
+    const contracts = JSON.parse(run('tar', ['-xOf', suppliedRuntimeContractsTarball, 'package/package.json'], repoRoot))
+    for (const [candidate, name, archive] of [
+      [materializer, '@tangle-network/agent-profile-materialize', suppliedMaterializerTarball],
+      [contracts, '@tangle-network/runtime-contracts', suppliedRuntimeContractsTarball],
+    ]) {
+      if (candidate.name !== name || !isExactVersionSpec(candidate.version)) {
+        throw new Error(`supplied ${name} archive has an invalid package identity or version`)
+      }
+      materializerDependencies[name] = `file:${archive}`
+      materializerVersions[name] = candidate.version
+    }
+    if (!rangeAdmits(packageJson.dependencies?.[materializer.name], materializer.version)) {
+      throw new Error('packed Runtime dependency does not admit supplied materializer')
+    }
+    if (materializer.dependencies?.[contracts.name] !== contracts.version) {
+      throw new Error('supplied runtime-contracts must match the materializer exact dependency')
+    }
+  }
   const consumerTypeScriptAlias = packageJson.devDependencies?.['typescript-consumer']
   const consumerTypeScriptPrefix = 'npm:typescript@'
   if (
@@ -212,6 +242,7 @@ try {
           '@tangle-network/agent-knowledge': knowledgePackageSpec,
           ...peerDependencies,
           ...providerDependencies,
+          ...materializerDependencies,
         },
         devDependencies: {
           '@types/node': requiredPackedDevelopmentDependency(packageJson, '@types/node'),
@@ -522,6 +553,7 @@ try {
   run('npm', ['install', '--strict-peer-deps', '--ignore-scripts', '--no-audit', '--no-fund'], appDir)
   const installedScope = join(appDir, 'node_modules', '@tangle-network')
   const expectedFirstPartyVersions = {
+    ...materializerVersions,
     ...providerDependencies,
     '@tangle-network/agent-core': requiredPackedPackageVersion(
       packageJson.dependencies?.['@tangle-network/agent-core'],
@@ -555,7 +587,7 @@ try {
     join(repoRoot, 'scripts', 'fixtures', 'packed-sandbox-contract-consumer.mjs'),
     join(appDir, 'sandbox-contract-consumer.mjs'),
   )
-  run(process.execPath, ['sandbox-contract-consumer.mjs'], appDir)
+  run(process.execPath, ['sandbox-contract-consumer.mjs', ...(suppliedMaterializerTarball ? ['--require-proxy-materializer'] : [])], appDir)
 
   run(
     process.execPath,
@@ -629,6 +661,7 @@ try {
         type: 'module',
         dependencies: {
           '@tangle-network/agent-runtime': `file:${tarballs[0]}`,
+          ...materializerDependencies,
         },
       },
       null,
@@ -641,6 +674,9 @@ try {
     standaloneAppDir,
   )
   const standaloneScope = join(standaloneAppDir, 'node_modules', '@tangle-network')
+  for (const [name, version] of Object.entries(materializerVersions)) {
+    assertSingleFirstPartyPackageVersion(standaloneScope, name, version)
+  }
   assertPeerInstalled(
     standaloneScope,
     '@tangle-network/sandbox',
@@ -650,7 +686,7 @@ try {
     join(repoRoot, 'scripts', 'fixtures', 'packed-sandbox-contract-consumer.mjs'),
     join(standaloneAppDir, 'sandbox-contract-consumer.mjs'),
   )
-  run(process.execPath, ['sandbox-contract-consumer.mjs'], standaloneAppDir)
+  run(process.execPath, ['sandbox-contract-consumer.mjs', ...(suppliedMaterializerTarball ? ['--require-proxy-materializer'] : [])], standaloneAppDir)
   run(
     process.execPath,
     [
