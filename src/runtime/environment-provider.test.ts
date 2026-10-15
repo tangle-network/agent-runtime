@@ -1072,6 +1072,7 @@ describe('environment provider adapters', () => {
       name: 'box-name',
       idempotencyKey: 'create-1',
     })
+    expect(created).toMatchObject({ providerOptions: {} })
     expect(turn).toMatchObject({ prompt: 'hello', sessionId: 's1', turnId: 't1' })
     expect(dispatched).toMatchObject({
       sessionId: 'provider-session',

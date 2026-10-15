@@ -77,6 +77,15 @@ function fingerprint(directory) {
   return hash.digest('hex')
 }
 
+function contractResolvers(scopeDir, cohort) {
+  return cohort.flatMap(([owner]) => {
+    const names = owner === 'sandbox' ? ['agent-interface', 'agent-core']
+      : owner.split('/').at(-1) === 'agent-core' ? ['agent-interface'] : []
+    const loader = createRequire(join(scopeDir, owner, 'package.json'))
+    return names.map(name => ({ owner, name, loader }))
+  })
+}
+
 // Artifact diagnostics contain declarations, content hashes and resolution paths;
 // they never contain package file contents or credential values.
 export function sandboxContractArtifact(scopeDir) {
@@ -91,12 +100,11 @@ export function sandboxContractArtifact(scopeDir) {
     }
   }
   for (const path of ['sandbox', 'agent-interface', 'agent-core']) visit(path)
-  const sdk = createRequire(join(scopeDir, 'sandbox', 'package.json'))
-  const resolutions = ['agent-interface', 'agent-core'].map(name => {
+  const resolutions = contractResolvers(scopeDir, cohort).map(({ owner, name, loader }) => {
     try {
-      return [name, relative(scopeDir, sdk.resolve(`@tangle-network/${name}`))]
+      return [owner, name, relative(scopeDir, loader.resolve(`@tangle-network/${name}`))]
     } catch (error) {
-      return [name, error.code]
+      return [owner, name, error.code]
     }
   })
   return { cohort, resolutions }
@@ -132,11 +140,13 @@ export function sandboxOwnedContractCopies(scopeDir) {
       }
     }
     const nested = qualified.slice(3).map(([path]) => join(scopeDir, path))
-    const sdk = createRequire(join(scopeDir, 'sandbox', 'package.json'))
-    for (const name of ['agent-interface', 'agent-core']) {
-      const directory = nested.find(path => path.endsWith(`/${name}`)) ?? join(scopeDir, name)
-      if (!sdk.resolve(`@tangle-network/${name}`).startsWith(`${directory}/`)) {
-        throw new Error(`Sandbox resolves ${name} outside its qualified copy`)
+    const directories = new Set(qualified.map(([path]) => join(scopeDir, path)))
+    for (const { owner, name, loader } of contractResolvers(scopeDir, qualified)) {
+      const specifier = `@tangle-network/${name}`
+      const directory = loader.resolve.paths(specifier)
+        .map(path => join(path, specifier)).find(path => directories.has(path))
+      if (!directory || !loader.resolve(specifier).startsWith(`${directory}/`)) {
+        throw new Error(`${owner} resolves ${name} outside its qualified copy`)
       }
     }
     return new Set(nested)

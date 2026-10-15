@@ -10,8 +10,8 @@ afterEach(() => {
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'sandbox-contract-guard-'))
   roots.push(root)
-  const scope = join(root, '@tangle-network')
-  mkdirSync(scope)
+  const scope = join(root, 'node_modules', '@tangle-network')
+  mkdirSync(scope, { recursive: true })
   const write = (path, version) => {
     mkdirSync(path, { recursive: true })
     writeFileSync(
@@ -76,12 +76,31 @@ describe('Sandbox-owned contract qualification', () => {
       ['agent-core', '0.12.0'],
     ])
     expect(artifact.resolutions).toEqual([
-      ['agent-interface', 'agent-interface/index.js'],
-      ['agent-core', 'sandbox/node_modules/@tangle-network/agent-core/index.js'],
+      ['sandbox', 'agent-interface', 'agent-interface/index.js'],
+      ['sandbox', 'agent-core', 'sandbox/node_modules/@tangle-network/agent-core/index.js'],
+      ['sandbox/node_modules/@tangle-network/agent-core', 'agent-interface', 'agent-interface/index.js'],
+      ['agent-core', 'agent-interface', 'agent-interface/index.js'],
     ])
     for (const [, , hash] of artifact.cohort) expect(hash).toMatch(/^[a-f0-9]{64}$/)
     expect(() => sandboxOwnedContractCopies(scope)).toThrow(/unqualified Sandbox contract artifact/)
     expect(() => sandboxOwnedContractCopies(scope)).toThrow(/Sandbox contract artifact:.*resolutions/)
+  })
+  it('records a Core-owned interface independently of the SDK direct interface', () => {
+    const { scope, write } = fixture()
+    write(join(scope, 'sandbox'), '0.60.999')
+    write(join(scope, 'agent-interface'), '5.3.0')
+    writeFileSync(join(scope, 'agent-interface', 'index.js'), 'export {}')
+    const ownedCore = 'sandbox/node_modules/@tangle-network/agent-core'
+    const ownedInterface = `${ownedCore}/node_modules/@tangle-network/agent-interface`
+    write(join(scope, ownedCore), '0.11.0')
+    write(join(scope, ownedInterface), '4.0.0')
+    writeFileSync(join(scope, ownedCore, 'index.js'), 'export {}')
+    writeFileSync(join(scope, ownedInterface, 'index.js'), 'export {}')
+    const artifact = sandboxContractArtifact(scope)
+    expect(artifact.cohort.map(([path]) => path)).toContain(ownedInterface)
+    expect(artifact.resolutions).toContainEqual(['sandbox', 'agent-interface', 'agent-interface/index.js'])
+    expect(artifact.resolutions).toContainEqual([ownedCore, 'agent-interface', `${ownedInterface}/index.js`])
+    expect(() => sandboxOwnedContractCopies(scope)).toThrow(/unqualified Sandbox contract artifact/)
   })
   it('fingerprints own bytes independently of SDK-owned dependency bytes', () => {
     const { scope, write } = fixture()

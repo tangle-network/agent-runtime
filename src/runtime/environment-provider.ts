@@ -2898,31 +2898,43 @@ async function providerExecutionSource(
 function createInputFromSandboxOptions(
   options: Parameters<SandboxClient['create']>[0],
 ): Partial<CreateAgentEnvironmentInput> {
-  const profile = options?.backend?.profile
-  const backend = options?.backend?.type
+  const {
+    backend: sandboxBackend, git, environment, cwd: sandboxCwd, resources, env,
+    secrets, proxySecrets, metadata, name, idempotencyKey, ...transportOptions
+  } = options ?? {}
+  const { type: backend, profile, ...backendOptions } = sandboxBackend ?? {}
+  const { url, ref, ...gitOptions } = git ?? {}
+  // Portable fields have one owner. Preserve only unsupported transport fields so a
+  // provider can refuse them explicitly instead of receiving an opaque duplicate.
+  const sandboxCreateOptions = {
+    ...transportOptions,
+    ...(Object.keys(backendOptions).length ? { backend: backendOptions } : {}),
+    ...(Object.keys(gitOptions).length ? { git: gitOptions } : {}),
+    ...(typeof secrets === 'string' ? { secrets } : {}),
+  }
   const cwd =
-    options?.cwd === undefined
+    sandboxCwd === undefined
       ? undefined
-      : canonicalWorkspaceCwd({ base: 'repository', path: options.cwd })
+      : canonicalWorkspaceCwd({ base: 'repository', path: sandboxCwd })
   const workspace = {
-    ...(options?.environment ? { environment: options.environment } : {}),
-    ...(options?.git?.url ? { repoUrl: options.git.url } : {}),
-    ...(options?.git?.ref ? { gitRef: options.git.ref } : {}),
+    ...(environment ? { environment } : {}),
+    ...(url ? { repoUrl: url } : {}),
+    ...(ref ? { gitRef: ref } : {}),
     ...(cwd === undefined ? {} : { cwd }),
   }
   return {
     ...(profile !== undefined ? { profile } : {}),
     ...(backend ? { backend } : {}),
     ...(Object.keys(workspace).length > 0 ? { workspace } : {}),
-    ...(options?.resources ? { resources: options.resources as ResourceRequest } : {}),
-    ...(options?.env ? { env: options.env } : {}),
-    // Sandbox's "all" selector stays in the transport options; neutral inputs name secrets.
-    ...(Array.isArray(options?.secrets) ? { secrets: options.secrets } : {}),
-    ...(options?.proxySecrets === undefined ? {} : { proxySecrets: options.proxySecrets }),
-    ...(options?.metadata ? { metadata: options.metadata } : {}),
-    ...(options?.name ? { name: options.name } : {}),
-    ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
-    providerOptions: { sandboxCreateOptions: options ?? {} },
+    ...(resources ? { resources: resources as ResourceRequest } : {}),
+    ...(env ? { env } : {}),
+    // Sandbox's "all" selector stays explicit in transport options; neutral inputs name secrets.
+    ...(Array.isArray(secrets) ? { secrets } : {}),
+    ...(proxySecrets === undefined ? {} : { proxySecrets }),
+    ...(metadata ? { metadata } : {}),
+    ...(name ? { name } : {}),
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+    ...(Object.keys(sandboxCreateOptions).length ? { providerOptions: { sandboxCreateOptions } } : {}),
   }
 }
 
