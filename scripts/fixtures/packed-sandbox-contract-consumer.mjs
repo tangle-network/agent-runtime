@@ -232,7 +232,7 @@ if (current.agentProfileSchema.safeParse({ resources: { knowledge } }).success) 
   })
   await assert.rejects(verifyAgentCandidateBundle(proxyCandidateBundle, {
     artifacts: { read: forbiddenRead }, repositories: { resolve: forbiddenRead },
-  }), /candidate local execution cannot materialize proxy-held secret declarations/)
+  }), (error) => error instanceof ValidationError && error.message.startsWith('candidate profile field proxySecrets is refused:'))
   candidateProxyAdmissionRefusals += 1
   assert.equal(artifactReads, 0)
   assert.throws(

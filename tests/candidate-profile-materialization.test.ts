@@ -1,11 +1,8 @@
-import type { ProxySecretBinding } from '@tangle-network/agent-interface'
+import { agentCandidateProfileSchema, type ProxySecretBinding } from '@tangle-network/agent-interface'
 import type { AgentCandidateWorkspacePlan } from '@tangle-network/agent-profile-materialize'
 import { describe, expect, it } from 'vitest'
 import {
-  agentCandidateProfileAsAgentProfile,
-  assertCandidateProfileExecutionSupport,
   candidateMaterializerHarness,
-  freezeGenericAgentCandidateProfile,
   materializeAgentCandidateProfilePlan,
 } from '../src/candidate-execution/profile'
 import { projectCandidatePromptIntents } from '../src/candidate-execution/system-prompt'
@@ -28,26 +25,8 @@ const binding: ProxySecretBinding = {
   ttlSeconds: 60,
 }
 
-it('preserves tagged references and proxy scope through candidate profile conversion', () => {
-  const profile = { name: 'scoped', proxySecrets: [binding] }
-  const candidate = freezeGenericAgentCandidateProfile(profile)
-  expect(candidate.proxySecrets).toEqual(profile.proxySecrets)
-  expect(agentCandidateProfileAsAgentProfile(candidate).proxySecrets).toEqual(profile.proxySecrets)
-  const portable = agentCandidateProfileAsAgentProfile({
-    name: 'tagged-mcp',
-    mcp: {
-      service: {
-        command: 'node',
-        args: [reference],
-        env: { SERVICE_TOKEN: reference },
-      },
-    },
-  })
-  expect(portable.mcp?.service?.args).toEqual([reference])
-  expect(portable.mcp?.service?.env?.SERVICE_TOKEN).toEqual(reference)
-  expect(() => assertCandidateProfileExecutionSupport(candidate)).toThrow(
-    'candidate local execution cannot materialize proxy-held secret declarations',
-  )
+it('refuses proxy-held declarations before local candidate profile materialization', () => {
+  const candidate = agentCandidateProfileSchema.parse({ name: 'scoped', proxySecrets: [binding] })
   expect(() =>
     materializeAgentCandidateProfilePlan({
       profile: candidate,
@@ -57,15 +36,6 @@ it('preserves tagged references and proxy scope through candidate profile conver
       workspaces: { taskRoot: '/workspace/task' },
     }),
   ).toThrow('candidate local execution cannot materialize proxy-held secret declarations')
-})
-
-it('refuses to turn a hook argument reference into readable shell text', () => {
-  expect(() =>
-    agentCandidateProfileAsAgentProfile({
-      name: 'hook',
-      hooks: { Stop: [{ executable: 'node', args: [reference] }] },
-    }),
-  ).toThrow('candidate hook command arguments cannot contain secret references')
 })
 
 it.each(['systemPrompt', 'appendSystemPrompt'] as const)(

@@ -312,7 +312,6 @@ export function parseExactCandidateProfile(input: unknown): AgentCandidateProfil
 /** Reject profile fields whose behavioral effect is not yet proven by candidate executors. */
 export function assertCandidateProfileExecutionSupport(profile: AgentCandidateProfile): void {
   assertResolvedKnowledgeResources(profile.resources)
-  assertLocalCandidateCustody(profile)
   refuseFieldsSandboxCannotCarry(profile)
   const fields = ['tools', 'permissions', 'modes', 'confidential'] as const
   const unsupported = fields.filter((field) => hasEntries(profile[field]))
