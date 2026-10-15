@@ -297,7 +297,7 @@ for (const n of exportsFromDts(
   join(repoRoot, 'node_modules', '@tangle-network', 'agent-eval', 'dist', 'index.d.ts'),
 ))
   universe.add(n)
-// Merkle trace proofs use the maintained Eval ledger-core public entry.
+// Trace-root proofs cite the Merkle primitives Runtime imports from agent-eval/ledger-core.
 for (const n of exportsFromDts(
   join(repoRoot, 'node_modules', '@tangle-network', 'agent-eval', 'dist', 'ledger-core', 'index.d.ts'),
 ))

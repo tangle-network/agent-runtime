@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,6 +13,7 @@ import {
   materializeCandidateProfile,
   materializeProfile,
 } from '@tangle-network/agent-profile-materialize'
+import { ValidationError } from '@tangle-network/agent-runtime'
 import { assertProfileMaterializes } from '@tangle-network/agent-runtime/agent'
 import {
   agentCandidateProfileAsAgentProfile,
@@ -238,6 +241,87 @@ if (current.agentProfileSchema.safeParse({ resources: { knowledge } }).success) 
   )
 }
 
+// Interface 5.3 admits profile proxySecrets and candidate secret-ref config values that the
+// SDK's private Interface 4 cannot carry. Runtime refuses them by name and never drops them.
+const uncarriedProxySecrets = [
+  {
+    hosts: ['api.example.com'],
+    envName: 'EXAMPLE_API_KEY',
+    secretRef: { kind: 'secret-ref', key: 'example' },
+    presentation: { type: 'bearer' },
+  },
+]
+const secretRefServer = {
+  command: 'search-mcp',
+  env: { SEARCH_REGION: { kind: 'secret-ref', key: 'example' } },
+}
+const uncarried = [
+  ['proxySecrets', { name: 'proxy-boundary', harness: 'codex', proxySecrets: uncarriedProxySecrets }],
+  ['mcp.search.env.SEARCH_REGION (secret-ref)', { name: 'secret-ref-boundary', mcp: { search: secretRefServer } }],
+]
+const interfaceVersion = JSON.parse(
+  readFileSync(new URL('./node_modules/@tangle-network/agent-interface/package.json', import.meta.url), 'utf8'),
+).version
+const interfaceAdmitsProxySecrets = current.agentProfileSchema.safeParse(uncarried[0][1]).success
+let uncarriedFieldRefusals = 0
+for (const [field, profile] of uncarried) {
+  if (interfaceAdmitsProxySecrets) {
+    // Both inputs are valid profiles and candidates under the Interface that admits them.
+    assert.equal(current.agentProfileSchema.safeParse(profile).success, true, field)
+    assert.equal(current.agentCandidateProfileSchema.safeParse(profile).success, true, field)
+  }
+  for (const convert of [
+    () => freezeGenericAgentCandidateProfile(profile),
+    () => agentCandidateProfileAsAgentProfile(profile),
+  ]) {
+    assert.throws(convert, (error) => {
+      assert.ok(error instanceof ValidationError, `${field}: ${error}`)
+      assert.equal(
+        error.message,
+        `candidate profile field ${field} is refused: Sandbox's Interface 4.0.0 cannot carry it yet, and Runtime does not drop it`,
+      )
+      return true
+    })
+    uncarriedFieldRefusals += 1
+  }
+}
+// A profile without those fields must convert to the same canonical bytes under every
+// Interface this gate installs; verify-package-exports compares the digests across apps.
+const canonical = (value) =>
+  Array.isArray(value)
+    ? `[${value.map(canonical).join(',')}]`
+    : value !== null && typeof value === 'object'
+      ? `{${Object.keys(value)
+          .filter((key) => value[key] !== undefined)
+          .sort()
+          .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
+          .join(',')}}`
+      : JSON.stringify(value)
+const baseline = {
+  name: 'conversion-baseline',
+  description: 'Synthetic conversion baseline',
+  version: '1.0.0',
+  tags: ['packed'],
+  harness: 'codex',
+  prompt: { systemPrompt: 'Synthetic system prompt' },
+  model: { default: 'synthetic/model' },
+  mcp: {
+    search: {
+      command: 'search-mcp',
+      args: [{ kind: 'public', value: '--region' }, { kind: 'public', value: 'eu' }],
+      env: { SEARCH_REGION: { kind: 'public', value: 'eu' } },
+    },
+  },
+  resources: { failOnError: true, instructions: 'Synthetic resource instructions' },
+}
+const frozen = freezeGenericAgentCandidateProfile(baseline)
+const restored = agentCandidateProfileAsAgentProfile(frozen)
+assert.equal(canonical(restored), canonical(baseline))
+assertCandidateProfileBinding(baseline, frozen)
+const conversionCanonicalSha256 = createHash('sha256')
+  .update(canonical({ frozen, restored }))
+  .digest('hex')
+
 const result = {
   kind: 'packed-sandbox-contract-boundary',
   materializerProxySupported,
@@ -246,6 +330,10 @@ const result = {
   missingProxyContextRefusals,
   proxyPrivateSecretReads,
   candidateProxyAdmissionRefusals,
+  interfaceVersion,
+  interfaceAdmitsProxySecrets,
+  uncarriedFieldRefusals,
+  conversionCanonicalSha256,
   profileParsingAndDigest: true,
   runCancellationAndControl: true,
   terminalAdmissionAndUnknownKeyRefusal: true,

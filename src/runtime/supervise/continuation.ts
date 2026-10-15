@@ -213,6 +213,19 @@ export interface ContinuationPolicy {
   readonly runPanel?: ContinuationPanel
   /** A play's own section, appended after Runtime's sections. It cannot remove or rewrite one. */
   readonly append?: ContinuationAppend
+  /**
+   * What a re-entered manager's harness session is. `native` (the default) sends the next turn
+   * into the same harness session wherever the backend proves it, with the unmet items and what
+   * changed. `fresh` starts a new harness session on every re-entry (a continuation, a wake, a
+   * failure retry, a pause) whose only input is the full re-entry task: the original task, the
+   * check's description and the coordinator's run state. The environment and its files are kept
+   * while the provider holds them; only the conversation is new, so whatever the next turn needs
+   * must be in the journal, the workspace or Knowledge, never in an earlier turn.
+   *
+   * Runtime's own drive harnesses (bridge and provider) honor it; a caller's `driveHarness`
+   * receives it as `session` and must start a new session on each drive that carries `reentry`.
+   */
+  readonly session?: 'native' | 'fresh'
 }
 
 /** Resolve and check a policy before any compute. Returns the deadline in epoch ms. */
@@ -258,6 +271,9 @@ export function admitContinuationPolicy(policy: ContinuationPolicy, context: str
   }
   if (policy.append !== undefined && typeof policy.append !== 'function') {
     throw new ValidationError(`${context}: continuation.append must be a function`)
+  }
+  if (policy.session !== undefined && policy.session !== 'native' && policy.session !== 'fresh') {
+    throw new ValidationError(`${context}: continuation.session must be 'native' or 'fresh'`)
   }
   admitContinuationProfile(policy.profile, context)
   return deadlineMs

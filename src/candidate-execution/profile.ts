@@ -32,6 +32,7 @@ import {
   resolvePiRuntimePaths,
 } from '@tangle-network/agent-profile-materialize'
 
+import { ValidationError } from '../errors'
 import {
   canonicalCandidateBytes,
   canonicalCandidateDigest,
@@ -199,6 +200,7 @@ const CANDIDATE_PROFILE_DIRECT_FIELDS = [
 
 /** Convert only behavior-preserving generic profile fields into the closed candidate contract. */
 export function freezeGenericAgentCandidateProfile(input: AgentProfile): AgentCandidateProfile {
+  refuseFieldsSandboxCannotCarry(input)
   const profile = parseExactAgentProfile(input, 'profile')
   return candidateProfileFromGenericProfile(profile)
 }
@@ -256,6 +258,7 @@ export function assertCandidateProfileBinding(
   measuredInput: unknown,
   bundled: AgentCandidateProfile,
 ): void {
+  refuseFieldsSandboxCannotCarry(measuredInput)
   const measured = parseExactAgentProfile(measuredInput, 'measured agent profile')
   const expected = candidateProfileFromGenericProfile(measured)
   if (canonicalCandidateDigest(expected) !== canonicalCandidateDigest(bundled)) {
@@ -310,6 +313,7 @@ export function parseExactCandidateProfile(input: unknown): AgentCandidateProfil
 export function assertCandidateProfileExecutionSupport(profile: AgentCandidateProfile): void {
   assertResolvedKnowledgeResources(profile.resources)
   assertLocalCandidateCustody(profile)
+  refuseFieldsSandboxCannotCarry(profile)
   const fields = ['tools', 'permissions', 'modes', 'confidential'] as const
   const unsupported = fields.filter((field) => hasEntries(profile[field]))
   if (unsupported.length > 0) {
@@ -330,6 +334,7 @@ export function agentCandidateProfileAsAgentProfile(
   candidate: AgentCandidateProfile,
 ): AgentProfile {
   assertResolvedKnowledgeResources(candidate.resources)
+  refuseFieldsSandboxCannotCarry(candidate)
   const output: Record<string, unknown> = {}
   copyDirectProfileFields(output, candidate as unknown as Record<string, unknown>)
   if (candidate.model) output.model = { ...candidate.model }
@@ -464,6 +469,56 @@ function assertResolvedKnowledgeResources(resources: unknown): void {
   }
 }
 
+/**
+ * Interface 5.3 admits profile `proxySecrets` and candidate secret-ref config values, but
+ * Sandbox still ships its own Interface 4.0.0, which carries neither. Refuse them by name
+ * rather than drop them; remove this once Sandbox adopts Interface 5.3.
+ */
+function refuseFieldsSandboxCannotCarry(profile: unknown): void {
+  if (!isRecord(profile)) return
+  if (profile.proxySecrets !== undefined) refuseFieldSandboxCannotCarry('proxySecrets')
+  if (isRecord(profile.mcp)) {
+    for (const [name, server] of Object.entries(profile.mcp)) {
+      if (!isRecord(server)) continue
+      refuseNonPublicConfigValues(server.args, `mcp.${name}.args`)
+      refuseNonPublicConfigValues(server.env, `mcp.${name}.env`)
+    }
+  }
+  if (isRecord(profile.hooks)) {
+    for (const [event, hooks] of Object.entries(profile.hooks)) {
+      if (!Array.isArray(hooks)) continue
+      for (const [index, hook] of hooks.entries()) {
+        if (!isRecord(hook)) continue
+        refuseNonPublicConfigValues(hook.args, `hooks.${event}[${index}].args`)
+        refuseNonPublicConfigValues(hook.env, `hooks.${event}[${index}].env`)
+      }
+    }
+  }
+}
+
+function refuseNonPublicConfigValues(values: unknown, path: string): void {
+  const entries = Array.isArray(values)
+    ? values.map((value, index) => [`${path}[${index}]`, value] as const)
+    : isRecord(values)
+      ? Object.entries(values).map(([name, value]) => [`${path}.${name}`, value] as const)
+      : []
+  for (const [field, value] of entries) {
+    if (isRecord(value) && value.kind !== 'public') {
+      refuseFieldSandboxCannotCarry(`${field} (${String(value.kind)})`)
+    }
+  }
+}
+
+function refuseFieldSandboxCannotCarry(field: string): never {
+  throw new ValidationError(
+    `candidate profile field ${field} is refused: Sandbox's Interface 4.0.0 cannot carry it yet, and Runtime does not drop it`,
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
 function freezeResources(resources: NonNullable<AgentProfile['resources']>): unknown {
   if (resources.failOnError !== true) {
     throw new Error('candidate profile resources require failOnError: true')
@@ -535,13 +590,13 @@ function publicResource(resource: AgentCandidateResourceRef): unknown {
   }
 }
 
-/** Generic freezing stays public-only until the sealed local materializer supports custody.
- * References are rejected, never resolved, silently dropped or unwrapped. */
+/** Freeze one profile config value into the candidate's PUBLIC-only config
+ *  shape. A secret-ref is refused, never silently dropped or unwrapped. */
 function candidatePublicValue(
   value: AgentProfileConfigValue,
   path: string,
 ): { kind: 'public'; value: string } {
-  if (value.kind !== 'public') unsupportedProfileField(`${path} (secret-ref '${value.key}')`)
+  if (value.kind !== 'public') refuseFieldSandboxCannotCarry(`${path} (${value.kind})`)
   return { kind: 'public', value: value.value }
 }
 

@@ -587,7 +587,9 @@ try {
     join(repoRoot, 'scripts', 'fixtures', 'packed-sandbox-contract-consumer.mjs'),
     join(appDir, 'sandbox-contract-consumer.mjs'),
   )
-  run(process.execPath, ['sandbox-contract-consumer.mjs', ...(suppliedMaterializerTarball ? ['--require-proxy-materializer'] : [])], appDir)
+  const cohortBoundary = sandboxBoundaryResult(
+    run(process.execPath, ['sandbox-contract-consumer.mjs', ...(suppliedMaterializerTarball ? ['--require-proxy-materializer'] : [])], appDir),
+  )
   run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], appDir)
   run(process.execPath, ['--experimental-strip-types', 'provider-consumer.ts'], appDir)
 
@@ -692,7 +694,17 @@ try {
     join(repoRoot, 'scripts', 'fixtures', 'packed-sandbox-contract-consumer.mjs'),
     join(standaloneAppDir, 'sandbox-contract-consumer.mjs'),
   )
-  run(process.execPath, ['sandbox-contract-consumer.mjs', ...(suppliedMaterializerTarball ? ['--require-proxy-materializer'] : [])], standaloneAppDir)
+  const standaloneBoundary = sandboxBoundaryResult(
+    run(process.execPath, ['sandbox-contract-consumer.mjs', ...(suppliedMaterializerTarball ? ['--require-proxy-materializer'] : [])], standaloneAppDir),
+  )
+  if (standaloneBoundary.conversionCanonicalSha256 !== cohortBoundary.conversionCanonicalSha256) {
+    throw new Error(
+      `candidate profile conversion under agent-interface@${standaloneBoundary.interfaceVersion} differs from agent-interface@${cohortBoundary.interfaceVersion}`,
+    )
+  }
+  process.stdout.write(
+    `Sandbox contract boundary: agent-interface@${cohortBoundary.interfaceVersion} and @${standaloneBoundary.interfaceVersion} convert to identical canonical bytes; ${standaloneBoundary.uncarriedFieldRefusals} uncarried-field refusals (proxySecrets admitted by the standalone Interface: ${standaloneBoundary.interfaceAdmitsProxySecrets}).\n`,
+  )
   run(
     process.execPath,
     [
@@ -1284,6 +1296,17 @@ function ownJavascriptFiles(directory) {
     else if (/\.(?:js|mjs|cjs)$/.test(entry.name)) files.push(path)
   }
   return files
+}
+
+function sandboxBoundaryResult(stdout) {
+  const result = JSON.parse(stdout.trim().split('\n').at(-1))
+  if (
+    result.kind !== 'packed-sandbox-contract-boundary' ||
+    !/^[a-f0-9]{64}$/.test(result.conversionCanonicalSha256)
+  ) {
+    throw new Error(`unexpected Sandbox contract boundary result: ${stdout.trim()}`)
+  }
+  return result
 }
 
 function run(command, args, cwd) {

@@ -1,3 +1,19 @@
+## 0.321.0
+
+Keep completion from skipping an inbox-accepted lead message while its publication is pending, preserving independent-turn delivery and the existing deadline exception.
+
+Avoid retaining prompt-only provider events and account provider prompt usage through the shared receipt ledger, deduplicating cumulative and replayed receipts while preserving observed optional counters and reported cost. Add SandboxUsageLedger.settledUsage() to read a detached snapshot of the latest settled turn.
+
+`continuation.session: 'fresh'` starts a new harness session on every re-entry, in the same environment with its files, whose input is the full re-entry task. `compileSearchSpec(spec, inputs)` compiles a seven-axis `SearchSpec` (or one of `searchPresets`: solo, tree, swarm, peers, sla) onto exactly one `supervise` or `runGraph` call and records `searchSpecDigest` on the run's root.
+
+Require Eval 0.214, which adds the ledger-core Merkle exports Runtime uses for trace roots. The Eval peer range moves to `>=0.214.0 <0.215.0`.
+
+Commit every archived turn to a trace root. The journal record that cites an output with an event array (`execution-result`, `execution-evidence`, and the `settled`, `cancelled` or `reconciled` record of a non-retained child) now carries `traceRoot: { root, ref, leafCount }`. Each turn's events get one root: an `execution-evidence` record whose events the node's result already rooted, as a retained owner's deferred workspace capture stores them, carries none. The `TraceRootArtifact` stored under `ref` holds one salted leaf per archived event and a final summary leaf with the event count and the tool calls by name, so one event or one count can be proven with a Merkle inclusion proof against `root`. Records written before this release carry no `traceRoot` and still replay. `TRACE_ROOT_SCHEMA`, `TRACE_SUMMARY_SCHEMA`, `TraceRootArtifact`, `TraceSummary` and `TraceRootReceipt` are exported from `/kernel`.
+
+`mapSandboxToolEvent` now projects codex tool items (`raw` events carrying `item.started` or `item.completed` for a command, MCP, collaboration, web search or file change item) as one `tool_call` per item id and one `tool_result` when the item completes. Codex turns previously projected no tool calls, so `SandboxLeafOut.toolCalls` and streamed tool events now include them.
+
+The candidate profile conversions (`freezeGenericAgentCandidateProfile`, `assertCandidateProfileBinding`, `agentCandidateProfileAsAgentProfile` and `assertCandidateProfileExecutionSupport`) now refuse Interface 5.3 profile `proxySecrets` and secret-ref config values in MCP and hook `args` or `env` with a `ValidationError` that names the field, instead of dropping them. The refusal is temporary: Sandbox still ships its own Interface 4.0.0, which cannot carry these fields, and the refusal lifts once Sandbox adopts Interface 5.3. The packed release gate qualifies Sandbox 0.60.58 with Interface 5.2.1 and 5.3.1; Sandbox's own contract copies are byte-identical to 0.60.53's.
+
 ## 0.320.1
 
 Qualify the Sandbox 0.60.53 packed cohort. Its published files differ from 0.60.51 only in bundler chunk names and a development dependency, with no type or code changes; the release guard still rejects changed or unknown Sandbox contract artifacts.
