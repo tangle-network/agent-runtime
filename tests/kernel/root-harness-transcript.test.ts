@@ -14,7 +14,10 @@ import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import { testContinuation } from '../helpers/continuation'
-import { coordinationProxy } from '../helpers/coordination-proxy'
+import {
+  proxyCoordination as coordinationProxy,
+  proxySecretCapabilities,
+} from '../helpers/proxy-coordination'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { supervise as superviseWithBrain } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
@@ -93,14 +96,17 @@ async function rootRun(runId: string, options: { readable: boolean; retained?: b
     ...base,
     capabilities: async () => ({
       ...(await base.capabilities()),
-      create: { runtimeAttachments: { mcp: true } },
+      create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
     }),
     create: async (input) => {
-      token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+      token ||= proxy.authorizationFor(input).slice('Bearer '.length)
       return wrap(await base.create(input))
     },
-    get: async (id) => {
-      const environment = await base.get!(id)
+    get: async (id, options) => {
+      if (options?.proxySecrets) {
+        token = proxy.authorizationFor(options).slice('Bearer '.length)
+      }
+      const environment = await base.get!(id, options)
       return environment ? wrap(environment) : null
     },
   }
@@ -199,6 +205,7 @@ async function rootRun(runId: string, options: { readable: boolean; retained?: b
       },
       continuation: testContinuation(),
       coordination: {
+        proxySecret: proxy.proxySecret,
         authentication: {
           signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
         },

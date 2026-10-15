@@ -2,15 +2,28 @@ import { createHash, randomUUID } from 'node:crypto'
 import type {
   CreateAgentEnvironmentInput,
   ProxySecretBinding,
+  ProxySecretCapabilities,
 } from '@tangle-network/agent-interface/environment-provider'
 import type {
   CoordinationProxySecretOptions,
   CoordinationPublicAddress,
 } from '../../src/runtime/supervise/coordination-mcp'
 
+/** Canonical capability declaration for the bounded test transport, never a production driver. */
+export const proxySecretCapabilities = {
+  protocolVersion: 1,
+  supportedDrivers: ['durable-test'],
+  presentations: ['bearer', 'basic', 'header', 'query'],
+  placeholderFormats: ['opaque', 'jwt'],
+  enforcement: 'exact',
+  transports: ['https:443'],
+  lifecycle: true,
+  placementReceiptRequired: true,
+} satisfies ProxySecretCapabilities
+
 interface Route {
   local: string
-  credentials: Map<string, { authorization: string; url: string; expiresAt: number }>
+  credentials: Map<string, { authorization: string; url: string; expiresAt: number; placeholder: string }>
 }
 const routes = new Map<string, Route>()
 let originalFetch: typeof fetch | undefined
@@ -30,7 +43,9 @@ function installRouter() {
     const headers = new Headers(request.headers)
     const marker = headers.get('authorization')
     if (marker?.startsWith('Bearer proxy-placeholder:')) {
-      const credential = route.credentials.get(marker.slice('Bearer proxy-placeholder:'.length))
+      const credential = [...route.credentials.values()].find(
+        (entry) => entry.placeholder === marker.slice('Bearer proxy-placeholder:'.length),
+      )
       if (
         !credential ||
         credential.expiresAt <= Date.now() ||
@@ -57,7 +72,7 @@ export async function proxyCoordination() {
   const fixture = randomUUID()
   const url = `https://coord-${fixture}.example.test`
   const owned = new Set<string>()
-  const credentials = new Map<string, { authorization: string; url: string; expiresAt: number }>()
+  const credentials = new Map<string, { authorization: string; url: string; expiresAt: number; placeholder: string }>()
   function route(publicUrl: string, port: number, host = '127.0.0.1') {
     const address = new URL(publicUrl)
     const key = `${address.origin}${address.pathname}`
@@ -68,11 +83,19 @@ export async function proxyCoordination() {
   const proxySecret: CoordinationProxySecretOptions = {
     async prepare(input) {
       if (input.signal.aborted) throw new Error('fixture registration cancelled')
-      const key = randomUUID()
+      const key = createHash('sha256')
+        .update(`${input.runId}:${input.actorId}`)
+        .digest('hex')
       const expiresAt = Math.min(Date.now() + 300_000, input.credentialExpiresAt ?? Infinity)
       const lifetime = expiresAt - Date.now()
       if (lifetime < 1_000) throw new Error('fixture credential already expired')
-      credentials.set(key, { authorization: input.authorization, url: input.url, expiresAt })
+      const credential = {
+        authorization: input.authorization,
+        url: input.url,
+        expiresAt,
+        placeholder: randomUUID(),
+      }
+      credentials.set(key, credential)
       return {
         binding: {
           envName: 'AGENT_RUNTIME_COORDINATION_TOKEN',
@@ -81,11 +104,11 @@ export async function proxyCoordination() {
           presentation: { type: 'bearer' },
           methods: ['POST'],
           paths: [new URL(input.url).pathname],
-          ttlSeconds: Math.floor(lifetime / 1000),
+          ttlSeconds: 60,
         },
         expiresAt: new Date(expiresAt).toISOString(),
         async revoke() {
-          credentials.delete(key)
+          if (credentials.get(key) === credential) credentials.delete(key)
           return { confirmed: true }
         },
       }
@@ -126,7 +149,9 @@ export async function proxyCoordination() {
       return credential.authorization
     },
     guestHeadersFor(binding: ProxySecretBinding) {
-      return { Authorization: `Bearer proxy-placeholder:${binding.secretRef.key}` }
+      const credential = credentials.get(binding.secretRef.key)
+      if (!credential) throw new Error('missing registered coordination proxy reference')
+      return { Authorization: `Bearer proxy-placeholder:${credential.placeholder}` }
     },
     async close() {
       if (closed) return

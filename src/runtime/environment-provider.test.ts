@@ -44,13 +44,13 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 }
 
 describe('environment provider adapters', () => {
-  it.each([[], [{
+  it.each([{ proxySecrets: [] }, { proxySecrets: [{
     envName: 'REPORTS_TOKEN',
     secretRef: { kind: 'secret-ref' as const, key: 'reporting-api' },
     hosts: ['reports.example.com'],
     presentation: { type: 'bearer' as const },
     methods: ['POST'], paths: ['/v1/events'], ttlSeconds: 60,
-  }]])('preserves explicit proxy-secret selections at the public Sandbox adapter boundary (%j)', async (proxySecrets) => {
+  }] }])('preserves explicit proxy-secret selections at the public Sandbox adapter boundary (%j)', async ({ proxySecrets }) => {
     let created: unknown
     const provider: AgentEnvironmentProvider = {
       name: 'proxy-forwarding-fixture', capabilities: fakeCapabilities,

@@ -21,11 +21,17 @@ import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { completeCapture, fileWorkspaceArtifacts } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
+import {
+  proxyCoordination as coordinationProxy,
+  proxySecretCapabilities,
+} from '../helpers/proxy-coordination'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
+const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
 afterEach(async () => {
+  await Promise.all(proxies.splice(0).map((proxy) => proxy.close()))
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
 
@@ -35,6 +41,8 @@ describe('retained root wake held behind its workspace capture', () => {
   }, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'retained-wake-capture-'))
     directories.push(directory)
+    const proxy = await coordinationProxy()
+    proxies.push(proxy)
     const runId = 'retained-wake-capture'
     const context = createFileRunContext(join(directory, 'run'))
     const base = durableRetainedProvider(join(directory, 'provider.json'))
@@ -60,7 +68,7 @@ describe('retained root wake held behind its workspace capture', () => {
       ...base,
       capabilities: async () => ({
         ...(await base.capabilities()),
-        create: { runtimeAttachments: { mcp: true } },
+        create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
       }),
       async create(input) {
         const created = await base.create(input)
@@ -72,7 +80,7 @@ describe('retained root wake held behind its workspace capture', () => {
           const response = await fetch(attachment.url, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${input.env?.AGENT_RUNTIME_COORDINATION_TOKEN}`,
+              Authorization: proxy.authorizationFor(input),
               'content-type': 'application/json',
             },
             body: JSON.stringify({
@@ -109,8 +117,8 @@ describe('retained root wake held behind its workspace capture', () => {
         wrappers.set(created.id, wrap)
         return wrap(created)
       },
-      async get(id) {
-        const environment = await base.get!(id)
+      async get(id, options) {
+        const environment = await base.get!(id, options)
         const wrap = wrappers.get(id)
         return environment && wrap ? wrap(environment) : environment
       },
@@ -178,10 +186,11 @@ describe('retained root wake held behind its workspace capture', () => {
         },
         continuation: testContinuation(),
         coordination: {
+          proxySecret: proxy.proxySecret,
           authentication: {
             signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
           },
-          publicUrl: (address) => `http://127.0.0.1:${address.port}/manager`,
+          publicUrl: (address) => proxy.publicUrl(address),
         },
       },
     )

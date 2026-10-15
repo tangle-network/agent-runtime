@@ -12,7 +12,10 @@ import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
 import { testContinuation } from '../helpers/continuation'
-import { coordinationProxy } from '../helpers/coordination-proxy'
+import {
+  proxyCoordination as coordinationProxy,
+  proxySecretCapabilities,
+} from '../helpers/proxy-coordination'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
@@ -67,15 +70,18 @@ describe('retained external supervisor recovery', () => {
       ...durableRetainedProvider(stateFile),
       capabilities: async () => ({
         ...(await durableRetainedProvider(stateFile).capabilities()),
-        create: { runtimeAttachments: { mcp: true } },
+        create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
       }),
       create: async (input) => {
-        token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+        token ||= proxy.authorizationFor(input).slice('Bearer '.length)
         models.push(input.profile?.model?.default)
         return wrap(await durableRetainedProvider(stateFile).create(input))
       },
-      get: async (id) => {
-        const environment = await durableRetainedProvider(stateFile).get!(id)
+      get: async (id, options) => {
+        if (options?.proxySecrets) {
+          token = proxy.authorizationFor(options).slice('Bearer '.length)
+        }
+        const environment = await durableRetainedProvider(stateFile).get!(id, options)
         return environment ? wrap(environment) : null
       },
     }
@@ -96,6 +102,7 @@ describe('retained external supervisor recovery', () => {
         check: (v: unknown) => (v as { answer?: string }).answer === 'moved',
       },
       coordination: {
+        proxySecret: proxy.proxySecret,
         authentication: {
           signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
         },
@@ -181,16 +188,19 @@ describe('retained external supervisor recovery', () => {
         ...durableRetainedProvider(stateFile),
         capabilities: async () => ({
           ...(await durableRetainedProvider(stateFile).capabilities()),
-          create: { runtimeAttachments: { mcp: true } },
+          create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
         }),
         create: async (input) => {
           creates++
-          token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+          token ||= proxy.authorizationFor(input).slice('Bearer '.length)
           const environment = await durableRetainedProvider(stateFile).create(input)
           return wrap(environment)
         },
-        get: async (id) => {
-          const environment = await durableRetainedProvider(stateFile).get!(id)
+        get: async (id, options) => {
+          if (options?.proxySecrets) {
+            token = proxy.authorizationFor(options).slice('Bearer '.length)
+          }
+          const environment = await durableRetainedProvider(stateFile).get!(id, options)
           return environment ? wrap(environment) : null
         },
       }
@@ -251,6 +261,7 @@ describe('retained external supervisor recovery', () => {
           check: (v: unknown) => (v as { answer?: string }).answer === 'resumed',
         },
         coordination: {
+          proxySecret: proxy.proxySecret,
           authentication: {
             signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
           },
@@ -396,18 +407,21 @@ describe('retained external supervisor recovery', () => {
         ...durableRetainedProvider(stateFile),
         capabilities: async () => ({
           ...(await durableRetainedProvider(stateFile).capabilities()),
-          create: { runtimeAttachments: { mcp: true } },
+          create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
         }),
         create: async (input) => {
           creates++
-          coordinationToken ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+          coordinationToken ||= proxy.authorizationFor(input).slice('Bearer '.length)
           const base = durableRetainedProvider(stateFile)
           const environment = await base.create(input)
           return wrapEnvironment(environment)
         },
-        get: async (id) => {
+        get: async (id, options) => {
+          if (options?.proxySecrets) {
+            coordinationToken = proxy.authorizationFor(options).slice('Bearer '.length)
+          }
           const base = durableRetainedProvider(stateFile)
-          const environment = await base.get!(id)
+          const environment = await base.get!(id, options)
           if (!environment) return null
           return wrapEnvironment(environment)
         },
@@ -437,6 +451,7 @@ describe('retained external supervisor recovery', () => {
             check: (value) => (value as { answer?: unknown }).answer === 'final reprompt',
           },
           coordination: {
+            proxySecret: proxy.proxySecret,
             authentication: {
               signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
             },
@@ -542,14 +557,17 @@ describe('retained external supervisor recovery', () => {
       ...base,
       capabilities: async () => ({
         ...(await base.capabilities()),
-        create: { runtimeAttachments: { mcp: true } },
+        create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
       }),
       create: async (input) => {
-        token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+        token ||= proxy.authorizationFor(input).slice('Bearer '.length)
         return wrap(await base.create(input))
       },
-      get: async (id) => {
-        const environment = await base.get!(id)
+      get: async (id, options) => {
+        if (options?.proxySecrets) {
+          token = proxy.authorizationFor(options).slice('Bearer '.length)
+        }
+        const environment = await base.get!(id, options)
         return environment ? wrap(environment) : null
       },
     }
@@ -577,6 +595,7 @@ describe('retained external supervisor recovery', () => {
           },
           continuation: testContinuation(),
           coordination: {
+            proxySecret: proxy.proxySecret,
             authentication: {
               signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
             },
@@ -726,15 +745,18 @@ describe('retained external supervisor recovery', () => {
       ...durableRetainedProvider(stateFile),
       capabilities: async () => ({
         ...(await durableRetainedProvider(stateFile).capabilities()),
-        create: { runtimeAttachments: { mcp: true } },
+        create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
       }),
       create: async (input) => {
         creates++
-        token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+        token ||= proxy.authorizationFor(input).slice('Bearer '.length)
         return wrap(await durableRetainedProvider(stateFile).create(input))
       },
-      get: async (id) => {
-        const environment = await durableRetainedProvider(stateFile).get!(id)
+      get: async (id, options) => {
+        if (options?.proxySecrets) {
+          token = proxy.authorizationFor(options).slice('Bearer '.length)
+        }
+        const environment = await durableRetainedProvider(stateFile).get!(id, options)
         return environment ? wrap(environment) : null
       },
     }
@@ -761,6 +783,7 @@ describe('retained external supervisor recovery', () => {
           check: (value) => (value as { answer?: unknown }).answer === 'replaced',
         },
         coordination: {
+          proxySecret: proxy.proxySecret,
           authentication: {
             signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
           },
@@ -936,7 +959,7 @@ describe('retained external supervisor recovery', () => {
       }),
       create: async (input) => {
         createInputs.push(input)
-        token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+        token ||= proxy.authorizationFor(input).slice('Bearer '.length)
         const environment = await base.create(input)
         const checkpoint = input.workspace?.checkpoint
         if (checkpoint !== undefined) {
@@ -944,8 +967,11 @@ describe('retained external supervisor recovery', () => {
         }
         return wrap(environment)
       },
-      get: async (id) => {
-        const environment = await base.get!(id)
+      get: async (id, options) => {
+        if (options?.proxySecrets) {
+          token = proxy.authorizationFor(options).slice('Bearer '.length)
+        }
+        const environment = await base.get!(id, options)
         if (environment) return wrap(environment)
         // The control plane retains a terminal record after the compute is gone. A non-null get
         // must not make Runtime reconnect the failed execution or abandon its checkpoint.
@@ -984,6 +1010,7 @@ describe('retained external supervisor recovery', () => {
           check: (value) => (value as { answer?: unknown }).answer === 'nonce-first-turn',
         },
         coordination: {
+          proxySecret: proxy.proxySecret,
           authentication: {
             signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
           },
@@ -1048,6 +1075,27 @@ describe('retained external supervisor recovery', () => {
     })
   })
 
+  it.each(['revoked', 'generation'] as const)(
+    'refuses retained continuation after proxy-secret %s failure before native dispatch',
+    async (failure) => {
+      const fixture = await setup('metered', false, false, false, failure)
+      await fixture.first()
+      const dispatches = fixture.dispatches()
+      const rebinds = fixture.rebinds()
+      const detail = await fixture.resume().then(
+        (result) => result?.kind === 'no-winner' && result.reason === 'driver-failed'
+          ? result.error.message
+          : '',
+        (error: unknown) => error instanceof Error ? error.message : '',
+      )
+      expect(fixture.rebinds()).toBeGreaterThan(rebinds)
+      expect(fixture.dispatches()).toBe(dispatches)
+      expect(fixture.creates()).toBe(1)
+      expect(/proxy.?secret|receipt|generation/i.test(detail)).toBe(true)
+      if (failure === 'revoked') expect(fixture.observedRevocation()).toBe(true)
+    },
+  )
+
   it('allocates distinct provider keys for a deliberate second manager drive', async () => {
     const fixture = await setup(undefined, true)
     await fixture.resume()
@@ -1094,7 +1142,7 @@ describe('retained external supervisor recovery', () => {
         ...base,
         capabilities: async () => ({
           ...(await base.capabilities()),
-          create: { runtimeAttachments: { mcp: true } },
+          create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
         }),
         create: async () => {
           creates += 1
@@ -1115,6 +1163,7 @@ describe('retained external supervisor recovery', () => {
           driverRetry: { maxAttempts: 3, initialBackoffMs: 0, maxBackoffMs: 0 },
           onDriverAttempt: (record) => void attempts.push(record),
           coordination: {
+            proxySecret: proxy.proxySecret,
             authentication: {
               signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
             },
@@ -1153,6 +1202,7 @@ async function setup(
   repeat = false,
   retry = false,
   historicalUnknown = false,
+  rebindFailure?: 'revoked' | 'generation',
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'retained-owner-'))
   directories.push(directory)
@@ -1165,6 +1215,9 @@ async function setup(
   let reconnects = 0
   let authorizedRequests = 0
   let originalToken: string | undefined
+  let dispatches = 0
+  let rebinds = 0
+  let observedRevocation = false
   let port = 0
   let injected = false
   // A manager with a check is never granted stop; it ends through submit_result.
@@ -1172,6 +1225,8 @@ async function setup(
     harness: 'codex',
     tools: runtimeToolDeclarations(repeat ? 'submit_result' : 'stop'),
   })
+  // Host-only signed-listener regression: this credential is resolved from a proxy reference,
+  // never from guest env. Retained-box rebind is a separate required lifecycle check.
   const requestOriginalCredential = async () => {
     if (!originalToken) throw new Error('missing original private credential')
     const response = await fetch(`http://127.0.0.1:${port}/manager`, {
@@ -1190,6 +1245,10 @@ async function setup(
     const base = durableRetainedProvider(stateFile)
     const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
       ...environment,
+      dispatch: async (turn) => {
+        dispatches++
+        return environment.dispatch!(turn)
+      },
       session: (id, options) => {
         const session = environment.session!(id, options)
         return {
@@ -1211,19 +1270,37 @@ async function setup(
       ...base,
       capabilities: async () => ({
         ...(await base.capabilities()),
-        create: { runtimeAttachments: { mcp: true } },
+        create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
       }),
       create: async (input) => {
         creates++
-        originalToken ??= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN
+        originalToken ??= proxy.authorizationFor(input).slice('Bearer '.length)
         await requestOriginalCredential()
         expect(input.profile?.mcp?.['agent-runtime-coordination']).toBeUndefined()
         return wrap(await base.create(input))
       },
-      get: async (id) => {
+      get: async (id, options) => {
+        if (options?.proxySecrets) {
+          proxy.authorizationFor(options)
+        }
         reconnects++
         await requestOriginalCredential()
-        const environment = await base.get!(id)
+        if (options?.proxySecrets !== undefined) {
+          rebinds++
+          if (injected && rebindFailure === 'revoked') {
+            const environment = await base.get!(id, { ...options, proxySecrets: [] })
+            observedRevocation = environment?.proxySecretReceipt?.status === 'revoked'
+            return environment ? wrap(environment) : null
+          }
+          if (injected && rebindFailure === 'generation') {
+            const current = await base.get!(id)
+            return await base.get!(id, {
+              ...options,
+              expectedProxySecretGeneration: (current?.proxySecretReceipt?.generation ?? 0) + 1,
+            })
+          }
+        }
+        const environment = await base.get!(id, options)
         return environment ? wrap(environment) : null
       },
     }
@@ -1273,6 +1350,7 @@ async function setup(
             }
           : {}),
         coordination: {
+          proxySecret: proxy.proxySecret,
           authentication: {
             signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
           },
@@ -1291,6 +1369,9 @@ async function setup(
   return {
     stateFile,
     creates: () => creates,
+    dispatches: () => dispatches,
+    rebinds: () => rebinds,
+    observedRevocation: () => observedRevocation,
     reconnections: () => reconnects,
     authorizedRequests: () => authorizedRequests,
     events: async () => (await context.journal.loadTree('owner-run')) ?? [],

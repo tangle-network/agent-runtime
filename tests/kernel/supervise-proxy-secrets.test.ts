@@ -117,7 +117,14 @@ describe('public supervise proxy-secret descendant admission', () => {
     let creates = 0
     const provider = {
       name: 'selected-seat-test',
-      capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
+      capabilities: () => ({ create: {
+        runtimeAttachments: { mcp: true },
+        proxySecrets: {
+          protocolVersion: 1, supportedDrivers: ['docker'], presentations: ['bearer'],
+          placeholderFormats: ['opaque'], enforcement: 'exact', transports: ['https:443'],
+          lifecycle: true, placementReceiptRequired: true,
+        },
+      } }),
       create: async () => { creates += 1; throw new Error('must not create') },
     } as unknown as AgentEnvironmentProvider
     try {

@@ -26,6 +26,14 @@
           "name": "proxy-worker",
           "path": "profiles/proxy-worker.json"
         }
+      },
+      {
+        "path": "skills/profile-authoring/references/execution-and-credentials.md",
+        "resource": {
+          "kind": "inline",
+          "name": "execution-and-credentials",
+          "path": "skills/profile-authoring/references/execution-and-credentials.md"
+        }
       }
     ]
   },

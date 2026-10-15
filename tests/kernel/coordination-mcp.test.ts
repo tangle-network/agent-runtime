@@ -2133,7 +2133,7 @@ describe('proxy-held actor registration over the real coordination HTTP boundary
     }
   })
 
-  it('rebinds the same actor address with a fresh reference and fences the previous placeholder', async () => {
+  it('rebinds the same actor address and reference while fencing the previous placeholder', async () => {
     const proxy = await proxyCoordination()
     let firstUrl = ''
     let firstPort = 0
@@ -2154,7 +2154,7 @@ describe('proxy-held actor registration over the real coordination HTTP boundary
         await withBoundHttp(options, async (mcp) => {
           expect(mcp.url).toBe(firstUrl)
           expect(mcp.port).not.toBe(firstPort)
-          expect(mcp.proxySecret!.binding.secretRef.key === firstReference).toBe(false)
+          expect(mcp.proxySecret!.binding.secretRef.key === firstReference).toBe(true)
           const currentHeaders = proxy.guestHeadersFor(mcp.proxySecret!.binding)
           expect((await jsonRpc(mcp.url, 'tools/list', {}, currentHeaders)).error).toBeUndefined()
           const refused = await fetch(mcp.url, {

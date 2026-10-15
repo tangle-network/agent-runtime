@@ -5,14 +5,23 @@ import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { contentAddress } from '../../src/durable/spawn-journal'
 import { ValidationError } from '../../src/errors'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import { testContinuation } from '../helpers/continuation'
+import {
+  proxyCoordination as coordinationProxy,
+  proxySecretCapabilities,
+} from '../helpers/proxy-coordination'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
+
+const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
+afterEach(async () => {
+  await Promise.all(proxies.splice(0).map((proxy) => proxy.close()))
+})
 
 /** The events a woken manager's input lists, in order. A first turn lists none. */
 function wakeEventsIn(prompt: unknown): Array<Record<string, any>> {
@@ -27,6 +36,8 @@ async function childReportFlow(
   nativeGrantAvailable = true,
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'unassessed-child-report-'))
+  const proxy = await coordinationProxy()
+  proxies.push(proxy)
   const runId = 'child-report'
   const context = createFileRunContext(join(directory, 'run'))
   const base = durableRetainedProvider(join(directory, 'provider.json'))
@@ -112,7 +123,7 @@ async function childReportFlow(
         const response = await fetch(attachment.url, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${input.env?.AGENT_RUNTIME_COORDINATION_TOKEN}`,
+            Authorization: proxy.authorizationFor(input),
             'content-type': 'application/json',
           },
           body: JSON.stringify({
@@ -219,16 +230,16 @@ async function childReportFlow(
       wrappers.set(environment.id, wrap)
       return wrap(environment)
     },
-    get: async (id) => {
-      const environment = await base.get!(id)
+    get: async (id, options) => {
+      const environment = await base.get!(id, options)
       const wrap = wrappers.get(id)
       return environment && wrap ? wrap(environment) : environment
     },
   }
   const providerForSeat = (seat: string): AgentEnvironmentProvider => ({
     ...provider,
-    get: async (id) => {
-      const environment = await provider.get!(id)
+    get: async (id, options) => {
+      const environment = await provider.get!(id, options)
       if (environment === null) return null
       return {
         ...environment,
@@ -322,10 +333,11 @@ async function childReportFlow(
             : null,
         ...(mode === 'nested' ? { finalizer: () => undefined } : {}),
         coordination: {
+          proxySecret: proxy.proxySecret,
           authentication: {
             signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
           },
-          publicUrl: (address) => `http://127.0.0.1:${address.port}/manager`,
+          publicUrl: (address) => proxy.publicUrl(address),
         },
       },
     )

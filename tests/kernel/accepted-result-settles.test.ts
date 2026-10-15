@@ -18,6 +18,10 @@ import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
 import { completeCapture } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
+import {
+  proxyCoordination as coordinationProxy,
+  proxySecretCapabilities,
+} from '../helpers/proxy-coordination'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
@@ -26,7 +30,9 @@ import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 // workspace capture, and each root's sandbox was billed after its run settled.
 
 const directories: string[] = []
+const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
 afterEach(async () => {
+  await Promise.all(proxies.splice(0).map((proxy) => proxy.close()))
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
   )
@@ -111,6 +117,8 @@ interface TreeOptions {
 async function acceptedTree(runId: string, options: TreeOptions = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'accepted-result-settles-'))
   directories.push(directory)
+  const proxy = await coordinationProxy()
+  proxies.push(proxy)
   const runDir = join(directory, 'run')
   const context = createFileRunContext(runDir)
   const base = durableRetainedProvider(join(directory, 'provider.json'))
@@ -132,7 +140,7 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
     ...base,
     capabilities: async () => ({
       ...(await base.capabilities()),
-      create: { runtimeAttachments: { mcp: true } },
+      create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
     }),
     create: async (input) => {
       const created = await base.create(input)
@@ -145,7 +153,7 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
         const response = await fetch(attachment.url, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${input.env?.AGENT_RUNTIME_COORDINATION_TOKEN}`,
+            Authorization: proxy.authorizationFor(input),
             'content-type': 'application/json',
           },
           body: JSON.stringify({
@@ -226,8 +234,8 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
       wrappers.set(created.id, wrap)
       return wrap(created)
     },
-    get: async (id) => {
-      const environment = await base.get!(id)
+    get: async (id, options) => {
+      const environment = await base.get!(id, options)
       const wrap = wrappers.get(id)
       return environment && wrap ? wrap(environment) : environment
     },
@@ -320,10 +328,11 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
       resolveDeliverable: () => ({ check }),
       continuation: testContinuation(),
       coordination: {
+        proxySecret: proxy.proxySecret,
         authentication: {
           signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
         },
-        publicUrl: (address) => `http://127.0.0.1:${address.port}/manager`,
+        publicUrl: (address) => proxy.publicUrl(address),
       },
     },
   )

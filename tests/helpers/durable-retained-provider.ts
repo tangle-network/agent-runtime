@@ -23,8 +23,11 @@ import type {
   AgentNativeContextContinuationOptions,
   AgentSession,
   AgentSessionStatus,
+  ProxySecretBinding,
+  ProxySecretReceipt,
   AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
+import { ProxySecretReceiptSchema } from '@tangle-network/agent-interface/environment-provider'
 
 interface StoredSession {
   readonly id: string
@@ -56,6 +59,8 @@ interface StoredEnvironment {
   readonly id: string
   readonly metadata?: Record<string, unknown>
   readonly sessions: Record<string, StoredSession>
+  proxySecrets?: ProxySecretBinding[]
+  proxySecretReceipt?: ProxySecretReceipt
 }
 
 interface DurableProviderState {
@@ -77,13 +82,25 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
         sessions: {},
         ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
       }
+      if (input.proxySecrets !== undefined && state.environments[id].proxySecrets === undefined) {
+        installProxySecrets(state.environments[id], input.proxySecrets)
+      }
       writeState(stateFile, state)
       return environmentFor(stateFile, providerName, id)
     },
-    async get(id) {
-      return readState(stateFile).environments[id]
-        ? environmentFor(stateFile, providerName, id)
-        : null
+    async get(id, options) {
+      const state = readState(stateFile)
+      const stored = state.environments[id]
+      if (!stored) return null
+      if (options?.proxySecrets !== undefined) {
+        const expected = options.expectedProxySecretGeneration
+        if (expected !== undefined && expected !== (stored.proxySecretReceipt?.generation ?? 0)) {
+          throw new Error('fixture proxy-secret generation conflict')
+        }
+        installProxySecrets(stored, options.proxySecrets)
+        writeState(stateFile, state)
+      }
+      return environmentFor(stateFile, providerName, id)
     },
     async list(query?: AgentEnvironmentQuery): Promise<AgentEnvironmentSummary[]> {
       return Object.values(readState(stateFile).environments)
@@ -100,10 +117,53 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
   }
 }
 
+/** Metadata-only installed receipt at the fake provider boundary, not a real proxy/materializer. */
+function installProxySecrets(stored: StoredEnvironment, bindings: ProxySecretBinding[]) {
+  const generation = (stored.proxySecretReceipt?.generation ?? -1) + 1
+  const issuedAt = new Date().toISOString()
+  stored.proxySecrets = structuredClone(bindings)
+  stored.proxySecretReceipt = ProxySecretReceiptSchema.parse({
+    protocolVersion: 1,
+    sandboxId: stored.id,
+    generation,
+    status: bindings.length === 0 ? 'revoked' : 'installed',
+    proxyAcknowledged: true,
+    materializationAcknowledged: true,
+    bindings: bindings.map((binding, index) => ({
+      envName: binding.envName,
+      secretRef: binding.secretRef,
+      grant: {
+        protocolVersion: 1,
+        grantId: `fixture-${generation}-${index}`,
+        sandboxId: stored.id,
+        epoch: `fixture-${generation}`,
+        identity: {
+          tenantId: 'fixture-tenant',
+          issuerId: 'durable-test',
+          secretId: binding.secretRef.key,
+          revision: `fixture-${generation}`,
+        },
+        scope: {
+          hosts: binding.hosts,
+          ...(binding.methods === undefined ? {} : { methods: binding.methods }),
+          ...(binding.paths === undefined ? {} : { paths: binding.paths }),
+        },
+        presentation: binding.presentation,
+        placeholderFormat: binding.placeholderFormat ?? 'opaque',
+        issuedAt,
+        expiresAt: new Date(Date.parse(issuedAt) + (binding.ttlSeconds ?? 60) * 1_000).toISOString(),
+      },
+    })),
+  })
+}
+
 function environmentFor(stateFile: string, provider: string, id: string): AgentEnvironment {
   return {
     id,
     provider,
+    get proxySecretReceipt() {
+      return readState(stateFile).environments[id]?.proxySecretReceipt
+    },
     status: async () => 'running',
     async *stream(): AsyncIterable<AgentEnvironmentEvent> {
       yield* []
