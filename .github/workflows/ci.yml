@@ -1,10 +1,15 @@
 name: CI
 
+# Source merges do not wait for CI. Publication keeps its separate exact-
+# artifact qualification; these jobs verify landed revisions and manual runs.
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
