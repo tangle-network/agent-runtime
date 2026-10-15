@@ -302,6 +302,13 @@ const proxyReceipt = ProxySecretReceiptSchema.parse({
     },
   })),
 })
+const proxySandboxInfo = {
+  id: proxyReceipt.sandboxId,
+  status: 'running',
+  filesystemIncarnationId: 'packed-filesystem',
+  filesystemIncarnationProvenance: 'fresh',
+  filesystemIncarnationReadiness: 'ready',
+}
 const proxyCalls: string[] = []
 let mismatchedLiveReceipt = false
 let proxyReceiptReads = 0
@@ -324,11 +331,7 @@ try {
       }
       assert.deepEqual(body.secrets, [])
       return Response.json({
-        id: proxyReceipt.sandboxId,
-        status: 'running',
-        filesystemIncarnationId: 'packed-filesystem',
-        filesystemIncarnationProvenance: 'fresh',
-        filesystemIncarnationReadiness: 'ready',
+        ...proxySandboxInfo,
         createReceipt: { outcome: 'created', idempotencyKeyApplied: true, proxySecretReceipt: proxyReceipt },
         proxySecrets,
         proxySecretReceipt: proxyReceipt,
@@ -337,6 +340,7 @@ try {
     if (url.pathname === '/v1/sandboxes/' + proxyReceipt.sandboxId && method === 'GET') {
       proxyReceiptReads += 1
       return Response.json({
+        ...proxySandboxInfo,
         proxySecrets,
         proxySecretReceipt: mismatchedLiveReceipt
           ? { ...proxyReceipt, bindings: proxyReceipt.bindings.map(binding => ({ ...binding, secretRef: { kind: 'secret-ref', key: 'different-reference' } })) }
