@@ -128,6 +128,7 @@ if (process.argv.includes('--require-proxy-materializer')) {
   assert.equal(materializerProxySupported, true, 'the selected materializer must preserve canonical proxy declarations')
 }
 let missingProxyContextRefusals = 0
+let unsupportedProxyWrapperRefusals = 0
 let proxyPrivateSecretReads = 0
 if (materializerProxySupported) {
   assert.deepEqual(proxyPlan.proxySecrets, proxySecrets)
@@ -147,6 +148,16 @@ if (materializerProxySupported) {
   } finally {
     await rm(workspace, { recursive: true, force: true })
   }
+} else {
+  const declarationOnlyProfile = current.agentProfileSchema.parse({
+    name: 'packed-proxy-declaration', harness: 'codex', proxySecrets,
+  })
+  assert.equal(materializeProfile(declarationOnlyProfile, 'codex').proxySecrets, undefined)
+  assert.throws(
+    () => assertProfileMaterializes(declarationOnlyProfile, 'codex', 'packed proxy declaration'),
+    (error) => error instanceof ValidationError && /proxySecrets|proxy-held/.test(error.message),
+  )
+  unsupportedProxyWrapperRefusals += 1
 }
 let candidateProxyAdmissionRefusals = 0
 // Knowledge schema support follows the installed peer. Runtime still requires owner
@@ -328,6 +339,7 @@ const result = {
   unsupportedProxyMaterializer: !materializerProxySupported,
   proxyPlanPreserved: materializerProxySupported,
   missingProxyContextRefusals,
+  unsupportedProxyWrapperRefusals,
   proxyPrivateSecretReads,
   candidateProxyAdmissionRefusals,
   interfaceVersion,
