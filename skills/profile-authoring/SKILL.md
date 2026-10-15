@@ -128,6 +128,7 @@ For continued research, read the installed continuation contract first and choos
 
 Write each trap as what the held-back acceptance refuses, never as what the proxy passes: "the outside check does not count a c = 0 instance" is a trap; "the checker passed c = 0 claims" is a recipe. Give the rule, not the incident: the operator owns the stack.
 Typical traps beyond the gap probe's canaries: wrong-field comparators, tests versus users, a demo versus a customer, a rater versus an expert.
+A profile that imitates a person (an operator, a reviewer, a voice) is not accepted on checks written from its own rules; those measure obedience. The held-back acceptance is the person's own next action on held-out turns, scored against a control arm, a blind judge, and the best predictor that uses no persona at all. Matching the person's voice does not establish matching their judgment.
 Record each new trap where the next author reads it, in the same change as its fix.
 
 ## 7. Set budget and caps
