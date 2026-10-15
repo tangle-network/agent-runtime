@@ -1,0 +1,66 @@
+{
+  "name": "proxy-manager",
+  "description": "Delegates one scoped network request and checks its receipt.",
+  "harness": "codex",
+  "model": {
+    "provider": "openai",
+    "default": "gpt-6.1-sol",
+    "metadata": {
+      "credentialSource": "subscription"
+    }
+  },
+  "resources": {
+    "failOnError": true,
+    "skills": [
+      {
+        "kind": "inline",
+        "name": "profile-authoring",
+        "path": "skills/profile-authoring/SKILL.md"
+      }
+    ],
+    "files": [
+      {
+        "path": "profiles/proxy-worker.json",
+        "resource": {
+          "kind": "inline",
+          "name": "proxy-worker",
+          "path": "profiles/proxy-worker.json"
+        }
+      }
+    ]
+  },
+  "prompt": {
+    "instructions": [
+      "You are the proxy manager. Read profiles/proxy-worker.json and spawn it once through Runtime spawn_worker with the assignment: make the approved GET request and submit its response artifact.",
+      "Keep the declared reference and scope; wait for its checked result, then submit the child result artifact. On placement refusal, report_blocked with the non-secret receipt and end your turn."
+    ]
+  },
+  "tools": {
+    "agent_runtime_coordination_spawn_worker": true,
+    "agent_runtime_coordination_submit_result": true,
+    "agent_runtime_coordination_report_blocked": true
+  },
+  "proxySecrets": [
+    {
+      "envName": "SERVICE_TOKEN",
+      "secretRef": {
+        "kind": "secret-ref",
+        "key": "service-account"
+      },
+      "hosts": [
+        "api.example.test"
+      ],
+      "presentation": {
+        "type": "bearer"
+      },
+      "methods": [
+        "GET"
+      ],
+      "paths": [
+        "/v1/jobs",
+        "/v1/result"
+      ],
+      "ttlSeconds": 60
+    }
+  ]
+}
