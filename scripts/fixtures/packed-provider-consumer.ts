@@ -257,7 +257,7 @@ const proxySecrets = ProxySecretsSchema.parse([{
 const fixtureModel = { provider: 'fixture', model: 'fixture/model' }
 const protectedProfile = agentProfileSchema.parse({
   ...profile,
-  model: { provider: fixtureModel.provider, default: fixtureModel.model },
+  model: { provider: ` ${fixtureModel.provider} `, default: ` ${fixtureModel.model} ` },
   proxySecrets,
 })
 const sdkProtectedProfile = sdkInterface.agentProfileSchema.safeParse(protectedProfile)

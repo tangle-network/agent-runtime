@@ -2910,7 +2910,7 @@ function createInputFromSandboxOptions(
   if (
     profile && typeof profile !== 'string' && model &&
     Object.entries(model).every(([key, value]) => value === undefined || key === 'provider' || key === 'model') &&
-    model.provider === profile.model?.provider && model.model === profile.model?.default
+    model.provider === profile.model?.provider?.trim() && model.model === concreteProfileModel(profile)
   ) delete backendOptions.model
   // Portable fields have one owner. Preserve only unsupported transport fields so a
   // provider can refuse them explicitly instead of receiving an opaque duplicate.
