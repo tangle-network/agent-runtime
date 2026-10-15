@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { AgentProfile, ProxySecretBinding } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
@@ -5,7 +8,8 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import { type SuperviseOptions, supervise } from '../../src/runtime/supervise/supervise'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
-import { proxyCoordination } from '../helpers/proxy-coordination'
+import { durableRetainedProvider } from '../helpers/durable-retained-provider'
+import { proxyCoordination, proxySecretCapabilities } from '../helpers/proxy-coordination'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const parentBinding: ProxySecretBinding = {
@@ -103,6 +107,66 @@ async function spawnOne(
 
 // These checks establish Runtime admission, not authenticated Sandbox grants or expiry/revocation.
 describe('public supervise proxy-secret descendant admission', () => {
+  it('journals the complete root parent map and refuses unavailable canonical wire before allocation', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'supervise-proxy-parents-'))
+    const proxy = await proxyCoordination()
+    const journal = new InMemorySpawnJournal()
+    const allocated: string[] = []
+    const base = durableRetainedProvider(join(directory, 'provider.json'))
+    const defaults = { env: { PUBLIC_FIXTURE_SETTING: 'preserved' } }
+    const provider: AgentEnvironmentProvider = {
+      ...base,
+      async capabilities() {
+        const capabilities = await base.capabilities()
+        return {
+          ...capabilities,
+          create: {
+            ...capabilities.create,
+            runtimeAttachments: { mcp: true },
+            proxySecrets: proxySecretCapabilities,
+          },
+        }
+      },
+      async create(input) {
+        // The baseline reaches this real fixture allocation. Bound the run at that
+        // public effect; no harness, model, or alleged server lineage is exercised.
+        const environment = await base.create(input)
+        allocated.push(environment.id)
+        throw new Error('fixture observed an allocation before canonical parent support')
+      },
+    }
+    try {
+      const outcome = await supervise(profile('root', [parentBinding], true), 'admit root custody', {
+        runId: 'proxy-parent-root',
+        journal,
+        backend: { backend: 'provider', provider, defaults },
+        driverBackend: { backend: 'provider', provider, defaults },
+        budget: { maxIterations: 2, maxTokens: 2_000 },
+        driverRetry: { enabled: false },
+        coordination: {
+          authentication: true,
+          publicUrl: proxy.publicUrl,
+          proxySecret: proxy.proxySecret,
+        },
+      }).then(value => JSON.stringify(value), error => String(error))
+      expect(allocated, 'proxy parent admission must refuse before provider allocation').toEqual([])
+      expect(outcome).toContain('proxy-secret-parent-wire-unavailable')
+      const events = (await journal.loadTree('proxy-parent-root')) ?? []
+      const inputs = events.filter(event => event.kind === 'execution-input' && event.id === 'proxy-parent-root')
+      expect(inputs).toHaveLength(1)
+      expect(Reflect.get(inputs[0]!, 'proxySecretParents')).toEqual({
+        REPORTS_TOKEN: null,
+        AGENT_RUNTIME_COORDINATION_TOKEN: null,
+      })
+      expect(defaults).toEqual({ env: { PUBLIC_FIXTURE_SETTING: 'preserved' } })
+      expect(JSON.stringify(events)).not.toContain('reporting-api')
+      expect(JSON.stringify(events)).not.toContain('Authorization')
+    } finally {
+      await proxy.close()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it.each([
     ['backend', 'defaults'],
     ['backend', 'placement'],
