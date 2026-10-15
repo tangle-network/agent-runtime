@@ -95,6 +95,9 @@ export interface LeafShot {
   out: unknown
   valid: boolean
   score?: number
+  /** Awaited just before this settle, so an example can hold one worker open until another
+   *  event has happened (a rendezvous, or a downstream spawn). */
+  after?: () => Promise<void>
 }
 
 export interface LeafOptions {
@@ -172,6 +175,7 @@ export function leafSeam(
           }
         }
         if (gate) await gate
+        await shot?.after?.()
         const valid = shot ? shot.valid : true
         artifact = {
           outRef: `w:${name}:${attempt}`,
