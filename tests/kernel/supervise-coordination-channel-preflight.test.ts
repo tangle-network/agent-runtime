@@ -270,7 +270,7 @@ it.each([401, 403, 404, 503, 200, 'timeout'] as const)(
 )
 
 
-it(refuses provider coordination before create when no proxy-held credential placement is configured, async () => {
+it('refuses provider coordination before create when no proxy-held credential placement is configured', async () => {
   const { provider: base, creates } = neverCreatingProvider()
   const provider: AgentEnvironmentProvider = {
     ...base,
@@ -278,7 +278,7 @@ it(refuses provider coordination before create when no proxy-held credential pla
   }
   await spawnLeadFromRoot(
     {
-      backend: { backend: provider, provider },
+      backend: { backend: 'provider', provider },
       coordination: {
         authentication: true,
         publicUrl: ({ port }) => `http://127.0.0.1:${port}/mcp`,
