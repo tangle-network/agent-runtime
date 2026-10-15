@@ -5,6 +5,7 @@ import type {
   RetainedRunAdmissionHook,
   RetainedRunEnvironmentAdmission,
 } from '../retained-run-types'
+import { isCredentialRefusal } from './credential-refusal'
 import { detachedSnapshot } from './snapshot'
 import { type TraceRootWriter, traceRootWriter } from './trace-root'
 import type {
@@ -167,7 +168,8 @@ export function retainedExecutorContext(ctx: ExecutorContext): RetainedExecutorC
  * - `'request-rejected'`: the request itself was refused BEFORE it ran — a schema violation
  *   (`ZodError`), an HTTP 4xx at admission, a capacity refusal at admission that carries an
  *   upstream capacity `code` and no HTTP status (the account owner's credential command refused a
- *   fresh dispatch before the dispatch request existed), or a dispatch that Sandbox did not admit
+ *   fresh dispatch before the dispatch request existed), an unsupported credential route, or a
+ *   dispatch that Sandbox did not admit
  *   because another execution owns the session or turn. Never named after admission.
  * - `'transport'`: the provider or a gateway in front of it failed — an HTTP 5xx, a socket
  *   error, a platform service answering with a server error. Status is in doubt only because
@@ -251,6 +253,10 @@ function readString(value: object, key: string): string | undefined {
  */
 export type RetainedPendingPhase = 'admission' | 'execution'
 
+// Preserve the specific admission evidence across local wrappers without adding a public cause
+// category. An unsupported route observed later cannot settle an already admitted execution.
+const credentialAdmissionRefusals = new WeakSet<RetainedExecutionPendingError>()
+
 /**
  * Walk the cause chain (bounded, cycle-safe) and name the first cause whose structure decides.
  *
@@ -262,6 +268,14 @@ export function classifyRetainedPendingCause(
   cause: unknown,
   phase: RetainedPendingPhase = 'execution',
 ): RetainedPendingCause {
+  return classifyPendingCause(cause, phase)
+}
+
+function classifyPendingCause(
+  cause: unknown,
+  phase: RetainedPendingPhase,
+  onCredentialRefusal?: () => void,
+): RetainedPendingCause {
   const seen = new Set<object>()
   const queue: Array<{ value: unknown; phase: RetainedPendingPhase }> = [{ value: cause, phase }]
   let steps = 0
@@ -270,7 +284,13 @@ export function classifyRetainedPendingCause(
     const { value, phase: at } = queue.shift()!
     if (typeof value !== 'object' || value === null || seen.has(value)) continue
     seen.add(value)
-    if (value instanceof RetainedExecutionPendingError) return value.pendingCause
+    if (value instanceof RetainedExecutionPendingError) {
+      if (credentialAdmissionRefusals.has(value)) {
+        if (at === 'execution') return 'unobservable'
+        onCredentialRefusal?.()
+      }
+      return value.pendingCause
+    }
     const name = readString(value, 'name')
     const code = readString(value, 'code')
     const status = readNumber(value, 'status') ?? readNumber(value, 'statusCode')
@@ -295,6 +315,13 @@ export function classifyRetainedPendingCause(
     // dispatch the provider already confirmed.
     if (code === DISPATCH_NOT_ADMITTED_CODE)
       return at === 'admission' ? 'request-rejected' : 'provider-contract'
+    // The credential command refused this route before dispatch. After admission, a refusal
+    // encountered while observing the run cannot establish whether the admitted execution ran.
+    if (isCredentialRefusal(value)) {
+      if (at === 'execution') return 'unobservable'
+      onCredentialRefusal?.()
+      return 'request-rejected'
+    }
     if (code !== undefined && transportCodes.has(code)) return 'transport'
     if (name === 'NetworkError' || name === 'ServerError') return 'transport'
     // A capacity refusal with no HTTP response is the account owner refusing to bind a credential
@@ -351,14 +378,18 @@ export class RetainedExecutionPendingError extends Error {
     cause: unknown,
     pendingCause: RetainedPendingCause | RetainedPendingPhase = 'execution',
   ) {
+    let credentialRefused = false
     const resolved =
       pendingCause === 'admission' || pendingCause === 'execution'
-        ? classifyRetainedPendingCause(cause, pendingCause)
+        ? classifyPendingCause(cause, pendingCause, () => {
+            credentialRefused = true
+          })
         : pendingCause
     super(causeMessages[resolved], { cause })
     this.name = 'RetainedExecutionPendingError'
     this.pendingCause = resolved
     this.phase = pendingCause === 'admission' ? 'admission' : 'execution'
+    if (credentialRefused) credentialAdmissionRefusals.add(this)
   }
 }
 
