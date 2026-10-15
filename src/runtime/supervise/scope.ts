@@ -1261,8 +1261,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           await pendingEvidence?.complete()
           const outRef = contentAddress(result.out)
           await args.blobs.put(outRef, result.out)
-          const traceRoot = await traceRoots.write(outRef, result.out)
           controller.signal.throwIfAborted()
+          // As for a retained owner: an abort that arrives while the events hash still commits.
+          const traceRoot = await traceRoots.write(outRef, result.out)
           await args.journal.appendEvent(args.root, {
             kind: 'execution-result',
             id,

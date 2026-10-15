@@ -227,8 +227,10 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         executorFailureReason(result)
         const outRef = contentAddress(result.out)
         await args.blobs.put(outRef, result.out)
-        const traceRoot = await traceRoots.write(outRef, result.out)
         scope.signal.throwIfAborted()
+        // The abort is decided once the result is stored. Hashing the completed turn's events
+        // decides nothing, so an abort that arrives while they hash still commits the result.
+        const traceRoot = await traceRoots.write(outRef, result.out)
         const event: Extract<SpawnEvent, { kind: 'execution-result' }> = {
           kind: 'execution-result',
           id: args.nodeId,

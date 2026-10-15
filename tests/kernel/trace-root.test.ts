@@ -631,6 +631,23 @@ describe('trace root', () => {
     for (const record of results) await verifyStoredTrace(blobs, record)
   })
 
+  it('commits a retained turn whose run is cancelled while its events hash', async () => {
+    // Hashing a large turn takes seconds (4.9 s for 65,276 events). The turn has completed by
+    // then, so a cancellation in that window must not leave it uncommitted and retained-pending.
+    const runId = 'trace-root-cancelled'
+    const { journal, blobs, abortedWhileHashing } = await retainedRoot(runId, streamedTurn(), {
+      abortWhileHashing: true,
+    })
+    expect(abortedWhileHashing).toBe(true)
+    const results = ((await journal.loadTree(runId)) ?? []).filter(
+      (event): event is Extract<SpawnEvent, { kind: 'execution-result' }> =>
+        event.kind === 'execution-result',
+    )
+    expect(results.length).toBeGreaterThan(0)
+    const verified = await verifyStoredTrace(blobs, results[0]!)
+    expect(verified.artifact.summary.toolCalls).toEqual(STREAMED_TOOL_CALLS)
+  })
+
   it('builds the root merkleRoot gives its leaves, at every tree shape', async () => {
     // The root is built as the leaves arrive. Leaf counts on both sides of each power of two
     // cover every arrangement of its perfect subtrees.
