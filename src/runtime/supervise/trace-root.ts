@@ -33,7 +33,9 @@ import { contentAddress } from '../../durable/content-address'
 import { createSandboxToolPartState, mapSandboxToolEvent } from '../sandbox-events'
 import type { ResultBlobStore, TraceRootReceipt } from './types'
 
+/** Schema identifier for archived turn Merkle-root artifacts. */
 export const TRACE_ROOT_SCHEMA = 'agent-runtime.trace-root.v1'
+/** Schema identifier for the final trace leaf carrying event and tool counts. */
 export const TRACE_SUMMARY_SCHEMA = 'agent-runtime.trace-summary.v1'
 
 /** The last leaf of a trace root: how many events the archive holds and the tool calls among them,

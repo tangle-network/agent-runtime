@@ -48,12 +48,12 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { completeCapture } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
-import { coordinationProxy } from '../helpers/coordination-proxy'
+import { proxyCoordination, proxySecretCapabilities } from '../helpers/proxy-coordination'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
-const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
+const proxies: Awaited<ReturnType<typeof proxyCoordination>>[] = []
 afterEach(async () => {
   await Promise.all(proxies.splice(0).map((proxy) => proxy.close()))
   await Promise.all(
@@ -320,7 +320,7 @@ async function retainedRoot(
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'trace-root-'))
   directories.push(directory)
-  const proxy = await coordinationProxy()
+  const proxy = await proxyCoordination()
   proxies.push(proxy)
   const context = createFileRunContext(join(directory, 'run'))
   const abort = new AbortController()
@@ -371,8 +371,8 @@ async function retainedRoot(
         },
       }
     : undefined
-  let port = 0
-  let token = ''
+  let coordinationUrl = ''
+  let coordinationHeaders: Record<string, string> = {}
   const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
     ...environment,
     session: (id, sessionOptions) => {
@@ -394,9 +394,9 @@ async function retainedRoot(
     },
     dispatch: async (turn) => {
       const dispatched = await environment.dispatch!(turn)
-      const response = await fetch(`http://127.0.0.1:${port}/manager`, {
+      const response = await fetch(coordinationUrl, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        headers: { ...coordinationHeaders, 'content-type': 'application/json' },
         body: JSON.stringify({
           jsonrpc: '2.0',
           id: 'submit',
@@ -413,14 +413,22 @@ async function retainedRoot(
     ...base,
     capabilities: async () => ({
       ...(await base.capabilities()),
-      create: { runtimeAttachments: { mcp: true } },
+      create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
     }),
     create: async (input) => {
-      token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+      const binding = input.proxySecrets?.find(
+        (entry) => entry.envName === 'AGENT_RUNTIME_COORDINATION_TOKEN',
+      )
+      if (!binding) throw new Error('trace root requires its registered coordination reference')
+      coordinationHeaders = proxy.guestHeadersFor(binding)
       return wrap(await base.create(input))
     },
-    get: async (id) => {
-      const environment = await base.get!(id)
+    get: async (id, options) => {
+      const environment = await base.get!(id, options)
+      const binding = options?.proxySecrets?.find(
+        (entry) => entry.envName === 'AGENT_RUNTIME_COORDINATION_TOKEN',
+      )
+      if (binding) coordinationHeaders = proxy.guestHeadersFor(binding)
       return environment ? wrap(environment) : null
     },
   }
@@ -451,10 +459,10 @@ async function retainedRoot(
         authentication: {
           signingKeys: { activeKeyId: 'test', keys: { test: 'trace-root-secret-'.repeat(3) } },
         },
+        proxySecret: proxy.proxySecret,
         publicUrl: (address) => {
-          port = address.port
-          proxy.forwardTo(port)
-          return `${proxy.url}/manager`
+          coordinationUrl = proxy.publicUrl(address)
+          return coordinationUrl
         },
       },
     },

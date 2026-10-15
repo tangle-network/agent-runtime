@@ -1,8 +1,8 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { sandboxOwnedContractCopies } from './sandbox-owned-contracts.mjs'
+import { sandboxContractArtifact, sandboxOwnedContractCopies } from './sandbox-owned-contracts.mjs'
 const roots = []
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
@@ -59,4 +59,47 @@ describe('Sandbox-owned contract qualification', () => {
     write(join(nested, 'agent-core'), '0.11.0')
     expect(() => sandboxOwnedContractCopies(scope)).toThrow(/changed Sandbox contract artifact/)
   })
+  it('measures a deduped interface and SDK-owned core without admitting an unknown tuple', () => {
+    const { scope, write } = fixture()
+    write(join(scope, 'sandbox'), '0.60.999')
+    write(join(scope, 'agent-interface'), '5.3.0')
+    write(join(scope, 'agent-core'), '0.12.0')
+    const ownedCore = join(scope, 'sandbox', 'node_modules', '@tangle-network', 'agent-core')
+    write(ownedCore, '0.11.0')
+    writeFileSync(join(scope, 'agent-interface', 'index.js'), 'export {}')
+    writeFileSync(join(ownedCore, 'index.js'), 'export {}')
+    const artifact = sandboxContractArtifact(scope)
+    expect(artifact.cohort.map(([path, version]) => [path, version])).toEqual([
+      ['sandbox', '0.60.999'],
+      ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0'],
+      ['agent-interface', '5.3.0'],
+      ['agent-core', '0.12.0'],
+    ])
+    expect(artifact.resolutions).toEqual([
+      ['agent-interface', 'agent-interface/index.js'],
+      ['agent-core', 'sandbox/node_modules/@tangle-network/agent-core/index.js'],
+    ])
+    for (const [, , hash] of artifact.cohort) expect(hash).toMatch(/^[a-f0-9]{64}$/)
+    expect(() => sandboxOwnedContractCopies(scope)).toThrow(/unqualified Sandbox contract artifact/)
+    expect(() => sandboxOwnedContractCopies(scope)).toThrow(/Sandbox contract artifact:.*resolutions/)
+  })
+  it('fingerprints own bytes independently of SDK-owned dependency bytes', () => {
+    const { scope, write } = fixture()
+    write(join(scope, 'sandbox'), '0.60.999')
+    const ownedCore = join(scope, 'sandbox', 'node_modules', '@tangle-network', 'agent-core')
+    write(ownedCore, '0.11.0')
+    const before = sandboxContractArtifact(scope)
+    writeFileSync(join(ownedCore, 'index.js'), 'export const changed = true')
+    const after = sandboxContractArtifact(scope)
+    expect(after.cohort[0]).toEqual(before.cohort[0])
+    expect(after.cohort[1][2]).not.toEqual(before.cohort[1][2])
+    expect(JSON.stringify(after)).not.toContain('export const changed')
+  })
+  it('refuses symlinked artifact contents during qualification diagnostics', () => {
+    const { scope, write } = fixture()
+    write(join(scope, 'sandbox'), '0.60.999')
+    symlinkSync(join(scope, 'sandbox', 'package.json'), join(scope, 'sandbox', 'linked.json'))
+    expect(() => sandboxContractArtifact(scope)).toThrow(/unqualified package symlink/)
+  })
+
 })

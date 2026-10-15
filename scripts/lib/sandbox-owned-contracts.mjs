@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, relative } from 'node:path'
 
-// Exact published package tuples, qualified at the Runtime/Sandbox adapter boundary.
+// Exact immutable package tuples, qualified at the Runtime/Sandbox adapter boundary.
 // The .41 tuple has byte-identical shared contracts. The .49, .50, .51 and .53 tuples preserve
 // shared execution fields and explicitly refuse unresolved Interface 5.2 knowledge pins.
 // Qualification is limited to the Linux npm packed-consumer layout used by this gate.
@@ -68,41 +68,85 @@ function ownFiles(directory) {
   })
 }
 
+function fingerprint(directory) {
+  const hash = createHash('sha256')
+  for (const file of ownFiles(directory).sort()) {
+    const bytes = readFileSync(file)
+    hash.update(`${relative(directory, file)}\0${bytes.length}\0`).update(bytes)
+  }
+  return hash.digest('hex')
+}
+
+// Artifact diagnostics contain declarations, content hashes and resolution paths;
+// they never contain package file contents or credential values.
+export function sandboxContractArtifact(scopeDir) {
+  const cohort = []
+  const visit = path => {
+    const directory = join(scopeDir, path)
+    if (!existsSync(directory)) return
+    const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+    cohort.push([path, manifest.version, fingerprint(directory)])
+    for (const name of ['agent-interface', 'agent-core']) {
+      visit(`${path}/node_modules/@tangle-network/${name}`)
+    }
+  }
+  for (const path of ['sandbox', 'agent-interface', 'agent-core']) visit(path)
+  const sdk = createRequire(join(scopeDir, 'sandbox', 'package.json'))
+  const resolutions = ['agent-interface', 'agent-core'].map(name => {
+    try {
+      return [name, relative(scopeDir, sdk.resolve(`@tangle-network/${name}`))]
+    } catch (error) {
+      return [name, error.code]
+    }
+  })
+  return { cohort, resolutions }
+}
+
 /** Exempt only these exact SDK-owned implementation copies from the Runtime cohort count. */
 export function sandboxOwnedContractCopies(scopeDir) {
-  const nested = qualifiedCohorts[0].slice(3).map(([path]) => join(scopeDir, path))
-  if (nested.every(path => !existsSync(path))) return new Set()
-  const sandbox = JSON.parse(readFileSync(join(scopeDir, 'sandbox', 'package.json'), 'utf8'))
-  const candidates = qualifiedCohorts.filter(cohort => cohort[0][1] === sandbox.version)
-  if (candidates.length === 0) {
-    throw new Error(`unqualified Sandbox contract artifact: sandbox@${sandbox.version}`)
+  const sdkScope = join(scopeDir, 'sandbox', 'node_modules', '@tangle-network')
+  if (!['agent-interface', 'agent-core'].some(name => existsSync(join(sdkScope, name)))) {
+    return new Set()
   }
-  const agentInterface = JSON.parse(readFileSync(join(scopeDir, 'agent-interface', 'package.json'), 'utf8'))
-  const qualified = candidates.find(cohort => cohort[1][1] === agentInterface.version)
-  if (!qualified) {
-    throw new Error(
-      `unqualified Sandbox contract artifact: sandbox@${sandbox.version} with agent-interface@${agentInterface.version}`,
-    )
-  }
-  for (const [path, version, fingerprint] of qualified) {
-    const directory = join(scopeDir, path)
-    const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
-    if (manifest.name !== `@tangle-network/${path.split('/').at(-1)}` || manifest.version !== version) {
-      throw new Error(`unqualified Sandbox contract artifact: ${path}@${manifest.version}`)
+  try {
+    const sandbox = JSON.parse(readFileSync(join(scopeDir, 'sandbox', 'package.json'), 'utf8'))
+    const candidates = qualifiedCohorts.filter(cohort => cohort[0][1] === sandbox.version)
+    if (candidates.length === 0) {
+      throw new Error(`unqualified Sandbox contract artifact: sandbox@${sandbox.version}`)
     }
-    const hash = createHash('sha256')
-    for (const file of ownFiles(directory).sort()) {
-      const bytes = readFileSync(file)
-      hash.update(`${relative(directory, file)}\0${bytes.length}\0`).update(bytes)
+    const agentInterface = JSON.parse(readFileSync(join(scopeDir, 'agent-interface', 'package.json'), 'utf8'))
+    const qualified = candidates.find(cohort => cohort[1][1] === agentInterface.version)
+    if (!qualified) {
+      throw new Error(
+        `unqualified Sandbox contract artifact: sandbox@${sandbox.version} with agent-interface@${agentInterface.version}`,
+      )
     }
-    if (hash.digest('hex') !== fingerprint) throw new Error(`changed Sandbox contract artifact: ${path}`)
-  }
-  const sdk = createRequire(join(scopeDir, 'sandbox', 'package.json'))
-  for (const directory of nested) {
-    const name = directory.split('/').at(-1)
-    if (!sdk.resolve(`@tangle-network/${name}`).startsWith(`${directory}/`)) {
-      throw new Error(`Sandbox resolves ${name} outside its qualified owned copy`)
+    for (const [path, version, expectedFingerprint] of qualified) {
+      const directory = join(scopeDir, path)
+      const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+      if (manifest.name !== `@tangle-network/${path.split('/').at(-1)}` || manifest.version !== version) {
+        throw new Error(`unqualified Sandbox contract artifact: ${path}@${manifest.version}`)
+      }
+      if (fingerprint(directory) !== expectedFingerprint) {
+        throw new Error(`changed Sandbox contract artifact: ${path}`)
+      }
     }
+    const nested = qualified.slice(3).map(([path]) => join(scopeDir, path))
+    const sdk = createRequire(join(scopeDir, 'sandbox', 'package.json'))
+    for (const name of ['agent-interface', 'agent-core']) {
+      const directory = nested.find(path => path.endsWith(`/${name}`)) ?? join(scopeDir, name)
+      if (!sdk.resolve(`@tangle-network/${name}`).startsWith(`${directory}/`)) {
+        throw new Error(`Sandbox resolves ${name} outside its qualified copy`)
+      }
+    }
+    return new Set(nested)
+  } catch (error) {
+    let diagnostic
+    try {
+      diagnostic = JSON.stringify(sandboxContractArtifact(scopeDir))
+    } catch (inspectionError) {
+      diagnostic = `artifact inspection failed: ${inspectionError.message}`
+    }
+    throw new Error(`${error.message}\nSandbox contract artifact: ${diagnostic}`, { cause: error })
   }
-  return new Set(nested)
 }
