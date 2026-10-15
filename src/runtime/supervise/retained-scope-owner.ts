@@ -1,4 +1,3 @@
-import { assertProxySecretParentInput } from './proxy-secret-parent-state'
 import {
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
@@ -34,6 +33,7 @@ import { abortError, runAbortable } from './abortable'
 import { assertValidSpend } from './budget'
 import { errMessage, errorText } from './error-message'
 import { executorFailureReason } from './executor-outcome'
+import { assertProxySecretParentInput } from './proxy-secret-parent-state'
 import {
   executorEvidenceWriter,
   type RetainedExecutionPendingError,
@@ -190,7 +190,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
           at: new Date(args.now()).toISOString(),
         })
       },
-      onProxySecretParentsAdmission: async parents => {
+      onProxySecretParentsAdmission: async (parents) => {
         scope.signal.throwIfAborted()
         await assertProxySecretParentInput(args.journal, args.rootId, args.nodeId, parents)
         scope.signal.throwIfAborted()

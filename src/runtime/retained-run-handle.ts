@@ -22,10 +22,7 @@ import type {
   AgentSessionStatus,
 } from '@tangle-network/agent-interface/environment-provider'
 import { assertProxySecretInstallation, assertProxySecretReceiptLive } from './proxy-secret-custody'
-import {
-  assertProxySecretParentReadback,
-  type ProxySecretParents,
-} from './proxy-secret-parents'
+import { assertProxySecretParentReadback, type ProxySecretParents } from './proxy-secret-parents'
 import {
   abortError,
   assertBoundaryBinding,

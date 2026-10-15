@@ -312,6 +312,17 @@ function environmentFor(stateFile: string, provider: string, id: string): AgentE
   }
 }
 
+/** Failed acknowledgements never become the session's active execution identity. */
+function latestNativeControlRef(
+  session: StoredSession,
+  fallback = session.controlRef,
+): AgentExactRunControlRef {
+  for (const operation of Object.values(session.nativeOperations).reverse()) {
+    if ('controlRef' in operation.result) return operation.result.controlRef
+  }
+  return fallback
+}
+
 function sessionFor(
   stateFile: string,
   environmentId: string,
@@ -325,8 +336,7 @@ function sessionFor(
     },
     async *events(options): AsyncIterable<AgentEnvironmentEvent> {
       const current = sessionState(stateFile, environmentId, initial.id)
-      const latestControlRef =
-        Object.values(current.nativeOperations).at(-1)?.result.controlRef ?? current.controlRef
+      const latestControlRef = latestNativeControlRef(current)
       const events = rebindInteractionEvents(current.events, latestControlRef)
       const start =
         options?.since === undefined
@@ -339,26 +349,16 @@ function sessionFor(
     },
     async result() {
       const current = sessionState(stateFile, environmentId, initial.id)
-      const latest = Object.values(current.nativeOperations).at(-1)?.result.controlRef
+      const latest = latestNativeControlRef(current, initial.controlRef)
       return {
         text: 'durable result',
         success: true,
         sessionId: initial.id,
-        ...(latest?.executionId
-          ? {
-              metadata: {
-                executionId: latest.executionId,
-                runId: latest.runId,
-                requestDigest: latest.requestDigest,
-              },
-            }
-          : {
-              metadata: {
-                executionId: initial.controlRef.executionId,
-                runId: initial.controlRef.runId,
-                requestDigest: initial.controlRef.requestDigest,
-              },
-            }),
+        metadata: {
+          executionId: latest.executionId,
+          runId: latest.runId,
+          requestDigest: latest.requestDigest,
+        },
       }
     },
     async prompt(input) {
@@ -380,8 +380,7 @@ function sessionFor(
       }
       const exact =
         (command.binding.runId === session.controlRef.runId ||
-          command.binding.runId ===
-            Object.values(session.nativeOperations).at(-1)?.result.controlRef.runId) &&
+          command.binding.runId === latestNativeControlRef(session).runId) &&
         command.binding.environmentId === environmentId &&
         command.binding.sessionId === initial.id &&
         command.binding.interactionId === 'interaction-1'
@@ -427,9 +426,11 @@ function sessionFor(
             },
           }
         }
+        const result = prior.result
+        if (!('controlRef' in result)) return structuredClone(result)
         return {
-          ...structuredClone(prior.result),
-          acknowledgement: { ...prior.result.acknowledgement, status: 'replayed' },
+          ...structuredClone(result),
+          acknowledgement: { ...result.acknowledgement, status: 'replayed' },
         }
       }
       if (
@@ -527,8 +528,7 @@ function sessionFor(
       const exactRequest = AgentRunCancellationRequestSchema.parse(request)
       const state = readState(stateFile)
       const session = requireSession(state, environmentId, initial.id)
-      const latestControlRef =
-        Object.values(session.nativeOperations).at(-1)?.result.controlRef ?? session.controlRef
+      const latestControlRef = latestNativeControlRef(session)
       if (
         canonicalCandidateDigest(exactRequest.run) !== canonicalCandidateDigest(latestControlRef)
       ) {

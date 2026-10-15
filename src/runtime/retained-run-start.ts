@@ -86,12 +86,16 @@ function captureRetainedProxySecretUpdate(
   options: Pick<AgentEnvironmentGetOptions, 'proxySecrets' | 'proxySecretParents'>,
 ) {
   return {
-    ...(options.proxySecrets === undefined ? {} : {
-      proxySecrets: detachedSnapshot(options.proxySecrets, 'retained provider proxySecrets'),
-    }),
-    ...(options.proxySecretParents === undefined ? {} : {
-      proxySecretParents: captureProxySecretParents(options.proxySecretParents),
-    }),
+    ...(options.proxySecrets === undefined
+      ? {}
+      : {
+          proxySecrets: detachedSnapshot(options.proxySecrets, 'retained provider proxySecrets'),
+        }),
+    ...(options.proxySecretParents === undefined
+      ? {}
+      : {
+          proxySecretParents: captureProxySecretParents(options.proxySecretParents),
+        }),
   }
 }
 
@@ -182,25 +186,36 @@ export async function startRetainedRun(
   if (typeof options.onAdmission !== 'function') {
     throw new Error('startRetainedRun requires an awaited onAdmission durability hook')
   }
-  if (options.environment.proxySecrets !== undefined ||
-      (typeof options.environment.profile !== 'string' && options.environment.profile.proxySecrets !== undefined)) {
+  if (
+    options.environment.proxySecrets !== undefined ||
+    (typeof options.environment.profile !== 'string' &&
+      options.environment.profile.proxySecrets !== undefined)
+  ) {
     options = {
       ...options,
       environment: {
         ...options.environment,
-        profile: typeof options.environment.profile === 'string'
-          ? options.environment.profile
-          : detachedSnapshot(options.environment.profile, 'retained provider profile'),
-        ...(options.environment.proxySecrets === undefined ? {} : {
-          proxySecrets: detachedSnapshot(options.environment.proxySecrets, 'retained provider proxySecrets'),
-        }),
+        profile:
+          typeof options.environment.profile === 'string'
+            ? options.environment.profile
+            : detachedSnapshot(options.environment.profile, 'retained provider profile'),
+        ...(options.environment.proxySecrets === undefined
+          ? {}
+          : {
+              proxySecrets: detachedSnapshot(
+                options.environment.proxySecrets,
+                'retained provider proxySecrets',
+              ),
+            }),
       },
     }
   }
   const contextTransfer = retainedContextTransfer(options.turn.contextTransfer)
   const proxySecrets = retainedProxySecretBindings(options.environment)
   const proxySecretParents = prepareProxySecretParents(
-    options.proxySecretParents, proxySecrets, options.environment.proxySecretParents,
+    options.proxySecretParents,
+    proxySecrets,
+    options.environment.proxySecretParents,
   )
   if (contextTransfer !== undefined && proxySecrets !== undefined) {
     throw new Error('retained context transfer cannot rebind proxy-secret declarations')
@@ -312,7 +327,8 @@ export async function startRetainedRun(
   try {
     assertProxySecretInstallation(environment, proxySecrets)
     assertProxySecretParentReadback(
-      environment, proxySecretParents,
+      environment,
+      proxySecretParents,
       transferReceipt !== undefined || options.existingEnvironmentId !== undefined,
     )
     capabilities = retainedCapabilitiesForEnvironment(

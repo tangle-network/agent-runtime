@@ -1,6 +1,6 @@
-import type { ProxySecretParents } from '../proxy-secret-parents'
 import type { AgentProfile, WorkspaceCheckpointRef } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/spawn-journal'
+import type { ProxySecretParents } from '../proxy-secret-parents'
 import type {
   RetainedRunAdmission,
   RetainedRunAdmissionHook,

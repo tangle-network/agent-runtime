@@ -1356,7 +1356,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         admissions,
         ...(markRecoveryReady && continuing === undefined ? { onReady: markRecoveryReady } : {}),
         onAdmission,
-        onProxySecretParentsAdmission: async parents => {
+        onProxySecretParentsAdmission: async (parents) => {
           controller.signal.throwIfAborted()
           await assertProxySecretParentInput(args.journal, args.root, id, parents)
           controller.signal.throwIfAborted()

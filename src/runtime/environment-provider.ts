@@ -365,15 +365,22 @@ export function providerAsSandboxClient(
       }
       const input: CreateAgentEnvironmentInput = {
         ...mapped,
-        profile: typeof mapped.profile === 'string'
-          ? mapped.profile : detachedSnapshot(mapped.profile, 'provider adapter profile'),
-        ...(mapped.proxySecrets === undefined ? {} : {
-          proxySecrets: detachedSnapshot(mapped.proxySecrets, 'provider adapter proxySecrets'),
-        }),
+        profile:
+          typeof mapped.profile === 'string'
+            ? mapped.profile
+            : detachedSnapshot(mapped.profile, 'provider adapter profile'),
+        ...(mapped.proxySecrets === undefined
+          ? {}
+          : {
+              proxySecrets: detachedSnapshot(mapped.proxySecrets, 'provider adapter proxySecrets'),
+            }),
       }
       const proxySecrets = retainedProxySecretBindings(input)
-      if (proxySecrets !== undefined && proxySecrets.length > 0 &&
-          (input.proxySecretParents === undefined || options.onAdmission === undefined)) {
+      if (
+        proxySecrets !== undefined &&
+        proxySecrets.length > 0 &&
+        (input.proxySecretParents === undefined || options.onAdmission === undefined)
+      ) {
         throw new ValidationError(
           'protected provider adapter requires explicit proxySecretParents and an awaited onAdmission hook',
         )
@@ -398,7 +405,9 @@ export function providerAsSandboxClient(
         }
       } catch (error) {
         return rejectUnmaterializedProviderEnvironment(
-          environment, error, options.workspaceRetention !== undefined,
+          environment,
+          error,
+          options.workspaceRetention !== undefined,
         )
       }
       return environmentAsSandboxInstance(environment, {
@@ -2515,7 +2524,9 @@ async function providerExecutionSource(
     profile: args.createProfile,
   })
   const proxySecretParents = prepareProxySecretParents(
-    args.proxySecretParents, proxySecrets, args.options.defaults?.proxySecretParents,
+    args.proxySecretParents,
+    proxySecrets,
+    args.options.defaults?.proxySecretParents,
   )
   const selectedTurn = subscriptionTurnProfile(turn, args.profile)
   AgentTurnInputSchema.parse(selectedTurn)
@@ -2529,7 +2540,9 @@ async function providerExecutionSource(
     if (proxySecrets !== undefined && proxySecrets.length > 0) {
       const admitParents = args.retention?.onProxySecretParentsAdmission
       if (proxySecretParents === undefined || admitParents === undefined) {
-        throw new ValidationError('protected provider executor requires awaited durable parent admission')
+        throw new ValidationError(
+          'protected provider executor requires awaited durable parent admission',
+        )
       }
       await admitParents(proxySecretParents)
     }
@@ -3041,7 +3054,8 @@ function environmentAsSandboxInstance(
     onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void | Promise<void>
   },
 ): SandboxInstance {
-  const protectedAllocation = options.requiresProxySecretCustody === true ||
+  const protectedAllocation =
+    options.requiresProxySecretCustody === true ||
     (environment.proxySecretReceipt?.bindings.length ?? 0) > 0 ||
     Object.keys(environment.proxySecretParents ?? {}).length > 0
   let providerSessionId: string | null = null
@@ -3225,9 +3239,11 @@ function environmentAsSandboxInstance(
     ...(environment.fork
       ? {
           async fork(checkpointId: string, forkOptions?: ForkRequest) {
-            if (protectedAllocation ||
-                (environment.proxySecretReceipt?.bindings.length ?? 0) > 0 ||
-                Object.keys(environment.proxySecretParents ?? {}).length > 0) {
+            if (
+              protectedAllocation ||
+              (environment.proxySecretReceipt?.bindings.length ?? 0) > 0 ||
+              Object.keys(environment.proxySecretParents ?? {}).length > 0
+            ) {
               throw new ValidationError(
                 'protected provider adapter fork requires a trusted durable parent admission port',
               )
