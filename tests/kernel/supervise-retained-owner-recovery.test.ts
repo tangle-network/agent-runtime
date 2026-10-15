@@ -668,6 +668,28 @@ describe('retained external supervisor recovery', () => {
     expect(fixture.authorizedRequests()).toBeGreaterThan(1)
   })
 
+  it('admits a new credential generation before retained recovery after confirmed graceful revocation', async () => {
+    const fixture = await setup('metered', false, false, false, undefined, true)
+    await fixture.first()
+    const originalReferences = fixture.preparedReferences()
+    expect(originalReferences).toHaveLength(1)
+    const original = (await fixture.events()).filter(
+      event => event.kind === 'execution-admitted' && event.admission.phase === 'intent',
+    )
+    const dispatches = fixture.dispatches()
+    const result = await fixture.resume()
+    expect(fixture.preparedReferences()).toHaveLength(2)
+    expect(new Set(fixture.preparedReferences()).size).toBe(2)
+    expect(fixture.renewalLookups(), 'new credential recovery never reached an admitted provider lookup').toBeGreaterThan(0)
+    expect(fixture.creates()).toBe(1)
+    expect(fixture.dispatches()).toBe(dispatches)
+    expect(JSON.stringify((await fixture.events()).filter(
+      event => event.kind === 'execution-admitted' && event.admission.phase === 'intent',
+    )) === JSON.stringify(original)).toBe(true)
+    expect((await fixture.events()).filter(event => event.kind === 'execution-result').length).toBe(1)
+    expect(await fixture.serializationLeaks(result)).toBe(false)
+  })
+
   it('reconciles committed usage after storage failure interrupts driver retry', async () => {
     const fixture = await setup('metered', false, true)
     await fixture.first()
@@ -1208,10 +1230,11 @@ async function setup(
   retry = false,
   historicalUnknown = false,
   rebindFailure?: 'revoked' | 'generation',
+  immutableCredentials = false,
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'retained-owner-'))
   directories.push(directory)
-  const proxy = await coordinationProxy()
+  const proxy = await coordinationProxy({ immutableCredentials })
   proxies.push(proxy)
   const stateFile = join(directory, 'provider.json')
   const runDirectory = join(directory, 'run')
@@ -1223,6 +1246,10 @@ async function setup(
   let dispatches = 0
   let rebinds = 0
   let observedRevocation = false
+  const preparedReferences: string[] = []
+  const preparedAuthorizations: string[] = []
+  const signingKey = 'test-secret-'.repeat(4)
+  let renewalLookups = 0
   let port = 0
   let injected = false
   // A manager with a check is never granted stop; it ends through submit_result.
@@ -1285,6 +1312,43 @@ async function setup(
         return wrap(await base.create(input))
       },
       get: async (id, options) => {
+        if (immutableCredentials && preparedReferences.length > 1) {
+          renewalLookups++
+          const nextReference = preparedReferences.at(-1)
+          const events = (await context.journal.loadTree('owner-run')) ?? []
+          const artifacts = await Promise.all(events.flatMap(event =>
+            event.kind === 'execution-evidence' &&
+            Reflect.get(event, 'authority') === 'proxy-secret-binding-admission'
+              ? [context.blobs.get(event.outRef)] : [],
+          ))
+          const selected = {
+            kind: 'proxy-secret-binding-admission',
+            stage: 'selected',
+            provider: base.name,
+            environmentId: id,
+            proxySecrets: [expect.objectContaining({
+              envName: 'AGENT_RUNTIME_COORDINATION_TOKEN',
+              secretRef: { kind: 'secret-ref', key: nextReference },
+            })],
+            proxySecretParents: { AGENT_RUNTIME_COORDINATION_TOKEN: null },
+          }
+          expect(
+            artifacts.some(artifact => expect.objectContaining(selected).asymmetricMatch(artifact)),
+            'new credential selection was not durably admitted before provider get',
+          ).toBe(true)
+          if (options?.proxySecrets !== undefined) {
+            const before = await base.get!(id)
+            expect(artifacts.some(artifact => expect.objectContaining({
+              ...selected,
+              stage: 'replacement',
+              priorReceipt: before?.proxySecretReceipt,
+              expectedProxySecretGeneration: before?.proxySecretReceipt?.generation,
+            }).asymmetricMatch(artifact)),
+            'new credential replacement was not durably admitted with prior receipt before apply',
+            ).toBe(true)
+            expect(options.expectedProxySecretGeneration).toBe(before?.proxySecretReceipt?.generation)
+          }
+        }
         if (options?.proxySecrets) {
           proxy.authorizationFor(options)
         }
@@ -1355,9 +1419,16 @@ async function setup(
             }
           : {}),
         coordination: {
-          proxySecret: proxy.proxySecret,
+          proxySecret: {
+            async prepare(input) {
+              const registration = await proxy.proxySecret.prepare(input)
+              preparedReferences.push(registration.binding.secretRef.key)
+              preparedAuthorizations.push(input.authorization)
+              return registration
+            },
+          },
           authentication: {
-            signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+            signingKeys: { activeKeyId: 'test', keys: { test: signingKey } },
           },
           publicUrl: (address) => {
             port = address.port
@@ -1377,6 +1448,22 @@ async function setup(
     dispatches: () => dispatches,
     rebinds: () => rebinds,
     observedRevocation: () => observedRevocation,
+    preparedReferences: () => [...preparedReferences],
+    serializationLeaks: async (result: unknown) => {
+      const events = (await context.journal.loadTree('owner-run')) ?? []
+      const references = new Set(events.flatMap(event => {
+        if (event.kind === 'execution-evidence' || event.kind === 'execution-result') return [event.outRef]
+        if (event.kind === 'execution-input') return [event.taskRef]
+        if (event.kind === 'spawned' && event.profileRef !== undefined) return [event.profileRef]
+        return []
+      }))
+      const artifacts = await Promise.all([...references].map(ref => context.blobs.get(ref)))
+      const serialized = JSON.stringify({ result, events, artifacts })
+      return serialized.includes(signingKey) || preparedAuthorizations.some(authorization =>
+        serialized.includes(authorization) || serialized.includes(authorization.slice('Bearer '.length)),
+      )
+    },
+    renewalLookups: () => renewalLookups,
     reconnections: () => reconnects,
     authorizedRequests: () => authorizedRequests,
     events: async () => (await context.journal.loadTree('owner-run')) ?? [],

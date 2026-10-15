@@ -21,12 +21,16 @@ export const proxySecretCapabilities = {
   placementReceiptRequired: true,
 } satisfies ProxySecretCapabilities
 
+interface Credential {
+  authorization: string
+  url: string
+  expiresAt: number
+  placeholder: string
+  binding: ProxySecretBinding
+}
 interface Route {
   local: string
-  credentials: Map<
-    string,
-    { authorization: string; url: string; expiresAt: number; placeholder: string }
-  >
+  credentials: Map<string, Credential>
 }
 const routes = new Map<string, Route>()
 let originalFetch: typeof fetch | undefined
@@ -68,17 +72,14 @@ function installRouter() {
   }
 }
 
-export async function proxyCoordination() {
+export async function proxyCoordination(options: { immutableCredentials?: boolean } = {}) {
   installRouter()
   fixtureCount += 1
   let closed = false
   const fixture = randomUUID()
   const url = `https://coord-${fixture}.example.test`
   const owned = new Set<string>()
-  const credentials = new Map<
-    string,
-    { authorization: string; url: string; expiresAt: number; placeholder: string }
-  >()
+  const credentials = new Map<string, Credential>()
   function route(publicUrl: string, port: number, host = '127.0.0.1') {
     const address = new URL(publicUrl)
     const key = `${address.origin}${address.pathname}`
@@ -89,18 +90,22 @@ export async function proxyCoordination() {
   const proxySecret: CoordinationProxySecretOptions = {
     async prepare(input) {
       if (input.signal.aborted) throw new Error('fixture registration cancelled')
-      const key = createHash('sha256').update(`${input.runId}:${input.actorId}`).digest('hex')
-      const expiresAt = Math.min(Date.now() + 300_000, input.credentialExpiresAt ?? Infinity)
-      const lifetime = expiresAt - Date.now()
-      if (lifetime < 1_000) throw new Error('fixture credential already expired')
-      const credential = {
+      const actor = `${input.runId}:${input.actorId}`
+      const identity = options.immutableCredentials
+        ? `${actor}:${createHash('sha256').update(input.authorization).digest('hex')}`
+        : actor
+      const key = createHash('sha256').update(identity).digest('hex')
+      const prior = options.immutableCredentials ? credentials.get(key) : undefined
+      if (prior && (prior.authorization !== input.authorization || prior.url !== input.url)) {
+        throw Object.assign(new Error('fixture immutable credential conflict'), { status: 409 })
+      }
+      const expiresAt = prior?.expiresAt ?? Math.min(Date.now() + 300_000, input.credentialExpiresAt ?? Infinity)
+      if (expiresAt - Date.now() < 1_000) throw new Error('fixture credential already expired')
+      const credential: Credential = prior ?? {
         authorization: input.authorization,
         url: input.url,
         expiresAt,
         placeholder: randomUUID(),
-      }
-      credentials.set(key, credential)
-      return {
         binding: {
           envName: 'AGENT_RUNTIME_COORDINATION_TOKEN',
           secretRef: { kind: 'secret-ref', key },
@@ -110,6 +115,10 @@ export async function proxyCoordination() {
           paths: [new URL(input.url).pathname],
           ttlSeconds: 60,
         },
+      }
+      if (prior === undefined) credentials.set(key, credential)
+      return {
+        binding: structuredClone(credential.binding),
         expiresAt: new Date(expiresAt).toISOString(),
         async revoke() {
           if (credentials.get(key) === credential) credentials.delete(key)
