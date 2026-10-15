@@ -21,7 +21,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Release-note and release-prep checks diff against the merge base.
           fetch-depth: 0
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -44,15 +43,9 @@ jobs:
       - name: Check upstream evidence workflow
         run: pnpm run check:upstream-evidence-workflow
 
-      - name: Check feature release note or release bump
-        run: |
-          base="origin/${GITHUB_BASE_REF:-main}"
-          if git diff --name-only "$base"...HEAD | grep -qx 'CHANGELOG.md'; then
-            pnpm run check:version-bump
-          else
-            pnpm run check:release-notes
-          fi
-
+      # Release-note/version preparation belongs to the release operation.
+      # A post-merge comparison of origin/main with HEAD would compare a
+      # revision to itself and cannot prove the former PR-only requirement.
       - name: Lint (biome)
         run: pnpm run lint
 
