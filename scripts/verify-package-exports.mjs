@@ -1,5 +1,6 @@
 import { sandboxOwnedContractCopies } from './lib/sandbox-owned-contracts.mjs'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
   copyFileSync,
   existsSync,
@@ -81,6 +82,7 @@ try {
     throw new Error(`expected exactly one packed tarball, found ${tarballs.length}`)
   }
 
+  console.log(`Runtime package archive SHA256: ${createHash('sha256').update(readFileSync(tarballs[0])).digest('hex')}`)
   run('tar', ['-xzf', tarballs[0], '-C', unpackDir], repoRoot)
   const packageDir = join(unpackDir, 'package')
   const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))

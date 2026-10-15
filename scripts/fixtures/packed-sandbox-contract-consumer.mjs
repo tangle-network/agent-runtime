@@ -110,6 +110,7 @@ const proxySecrets = current.ProxySecretsSchema.parse([{
 const proxyProfile = current.agentProfileSchema.parse({
   name: 'packed-materializer',
   harness: 'codex',
+  prompt: { systemPrompt: 'Synthetic instructions for the protected native plan.' },
   proxySecrets,
   mcp: {
     service: {
@@ -129,6 +130,7 @@ if (materializerProxySupported) {
   assert.deepEqual(proxyPlan.proxySecrets, proxySecrets)
   assert.deepEqual(assertProfileMaterializes(proxyProfile, 'codex', 'packed proxy plan').proxySecrets, proxySecrets)
   assert.ok(proxyPlan.files.length > 0, 'the refusing application must have native files to protect')
+  assert.ok(proxyPlan.files.some(file => file.content === proxyProfile.prompt.systemPrompt))
   const workspace = await mkdtemp(join(tmpdir(), 'packed-proxy-plan-'))
   try {
     assert.throws(() => applyWorkspacePlan(proxyPlan, workspace), /executor-bound placeholder environment/)
