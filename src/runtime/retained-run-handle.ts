@@ -70,14 +70,15 @@ export function createRetainedRunHandle(
 ): RetainedRunHandle {
   const clock = now ?? Date.now
   assertProxySecretReceiptLive(environment)
-  const proxyBindings = environment.proxySecretReceipt?.bindings.map(({ envName, secretRef, grant }) =>
-    structuredClone({
-      envName,
-      secretRef,
-      ...grant.scope,
-      presentation: grant.presentation,
-      placeholderFormat: grant.placeholderFormat,
-    }),
+  const proxyBindings = environment.proxySecretReceipt?.bindings.map(
+    ({ envName, secretRef, grant }) =>
+      structuredClone({
+        envName,
+        secretRef,
+        ...grant.scope,
+        presentation: grant.presentation,
+        placeholderFormat: grant.placeholderFormat,
+      }),
   )
   const measuredCapabilities = structuredClone(capabilities)
   let activeControlRef = freezeControlRef(initialControlRef)

@@ -23,9 +23,9 @@ import type {
   AgentNativeContextContinuationOptions,
   AgentSession,
   AgentSessionStatus,
+  AgentTurnInput,
   ProxySecretBinding,
   ProxySecretReceipt,
-  AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import {
   mergeProxySecretBindings,
@@ -162,7 +162,9 @@ function installProxySecrets(stored: StoredEnvironment, bindings: ProxySecretBin
         presentation: binding.presentation,
         placeholderFormat: binding.placeholderFormat ?? 'opaque',
         issuedAt,
-        expiresAt: new Date(Date.parse(issuedAt) + (binding.ttlSeconds ?? 60) * 1_000).toISOString(),
+        expiresAt: new Date(
+          Date.parse(issuedAt) + (binding.ttlSeconds ?? 60) * 1_000,
+        ).toISOString(),
       },
     })),
   })

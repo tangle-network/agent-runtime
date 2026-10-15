@@ -3,7 +3,7 @@ import { createServer, request } from 'node:http'
 import { connect, type Socket } from 'node:net'
 import { networkInterfaces, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { sha256DigestSchema } from '@tangle-network/agent-interface'
+import { canonicalCandidateDigest, sha256DigestSchema } from '@tangle-network/agent-interface'
 import { createKnowledgeTools, createRunScopedStores } from '@tangle-network/agent-knowledge'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -2277,6 +2277,40 @@ it('fences an expired proxy registration at the listener even when its scope rem
         }
       },
     )
+  } finally {
+    await proxy.close()
+  }
+})
+
+
+it('preserves an actor declaration and its retained digest across different registration setup delays', async () => {
+  const proxy = await proxyCoordination()
+  const digests: string[] = []
+  try {
+    // Model elapsed registration setup without sleeping or changing the system clock. The
+    // issuer returns the same declaration while its absolute remaining lease differs.
+    for (const remainingMs of [59_800, 58_800]) {
+      await withBoundHttp({
+        publicUrl: proxy.publicUrl,
+        proxySecret: {
+          async prepare(input) {
+            const registration = await proxy.proxySecret.prepare(input)
+            return {
+              ...registration,
+              expiresAt: new Date(Date.now() + remainingMs).toISOString(),
+            }
+          },
+        },
+      }, async (mcp) => {
+        const visible = mcp.proxySecret!
+        expect(visible.binding.ttlSeconds).toBe(60)
+        digests.push(canonicalCandidateDigest([visible.binding]))
+        const response = await jsonRpc(mcp.url, 'tools/list', {}, proxy.guestHeadersFor(visible.binding))
+        expect(response.error).toBeUndefined()
+      })
+    }
+    expect(digests).toHaveLength(2)
+    expect(digests[0]).toBe(digests[1])
   } finally {
     await proxy.close()
   }

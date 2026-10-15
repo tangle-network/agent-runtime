@@ -1,4 +1,3 @@
-import { assertProxySecretCapabilities, assertProxySecretInstallation, rejectUnmaterializedProviderEnvironment } from './proxy-secret-custody'
 import { randomUUID } from 'node:crypto'
 import { clearImmediate, setImmediate } from 'node:timers'
 import {
@@ -8,6 +7,11 @@ import {
   retainHarnessTranscript,
 } from './harness-transcript'
 import { type ProviderPlacement, selectProviderPlacement } from './provider-placement'
+import {
+  assertProxySecretCapabilities,
+  assertProxySecretInstallation,
+  rejectUnmaterializedProviderEnvironment,
+} from './proxy-secret-custody'
 import { promptOptionsFromAgentTurnInput } from './turn-input'
 
 export type { ProviderPlacement } from './provider-placement'
@@ -84,8 +88,8 @@ import {
   assertRetainedRunReplayMaterial,
   mintRetainedIdentity,
   reconnectRetainedRun,
-  retainedProxySecretBindings,
   recoverRetainedRun,
+  retainedProxySecretBindings,
   startRetainedRun,
 } from './retained-run-start'
 import type { RetainedRunHandle } from './retained-run-types'
@@ -2443,7 +2447,8 @@ async function providerExecutionSource(
     if (args.recovering)
       throw new Error(`provider ${args.provider.name} cannot recover retained executions`)
     const proxySecrets = retainedProxySecretBindings({
-      ...args.options.defaults, profile: args.createProfile,
+      ...args.options.defaults,
+      profile: args.createProfile,
     })
     if (proxySecrets !== undefined)
       assertProxySecretCapabilities(await args.provider.capabilities(), proxySecrets)

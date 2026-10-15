@@ -10,21 +10,25 @@ import {
 import type {
   AgentEnvironment,
   AgentEnvironmentCapabilities,
-  AgentEnvironmentProvider,
   AgentEnvironmentGetOptions,
-  CreateAgentEnvironmentInput,
+  AgentEnvironmentProvider,
   AgentSession,
   AgentSessionRef,
+  CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
-import {
-  mergeProxySecretBindings,
-} from '@tangle-network/agent-interface/environment-provider'
+import { mergeProxySecretBindings } from '@tangle-network/agent-interface/environment-provider'
 import {
   RetainedInteractiveAdmissionError,
   RetainedRunAdmissionError,
   RetainedRunDispatchBindingError,
 } from '../errors'
 import { assertRequestedInteractionCapabilities } from './interaction-capabilities'
+import {
+  assertProxySecretCapabilities,
+  assertProxySecretInstallation,
+  assertProxySecretReceiptLive,
+  rejectUnmaterializedProviderEnvironment,
+} from './proxy-secret-custody'
 import {
   assertRetainedContextTransferCapability,
   assertRetainedContextTransferEnvironment,
@@ -58,17 +62,12 @@ import type {
   StartRetainedRunOptions,
 } from './retained-run-types'
 import { detachedSnapshot } from './supervise/snapshot'
-import {
-  assertProxySecretCapabilities,
-  assertProxySecretInstallation,
-  assertProxySecretReceiptLive,
-  rejectUnmaterializedProviderEnvironment,
-} from './proxy-secret-custody'
 import { freshTurnInput } from './turn-input'
 
 /** Preserve both authored and Runtime bindings when replacing a retained environment's grants. */
 export function retainedProxySecretBindings(environment: CreateAgentEnvironmentInput) {
-  const authored = typeof environment.profile === 'string' ? undefined : environment.profile.proxySecrets
+  const authored =
+    typeof environment.profile === 'string' ? undefined : environment.profile.proxySecrets
   if (authored === undefined && environment.proxySecrets === undefined) return undefined
   if (typeof environment.profile === 'string') {
     throw new Error('retained proxy-secret rebinding requires the resolved inline profile')
@@ -89,7 +88,10 @@ async function getRetainedEnvironment(
     if (verifyOwner) {
       // Read ownership before replacing grants. Stale custody is allowed for this read so an
       // authorized caller can renew it, but never dispatches until the checked update completes.
-      const current = await provider.get!(id, options?.signal ? { signal: options.signal } : undefined)
+      const current = await provider.get!(
+        id,
+        options?.signal ? { signal: options.signal } : undefined,
+      )
       if (!current) return null
       if (current.id !== id || current.provider !== provider.name)
         throw new Error('provider reconstructed a different retained environment')
@@ -97,9 +99,15 @@ async function getRetainedEnvironment(
     }
   }
 
-  const environment = await provider.get!(id, bindings === undefined ? options : {
-    ...options, requireInPlace: true,
-  })
+  const environment = await provider.get!(
+    id,
+    bindings === undefined
+      ? options
+      : {
+          ...options,
+          requireInPlace: true,
+        },
+  )
   if (!environment) return environment
   if (bindings === undefined) assertProxySecretReceiptLive(environment)
   else assertProxySecretInstallation(environment, bindings, id, 'rebind')
@@ -216,10 +224,20 @@ export async function startRetainedRun(
     environment = existing
   } else if (options.existingEnvironmentId !== undefined) {
     assertStableText(options.existingEnvironmentId, 'retained environment id')
-    const existing = await getRetainedEnvironment(options.provider, options.existingEnvironmentId, {
-      proxySecrets: retainedProxySecretBindings(options.environment),
-      ...(attachmentSignal === undefined ? {} : { signal: attachmentSignal }),
-    }, (current) => assertRetainedEnvironmentOwnership(options.provider, current, options.environment.idempotencyKey))
+    const existing = await getRetainedEnvironment(
+      options.provider,
+      options.existingEnvironmentId,
+      {
+        proxySecrets: retainedProxySecretBindings(options.environment),
+        ...(attachmentSignal === undefined ? {} : { signal: attachmentSignal }),
+      },
+      (current) =>
+        assertRetainedEnvironmentOwnership(
+          options.provider,
+          current,
+          options.environment.idempotencyKey,
+        ),
+    )
     if (
       !existing ||
       existing.id !== options.existingEnvironmentId ||
@@ -257,13 +275,18 @@ export async function startRetainedRun(
       capabilities,
     )
   } catch (error) {
-    return rejectUnmaterializedProviderEnvironment(environment, error,
-      transferReceipt !== undefined || options.existingEnvironmentId !== undefined)
+    return rejectUnmaterializedProviderEnvironment(
+      environment,
+      error,
+      transferReceipt !== undefined || options.existingEnvironmentId !== undefined,
+    )
   }
   if (!environment.dispatch || !environment.session) {
-    return rejectUnmaterializedProviderEnvironment(environment,
+    return rejectUnmaterializedProviderEnvironment(
+      environment,
       new Error(`provider "${options.provider.name}" does not expose detached session control`),
-      transferReceipt !== undefined || options.existingEnvironmentId !== undefined)
+      transferReceipt !== undefined || options.existingEnvironmentId !== undefined,
+    )
   }
 
   return dispatchRetainedRun({
@@ -327,11 +350,21 @@ export async function startRetainedRunInEnvironment(
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
-  const environment = await getRetainedEnvironment(options.provider, options.environment.id, {
-    proxySecrets: options.proxySecrets,
-    expectedProxySecretGeneration: options.expectedProxySecretGeneration,
-    signal: options.signal,
-  }, (current) => assertRetainedEnvironmentOwnership(options.provider, current, options.environment.idempotencyKey))
+  const environment = await getRetainedEnvironment(
+    options.provider,
+    options.environment.id,
+    {
+      proxySecrets: options.proxySecrets,
+      expectedProxySecretGeneration: options.expectedProxySecretGeneration,
+      signal: options.signal,
+    },
+    (current) =>
+      assertRetainedEnvironmentOwnership(
+        options.provider,
+        current,
+        options.environment.idempotencyKey,
+      ),
+  )
   if (!environment) {
     throw new Error(
       `provider "${options.provider.name}" no longer holds environment "${options.environment.id}"`,
@@ -621,18 +654,27 @@ export async function recoverRetainedRun(
   // not_found; without the receipt check, a run the receipt never bound can be accepted.
   const environment =
     contextTransfer === undefined || options.transferReceipt === undefined
-      ? await getRetainedEnvironment(options.provider, options.environmentId, {
-          proxySecrets: options.proxySecrets,
-          expectedProxySecretGeneration: options.expectedProxySecretGeneration,
-          signal: options.signal,
-        }, (current) => {
-          const stored = current.session?.(options.sessionId).controlRef
-          const parsed = AgentExactRunControlRefSchema.safeParse(stored)
-          if (!parsed.success || parsed.data.provider !== options.provider.name ||
+      ? await getRetainedEnvironment(
+          options.provider,
+          options.environmentId,
+          {
+            proxySecrets: options.proxySecrets,
+            expectedProxySecretGeneration: options.expectedProxySecretGeneration,
+            signal: options.signal,
+          },
+          (current) => {
+            const stored = current.session?.(options.sessionId).controlRef
+            const parsed = AgentExactRunControlRefSchema.safeParse(stored)
+            if (
+              !parsed.success ||
+              parsed.data.provider !== options.provider.name ||
               parsed.data.environmentId !== options.environmentId ||
-              parsed.data.sessionId !== options.sessionId || parsed.data.executionId !== options.executionId)
-            throw new Error('provider session is bound to other retained run coordinates')
-        })
+              parsed.data.sessionId !== options.sessionId ||
+              parsed.data.executionId !== options.executionId
+            )
+              throw new Error('provider session is bound to other retained run coordinates')
+          },
+        )
       : await getRetainedEnvironment(options.provider, options.environmentId, {
           contextTransfer,
           proxySecrets: options.proxySecrets,
@@ -829,11 +871,18 @@ export async function reconnectRetainedRun(
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
-  const environment = await getRetainedEnvironment(options.provider, controlRef.environmentId, {
-    proxySecrets: options.proxySecrets,
-    expectedProxySecretGeneration: options.expectedProxySecretGeneration,
-    signal: options.signal,
-  }, (current) => { exactSession(current, controlRef) })
+  const environment = await getRetainedEnvironment(
+    options.provider,
+    controlRef.environmentId,
+    {
+      proxySecrets: options.proxySecrets,
+      expectedProxySecretGeneration: options.expectedProxySecretGeneration,
+      signal: options.signal,
+    },
+    (current) => {
+      exactSession(current, controlRef)
+    },
+  )
   if (!environment) return null
   const capabilities = retainedCapabilitiesForEnvironment(
     options.provider.name,

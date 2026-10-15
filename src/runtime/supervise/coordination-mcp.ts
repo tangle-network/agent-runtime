@@ -22,7 +22,11 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { type ProxySecretBinding, ProxySecretBindingSchema, ProxySecretScopeSchema } from '@tangle-network/agent-interface/environment-provider'
+import {
+  type ProxySecretBinding,
+  ProxySecretBindingSchema,
+  ProxySecretScopeSchema,
+} from '@tangle-network/agent-interface/environment-provider'
 import { ConfigError, ValidationError } from '../../errors'
 import type { JsonRpcMessage } from '../../mcp/protocol'
 import type { McpToolDescriptor } from '../../mcp/server'
@@ -168,11 +172,16 @@ export interface CoordinationProxySecretOptions {
 /** Proxy bindings support public HTTPS on its default port, never a dynamic local HTTP port. */
 function assertProxySecretAddress(address: URL): void {
   if (
-    address.protocol !== 'https:' || address.port || isLoopbackHost(address.hostname) ||
+    address.protocol !== 'https:' ||
+    address.port ||
+    isLoopbackHost(address.hostname) ||
     address.pathname.includes('*') ||
-    !ProxySecretScopeSchema.safeParse({ hosts: [address.hostname], paths: [address.pathname] }).success
+    !ProxySecretScopeSchema.safeParse({ hosts: [address.hostname], paths: [address.pathname] })
+      .success
   ) {
-    throw new ConfigError('coordination proxySecret requires an exact public FQDN on HTTPS port 443 and a canonical exact path')
+    throw new ConfigError(
+      'coordination proxySecret requires an exact public FQDN on HTTPS port 443 and a canonical exact path',
+    )
   }
 }
 
@@ -185,16 +194,22 @@ function assertCoordinationProxySecret(
   const expiresAt = Date.parse(registered.expiresAt)
   if (
     typeof registered.revoke !== 'function' ||
-    !Number.isFinite(expiresAt) || expiresAt - Date.now() < 1000 ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt - Date.now() < 1000 ||
     (credentialExpiresAt !== undefined && expiresAt > credentialExpiresAt) ||
     binding.envName !== 'AGENT_RUNTIME_COORDINATION_TOKEN' ||
-    binding.hosts.length !== 1 || binding.hosts[0] !== address.hostname ||
+    binding.hosts.length !== 1 ||
+    binding.hosts[0] !== address.hostname ||
     binding.presentation.type !== 'bearer' ||
-    binding.methods?.length !== 1 || binding.methods[0] !== 'POST' ||
-    binding.paths?.length !== 1 || binding.paths[0] !== address.pathname ||
+    binding.methods?.length !== 1 ||
+    binding.methods[0] !== 'POST' ||
+    binding.paths?.length !== 1 ||
+    binding.paths[0] !== address.pathname ||
     binding.ttlSeconds === undefined
   ) {
-    throw new ConfigError('coordination proxySecret registration must bind the actor endpoint and a bounded lifetime')
+    throw new ConfigError(
+      'coordination proxySecret registration must bind the actor endpoint and a bounded lifetime',
+    )
   }
   return binding
 }
@@ -241,9 +256,14 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
     throw new ConfigError('coordination publicUrl requires authentication')
   }
   if (options.proxySecret !== undefined) {
-    if (!options.authentication || options.publicUrl === undefined ||
-        typeof options.proxySecret.prepare !== 'function') {
-      throw new ConfigError('coordination proxySecret requires authentication, publicUrl and prepare')
+    if (
+      !options.authentication ||
+      options.publicUrl === undefined ||
+      typeof options.proxySecret.prepare !== 'function'
+    ) {
+      throw new ConfigError(
+        'coordination proxySecret requires authentication, publicUrl and prepare',
+      )
     }
     if (typeof options.publicUrl === 'string') assertProxySecretAddress(new URL(options.publicUrl))
   }
@@ -784,16 +804,19 @@ export async function serveCoordinationMcpForManager(
       try {
         addressLifetime.signal.throwIfAborted()
         registeredProxySecret = await opts.proxySecret.prepare({
-          ...identity, url, authorization: headers.Authorization!, credentialExpiresAt,
+          ...identity,
+          url,
+          authorization: headers.Authorization!,
+          credentialExpiresAt,
           signal: addressLifetime.signal,
         })
-        const binding = assertCoordinationProxySecret(registeredProxySecret, publicAddress, credentialExpiresAt)
+        const binding = assertCoordinationProxySecret(
+          registeredProxySecret,
+          publicAddress,
+          credentialExpiresAt,
+        )
         registeredProxySecret = {
-          binding: detachedSnapshot({
-            ...binding,
-            ttlSeconds: Math.min(binding.ttlSeconds!,
-              Math.floor((Date.parse(registeredProxySecret.expiresAt) - Date.now()) / 1000)),
-          }, 'coordination proxySecret binding'),
+          binding: detachedSnapshot(binding, 'coordination proxySecret binding'),
           expiresAt: registeredProxySecret.expiresAt,
           revoke: registeredProxySecret.revoke.bind(registeredProxySecret),
         }

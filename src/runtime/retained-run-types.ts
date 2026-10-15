@@ -18,8 +18,8 @@ import type {
 import type {
   AgentEnvironment,
   AgentEnvironmentCapabilities,
-  AgentEnvironmentProvider,
   AgentEnvironmentGetOptions,
+  AgentEnvironmentProvider,
   AgentTurnInput,
   AgentTurnResult,
   CreateAgentEnvironmentInput,
@@ -250,7 +250,11 @@ export interface StartRetainedRunOptions extends RetainedRunStartMaterial {
 }
 
 /** A fresh retained session inside a provider environment that already exists. @stable */
-export interface StartRetainedRunInEnvironmentOptions extends Pick<AgentEnvironmentGetOptions, 'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'> {
+export interface StartRetainedRunInEnvironmentOptions
+  extends Pick<
+    AgentEnvironmentGetOptions,
+    'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'
+  > {
   readonly provider: AgentEnvironmentProvider
   readonly environment: {
     /** Stable provider environment identifier used by `provider.get`. */
@@ -272,7 +276,11 @@ export interface StartRetainedRunInEnvironmentOptions extends Pick<AgentEnvironm
 }
 
 /** Inputs sufficient to rebuild a control client in a new process. @stable */
-export interface ReconnectRetainedRunOptions extends Pick<AgentEnvironmentGetOptions, 'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'> {
+export interface ReconnectRetainedRunOptions
+  extends Pick<
+    AgentEnvironmentGetOptions,
+    'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'
+  > {
   readonly provider: AgentEnvironmentProvider
   readonly controlRef: AgentExactRunControlRef
   readonly now?: () => number
@@ -296,7 +304,11 @@ export interface RecoverRetainedRunIntentOptions {
  *
  * @stable
  */
-export interface RecoverRetainedRunOptions extends Pick<AgentEnvironmentGetOptions, 'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'> {
+export interface RecoverRetainedRunOptions
+  extends Pick<
+    AgentEnvironmentGetOptions,
+    'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'
+  > {
   readonly provider: AgentEnvironmentProvider
   readonly environmentId: string
   readonly sessionId: string

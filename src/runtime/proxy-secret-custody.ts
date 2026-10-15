@@ -4,9 +4,9 @@ import type {
   AgentEnvironmentGetOptions,
 } from '@tangle-network/agent-interface/environment-provider'
 import {
+  isProxySecretScopeAttenuation,
   ProxySecretCapabilitiesSchema,
   ProxySecretReceiptSchema,
-  isProxySecretScopeAttenuation,
   proxySecretPresentationsEqual,
 } from '@tangle-network/agent-interface/environment-provider'
 
@@ -17,9 +17,14 @@ export function assertProxySecretCapabilities(
 ): void {
   if (bindings === undefined) return
   const parsed = ProxySecretCapabilitiesSchema.safeParse(capabilities.create?.proxySecrets)
-  if (!parsed.success || bindings.some((binding) =>
-    !parsed.data.presentations.includes(binding.presentation.type) ||
-    !parsed.data.placeholderFormats.includes(binding.placeholderFormat ?? 'opaque'))) {
+  if (
+    !parsed.success ||
+    bindings.some(
+      (binding) =>
+        !parsed.data.presentations.includes(binding.presentation.type) ||
+        !parsed.data.placeholderFormats.includes(binding.placeholderFormat ?? 'opaque'),
+    )
+  ) {
     throw new Error('provider does not advertise the requested proxy-secret enforcement')
   }
 }
@@ -28,10 +33,18 @@ export function assertProxySecretCapabilities(
 export function assertProxySecretReceiptLive(environment: AgentEnvironment): void {
   if (environment.proxySecretReceipt === undefined) return
   const receipt = ProxySecretReceiptSchema.safeParse(environment.proxySecretReceipt)
-  if (!receipt.success || receipt.data.status === 'proxy-installed' || receipt.data.sandboxId !== environment.id ||
-      receipt.data.bindings.some(({ grant }) =>
-        Date.parse(grant.issuedAt) > Date.now() || Date.parse(grant.expiresAt) <= Date.now())) {
-    throw new Error('provider proxy-secret custody is stale or unconfirmed; rebind before native dispatch')
+  if (
+    !receipt.success ||
+    receipt.data.status === 'proxy-installed' ||
+    receipt.data.sandboxId !== environment.id ||
+    receipt.data.bindings.some(
+      ({ grant }) =>
+        Date.parse(grant.issuedAt) > Date.now() || Date.parse(grant.expiresAt) <= Date.now(),
+    )
+  ) {
+    throw new Error(
+      'provider proxy-secret custody is stale or unconfirmed; rebind before native dispatch',
+    )
   }
 }
 
@@ -43,10 +56,14 @@ export async function rejectUnmaterializedProviderEnvironment(
 ): Promise<never> {
   if (preserve || environment.creation !== 'created') throw cause
   try {
-    if (!environment.destroy) throw new Error('provider created an environment without a destroy operation')
+    if (!environment.destroy)
+      throw new Error('provider created an environment without a destroy operation')
     await environment.destroy()
   } catch (cleanupError) {
-    throw new AggregateError([cause, cleanupError], 'provider materialization failed and its unused allocation could not be destroyed')
+    throw new AggregateError(
+      [cause, cleanupError],
+      'provider materialization failed and its unused allocation could not be destroyed',
+    )
   }
   throw cause
 }
@@ -60,26 +77,36 @@ export function assertProxySecretInstallation(
 ): void {
   if (bindings === undefined) return
   const receipt = ProxySecretReceiptSchema.safeParse(environment.proxySecretReceipt)
-  if (!receipt.success || environment.id !== id || receipt.data.sandboxId !== id ||
-      (bindings.length === 0
-        ? receipt.data.status !== 'revoked' && (operation === 'rebind' || receipt.data.status !== 'installed')
-        : receipt.data.status !== 'installed') ||
-      receipt.data.bindings.length !== bindings.length ||
-      bindings.some((binding) => {
-        const entry = receipt.data.bindings.find((entry) => entry.envName === binding.envName)
-        const installed = entry?.grant
-        const scope = { hosts: binding.hosts, methods: binding.methods, paths: binding.paths }
-        return !installed || entry?.secretRef.key !== binding.secretRef.key ||
-          installed.sandboxId !== id ||
-          !isProxySecretScopeAttenuation(scope, installed.scope) ||
-          !proxySecretPresentationsEqual(binding.presentation, installed.presentation) ||
-          installed.placeholderFormat !== (binding.placeholderFormat ?? 'opaque') ||
-          (binding.ttlSeconds !== undefined &&
-            Date.parse(installed.expiresAt) - Date.parse(installed.issuedAt) > binding.ttlSeconds * 1000) ||
-          Date.parse(installed.issuedAt) > Date.now() ||
-          Date.parse(installed.expiresAt) <= Date.now()
-      })) {
-    throw new Error('retained provider did not confirm proxy-secret installation for this environment')
+  if (
+    !receipt.success ||
+    environment.id !== id ||
+    receipt.data.sandboxId !== id ||
+    (bindings.length === 0
+      ? receipt.data.status !== 'revoked' &&
+        (operation === 'rebind' || receipt.data.status !== 'installed')
+      : receipt.data.status !== 'installed') ||
+    receipt.data.bindings.length !== bindings.length ||
+    bindings.some((binding) => {
+      const entry = receipt.data.bindings.find((entry) => entry.envName === binding.envName)
+      const installed = entry?.grant
+      const scope = { hosts: binding.hosts, methods: binding.methods, paths: binding.paths }
+      return (
+        !installed ||
+        entry?.secretRef.key !== binding.secretRef.key ||
+        installed.sandboxId !== id ||
+        !isProxySecretScopeAttenuation(scope, installed.scope) ||
+        !proxySecretPresentationsEqual(binding.presentation, installed.presentation) ||
+        installed.placeholderFormat !== (binding.placeholderFormat ?? 'opaque') ||
+        (binding.ttlSeconds !== undefined &&
+          Date.parse(installed.expiresAt) - Date.parse(installed.issuedAt) >
+            binding.ttlSeconds * 1000) ||
+        Date.parse(installed.issuedAt) > Date.now() ||
+        Date.parse(installed.expiresAt) <= Date.now()
+      )
+    })
+  ) {
+    throw new Error(
+      'retained provider did not confirm proxy-secret installation for this environment',
+    )
   }
 }
-

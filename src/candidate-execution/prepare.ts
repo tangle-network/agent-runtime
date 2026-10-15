@@ -924,12 +924,16 @@ function mergePublicEnvironment(
 function unwrapPublicEnvironment(
   values: Record<string, AgentCandidateConfigValue>,
 ): Record<string, string> {
-  return Object.fromEntries(Object.entries(values).map(([name, value]) => [name, publicLaunchValue(value)]))
+  return Object.fromEntries(
+    Object.entries(values).map(([name, value]) => [name, publicLaunchValue(value)]),
+  )
 }
 
 function publicLaunchValue(value: AgentCandidateConfigValue): string {
   if (value.kind !== 'public') {
-    throw new Error('candidate local launch cannot resolve secret references; use proxy-held materialization')
+    throw new Error(
+      'candidate local launch cannot resolve secret references; use proxy-held materialization',
+    )
   }
   return value.value
 }

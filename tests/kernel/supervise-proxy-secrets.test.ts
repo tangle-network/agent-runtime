@@ -333,11 +333,15 @@ describe('public supervise proxy-secret descendant admission', () => {
     expect(authorizations).toContain('child:grandchild')
     expect(JSON.stringify(replies[0])).toContain('proxySecrets')
     const events = await journal.loadTree('proxy-tree')
-    const admittedChild = events?.find((event) => event.kind === 'spawned' && event.parent === 'proxy-tree')
+    const admittedChild = events?.find(
+      (event) => event.kind === 'spawned' && event.parent === 'proxy-tree',
+    )
     if (!admittedChild || admittedChild.kind !== 'spawned' || !admittedChild.profileRef) {
       throw new Error('admitted child must retain its content-addressed profile')
     }
-    expect(await blobs.get(admittedChild.profileRef)).toMatchObject({ proxySecrets: [childBinding] })
+    expect(await blobs.get(admittedChild.profileRef)).toMatchObject({
+      proxySecrets: [childBinding],
+    })
     const serializedJournal = JSON.stringify(events)
     expect(serializedJournal).not.toContain('reporting-api')
     expect(serializedJournal).not.toContain('Authorization')

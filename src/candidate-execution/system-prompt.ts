@@ -158,14 +158,17 @@ const MATERIALIZED_PROMPT_DELIVERIES = {
     executable: 'codex',
     delivered: (plan) =>
       plan.files.some((file) => file.relPath === '.codex/system-prompt.md') &&
-      plan.flags.some((flag) => publicText(flag) === 'model_instructions_file=.codex/system-prompt.md'),
+      plan.flags.some(
+        (flag) => publicText(flag) === 'model_instructions_file=.codex/system-prompt.md',
+      ),
     conflictsWithArgs: argsSetCodexInstructionOverride,
   },
   gemini: {
     executable: 'gemini',
     delivered: (plan) =>
       plan.files.some((file) => file.relPath === '.gemini/system.md') &&
-      plan.env.GEMINI_SYSTEM_MD !== undefined && publicText(plan.env.GEMINI_SYSTEM_MD) === '1',
+      plan.env.GEMINI_SYSTEM_MD !== undefined &&
+      publicText(plan.env.GEMINI_SYSTEM_MD) === '1',
     conflictsWithArgs: argsSetSystemPromptFlag,
   },
 } as const satisfies Partial<Record<HarnessId, MaterializedPromptDelivery>>
@@ -175,11 +178,16 @@ export function projectCandidatePromptIntents(
   plan: AgentCandidateWorkspacePlan,
   launch: AgentCandidateLaunch,
   systemPromptFilePath: string,
-  requestedSystemPrompt: string | undefined = plan.systemPrompt === undefined ? undefined : publicText(plan.systemPrompt),
-  requestedAppendSystemPrompt: string | undefined = plan.appendSystemPrompt === undefined ? undefined : publicText(plan.appendSystemPrompt),
+  requestedSystemPrompt: string | undefined = plan.systemPrompt === undefined
+    ? undefined
+    : publicText(plan.systemPrompt),
+  requestedAppendSystemPrompt: string | undefined = plan.appendSystemPrompt === undefined
+    ? undefined
+    : publicText(plan.appendSystemPrompt),
 ): AgentCandidateWorkspacePlan {
   const systemPrompt = plan.systemPrompt === undefined ? undefined : publicText(plan.systemPrompt)
-  const appendSystemPrompt = plan.appendSystemPrompt === undefined ? undefined : publicText(plan.appendSystemPrompt)
+  const appendSystemPrompt =
+    plan.appendSystemPrompt === undefined ? undefined : publicText(plan.appendSystemPrompt)
   const delivery = MATERIALIZED_PROMPT_DELIVERIES[
     plan.harness as keyof typeof MATERIALIZED_PROMPT_DELIVERIES
   ] as MaterializedPromptDelivery | undefined
@@ -216,10 +224,7 @@ export function projectCandidatePromptIntents(
   if (systemPrompt !== undefined && systemPrompt !== requestedSystemPrompt) {
     throw new Error('profile materializer changed the candidate system prompt')
   }
-  if (
-    appendSystemPrompt !== undefined &&
-    appendSystemPrompt !== requestedAppendSystemPrompt
-  ) {
+  if (appendSystemPrompt !== undefined && appendSystemPrompt !== requestedAppendSystemPrompt) {
     throw new Error('profile materializer changed the candidate append system prompt')
   }
 

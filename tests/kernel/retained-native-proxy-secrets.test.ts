@@ -44,23 +44,31 @@ async function fixture() {
   function invalidate(reason: InvalidCustody) {
     if (!receipt) throw new Error('fixture receipt is unavailable')
     if (reason === 'missing') receipt = undefined
-    else if (reason === 'revoked') receipt = { ...receipt, status: 'revoked', materializationAcknowledged: true, bindings: [] }
-    else receipt = {
-      ...receipt,
-      bindings: receipt.bindings.map((entry) => reason === 'expired' ? {
-        ...entry,
-        grant: {
-          ...entry.grant,
-          issuedAt: new Date(Date.now() - 2_000).toISOString(),
-          expiresAt: new Date(Date.now() - 1_000).toISOString(),
-        },
-      } : { ...entry, secretRef: { kind: 'secret-ref', key: 'different-service' } }),
-    }
+    else if (reason === 'revoked')
+      receipt = { ...receipt, status: 'revoked', materializationAcknowledged: true, bindings: [] }
+    else
+      receipt = {
+        ...receipt,
+        bindings: receipt.bindings.map((entry) =>
+          reason === 'expired'
+            ? {
+                ...entry,
+                grant: {
+                  ...entry.grant,
+                  issuedAt: new Date(Date.now() - 2_000).toISOString(),
+                  expiresAt: new Date(Date.now() - 1_000).toISOString(),
+                },
+              }
+            : { ...entry, secretRef: { kind: 'secret-ref', key: 'different-service' } },
+        ),
+      }
   }
   function wrap(environment: AgentEnvironment): AgentEnvironment {
     return {
       ...environment,
-      get proxySecretReceipt() { return receipt },
+      get proxySecretReceipt() {
+        return receipt
+      },
       session(id, options) {
         const session = environment.session!(id, options)
         return {
@@ -89,7 +97,11 @@ async function fixture() {
       return {
         ...capabilities,
         create: { ...capabilities.create, proxySecrets: proxySecretCapabilities },
-        nativeContinuation: { atomicBoundary: true, requestIdempotency: true, admissionControl: true },
+        nativeContinuation: {
+          atomicBoundary: true,
+          requestIdempotency: true,
+          admissionControl: true,
+        },
       }
     },
     async create(input) {
@@ -106,12 +118,23 @@ async function fixture() {
   }
   const handle = await startRetainedRun({
     provider,
-    environment: { profile: testAgentProfile('native-proxy'), proxySecrets: [binding], idempotencyKey: 'native-proxy' },
+    environment: {
+      profile: testAgentProfile('native-proxy'),
+      proxySecrets: [binding],
+      idempotencyKey: 'native-proxy',
+    },
     turn: { turnId: 'initial', prompt: 'start' },
     onAdmission: async () => {},
   })
-  return { provider, handle, invalidate, nativeCalls: () => nativeCalls,
-    expireDuringValidation: () => { expireOnControlRead = true } }
+  return {
+    provider,
+    handle,
+    invalidate,
+    nativeCalls: () => nativeCalls,
+    expireDuringValidation: () => {
+      expireOnControlRead = true
+    },
+  }
 }
 async function continuation(handle: RetainedRunHandle) {
   const turn = { prompt: 'continue in the same native session' }
@@ -124,20 +147,23 @@ async function continuation(handle: RetainedRunHandle) {
     turnDigest: nativeContextContinuationTurnDigest(turn),
   }
   const request = NativeContextContinuationRequestSchema.parse({
-    ...material, requestDigest: nativeContextContinuationRequestDigest(material),
+    ...material,
+    requestDigest: nativeContextContinuationRequestDigest(material),
   })
   return { request, turn }
 }
 
 it.each(['expired', 'revoked', 'missing', 'different-reference'] as const)(
-  'refuses a held native handle with %s custody before provider continuation', async (reason) => {
+  'refuses a held native handle with %s custody before provider continuation',
+  async (reason) => {
     for (const entry of ['continueNative', 'beginNativeContinuation'] as const) {
       const current = await fixture()
       const { request, turn } = await continuation(current.handle)
       current.invalidate(reason)
-      const pending = entry === 'continueNative'
-        ? current.handle.continueNative(request, turn)
-        : current.handle.beginNativeContinuation(request, turn).result
+      const pending =
+        entry === 'continueNative'
+          ? current.handle.continueNative(request, turn)
+          : current.handle.beginNativeContinuation(request, turn).result
       await expect(pending).rejects.toThrow(/proxy-secret/)
       expect(current.nativeCalls()).toBe(0)
     }
@@ -156,7 +182,9 @@ it('continues the same native session after checked in-place rebinding returns a
   const current = await fixture()
   current.invalidate('revoked')
   const handle = await reconnectRetainedRun({
-    provider: current.provider, controlRef: current.handle.controlRef, proxySecrets: [binding],
+    provider: current.provider,
+    controlRef: current.handle.controlRef,
+    proxySecrets: [binding],
   })
   if (!handle) throw new Error('retained environment disappeared')
   expect(handle.controlRef).toEqual(current.handle.controlRef)

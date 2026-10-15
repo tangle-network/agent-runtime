@@ -4946,7 +4946,7 @@ Called after verification and before deletion so the run result can retain the e
 
 ###### options
 
-`CreateSandboxOptions` \| `undefined`
+`CreateSandboxOptions` & `Pick`\<`CreateAgentEnvironmentInput`, `"proxySecrets"`\> \| `undefined`
 
 ###### Returns
 
@@ -10427,6 +10427,10 @@ A previously persisted intent used to replay the exact create operation.
 
 A fresh retained session inside a provider environment that already exists.
 
+#### Extends
+
+- `Pick`\<`AgentEnvironmentGetOptions`, `"proxySecrets"` \| `"expectedProxySecretGeneration"` \| `"signal"`\>
+
 #### Properties
 
 ##### provider
@@ -10487,6 +10491,10 @@ from `(environment.idempotencyKey, turn.turnId)`.
 **`Stable`**
 
 Inputs sufficient to rebuild a control client in a new process.
+
+#### Extends
+
+- `Pick`\<`AgentEnvironmentGetOptions`, `"proxySecrets"` \| `"expectedProxySecretGeneration"` \| `"signal"`\>
 
 #### Properties
 
@@ -10552,6 +10560,10 @@ Pre-dispatch admission coordinates for one recovery attempt.
 
 A `phase: 'environment'` admission record carries these fields, so a caller
 can pass that record after a crash before the dispatched record landed.
+
+#### Extends
+
+- `Pick`\<`AgentEnvironmentGetOptions`, `"proxySecrets"` \| `"expectedProxySecretGeneration"` \| `"signal"`\>
 
 #### Properties
 
@@ -11583,6 +11595,18 @@ Cumulative worker tokens, including cache classifications reported after the pro
 ###### Returns
 
 [`LoopTokenUsage`](#looptokenusage)
+
+##### settledUsage()
+
+> **settledUsage**(): `TokenUsage` \| `undefined`
+
+Read a detached snapshot of the latest settled turn, without settling the active turn.
+ Absent/incomplete usage stays absent; cost is the reported number, not a billing-completeness
+ claim or a catalog estimate. A later empty settlement replaces the snapshot with undefined.
+
+###### Returns
+
+`TokenUsage` \| `undefined`
 
 ##### observe()
 
@@ -16759,6 +16783,12 @@ Runtime-only credentials. Never put these headers in canonical profiles or journ
 The current credential's expiry under `authentication.ttlMs`; undefined when it lives as long
  as the scope.
 
+##### proxySecret
+
+> `readonly` **proxySecret**: [`CoordinationProxySecret`](#coordinationproxysecret) \| `undefined`
+
+Metadata only; absent after rotation or registration expiry.
+
 ##### submittedResult
 
 > **submittedResult**: () => \{ `result`: `unknown`; \} \| `undefined`
@@ -16987,6 +17017,112 @@ Listener lifetime: aborts on close, failed setup, manager cancellation, or deadl
 
 ***
 
+### CoordinationProxySecret
+
+An actor credential registered by the trusted host; installation belongs to the provider.
+
+#### Extended by
+
+- [`CoordinationProxySecretRegistration`](#coordinationproxysecretregistration)
+
+#### Properties
+
+##### binding
+
+> `readonly` **binding**: `object`
+
+##### expiresAt
+
+> `readonly` **expiresAt**: `string`
+
+***
+
+### CoordinationProxySecretRegistration
+
+An actor credential registered by the trusted host; installation belongs to the provider.
+
+#### Extends
+
+- [`CoordinationProxySecret`](#coordinationproxysecret)
+
+#### Properties
+
+##### binding
+
+> `readonly` **binding**: `object`
+
+###### Inherited from
+
+[`CoordinationProxySecret`](#coordinationproxysecret).[`binding`](#binding)
+
+##### expiresAt
+
+> `readonly` **expiresAt**: `string`
+
+###### Inherited from
+
+[`CoordinationProxySecret`](#coordinationproxysecret).[`expiresAt`](#expiresat)
+
+#### Methods
+
+##### revoke()
+
+> **revoke**(): `Promise`\<\{ `confirmed`: `true`; \}\>
+
+Confirm removal from the trusted secret store. A failed or unconfirmed revoke fails close.
+
+###### Returns
+
+`Promise`\<\{ `confirmed`: `true`; \}\>
+
+***
+
+### CoordinationProxySecretOptions
+
+#### Methods
+
+##### prepare()
+
+> **prepare**(`input`): `Promise`\<[`CoordinationProxySecretRegistration`](#coordinationproxysecretregistration)\>
+
+Host-only callback. Register in the existing encrypted secret store, never guest env/files.
+ Observe signal and clean up partial registration before rejecting. The provider must verify
+ its sandbox-bound installed receipt before it launches the harness.
+
+###### Parameters
+
+###### input
+
+###### runId
+
+`string`
+
+###### actorId
+
+`string`
+
+###### url
+
+`string`
+
+###### authorization
+
+`string`
+
+###### credentialExpiresAt
+
+`number` \| `undefined`
+
+###### signal
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`CoordinationProxySecretRegistration`](#coordinationproxysecretregistration)\>
+
+***
+
 ### CoordinationTransportOptions
 
 Transport limits apply before parsing or executing a coordination action.
@@ -17058,6 +17194,12 @@ Audit fields exclude credentials, request bodies, and arbitrary error strings.
 ###### Inherited from
 
 [`CoordinationHttpOptions`](#coordinationhttpoptions).[`onAudit`](#onaudit)
+
+##### proxySecret?
+
+> `readonly` `optional` **proxySecret?**: [`CoordinationProxySecretOptions`](#coordinationproxysecretoptions)
+
+Trusted registration for provider managers; never an authored profile credential.
 
 ##### host?
 
@@ -25032,6 +25174,10 @@ The standing instruction assembled from the profile: its system prompt in either
 
 Runtime-only transport credentials; never append them to the authored profile or task.
 
+###### coordinationProxySecret?
+
+[`CoordinationProxySecret`](#coordinationproxysecret)
+
 ###### stopSignal?
 
 `AbortSignal`
@@ -30697,7 +30843,7 @@ the kernel falls back to `{ placement: 'sibling', sandboxId: box.id }`.
 
 ###### options?
 
-`CreateSandboxOptions`
+`CreateSandboxOptions` & `Pick`\<`CreateAgentEnvironmentInput`, `"proxySecrets"`\>
 
 ###### requestOptions?
 
