@@ -157,10 +157,14 @@ function integer(value: unknown, where: string, min: number): number {
 export function assertSearchSpec(spec: unknown): SearchSpec {
   const axes = ['state', 'context', 'select', 'workers', 'comms', 'evaluate', 'stop'] as const
   if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
-    refuse('a spec must be an object with the axes state, context, select, workers, comms, evaluate and stop')
+    refuse(
+      'a spec must be an object with the axes state, context, select, workers, comms, evaluate and stop',
+    )
   }
   const top = spec as Readonly<Record<string, unknown>>
-  const unknownAxes = Object.keys(top).filter((key) => !(axes as ReadonlyArray<string>).includes(key))
+  const unknownAxes = Object.keys(top).filter(
+    (key) => !(axes as ReadonlyArray<string>).includes(key),
+  )
   if (unknownAxes.length > 0) {
     refuse(`unknown axis ${quoted(unknownAxes)}; the axes are ${quoted(axes)}`)
   }
@@ -179,7 +183,8 @@ export function assertSearchSpec(spec: unknown): SearchSpec {
   const workersIn = record(top.workers, 'workers', ['count', 'isolation'], ['models'])
   const count = integer(workersIn.count, 'workers.count', 0)
   const isolation = oneOf(workersIn.isolation, 'workers.isolation', ['isolated', 'shared'] as const)
-  const models = workersIn.models === undefined ? undefined : names(workersIn.models, 'workers.models')
+  const models =
+    workersIn.models === undefined ? undefined : names(workersIn.models, 'workers.models')
   const comms = oneOf(top.comms, 'comms', ['none', 'assignments', 'messages'] as const)
   const evaluateIn = record(top.evaluate, 'evaluate', ['feedback', 'bar'], ['analysts'])
   const feedback = oneOf(evaluateIn.feedback, 'evaluate.feedback', ['verbatim', 'off'] as const)
@@ -195,7 +200,10 @@ export function assertSearchSpec(spec: unknown): SearchSpec {
     if (typeof minDelta !== 'number' || !Number.isFinite(minDelta) || minDelta < 0) {
       refuse('stop.plateau.minDelta must be a finite number >= 0')
     }
-    plateau = Object.freeze({ window: integer(plateauIn.window, 'stop.plateau.window', 1), minDelta })
+    plateau = Object.freeze({
+      window: integer(plateauIn.window, 'stop.plateau.window', 1),
+      minDelta,
+    })
   }
 
   // Contradictory pairs, each refused with what would have gone wrong.
@@ -218,10 +226,14 @@ export function assertSearchSpec(spec: unknown): SearchSpec {
     refuse(`workers.count 0 runs the root alone, so comms must be 'none', not '${comms}'`)
   }
   if (count > 0 && comms === 'none') {
-    refuse(`comms 'none' leaves ${count} worker(s) with no channel; use 'assignments' or 'messages'`)
+    refuse(
+      `comms 'none' leaves ${count} worker(s) with no channel; use 'assignments' or 'messages'`,
+    )
   }
   if (comms === 'messages' && count < 2) {
-    refuse(`comms 'messages' needs at least two peers to message each other; workers.count is ${count}`)
+    refuse(
+      `comms 'messages' needs at least two peers to message each other; workers.count is ${count}`,
+    )
   }
   if (select === 'self' && comms !== 'messages') {
     refuse(
@@ -249,7 +261,10 @@ export function assertSearchSpec(spec: unknown): SearchSpec {
 
 /** The canonical digest of a spec: equal for two specs that mean the same, different otherwise. */
 export function searchSpecDigest(spec: SearchSpec): Sha256Digest {
-  return canonicalCandidateDigest({ kind: 'agent-runtime.search-spec.v1', spec: assertSearchSpec(spec) })
+  return canonicalCandidateDigest({
+    kind: 'agent-runtime.search-spec.v1',
+    spec: assertSearchSpec(spec),
+  })
 }
 
 const presetEvaluate = Object.freeze({ feedback: 'verbatim', bar: 'off' } as const)
@@ -472,7 +487,9 @@ export function compileSearchSpec(raw: SearchSpec, inputs: SearchSpecInputs): Co
   }
   const correlation = passed.execution?.correlation ?? {}
   if (Object.hasOwn(correlation, SEARCH_SPEC_CORRELATION_KEY)) {
-    refuse(`options.execution.correlation cannot set ${SEARCH_SPEC_CORRELATION_KEY}; Runtime records it`)
+    refuse(
+      `options.execution.correlation cannot set ${SEARCH_SPEC_CORRELATION_KEY}; Runtime records it`,
+    )
   }
   const execution = Object.freeze({
     ...passed.execution,
@@ -508,7 +525,9 @@ export function compileSearchSpec(raw: SearchSpec, inputs: SearchSpecInputs): Co
   }
   const analystKinds = spec.evaluate.analysts ?? []
   if (analystKinds.length > 0 && inputs.analysts === undefined) {
-    refuse('evaluate.analysts names analyst kinds, and inputs.analysts holds no registry to run them')
+    refuse(
+      'evaluate.analysts names analyst kinds, and inputs.analysts holds no registry to run them',
+    )
   }
   const axisOptions = {
     continuation,
@@ -532,10 +551,14 @@ export function compileSearchSpec(raw: SearchSpec, inputs: SearchSpecInputs): Co
       refuse(`select '${spec.select}' spawns the graph's nodes; drop inputs.workers`)
     }
     if (analystKinds.length > 0) {
-      refuse(`select '${spec.select}' declares a graph's analysts as analyzes edges, not evaluate.analysts`)
+      refuse(
+        `select '${spec.select}' declares a graph's analysts as analyzes edges, not evaluate.analysts`,
+      )
     }
     if (spec.workers.count === 0) {
-      refuse(`select '${spec.select}' runs a graph's worker nodes, so workers.count must be at least 1`)
+      refuse(
+        `select '${spec.select}' runs a graph's worker nodes, so workers.count must be at least 1`,
+      )
     }
     if (spec.select === 'code' && inputs.brain === undefined) {
       refuse("select 'code' needs inputs.brain, the caller's brain that drives the root")
@@ -579,7 +602,9 @@ export function compileSearchSpec(raw: SearchSpec, inputs: SearchSpecInputs): Co
   const profile = inputs.profile ?? refuse(`select '${spec.select}' needs inputs.profile, the root`)
   if (inputs.task === undefined) refuse(`select '${spec.select}' needs inputs.task`)
   if (inputs.graph !== undefined || inputs.brain !== undefined || inputs.directives !== undefined) {
-    refuse(`select '${spec.select}' runs inputs.profile; a graph, brain or directives is select 'code' or 'fixed'`)
+    refuse(
+      `select '${spec.select}' runs inputs.profile; a graph, brain or directives is select 'code' or 'fixed'`,
+    )
   }
   if (!harnessRunsAgent(profile.harness)) {
     refuse(
@@ -589,7 +614,9 @@ export function compileSearchSpec(raw: SearchSpec, inputs: SearchSpecInputs): Co
     )
   }
   if (spec.workers.count === 0 && grantsSpawn(profile)) {
-    refuse(`workers.count 0 runs the root alone, but profile '${profile.name}' grants ${SPAWN_GRANT}`)
+    refuse(
+      `workers.count 0 runs the root alone, but profile '${profile.name}' grants ${SPAWN_GRANT}`,
+    )
   }
   if (spec.workers.count > 0 && !grantsSpawn(profile)) {
     refuse(
@@ -604,7 +631,9 @@ export function compileSearchSpec(raw: SearchSpec, inputs: SearchSpecInputs): Co
     )
   }
   if (inputs.workers !== undefined && passed.registry?.profiles !== undefined) {
-    refuse('inputs.workers and options.registry.profiles both name spawnable profiles; pass them once')
+    refuse(
+      'inputs.workers and options.registry.profiles both name spawnable profiles; pass them once',
+    )
   }
   const registry =
     inputs.workers === undefined

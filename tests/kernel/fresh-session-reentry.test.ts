@@ -175,14 +175,19 @@ function directRun(runId: string, session: 'native' | 'fresh') {
       deliverable,
       continuation: testContinuation({ session }),
       registry: {
-        profiles: { resolve: (name) => (name === 'child' ? { profile: child } : undefined), names: () => ['child'] },
+        profiles: {
+          resolve: (name) => (name === 'child' ? { profile: child } : undefined),
+          names: () => ['child'],
+        },
       },
     }),
   )
 }
 
 describe('continuation.session on a retained environment', () => {
-  it('native continues one harness session across every re-entry', { timeout: 40_000 }, async () => {
+  it('native continues one harness session across every re-entry', {
+    timeout: 40_000,
+  }, async () => {
     const { turns, result } = await directRun('session-native', 'native')
     expect(result).toMatchObject({ kind: 'winner', out: { answer } })
     expect(turns).toHaveLength(3)
@@ -195,7 +200,9 @@ describe('continuation.session on a retained environment', () => {
     }
   })
 
-  it('fresh starts a new session per re-entry and keeps the workspace files', { timeout: 40_000 }, async () => {
+  it('fresh starts a new session per re-entry and keeps the workspace files', {
+    timeout: 40_000,
+  }, async () => {
     const { turns, result } = await directRun('session-fresh', 'fresh')
     expect(result).toMatchObject({ kind: 'winner', out: { answer } })
     expect(turns).toHaveLength(3)
@@ -231,7 +238,9 @@ describe("a caller's drive harness under continuation.session", () => {
           sessions.push(told)
           if (reentry === undefined) return
           // The harness claims the strongest continuity it could.
-          composed.push(reentry.compose({ session: 'continued', environment: 'same', workspace: 'kept' }))
+          composed.push(
+            reentry.compose({ session: 'continued', environment: 'same', workspace: 'kept' }),
+          )
           await fetch(coordinationMcpUrl, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -261,7 +270,9 @@ describe("a caller's drive harness under continuation.session", () => {
 })
 
 describe('the sla preset', () => {
-  it('gives every advisor epoch the re-entry projection and no earlier turn', { timeout: 40_000 }, async () => {
+  it('gives every advisor epoch the re-entry projection and no earlier turn', {
+    timeout: 40_000,
+  }, async () => {
     const { turns, result } = await retainedRoot('sla-retained', ({ root, child, options }) => {
       const compiled = compileSearchSpec(searchPresets.sla(1), {
         profile: root,

@@ -82,7 +82,12 @@ function leaves(observed: Observed) {
             await new Promise((resolve) => setTimeout(resolve, 25))
             yield { kind: 'iteration' } as UsageEvent
             yield { kind: 'tokens', input: 5, output: 5 } as UsageEvent
-            yield { kind: 'cost', usd: 0, usdKnown: true, provenance: 'provider-receipt' } as UsageEvent
+            yield {
+              kind: 'cost',
+              usd: 0,
+              usdKnown: true,
+              provenance: 'provider-receipt',
+            } as UsageEvent
           } finally {
             observed.live -= 1
           }
@@ -158,7 +163,11 @@ const drive = (): Driven => ({ managers: [], sessions: [], tasks: [] })
 describe('SearchSpec validation', () => {
   const sla = searchPresets.sla(3)
   const refusals: Array<[string, () => unknown, RegExp]> = [
-    ['an unknown axis', () => assertSearchSpec({ ...sla, topology: 'tree' }), /unknown axis 'topology'/],
+    [
+      'an unknown axis',
+      () => assertSearchSpec({ ...sla, topology: 'tree' }),
+      /unknown axis 'topology'/,
+    ],
     [
       'a missing axis',
       () => {
@@ -167,7 +176,11 @@ describe('SearchSpec validation', () => {
       },
       /axis 'stop' is missing/,
     ],
-    ['an unknown value', () => assertSearchSpec({ ...sla, context: 'sometimes' }), /context is "sometimes"/],
+    [
+      'an unknown value',
+      () => assertSearchSpec({ ...sla, context: 'sometimes' }),
+      /context is "sometimes"/,
+    ],
     [
       'an unknown nested key',
       () => assertSearchSpec({ ...sla, workers: { ...sla.workers, depth: 2 } }),
@@ -203,7 +216,11 @@ describe('SearchSpec validation', () => {
       () => assertSearchSpec({ ...searchPresets.tree(2), select: 'code', context: 'fresh' }),
       /no harness session for context 'fresh' to renew/,
     ],
-    ['a preset width that contradicts its comms', () => searchPresets.peers(1), /needs at least two peers/],
+    [
+      'a preset width that contradicts its comms',
+      () => searchPresets.peers(1),
+      /needs at least two peers/,
+    ],
   ]
   for (const [name, attempt, message] of refusals) {
     it(`refuses ${name} with a plain message`, () => {
@@ -215,8 +232,7 @@ describe('SearchSpec validation', () => {
   const compileRefusals: Array<[string, () => unknown, RegExp]> = [
     [
       'an option an axis decides',
-      () =>
-        compileSearchSpec(sla, inputs({ profile: root, options: { workerSlots: 9 } as never })),
+      () => compileSearchSpec(sla, inputs({ profile: root, options: { workerSlots: 9 } as never })),
       /options.workerSlots is decided by workers.count/,
     ],
     [
@@ -245,7 +261,9 @@ describe('SearchSpec validation', () => {
       () =>
         compileSearchSpec(
           searchPresets.tree(2),
-          inputs({ profile: testAgentProfile('root', { tools: runtimeToolDeclarations('submit_result') }) }),
+          inputs({
+            profile: testAgentProfile('root', { tools: runtimeToolDeclarations('submit_result') }),
+          }),
         ),
       /workers.count 2 needs a root that spawns/,
     ],
@@ -274,7 +292,10 @@ describe('SearchSpec validation', () => {
     [
       'peers that do not match the width',
       () =>
-        compileSearchSpec(searchPresets.peers(3), inputs({ profile: root, workers: [worker('a')] })),
+        compileSearchSpec(
+          searchPresets.peers(3),
+          inputs({ profile: root, workers: [worker('a')] }),
+        ),
       /select 'self' starts exactly workers.count peers; inputs.workers holds 1/,
     ],
   ]
@@ -304,21 +325,31 @@ describe('SearchSpec presets', () => {
     })
     expect(new Set(Object.values(digests)).size).toBe(5)
     const tree: SearchSpec = searchPresets.tree(2)
-    expect(
-      searchSpecDigest({ ...tree, workers: { ...tree.workers, models: ['b', 'a'] } }),
-    ).toBe(searchSpecDigest({ ...tree, workers: { ...tree.workers, models: ['a', 'b'] } }))
-    expect(searchSpecDigest(searchPresets.tree(2))).not.toBe(searchSpecDigest(searchPresets.tree(3)))
+    expect(searchSpecDigest({ ...tree, workers: { ...tree.workers, models: ['b', 'a'] } })).toBe(
+      searchSpecDigest({ ...tree, workers: { ...tree.workers, models: ['a', 'b'] } }),
+    )
+    expect(searchSpecDigest(searchPresets.tree(2))).not.toBe(
+      searchSpecDigest(searchPresets.tree(3)),
+    )
   })
 
   it('compile each axis onto the option it names', () => {
-    const root = testAgentProfile('root', { tools: runtimeToolDeclarations('spawn_worker', 'submit_result') })
+    const root = testAgentProfile('root', {
+      tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
+    })
     const sla = compileSearchSpec(searchPresets.sla(3), inputs({ profile: root }))
     if (sla.call !== 'supervise') throw new Error('sla compiles to supervise')
     expect(sla.options).toMatchObject({
       workerSlots: 3,
       maxDepth: 1,
       inheritSpawnRights: false,
-      continuation: { session: 'fresh', maxBarren: 2, failures: 'verbatim', bar: 'off', panel: 'off' },
+      continuation: {
+        session: 'fresh',
+        maxBarren: 2,
+        failures: 'verbatim',
+        bar: 'off',
+        panel: 'off',
+      },
       execution: { correlation: { [SEARCH_SPEC_CORRELATION_KEY]: sla.digest } },
     })
     expect(sla.options.peerMail).toBeUndefined()
@@ -327,7 +358,11 @@ describe('SearchSpec presets', () => {
       inputs({ profile: root, workers: [worker('peer-a'), worker('peer-b')] }),
     )
     if (peers.call !== 'supervise') throw new Error('peers compile to supervise')
-    expect(peers.options).toMatchObject({ peerMail: true, workerSlots: 2, continuation: { session: 'native' } })
+    expect(peers.options).toMatchObject({
+      peerMail: true,
+      workerSlots: 2,
+      continuation: { session: 'native' },
+    })
     expect(peers.options.registry?.profiles?.names()).toEqual(['peer-a', 'peer-b'])
     const placement = { kind: 'test-placement' } as never
     const swarm = compileSearchSpec(
@@ -393,7 +428,9 @@ describe('SearchSpec presets', () => {
   })
 
   it('tree(2) holds two workers at once over three assignments, with no peer mail', async () => {
-    const root = testAgentProfile('lead', { tools: runtimeToolDeclarations('spawn_worker', 'submit_result') })
+    const root = testAgentProfile('lead', {
+      tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
+    })
     const observed = observe()
     const driven = drive()
     const result = await run(
@@ -420,7 +457,9 @@ describe('SearchSpec presets', () => {
   })
 
   it('swarm(2) runs the same lead over a two-worker bound', async () => {
-    const root = testAgentProfile('lead', { tools: runtimeToolDeclarations('spawn_worker', 'submit_result') })
+    const root = testAgentProfile('lead', {
+      tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
+    })
     const observed = observe()
     const result = await run(
       compileSearchSpec(
