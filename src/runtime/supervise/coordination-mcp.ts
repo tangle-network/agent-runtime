@@ -163,7 +163,10 @@ export interface CoordinationProxySecretOptions {
     readonly runId: string
     readonly actorId: string
     readonly url: string
+    /** Full Authorization header. The trusted bearer-store adapter parses it once and stores
+     *  only the token bytes; the store itself does no presentation normalization. Never log it. */
     readonly authorization: string
+    /** Credential deadline in epoch milliseconds, when explicitly bounded by Runtime auth. */
     readonly credentialExpiresAt: number | undefined
     readonly signal: AbortSignal
   }): Promise<CoordinationProxySecretRegistration>
