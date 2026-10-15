@@ -1,4 +1,7 @@
-import { agentCandidateProfileSchema, type ProxySecretBinding } from '@tangle-network/agent-interface'
+import {
+  agentCandidateProfileSchema,
+  type ProxySecretBinding,
+} from '@tangle-network/agent-interface'
 import type { AgentCandidateWorkspacePlan } from '@tangle-network/agent-profile-materialize'
 import { describe, expect, it } from 'vitest'
 import {

@@ -1,10 +1,10 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   AGENT_PROFILE_MATERIALIZATION_AXES,
-  canonicalAgentProfileDigest,
   type CanonicalAgentProfileMaterializationAxis,
-  profileMaterializationAxes,
+  canonicalAgentProfileDigest,
   ProxySecretsSchema,
+  profileMaterializationAxes,
 } from '@tangle-network/agent-interface'
 import {
   type HarnessId,
