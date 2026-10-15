@@ -184,7 +184,7 @@ function installProxySecrets(stored: StoredEnvironment, bindings: readonly Proxy
           tenantId: 'fixture-tenant',
           issuerId: 'durable-test',
           secretId: binding.secretRef.key,
-          revision: `fixture-${generation}`,
+          revision: 'fixture-source',
         },
         scope: {
           hosts: binding.hosts,

@@ -1515,6 +1515,8 @@ export type SpawnEvent =
       kind: 'execution-evidence'
       id: NodeId
       outRef: string
+      /** Set only by Runtime's private host admission writers; generic evidence has none. */
+      authority?: 'coordination-credential-generation' | 'proxy-secret-binding-admission'
       traceRoot?: TraceRootReceipt
       seq: number
       at: string

@@ -89,6 +89,7 @@ import { assertValidBudget, meterUsageEvent, newUsageTotals, spendFromUsageTotal
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { CONTINUATIONS_DIR, type ContinuationPolicy } from './continuation'
 import { isLoopbackHost } from './coordination-mcp'
+import { captureCoordinationProxySecretSourceIdentity } from './coordination-credential'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, type DeadlineCheckIn, teardownExecutor } from './deadline'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
 import {
@@ -1406,6 +1407,11 @@ function driveHarnessFromBackend(
           ? {
               [retainedExecutorSeamKey]: {
                 ...retainedOwner,
+                ...(coordinationProxySecret === undefined ? {} : {
+                  proxySecretSourceIdentity: captureCoordinationProxySecretSourceIdentity(
+                    coordinationProxySecret.sourceIdentity,
+                  ),
+                }),
                 onResult: async (result: ExecutorResult<unknown>) => commitOwnerResult(result),
               },
             }

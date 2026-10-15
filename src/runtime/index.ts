@@ -790,6 +790,7 @@ export {
   type CoordinationProxySecret,
   type CoordinationProxySecretOptions,
   type CoordinationProxySecretRegistration,
+  type CoordinationProxySecretSourceIdentity,
   type CoordinationPublicAddress,
   type CoordinationRejectReason,
   type CoordinationTransportOptions,

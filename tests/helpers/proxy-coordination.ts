@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type {
   CreateAgentEnvironmentInput,
   ProxySecretBinding,
@@ -8,6 +9,7 @@ import type {
   CoordinationProxySecretOptions,
   CoordinationPublicAddress,
 } from '../../src/runtime/supervise/coordination-mcp'
+import type { CoordinationProxySecretSourceIdentity } from '../../src/runtime/supervise/coordination-credential'
 
 /** Canonical capability declaration for the bounded test transport, never a production driver. */
 export const proxySecretCapabilities = {
@@ -27,6 +29,7 @@ interface Credential {
   expiresAt: number
   placeholder: string
   binding: ProxySecretBinding
+  sourceIdentity: CoordinationProxySecretSourceIdentity
 }
 interface Route {
   local: string
@@ -72,7 +75,7 @@ function installRouter() {
   }
 }
 
-export async function proxyCoordination(options: { immutableCredentials?: boolean } = {}) {
+export async function proxyCoordination() {
   installRouter()
   fixtureCount += 1
   let closed = false
@@ -80,6 +83,7 @@ export async function proxyCoordination(options: { immutableCredentials?: boolea
   const url = `https://coord-${fixture}.example.test`
   const owned = new Set<string>()
   const credentials = new Map<string, Credential>()
+  const retired = new Set<string>()
   function route(publicUrl: string, port: number, host = '127.0.0.1') {
     const address = new URL(publicUrl)
     const key = `${address.origin}${address.pathname}`
@@ -91,17 +95,26 @@ export async function proxyCoordination(options: { immutableCredentials?: boolea
     async prepare(input) {
       if (input.signal.aborted) throw new Error('fixture registration cancelled')
       const actor = `${input.runId}:${input.actorId}`
-      const identity = options.immutableCredentials
-        ? `${actor}:${createHash('sha256').update(input.authorization).digest('hex')}`
-        : actor
+      const identity = `${actor}:${createHash('sha256').update(input.authorization).digest('hex')}`
       const key = createHash('sha256').update(identity).digest('hex')
-      const prior = options.immutableCredentials ? credentials.get(key) : undefined
+      const prior = credentials.get(key)
+      if ((input.replay && (!prior || !input.expectedSourceIdentity || canonicalCandidateDigest(prior.sourceIdentity) !== canonicalCandidateDigest(input.expectedSourceIdentity))) || retired.has(key)) {
+        throw Object.assign(new Error('fixture credential generation is unavailable'), { status: 409 })
+      }
       if (prior && (prior.authorization !== input.authorization || prior.url !== input.url)) {
         throw Object.assign(new Error('fixture immutable credential conflict'), { status: 409 })
       }
       const expiresAt = prior?.expiresAt ?? Math.min(Date.now() + 300_000, input.credentialExpiresAt ?? Infinity)
       if (expiresAt - Date.now() < 1_000) throw new Error('fixture credential already expired')
+      const policy = { hosts: [new URL(input.url).hostname], methods: ['POST'], paths: [new URL(input.url).pathname], maxTtlSeconds: 60 }
       const credential: Credential = prior ?? {
+        sourceIdentity: {
+          identity: { tenantId: 'fixture-tenant', issuerId: 'durable-test', secretId: key, revision: 'fixture-source' },
+          key,
+          sourceValidUntil: new Date(expiresAt).toISOString(),
+          proxyPolicy: policy,
+          expiresAt: new Date(expiresAt).toISOString(),
+        },
         authorization: input.authorization,
         url: input.url,
         expiresAt,
@@ -119,9 +132,13 @@ export async function proxyCoordination(options: { immutableCredentials?: boolea
       if (prior === undefined) credentials.set(key, credential)
       return {
         binding: structuredClone(credential.binding),
+        sourceIdentity: structuredClone(credential.sourceIdentity),
         expiresAt: new Date(expiresAt).toISOString(),
         async revoke() {
-          if (credentials.get(key) === credential) credentials.delete(key)
+          if (credentials.get(key) === credential) {
+            credentials.delete(key)
+            retired.add(key)
+          }
           return { confirmed: true }
         },
       }

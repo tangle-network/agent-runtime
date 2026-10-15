@@ -647,7 +647,7 @@ describe('retained external supervisor recovery', () => {
     },
   )
 
-  it('reconnects the original manager and credential after partial accounting without another create or charge', async () => {
+  it('reconnects the original manager after credential renewal without another create or charge', async () => {
     const fixture = await setup('metered')
     await fixture.first()
     const before = await fixture.events()
@@ -1230,11 +1230,11 @@ async function setup(
   retry = false,
   historicalUnknown = false,
   rebindFailure?: 'revoked' | 'generation',
-  immutableCredentials = false,
+  checkRenewalAdmission = false,
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'retained-owner-'))
   directories.push(directory)
-  const proxy = await coordinationProxy({ immutableCredentials })
+  const proxy = await coordinationProxy()
   proxies.push(proxy)
   const stateFile = join(directory, 'provider.json')
   const runDirectory = join(directory, 'run')
@@ -1242,7 +1242,7 @@ async function setup(
   let creates = 0
   let reconnects = 0
   let authorizedRequests = 0
-  let originalToken: string | undefined
+  let currentAuthorization: string | undefined
   let dispatches = 0
   let rebinds = 0
   let observedRevocation = false
@@ -1257,14 +1257,13 @@ async function setup(
     harness: 'codex',
     tools: runtimeToolDeclarations(repeat ? 'submit_result' : 'stop'),
   })
-  // Host-only signed-listener regression: this credential is resolved from a proxy reference,
-  // never from guest env. Retained-box rebind is a separate required lifecycle check.
-  const requestOriginalCredential = async () => {
-    if (!originalToken) throw new Error('missing original private credential')
+  // Resolve only the current generation at this trusted host boundary.
+  const requestCurrentCredential = async () => {
+    if (!currentAuthorization) throw new Error('missing current private credential')
     const response = await fetch(`http://127.0.0.1:${port}/manager`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${originalToken}`,
+        Authorization: currentAuthorization,
         Host: new URL(proxy.url).host,
         'content-type': 'application/json',
       },
@@ -1306,13 +1305,13 @@ async function setup(
       }),
       create: async (input) => {
         creates++
-        originalToken ??= proxy.authorizationFor(input).slice('Bearer '.length)
-        await requestOriginalCredential()
+        expect(proxy.authorizationFor(input) === currentAuthorization).toBe(true)
+        await requestCurrentCredential()
         expect(input.profile?.mcp?.['agent-runtime-coordination']).toBeUndefined()
         return wrap(await base.create(input))
       },
       get: async (id, options) => {
-        if (immutableCredentials && preparedReferences.length > 1) {
+        if (checkRenewalAdmission && preparedReferences.length > 1) {
           renewalLookups++
           const nextReference = preparedReferences.at(-1)
           const events = (await context.journal.loadTree('owner-run')) ?? []
@@ -1353,7 +1352,7 @@ async function setup(
           proxy.authorizationFor(options)
         }
         reconnects++
-        await requestOriginalCredential()
+        await requestCurrentCredential()
         if (options?.proxySecrets !== undefined) {
           rebinds++
           if (injected && rebindFailure === 'revoked') {
@@ -1424,6 +1423,7 @@ async function setup(
               const registration = await proxy.proxySecret.prepare(input)
               preparedReferences.push(registration.binding.secretRef.key)
               preparedAuthorizations.push(input.authorization)
+              currentAuthorization = input.authorization
               return registration
             },
           },

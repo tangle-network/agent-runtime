@@ -43,6 +43,7 @@ const profile = testAgentProfile('retained-proxy')
 it('rebinds a retained environment in place before continuing and preserves authored grants', async () => {
   const base = await fixture()
   let creates = 0
+  const admissions: RetainedRunAdmission[] = []
   const lookups: Array<AgentEnvironmentGetOptions | undefined> = []
   const provider: AgentEnvironmentProvider = {
     ...base,
@@ -82,8 +83,10 @@ it('rebinds a retained environment in place before continuing and preserves auth
     provider,
     controlRef: initial.controlRef,
     proxySecrets: [authored, binding],
+    onAdmission: async admission => { admissions.push(admission) },
   })
   expect(reconnected?.controlRef).toEqual(initial.controlRef)
+  expect(admissions.some(admission => admission.phase === 'proxy-secrets' && admission.stage === 'installed')).toBe(true)
   expect(lookups.at(-1)).toMatchObject({
     requireInPlace: true,
     proxySecrets: [authored, binding],
@@ -201,7 +204,7 @@ it('verifies original identity but refuses native reattachment after an unacknow
       if (!environment) return null
       return {
         ...environment,
-        proxySecretReceipt: undefined,
+        proxySecretReceipt: options?.proxySecrets === undefined ? environment.proxySecretReceipt : undefined,
         session(id) {
           if (options?.proxySecrets === undefined) ownershipChecks++
           else sessions++
@@ -216,71 +219,62 @@ it('verifies original identity but refuses native reattachment after an unacknow
       provider,
       controlRef: initial.controlRef,
       proxySecrets: [binding],
+      onAdmission: async () => {},
     }),
   ).rejects.toThrow('did not confirm proxy-secret installation')
   expect(ownershipChecks).toBe(1)
   expect(sessions).toBe(0)
 })
 
-it.each(['created', 'replayed', undefined] as const)(
-  'cleans only a proven fresh allocation after nonretained receipt refusal, creation=%s',
-  async (creation) => {
-    const base = await fixture()
-    let streams = 0
-    let destroys = 0
-    const provider: AgentEnvironmentProvider = {
-      name: base.name,
-      capabilities: base.capabilities,
-      async create() {
-        return {
-          id: 'bad-materialization',
-          provider: base.name,
-          creation,
-          status: async () => 'running',
-          async *stream() {
-            streams++
-            yield { type: 'done', data: { finalText: 'must not run' } }
-          },
-          async destroy() {
-            destroys++
-          },
-        }
-      },
-    }
-    const signal = new AbortController().signal
-    const executor = providerAsExecutor(provider, { defaults: { proxySecrets: [binding] } })(
-      { profile, harness: null },
-      { signal, seams: { 'runtime.proxySecretParents': rootParents } },
-    )
-    await expect(
-      (async () => {
-        const execution = executor.execute('work', signal)
-        if (!(Symbol.asyncIterator in execution)) throw new Error('expected streamed execution')
-        for await (const _event of execution) {
-          /* consume the public execution boundary */
-        }
-      })(),
-    ).rejects.toThrow('did not confirm proxy-secret installation')
-    expect(streams).toBe(0)
-    expect(destroys).toBe(creation === 'created' ? 1 : 0)
-  },
-)
-
-it('preserves original and cleanup errors when a fresh refused allocation has no destroy operation', async () => {
+it('refuses a changed reference returned by an omitted-update public reconnect before native reattachment', async () => {
   const base = await fixture()
+  const initial = await startRetainedRun({
+    proxySecretParents: rootParents,
+    provider: base,
+    environment: { profile, proxySecrets: [binding], idempotencyKey: 'omitted-wrong-reference' },
+    turn: { turnId: 'first', prompt: 'first' },
+    onAdmission: async () => {},
+  })
+  const admissions: RetainedRunAdmission[] = []
+  let reconnectGets = 0
+  let nativeSessions = 0
   const provider: AgentEnvironmentProvider = {
-    name: base.name,
-    capabilities: base.capabilities,
-    async create() {
+    ...base,
+    async get(id, options) {
+      const current = await base.get!(id, options)
+      if (!current || Reflect.get(options ?? {}, 'readOnly') === true) return current
+      reconnectGets++
+      expect(admissions.some(admission => admission.phase === 'proxy-secrets' && admission.stage === 'replacement'),
+        'omitted protected reconnect must durably admit its exact discovered selection before resuming').toBe(true)
       return {
-        id: 'missing-destroy',
-        provider: base.name,
-        creation: 'created',
-        status: async () => 'running',
-        async *stream() {
-          yield* []
+        ...current,
+        proxySecretReceipt: { ...current.proxySecretReceipt!, bindings: current.proxySecretReceipt!.bindings.map(entry => ({
+          ...entry, secretRef: { kind: 'secret-ref' as const, key: 'unadmitted-reference' },
+        })) },
+        session(id, sessionOptions) {
+          nativeSessions++
+          return current.session!(id, sessionOptions)
         },
       }
+    },
+  }
+  await expect(reconnectRetainedRun({
+    provider, controlRef: initial.controlRef,
+    onAdmission: async admission => { admissions.push(admission) },
+  })).rejects.toThrow('did not confirm proxy-secret installation')
+  expect(reconnectGets).toBe(1)
+  expect(nativeSessions, 'changed proxy references must refuse before public native reattachment').toBe(0)
+  expect(admissions.some(admission => admission.phase === 'proxy-secrets' && admission.stage === 'installed')).toBe(false)
+})
+
+it('refuses a raw protected executor without durable admission before provider allocation', async () => {
+  const base = await fixture()
+  let creates = 0
+  const provider: AgentEnvironmentProvider = {
+    ...base,
+    async create(input) {
+      creates++
+      return base.create(input)
     },
   }
   const signal = new AbortController().signal
@@ -288,18 +282,14 @@ it('preserves original and cleanup errors when a fresh refused allocation has no
     { profile, harness: null },
     { signal, seams: { 'runtime.proxySecretParents': rootParents } },
   )
-  let error: unknown
-  try {
+  await expect((async () => {
     const execution = executor.execute('work', signal)
     if (!(Symbol.asyncIterator in execution)) throw new Error('expected streamed execution')
     for await (const _event of execution) {
-      /* consume */
+      /* consume the actual public raw executor */
     }
-  } catch (received) {
-    error = received
-  }
-  expect(error).toBeInstanceOf(AggregateError)
-  expect((error as AggregateError).errors).toHaveLength(2)
+  })()).rejects.toThrow('requires awaited durable parent admission')
+  expect(creates).toBe(0)
 })
 
 it('refuses omitted references on expired custody before a fresh retained native dispatch, then renews in place', async () => {

@@ -13,6 +13,8 @@ import {
   rejectUnmaterializedProviderEnvironment,
 } from './proxy-secret-custody'
 import { promptOptionsFromAgentTurnInput } from './turn-input'
+import { assertProxySecretSourceIdentity, createProxySecretBindingAdmission, type ProxySecretBindingAdmission } from './proxy-secret-admission'
+import { captureCoordinationProxySecretSourceIdentity, type CoordinationProxySecretSourceIdentity } from './supervise/coordination-credential'
 
 export type { ProviderPlacement } from './provider-placement'
 
@@ -97,6 +99,7 @@ import {
   reconnectRetainedRun,
   recoverRetainedRun,
   retainedProxySecretBindings,
+  retainedReadOnlyOptions,
   startRetainedRun,
 } from './retained-run-start'
 import type { RetainedRunHandle } from './retained-run-types'
@@ -293,8 +296,10 @@ export function resolveAgentEnvironmentProvider(
 /** Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port.
  * @experimental */
 export interface ProviderAsSandboxClientOptions {
+  /** Exact metadata supplied by the trusted host credential issuer. */
+  proxySecretSourceIdentity?: CoordinationProxySecretSourceIdentity
   /** Await durable storage of the exact parent pins before protected provider allocation. */
-  onAdmission?: (admission: { readonly proxySecretParents: ProxySecretParents }) => Promise<void>
+  onAdmission?: (admission: ProxySecretBindingAdmission) => Promise<void>
   defaults?: Partial<CreateAgentEnvironmentInput>
   requireTerminalEvent?: boolean
   /** Require declared live continuation plus concrete session controls. */
@@ -327,6 +332,8 @@ export function providerAsSandboxClient(
       )
     }
   }
+  const proxySecretSourceIdentity = options.proxySecretSourceIdentity === undefined ? undefined
+    : captureCoordinationProxySecretSourceIdentity(options.proxySecretSourceIdentity)
   return {
     async create(createOptions?: Parameters<SandboxClient['create']>[0]): Promise<SandboxInstance> {
       const defaults = options.defaults ?? {}
@@ -386,18 +393,26 @@ export function providerAsSandboxClient(
         )
       }
       const proxySecretParents = prepareProxySecretParents(input.proxySecretParents, proxySecrets)
+      let createAdmission: Record<string, unknown> | undefined
       if (proxySecrets !== undefined && proxySecrets.length > 0) {
         assertProxySecretCapabilities(await provider.capabilities(), proxySecrets)
         if (proxySecretParents === undefined || options.onAdmission === undefined) {
           throw new ValidationError('protected provider adapter has no durable parent admission')
         }
         input.proxySecretParents = proxySecretParents
-        await options.onAdmission(Object.freeze({ proxySecretParents }))
+        input.idempotencyKey ??= 'runtime-adapter:' + randomUUID()
+        createAdmission = {
+          phase: 'proxy-secrets', stage: 'selected', provider: provider.name,
+          idempotencyKey: input.idempotencyKey, proxySecrets, proxySecretParents,
+          ...(proxySecretSourceIdentity === undefined ? {} : { sourceIdentity: proxySecretSourceIdentity }),
+        }
+        await options.onAdmission(createProxySecretBindingAdmission(createAdmission))
       }
       const environment = await provider.create(input)
       try {
         assertProxySecretInstallation(environment, proxySecrets?.length ? proxySecrets : undefined)
         assertProxySecretParentReadback(environment, proxySecretParents)
+        assertProxySecretSourceIdentity(environment.proxySecretReceipt, proxySecretSourceIdentity)
         if (options.requireSession && !environment.session) {
           throw new ValidationError(
             'providerAsSandboxClient(' + provider.name + '): session() is required',
@@ -409,6 +424,12 @@ export function providerAsSandboxClient(
           error,
           options.workspaceRetention !== undefined,
         )
+      }
+      if (createAdmission !== undefined && options.onAdmission !== undefined) {
+        await options.onAdmission(createProxySecretBindingAdmission({
+          ...createAdmission, stage: 'installed', environmentId: environment.id,
+          receipt: environment.proxySecretReceipt,
+        }))
       }
       return environmentAsSandboxInstance(environment, {
         requiresProxySecretCustody: (proxySecrets?.length ?? 0) > 0,
@@ -2519,44 +2540,64 @@ async function providerExecutionSource(
   events: AsyncIterable<AgentEnvironmentEvent>
   retained: boolean
 }> {
-  const proxySecrets = retainedProxySecretBindings({
+  const environmentInput: CreateAgentEnvironmentInput = {
     ...args.options.defaults,
-    profile: args.createProfile,
-  })
+    profile: detachedSnapshot(args.createProfile, 'provider executor create profile'),
+    ...(args.options.defaults?.proxySecrets === undefined ? {} : {
+      proxySecrets: detachedSnapshot(args.options.defaults.proxySecrets, 'provider executor proxySecrets'),
+    }),
+    ...(args.options.defaults?.proxySecretParents === undefined ? {} : {
+      proxySecretParents: captureProxySecretParents(args.options.defaults.proxySecretParents),
+    }),
+  }
+  const proxySecrets = retainedProxySecretBindings(environmentInput)
   const proxySecretParents = prepareProxySecretParents(
-    args.proxySecretParents,
-    proxySecrets,
-    args.options.defaults?.proxySecretParents,
+    args.proxySecretParents, proxySecrets, environmentInput.proxySecretParents,
   )
+  const proxySecretSourceIdentity = args.retention?.proxySecretSourceIdentity === undefined ? undefined
+    : captureCoordinationProxySecretSourceIdentity(args.retention.proxySecretSourceIdentity)
   const selectedTurn = subscriptionTurnProfile(turn, args.profile)
   AgentTurnInputSchema.parse(selectedTurn)
   const capabilities = args.retention ? await args.provider.capabilities() : undefined
   const useRetained = args.retention !== undefined && capabilities?.retainedControl !== undefined
   if (!useRetained) {
     if (args.recovering)
-      throw new Error(`provider ${args.provider.name} cannot recover retained executions`)
+      throw new Error('provider cannot recover retained executions without retained control')
     if (proxySecrets !== undefined)
       assertProxySecretCapabilities(await args.provider.capabilities(), proxySecrets)
-    if (proxySecrets !== undefined && proxySecrets.length > 0) {
-      const admitParents = args.retention?.onProxySecretParentsAdmission
-      if (proxySecretParents === undefined || admitParents === undefined) {
-        throw new ValidationError(
-          'protected provider executor requires awaited durable parent admission',
-        )
-      }
-      await admitParents(proxySecretParents)
-    }
-    const environment = await args.provider.create({
-      ...args.options.defaults,
-      profile: args.createProfile,
+    const createInput = {
+      ...environmentInput,
       ...(proxySecrets === undefined ? {} : { proxySecretParents }),
       signal,
-    })
+    }
+    let createAdmission: Record<string, unknown> | undefined
+    if (proxySecrets !== undefined && proxySecrets.length > 0) {
+      const admitParents = args.retention?.onProxySecretParentsAdmission
+      if (proxySecretParents === undefined || admitParents === undefined || args.retention === undefined) {
+        throw new ValidationError('protected provider executor requires awaited durable parent admission')
+      }
+      await admitParents(proxySecretParents)
+      createInput.idempotencyKey ??= 'runtime:' + args.executionId
+      createAdmission = {
+        phase: 'proxy-secrets', stage: 'selected', provider: args.provider.name,
+        idempotencyKey: createInput.idempotencyKey, proxySecrets, proxySecretParents,
+        ...(proxySecretSourceIdentity === undefined ? {} : { sourceIdentity: proxySecretSourceIdentity }),
+      }
+      await args.retention.onAdmission(createProxySecretBindingAdmission(createAdmission))
+    }
+    const environment = await args.provider.create(createInput)
     try {
       assertProxySecretInstallation(environment, proxySecrets)
       assertProxySecretParentReadback(environment, proxySecretParents)
+      assertProxySecretSourceIdentity(environment.proxySecretReceipt, proxySecretSourceIdentity)
     } catch (error) {
       return rejectUnmaterializedProviderEnvironment(environment, error)
+    }
+    if (createAdmission !== undefined && args.retention !== undefined) {
+      await args.retention.onAdmission(createProxySecretBindingAdmission({
+        ...createAdmission, stage: 'installed', environmentId: environment.id,
+        receipt: environment.proxySecretReceipt,
+      }))
     }
     return { environment, events: environment.stream(selectedTurn), retained: false }
   }
@@ -2588,12 +2629,14 @@ async function providerExecutionSource(
   const restore = priorSession === undefined ? retention.restoreWorkspace : undefined
   const material = {
     ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
+    ...(proxySecretSourceIdentity === undefined ? {} : {
+      proxySecretSourceIdentity: proxySecretSourceIdentity,
+    }),
     environment: {
-      ...args.options.defaults,
+      ...environmentInput,
       ...(restore === undefined
         ? {}
-        : { workspace: { ...args.options.defaults?.workspace, checkpoint: restore.checkpoint } }),
-      profile: args.createProfile,
+        : { workspace: { ...environmentInput.workspace, checkpoint: restore.checkpoint } }),
       idempotencyKey: environmentKey,
       signal,
     },
@@ -2624,13 +2667,20 @@ async function providerExecutionSource(
     // Start with the original execution keys; once any admission exists, validate its intent.
     if (args.recovering && admissions.length > 0) {
       if (!intent) throw new Error('retained provider execution has no original intent')
+      const originalMaterial = intent.proxySecrets === undefined ? material : {
+        ...material,
+        environment: { ...material.environment, proxySecrets: intent.proxySecrets },
+        ...(intent.proxySecretSourceIdentity === undefined ? {} : {
+          proxySecretSourceIdentity: intent.proxySecretSourceIdentity,
+        }),
+      }
       try {
-        assertRetainedRunReplayMaterial(args.provider, material, intent)
+        assertRetainedRunReplayMaterial(args.provider, originalMaterial, intent)
       } catch (error) {
         if (selectedTurn === turn) throw error
         // An older admission may have relied on the create-time profile. Only
         // its exact original material may replay; a new turn uses the profile.
-        const original = { ...material, turn: { ...turn, turnId } }
+        const original = { ...originalMaterial, turn: { ...turn, turnId } }
         assertRetainedRunReplayMaterial(args.provider, original, intent)
         material.turn = original.turn
       }
@@ -2642,6 +2692,8 @@ async function providerExecutionSource(
         controlRef: dispatched.controlRef,
         proxySecrets: retainedProxySecretBindings(material.environment),
         proxySecretParents,
+        proxySecretSourceIdentity: proxySecretSourceIdentity,
+        onAdmission,
         signal,
       })
       if (!reconnected) throw new Error('retained provider environment is unavailable')
@@ -2664,6 +2716,8 @@ async function providerExecutionSource(
               executionId: environmentAdmission.executionId,
               proxySecrets: retainedProxySecretBindings(material.environment),
               proxySecretParents,
+              proxySecretSourceIdentity: proxySecretSourceIdentity,
+              onAdmission,
               signal,
             })
       if (recovered.outcome === 'unverifiable' && intent?.phase === 'intent') {
@@ -2703,8 +2757,13 @@ async function providerExecutionSource(
     executionAdmitted = true
     args.onRetained(handle)
     args.onPending(true)
-    const environment = await args.provider.get?.(handle.controlRef.environmentId)
+    const environment = await args.provider.get?.(
+      handle.controlRef.environmentId, retainedReadOnlyOptions({ signal }),
+    )
     if (!environment) throw new Error('retained provider environment is unavailable')
+    assertProxySecretInstallation(environment, proxySecrets)
+    assertProxySecretParentReadback(environment, proxySecretParents)
+    assertProxySecretSourceIdentity(environment.proxySecretReceipt, proxySecretSourceIdentity)
     if (restore !== undefined && !args.recovering) {
       // The provider restores a checkpoint or fails the create; the marker Runtime wrote before
       // the checkpoint is the evidence it did, journaled before the turn's result is judged.

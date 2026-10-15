@@ -7,6 +7,7 @@ import type {
   RetainedRunEnvironmentAdmission,
 } from '../retained-run-types'
 import { detachedSnapshot } from './snapshot'
+import type { CoordinationProxySecretSourceIdentity } from './coordination-credential'
 import { type TraceRootWriter, traceRootWriter } from './trace-root'
 import type {
   AgentSpec,
@@ -40,6 +41,8 @@ export interface RetainedExecutorContext {
   readonly admissions: readonly RetainedRunAdmission[]
   readonly onReady?: () => void | Promise<void>
   readonly onAdmission: RetainedRunAdmissionHook
+  /** Exact host coordination source metadata, only after its registration is durable. */
+  readonly proxySecretSourceIdentity?: CoordinationProxySecretSourceIdentity
   /** Verify a legacy adapter's final parent map against this invocation's durable input. */
   readonly onProxySecretParentsAdmission?: (parents: ProxySecretParents) => Promise<void>
   readonly onResult: (result: ExecutorResult<unknown>) => Promise<void>

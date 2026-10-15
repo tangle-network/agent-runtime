@@ -363,26 +363,28 @@ Stable keys support resumed coordination while the resumed scope is live and wit
 After expiry, the retained session can reattach, but its coordination requests receive HTTP 401.
 A new active key can mint credentials while previous keys verify existing credentials.
 Remove a verification key to revoke its credentials across coordinator restarts.
-Listener-local `rotateCredential()` revocation does not survive restart.
+For raw listeners, local `rotateCredential()` revocation does not survive restart. Proxy-backed listeners accept only their current admitted generation.
 The file run lock remains the single-owner fence; these credentials do not enable concurrent distributed failover.
 
 Provider managers require `capabilities.create.runtimeAttachments.mcp`, proxy-secret enforcement, and a caller-owned HTTPS endpoint on port 443 with an exact FQDN.
 Configure `coordination.proxySecret.prepare` on the trusted coordinator host.
 It receives the current actor endpoint, bearer credential, credential expiry and listener signal, and registers that credential in the existing encrypted secret store.
-Return a canonical proxy-secret binding, a finite UTC registration expiry, and a `revoke` callback that confirms removal.
+Return a canonical proxy-secret binding, a finite UTC registration expiry, a `sourceIdentity`, and a `revoke` callback that confirms removal.
+The source metadata contains the canonical resolved `identity`, reference `key`, `sourceValidUntil`, issuer `proxyPolicy`, and registration `expiresAt`. Runtime uses the SDK-owned policy validator and preserves the exact metadata before provider effects.
 The binding must name `AGENT_RUNTIME_COORDINATION_TOKEN`, the actor endpoint's exact hostname and path, the POST method, bearer presentation and a finite TTL.
 Runtime preserves that declaration and refuses expired or mismatched registrations before provider dispatch.
 The listener separately enforces the absolute registration expiry; the trusted issuer must also bound installed grants by their source expiry.
 The callback must observe cancellation and clean partial registrations before rejecting.
-For recovery of the same retained actor, return the same secret reference and complete declaration, including TTL.
-Renew the stored source value behind that reference and rebind the retained provider in place before dispatch.
-Runtime binds the complete declaration into retained intent; a changed reference or scope refuses exact replay.
+A live generation recovered after a crash replays its exact signed claims with caller-owned stable signing keys. Unsigned protected pending recovery fails closed.
+For `prepare({ replay: true, expectedSourceIdentity })`, look up the original source through the existing metadata API and verify its complete identity, policy and expiry. Never recreate or update a missing source during replay.
+Runtime binds the complete declaration into retained intent; unchanged-generation recovery preserves that declaration, source identity and parent pins.
+Graceful close revokes the source, including when its environment remains pending. A subsequent recovery must durably admit a new generation and its reference and total parent map before replacing custody in place; a verified installed receipt precedes continuation.
 Setup latency does not change the declared TTL or its retained intent identity.
 Registration does not prove installation: the provider must verify its sandbox-bound installed receipt before launching the harness.
 Runtime passes the binding and secret-reference MCP header through provider create options, preserving the canonical profile.
 The bearer never enters provider environment or runtime attachment headers.
 Closing or cancelling the listener revokes registration, and close fails if removal is unconfirmed.
-Synchronous `rotateCredential()` immediately rejects the previous bearer and clears the exposed binding; rebind the listener to prepare a new registration before continuing.
+`await rotateCredential()` immediately rejects the previous bearer and clears the exposed binding, then waits for confirmed old-source revocation and a fresh registered generation. Its readiness does not replace the provider owner's durable admission and installed-receipt check before guest continuation.
 Credential headers remain trusted-host-only and must not appear in receipts or journals.
 Retained manager recovery uses the original admitted backend input and validates its intent before reconnecting.
 Deliberate re-prompts retain the manager's environment and conversation, with a fresh execution and turn identity.

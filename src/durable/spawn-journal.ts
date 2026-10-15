@@ -871,7 +871,12 @@ export class SpawnEventIndex {
     this.assertRetained(node, event)
     assertTraceRoot(event, this.root)
     if (event.kind === 'execution-evidence') {
-      if (!node?.spawned || !/^sha256:[0-9a-f]{64}$/.test(event.outRef)) {
+      if (
+        !node?.spawned || !/^sha256:[0-9a-f]{64}$/.test(event.outRef) ||
+        (event.authority !== undefined &&
+          event.authority !== 'coordination-credential-generation' &&
+          event.authority !== 'proxy-secret-binding-admission')
+      ) {
         throw new Error(
           'spawn journal corrupted: executor evidence has no spawned node or valid content reference',
         )
@@ -1035,6 +1040,7 @@ export class SpawnEventIndex {
       return
     }
     const admission = event.admission
+    if (admission?.phase === 'proxy-secrets') fail('proxy-secret admission requires private evidence')
     if (!admission || !['intent', 'environment', 'dispatched'].includes(admission.phase))
       fail('has an invalid admission phase')
     if (node.admissions.has(admission.phase)) fail('has duplicate admission phase')

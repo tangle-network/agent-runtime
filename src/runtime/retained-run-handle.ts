@@ -22,6 +22,8 @@ import type {
   AgentSessionStatus,
 } from '@tangle-network/agent-interface/environment-provider'
 import { assertProxySecretInstallation, assertProxySecretReceiptLive } from './proxy-secret-custody'
+import { assertProxySecretSourceIdentity } from './proxy-secret-admission'
+import { captureCoordinationProxySecretSourceIdentity, type CoordinationProxySecretSourceIdentity } from './supervise/coordination-credential'
 import { assertProxySecretParentReadback, type ProxySecretParents } from './proxy-secret-parents'
 import {
   abortError,
@@ -69,7 +71,11 @@ export function createRetainedRunHandle(
   capabilities: AgentEnvironmentCapabilities,
   now: (() => number) | undefined,
   proxySecretParents?: ProxySecretParents,
+  sourceValue?: CoordinationProxySecretSourceIdentity,
 ): RetainedRunHandle {
+  const sourceIdentity = sourceValue === undefined ? undefined
+    : captureCoordinationProxySecretSourceIdentity(sourceValue)
+  assertProxySecretSourceIdentity(environment.proxySecretReceipt, sourceIdentity)
   const clock = now ?? Date.now
   assertProxySecretReceiptLive(environment)
   const proxyBindings = environment.proxySecretReceipt?.bindings.map(
@@ -219,6 +225,7 @@ export function createRetainedRunHandle(
             assertProxySecretInstallation(environment, proxyBindings)
             assertProxySecretParentReadback(environment, parentPins)
             assertProxySecretReceiptLive(environment)
+            assertProxySecretSourceIdentity(environment.proxySecretReceipt, sourceIdentity)
             return session.continueNative!(exactRequest, providerOptions)
           }),
           signal,

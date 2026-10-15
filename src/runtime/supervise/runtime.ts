@@ -2526,22 +2526,29 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
           const harness = requiredProviderProfileHarness(spec, providerSeam)
           const workspaceCaptures: ProviderWorkspaceCaptureReceipt[] = []
           let capturedOutput: (() => unknown) | undefined
-          const publishEvidence = retainedExecutorContext(seamed)?.onEvidence
-          const admitParents = retainedExecutorContext(seamed)?.onProxySecretParentsAdmission
+          const retained = retainedExecutorContext(seamed)
+          const publishEvidence = retained?.onEvidence
+          const admitParents = retained?.onProxySecretParentsAdmission
           const suppliedParents = seamed.seams[proxySecretParentsSeamKey]
           const proxySecretParents =
             suppliedParents === undefined ? undefined : captureProxySecretParents(suppliedParents)
           const { proxySecretParents: _ambientParents, ...defaults } = providerSeam.defaults ?? {}
           const sandboxClient = providerAsSandboxClient(provider, {
+            ...(retained?.proxySecretSourceIdentity === undefined ? {} : {
+              proxySecretSourceIdentity: retained.proxySecretSourceIdentity,
+            }),
             defaults: {
               ...defaults,
               ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
               signal: seamed.signal,
             },
-            ...(admitParents === undefined
+            ...(admitParents === undefined || retained === undefined
               ? {}
               : {
-                  onAdmission: ({ proxySecretParents }) => admitParents(proxySecretParents),
+                  onAdmission: async (admission) => {
+                    await admitParents(admission.proxySecretParents)
+                    await retained.onAdmission(admission)
+                  },
                 }),
             requireTerminalEvent: providerSeam.requireTerminalEvent,
             requireSession: true,

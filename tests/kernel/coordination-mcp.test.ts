@@ -853,7 +853,7 @@ describe('authenticated and bounded coordination HTTP', () => {
           ).toBe(403)
           expect(await post(mcp.port, mcp.headers, '/unselected')).toBe(404)
           const revoked = mcp.headers
-          mcp.rotateCredential()
+          await mcp.rotateCredential()
           expect(await post(mcp.port, revoked)).toBe(401)
           expect(await post(mcp.port, mcp.headers)).toBe(200)
         },
@@ -884,7 +884,7 @@ describe('authenticated and bounded coordination HTTP', () => {
           expect((await postHttp(other, mcp.headers)).status).toBe(401)
         })
         const old = mcp.headers
-        mcp.rotateCredential()
+        await mcp.rotateCredential()
         expect((await postHttp(mcp, old)).status).toBe(401)
         expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
         expect(calls).toBe(1)
@@ -1008,12 +1008,12 @@ describe('authenticated and bounded coordination HTTP', () => {
   })
 
   it('rechecks credential revocation after an asynchronous admission audit', async () => {
-    let rotate: (() => void) | undefined
+    let rotate: (() => Promise<void>) | undefined
     let calls = 0
     await withBoundHttp(
       {
         onAudit: async (event) => {
-          if (event.outcome === 'accepted') rotate?.()
+          if (event.outcome === 'accepted') await rotate?.()
         },
         nodeTools: [
           {
@@ -1363,7 +1363,7 @@ describe('coordination credential continuity', () => {
       async (mcp) => {
         const original = mcp.headers
         expect((await postHttp(mcp, original)).status).toBe(200)
-        mcp.rotateCredential()
+        await mcp.rotateCredential()
         expect((await postHttp(mcp, original)).status).toBe(401)
         expect(
           (
@@ -1905,7 +1905,7 @@ describe('caller-owned long-lived coordination credentials', () => {
         try {
           expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
           const old = mcp.headers
-          mcp.rotateCredential()
+          await mcp.rotateCredential()
           expect(mcp.credentialExpiresAt).toBeUndefined()
           expect(await refusal(await postHttp(mcp, old))).toEqual({
             status: 401,
@@ -1957,7 +1957,7 @@ describe('caller-owned long-lived coordination credentials', () => {
           try {
             expect((await postHttp(mcp, headers)).status).toBe(200)
             expect((await postHttp(mcp)).status).toBe(401)
-            mcp.rotateCredential()
+            await mcp.rotateCredential()
             expect((await postHttp(mcp, headers)).status).toBe(401)
             expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
           } finally {
@@ -2132,8 +2132,8 @@ describe('proxy-held actor registration over the real coordination HTTP boundary
           await new Promise<void>((resolve) => setImmediate(resolve))
           await mcp.drainResolved()
           expect(mcp.settled().some((worker) => worker.status === 'done')).toBe(true)
-          mcp.rotateCredential()
-          expect(mcp.proxySecret).toBeUndefined()
+          await mcp.rotateCredential()
+          expect(mcp.proxySecret).toBeDefined()
           const refused = await fetch(mcp.url, {
             method: 'POST',
             headers: { ...headers, 'content-type': 'application/json' },
@@ -2148,7 +2148,7 @@ describe('proxy-held actor registration over the real coordination HTTP boundary
   })
 
   it('awaits immutable credential registration on rotation before continuing over HTTP', async () => {
-    const proxy = await proxyCoordination({ immutableCredentials: true })
+    const proxy = await proxyCoordination()
     let release: () => void = () => {}
     const registering = new Promise<void>(resolve => { release = resolve })
     let entered: () => void = () => {}
@@ -2199,7 +2199,7 @@ describe('proxy-held actor registration over the real coordination HTTP boundary
     }
   })
 
-  it('rebinds the same actor address and reference while fencing the previous placeholder', async () => {
+  it('rebinds the same actor address with a new immutable reference after confirmed close', async () => {
     const proxy = await proxyCoordination()
     let firstUrl = ''
     let firstPort = 0
@@ -2220,7 +2220,7 @@ describe('proxy-held actor registration over the real coordination HTTP boundary
         await withBoundHttp(options, async (mcp) => {
           expect(mcp.url).toBe(firstUrl)
           expect(mcp.port).not.toBe(firstPort)
-          expect(mcp.proxySecret!.binding.secretRef.key === firstReference).toBe(true)
+          expect(mcp.proxySecret!.binding.secretRef.key).not.toBe(firstReference)
           const currentHeaders = proxy.guestHeadersFor(mcp.proxySecret!.binding)
           expect((await jsonRpc(mcp.url, 'tools/list', {}, currentHeaders)).error).toBeUndefined()
           const refused = await fetch(mcp.url, {
@@ -2334,12 +2334,13 @@ it('fences an expired proxy registration at the listener even when its scope rem
   }
 })
 
-it('preserves an actor declaration and its retained digest across different registration setup delays', async () => {
+it('preserves each immutable declaration and its retained digest across registration setup delays', async () => {
   const proxy = await proxyCoordination()
   const digests: string[] = []
+  const issuedDigests: string[] = []
   try {
-    // Model elapsed registration setup without sleeping or changing the system clock. The
-    // issuer returns the same declaration while its absolute remaining lease differs.
+    // Each fresh generation has its own immutable source. Setup latency must not rewrite
+    // that generation's declaration or its digest when the absolute lease is shorter.
     for (const remainingMs of [59_800, 58_800]) {
       await withBoundHttp(
         {
@@ -2347,9 +2348,12 @@ it('preserves an actor declaration and its retained digest across different regi
           proxySecret: {
             async prepare(input) {
               const registration = await proxy.proxySecret.prepare(input)
+              issuedDigests.push(canonicalCandidateDigest([registration.binding]))
+              const expiresAt = new Date(Date.now() + remainingMs).toISOString()
               return {
                 ...registration,
-                expiresAt: new Date(Date.now() + remainingMs).toISOString(),
+                expiresAt,
+                sourceIdentity: { ...registration.sourceIdentity, expiresAt },
               }
             },
           },
@@ -2369,7 +2373,7 @@ it('preserves an actor declaration and its retained digest across different regi
       )
     }
     expect(digests).toHaveLength(2)
-    expect(digests[0]).toBe(digests[1])
+    expect(digests).toEqual(issuedDigests)
   } finally {
     await proxy.close()
   }

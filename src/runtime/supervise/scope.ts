@@ -107,6 +107,7 @@ import {
   type WorkerProgress,
 } from './progress'
 import { providerVisibleProfile } from './provider-visible-profile'
+import { proxySecretBindingEvidence } from './runtime-authority-evidence'
 import { assertProxySecretParentInput, proxySecretParentState } from './proxy-secret-parent-state'
 import { prepareScopeResume } from './recover-executors'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
@@ -1266,9 +1267,22 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       let admissions = [...(recovery?.admissions ?? [])]
       let inputSeq = recovery?.continuation?.inputSeq ?? ordinal
       let pauseSeq = 0
+      const proxySecretAdmissions = proxySecretBindingEvidence({
+        journal: args.journal,
+        blobs: args.blobs,
+        rootId: args.root,
+        nodeId: id,
+        nextSequence: () => ordinal,
+        now,
+      })
       const onAdmission: RetainedExecutorContext['onAdmission'] = (admission) =>
         retainedWrite(async () => {
           controller.signal.throwIfAborted()
+          if (admission.phase === 'proxy-secrets') {
+            await proxySecretAdmissions.write(admission)
+            controller.signal.throwIfAborted()
+            return
+          }
           const existing = admissions.find((record) => record.phase === admission.phase)
           if (existing) {
             if (contentAddress(existing) !== contentAddress(admission)) {
