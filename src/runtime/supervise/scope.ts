@@ -133,6 +133,7 @@ import {
   terminalDownEvent,
 } from './terminal-record'
 import { captureWorkerTraceEvidence } from './trace-evidence'
+import { type TraceRootWriter, traceRootWriter } from './trace-root'
 import type { TraceSource } from './trace-source'
 import { runtimeOwnedNestedDriverTreeRoot } from './tree-key'
 import type {
@@ -175,6 +176,7 @@ import type {
   Spend,
   SubtreeResult,
   SubtreeSummary,
+  TraceRootReceipt,
   TreeView,
   UnconfirmedTeardown,
   UsageEvent,
@@ -613,6 +615,8 @@ interface LiveChild {
   acceptedResult?: ExecutorResult<unknown>
   recoveryPending?: boolean
   outRef?: string
+  /** The trace root of each output this process stored for the node, by `outRef`. */
+  readonly traceRoots: TraceRootWriter
   /** Durable structured tool evidence once this executor is terminal. */
   trace?: WorkerTraceEvidence
   /** Provider-served model evidence once this executor has attempted inference. */
@@ -702,6 +706,7 @@ export type PreSeqSettled =
       kind: 'done'
       out: unknown
       outRef: string
+      traceRoot?: TraceRootReceipt
       verdict?: DefaultVerdict
       spent: Spend
       providerModel?: import('./types').ProviderModelExecutionEvidence
@@ -719,6 +724,7 @@ export type PreSeqSettled =
       /** See `Settled['infra']`: `true` platform, `false` the work, absent unattributable. */
       infra?: boolean
       outRef?: string
+      traceRoot?: TraceRootReceipt
       trace: WorkerTraceEvidence
       /** The dropped child's own harness transcript, or the named reason it is absent. The whole
        *  point of #1244: this path has no result artifact for a capture to ride in. */
@@ -1195,6 +1201,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           : new Promise<void>((resolve) => {
               markRecoveryReady = resolve
             })
+      // Built before the retained seam, which cites it before the live child exists.
+      const traceRoots = traceRootWriter(args.blobs, id)
       const retainedWrites = new Set<Promise<void>>()
       let retainedWritesClosed = false
       const retainedWrite = (write: () => Promise<void>): Promise<void> => {
@@ -1253,11 +1261,13 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           await pendingEvidence?.complete()
           const outRef = contentAddress(result.out)
           await args.blobs.put(outRef, result.out)
+          const traceRoot = await traceRoots.write(outRef, result.out)
           controller.signal.throwIfAborted()
           await args.journal.appendEvent(args.root, {
             kind: 'execution-result',
             id,
             outRef,
+            ...(traceRoot === undefined ? {} : { traceRoot }),
             spent: result.spent,
             ...(result.verdict ? { verdict: result.verdict } : {}),
             ...(result.outcome ? { outcome: result.outcome } : {}),
@@ -1315,6 +1325,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           nodeId: id,
           nextSequence: () => ordinal,
           now,
+          traceRoots,
         }),
         onPause,
         onWorkspaceCapture,
@@ -1448,6 +1459,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
         ...(opts.key !== undefined ? { key: opts.key } : {}),
         spent: zeroSpend(),
+        traceRoots,
         settled: undefined as unknown as Promise<PreSeqSettled>,
         delivered: false,
         executorDone: false,
@@ -1828,22 +1840,28 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         }
       })
       const settled = childRun
-        .then(async (s) => {
+        .then(async (ran) => {
+          // Every settlement arm that cites an output this process stored cites its trace root.
+          const traceRoot = await live.traceRoots.recorded(ran.outRef)
+          const s: PreSeqSettled = traceRoot === undefined ? ran : { ...ran, traceRoot }
           let resolution = s
           try {
             await interactiveBindingCommitted
           } catch {
-            resolution = downRecord(
-              'interactive worker binding persistence failed',
-              true,
-              s.trace,
-              s.metered,
-              s.providerModel,
-              s.outRef,
-              // Re-wrapping a record the child already settled: its transcript receipt is
-              // established evidence and a persistence failure here does not unmake it.
-              s.harnessTranscript,
-            )
+            resolution = {
+              ...downRecord(
+                'interactive worker binding persistence failed',
+                true,
+                s.trace,
+                s.metered,
+                s.providerModel,
+                s.outRef,
+                // Re-wrapping a record the child already settled: its transcript receipt is
+                // established evidence and a persistence failure here does not unmake it.
+                s.harnessTranscript,
+              ),
+              ...(s.traceRoot === undefined ? {} : { traceRoot: s.traceRoot }),
+            }
           }
           live.resolved = resolution
           return resolution
@@ -3441,6 +3459,7 @@ async function finalizeSettlement<Out>(
     id: child.id,
     status: 'done',
     outRef: settlement.outRef,
+    ...(settlement.traceRoot === undefined ? {} : { traceRoot: settlement.traceRoot }),
     ...(settlement.verdict ? { verdict: settlement.verdict } : {}),
     spent: settlement.spent,
     ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
@@ -3554,6 +3573,7 @@ async function runChild<C>(
     const out = detachedSnapshot(result.out, 'scope child output')
     const outRef = contentAddress(out)
     await blobs.put(outRef, out)
+    await live.traceRoots.write(outRef, out)
     retainedOutputRef = outRef
     if (usageError !== undefined) throw usageError
     return { ...result, out, outRef }

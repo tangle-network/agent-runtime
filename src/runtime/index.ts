@@ -1222,6 +1222,14 @@ export {
   type WorkerToolTraceArtifact,
   workerTraceAnalysisStore,
 } from './supervise/trace-evidence'
+// The Merkle root over the events a turn archived. Journal records carry its receipt beside the
+// `outRef` it commits to; the artifact under `traceRoot.ref` holds every leaf and salt.
+export {
+  TRACE_ROOT_SCHEMA,
+  TRACE_SUMMARY_SCHEMA,
+  type TraceRootArtifact,
+  type TraceSummary,
+} from './supervise/trace-root'
 // The substrate-agnostic trace source: a worker's tool calls as agent-eval `ToolSpan`s, from an
 // OWNED loop (push) OR a sandbox box session (message parts). The common currency for both analysts.
 export {
@@ -1305,6 +1313,7 @@ export type {
   Supervisor,
   SupervisorOpts,
   TokenUsageProvenance,
+  TraceRootReceipt,
   TreeView,
   UnconfirmedTeardown,
   UnknownMaterializationReason,

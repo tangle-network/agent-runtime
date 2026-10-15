@@ -42,6 +42,7 @@ import {
   workspaceCaptureWriter,
 } from './retained-executor'
 import { detachedSnapshot } from './snapshot'
+import { traceRootWriter } from './trace-root'
 import type {
   ExecutionBindingReceipt,
   ExecutorNodeContext,
@@ -139,6 +140,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
   const acceptedRef = [...attempt].reverse().find((event) => event.kind === 'execution-result')
   const priorSession = taskEvent === undefined ? undefined : committedSession(events, start)
   let sequence = Math.max(0, ...events.map((event) => ('seq' in event ? event.seq : 0)))
+  const traceRoots = traceRootWriter(args.blobs, args.nodeId)
   const state: OwnerState = {
     args,
     admissions,
@@ -205,6 +207,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         nodeId: args.nodeId,
         nextSequence: () => state.nextSequence(),
         now: args.now,
+        traceRoots,
       }),
       onWorkspaceCapture: workspaceCaptureWriter({
         journal: args.journal,
@@ -224,11 +227,13 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         executorFailureReason(result)
         const outRef = contentAddress(result.out)
         await args.blobs.put(outRef, result.out)
+        const traceRoot = await traceRoots.write(outRef, result.out)
         scope.signal.throwIfAborted()
         const event: Extract<SpawnEvent, { kind: 'execution-result' }> = {
           kind: 'execution-result',
           id: args.nodeId,
           outRef,
+          ...(traceRoot === undefined ? {} : { traceRoot }),
           spent: detachedSnapshot(result.spent, 'retained owner spend'),
           ...(result.verdict ? { verdict: result.verdict } : {}),
           ...(result.outcome ? { outcome: result.outcome } : {}),

@@ -6,6 +6,7 @@ import type {
   RetainedRunEnvironmentAdmission,
 } from '../retained-run-types'
 import { detachedSnapshot } from './snapshot'
+import { type TraceRootWriter, traceRootWriter } from './trace-root'
 import type {
   AgentSpec,
   ExecutorContext,
@@ -73,15 +74,20 @@ export function executorEvidenceWriter(args: {
   nodeId: string
   nextSequence: () => number
   now: () => number
+  /** The node's trace-root writer, so evidence and result citing one output share one root. */
+  traceRoots?: TraceRootWriter
 }): (out: unknown) => Promise<void> {
+  const traceRoots = args.traceRoots ?? traceRootWriter(args.blobs, args.nodeId)
   return async (out) => {
     const snapshot = detachedSnapshot(out, 'executor evidence')
     const outRef = contentAddress(snapshot)
     await args.blobs.put(outRef, snapshot)
+    const traceRoot = await traceRoots.write(outRef, snapshot)
     await args.journal.appendEvent(args.rootId, {
       kind: 'execution-evidence',
       id: args.nodeId,
       outRef,
+      ...(traceRoot === undefined ? {} : { traceRoot }),
       seq: args.nextSequence(),
       at: new Date(args.now()).toISOString(),
     })
