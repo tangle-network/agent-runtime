@@ -1833,11 +1833,15 @@ function driveHarnessFromBackend(
   // Only the provider backend has a transcript port. Any other backend leaves the method off, so
   // its managers keep settling as `executor-exposes-no-transcript`.
   if (boundBackend.backend === 'provider') {
+    // The same rule as `keepTranscript`, with the newest attempt read live: its capture wins, an
+    // earlier capture outranks its absence, and its absence names the newest reason.
     drive.harnessTranscript = () => {
       const latest = lastExecutor?.harnessTranscript?.()
-      return latest !== undefined && latest.status !== 'unavailable'
-        ? latest
-        : (managerTranscript ?? latest)
+      if (latest === undefined) return managerTranscript
+      if (latest.status !== 'unavailable') return latest
+      return managerTranscript !== undefined && managerTranscript.status !== 'unavailable'
+        ? managerTranscript
+        : latest
     }
     drive.harnessTranscriptSettled = () =>
       lastExecutor?.harnessTranscriptSettled?.() ?? Promise.resolve()
