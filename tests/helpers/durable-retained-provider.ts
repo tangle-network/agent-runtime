@@ -1,11 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import {
+  AgentEnvironmentCapabilitiesSchema,
   type AgentExactRunControlRef,
   type AgentNativeContextContinuationResult,
   type AgentRunCancellationAcknowledgement,
   type AgentRunCancellationRequest,
   AgentRunCancellationRequestSchema,
   canonicalCandidateDigest,
+  deepFreeze,
   type InteractionAcknowledgement,
   type InteractionResponseCommand,
   interactionRequestDigest,
@@ -29,6 +31,7 @@ import type {
   ProxySecretReceipt,
 } from '@tangle-network/agent-interface/environment-provider'
 import {
+  AgentEnvironmentReadOnlyGetOptionsSchema,
   isProxySecretParentsTotal,
   mergeProxySecretBindings,
   ProxySecretParentsSchema,
@@ -111,6 +114,58 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
       return environmentFor(stateFile, providerName, id)
     },
     async get(id, options) {
+      if (options !== undefined && 'readOnly' in options) {
+        const operation = AgentEnvironmentReadOnlyGetOptionsSchema.parse(options)
+        operation.signal?.throwIfAborted()
+        const stored = readState(stateFile).environments[id]
+        if (!stored) return null
+        const snapshot: AgentEnvironment = {
+          id,
+          provider: providerName,
+          ...(stored.metadata === undefined ? {} : { metadata: stored.metadata }),
+          ...(stored.proxySecretReceipt === undefined
+            ? {}
+            : { proxySecretReceipt: stored.proxySecretReceipt }),
+          ...(stored.proxySecretParents === undefined
+            ? {}
+            : { proxySecretParents: stored.proxySecretParents }),
+          capabilities: deepFreeze(
+            AgentEnvironmentCapabilitiesSchema.parse({
+              profile: {
+                namedProfiles: false,
+                systemPrompt: { replace: false, append: false },
+                instructions: false,
+                tools: false,
+                permissions: false,
+                mcp: false,
+                subagents: false,
+                resources: { files: false, instructions: false },
+                runtimeUpdate: false,
+                validation: false,
+              },
+              streaming: { live: false, replay: false, detach: false, turnIdempotency: false },
+              sessions: { continue: false, list: false, messages: false },
+              workspace: {
+                read: false,
+                write: false,
+                exec: false,
+                git: false,
+                upload: false,
+                download: false,
+              },
+              branching: { checkpoint: false, fork: false },
+              placement: false,
+              usage: false,
+              confidential: false,
+            }),
+          ),
+          status: async () => 'running',
+          async *stream(): AsyncIterable<AgentEnvironmentEvent> {
+            throw new Error('fixture read-only environment cannot execute turns')
+          },
+        }
+        return deepFreeze(snapshot)
+      }
       const state = readState(stateFile)
       const stored = state.environments[id]
       if (!stored) return null
