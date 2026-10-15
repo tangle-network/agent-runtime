@@ -18,6 +18,7 @@ import { type SuperviseOptions, supervise } from '../../src/runtime/supervise/su
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
 import { checkpointCaptureFixture } from '../helpers/checkpoint-capture'
 import { completeCapture } from '../helpers/complete-workspace-capture'
+import { testContinuation } from '../helpers/continuation'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { proxyCoordination, proxySecretCapabilities } from '../helpers/proxy-coordination'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
@@ -287,6 +288,7 @@ describe('public supervise proxy-secret descendant admission', () => {
         runId, journal, blobs, signal: AbortSignal.timeout(5_000), backend, driverBackend: backend,
         budget: { maxIterations: 4, maxTokens: 4_000 }, driverRetry: { enabled: false },
         retainedAtSettlement: 'release', teardownConfirmMs: 0,
+        continuation: testContinuation({ deadline: Date.now() + 5_000 }),
         deliverable: { check: out => out !== null && typeof out === 'object' && Reflect.get(out, 'answer') === 'retained safely' },
         coordination: { authentication: true, publicUrl: proxy.publicUrl, proxySecret: proxy.proxySecret },
       })
