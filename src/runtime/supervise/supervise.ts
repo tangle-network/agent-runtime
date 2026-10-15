@@ -937,8 +937,25 @@ function driveHarnessFromBackend(
       }
     }
   }
-  // The manager's own harness session, as the newest attempt captured it.
+  // The manager's own harness session, as the attempts before the newest one captured it.
   let managerTranscript: HarnessTranscriptCapture | undefined
+  // The newest attempt's executor. It keeps capturing after its attempt returns: a retained
+  // owner's final session copy and workspace capture run as end-of-turn work after the turn
+  // commits, so its transcript is read when a receipt is taken, never copied when the attempt
+  // ends. Copying it there recorded the `capture-did-not-run` placeholder for roots whose session
+  // was stored minutes later: 7 of 8 such nodes on Runtime 0.319.8 and later (#1360).
+  let lastExecutor: Executor<unknown> | undefined
+  // The newest capture wins; a capture never gives way to an attempt that captured nothing.
+  const keepTranscript = (capture: HarnessTranscriptCapture | undefined): void => {
+    if (
+      capture !== undefined &&
+      (capture.status !== 'unavailable' ||
+        managerTranscript?.status === 'unavailable' ||
+        managerTranscript === undefined)
+    ) {
+      managerTranscript = capture
+    }
+  }
   let managerArtifact: ExecutorResult<unknown> | undefined
   const committedTranscriptDigest = (artifact: ExecutorResult<unknown> | undefined): string => {
     if (artifact === undefined)
@@ -1298,7 +1315,10 @@ function driveHarnessFromBackend(
         },
       },
     })
+    // The attempt this one replaces may have captured since it returned.
+    keepTranscript(lastExecutor?.harnessTranscript?.())
     activeExecutor = executor
+    lastExecutor = executor
     let completed = false
     let started = false
     let terminalAccountingCaptured = false
@@ -1778,17 +1798,8 @@ function driveHarnessFromBackend(
         }
       }
       // The provider executor reads the session store at the end of its stream, before any
-      // teardown. A later attempt in the same environment reads that store again, longer, so the
-      // newest capture wins; a capture never gives way to an attempt that captured nothing.
-      const capture = executor.harnessTranscript?.()
-      if (
-        capture !== undefined &&
-        (capture.status !== 'unavailable' ||
-          managerTranscript?.status === 'unavailable' ||
-          managerTranscript === undefined)
-      ) {
-        managerTranscript = capture
-      }
+      // teardown. A later attempt in the same environment reads that store again, longer.
+      keepTranscript(executor.harnessTranscript?.())
       if (activeExecutor === executor) activeExecutor = undefined
       endDrive()
     }
@@ -1822,9 +1833,14 @@ function driveHarnessFromBackend(
   // Only the provider backend has a transcript port. Any other backend leaves the method off, so
   // its managers keep settling as `executor-exposes-no-transcript`.
   if (boundBackend.backend === 'provider') {
-    drive.harnessTranscript = () => managerTranscript ?? activeExecutor?.harnessTranscript?.()
+    drive.harnessTranscript = () => {
+      const latest = lastExecutor?.harnessTranscript?.()
+      return latest !== undefined && latest.status !== 'unavailable'
+        ? latest
+        : (managerTranscript ?? latest)
+    }
     drive.harnessTranscriptSettled = () =>
-      activeExecutor?.harnessTranscriptSettled?.() ?? Promise.resolve()
+      lastExecutor?.harnessTranscriptSettled?.() ?? Promise.resolve()
   }
   drive.closeSeatSegment = async (reason) => {
     await seatChain?.close(reason)
