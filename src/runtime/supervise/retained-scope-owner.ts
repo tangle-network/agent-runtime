@@ -1,4 +1,3 @@
-import { captureProxySecretParents, type ProxySecretParents } from '../proxy-secret-parents'
 import {
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
@@ -25,6 +24,7 @@ import {
   type ProviderWorkspaceRetentionPort,
   workspaceCaptureReceipt,
 } from '../provider-workspace-retention'
+import { captureProxySecretParents, type ProxySecretParents } from '../proxy-secret-parents'
 import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../retained-native-stop'
 import { sameControlCoordinates } from '../retained-run-binding'
 import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
@@ -425,9 +425,14 @@ export function bindScopeRetainedOwnerEnvironmentId(
 
 /** Prefer the active receipt; admissions name only this owner's current invocation. */
 function currentOwnerEnvironmentId(state: OwnerState): string | undefined {
-  return state.liveEnvironmentId?.() ?? [...state.admissions]
-    .reverse()
-    .flatMap(admission => admission.phase === 'environment' ? [admission.environmentId] : [])[0]
+  return (
+    state.liveEnvironmentId?.() ??
+    [...state.admissions]
+      .reverse()
+      .flatMap((admission) =>
+        admission.phase === 'environment' ? [admission.environmentId] : [],
+      )[0]
+  )
 }
 
 /** The current provider allocation, never a logical node id or caller attribution. */

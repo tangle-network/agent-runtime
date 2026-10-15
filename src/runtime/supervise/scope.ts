@@ -26,12 +26,6 @@
  */
 
 import {
-  captureProxySecretParents,
-  proxySecretParentsSeamKey,
-  type ProxySecretParents,
-} from '../proxy-secret-parents'
-import { proxySecretParentState } from './proxy-secret-parent-state'
-import {
   agentProfileSchema,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
@@ -47,6 +41,11 @@ import {
   readHarnessTranscript,
   settleHarnessTranscript,
 } from '../harness-transcript'
+import {
+  captureProxySecretParents,
+  type ProxySecretParents,
+  proxySecretParentsSeamKey,
+} from '../proxy-secret-parents'
 import type {
   RetainedInteractiveAdmission,
   RetainedRunEnvironmentAdmission,
@@ -108,6 +107,7 @@ import {
   type WorkerProgress,
 } from './progress'
 import { providerVisibleProfile } from './provider-visible-profile'
+import { proxySecretParentState } from './proxy-secret-parent-state'
 import { prepareScopeResume } from './recover-executors'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import {
@@ -970,9 +970,14 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       keyed.set(key, { state: 'in-doubt', id: prior.id, identity: prior.identity })
     }
     const seeded = keyed.get(key)
-    const spawned = args.resumeFrom?.events.find(event => event.kind === 'spawned' && event.id === prior.id)
+    const spawned = args.resumeFrom?.events?.find(
+      (event) => event.kind === 'spawned' && event.id === prior.id,
+    )
     if (seeded && spawned?.kind === 'spawned' && spawned.proxySecretParents !== undefined) {
-      keyed.set(key, { ...seeded, proxySecretParents: captureProxySecretParents(spawned.proxySecretParents) })
+      keyed.set(key, {
+        ...seeded,
+        proxySecretParents: captureProxySecretParents(spawned.proxySecretParents),
+      })
     }
   }
   /** Fold a keyed child's terminal settlement back into the registry, so a later spawn with the
@@ -983,14 +988,22 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       throw new ValidationError(`scope: keyed settlement '${key}' lost its execution identity`)
     }
     const existing = keyed.get(key)
-    const pins = existing?.id === settled.handle.id && existing.proxySecretParents !== undefined
-      ? { proxySecretParents: existing.proxySecretParents } : {}
+    const pins =
+      existing?.id === settled.handle.id && existing.proxySecretParents !== undefined
+        ? { proxySecretParents: existing.proxySecretParents }
+        : {}
     if (children.get(settled.handle.id)?.recoveryPending) {
       keyed.set(key, { state: 'in-doubt', id: settled.handle.id, identity, ...pins })
     } else if (settled.kind === 'done') {
       keyed.set(key, { state: 'done', id: settled.handle.id, identity, settled, ...pins })
     } else {
-      keyed.set(key, { state: 'down', id: settled.handle.id, identity, reason: settled.reason, ...pins })
+      keyed.set(key, {
+        state: 'down',
+        id: settled.handle.id,
+        identity,
+        reason: settled.reason,
+        ...pins,
+      })
     }
   }
 
@@ -1032,7 +1045,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       }
       const spec = executableAgentSpecSnapshot(rawSpec, 'scope.spawn')
       return {
-        agent, spec, identity: deriveNodeExecutionIdentity(spec, task),
+        agent,
+        spec,
+        identity: deriveNodeExecutionIdentity(spec, task),
         proxySecretParents: proxySecretParentState(agent),
       }
     }
@@ -1400,11 +1415,13 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       if (recovery && spec.profile.proxySecrets?.length && originalParents === undefined) {
         throw new ValidationError('recovered child has no original proxy-secret parent pins')
       }
-      const proxySecretParents = originalParents === undefined
-        ? prepared?.proxySecretParents
-        : captureProxySecretParents(originalParents)
+      const proxySecretParents =
+        originalParents === undefined
+          ? prepared?.proxySecretParents
+          : captureProxySecretParents(originalParents)
       if (
-        recovery && prepared?.proxySecretParents !== undefined &&
+        recovery &&
+        prepared?.proxySecretParents !== undefined &&
         contentAddress(prepared.proxySecretParents) !== contentAddress(proxySecretParents)
       ) {
         throw new ValidationError('recovered child proxy-secret parent pins changed')

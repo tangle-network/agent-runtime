@@ -70,6 +70,13 @@ import {
   type ProviderWorkspaceRetentionPort,
   workspaceCaptureReceipt,
 } from './provider-workspace-retention'
+import {
+  assertProxySecretParentWireAvailable,
+  captureProxySecretParents,
+  type ProxySecretParents,
+  prepareProxySecretParents,
+  proxySecretParentsSeamKey,
+} from './proxy-secret-parents'
 import { environmentGone } from './retained-interactive-lifecycle'
 import {
   describeRetainedNativeStops,
@@ -148,13 +155,6 @@ import {
   unavailableSignalOfFailure,
 } from './supervise/upstream-unavailable'
 import { verifyWorkspaceMarker } from './supervise/workspace-checkpoint'
-import {
-  assertProxySecretParentWireAvailable,
-  captureProxySecretParents,
-  prepareProxySecretParents,
-  proxySecretParentsSeamKey,
-  type ProxySecretParents,
-} from './proxy-secret-parents'
 import type { SandboxClient, Validator } from './types'
 import { addSpend, addTokenUsage, cloneTokenUsage, sleep, zeroTokenUsage } from './util'
 
@@ -2499,7 +2499,9 @@ async function providerExecutionSource(
     try {
       prepareProxySecretParents(
         proxySecretParents,
-        environment.proxySecretReceipt?.bindings.length ? environment.proxySecretReceipt.bindings : undefined,
+        environment.proxySecretReceipt?.bindings.length
+          ? environment.proxySecretReceipt.bindings
+          : undefined,
       )
       assertProxySecretInstallation(environment, proxySecrets)
     } catch (error) {

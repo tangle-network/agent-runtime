@@ -25,7 +25,6 @@
  * @experimental
  */
 
-import type { ProxySecretParents } from '../proxy-secret-parents'
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
 import type {
   AgentCandidateArtifactRef,
@@ -41,6 +40,7 @@ import type {
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type { HarnessTranscriptCapture, HarnessTranscriptEvidence } from '../harness-transcript'
+import type { ProxySecretParents } from '../proxy-secret-parents'
 import type { RetainedInteractiveRunHandle } from '../retained-interactive-types'
 import type { RetainedRunEffect } from '../retained-run-types'
 import type { LoopTokenUsage } from '../types'

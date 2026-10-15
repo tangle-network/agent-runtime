@@ -30,6 +30,12 @@ import {
   rejectUnmaterializedProviderEnvironment,
 } from './proxy-secret-custody'
 import {
+  assertProxySecretParentWireAvailable,
+  captureProxySecretParents,
+  type ProxySecretParents,
+  prepareProxySecretParents,
+} from './proxy-secret-parents'
+import {
   assertRetainedContextTransferCapability,
   assertRetainedContextTransferEnvironment,
   assertRetainedContextTransferIdentity,
@@ -61,12 +67,6 @@ import type {
   StartRetainedRunInEnvironmentOptions,
   StartRetainedRunOptions,
 } from './retained-run-types'
-import {
-  assertProxySecretParentWireAvailable,
-  captureProxySecretParents,
-  prepareProxySecretParents,
-  type ProxySecretParents,
-} from './proxy-secret-parents'
 import { detachedSnapshot } from './supervise/snapshot'
 import { freshTurnInput } from './turn-input'
 
@@ -111,7 +111,9 @@ async function getRetainedEnvironment(
   const environment = await provider.get!(
     id,
     bindings === undefined
-      ? options === undefined ? undefined : providerOptions
+      ? options === undefined
+        ? undefined
+        : providerOptions
       : {
           ...providerOptions,
           requireInPlace: true,
@@ -120,7 +122,9 @@ async function getRetainedEnvironment(
   if (!environment) return environment
   prepareProxySecretParents(
     parents,
-    environment.proxySecretReceipt?.bindings.length ? environment.proxySecretReceipt.bindings : undefined,
+    environment.proxySecretReceipt?.bindings.length
+      ? environment.proxySecretReceipt.bindings
+      : undefined,
   )
   if (bindings === undefined) assertProxySecretReceiptLive(environment)
   else assertProxySecretInstallation(environment, bindings, id, 'rebind')
@@ -244,7 +248,7 @@ export async function startRetainedRun(
       options.existingEnvironmentId,
       {
         proxySecrets: retainedProxySecretBindings(options.environment),
-      proxySecretParents,
+        proxySecretParents,
         ...(attachmentSignal === undefined ? {} : { signal: attachmentSignal }),
       },
       (current) =>
@@ -281,7 +285,9 @@ export async function startRetainedRun(
   try {
     prepareProxySecretParents(
       proxySecretParents,
-      environment.proxySecretReceipt?.bindings.length ? environment.proxySecretReceipt.bindings : undefined,
+      environment.proxySecretReceipt?.bindings.length
+        ? environment.proxySecretReceipt.bindings
+        : undefined,
     )
     assertProxySecretInstallation(environment, proxySecrets)
     capabilities = retainedCapabilitiesForEnvironment(
@@ -500,7 +506,9 @@ async function dispatchRetainedRun(
   // The environment admission fires only for a dispatch-capable environment.
   await admitDurably(options.onAdmission, {
     phase: 'environment',
-    ...(options.proxySecretParents === undefined ? {} : { proxySecretParents: options.proxySecretParents }),
+    ...(options.proxySecretParents === undefined
+      ? {}
+      : { proxySecretParents: options.proxySecretParents }),
     provider: options.provider.name,
     environmentId: environment.id,
     idempotencyKey: options.environmentIdempotencyKey,
@@ -522,7 +530,9 @@ async function dispatchRetainedRun(
   try {
     prepareProxySecretParents(
       options.proxySecretParents,
-      environment.proxySecretReceipt?.bindings.length ? environment.proxySecretReceipt.bindings : undefined,
+      environment.proxySecretReceipt?.bindings.length
+        ? environment.proxySecretReceipt.bindings
+        : undefined,
     )
     if (options.proxySecrets === undefined) assertProxySecretReceiptLive(environment)
     else assertProxySecretInstallation(environment, options.proxySecrets)

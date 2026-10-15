@@ -23,6 +23,11 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { assertProxySecretInstallation, assertProxySecretReceiptLive } from './proxy-secret-custody'
 import {
+  assertProxySecretParentWireAvailable,
+  type ProxySecretParents,
+  prepareProxySecretParents,
+} from './proxy-secret-parents'
+import {
   abortError,
   assertBoundaryBinding,
   assertInteractionBinding,
@@ -51,12 +56,6 @@ import type {
   RetainedRunHandle,
   RetainedRunSnapshot,
 } from './retained-run-types'
-
-import {
-  assertProxySecretParentWireAvailable,
-  prepareProxySecretParents,
-  type ProxySecretParents,
-} from './proxy-secret-parents'
 
 type NativeContinuationAdmissionCallback = (controlRef: AgentExactRunControlRef) => void
 

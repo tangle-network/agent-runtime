@@ -13,7 +13,10 @@ export function captureProxySecretParents(value: unknown): ProxySecretParents {
   }
   const captured: Record<string, string | null> = {}
   for (const [envName, parent] of Object.entries(value)) {
-    if (parent !== null && (typeof parent !== 'string' || parent.trim().length === 0 || parent !== parent.trim())) {
+    if (
+      parent !== null &&
+      (typeof parent !== 'string' || parent.trim().length === 0 || parent !== parent.trim())
+    ) {
       throw new ValidationError('Runtime proxySecretParents contains an invalid parent reference')
     }
     Object.defineProperty(captured, envName, { value: parent, enumerable: true })
@@ -26,10 +29,12 @@ export function assertProxySecretParentKeys(
   parents: ProxySecretParents,
   bindings: readonly Pick<ProxySecretBinding, 'envName'>[],
 ): void {
-  const expected = [...new Set(bindings.map(binding => binding.envName))].sort()
+  const expected = [...new Set(bindings.map((binding) => binding.envName))].sort()
   const actual = Object.keys(parents).sort()
   if (expected.length !== actual.length || expected.some((name, index) => name !== actual[index])) {
-    throw new ValidationError('Runtime proxySecretParents must match the complete proxy-secret selection')
+    throw new ValidationError(
+      'Runtime proxySecretParents must match the complete proxy-secret selection',
+    )
   }
 }
 
@@ -49,6 +54,8 @@ export function assertProxySecretParentWireAvailable(
   parents: ProxySecretParents | undefined,
 ): void {
   if (parents !== undefined && Object.keys(parents).length > 0) {
-    throw new ValidationError('proxy-secret-parent-wire-unavailable: canonical provider support is required')
+    throw new ValidationError(
+      'proxy-secret-parent-wire-unavailable: canonical provider support is required',
+    )
   }
 }

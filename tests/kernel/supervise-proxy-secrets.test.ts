@@ -136,23 +136,32 @@ describe('public supervise proxy-secret descendant admission', () => {
       },
     }
     try {
-      const outcome = await supervise(profile('root', [parentBinding], true), 'admit root custody', {
-        runId: 'proxy-parent-root',
-        journal,
-        backend: { backend: 'provider', provider, defaults },
-        driverBackend: { backend: 'provider', provider, defaults },
-        budget: { maxIterations: 2, maxTokens: 2_000 },
-        driverRetry: { enabled: false },
-        coordination: {
-          authentication: true,
-          publicUrl: proxy.publicUrl,
-          proxySecret: proxy.proxySecret,
+      const outcome = await supervise(
+        profile('root', [parentBinding], true),
+        'admit root custody',
+        {
+          runId: 'proxy-parent-root',
+          journal,
+          backend: { backend: 'provider', provider, defaults },
+          driverBackend: { backend: 'provider', provider, defaults },
+          budget: { maxIterations: 2, maxTokens: 2_000 },
+          driverRetry: { enabled: false },
+          coordination: {
+            authentication: true,
+            publicUrl: proxy.publicUrl,
+            proxySecret: proxy.proxySecret,
+          },
         },
-      }).then(value => JSON.stringify(value), error => String(error))
+      ).then(
+        (value) => JSON.stringify(value),
+        (error) => String(error),
+      )
       expect(allocated, 'proxy parent admission must refuse before provider allocation').toEqual([])
       expect(outcome).toContain('proxy-secret-parent-wire-unavailable')
       const events = (await journal.loadTree('proxy-parent-root')) ?? []
-      const inputs = events.filter(event => event.kind === 'execution-input' && event.id === 'proxy-parent-root')
+      const inputs = events.filter(
+        (event) => event.kind === 'execution-input' && event.id === 'proxy-parent-root',
+      )
       expect(inputs).toHaveLength(1)
       expect(Reflect.get(inputs[0]!, 'proxySecretParents')).toEqual({
         REPORTS_TOKEN: null,

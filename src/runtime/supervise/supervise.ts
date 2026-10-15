@@ -10,13 +10,6 @@
  * @stable
  */
 
-import {
-  assertProxySecretParentKeys,
-  captureProxySecretParents,
-  proxySecretParentsSeamKey,
-  type ProxySecretParents,
-} from '../proxy-secret-parents'
-import { bindProxySecretParentState } from './proxy-secret-parent-state'
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import {
@@ -77,6 +70,12 @@ import {
   persistHarnessTranscript,
   readHarnessTranscript,
 } from '../harness-transcript'
+import {
+  assertProxySecretParentKeys,
+  captureProxySecretParents,
+  type ProxySecretParents,
+  proxySecretParentsSeamKey,
+} from '../proxy-secret-parents'
 import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import {
@@ -126,6 +125,7 @@ import {
 } from './otel-spans'
 import type { PeerMailLimits } from './peer-mail'
 import { createActivityLog } from './progress'
+import { bindProxySecretParentState } from './proxy-secret-parent-state'
 import { assertNoInheritedProxySecrets, assertProxySecretDescendant } from './proxy-secrets'
 import { type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
@@ -138,8 +138,8 @@ import {
   prepareScopeRetainedOwnerSeatSwitch,
   prepareScopeRetainedOwnerTask,
   reconcileScopeRetainedOwnerEnvironment,
-  scopeRetainedOwnerContext,
   scopeProxySecretParentEnvironment,
+  scopeRetainedOwnerContext,
   scopeRetainedOwnerJournalRoot,
   scopeRetainedOwnerPriorSpend,
   scopeRetainedOwnerRestorePoint,
@@ -1200,21 +1200,33 @@ function driveHarnessFromBackend(
         throw new ValidationError('provider coordination has no selected host proxy binding')
       }
       const authoredBindings = authoredProfile.proxySecrets ?? []
-      const authoredParents = parentState?.parents ?? captureProxySecretParents(
-        Object.fromEntries(authoredBindings.map(binding => [binding.envName, null])),
-      )
+      const authoredParents =
+        parentState?.parents ??
+        captureProxySecretParents(
+          Object.fromEntries(authoredBindings.map((binding) => [binding.envName, null])),
+        )
       assertProxySecretParentKeys(authoredParents, authoredBindings)
       if (Object.hasOwn(authoredParents, coordinationProxySecret.binding.envName)) {
-        throw new ValidationError('authored proxySecrets conflict with the host coordination binding')
+        throw new ValidationError(
+          'authored proxySecrets conflict with the host coordination binding',
+        )
       }
       proxySecretParents = captureProxySecretParents({
         ...authoredParents,
         [coordinationProxySecret.binding.envName]: null,
       })
-      assertProxySecretParentKeys(proxySecretParents, [...authoredBindings, coordinationProxySecret.binding])
+      assertProxySecretParentKeys(proxySecretParents, [
+        ...authoredBindings,
+        coordinationProxySecret.binding,
+      ])
     }
     const originalTask = retainedOwner
-      ? await prepareScopeRetainedOwnerTask(scope, driveTask, session ?? 'native', proxySecretParents)
+      ? await prepareScopeRetainedOwnerTask(
+          scope,
+          driveTask,
+          session ?? 'native',
+          proxySecretParents,
+        )
       : driveTask
     const acceptedOwner = retainedOwner ? await scopeRetainedOwnerResult(scope) : undefined
     if (acceptedOwner) {
@@ -1387,7 +1399,9 @@ function driveHarnessFromBackend(
       signal: scope.signal,
       node: scopeOwnerExecutorNodeContext(scope),
       seams: {
-        ...(proxySecretParents === undefined ? {} : { [proxySecretParentsSeamKey]: proxySecretParents }),
+        ...(proxySecretParents === undefined
+          ? {}
+          : { [proxySecretParentsSeamKey]: proxySecretParents }),
         ...(retainedOwner
           ? {
               [retainedExecutorSeamKey]: {
@@ -3890,7 +3904,10 @@ function superviseInternal(
     }
     return harness
   }
-  const parentAllocationReaders = new Map<string, () => ReturnType<typeof scopeProxySecretParentEnvironment>>()
+  const parentAllocationReaders = new Map<
+    string,
+    () => ReturnType<typeof scopeProxySecretParentEnvironment>
+  >()
   const driveHarnessForOwner = (
     context: DriveHarnessOwnerContext,
     proxySecretParents?: ProxySecretParents,
@@ -3948,7 +3965,7 @@ function superviseInternal(
               },
           {
             ...(proxySecretParents === undefined ? {} : { parents: proxySecretParents }),
-            bind: read => parentAllocationReaders.set(context.ownerId, read),
+            bind: (read) => parentAllocationReaders.set(context.ownerId, read),
           },
         )
       : undefined
@@ -4072,13 +4089,18 @@ function superviseInternal(
           }
           proxySecretParents = captureProxySecretParents(recoveredParents ?? {})
         } else {
-          const allocation = bindings.length > 0 ? parentAllocationReaders.get(parentOwnerId)?.() : undefined
+          const allocation =
+            bindings.length > 0 ? parentAllocationReaders.get(parentOwnerId)?.() : undefined
           if (bindings.length > 0 && allocation === undefined) {
-            throw new ValidationError('spawned proxySecrets require an actual parent provider allocation')
+            throw new ValidationError(
+              'spawned proxySecrets require an actual parent provider allocation',
+            )
           }
-          proxySecretParents = captureProxySecretParents(Object.fromEntries(
-            bindings.map(binding => [binding.envName, allocation?.environmentId]),
-          ))
+          proxySecretParents = captureProxySecretParents(
+            Object.fromEntries(
+              bindings.map((binding) => [binding.envName, allocation?.environmentId]),
+            ),
+          )
         }
         assertProxySecretParentKeys(proxySecretParents, bindings)
         const childExecution = canonicalExecution(
@@ -4142,17 +4164,20 @@ function superviseInternal(
             childDeliverable === deliverable
               ? makeLeaf
               : withRetry(workerFromBackend(options.backend as ExecutorConfig, childDeliverable))
-          return bindProxySecretParentState(makeSelectedLeaf(
-            authorized,
-            Object.freeze({
-              ...authorizedContext,
-              assignmentId: workerAssignmentNamespace(
-                runNamespace,
-                parentOwnerId,
-                spawnContext.assignmentId,
-              ),
-            }),
-          ), proxySecretParents)
+          return bindProxySecretParentState(
+            makeSelectedLeaf(
+              authorized,
+              Object.freeze({
+                ...authorizedContext,
+                assignmentId: workerAssignmentNamespace(
+                  runNamespace,
+                  parentOwnerId,
+                  spawnContext.assignmentId,
+                ),
+              }),
+            ),
+            proxySecretParents,
+          )
         }
         const ownerId = childCoordinationOwner(
           parentOwnerId,
@@ -4318,16 +4343,19 @@ function superviseInternal(
             ? {}
             : { controlScope: 'subtree' as const }),
         })
-        return bindProxySecretParentState(driverChild(
-          authorized,
-          nested,
-          journal,
-          childExecution.ref,
-          () => acceptedSubmission,
-          recoveryFactories.get(childFactory),
-          () => unassessedOutput,
-          seatManagedLeaf ? childDeliverable : undefined,
-        ), proxySecretParents)
+        return bindProxySecretParentState(
+          driverChild(
+            authorized,
+            nested,
+            journal,
+            childExecution.ref,
+            () => acceptedSubmission,
+            recoveryFactories.get(childFactory),
+            () => unassessedOutput,
+            seatManagedLeaf ? childDeliverable : undefined,
+          ),
+          proxySecretParents,
+        )
       }
       if (
         options.makeLeafAgent === undefined &&
