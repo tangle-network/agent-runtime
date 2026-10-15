@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 import {
+  agentProfileSchema,
   canonicalAgentProfileDigest,
+  ProxySecretCapabilitiesSchema,
+  ProxySecretReceiptSchema,
+  ProxySecretsSchema,
   ContextTransferReceiptSchema,
   contextTransferReceiptMatches,
   createContextTransferRequest,
@@ -17,7 +23,7 @@ import {
   createCliBridgeProvider,
   defaultCliBridgeCapabilities,
 } from '@tangle-network/agent-provider-cli-bridge'
-import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
+import { createTangleProvider, defaultTangleSandboxCapabilities } from '@tangle-network/agent-provider-tangle'
 import { createDaytonaProvider } from '@tangle-network/agent-provider-daytona'
 import { createE2BProvider } from '@tangle-network/agent-provider-e2b'
 import {
@@ -25,6 +31,7 @@ import {
   resolveAgentEnvironmentProvider,
   assertProfileMaterializes,
   startRetainedRun,
+  providerAsSandboxClient,
 } from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 import { assertProfileMaterializes as assertAgentProfileMaterializes } from '@tangle-network/agent-runtime/agent'
@@ -233,11 +240,148 @@ assert.deepEqual(calls.filter(call => !call.endsWith('/v1/capabilities')), [
   `GET /v1/context-transfers/${request.operationId}`,
 ])
 assert.equal(lookupCount, 2)
+// Exercise the actual Runtime -> Tangle provider -> installed SDK create path.
+// Exact-origin HTTP proves reference transport and receipt admission, not
+// production TLS, custody, placeholder injection, or model execution.
+const sdkRequire = createRequire(createRequire(import.meta.url).resolve('@tangle-network/sandbox'))
+const sdkInterface = await import(pathToFileURL(sdkRequire.resolve('@tangle-network/agent-interface')).href)
+const proxySecrets = ProxySecretsSchema.parse([{
+  envName: 'PACKED_SERVICE_TOKEN',
+  secretRef: { kind: 'secret-ref', key: 'packed-service-reference' },
+  hosts: ['service.packed.invalid'],
+  presentation: { type: 'bearer' },
+  methods: ['POST'],
+  paths: ['/tasks'],
+  ttlSeconds: 60,
+}])
+const protectedProfile = agentProfileSchema.parse({ ...profile, proxySecrets })
+const sdkProtectedProfile = sdkInterface.agentProfileSchema.safeParse(protectedProfile)
+const sdkProxySchemaSupported = sdkProtectedProfile.success &&
+  sdkProtectedProfile.data.proxySecrets !== undefined
+if (sdkProxySchemaSupported) {
+  assert.deepEqual(sdkProtectedProfile.data, protectedProfile)
+  assert.equal(sdkInterface.canonicalAgentProfileDigest(protectedProfile), canonicalAgentProfileDigest(protectedProfile))
+}
+const proxyCapabilities = ProxySecretCapabilitiesSchema.parse({
+  protocolVersion: 1,
+  supportedDrivers: ['docker'],
+  presentations: ['bearer'],
+  placeholderFormats: ['opaque'],
+  enforcement: 'exact',
+  transports: ['https:443'],
+  lifecycle: true,
+  placementReceiptRequired: true,
+})
+const issuedAt = Date.now()
+const proxyReceipt = ProxySecretReceiptSchema.parse({
+  protocolVersion: 1,
+  sandboxId: 'packed-proxy-environment',
+  generation: 0,
+  status: 'installed',
+  proxyAcknowledged: true,
+  materializationAcknowledged: true,
+  bindings: proxySecrets.map(binding => ({
+    envName: binding.envName,
+    secretRef: binding.secretRef,
+    grant: {
+      protocolVersion: 1,
+      grantId: 'packed-proxy-grant',
+      sandboxId: 'packed-proxy-environment',
+      epoch: 'packed-epoch',
+      identity: { tenantId: 'packed-tenant', issuerId: 'packed-issuer', secretId: 'packed-secret', revision: 'packed-revision' },
+      scope: { hosts: binding.hosts, methods: binding.methods, paths: binding.paths },
+      presentation: binding.presentation,
+      placeholderFormat: 'opaque',
+      issuedAt: new Date(issuedAt).toISOString(),
+      expiresAt: new Date(issuedAt + 60_000).toISOString(),
+    },
+  })),
+})
+const proxyCalls: string[] = []
+let mismatchedLiveReceipt = false
+let proxyReceiptReads = 0
+const originalFetch = globalThis.fetch
+try {
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)
+    assert.equal(url.origin, 'https://packed-sandbox.invalid')
+    const method = options?.method ?? 'GET'
+    proxyCalls.push(method + ' ' + url.pathname)
+    if (url.pathname === '/v1/capabilities') return Response.json({ proxySecrets: proxyCapabilities })
+    if (url.pathname === '/v1/sandboxes' && method === 'POST') {
+      const body = JSON.parse(String(options?.body))
+      assert.deepEqual(body.proxySecrets, proxySecrets)
+      assert.deepEqual(body.backend.profile.proxySecrets, proxySecrets)
+      for (const binding of proxySecrets) {
+        assert.equal(Object.hasOwn(body.env ?? {}, binding.envName), false)
+        assert.equal(Object.hasOwn(body.env ?? {}, binding.secretRef.key), false)
+      }
+      assert.equal(body.secrets, undefined)
+      return Response.json({
+        id: proxyReceipt.sandboxId,
+        status: 'running',
+        filesystemIncarnationId: 'packed-filesystem',
+        filesystemIncarnationProvenance: 'fresh',
+        filesystemIncarnationReadiness: 'ready',
+        createReceipt: { outcome: 'created', idempotencyKeyApplied: true, proxySecretReceipt: proxyReceipt },
+        proxySecrets,
+        proxySecretReceipt: proxyReceipt,
+      })
+    }
+    if (url.pathname === '/v1/sandboxes/' + proxyReceipt.sandboxId && method === 'GET') {
+      proxyReceiptReads += 1
+      return Response.json({
+        proxySecrets,
+        proxySecretReceipt: mismatchedLiveReceipt
+          ? { ...proxyReceipt, bindings: proxyReceipt.bindings.map(binding => ({ ...binding, secretRef: { kind: 'secret-ref', key: 'different-reference' } })) }
+          : proxyReceipt,
+      })
+    }
+    if (url.pathname === '/v1/sandboxes/' + proxyReceipt.sandboxId + '/runtime/capabilities') {
+      return Response.json({
+        schema: 1, agentInterface: 'fixture', sidecarVersion: 'fixture', image: 'fixture',
+        dispatch: { runControlRef: true, executionIdOnAdmission: true },
+        cancel: { canonicalRunCancellation: true, digestBound: true, idempotent: true },
+        runs: { executionScopedStatus: true, eventReplay: true },
+        interactions: {}, proxySecrets: proxyCapabilities,
+      })
+    }
+    if (url.pathname === '/v1/sandboxes/' + proxyReceipt.sandboxId && method === 'DELETE') return new Response(null, { status: 204 })
+    throw new Error('unexpected packed proxy fixture request ' + method + ' ' + url.pathname)
+  }
+  const sandboxProvider = createTangleProvider({
+    client: new Sandbox({ apiKey: 'fixture-not-a-key', baseUrl: 'https://packed-sandbox.invalid' }),
+    capabilities: { ...defaultTangleSandboxCapabilities('codex'), interactions: undefined, create: { proxySecrets: proxyCapabilities } },
+  })
+  const runtimeSandbox = providerAsSandboxClient(sandboxProvider)
+  const createProtected = () => runtimeSandbox.create({
+    backend: { type: 'codex', profile: protectedProfile },
+    proxySecrets,
+  })
+  if (sdkProxySchemaSupported) {
+    const created = await createProtected()
+    assert.equal(created.id, proxyReceipt.sandboxId)
+    assert.ok(proxyReceiptReads >= 2, 'provider must confirm live declarations and receipt')
+    mismatchedLiveReceipt = true
+    await assert.rejects(createProtected(), /reference|receipt|custody/i)
+  } else {
+    await assert.rejects(createProtected())
+    assert.equal(proxyCalls.some(call => call === 'POST /v1/sandboxes'), false)
+  }
+  assert.equal(proxyCalls.some(call => call.includes('/messages') || call.includes('/sessions')), false)
+} finally {
+  globalThis.fetch = originalFetch
+}
 console.log(
   JSON.stringify({
     kind: 'packed-provider-consumer',
     registered: registry.names(),
     contextTransferExercised: ['cli-bridge'],
+    sdkProxySchemaSupported,
+    proxyReferenceAdapterCreateMatched: sdkProxySchemaSupported,
+    mismatchedProxyReceiptRefused: sdkProxySchemaSupported,
+    unsupportedSdkProxyRefusedBeforeAllocation: !sdkProxySchemaSupported,
+    proxyReceiptReads,
     proofScope: 'public adapter transport fixture; no live receiver or provider allocation',
     providerIssuedEnvironment: run.controlRef.environmentId,
     retainedSession: run.controlRef.sessionId,

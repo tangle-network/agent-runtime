@@ -89,9 +89,10 @@ for (const event of [
   assert.deepEqual(sdkUsage(event), readTokenUsage(event))
   assert.deepEqual(sdkCost(event), readTokenCostUsd(event))
 }
-// Interface 5.2 adds execution-owned knowledge references that the SDK's private
-// Interface 4 schema does not understand. Refuse them before crossing that boundary;
-// qualifying this tuple never means dropping a field the older SDK cannot carry.
+// Knowledge schema support follows the installed peer. Runtime still requires owner
+// authorization and resolution before materialization, including peers that parse the pins.
+let knowledgeSchemaParityChecks = 0
+let unsupportedSdkKnowledgeRefusals = 0
 let unresolvedKnowledgeRefusals = 0
 let candidateKnowledgeConversionRefusals = 0
 let candidateKnowledgeAdmissionRefusals = 0
@@ -101,7 +102,15 @@ if (current.agentProfileSchema.safeParse({ resources: { knowledge } }).success) 
     for (const failOnError of [true, false]) {
       const profile = { resources: { knowledge, failOnError } }
       assert.equal(current.agentProfileSchema.safeParse(profile).success, true)
-      assert.equal(sdk.agentProfileSchema.safeParse(profile).success, false)
+      const sdkProfile = sdk.agentProfileSchema.safeParse(profile)
+      if (sdkProfile.success) {
+        assert.deepEqual(sdkProfile.data, current.agentProfileSchema.parse(profile))
+        assert.equal(sdk.canonicalAgentProfileDigest(profile), current.canonicalAgentProfileDigest(profile))
+        knowledgeSchemaParityChecks += 1
+      } else {
+        assert.throws(() => sdk.agentProfileSchema.parse(profile))
+        unsupportedSdkKnowledgeRefusals += 1
+      }
       assert.throws(
         () => assertProfileMaterializes(profile, harness, 'packed SDK boundary'),
         /must be owner-authorized and resolved/,
@@ -170,6 +179,8 @@ const result = {
   runCancellationAndControl: true,
   terminalAdmissionAndUnknownKeyRefusal: true,
   usageAndCostReadParity: true,
+  knowledgeSchemaParityChecks,
+  unsupportedSdkKnowledgeRefusals,
   unresolvedKnowledgeRefusals,
   candidateKnowledgeConversionRefusals,
   candidateKnowledgeAdmissionRefusals,

@@ -149,6 +149,7 @@ export async function healReleasedSlots(
         ...(floor.infra === undefined ? {} : { infra: floor.infra }),
         trace: floor.trace,
         ...(floor.outRef ? { outRef: floor.outRef } : {}),
+        ...(floor.traceRoot ? { traceRoot: floor.traceRoot } : {}),
         ...(floor.providerModel ? { providerModel: floor.providerModel } : {}),
         ...(floor.harnessTranscript ? { harnessTranscript: floor.harnessTranscript } : {}),
         ...(floor.retainedPendingCause ? { retainedPendingCause: floor.retainedPendingCause } : {}),
@@ -371,6 +372,8 @@ export async function prepareInterruptedExecutors(
       id: result.id,
       status: reason === undefined ? 'done' : 'down',
       outRef: result.outRef,
+      // Copied, never recomputed: salts are random, so only the recorded root proves this output.
+      ...(result.traceRoot === undefined ? {} : { traceRoot: result.traceRoot }),
       ...(reason === undefined ? {} : { reason }),
       ...(infra === undefined ? {} : { infra }),
       spent: result.spent,

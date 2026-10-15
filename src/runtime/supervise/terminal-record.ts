@@ -26,6 +26,7 @@ import type {
   SpawnEvent,
   Spend,
   SubtreeSummary,
+  TraceRootReceipt,
 } from './types'
 
 export type DownSettlement = Extract<PreSeqSettled, { kind: 'down' }>
@@ -56,6 +57,7 @@ export function settlementFields(
   infra?: boolean
   reason: string
   outRef?: string
+  traceRoot?: TraceRootReceipt
   providerModel?: ProviderModelExecutionEvidence
   budgetViolation?: BudgetViolation
   trace: DownSettlement['trace']
@@ -71,6 +73,7 @@ export function settlementFields(
       ? {}
       : { retainedPendingCause: settlement.retainedPendingCause }),
     ...(settlement.outRef ? { outRef: settlement.outRef } : {}),
+    ...(settlement.outRef && settlement.traceRoot ? { traceRoot: settlement.traceRoot } : {}),
     ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
     ...(subject.budgetViolation ? { budgetViolation: subject.budgetViolation } : {}),
     trace: settlement.trace,
