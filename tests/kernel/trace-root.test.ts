@@ -162,7 +162,13 @@ function streamedTurn(): AgentEnvironmentEvent[] {
     },
     { type: 'done', data: {} },
   ]
-  return events.map((event, index) => ({ ...event, id: String(100 + index) }))
+  // The sidecar stamps `id:` only on frames that hold a replay-buffer position, so the terminal
+  // `result` and `done` frames arrive without one: 346 of 346 archived turns on 2026-10-15.
+  return events.map((event, index) =>
+    event.type === 'result' || event.type === 'done'
+      ? event
+      : { ...event, id: String(100 + index) },
+  )
 }
 
 /** One call per distinct call id, by tool name: four calls, whatever the frame count. */
@@ -478,6 +484,25 @@ describe('trace root', () => {
       const verified = await verifyStoredTrace(blobs, record)
       expect(verified.artifact.nodeId).toBe(record.id)
       expect(verified.artifact.summary.toolCalls).toEqual(STREAMED_TOOL_CALLS)
+      // Events the session delivered without an id are archived like the rest, and are cited by
+      // their index in the archive, never by an id they do not have (#1205).
+      const idless = verified.events.flatMap((event, index) =>
+        (event as { id?: unknown }).id === undefined ? [index] : [],
+      )
+      expect(idless.map((index) => (verified.events[index] as { type: string }).type)).toEqual([
+        'result',
+        'done',
+      ])
+      const terminal = idless[0]!
+      expect(
+        verifyCitation(
+          verified,
+          record.traceRoot!.root,
+          JSON.stringify(verified.events[terminal]),
+          terminal,
+          '"finalText":"The checks pass."',
+        ),
+      ).toBe(true)
     }
     // A cold reader of the same journal finds the same receipts: they are journal facts.
     const cold = await new FileSpawnJournal(journalPath).loadTree('trace-root-retained')
