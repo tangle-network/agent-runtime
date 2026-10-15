@@ -325,6 +325,7 @@ describe('public supervise proxy-secret descendant admission', () => {
         environment: AgentEnvironment
         parents: unknown
         readback: unknown
+        declared: unknown
       }> = []
       const mapsBeforeAllocation: unknown[] = []
       const replies: unknown[] = []
@@ -336,8 +337,10 @@ describe('public supervise proxy-secret descendant admission', () => {
         releaseAncestors = resolve
         controller.signal.addEventListener('abort', () => resolve(), { once: true })
       })
-      const child = profile('child', [childBinding], true)
-      const grandchild = profile('grandchild', [{ ...childBinding, ttlSeconds: 30 }], !steering)
+      const rootPolicy = steering ? parentBinding : { ...parentBinding, paths: ['/v1/*'] }
+      const childPolicy = steering ? childBinding : { ...childBinding, paths: ['/v1/events/nested'] }
+      const child = profile('child', [childPolicy], true)
+      const grandchild = profile('grandchild', [{ ...childPolicy, ttlSeconds: 30 }], !steering)
       const defaults = { env: { PUBLIC_FIXTURE_SETTING: 'preserved' } }
       const provider: AgentEnvironmentProvider = {
         ...base,
@@ -365,7 +368,7 @@ describe('public supervise proxy-secret descendant admission', () => {
             .map((event) => Reflect.get(event, 'proxySecretParents'))
           mapsBeforeAllocation.push({ name, parents, inputMaps })
           const environment = await base.create(input)
-          allocations.push({ name, environment, parents, readback: environment.proxySecretParents })
+          allocations.push({ name, environment, parents, readback: environment.proxySecretParents, declared: input.profile.proxySecrets })
           if (steering && name === 'grandchild') {
             expect(input.runtimeAttachments?.mcp?.['agent-runtime-coordination']).toBeUndefined()
             return {
@@ -381,7 +384,7 @@ describe('public supervise proxy-secret descendant admission', () => {
           const attachment = input.runtimeAttachments?.mcp?.['agent-runtime-coordination']
           if (!attachment || attachment.transport !== 'http')
             throw new Error('manager coordination URL required by fixture')
-          const request = async (tool: string, args: Record<string, unknown>) => {
+          const request = async (tool: string, args: Record<string, unknown>, expectRefusal = false) => {
             const response = await fetch(attachment.url, {
               method: 'POST',
               signal: controller.signal,
@@ -404,10 +407,15 @@ describe('public supervise proxy-secret descendant admission', () => {
                   typeof result === 'object' &&
                   Reflect.get(result, 'isError') === true)
               ) {
+                if (expectRefusal) {
+                  expect(JSON.stringify(reply)).toContain('proxySecrets')
+                  return reply
+                }
                 releaseAncestors()
                 throw new Error(`fixture ${tool} refused`)
               }
             }
+            if (expectRefusal) throw new Error('fixture widened grandchild unexpectedly admitted')
             return reply
           }
           return {
@@ -416,6 +424,10 @@ describe('public supervise proxy-secret descendant admission', () => {
               const dispatched = await environment.dispatch!(turn)
               dispatchedNames.push(name)
               if (name === 'grandchild') releaseAncestors()
+              if (name === 'child' && !steering) {
+                await request('spawn_worker', { profile: profile('widened', [parentBinding]),
+                  task: 'must refuse inherited widening', key: 'widened-reports' }, true)
+              }
               if (name === 'root' || name === 'child') {
                 await request('spawn_worker', {
                   profile: name === 'root' ? child : grandchild,
@@ -438,7 +450,7 @@ describe('public supervise proxy-secret descendant admission', () => {
       )
       try {
         const outcome = await supervise(
-          profile('root', [parentBinding], true),
+          profile('root', [rootPolicy], true),
           'delegate scoped reports',
           {
             runId: 'proxy-parent-tree',
@@ -464,9 +476,13 @@ describe('public supervise proxy-secret descendant admission', () => {
             },
           },
         ).catch((error) => error)
+        const forest = await loadSpawnForest(journal, 'proxy-parent-tree')
+        const failures = forest.events.flatMap(({ event }) =>
+          event.kind === 'settled' && event.status === 'down'
+            ? [{ id: event.id, reason: event.reason }] : [])
         expect(
           allocations.map((entry) => entry.name),
-          'root and descendant allocations must preserve admitted parent maps',
+          `root and descendant allocations must preserve admitted parent maps; failures=${JSON.stringify(failures)}`,
         ).toEqual(['root', 'child', 'grandchild'])
         expect(outcome).not.toBeInstanceOf(Error)
         expect(dispatchedNames).toEqual(
@@ -489,6 +505,12 @@ describe('public supervise proxy-secret descendant admission', () => {
         expect(root!.parents).toEqual(rootParents)
         expect(delegated!.parents).toEqual(childParents)
         expect(nested!.parents).toEqual(grandchildParents)
+        expect(delegated!.declared).toEqual([childPolicy])
+        expect(nested!.declared).toEqual([{ ...childPolicy, ttlSeconds: 30 }])
+        if (!steering) {
+          expect(JSON.stringify(replies)).toContain('proxySecrets')
+          expect(childPolicy.paths).toEqual(['/v1/events/nested'])
+        }
         expect(new Set(allocations.map((entry) => entry.environment.id)).size).toBe(3)
         for (const [index, parents] of [rootParents, childParents, grandchildParents].entries()) {
           expect(mapsBeforeAllocation[index]).toMatchObject({
@@ -498,7 +520,7 @@ describe('public supervise proxy-secret descendant admission', () => {
           expect(allocations[index]!.readback).toEqual(parents)
         }
         expect(defaults).toEqual({ env: { PUBLIC_FIXTURE_SETTING: 'preserved' } })
-        expect(JSON.stringify(replies)).not.toContain('"isError":true')
+        if (steering) expect(JSON.stringify(replies)).not.toContain('"isError":true')
       } finally {
         clearTimeout(timeout)
         releaseAncestors()
@@ -654,16 +676,12 @@ describe('public supervise proxy-secret descendant admission', () => {
     expect(JSON.stringify(replies)).toContain('proxySecrets')
   })
 
-  it.each([
-    ['/v1/events/nested', true],
-    ['/v10/events', false],
-  ] as const)('checks subtree boundary for %s', async (path, allowed) => {
-    const requested = profile('child', [{ ...childBinding, paths: [path] }])
-    const { seen, replies } = await spawnOne(requested, undefined, [
+  it('refuses a subtree prefix escape before allocating a child', async () => {
+    const { seen, replies } = await spawnOne(profile('child', [{ ...childBinding, paths: ['/v10/events'] }]), undefined, [
       { ...parentBinding, paths: ['/v1/*'] },
     ])
-    expect(seen).toEqual(allowed ? [requested] : [])
-    if (!allowed) expect(JSON.stringify(replies)).toContain('proxySecrets')
+    expect(seen).toEqual([])
+    expect(JSON.stringify(replies)).toContain('proxySecrets')
   })
 
   it('checks the final profile returned by authorizeSpawn', async () => {
@@ -685,71 +703,4 @@ describe('public supervise proxy-secret descendant admission', () => {
       expect(seen[0]?.proxySecrets).toEqual(bindings)
     },
   )
-
-  it('executes explicit root-child-grandchild narrowing and refuses a grandchild widening', async () => {
-    const seen: AgentProfile[] = []
-    const journal = new InMemorySpawnJournal()
-    const replies: unknown[] = []
-    const blobs = new InMemoryResultBlobStore()
-    const turns = new Map<string, number>()
-    const grandchild = profile('grandchild', [{ ...childBinding, ttlSeconds: 30 }])
-    const authorizations: string[] = []
-    await supervise(profile('root', [parentBinding], true), 'delegate recursively', {
-      budget: { maxIterations: 40, maxTokens: 40_000 },
-      perWorker: { maxIterations: 10, maxTokens: 10_000 },
-      inheritSpawnRights: false,
-      makeLeafAgent: (child) => leaf(child, seen),
-      authorizeSpawn: (input) => {
-        authorizations.push(`${input.parent.name}:${input.profile.name}`)
-        return { profile: input.profile }
-      },
-      journal,
-      runId: 'proxy-tree',
-      blobs,
-      driveHarness: async ({ profile: manager, coordinationMcpUrl }) => {
-        const turn = turns.get(manager.name) ?? 0
-        turns.set(manager.name, turn + 1)
-        if (turn > 0) {
-          await call(coordinationMcpUrl, 'stop', {})
-          return
-        }
-        if (manager.name === 'root') {
-          await call(coordinationMcpUrl, 'spawn_worker', {
-            profile: profile('child', [childBinding], true),
-            task: 'delegate',
-          })
-        } else {
-          replies.push(
-            await call(coordinationMcpUrl, 'spawn_worker', {
-              profile: profile('widened', [parentBinding]),
-              task: 'must refuse',
-            }),
-          )
-          replies.push(
-            await call(coordinationMcpUrl, 'spawn_worker', {
-              profile: grandchild,
-              task: 'post events',
-            }),
-          )
-        }
-      },
-    })
-    expect(seen).toEqual([grandchild])
-    expect(authorizations).toContain('root:child')
-    expect(authorizations).toContain('child:grandchild')
-    expect(JSON.stringify(replies[0])).toContain('proxySecrets')
-    const events = await journal.loadTree('proxy-tree')
-    const admittedChild = events?.find(
-      (event) => event.kind === 'spawned' && event.parent === 'proxy-tree',
-    )
-    if (!admittedChild || admittedChild.kind !== 'spawned' || !admittedChild.profileRef) {
-      throw new Error('admitted child must retain its content-addressed profile')
-    }
-    expect(await blobs.get(admittedChild.profileRef)).toMatchObject({
-      proxySecrets: [childBinding],
-    })
-    const serializedJournal = JSON.stringify(events)
-    expect(serializedJournal).not.toContain('reporting-api')
-    expect(serializedJournal).not.toContain('Authorization')
-  })
 })
