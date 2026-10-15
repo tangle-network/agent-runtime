@@ -315,6 +315,10 @@ const proxyReceipt = ProxySecretReceiptSchema.parse({
 })
 const proxySandboxInfo = {
   id: proxyReceipt.sandboxId,
+  connection: {
+    runtimeUrl: 'https://packed-sandbox.invalid/v1/sandboxes/' + proxyReceipt.sandboxId + '/runtime',
+    edgeStatus: 'ready',
+  },
   status: 'running',
   filesystemIncarnationId: 'packed-filesystem',
   filesystemIncarnationProvenance: 'fresh',
