@@ -13,8 +13,8 @@ catalogs:
       specifier: 1.30.0
       version: 1.30.0
     '@tangle-network/agent-eval':
-      specifier: '>=0.213.0 <0.214.0'
-      version: 0.213.0
+      specifier: '>=0.214.0 <0.215.0'
+      version: 0.214.0
     '@tangle-network/agent-interface':
       specifier: ^5.2.1
       version: 5.2.1
@@ -58,7 +58,7 @@ importers:
         version: 0.12.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
       '@tangle-network/agent-knowledge':
         specifier: ^22.0.1
-        version: 22.0.1(@tangle-network/agent-eval@0.213.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.2.1)
+        version: 22.0.1(@tangle-network/agent-eval@0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.2.1)
       '@tangle-network/agent-profile-materialize':
         specifier: '>=0.25.2 <0.26.0'
         version: 0.25.2(@tangle-network/agent-interface@5.2.1)
@@ -82,8 +82,8 @@ importers:
         specifier: 'catalog:'
         version: 1.30.0(supports-color@10.2.2)(zod@4.6.5)
       '@tangle-network/agent-eval':
-        specifier: 0.213.0
-        version: 0.213.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
+        specifier: 0.214.0
+        version: 0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
       '@tangle-network/agent-interface':
         specifier: 5.2.1
         version: 5.2.1
@@ -149,13 +149,13 @@ importers:
     dependencies:
       '@tangle-network/agent-eval':
         specifier: 'catalog:'
-        version: 0.213.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
+        version: 0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
       '@tangle-network/agent-interface':
         specifier: 'catalog:'
         version: 5.2.1
       '@tangle-network/agent-knowledge':
         specifier: 'catalog:'
-        version: 22.0.1(@tangle-network/agent-eval@0.213.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.2.1)
+        version: 22.0.1(@tangle-network/agent-eval@0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.2.1)
       '@tangle-network/agent-runtime':
         specifier: workspace:^
         version: link:..
@@ -1324,8 +1324,8 @@ packages:
       '@modelcontextprotocol/sdk':
         optional: true
 
-  '@tangle-network/agent-eval@0.213.0':
-    resolution: {integrity: sha512-K6jvHzuMRXas9VTeoYX1uJKCuSVkQexBS1ZamDdHFXjICfdUVmU2ZBQPuOVWe41drtXh6aEt/nprL8TiDCQjRg==}
+  '@tangle-network/agent-eval@0.214.0':
+    resolution: {integrity: sha512-nAUsWIiTAwTU/ptbliucXcNhqCJqhxiiLP+t3ZwKQ6Q/u0uioXpnU+03ff0n0FT4V1pLncMpOdXTqPNtiPRO4g==}
     engines: {node: '>=20.19.0'}
     hasBin: true
 
@@ -3665,7 +3665,7 @@ snapshots:
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.6.5)
 
-  '@tangle-network/agent-eval@0.213.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))':
+  '@tangle-network/agent-eval@0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))':
     dependencies:
       '@asteasolutions/zod-to-openapi': 9.1.0(zod@4.6.5)
       '@hono/node-server': 2.1.1(hono@4.13.9)
@@ -3693,9 +3693,9 @@ snapshots:
       spdx-expression-parse: 5.0.0
       zod: 4.6.5
 
-  '@tangle-network/agent-knowledge@22.0.1(@tangle-network/agent-eval@0.213.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.2.1)':
+  '@tangle-network/agent-knowledge@22.0.1(@tangle-network/agent-eval@0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.2.1)':
     dependencies:
-      '@tangle-network/agent-eval': 0.213.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
+      '@tangle-network/agent-eval': 0.214.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
       '@tangle-network/agent-interface': 5.2.1
       '@types/proper-lockfile': 4.1.4
       proper-lockfile: 4.1.2
