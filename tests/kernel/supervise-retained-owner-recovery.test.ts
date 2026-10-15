@@ -699,6 +699,48 @@ describe('retained external supervisor recovery', () => {
     expect(await fixture.serializationLeaks(result)).toBe(false)
   })
 
+  it.each(['missing-link', 'wrong-link', 'prior-generation', 'replacement-ack'] as const)(
+    'refuses supervised owner authority %s before mutating retained custody',
+    async (failure) => {
+      const fixture = await setup('metered', false, false, false, undefined, false, failure)
+      await fixture.first()
+      const before = fixture.activity()
+      const admitted = (await fixture.events()).filter(
+        (event) => event.kind === 'execution-admitted' && event.admission.phase === 'environment',
+      )
+      expect(admitted).toHaveLength(1)
+      const detail = await fixture.resume().then(
+        (result) => result?.kind === 'no-winner' && result.reason === 'driver-failed'
+          ? result.error.message : '',
+        (error: unknown) => error instanceof Error ? error.message : '',
+      )
+      expect(detail, 'owner refusal must identify durable authority rather than snapshot session support').toContain(
+        failure === 'replacement-ack'
+          ? 'test owner replacement CAS acknowledgement refused'
+          : failure === 'prior-generation'
+            ? 'proxy-secret prior custody differs from durable owner admission'
+            : 'proxy-secret admission lacks matching durable environment ownership',
+      )
+      const after = fixture.activity()
+      if (failure === 'prior-generation' || failure === 'replacement-ack') {
+        expect(after.readonlyLookups).toBeGreaterThan(before.readonlyLookups)
+      }
+      expect(after.mutatingGets, 'owner authority must be verified before any mutating provider get').toBe(before.mutatingGets)
+      expect(after.sessionInspections).toBe(before.sessionInspections)
+      expect(after.resultReads).toBe(before.resultReads)
+      expect(fixture.dispatches()).toBe(before.dispatches)
+      expect(fixture.creates()).toBe(1)
+      expect(after.destroys).toBe(before.destroys)
+      expect((await fixture.events()).filter(
+        (event) => event.kind === 'execution-admitted' && event.admission.phase === 'environment',
+      )).toEqual(admitted)
+      const provider = durableRetainedProvider(fixture.stateFile)
+      const retained = await provider.list!()
+      expect(retained).toHaveLength(1)
+      expect(await provider.get!(retained[0]!.id)).not.toBeNull()
+    },
+  )
+
   it('reconciles committed usage after storage failure interrupts driver retry', async () => {
     const fixture = await setup('metered', false, true)
     await fixture.first()
@@ -1240,6 +1282,7 @@ async function setup(
   historicalUnknown = false,
   rebindFailure?: 'revoked' | 'generation',
   checkRenewalAdmission = false,
+  ownerAuthorityFailure?: 'missing-link' | 'wrong-link' | 'prior-generation' | 'replacement-ack',
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'retained-owner-'))
   directories.push(directory)
@@ -1254,6 +1297,11 @@ async function setup(
   let currentAuthorization: string | undefined
   let dispatches = 0
   let rebinds = 0
+  let readonlyLookups = 0
+  let mutatingGets = 0
+  let sessionInspections = 0
+  let resultReads = 0
+  let destroys = 0
   let observedRevocation = false
   const preparedReferences: string[] = []
   const preparedAuthorizations: string[] = []
@@ -1289,20 +1337,28 @@ async function setup(
         dispatches++
         return environment.dispatch!(turn)
       },
+      async destroy() {
+        destroys++
+        await environment.destroy?.()
+      },
       session: (id, options) => {
+        sessionInspections++
         const session = environment.session!(id, options)
         return {
           ...session,
-          result: async () => ({
-            ...(await session.result()),
-            usage: {
-              inputTokens: 3,
-              outputTokens: 2,
-              ...(historicalUnknown && !injected
-                ? {}
-                : { cacheReadInputTokens: 1, cacheCreationInputTokens: 1 }),
-            },
-          }),
+          result: async () => {
+            resultReads++
+            return {
+              ...(await session.result()),
+              usage: {
+                inputTokens: 3,
+                outputTokens: 2,
+                ...(historicalUnknown && !injected
+                  ? {}
+                  : { cacheReadInputTokens: 1, cacheCreationInputTokens: 1 }),
+              },
+            }
+          },
         }
       },
     })
@@ -1320,6 +1376,22 @@ async function setup(
         return wrap(await base.create(input))
       },
       get: async (id, options) => {
+        if (options !== undefined && 'readOnly' in options) {
+          readonlyLookups++
+          const snapshot = await base.get!(id, options)
+          if (injected && ownerAuthorityFailure === 'prior-generation' && snapshot) {
+            if (!snapshot.proxySecretReceipt) throw new Error('fixture prior receipt absent')
+            return {
+              ...snapshot,
+              proxySecretReceipt: {
+                ...snapshot.proxySecretReceipt,
+                generation: snapshot.proxySecretReceipt.generation + 1,
+              },
+            }
+          }
+          return snapshot
+        }
+        mutatingGets++
         if (checkRenewalAdmission && preparedReferences.length > 1) {
           renewalLookups++
           const nextReference = preparedReferences.at(-1)
@@ -1400,9 +1472,30 @@ async function setup(
     const current = createFileRunContext(runDirectory)
     const journal: SpawnJournal = {
       beginTree: current.journal.beginTree.bind(current.journal),
-      loadTree: current.journal.loadTree.bind(current.journal),
+      async loadTree(root) {
+        const events = await current.journal.loadTree(root)
+        if (interrupt || events === undefined ||
+            (ownerAuthorityFailure !== 'missing-link' && ownerAuthorityFailure !== 'wrong-link')) return events
+        // Simulate a missing/conflicting durable owner link without altering the committed log
+        // or the private installed-custody artifacts in CAS.
+        return events.flatMap((event): SpawnEvent[] => {
+          if (event.kind !== 'execution-admitted' || event.admission.phase !== 'environment') return [event]
+          if (ownerAuthorityFailure === 'missing-link') return []
+          if (ownerAuthorityFailure === 'wrong-link') return [{
+            ...event, admission: { ...event.admission, environmentId: 'another-owner-environment' },
+          }]
+          return [event]
+        })
+      },
       appendEvent: async (root, event) => {
         await current.journal.appendEvent(root, event)
+        if (!interrupt && ownerAuthorityFailure === 'replacement-ack' &&
+            event.kind === 'execution-evidence' && event.authority === 'proxy-secret-binding-admission') {
+          const artifact = await current.blobs.get(event.outRef)
+          if (artifact !== null && typeof artifact === 'object' && Reflect.get(artifact, 'stage') === 'replacement') {
+            throw new Error('test owner replacement CAS acknowledgement refused')
+          }
+        }
         if (
           interrupt &&
           !injected &&
@@ -1467,6 +1560,7 @@ async function setup(
   }
   return {
     stateFile,
+    activity: () => ({ readonlyLookups, mutatingGets, sessionInspections, resultReads, destroys, dispatches }),
     creates: () => creates,
     dispatches: () => dispatches,
     rebinds: () => rebinds,
