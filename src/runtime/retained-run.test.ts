@@ -1280,6 +1280,7 @@ describe('retained runtime run control', () => {
         idempotencyKey: controlRef.environmentId,
         metadata: { tenant: 'acme' },
       },
+      proxySecretParents: {},
       turn: { prompt: 'owned task', turnId: 'owned-turn', sessionId: 'stale-session' },
       onAdmission: recorder.onAdmission,
       identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
@@ -1295,6 +1296,7 @@ describe('retained runtime run control', () => {
     // Caller metadata is preserved, while the Runtime ownership marker is canonical.
     const intent = recorder.admissions[0]
     if (intent?.phase !== 'intent') throw new Error('expected the headless intent admission')
+    expect(intent.proxySecretParents).toEqual({})
     expect(created?.metadata).toEqual({
       tenant: 'acme',
       retainedIdempotencyKey: controlRef.environmentId,
