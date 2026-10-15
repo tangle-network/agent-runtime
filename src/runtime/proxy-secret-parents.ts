@@ -1,61 +1,77 @@
-import type { ProxySecretBinding } from '@tangle-network/agent-interface'
+import {
+  canonicalCandidateDigest,
+  isProxySecretParentsTotal,
+  ProxySecretParentsSchema,
+  type ProxySecretBinding,
+  type ProxySecretParents,
+} from '@tangle-network/agent-interface'
+import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
 import { ValidationError } from '../errors'
 
-/** Runtime-owned journal data, never a replacement for the canonical provider wire contract. */
-export type ProxySecretParents = Readonly<Record<string, string | null>>
+export type { ProxySecretParents } from '@tangle-network/agent-interface'
 
 /** Supplied by the trusted parent scope after its actual allocation is known. */
 export const proxySecretParentsSeamKey = 'runtime.proxySecretParents'
 
 export function captureProxySecretParents(value: unknown): ProxySecretParents {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new ValidationError('Runtime proxySecretParents must be an explicit total map')
+  const parsed = ProxySecretParentsSchema.safeParse(value)
+  if (!parsed.success) {
+    throw new ValidationError('Runtime proxySecretParents must be an explicit canonical map')
   }
-  const captured: Record<string, string | null> = {}
-  for (const [envName, parent] of Object.entries(value)) {
-    if (
-      parent !== null &&
-      (typeof parent !== 'string' || parent.trim().length === 0 || parent !== parent.trim())
-    ) {
-      throw new ValidationError('Runtime proxySecretParents contains an invalid parent reference')
-    }
-    Object.defineProperty(captured, envName, { value: parent, enumerable: true })
-  }
-  return Object.freeze(captured)
+  return Object.freeze(parsed.data)
 }
 
-/** The final authored and host-selected bindings must each have exactly one explicit pin. */
+/** The canonical owner validates the final authored and host-selected binding selection. */
 export function assertProxySecretParentKeys(
   parents: ProxySecretParents,
-  bindings: readonly Pick<ProxySecretBinding, 'envName'>[],
+  bindings: readonly ProxySecretBinding[],
 ): void {
-  const expected = [...new Set(bindings.map((binding) => binding.envName))].sort()
-  const actual = Object.keys(parents).sort()
-  if (expected.length !== actual.length || expected.some((name, index) => name !== actual[index])) {
-    throw new ValidationError(
-      'Runtime proxySecretParents must match the complete proxy-secret selection',
-    )
+  if (!isProxySecretParentsTotal(bindings, parents)) {
+    throw new ValidationError('Runtime proxySecretParents must match the complete proxy-secret selection')
   }
 }
 
 /** Missing pins are never interpreted as root authority. */
 export function prepareProxySecretParents(
   value: unknown,
-  bindings: readonly Pick<ProxySecretBinding, 'envName'>[] | undefined,
+  bindings: readonly ProxySecretBinding[] | undefined,
+  declaredValue?: unknown,
 ): ProxySecretParents | undefined {
-  if (value === undefined && bindings === undefined) return undefined
-  const parents = captureProxySecretParents(value)
+  if (value === undefined && declaredValue === undefined && (bindings === undefined || bindings.length === 0)) return undefined
+  const parents = captureProxySecretParents(value === undefined ? declaredValue : value)
+  if (value !== undefined && declaredValue !== undefined &&
+      canonicalCandidateDigest(parents) !== canonicalCandidateDigest(captureProxySecretParents(declaredValue))) {
+    throw new ValidationError('Runtime proxySecretParents conflicts with the canonical create request')
+  }
   assertProxySecretParentKeys(parents, bindings ?? [])
   return parents
 }
 
-/** Remove this refusal only when the canonical create/get port carries these exact pins. */
-export function assertProxySecretParentWireAvailable(
-  parents: ProxySecretParents | undefined,
-): void {
-  if (parents !== undefined && Object.keys(parents).length > 0) {
-    throw new ValidationError(
-      'proxy-secret-parent-wire-unavailable: canonical provider support is required',
-    )
+/** A typed request is effective only when the provider confirms the exact admitted pins. */
+export function assertProxySecretParentReadback(
+  environment: Pick<AgentEnvironment, 'proxySecretReceipt' | 'proxySecretParents'>,
+  expected: ProxySecretParents | undefined,
+  adoptPersisted = false,
+): ProxySecretParents | undefined {
+  const bindings = environment.proxySecretReceipt?.bindings.map(({ envName, secretRef, grant }) => ({
+    envName, secretRef, ...grant.scope,
+    presentation: grant.presentation, placeholderFormat: grant.placeholderFormat,
+  })) ?? []
+  const actualValue = environment.proxySecretParents
+  // An omitted update adopts verified persisted pins; it never invents root authority.
+  if (actualValue === undefined && bindings.length === 0) {
+    return prepareProxySecretParents(expected, undefined)
   }
+  const actual = ProxySecretParentsSchema.safeParse(actualValue)
+  if (!actual.success || !isProxySecretParentsTotal(bindings, actual.data) ||
+      (expected === undefined && !adoptPersisted && bindings.length > 0)) {
+    throw new ValidationError('provider proxySecretParents readback differs from admitted pins')
+  }
+  if (expected !== undefined) {
+    const parents = prepareProxySecretParents(expected, bindings)
+    if (canonicalCandidateDigest(actual.data) !== canonicalCandidateDigest(parents)) {
+      throw new ValidationError('provider proxySecretParents readback differs from admitted pins')
+    }
+  }
+  return captureProxySecretParents(actual.data)
 }

@@ -1,3 +1,4 @@
+import type { ProxySecretParents } from '../proxy-secret-parents'
 import type { AgentProfile, WorkspaceCheckpointRef } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/spawn-journal'
 import type {
@@ -39,6 +40,8 @@ export interface RetainedExecutorContext {
   readonly admissions: readonly RetainedRunAdmission[]
   readonly onReady?: () => void | Promise<void>
   readonly onAdmission: RetainedRunAdmissionHook
+  /** Verify a legacy adapter's final parent map against this invocation's durable input. */
+  readonly onProxySecretParentsAdmission?: (parents: ProxySecretParents) => Promise<void>
   readonly onResult: (result: ExecutorResult<unknown>) => Promise<void>
   /** Retain failure evidence without accepting a result or changing recovery state. */
   readonly onEvidence?: (out: unknown) => Promise<void>

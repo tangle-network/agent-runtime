@@ -37,6 +37,7 @@ const binding: ProxySecretBinding = {
   paths: ['/manager'],
   ttlSeconds: 60,
 }
+const rootParents = { [binding.envName]: null }
 const profile = testAgentProfile('retained-proxy')
 
 it('rebinds a retained environment in place before continuing and preserves authored grants', async () => {
@@ -61,12 +62,14 @@ it('rebinds a retained environment in place before continuing and preserves auth
     hosts: ['upstream.example'],
     paths: ['/request'],
   }
+  const parents = { [authored.envName]: null, [binding.envName]: null }
   const environment = {
     profile: { ...profile, proxySecrets: [authored] },
     proxySecrets: [binding],
     idempotencyKey: 'proxy-recovery',
   }
   const initial = await startRetainedRun({
+    proxySecretParents: parents,
     provider,
     environment,
     turn: { turnId: 'first-turn', prompt: 'first' },
@@ -75,16 +78,22 @@ it('rebinds a retained environment in place before continuing and preserves auth
   const original = await base.get!(initial.controlRef.environmentId)
   const generation = original!.proxySecretReceipt!.generation
   const reconnected = await reconnectRetainedRun({
+    proxySecretParents: parents,
     provider,
     controlRef: initial.controlRef,
     proxySecrets: [authored, binding],
   })
   expect(reconnected?.controlRef).toEqual(initial.controlRef)
-  expect(lookups.at(-1)).toMatchObject({ requireInPlace: true, proxySecrets: [authored, binding] })
+  expect(lookups.at(-1)).toMatchObject({
+    requireInPlace: true,
+    proxySecrets: [authored, binding],
+    proxySecretParents: parents,
+  })
   expect(
     (await base.get!(initial.controlRef.environmentId))!.proxySecretReceipt!.generation,
   ).toBeGreaterThan(generation)
   const continued = await startRetainedRun({
+    proxySecretParents: parents,
     provider,
     environment,
     existingEnvironmentId: initial.controlRef.environmentId,
@@ -112,6 +121,7 @@ it('binds the complete proxy declaration into replay intent', async () => {
   const environment = { profile, proxySecrets: [binding], idempotencyKey: 'bound-proxy-intent' }
   const turn = { turnId: 'bound-turn', prompt: 'work' }
   await startRetainedRun({
+    proxySecretParents: rootParents,
     provider,
     environment,
     turn,
@@ -124,6 +134,7 @@ it('binds the complete proxy declaration into replay intent', async () => {
     assertRetainedRunReplayMaterial(
       provider,
       {
+        proxySecretParents: rootParents,
         environment: {
           ...environment,
           proxySecrets: [
@@ -162,6 +173,7 @@ it('refuses a differently bound fresh receipt before native dispatch', async () 
   }
   await expect(
     startRetainedRun({
+      proxySecretParents: rootParents,
       provider,
       environment: { profile, proxySecrets: [binding], idempotencyKey: 'wrong-receipt' },
       turn: { turnId: 'turn', prompt: 'work' },
@@ -174,6 +186,7 @@ it('refuses a differently bound fresh receipt before native dispatch', async () 
 it('verifies original identity but refuses native reattachment after an unacknowledged rebind', async () => {
   const base = await fixture()
   const initial = await startRetainedRun({
+    proxySecretParents: rootParents,
     provider: base,
     environment: { profile, proxySecrets: [binding], idempotencyKey: 'missing-receipt' },
     turn: { turnId: 'turn', prompt: 'work' },
@@ -199,6 +212,7 @@ it('verifies original identity but refuses native reattachment after an unacknow
   }
   await expect(
     reconnectRetainedRun({
+      proxySecretParents: rootParents,
       provider,
       controlRef: initial.controlRef,
       proxySecrets: [binding],
@@ -236,7 +250,7 @@ it.each(['created', 'replayed', undefined] as const)(
     const signal = new AbortController().signal
     const executor = providerAsExecutor(provider, { defaults: { proxySecrets: [binding] } })(
       { profile, harness: null },
-      { signal, seams: {} },
+      { signal, seams: { 'runtime.proxySecretParents': rootParents } },
     )
     await expect(
       (async () => {
@@ -272,7 +286,7 @@ it('preserves original and cleanup errors when a fresh refused allocation has no
   const signal = new AbortController().signal
   const executor = providerAsExecutor(provider, { defaults: { proxySecrets: [binding] } })(
     { profile, harness: null },
-    { signal, seams: {} },
+    { signal, seams: { 'runtime.proxySecretParents': rootParents } },
   )
   let error: unknown
   try {
@@ -292,6 +306,7 @@ it('refuses omitted references on expired custody before a fresh retained native
   const base = await fixture()
   const environment = { profile, proxySecrets: [binding], idempotencyKey: 'expired-omission' }
   const initial = await startRetainedRun({
+    proxySecretParents: rootParents,
     provider: base,
     environment,
     turn: { turnId: 'first', prompt: 'first' },
@@ -338,7 +353,11 @@ it('refuses omitted references on expired custody before a fresh retained native
   }
   await expect(startRetainedRunInEnvironment(next)).rejects.toThrow('stale or unconfirmed')
   expect(dispatches).toBe(0)
-  const renewed = await startRetainedRunInEnvironment({ ...next, proxySecrets: [binding] })
+  const renewed = await startRetainedRunInEnvironment({
+    ...next,
+    proxySecrets: [binding],
+    proxySecretParents: rootParents,
+  })
   expect(renewed.controlRef.environmentId).toBe(initial.controlRef.environmentId)
   expect(dispatches).toBe(1)
 })
@@ -346,6 +365,7 @@ it('refuses omitted references on expired custody before a fresh retained native
 it('checks retained ownership before replacing another logical run bindings', async () => {
   const base = await fixture()
   const initial = await startRetainedRun({
+    proxySecretParents: rootParents,
     provider: base,
     environment: { profile, proxySecrets: [binding], idempotencyKey: 'owned-environment' },
     turn: { turnId: 'first', prompt: 'first' },
@@ -361,6 +381,7 @@ it('checks retained ownership before replacing another logical run bindings', as
   }
   await expect(
     startRetainedRun({
+      proxySecretParents: rootParents,
       provider,
       environment: { profile, proxySecrets: [binding], idempotencyKey: 'different-logical-owner' },
       existingEnvironmentId: initial.controlRef.environmentId,
@@ -390,6 +411,7 @@ it.each(['installed', 'revoked'] as const)(
       },
     }
     const handle = await startRetainedRun({
+      proxySecretParents: {},
       provider,
       environment: { profile, proxySecrets: [], idempotencyKey: `empty-${status}` },
       turn: { turnId: 'first', prompt: 'work' },

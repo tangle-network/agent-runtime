@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { open } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import {
   agentProfileSchema,
   canonicalAgentProfileDigest,
   ProxySecretCapabilitiesSchema,
+  ProxySecretDelegationCapabilitySchema,
   ProxySecretReceiptSchema,
   ProxySecretsSchema,
   ContextTransferReceiptSchema,
@@ -265,6 +270,7 @@ const proxySecrets = ProxySecretsSchema.parse([{
   paths: ['/tasks'],
   ttlSeconds: 60,
 }])
+const proxySecretParents = { PACKED_SERVICE_TOKEN: null }
 const fixtureModel = { provider: 'fixture', model: 'fixture/model' }
 const protectedProfile = agentProfileSchema.parse({
   ...profile,
@@ -327,6 +333,9 @@ const proxySandboxInfo = {
 const proxyCalls: string[] = []
 let mismatchedLiveReceipt = false
 let proxyReceiptReads = 0
+let sdkParentDelegationSupported = false
+const admissionDirectory = mkdtempSync(join(tmpdir(), 'packed-proxy-admission-'))
+const admissionPath = join(admissionDirectory, 'admission.json')
 const originalFetch = globalThis.fetch
 try {
   globalThis.fetch = async (input, options) => {
@@ -335,9 +344,11 @@ try {
     const method = options?.method ?? 'GET'
     proxyCalls.push(method + ' ' + url.pathname)
     lastFixtureRequest = method + ' ' + url.pathname
-    if (url.pathname === '/v1/capabilities') return Response.json({ proxySecrets: proxyCapabilities })
+    if (url.pathname === '/v1/capabilities') return Response.json({ proxySecrets: proxyCapabilities, proxySecretDelegation: 1 })
     if (url.pathname === '/v1/sandboxes' && method === 'POST') {
       const body = JSON.parse(String(options?.body))
+      assert.deepEqual(JSON.parse(readFileSync(admissionPath, 'utf8')).proxySecretParents, proxySecretParents)
+      assert.deepEqual(body.proxySecretParents, proxySecretParents)
       assert.deepEqual(body.proxySecrets, proxySecrets)
       assert.deepEqual(body.backend.profile.proxySecrets, proxySecrets)
       assert.deepEqual(body.backend.profile.model, protectedProfile.model)
@@ -348,8 +359,9 @@ try {
       assert.deepEqual(body.secrets, [])
       return Response.json({
         ...proxySandboxInfo,
-        createReceipt: { outcome: 'created', idempotencyKeyApplied: true, proxySecretReceipt: proxyReceipt },
+        createReceipt: { outcome: 'created', idempotencyKeyApplied: true, proxySecrets, proxySecretParents, proxySecretReceipt: proxyReceipt },
         proxySecrets,
+        proxySecretParents,
         proxySecretReceipt: proxyReceipt,
       })
     }
@@ -358,6 +370,7 @@ try {
       return Response.json({
         ...proxySandboxInfo,
         proxySecrets,
+        proxySecretParents,
         proxySecretReceipt: mismatchedLiveReceipt
           ? { ...proxyReceipt, bindings: proxyReceipt.bindings.map(binding => ({ ...binding, secretRef: { kind: 'secret-ref', key: 'different-reference' } })) }
           : proxyReceipt,
@@ -375,16 +388,31 @@ try {
     if (url.pathname === '/v1/sandboxes/' + proxyReceipt.sandboxId && method === 'DELETE') return new Response(null, { status: 204 })
     throw new Error('unexpected packed proxy fixture request ' + method + ' ' + url.pathname)
   }
+  const sandboxClient = new Sandbox({ apiKey: 'fixture-not-a-key', baseUrl: 'https://packed-sandbox.invalid' })
+  const readCapabilities = Reflect.get(sandboxClient, 'capabilities')
+  const advertised: unknown = typeof readCapabilities === 'function'
+    ? await readCapabilities.call(sandboxClient) : undefined
+  sdkParentDelegationSupported = advertised !== null && typeof advertised === 'object' &&
+    ProxySecretDelegationCapabilitySchema.safeParse(Reflect.get(advertised, 'proxySecretDelegation')).success
   const sandboxProvider = createTangleProvider({
-    client: new Sandbox({ apiKey: 'fixture-not-a-key', baseUrl: 'https://packed-sandbox.invalid' }),
+    client: sandboxClient,
     capabilities: { ...defaultTangleSandboxCapabilities('codex'), interactions: undefined, create: { proxySecrets: proxyCapabilities } },
   })
-  const runtimeSandbox = providerAsSandboxClient(sandboxProvider)
+  const runtimeSandbox = providerAsSandboxClient(sandboxProvider, {
+    async onAdmission(admission) {
+      const journal = await open(admissionPath, 'w', 0o600)
+      try {
+        await journal.writeFile(JSON.stringify(admission))
+        await journal.sync()
+      } finally { await journal.close() }
+    },
+  })
   const createProtected = () => runtimeSandbox.create({
     backend: { type: 'codex', profile: protectedProfile, model: fixtureModel },
     proxySecrets,
+    proxySecretParents,
   })
-  if (sdkProxySchemaSupported) {
+  if (sdkProxySchemaSupported && sdkParentDelegationSupported) {
     fixtureStage = 'installed SDK proxy create'
     const created = await createProtected()
     assert.equal(created.id, proxyReceipt.sandboxId)
@@ -403,6 +431,7 @@ try {
       await assert.rejects(runtimeSandbox.create({
         backend: { type: 'codex', profile: protectedProfile, model },
         proxySecrets,
+        proxySecretParents,
       }), /providerOptions|unsupported/i)
       assert.equal(proxyCalls.filter(call => call === 'POST /v1/sandboxes').length, allocationsBefore)
     }
@@ -414,6 +443,7 @@ try {
   assert.equal(proxyCalls.some(call => call.includes('/messages') || call.includes('/sessions')), false)
 } finally {
   globalThis.fetch = originalFetch
+  rmSync(admissionDirectory, { recursive: true, force: true })
 }
 clearTimeout(fixtureDeadline)
 console.log(
@@ -422,10 +452,12 @@ console.log(
     registered: registry.names(),
     contextTransferExercised: ['cli-bridge'],
     sdkProxySchemaSupported,
-    proxyReferenceAdapterCreateMatched: sdkProxySchemaSupported,
-    mismatchedProxyReceiptRefused: sdkProxySchemaSupported,
-    modelMismatchAndCredentialControlRefusedBeforeAllocation: sdkProxySchemaSupported,
-    unsupportedSdkProxyRefusedBeforeAllocation: !sdkProxySchemaSupported,
+    sdkParentDelegationSupported,
+    durableParentAdmissionBeforeCreate: sdkProxySchemaSupported && sdkParentDelegationSupported,
+    proxyReferenceAdapterCreateMatched: sdkProxySchemaSupported && sdkParentDelegationSupported,
+    mismatchedProxyReceiptRefused: sdkProxySchemaSupported && sdkParentDelegationSupported,
+    modelMismatchAndCredentialControlRefusedBeforeAllocation: sdkProxySchemaSupported && sdkParentDelegationSupported,
+    unsupportedSdkProxyRefusedBeforeAllocation: !sdkProxySchemaSupported || !sdkParentDelegationSupported,
     proxyReceiptReads,
     proofScope: 'public adapter transport fixture; no live receiver or provider allocation',
     providerIssuedEnvironment: run.controlRef.environmentId,

@@ -385,7 +385,8 @@ export interface LoopResult<Task, Output, Decision> {
  */
 export interface SandboxClient {
   create(
-    options?: CreateSandboxOptions & Pick<CreateAgentEnvironmentInput, 'proxySecrets'>,
+    options?: CreateSandboxOptions &
+      Pick<CreateAgentEnvironmentInput, 'proxySecrets' | 'proxySecretParents'>,
     requestOptions?: CreateRequestOptions,
   ): Promise<SandboxInstance>
   describePlacement?(box: SandboxInstance): LoopSandboxPlacement

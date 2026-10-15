@@ -32,6 +32,7 @@ const binding: ProxySecretBinding = {
   paths: ['/result'],
   ttlSeconds: 60,
 }
+const rootParents = { SERVICE_TOKEN: null }
 type InvalidCustody = 'expired' | 'revoked' | 'missing' | 'different-reference'
 
 async function fixture() {
@@ -117,6 +118,7 @@ async function fixture() {
     },
   }
   const handle = await startRetainedRun({
+    proxySecretParents: rootParents,
     provider,
     environment: {
       profile: testAgentProfile('native-proxy'),
@@ -182,6 +184,7 @@ it('continues the same native session after checked in-place rebinding returns a
   const current = await fixture()
   current.invalidate('revoked')
   const handle = await reconnectRetainedRun({
+    proxySecretParents: rootParents,
     provider: current.provider,
     controlRef: current.handle.controlRef,
     proxySecrets: [binding],

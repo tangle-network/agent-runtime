@@ -260,9 +260,8 @@ export interface StartRetainedRunOptions extends RetainedRunStartMaterial {
 export interface StartRetainedRunInEnvironmentOptions
   extends Pick<
     AgentEnvironmentGetOptions,
-    'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'
+    'proxySecrets' | 'proxySecretParents' | 'expectedProxySecretGeneration' | 'signal'
   > {
-  readonly proxySecretParents?: ProxySecretParents
   readonly provider: AgentEnvironmentProvider
   readonly environment: {
     /** Stable provider environment identifier used by `provider.get`. */
@@ -287,9 +286,8 @@ export interface StartRetainedRunInEnvironmentOptions
 export interface ReconnectRetainedRunOptions
   extends Pick<
     AgentEnvironmentGetOptions,
-    'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'
+    'proxySecrets' | 'proxySecretParents' | 'expectedProxySecretGeneration' | 'signal'
   > {
-  readonly proxySecretParents?: ProxySecretParents
   readonly provider: AgentEnvironmentProvider
   readonly controlRef: AgentExactRunControlRef
   readonly now?: () => number
@@ -316,9 +314,8 @@ export interface RecoverRetainedRunIntentOptions {
 export interface RecoverRetainedRunOptions
   extends Pick<
     AgentEnvironmentGetOptions,
-    'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'
+    'proxySecrets' | 'proxySecretParents' | 'expectedProxySecretGeneration' | 'signal'
   > {
-  readonly proxySecretParents?: ProxySecretParents
   readonly provider: AgentEnvironmentProvider
   readonly environmentId: string
   readonly sessionId: string

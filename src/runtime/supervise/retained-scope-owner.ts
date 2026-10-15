@@ -1,3 +1,4 @@
+import { assertProxySecretParentInput } from './proxy-secret-parent-state'
 import {
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
@@ -188,6 +189,11 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
           seq: state.nextSequence(),
           at: new Date(args.now()).toISOString(),
         })
+      },
+      onProxySecretParentsAdmission: async parents => {
+        scope.signal.throwIfAborted()
+        await assertProxySecretParentInput(args.journal, args.rootId, args.nodeId, parents)
+        scope.signal.throwIfAborted()
       },
       onAdmission: async (admission) => {
         scope.signal.throwIfAborted()

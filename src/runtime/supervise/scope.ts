@@ -107,7 +107,7 @@ import {
   type WorkerProgress,
 } from './progress'
 import { providerVisibleProfile } from './provider-visible-profile'
-import { proxySecretParentState } from './proxy-secret-parent-state'
+import { assertProxySecretParentInput, proxySecretParentState } from './proxy-secret-parent-state'
 import { prepareScopeResume } from './recover-executors'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import {
@@ -1356,6 +1356,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         admissions,
         ...(markRecoveryReady && continuing === undefined ? { onReady: markRecoveryReady } : {}),
         onAdmission,
+        onProxySecretParentsAdmission: async parents => {
+          controller.signal.throwIfAborted()
+          await assertProxySecretParentInput(args.journal, args.root, id, parents)
+          controller.signal.throwIfAborted()
+        },
         onResult,
         onEvidence: executorEvidenceWriter({
           journal: args.journal,

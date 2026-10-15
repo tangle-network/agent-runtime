@@ -23,9 +23,8 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { assertProxySecretInstallation, assertProxySecretReceiptLive } from './proxy-secret-custody'
 import {
-  assertProxySecretParentWireAvailable,
+  assertProxySecretParentReadback,
   type ProxySecretParents,
-  prepareProxySecretParents,
 } from './proxy-secret-parents'
 import {
   abortError,
@@ -86,10 +85,7 @@ export function createRetainedRunHandle(
         placeholderFormat: grant.placeholderFormat,
       }),
   )
-  const parentPins = prepareProxySecretParents(
-    proxySecretParents,
-    proxyBindings?.length ? proxyBindings : undefined,
-  )
+  const parentPins = assertProxySecretParentReadback(environment, proxySecretParents, true)
   const measuredCapabilities = structuredClone(capabilities)
   let activeControlRef = freezeControlRef(initialControlRef)
   // A provider may expose the previous reference while a terminal read catches up.
@@ -224,7 +220,7 @@ export function createRetainedRunHandle(
               ...(admission === undefined ? {} : { onAdmission: admission.onAdmission }),
             }
             assertProxySecretInstallation(environment, proxyBindings)
-            assertProxySecretParentWireAvailable(parentPins)
+            assertProxySecretParentReadback(environment, parentPins)
             assertProxySecretReceiptLive(environment)
             return session.continueNative!(exactRequest, providerOptions)
           }),

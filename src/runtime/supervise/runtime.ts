@@ -53,6 +53,7 @@ import {
 import { agentHarness } from '../harness-role'
 import { observedModelMatchesDeclared } from '../model-identity'
 import { selectProviderPlacement } from '../provider-placement'
+import { captureProxySecretParents, proxySecretParentsSeamKey } from '../proxy-secret-parents'
 import { assertRouterAutoDeclaration, assertRouterAutoResponse } from '../router-auto-evidence'
 import {
   type PromptCacheUsage,
@@ -2526,11 +2527,20 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
           const workspaceCaptures: ProviderWorkspaceCaptureReceipt[] = []
           let capturedOutput: (() => unknown) | undefined
           const publishEvidence = retainedExecutorContext(seamed)?.onEvidence
+          const admitParents = retainedExecutorContext(seamed)?.onProxySecretParentsAdmission
+          const suppliedParents = seamed.seams[proxySecretParentsSeamKey]
+          const proxySecretParents = suppliedParents === undefined
+            ? undefined : captureProxySecretParents(suppliedParents)
+          const { proxySecretParents: _ambientParents, ...defaults } = providerSeam.defaults ?? {}
           const sandboxClient = providerAsSandboxClient(provider, {
             defaults: {
-              ...(providerSeam.defaults ?? {}),
+              ...defaults,
+              ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
               signal: seamed.signal,
             },
+            ...(admitParents === undefined ? {} : {
+              onAdmission: ({ proxySecretParents }) => admitParents(proxySecretParents),
+            }),
             requireTerminalEvent: providerSeam.requireTerminalEvent,
             requireSession: true,
             ...(providerSeam.workspaceRetention === undefined
