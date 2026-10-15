@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { isIP } from 'node:net'
 import { fileURLToPath } from 'node:url'
+import { agentProfileSchema } from '@tangle-network/agent-interface'
 
 const root = process.env.AGENT_RUNTIME_SKILLS_ROOT
   ? resolve(process.env.AGENT_RUNTIME_SKILLS_ROOT)
@@ -48,10 +49,10 @@ function checkProxyExamples(directory) {
       fail('profile must be valid JSON')
       continue
     }
-    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
-      fail('profile must be an object')
-      continue
+    if (!agentProfileSchema.safeParse(profile).success) {
+      fail('profile failed canonical AgentProfile schema validation')
     }
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) continue
     if (profile.proxySecrets === undefined) continue
     if (!Array.isArray(profile.proxySecrets)) {
       fail('proxySecrets must be an array')

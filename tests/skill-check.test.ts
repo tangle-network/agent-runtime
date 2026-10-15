@@ -131,6 +131,21 @@ describe('proxy-secret authoring examples', () => {
     await expect(check(await example(profile()))).resolves.toMatchObject({ stderr: '' })
   })
 
+  it('rejects a malformed presentation without echoing authored values', async () => {
+    const authored = profile()
+    const privateExample = 'private-presentation-value-must-not-be-printed'
+    Object.assign(authored.proxySecrets[0], {
+      presentation: { type: 'basic', password: privateExample },
+    })
+    const checking = check(await example(authored))
+    await expect(checking).rejects.toMatchObject({
+      stderr: expect.stringContaining('canonical AgentProfile schema validation'),
+    })
+    await expect(checking).rejects.toMatchObject({
+      stderr: expect.not.stringContaining(privateExample),
+    })
+  })
+
   it.each([
     ['literal reference', (p: ReturnType<typeof profile>) => Object.assign(p.proxySecrets[0], { secretRef: 'literal' }), 'secret-ref'],
     ['wildcard host', (p: ReturnType<typeof profile>) => { p.proxySecrets[0].hosts = ['*.example.test'] }, 'exact hosts'],
