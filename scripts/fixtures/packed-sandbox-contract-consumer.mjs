@@ -124,6 +124,9 @@ const proxyProfile = current.agentProfileSchema.parse({
 })
 const proxyPlan = materializeProfile(proxyProfile, 'codex')
 const materializerProxySupported = proxyPlan.proxySecrets !== undefined
+const materializerVersion = JSON.parse(
+  readFileSync(new URL('./node_modules/@tangle-network/agent-profile-materialize/package.json', import.meta.url), 'utf8'),
+).version
 if (process.argv.includes('--require-proxy-materializer')) {
   assert.equal(materializerProxySupported, true, 'the selected materializer must preserve canonical proxy declarations')
 }
@@ -156,6 +159,7 @@ if (materializerProxySupported) {
   assert.throws(
     () => assertProfileMaterializes(declarationOnlyProfile, 'codex', 'packed proxy declaration'),
     (error) => error instanceof ValidationError && /proxySecrets|proxy-held/.test(error.message),
+    `protected planning must refuse an omitted proxySecrets plan (materializer ${materializerVersion})`,
   )
   unsupportedProxyWrapperRefusals += 1
 }
@@ -335,6 +339,7 @@ const conversionCanonicalSha256 = createHash('sha256')
 
 const result = {
   kind: 'packed-sandbox-contract-boundary',
+  materializerVersion,
   materializerProxySupported,
   unsupportedProxyMaterializer: !materializerProxySupported,
   proxyPlanPreserved: materializerProxySupported,
