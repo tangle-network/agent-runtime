@@ -1646,11 +1646,15 @@ describe('a manager that ends its turn waits in Runtime and is woken', () => {
         await tb.endDriverAttempt('completed')
         expect(await tb.awaitWake(wakeInput())).toBeUndefined()
         const leadSeq = nextWake?.events[0]?.eventSeq
-        const acknowledgements = tb.history().flatMap((record) =>
-          record.event.type === 'acknowledgement' ? record.event.acknowledgement.seqs : [],
-        )
+        const acknowledgements = tb
+          .history()
+          .flatMap((record) =>
+            record.event.type === 'acknowledgement' ? record.event.acknowledgement.seqs : [],
+          )
         expect(acknowledgements.filter((seq) => seq === leadSeq)).toHaveLength(1)
-        expect(tb.history().filter((record) => record.event.type === 'lead-message')).toHaveLength(1)
+        expect(tb.history().filter((record) => record.event.type === 'lead-message')).toHaveLength(
+          1,
+        )
         expect(await close()).not.toHaveProperty('error')
         expect(tb.isStopped()).toBe(true)
       } finally {
