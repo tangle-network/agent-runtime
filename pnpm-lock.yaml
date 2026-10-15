@@ -97,8 +97,8 @@ importers:
         specifier: 0.6.0
         version: 0.6.0
       '@tangle-network/agent-provider-tangle':
-        specifier: 4.2.0
-        version: 4.2.0(@tangle-network/sandbox@0.60.49(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))
+        specifier: 4.2.1
+        version: 4.2.1(@tangle-network/sandbox@0.60.49(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))
       '@tangle-network/sandbox':
         specifier: 0.60.49
         version: 0.60.49(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
@@ -1368,8 +1368,8 @@ packages:
       e2b:
         optional: true
 
-  '@tangle-network/agent-provider-tangle@4.2.0':
-    resolution: {integrity: sha512-brkSlgy7+WjuDEKu8iktkLzN5CEyPFtF4q7lPHA9ZXvRcTOnow+Ch3y+QwXaLdrQxx8A9P87GQHsOsPTvDXWbw==}
+  '@tangle-network/agent-provider-tangle@4.2.1':
+    resolution: {integrity: sha512-JO3VVTMnlHFeyLlW8zpYc8XzpVtLcupUl3X3AIBm+HNzYt5sjQs0O1vj8XaOmaw6c9nChb1UfT3UQXkUoSTnSQ==}
     peerDependencies:
       '@tangle-network/sandbox': '>=0.60.27 <1.0.0'
 
@@ -3718,7 +3718,7 @@ snapshots:
     dependencies:
       '@tangle-network/agent-interface': 5.3.1
 
-  '@tangle-network/agent-provider-tangle@4.2.0(@tangle-network/sandbox@0.60.49(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))':
+  '@tangle-network/agent-provider-tangle@4.2.1(@tangle-network/sandbox@0.60.49(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))':
     dependencies:
       '@tangle-network/agent-interface': 5.3.1
       '@tangle-network/sandbox': 0.60.49(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
