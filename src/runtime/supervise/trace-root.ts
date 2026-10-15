@@ -89,7 +89,7 @@ async function persistTraceRoot(
   if (events === undefined) return undefined
   let artifact: TraceRootArtifact
   try {
-    artifact = traceRootArtifact(nodeId, outRef, events)
+    artifact = await traceRootArtifact(nodeId, outRef, events)
   } catch (error) {
     // An event with no canonical JSON form (an unpaired surrogate) leaves the output unproven;
     // it never fails the turn that produced it. Measured 2026-10-15: 0 of 366 archives.
@@ -107,16 +107,24 @@ function archivedEvents(out: unknown): readonly unknown[] | undefined {
   return Array.isArray(events) ? events : undefined
 }
 
-function traceRootArtifact(
+/** Leaves hashed between yields to the event loop. Hashing runs about 40 µs per event, and the
+ *  largest archived turn holds 65,276 events: unbroken, that blocked the process for 2.7 s while
+ *  sibling turns, coordination calls and heartbeats waited. */
+const LEAVES_PER_SLICE = 256
+
+async function traceRootArtifact(
   nodeId: string,
   outRef: string,
   archived: readonly unknown[],
-): TraceRootArtifact {
+): Promise<TraceRootArtifact> {
   const salts: string[] = []
   const leaves: LedgerHash[] = []
   const tools = createSandboxToolPartState()
   const toolCalls = new Map<string, number>()
-  for (const event of archived) {
+  for (const [index, event] of archived.entries()) {
+    if (index > 0 && index % LEAVES_PER_SLICE === 0) {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
     // Hash the event as the blob store keeps it: a JSON document, read back the way a verifier
     // reads `events[i]`. The writer's copy is a structured clone and can hold values JSON drops.
     const stored = storedForm(event)
