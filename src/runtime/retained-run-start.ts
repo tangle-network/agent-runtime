@@ -19,7 +19,7 @@ import type {
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import {
-  AgentEnvironmentGetOptionsSchema,
+  AgentEnvironmentReadOnlyGetOptionsSchema,
   mergeProxySecretBindings,
 } from '@tangle-network/agent-interface/environment-provider'
 import {
@@ -126,12 +126,11 @@ function captureRetainedProxySecretUpdate(
 export function retainedReadOnlyOptions(
   options: AgentEnvironmentGetOptions | undefined,
 ): AgentEnvironmentGetOptions {
-  const parsed = AgentEnvironmentGetOptionsSchema.safeParse({
+  const parsed = AgentEnvironmentReadOnlyGetOptionsSchema.safeParse({
     readOnly: true,
     ...(options?.signal === undefined ? {} : { signal: options.signal }),
-    ...(options?.contextTransfer === undefined ? {} : { contextTransfer: options.contextTransfer }),
   })
-  if (!parsed.success || !('readOnly' in parsed.data) || parsed.data.readOnly !== true) {
+  if (!parsed.success) {
     throw new ValidationError(
       'canonical provider readOnly lookup is required before retained custody discovery',
     )

@@ -392,7 +392,10 @@ describe('public supervise proxy-secret descendant admission', () => {
       const progress = {
         result: outcome.kind,
         ...(outcome.kind === 'no-winner'
-          ? { reason: outcome.reason, ...(outcome.reason === 'driver-failed' ? { failure: outcome.error.message } : {}) }
+          ? {
+              reason: outcome.reason,
+              ...(outcome.reason === 'driver-failed' ? { failure: outcome.error.message } : {}),
+            }
           : {}),
         allocated: sourceId !== undefined,
         eventKinds: [...new Set(events.map((event) => event.kind))],
