@@ -23,6 +23,7 @@ import {
   type Sha256Digest,
   validateAgentProfileSecurity,
 } from '@tangle-network/agent-interface'
+import { ProxySecretCapabilitiesSchema } from '@tangle-network/agent-interface/environment-provider'
 import { withProfileKb } from '@tangle-network/agent-interface/profile-kb'
 import {
   type HarnessId,
@@ -81,7 +82,6 @@ import { RunCancellationReason } from './abortable'
 import { assertValidBudget, meterUsageEvent, newUsageTotals, spendFromUsageTotals } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { CONTINUATIONS_DIR, type ContinuationPolicy } from './continuation'
-import { ProxySecretCapabilitiesSchema } from '@tangle-network/agent-interface/environment-provider'
 import { isLoopbackHost } from './coordination-mcp'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, type DeadlineCheckIn, teardownExecutor } from './deadline'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
@@ -770,10 +770,13 @@ function coordinationChannelSpawnPreflight(
           detail: `the 'provider' backend does not advertise ${unsupported}; Runtime cannot mount this manager's coordination tools before dispatch`,
         }
       }
-      return coordination?.proxySecret ? undefined : {
-        cause: 'unmountable-tool',
-        detail: 'provider coordination requires proxy-held credential placement through coordination.proxySecret',
-      }
+      return coordination?.proxySecret
+        ? undefined
+        : {
+            cause: 'unmountable-tool',
+            detail:
+              'provider coordination requires proxy-held credential placement through coordination.proxySecret',
+          }
     }
   }
   const missingChannel =
@@ -862,10 +865,16 @@ async function providerCoordinationRefusal(
   const create = capabilities.create
   if (!create || !('runtimeAttachments' in create)) return 'create.runtimeAttachments.mcp'
   const attachments = create.runtimeAttachments
-  if (!attachments || typeof attachments !== 'object' || !('mcp' in attachments) || attachments.mcp !== true)
+  if (
+    !attachments ||
+    typeof attachments !== 'object' ||
+    !('mcp' in attachments) ||
+    attachments.mcp !== true
+  )
     return 'create.runtimeAttachments.mcp'
   const proxySecrets = ProxySecretCapabilitiesSchema.safeParse(create.proxySecrets)
-  return proxySecrets.success && proxySecrets.data.presentations.includes('bearer') &&
+  return proxySecrets.success &&
+    proxySecrets.data.presentations.includes('bearer') &&
     proxySecrets.data.placeholderFormats.includes('opaque')
     ? undefined
     : 'create.proxySecrets'
@@ -1229,7 +1238,9 @@ function driveHarnessFromBackend(
     // The harness is asked for a 300 s tool-call timeout so a fenced tool can hold its response
     // longer than the 60 s harness default; a sidecar that applies it says so on each request.
     if (coordinationProxySecret && boundBackend.backend !== 'provider') {
-      throw new ValidationError('proxy-held coordination requires a provider that enforces proxy bindings')
+      throw new ValidationError(
+        'proxy-held coordination requires a provider that enforces proxy bindings',
+      )
     }
     const attachment = {
       transport: 'http' as const,
@@ -1252,7 +1263,9 @@ function driveHarnessFromBackend(
           'driveHarnessFromBackend: provider defaults contain the reserved coordination credential name',
         )
       }
-      if (boundBackend.defaults?.proxySecrets?.some((binding) => binding.envName === credentialName)) {
+      if (
+        boundBackend.defaults?.proxySecrets?.some((binding) => binding.envName === credentialName)
+      ) {
         throw new ValidationError(
           'driveHarnessFromBackend: provider defaults contain the reserved coordination proxy binding',
         )
@@ -2914,9 +2927,11 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
             ...detachedSnapshot(configuration, 'supervise coordination configuration'),
             ...(publicUrl === undefined ? {} : { publicUrl }),
             ...(onAudit === undefined ? {} : { onAudit }),
-            ...(proxySecret === undefined ? {} : {
-              proxySecret: Object.freeze({ prepare: proxySecret.prepare }),
-            }),
+            ...(proxySecret === undefined
+              ? {}
+              : {
+                  proxySecret: Object.freeze({ prepare: proxySecret.prepare }),
+                }),
           })
         })()
   const capturedBackend = backend === undefined ? undefined : snapshotExecutorConfig(backend)
@@ -4289,12 +4304,19 @@ function superviseInternal(
   // The root driver loop reports what it did once it ends; the settle record carries it.
   let rootContinuation: DriverContinuationRecord | undefined
   const start = async () => {
-    if (isExternalSupervisor(canonicalProfile) && !hasCustomDriveHarness && managerBackend?.backend === 'provider') {
+    if (
+      isExternalSupervisor(canonicalProfile) &&
+      !hasCustomDriveHarness &&
+      managerBackend?.backend === 'provider'
+    ) {
       if (!options.coordination?.proxySecret) {
-        throw new ValidationError('provider coordination requires proxy-held credential placement through coordination.proxySecret')
+        throw new ValidationError(
+          'provider coordination requires proxy-held credential placement through coordination.proxySecret',
+        )
       }
       const unsupported = await providerCoordinationRefusal(managerBackend)
-      if (unsupported) throw new ValidationError(`provider coordination does not advertise ${unsupported}`)
+      if (unsupported)
+        throw new ValidationError(`provider coordination does not advertise ${unsupported}`)
     }
     if (ctx.durability === 'sql') {
       if (

@@ -25,8 +25,12 @@ export function assertProxySecretDescendant(
   if (!hasAuthorization) {
     throw new ValidationError('supervise: spawned proxySecrets require authorizeSpawn')
   }
-  if (child.proxySecrets.some((binding) =>
-    !parent.proxySecrets?.some((allowed) => isProxySecretBindingAttenuation(allowed, binding)))) {
+  if (
+    child.proxySecrets.some(
+      (binding) =>
+        !parent.proxySecrets?.some((allowed) => isProxySecretBindingAttenuation(allowed, binding)),
+    )
+  ) {
     throw new ValidationError('supervise: spawned proxySecrets exceed parent declarations')
   }
 }

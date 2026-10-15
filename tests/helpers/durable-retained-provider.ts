@@ -27,7 +27,10 @@ import type {
   ProxySecretReceipt,
   AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
-import { ProxySecretReceiptSchema } from '@tangle-network/agent-interface/environment-provider'
+import {
+  mergeProxySecretBindings,
+  ProxySecretReceiptSchema,
+} from '@tangle-network/agent-interface/environment-provider'
 
 interface StoredSession {
   readonly id: string
@@ -82,8 +85,15 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
         sessions: {},
         ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
       }
-      if (input.proxySecrets !== undefined && state.environments[id].proxySecrets === undefined) {
-        installProxySecrets(state.environments[id], input.proxySecrets)
+      const authored = typeof input.profile === 'string' ? undefined : input.profile.proxySecrets
+      if (
+        (authored !== undefined || input.proxySecrets !== undefined) &&
+        state.environments[id].proxySecrets === undefined
+      ) {
+        installProxySecrets(
+          state.environments[id],
+          mergeProxySecretBindings(authored, input.proxySecrets),
+        )
       }
       writeState(stateFile, state)
       return environmentFor(stateFile, providerName, id)

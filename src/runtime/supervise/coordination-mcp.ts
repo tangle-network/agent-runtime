@@ -23,7 +23,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { createServer, type Server } from 'node:http'
 import { isIP } from 'node:net'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { ProxySecretBinding } from '@tangle-network/agent-interface/environment-provider'
+import { type ProxySecretBinding, ProxySecretBindingSchema } from '@tangle-network/agent-interface/environment-provider'
 import { ConfigError, ValidationError } from '../../errors'
 import type { JsonRpcMessage } from '../../mcp/protocol'
 import type { McpToolDescriptor } from '../../mcp/server'
@@ -181,23 +181,23 @@ function assertCoordinationProxySecret(
   registered: CoordinationProxySecretRegistration,
   address: URL,
   credentialExpiresAt: number | undefined,
-): void {
-  const { binding } = registered
+): ProxySecretBinding {
+  const binding = ProxySecretBindingSchema.parse(registered.binding)
   const expiresAt = Date.parse(registered.expiresAt)
   if (
     typeof registered.revoke !== 'function' ||
     !Number.isFinite(expiresAt) || expiresAt - Date.now() < 1000 ||
     (credentialExpiresAt !== undefined && expiresAt > credentialExpiresAt) ||
     binding.envName !== 'AGENT_RUNTIME_COORDINATION_TOKEN' ||
-    binding.secretRef.kind !== 'secret-ref' || !binding.secretRef.key ||
     binding.hosts.length !== 1 || binding.hosts[0] !== address.hostname ||
     binding.presentation.type !== 'bearer' ||
     binding.methods?.length !== 1 || binding.methods[0] !== 'POST' ||
     binding.paths?.length !== 1 || binding.paths[0] !== address.pathname ||
-    !Number.isSafeInteger(binding.ttlSeconds) || binding.ttlSeconds! <= 0
+    binding.ttlSeconds === undefined
   ) {
     throw new ConfigError('coordination proxySecret registration must bind the actor endpoint and a bounded lifetime')
   }
+  return binding
 }
 
 export interface CoordinationTransportOptions extends CoordinationHttpOptions {
@@ -783,15 +783,16 @@ export async function serveCoordinationMcpForManager(
     }
     if (opts.proxySecret) {
       try {
+        addressLifetime.signal.throwIfAborted()
         registeredProxySecret = await opts.proxySecret.prepare({
           ...identity, url, authorization: headers.Authorization!, credentialExpiresAt,
           signal: addressLifetime.signal,
         })
-        assertCoordinationProxySecret(registeredProxySecret, publicAddress, credentialExpiresAt)
+        const binding = assertCoordinationProxySecret(registeredProxySecret, publicAddress, credentialExpiresAt)
         registeredProxySecret = {
           binding: detachedSnapshot({
-            ...registeredProxySecret.binding,
-            ttlSeconds: Math.min(registeredProxySecret.binding.ttlSeconds!,
+            ...binding,
+            ttlSeconds: Math.min(binding.ttlSeconds!,
               Math.floor((Date.parse(registeredProxySecret.expiresAt) - Date.now()) / 1000)),
           }, 'coordination proxySecret binding'),
           expiresAt: registeredProxySecret.expiresAt,

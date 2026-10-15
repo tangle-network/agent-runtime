@@ -1,3 +1,4 @@
+import { assertProxySecretCapabilities, assertProxySecretInstallation, rejectUnmaterializedProviderEnvironment } from './proxy-secret-custody'
 import { randomUUID } from 'node:crypto'
 import { clearImmediate, setImmediate } from 'node:timers'
 import {
@@ -82,8 +83,6 @@ import {
 } from './retained-run-binding'
 import {
   assertRetainedRunReplayMaterial,
-  assertProxySecretInstallation,
-  assertProxySecretCapabilities,
   mintRetainedIdentity,
   reconnectRetainedRun,
   retainedProxySecretBindings,
@@ -2454,7 +2453,11 @@ async function providerExecutionSource(
       profile: args.createProfile,
       signal,
     })
-    assertProxySecretInstallation(environment, proxySecrets)
+    try {
+      assertProxySecretInstallation(environment, proxySecrets)
+    } catch (error) {
+      return rejectUnmaterializedProviderEnvironment(environment, error)
+    }
     return { environment, events: environment.stream(selectedTurn), retained: false }
   }
   const retention = args.retention!

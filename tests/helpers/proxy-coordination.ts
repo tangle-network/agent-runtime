@@ -23,7 +23,10 @@ export const proxySecretCapabilities = {
 
 interface Route {
   local: string
-  credentials: Map<string, { authorization: string; url: string; expiresAt: number; placeholder: string }>
+  credentials: Map<
+    string,
+    { authorization: string; url: string; expiresAt: number; placeholder: string }
+  >
 }
 const routes = new Map<string, Route>()
 let originalFetch: typeof fetch | undefined
@@ -72,7 +75,10 @@ export async function proxyCoordination() {
   const fixture = randomUUID()
   const url = `https://coord-${fixture}.example.test`
   const owned = new Set<string>()
-  const credentials = new Map<string, { authorization: string; url: string; expiresAt: number; placeholder: string }>()
+  const credentials = new Map<
+    string,
+    { authorization: string; url: string; expiresAt: number; placeholder: string }
+  >()
   function route(publicUrl: string, port: number, host = '127.0.0.1') {
     const address = new URL(publicUrl)
     const key = `${address.origin}${address.pathname}`
@@ -83,9 +89,7 @@ export async function proxyCoordination() {
   const proxySecret: CoordinationProxySecretOptions = {
     async prepare(input) {
       if (input.signal.aborted) throw new Error('fixture registration cancelled')
-      const key = createHash('sha256')
-        .update(`${input.runId}:${input.actorId}`)
-        .digest('hex')
+      const key = createHash('sha256').update(`${input.runId}:${input.actorId}`).digest('hex')
       const expiresAt = Math.min(Date.now() + 300_000, input.credentialExpiresAt ?? Infinity)
       const lifetime = expiresAt - Date.now()
       if (lifetime < 1_000) throw new Error('fixture credential already expired')

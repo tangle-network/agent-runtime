@@ -17,11 +17,7 @@ import type {
   AgentSessionRef,
 } from '@tangle-network/agent-interface/environment-provider'
 import {
-  ProxySecretCapabilitiesSchema,
-  ProxySecretReceiptSchema,
-  isProxySecretScopeAttenuation,
   mergeProxySecretBindings,
-  proxySecretPresentationsEqual,
 } from '@tangle-network/agent-interface/environment-provider'
 import {
   RetainedInteractiveAdmissionError,
@@ -62,6 +58,12 @@ import type {
   StartRetainedRunOptions,
 } from './retained-run-types'
 import { detachedSnapshot } from './supervise/snapshot'
+import {
+  assertProxySecretCapabilities,
+  assertProxySecretInstallation,
+  assertProxySecretReceiptLive,
+  rejectUnmaterializedProviderEnvironment,
+} from './proxy-secret-custody'
 import { freshTurnInput } from './turn-input'
 
 /** Preserve both authored and Runtime bindings when replacing a retained environment's grants. */
@@ -79,60 +81,30 @@ async function getRetainedEnvironment(
   provider: AgentEnvironmentProvider,
   id: string,
   options?: AgentEnvironmentGetOptions,
+  verifyOwner?: (environment: AgentEnvironment) => Promise<void> | void,
 ): Promise<AgentEnvironment | null> {
   const bindings = options?.proxySecrets
-  if (bindings !== undefined) assertProxySecretCapabilities(await provider.capabilities(), bindings)
+  if (bindings !== undefined) {
+    assertProxySecretCapabilities(await provider.capabilities(), bindings)
+    if (verifyOwner) {
+      // Read ownership before replacing grants. Stale custody is allowed for this read so an
+      // authorized caller can renew it, but never dispatches until the checked update completes.
+      const current = await provider.get!(id, options?.signal ? { signal: options.signal } : undefined)
+      if (!current) return null
+      if (current.id !== id || current.provider !== provider.name)
+        throw new Error('provider reconstructed a different retained environment')
+      await verifyOwner(current)
+    }
+  }
 
   const environment = await provider.get!(id, bindings === undefined ? options : {
     ...options, requireInPlace: true,
   })
-  if (!environment || bindings === undefined) return environment
-  assertProxySecretInstallation(environment, bindings, id)
+  if (!environment) return environment
+  if (bindings === undefined) assertProxySecretReceiptLive(environment)
+  else assertProxySecretInstallation(environment, bindings, id, 'rebind')
 
   return environment
-}
-
-/** Capability omission refuses declared custody before provider allocation or rebinding. */
-export function assertProxySecretCapabilities(
-  capabilities: AgentEnvironmentCapabilities,
-  bindings: AgentEnvironmentGetOptions['proxySecrets'],
-): void {
-  if (bindings === undefined) return
-  const parsed = ProxySecretCapabilitiesSchema.safeParse(capabilities.create?.proxySecrets)
-  if (!parsed.success || bindings.some((binding) =>
-    !parsed.data.presentations.includes(binding.presentation.type) ||
-    !parsed.data.placeholderFormats.includes(binding.placeholderFormat ?? 'opaque'))) {
-    throw new Error('provider does not advertise the requested proxy-secret enforcement')
-  }
-}
-
-/** Reject incomplete, stale or differently bound materialization before any native dispatch. */
-export function assertProxySecretInstallation(
-  environment: AgentEnvironment,
-  bindings: AgentEnvironmentGetOptions['proxySecrets'],
-  id = environment.id,
-): void {
-  if (bindings === undefined) return
-  const receipt = ProxySecretReceiptSchema.safeParse(environment.proxySecretReceipt)
-  if (!receipt.success || environment.id !== id || receipt.data.sandboxId !== id ||
-      receipt.data.status !== (bindings.length === 0 ? 'revoked' : 'installed') ||
-      receipt.data.bindings.length !== bindings.length ||
-      bindings.some((binding) => {
-        const entry = receipt.data.bindings.find((entry) => entry.envName === binding.envName)
-        const installed = entry?.grant
-        const scope = { hosts: binding.hosts, methods: binding.methods, paths: binding.paths }
-        return !installed || entry?.secretRef.key !== binding.secretRef.key ||
-          installed.sandboxId !== id ||
-          !isProxySecretScopeAttenuation(scope, installed.scope) ||
-          !proxySecretPresentationsEqual(binding.presentation, installed.presentation) ||
-          installed.placeholderFormat !== (binding.placeholderFormat ?? 'opaque') ||
-          (binding.ttlSeconds !== undefined &&
-            Date.parse(installed.expiresAt) - Date.parse(installed.issuedAt) > binding.ttlSeconds * 1000) ||
-          Date.parse(installed.issuedAt) > Date.now() ||
-          Date.parse(installed.expiresAt) <= Date.now()
-      })) {
-    throw new Error('retained provider did not confirm proxy-secret installation for this environment')
-  }
 }
 
 /**
@@ -247,7 +219,7 @@ export async function startRetainedRun(
     const existing = await getRetainedEnvironment(options.provider, options.existingEnvironmentId, {
       proxySecrets: retainedProxySecretBindings(options.environment),
       ...(attachmentSignal === undefined ? {} : { signal: attachmentSignal }),
-    })
+    }, (current) => assertRetainedEnvironmentOwnership(options.provider, current, options.environment.idempotencyKey))
     if (
       !existing ||
       existing.id !== options.existingEnvironmentId ||
@@ -285,35 +257,13 @@ export async function startRetainedRun(
       capabilities,
     )
   } catch (error) {
-    if (transferReceipt !== undefined || options.existingEnvironmentId !== undefined) throw error
-    try {
-      await environment.destroy?.()
-    } catch (cleanupError) {
-      throw new AggregateError(
-        [error, cleanupError],
-        'retained run environment published invalid capabilities and could not be destroyed',
-      )
-    }
-    throw error
+    return rejectUnmaterializedProviderEnvironment(environment, error,
+      transferReceipt !== undefined || options.existingEnvironmentId !== undefined)
   }
   if (!environment.dispatch || !environment.session) {
-    if (transferReceipt !== undefined || options.existingEnvironmentId !== undefined) {
-      throw new Error(
-        `provider "${options.provider.name}" does not expose detached session control`,
-      )
-    }
-    try {
-      await environment.destroy?.()
-    } catch (cleanupError) {
-      throw new AggregateError(
-        [
-          new Error(`provider "${options.provider.name}" does not expose detached session control`),
-          cleanupError,
-        ],
-        'retained run could not start and its unused environment could not be destroyed',
-      )
-    }
-    throw new Error(`provider "${options.provider.name}" does not expose detached session control`)
+    return rejectUnmaterializedProviderEnvironment(environment,
+      new Error(`provider "${options.provider.name}" does not expose detached session control`),
+      transferReceipt !== undefined || options.existingEnvironmentId !== undefined)
   }
 
   return dispatchRetainedRun({
@@ -321,6 +271,7 @@ export async function startRetainedRun(
     environment,
     signal: attachmentSignal,
     environmentIdempotencyKey: options.environment.idempotencyKey,
+    proxySecrets,
     turn: options.turn,
     contextTransfer,
     expectedRunId: transferReceipt?.runId,
@@ -376,7 +327,11 @@ export async function startRetainedRunInEnvironment(
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
-  const environment = await options.provider.get(options.environment.id)
+  const environment = await getRetainedEnvironment(options.provider, options.environment.id, {
+    proxySecrets: options.proxySecrets,
+    expectedProxySecretGeneration: options.expectedProxySecretGeneration,
+    signal: options.signal,
+  }, (current) => assertRetainedEnvironmentOwnership(options.provider, current, options.environment.idempotencyKey))
   if (!environment) {
     throw new Error(
       `provider "${options.provider.name}" no longer holds environment "${options.environment.id}"`,
@@ -408,6 +363,7 @@ export async function startRetainedRunInEnvironment(
     provider: options.provider,
     environment,
     environmentIdempotencyKey: options.environment.idempotencyKey,
+    proxySecrets: options.proxySecrets,
     turn: options.turn,
     contextTransfer,
     identity,
@@ -465,6 +421,7 @@ interface DispatchRetainedRunOptions {
   readonly provider: AgentEnvironmentProvider
   readonly environment: AgentEnvironment
   readonly environmentIdempotencyKey: string
+  readonly proxySecrets?: AgentEnvironmentGetOptions['proxySecrets']
   readonly turn: StartRetainedRunOptions['turn']
   readonly contextTransfer?: ContextTransferRequest
   readonly identity: { readonly sessionId: string; readonly executionId: string }
@@ -514,6 +471,8 @@ async function dispatchRetainedRun(
   options.turn.signal?.throwIfAborted()
   let reference: AgentSessionRef
   try {
+    if (options.proxySecrets === undefined) assertProxySecretReceiptLive(environment)
+    else assertProxySecretInstallation(environment, options.proxySecrets)
     reference = await environment.dispatch!(
       freshTurnInput(options.turn, {
         turnId: options.turn.turnId,
@@ -676,6 +635,13 @@ export async function recoverRetainedRun(
           proxySecrets: options.proxySecrets,
           expectedProxySecretGeneration: options.expectedProxySecretGeneration,
           signal: options.signal,
+        }, (current) => {
+          const stored = current.session?.(options.sessionId).controlRef
+          const parsed = AgentExactRunControlRefSchema.safeParse(stored)
+          if (!parsed.success || parsed.data.provider !== options.provider.name ||
+              parsed.data.environmentId !== options.environmentId ||
+              parsed.data.sessionId !== options.sessionId || parsed.data.executionId !== options.executionId)
+            throw new Error('provider session is bound to other retained run coordinates')
         })
       : await getRetainedEnvironment(options.provider, options.environmentId, {
           contextTransfer,
@@ -877,7 +843,7 @@ export async function reconnectRetainedRun(
     proxySecrets: options.proxySecrets,
     expectedProxySecretGeneration: options.expectedProxySecretGeneration,
     signal: options.signal,
-  })
+  }, (current) => { exactSession(current, controlRef) })
   if (!environment) return null
   const capabilities = retainedCapabilitiesForEnvironment(
     options.provider.name,

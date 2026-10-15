@@ -109,10 +109,22 @@ describe('skill package check', () => {
 describe('proxy-secret authoring examples', () => {
   async function example(profile: Record<string, unknown>) {
     const root = await createRoot()
-    await writeSkill(root, 'profile-authoring', [
-      '---', 'name: profile-authoring', 'description: Author profiles.', '---',
-      '# Profiles', '', '## Then consider', '', '- verify', '',
-    ].join('\n'))
+    await writeSkill(
+      root,
+      'profile-authoring',
+      [
+        '---',
+        'name: profile-authoring',
+        'description: Author profiles.',
+        '---',
+        '# Profiles',
+        '',
+        '## Then consider',
+        '',
+        '- verify',
+        '',
+      ].join('\n'),
+    )
     const directory = join(root, 'profile-authoring', 'examples')
     await mkdir(directory)
     await writeFile(join(directory, 'worker.json'), JSON.stringify(profile))
@@ -120,11 +132,20 @@ describe('proxy-secret authoring examples', () => {
   }
 
   function profile() {
-    return { name: 'worker', proxySecrets: [{
-      envName: 'SERVICE_TOKEN', secretRef: { kind: 'secret-ref', key: 'service' },
-      hosts: ['api.example.test'], presentation: { type: 'bearer' },
-      methods: ['GET'], paths: ['/v1/result'], ttlSeconds: 60,
-    }] }
+    return {
+      name: 'worker',
+      proxySecrets: [
+        {
+          envName: 'SERVICE_TOKEN',
+          secretRef: { kind: 'secret-ref', key: 'service' },
+          hosts: ['api.example.test'],
+          presentation: { type: 'bearer' },
+          methods: ['GET'],
+          paths: ['/v1/result'],
+          ttlSeconds: 60,
+        },
+      ],
+    }
   }
 
   it('accepts reference-only scoped declarations', async () => {
@@ -147,16 +168,57 @@ describe('proxy-secret authoring examples', () => {
   })
 
   it.each([
-    ['literal reference', (p: ReturnType<typeof profile>) => Object.assign(p.proxySecrets[0], { secretRef: 'literal' }), 'secret-ref'],
-    ['wildcard host', (p: ReturnType<typeof profile>) => { p.proxySecrets[0].hosts = ['*.example.test'] }, 'exact hosts'],
-    ['missing lifetime', (p: ReturnType<typeof profile>) => { Reflect.deleteProperty(p.proxySecrets[0], 'ttlSeconds') }, 'ttlSeconds'],
-    ['missing methods', (p: ReturnType<typeof profile>) => { p.proxySecrets[0].methods = [] }, 'methods'],
-    ['missing paths', (p: ReturnType<typeof profile>) => { p.proxySecrets[0].paths = [] }, 'paths'],
-    ['readable alias', (p: ReturnType<typeof profile>) => Object.assign(p, { env: { SERVICE_TOKEN: 'literal' } }), 'readable duplicate'],
-    ['readable reference alias', (p: ReturnType<typeof profile>) => Object.assign(p, { mcp: { service: { env: { OTHER_TOKEN: { kind: 'secret-ref', key: 'service' } } } } }), 'readable duplicate'],
+    [
+      'literal reference',
+      (p: ReturnType<typeof profile>) => Object.assign(p.proxySecrets[0], { secretRef: 'literal' }),
+      'secret-ref',
+    ],
+    [
+      'wildcard host',
+      (p: ReturnType<typeof profile>) => {
+        p.proxySecrets[0].hosts = ['*.example.test']
+      },
+      'exact hosts',
+    ],
+    [
+      'missing lifetime',
+      (p: ReturnType<typeof profile>) => {
+        Reflect.deleteProperty(p.proxySecrets[0], 'ttlSeconds')
+      },
+      'ttlSeconds',
+    ],
+    [
+      'missing methods',
+      (p: ReturnType<typeof profile>) => {
+        p.proxySecrets[0].methods = []
+      },
+      'methods',
+    ],
+    [
+      'missing paths',
+      (p: ReturnType<typeof profile>) => {
+        p.proxySecrets[0].paths = []
+      },
+      'paths',
+    ],
+    [
+      'readable alias',
+      (p: ReturnType<typeof profile>) => Object.assign(p, { env: { SERVICE_TOKEN: 'literal' } }),
+      'readable duplicate',
+    ],
+    [
+      'readable reference alias',
+      (p: ReturnType<typeof profile>) =>
+        Object.assign(p, {
+          mcp: { service: { env: { OTHER_TOKEN: { kind: 'secret-ref', key: 'service' } } } },
+        }),
+      'readable duplicate',
+    ],
   ])('rejects %s', async (_label, mutate, expected) => {
     const authored = profile()
     mutate(authored)
-    await expect(check(await example(authored))).rejects.toMatchObject({ stderr: expect.stringContaining(expected) })
+    await expect(check(await example(authored))).rejects.toMatchObject({
+      stderr: expect.stringContaining(expected),
+    })
   })
 })

@@ -17,11 +17,11 @@ import type { SpawnEvent } from '../../src/runtime/supervise/types'
 import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
 import { completeCapture } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
+import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import {
   proxyCoordination as coordinationProxy,
   proxySecretCapabilities,
 } from '../helpers/proxy-coordination'
-import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 // The error text of a production failure measured 2026-09-17 on a Discovery director placed on

@@ -12,11 +12,11 @@ import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
 import { testContinuation } from '../helpers/continuation'
+import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import {
   proxyCoordination as coordinationProxy,
   proxySecretCapabilities,
 } from '../helpers/proxy-coordination'
-import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
@@ -1083,10 +1083,11 @@ describe('retained external supervisor recovery', () => {
       const dispatches = fixture.dispatches()
       const rebinds = fixture.rebinds()
       const detail = await fixture.resume().then(
-        (result) => result?.kind === 'no-winner' && result.reason === 'driver-failed'
-          ? result.error.message
-          : '',
-        (error: unknown) => error instanceof Error ? error.message : '',
+        (result) =>
+          result?.kind === 'no-winner' && result.reason === 'driver-failed'
+            ? result.error.message
+            : '',
+        (error: unknown) => (error instanceof Error ? error.message : ''),
       )
       expect(fixture.rebinds()).toBeGreaterThan(rebinds)
       expect(fixture.dispatches()).toBe(dispatches)

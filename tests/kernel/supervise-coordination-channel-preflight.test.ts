@@ -173,7 +173,9 @@ it.each([false, true])(
     let receivedProfile: AgentProfile | undefined
     const provider: AgentEnvironmentProvider = {
       name: 'attachment-boundary',
-      capabilities: () => ({ create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities } }),
+      capabilities: () => ({
+        create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
+      }),
       async create(input) {
         creates++
         receivedProfile = input.profile
@@ -226,7 +228,9 @@ it('never admits a provider manager when asynchronous endpoint provisioning fail
   const { provider: base, creates } = neverCreatingProvider()
   const provider: AgentEnvironmentProvider = {
     ...base,
-    capabilities: () => ({ create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities } }),
+    capabilities: () => ({
+      create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
+    }),
   }
   const proxy = await proxyCoordination()
   proxies.push(proxy)
@@ -263,7 +267,9 @@ it.each([401, 403, 404, 503, 200, 'timeout'] as const)(
     const { provider: base, creates } = neverCreatingProvider()
     const provider: AgentEnvironmentProvider = {
       ...base,
-      capabilities: () => ({ create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities } }),
+      capabilities: () => ({
+        create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
+      }),
     }
     const proxy = await proxyCoordination()
     proxies.push(proxy)
@@ -297,7 +303,9 @@ it('refuses provider coordination before create when no proxy-held credential pl
   const { provider: base, creates } = neverCreatingProvider()
   const provider: AgentEnvironmentProvider = {
     ...base,
-    capabilities: () => ({ create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities } }),
+    capabilities: () => ({
+      create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
+    }),
   }
   await spawnLeadFromRoot(
     {

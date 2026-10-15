@@ -250,7 +250,7 @@ export interface StartRetainedRunOptions extends RetainedRunStartMaterial {
 }
 
 /** A fresh retained session inside a provider environment that already exists. @stable */
-export interface StartRetainedRunInEnvironmentOptions {
+export interface StartRetainedRunInEnvironmentOptions extends Pick<AgentEnvironmentGetOptions, 'proxySecrets' | 'expectedProxySecretGeneration' | 'signal'> {
   readonly provider: AgentEnvironmentProvider
   readonly environment: {
     /** Stable provider environment identifier used by `provider.get`. */

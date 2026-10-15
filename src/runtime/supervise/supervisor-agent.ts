@@ -58,8 +58,8 @@ import { driverAgent } from './coordination-driver'
 import type { PriorCoordination } from './coordination-log'
 import {
   assertCoordinationTransport,
-  type CoordinationTransportOptions,
   type CoordinationProxySecret,
+  type CoordinationTransportOptions,
   serveCoordinationMcpForManager,
 } from './coordination-mcp'
 import {

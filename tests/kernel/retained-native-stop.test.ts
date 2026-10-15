@@ -25,11 +25,11 @@ import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Agent, SpawnEvent } from '../../src/runtime/supervise/types'
 import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
 import { testContinuation } from '../helpers/continuation'
+import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import {
   proxyCoordination as coordinationProxy,
   proxySecretCapabilities,
 } from '../helpers/proxy-coordination'
-import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
