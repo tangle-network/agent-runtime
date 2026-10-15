@@ -2,9 +2,16 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProfile, ProxySecretBinding } from '@tangle-network/agent-interface'
-import type { AgentEnvironment, AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import { InMemoryResultBlobStore, InMemorySpawnJournal, loadSpawnForest } from '../../src/durable/spawn-journal'
+import {
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+  loadSpawnForest,
+} from '../../src/durable/spawn-journal'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import { type SuperviseOptions, supervise } from '../../src/runtime/supervise/supervise'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
@@ -170,7 +177,10 @@ describe('public supervise proxy-secret descendant admission', () => {
         (value) => JSON.stringify(value),
         (error) => String(error),
       )
-      expect(allocated, 'missing readback is checked on the created fixture environment').toHaveLength(1)
+      expect(
+        allocated,
+        'missing readback is checked on the created fixture environment',
+      ).toHaveLength(1)
       expect(dispatches).toBe(0)
       expect(destroyed).toBe(1)
       expect(outcome).toContain('provider proxySecretParents readback differs from admitted pins')
@@ -192,128 +202,203 @@ describe('public supervise proxy-secret descendant admission', () => {
     }
   })
 
-  it('persists actual root-child-grandchild parent maps before provider creation', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'supervise-proxy-parent-tree-'))
-    const proxy = await proxyCoordination()
-    const journal = new InMemorySpawnJournal()
-    const blobs = new InMemoryResultBlobStore()
-    const base = durableRetainedProvider(join(directory, 'provider.json'))
-    const allocations: Array<{ name: string; environment: AgentEnvironment; parents: unknown }> = []
-    const mapsBeforeAllocation: unknown[] = []
-    const replies: unknown[] = []
-    const dispatchedNames: string[] = []
-    const controller = new AbortController()
-    let releaseAncestors: () => void = () => {}
-    const descendantsDispatched = new Promise<void>(resolve => {
-      releaseAncestors = resolve
-      controller.signal.addEventListener('abort', () => resolve(), { once: true })
-    })
-    const child = profile('child', [childBinding], true)
-    const grandchild = profile('grandchild', [{ ...childBinding, ttlSeconds: 30 }], true)
-    const defaults = { env: { PUBLIC_FIXTURE_SETTING: 'preserved' } }
-    const provider: AgentEnvironmentProvider = {
-      ...base,
-      async capabilities() {
-        const capabilities = await base.capabilities()
-        return {
-          ...capabilities,
-          create: {
-            ...capabilities.create,
-            runtimeAttachments: { mcp: true },
-            proxySecrets: proxySecretCapabilities,
-          },
-        }
-      },
-      async create(input) {
-        if (typeof input.profile === 'string') throw new Error('inline profile required by fixture')
-        const name = input.profile.name
-        if (!name) throw new Error('named profile required by fixture')
-        const parents: unknown = Reflect.get(input, 'proxySecretParents')
-        const forest = await loadSpawnForest(journal, 'proxy-parent-tree')
-        const events = forest.events.map(entry => entry.event)
-        const inputMaps = events.filter(event => event.kind === 'execution-input')
-          .map(event => Reflect.get(event, 'proxySecretParents'))
-        mapsBeforeAllocation.push({ name, parents, inputMaps })
-        const environment = await base.create(input)
-        allocations.push({ name, environment, parents })
-        const authorization = proxy.authorizationFor(input)
-        const attachment = input.runtimeAttachments?.mcp?.['agent-runtime-coordination']
-        if (!attachment || attachment.transport !== 'http') throw new Error('manager coordination URL required by fixture')
-        const request = async (tool: string, args: Record<string, unknown>) => {
-          const response = await fetch(attachment.url, {
-            method: 'POST',
-            signal: controller.signal,
-            headers: { Authorization: authorization, 'content-type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: `${name}:${tool}`, method: 'tools/call', params: { name: tool, arguments: args } }),
-          })
-          expect(response.ok).toBe(true)
-          const reply: unknown = await response.json()
-          replies.push(reply)
-          if (reply !== null && typeof reply === 'object') {
-            const result: unknown = Reflect.get(reply, 'result')
-            if (Object.hasOwn(reply, 'error') || (result !== null && typeof result === 'object' && Reflect.get(result, 'isError') === true)) {
-              releaseAncestors()
-              throw new Error(`fixture ${tool} refused`)
+  it.each(['ordinary manager', 'managed protected steering leaf'] as const)(
+    'persists actual root-child-grandchild parent maps before provider creation (%s)',
+    async (mode) => {
+      const steering = mode === 'managed protected steering leaf'
+      const directory = await mkdtemp(join(tmpdir(), 'supervise-proxy-parent-tree-'))
+      const proxy = await proxyCoordination()
+      const journal = new InMemorySpawnJournal()
+      const blobs = new InMemoryResultBlobStore()
+      const base = durableRetainedProvider(join(directory, 'provider.json'))
+      const allocations: Array<{
+        name: string
+        environment: AgentEnvironment
+        parents: unknown
+        readback: unknown
+      }> = []
+      const mapsBeforeAllocation: unknown[] = []
+      const replies: unknown[] = []
+      const dispatchedNames: string[] = []
+      const streamedNames: string[] = []
+      const controller = new AbortController()
+      let releaseAncestors: () => void = () => {}
+      const descendantsDispatched = new Promise<void>((resolve) => {
+        releaseAncestors = resolve
+        controller.signal.addEventListener('abort', () => resolve(), { once: true })
+      })
+      const child = profile('child', [childBinding], true)
+      const grandchild = profile('grandchild', [{ ...childBinding, ttlSeconds: 30 }], !steering)
+      const defaults = { env: { PUBLIC_FIXTURE_SETTING: 'preserved' } }
+      const provider: AgentEnvironmentProvider = {
+        ...base,
+        async capabilities() {
+          const capabilities = await base.capabilities()
+          return {
+            ...capabilities,
+            create: {
+              ...capabilities.create,
+              runtimeAttachments: { mcp: true },
+              proxySecrets: proxySecretCapabilities,
+            },
+          }
+        },
+        async create(input) {
+          if (typeof input.profile === 'string')
+            throw new Error('inline profile required by fixture')
+          const name = input.profile.name
+          if (!name) throw new Error('named profile required by fixture')
+          const parents: unknown = Reflect.get(input, 'proxySecretParents')
+          const forest = await loadSpawnForest(journal, 'proxy-parent-tree')
+          const events = forest.events.map((entry) => entry.event)
+          const inputMaps = events
+            .filter((event) => event.kind === 'execution-input')
+            .map((event) => Reflect.get(event, 'proxySecretParents'))
+          mapsBeforeAllocation.push({ name, parents, inputMaps })
+          const environment = await base.create(input)
+          allocations.push({ name, environment, parents, readback: environment.proxySecretParents })
+          if (steering && name === 'grandchild') {
+            expect(input.runtimeAttachments?.mcp?.['agent-runtime-coordination']).toBeUndefined()
+            return {
+              ...environment,
+              async *stream() {
+                streamedNames.push(name)
+                releaseAncestors()
+                yield { type: 'result' as const, data: { finalText: 'scoped reports complete' } }
+              },
             }
           }
-          return reply
-        }
-        return {
-          ...environment,
-          async dispatch(turn) {
-            const dispatched = await environment.dispatch!(turn)
-            dispatchedNames.push(name)
-            if (name === 'grandchild') releaseAncestors()
-            if (name === 'root' || name === 'child') {
-              await request('spawn_worker', { profile: name === 'root' ? child : grandchild, task: 'delegate scoped reports', key: `${name}-reports` })
-              // End ancestors after the grandchild's actual fixture dispatch,
-              // following both public spawn boundaries and receipt checks.
-              await descendantsDispatched
+          const authorization = proxy.authorizationFor(input)
+          const attachment = input.runtimeAttachments?.mcp?.['agent-runtime-coordination']
+          if (!attachment || attachment.transport !== 'http')
+            throw new Error('manager coordination URL required by fixture')
+          const request = async (tool: string, args: Record<string, unknown>) => {
+            const response = await fetch(attachment.url, {
+              method: 'POST',
+              signal: controller.signal,
+              headers: { Authorization: authorization, 'content-type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: `${name}:${tool}`,
+                method: 'tools/call',
+                params: { name: tool, arguments: args },
+              }),
+            })
+            expect(response.ok).toBe(true)
+            const reply: unknown = await response.json()
+            replies.push(reply)
+            if (reply !== null && typeof reply === 'object') {
+              const result: unknown = Reflect.get(reply, 'result')
+              if (
+                Object.hasOwn(reply, 'error') ||
+                (result !== null &&
+                  typeof result === 'object' &&
+                  Reflect.get(result, 'isError') === true)
+              ) {
+                releaseAncestors()
+                throw new Error(`fixture ${tool} refused`)
+              }
             }
-            await request('stop', {})
-            return dispatched
-          },
-        }
-      },
-    }
-    const timeout = setTimeout(() => controller.abort(new Error('fixture delegation deadline')), 3_000)
-    try {
-      const outcome = await supervise(profile('root', [parentBinding], true), 'delegate scoped reports', {
-        runId: 'proxy-parent-tree', journal, blobs, signal: controller.signal,
-        backend: { backend: 'provider', provider, defaults },
-        driverBackend: { backend: 'provider', provider, defaults },
-        budget: { maxIterations: 40, maxTokens: 40_000 },
-        perWorker: { maxIterations: 10, maxTokens: 10_000 },
-        driverRetry: { enabled: false },
-        inheritSpawnRights: false,
-        authorizeSpawn: ({ profile: requested }) => ({ profile: requested }),
-        coordination: { authentication: true, publicUrl: proxy.publicUrl, proxySecret: proxy.proxySecret },
-      }).catch(error => error)
-      expect(allocations.map(entry => entry.name), 'root and descendant allocations must preserve admitted parent maps').toEqual(['root', 'child', 'grandchild'])
-      expect(outcome).not.toBeInstanceOf(Error)
-      expect(dispatchedNames).toEqual(['root', 'child', 'grandchild'])
-      const [root, delegated, nested] = allocations
-      const rootParents = { REPORTS_TOKEN: null, AGENT_RUNTIME_COORDINATION_TOKEN: null }
-      const childParents = { REPORTS_TOKEN: root!.environment.id, AGENT_RUNTIME_COORDINATION_TOKEN: null }
-      const grandchildParents = { REPORTS_TOKEN: delegated!.environment.id, AGENT_RUNTIME_COORDINATION_TOKEN: null }
-      expect(root!.parents).toEqual(rootParents)
-      expect(delegated!.parents).toEqual(childParents)
-      expect(nested!.parents).toEqual(grandchildParents)
-      expect(new Set(allocations.map(entry => entry.environment.id)).size).toBe(3)
-      for (const [index, parents] of [rootParents, childParents, grandchildParents].entries()) {
-        expect(mapsBeforeAllocation[index]).toMatchObject({ parents, inputMaps: expect.arrayContaining([parents]) })
-        expect(Reflect.get(allocations[index]!.environment, 'proxySecretParents')).toEqual(parents)
+            return reply
+          }
+          return {
+            ...environment,
+            async dispatch(turn) {
+              const dispatched = await environment.dispatch!(turn)
+              dispatchedNames.push(name)
+              if (name === 'grandchild') releaseAncestors()
+              if (name === 'root' || name === 'child') {
+                await request('spawn_worker', {
+                  profile: name === 'root' ? child : grandchild,
+                  task: 'delegate scoped reports',
+                  key: `${name}-reports`,
+                })
+                // End ancestors after the grandchild's actual fixture dispatch,
+                // following both public spawn boundaries and receipt checks.
+                await descendantsDispatched
+              }
+              await request('stop', {})
+              return dispatched
+            },
+          }
+        },
       }
-      expect(defaults).toEqual({ env: { PUBLIC_FIXTURE_SETTING: 'preserved' } })
-      expect(JSON.stringify(replies)).not.toContain('"isError":true')
-    } finally {
-      clearTimeout(timeout)
-      releaseAncestors()
-      controller.abort()
-      await proxy.close()
-      await rm(directory, { recursive: true, force: true })
-    }
-  })
+      const timeout = setTimeout(
+        () => controller.abort(new Error('fixture delegation deadline')),
+        3_000,
+      )
+      try {
+        const outcome = await supervise(
+          profile('root', [parentBinding], true),
+          'delegate scoped reports',
+          {
+            runId: 'proxy-parent-tree',
+            journal,
+            blobs,
+            signal: controller.signal,
+            backend: {
+              backend: 'provider',
+              provider,
+              defaults,
+              ...(steering ? { steering: { maxTurns: 1, turnTimeoutMs: 1_000 } } : {}),
+            },
+            driverBackend: { backend: 'provider', provider, defaults },
+            budget: { maxIterations: 40, maxTokens: 40_000 },
+            perWorker: { maxIterations: 10, maxTokens: 10_000 },
+            driverRetry: { enabled: false },
+            inheritSpawnRights: false,
+            authorizeSpawn: ({ profile: requested }) => ({ profile: requested }),
+            coordination: {
+              authentication: true,
+              publicUrl: proxy.publicUrl,
+              proxySecret: proxy.proxySecret,
+            },
+          },
+        ).catch((error) => error)
+        expect(
+          allocations.map((entry) => entry.name),
+          'root and descendant allocations must preserve admitted parent maps',
+        ).toEqual(['root', 'child', 'grandchild'])
+        expect(outcome).not.toBeInstanceOf(Error)
+        expect(dispatchedNames).toEqual(
+          steering ? ['root', 'child'] : ['root', 'child', 'grandchild'],
+        )
+        expect(
+          streamedNames,
+          'managed protected steering must reach the public adapter stream',
+        ).toEqual(steering ? ['grandchild'] : [])
+        const [root, delegated, nested] = allocations
+        const rootParents = { REPORTS_TOKEN: null, AGENT_RUNTIME_COORDINATION_TOKEN: null }
+        const childParents = {
+          REPORTS_TOKEN: root!.environment.id,
+          AGENT_RUNTIME_COORDINATION_TOKEN: null,
+        }
+        const grandchildParents = {
+          REPORTS_TOKEN: delegated!.environment.id,
+          ...(!steering ? { AGENT_RUNTIME_COORDINATION_TOKEN: null } : {}),
+        }
+        expect(root!.parents).toEqual(rootParents)
+        expect(delegated!.parents).toEqual(childParents)
+        expect(nested!.parents).toEqual(grandchildParents)
+        expect(new Set(allocations.map((entry) => entry.environment.id)).size).toBe(3)
+        for (const [index, parents] of [rootParents, childParents, grandchildParents].entries()) {
+          expect(mapsBeforeAllocation[index]).toMatchObject({
+            parents,
+            inputMaps: expect.arrayContaining([parents]),
+          })
+          expect(allocations[index]!.readback).toEqual(parents)
+        }
+        expect(defaults).toEqual({ env: { PUBLIC_FIXTURE_SETTING: 'preserved' } })
+        expect(JSON.stringify(replies)).not.toContain('"isError":true')
+      } finally {
+        clearTimeout(timeout)
+        releaseAncestors()
+        controller.abort()
+        await proxy.close()
+        await rm(directory, { recursive: true, force: true })
+      }
+    },
+  )
 
   it.each([
     ['backend', 'defaults'],
