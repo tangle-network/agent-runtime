@@ -73,6 +73,7 @@ interface MaterializeAgentCandidateProfilePlanOptions {
 export function materializeAgentCandidateProfilePlan(
   options: MaterializeAgentCandidateProfilePlanOptions,
 ): AgentCandidateWorkspacePlan {
+  assertLocalCandidateCustody(options.profile)
   const root =
     options.workspace === 'task' ? options.workspaces.taskRoot : options.workspaces.candidateRoot
   if (!root) throw new Error('candidate profile target is missing its execution workspace root')
@@ -308,15 +309,19 @@ export function parseExactCandidateProfile(input: unknown): AgentCandidateProfil
 /** Reject profile fields whose behavioral effect is not yet proven by candidate executors. */
 export function assertCandidateProfileExecutionSupport(profile: AgentCandidateProfile): void {
   assertResolvedKnowledgeResources(profile.resources)
-  if (profile.proxySecrets?.length) {
-    throw new Error('candidate local execution cannot materialize proxy-held secret declarations')
-  }
+  assertLocalCandidateCustody(profile)
   const fields = ['tools', 'permissions', 'modes', 'confidential'] as const
   const unsupported = fields.filter((field) => hasEntries(profile[field]))
   if (unsupported.length > 0) {
     throw new Error(
       `candidate execution cannot prove in-session effects for non-empty AgentProfile fields: ${unsupported.join(', ')}`,
     )
+  }
+}
+
+function assertLocalCandidateCustody(profile: AgentCandidateProfile): void {
+  if (profile.proxySecrets?.length) {
+    throw new Error('candidate local execution cannot materialize proxy-held secret declarations')
   }
 }
 

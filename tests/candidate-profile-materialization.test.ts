@@ -5,6 +5,7 @@ import {
   assertCandidateProfileExecutionSupport,
   candidateMaterializerHarness,
   freezeGenericAgentCandidateProfile,
+  materializeAgentCandidateProfilePlan,
 } from '../src/candidate-execution/profile'
 import { projectCandidatePromptIntents } from '../src/candidate-execution/system-prompt'
 import type { AgentCandidateWorkspacePlan } from '@tangle-network/agent-profile-materialize'
@@ -38,6 +39,11 @@ it('preserves tagged references and proxy scope through candidate profile conver
   expect(() => assertCandidateProfileExecutionSupport(candidate)).toThrow(
     'candidate local execution cannot materialize proxy-held secret declarations',
   )
+  expect(() => materializeAgentCandidateProfilePlan({
+    profile: candidate, harness: 'codex', workspace: 'task',
+    launch: { kind: 'container-command', executable: 'codex' },
+    workspaces: { taskRoot: '/workspace/task' },
+  })).toThrow('candidate local execution cannot materialize proxy-held secret declarations')
 })
 
 it('refuses to turn a hook argument reference into readable shell text', () => {

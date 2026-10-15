@@ -60,7 +60,7 @@ describe('candidate execution preparation', () => {
     bindCandidateFixtureBundle(value)
     await expect(prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(value.bundle, value.ports), value.task, value.ports,
-    )).rejects.toThrow('candidate local launch cannot resolve secret references')
+    )).rejects.toThrow(/cannot resolve secret references/)
   })
 
   it.each([
