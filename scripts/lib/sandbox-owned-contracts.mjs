@@ -67,7 +67,7 @@ const qualifiedCohorts = [
     ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
   ],
   [
-    ['sandbox', '0.60.58', '534a30775ddfc45de947fc29ea174d4dfcdbc223d4b7169a192759ce93a452c4'],
+    ['sandbox', '0.60.58', '7f8f980fd6dbfe578a35c4cf505205307fd19dcd7a40d6656b6f5203ca912bb6'],
     ['agent-interface', '5.3.1', '75aaca3eadc2f4cc9c34eb00fcd88aa11e5ba08fb829af291943468c7b016e4f'],
     ['agent-core', '0.12.0', '81c0e698c4f08418cdbf7aa4901a5278d23b5cdac3d35260504b2112d3e4999e'],
     ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
