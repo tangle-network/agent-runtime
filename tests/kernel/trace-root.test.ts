@@ -521,6 +521,28 @@ describe('trace root', () => {
     ).toEqual(recorded.map((record) => record.traceRoot))
   })
 
+  it('builds the root merkleRoot gives its leaves, at every tree shape', async () => {
+    // The root is built as the leaves arrive. Leaf counts on both sides of each power of two
+    // cover every arrangement of its perfect subtrees.
+    const leafCounts = [3, 4, 5, 7, 8, 9, 16, 17, 31, 32, 33, 255, 256, 257, 513]
+    const built: number[] = []
+    for (const leafCount of leafCounts) {
+      // The stream's terminal `result` and `done` frames are two of the events.
+      const parts = Array.from({ length: leafCount - 3 }, (_, index) =>
+        partUpdate(`prt-${index}`, 'text', `part ${index}`),
+      )
+      const { settled, blobs } = await settledProviderChild([
+        ...parts,
+        { type: 'result', data: { finalText: 'done' } },
+        { type: 'done', data: {} },
+      ])
+      // Recomputes merkleRoot(leaves) and checks it is the journal's root.
+      const verified = await verifyStoredTrace(blobs, settled)
+      built.push(verified.artifact.leafCount)
+    }
+    expect(built).toEqual(leafCounts)
+  })
+
   it('refuses any single-byte change to a stored event that changes or breaks it', async () => {
     const { settled, blobs } = await settledProviderChild(streamedTurn())
     const verified = await verifyStoredTrace(blobs, settled)

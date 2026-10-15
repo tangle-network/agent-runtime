@@ -96,7 +96,11 @@ async function persistTraceRoot(
     if (error instanceof LedgerCanonicalizationError) return undefined
     throw error
   }
+  // The content address and the store's own encoding each walk the whole artifact (9.2 MB for
+  // the largest turn); each takes its own turn of the event loop.
+  await nextTurn()
   const ref = contentAddress(artifact)
+  await nextTurn()
   await blobs.put(ref, artifact)
   return { root: artifact.root, ref, leafCount: artifact.leafCount }
 }
@@ -107,10 +111,26 @@ function archivedEvents(out: unknown): readonly unknown[] | undefined {
   return Array.isArray(events) ? events : undefined
 }
 
-/** Leaves hashed between yields to the event loop. Hashing runs about 40 µs per event, and the
- *  largest archived turn holds 65,276 events: unbroken, that blocked the process for 2.7 s while
- *  sibling turns, coordination calls and heartbeats waited. */
-const LEAVES_PER_SLICE = 256
+/** The longest stretch of hashing between yields to the event loop. Hashing runs about 40 µs per
+ *  event, and the largest archived turn holds 65,276 events: unbroken, that blocked the process
+ *  for 2.7 s while sibling turns, coordination calls and heartbeats waited. A slice is measured
+ *  in time, not events, because one event can be megabytes. */
+const SLICE_MS = 10
+
+/** Yields to the event loop once a slice has run `SLICE_MS`; `undefined` while it has not. */
+function slicer(): () => Promise<void> | undefined {
+  let started = performance.now()
+  return () => {
+    if (performance.now() - started < SLICE_MS) return undefined
+    return nextTurn().then(() => {
+      started = performance.now()
+    })
+  }
+}
+
+function nextTurn(): Promise<void> {
+  return new Promise<void>((resolve) => setImmediate(resolve))
+}
 
 async function traceRootArtifact(
   nodeId: string,
@@ -119,18 +139,22 @@ async function traceRootArtifact(
 ): Promise<TraceRootArtifact> {
   const salts: string[] = []
   const leaves: LedgerHash[] = []
+  const tree = merkleTree()
   const tools = createSandboxToolPartState()
   const toolCalls = new Map<string, number>()
-  for (const [index, event] of archived.entries()) {
-    if (index > 0 && index % LEAVES_PER_SLICE === 0) {
-      await new Promise<void>((resolve) => setImmediate(resolve))
-    }
+  const slice = slicer()
+  for (const event of archived) {
+    const yielded = slice()
+    if (yielded !== undefined) await yielded
     // Hash the event as the blob store keeps it: a JSON document, read back the way a verifier
     // reads `events[i]`. The writer's copy is a structured clone and can hold values JSON drops.
-    const stored = storedForm(event)
+    const text = storedText(event)
+    const stored: unknown = JSON.parse(text)
     const salt = merkleSalt()
+    const leaf = merkleLeafHash(canonicalString(jsonDocument(stored)), salt)
     salts.push(salt)
-    leaves.push(merkleLeafHash(canonicalString(jsonDocument(stored)), salt))
+    leaves.push(leaf)
+    tree.push(leaf)
     for (const projected of mapSandboxToolEvent(stored as SandboxEvent, tools)) {
       if (projected.type !== 'tool_call') continue
       toolCalls.set(projected.toolName, (toolCalls.get(projected.toolName) ?? 0) + 1)
@@ -142,13 +166,15 @@ async function traceRootArtifact(
     toolCalls: Object.fromEntries(toolCalls),
   }
   const salt = merkleSalt()
+  const leaf = merkleLeafHash(canonicalString(summary), salt)
   salts.push(salt)
-  leaves.push(merkleLeafHash(canonicalString(summary), salt))
+  leaves.push(leaf)
+  tree.push(leaf)
   return {
     schema: TRACE_ROOT_SCHEMA,
     nodeId,
     outRef,
-    root: merkleRoot(leaves),
+    root: tree.root(),
     leafCount: leaves.length,
     salts,
     leaves,
@@ -156,8 +182,36 @@ async function traceRootArtifact(
   }
 }
 
-/** One array item through `JSON.stringify` and back: what `JSON.parse(blob).events[i]` holds. */
-function storedForm(event: unknown): unknown {
-  const text = JSON.stringify(event)
-  return text === undefined ? null : JSON.parse(text)
+/**
+ * `merkleRoot(leaves)` built as the leaves arrive, so its interior hashes run inside the sliced
+ * leaf loop instead of in one block after it (0.4 s for 65,277 leaves). It keeps the perfect
+ * subtrees of RFC 9162, largest first, and joins two with ledger-core's own interior hash,
+ * `merkleRoot([left, right])`; the root folds them from the right, as RFC 9162 splits at the
+ * largest power of two.
+ */
+function merkleTree(): { push(leaf: LedgerHash): void; root(): LedgerHash } {
+  const peaks: { hash: LedgerHash; size: number }[] = []
+  return {
+    push(leaf) {
+      let hash = leaf
+      let size = 1
+      while (peaks.at(-1)?.size === size) {
+        hash = merkleRoot([peaks.pop()!.hash, hash])
+        size *= 2
+      }
+      peaks.push({ hash, size })
+    },
+    root() {
+      let root = peaks.at(-1)!.hash
+      for (let index = peaks.length - 2; index >= 0; index -= 1) {
+        root = merkleRoot([peaks[index]!.hash, root])
+      }
+      return root
+    },
+  }
+}
+
+/** One array item as `JSON.stringify` writes it: `JSON.parse` of it is what `events[i]` holds. */
+function storedText(event: unknown): string {
+  return JSON.stringify(event) ?? 'null'
 }
