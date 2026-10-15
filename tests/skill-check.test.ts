@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -20,8 +20,8 @@ async function writeSkill(root: string, name: string, content: string): Promise<
   await writeFile(join(directory, 'SKILL.md'), content)
 }
 
-async function check(root: string) {
-  return execFileAsync(process.execPath, ['scripts/check-skills.mjs'], {
+async function check(root: string, args: string[] = []) {
+  return execFileAsync(process.execPath, ['scripts/check-skills.mjs', ...args], {
     cwd: process.cwd(),
     env: { ...process.env, AGENT_RUNTIME_SKILLS_ROOT: root },
   })
@@ -221,4 +221,20 @@ describe('proxy-secret authoring examples', () => {
       stderr: expect.stringContaining(expected),
     })
   })
+})
+
+it('refreshes generated manager resources from the maintained worker bytes', async () => {
+  const root = await createRoot()
+  const skill = join(root, 'profile-authoring')
+  await cp('skills/profile-authoring', skill, { recursive: true })
+  const worker = join(skill, 'examples', 'proxy-worker.json')
+  const authored = JSON.parse(await readFile(worker, 'utf8'))
+  authored.description = 'An updated checked worker.'
+  await writeFile(worker, `${JSON.stringify(authored, null, 2)}\n`)
+  await expect(check(root)).rejects.toMatchObject({
+    stderr: expect.stringContaining('generated manager resources are stale'),
+  })
+  await expect(check(root, ['--write'])).resolves.toMatchObject({ stderr: '' })
+  const manager = JSON.parse(await readFile(join(skill, 'examples', 'proxy-manager.json'), 'utf8'))
+  expect(manager.resources.files[0].resource.content).toBe(await readFile(worker, 'utf8'))
 })

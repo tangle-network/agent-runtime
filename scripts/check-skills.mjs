@@ -1,8 +1,9 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { isIP } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { agentProfileSchema } from '@tangle-network/agent-interface'
+import { skillDirForHarness } from '@tangle-network/agent-profile-materialize'
 
 const root = process.env.AGENT_RUNTIME_SKILLS_ROOT
   ? resolve(process.env.AGENT_RUNTIME_SKILLS_ROOT)
@@ -34,6 +35,38 @@ function frontmatterField(frontmatter, key) {
   return (value.startsWith('>') ? continuation.join(' ') : continuation.join('\n')).trim()
 }
 
+// Only this shipped template is generated; portable resource resolution stays materializer-owned.
+function synchronizeManagerResources(profile, path, fail) {
+  let resources
+  try {
+    const directory = skillDirForHarness(profile.harness)
+    if (!directory) throw new Error('unsupported skill placement')
+    const content = (source) => readFileSync(join(root, 'profile-authoring', source), 'utf8')
+    resources = {
+      failOnError: true,
+      skills: [{ kind: 'inline', name: 'profile-authoring', content: content('SKILL.md') }],
+      files: [
+        { path: 'profiles/proxy-worker.json', resource: {
+          kind: 'inline', name: 'proxy-worker', content: content('examples/proxy-worker.json'),
+        } },
+        { path: `${directory}/profile-authoring/references/execution-and-credentials.md`, resource: {
+          kind: 'inline', name: 'execution-and-credentials', content: content('references/execution-and-credentials.md'),
+        } },
+      ],
+    }
+  } catch {
+    fail('generated manager resources require maintained sources and a supported skill placement')
+    return
+  }
+  if (JSON.stringify(profile.resources) === JSON.stringify(resources)) return
+  if (!process.argv.includes('--write')) {
+    fail('generated manager resources are stale; refresh with check:skills --write')
+    return
+  }
+  profile.resources = resources
+  writeFileSync(path, `${JSON.stringify(profile, null, 2)}\n`)
+}
+
 // This authoring policy requires explicit scope/lifetime in published examples.
 // Portable schema validation and grant attenuation remain owned by agent-interface.
 function checkProxyExamples(directory) {
@@ -48,6 +81,9 @@ function checkProxyExamples(directory) {
     } catch {
       fail('profile must be valid JSON')
       continue
+    }
+    if (entry.name === 'proxy-manager.json') {
+      synchronizeManagerResources(profile, join(directory, entry.name), fail)
     }
     if (!agentProfileSchema.safeParse(profile).success) {
       fail('profile failed canonical AgentProfile schema validation')

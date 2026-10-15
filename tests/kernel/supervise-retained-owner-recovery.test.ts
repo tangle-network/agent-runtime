@@ -955,7 +955,7 @@ describe('retained external supervisor recovery', () => {
       ...base,
       capabilities: async () => ({
         ...(await base.capabilities()),
-        create: { runtimeAttachments: { mcp: true }, workspaceCheckpoint: true },
+        create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities, workspaceCheckpoint: true },
       }),
       create: async (input) => {
         createInputs.push(input)

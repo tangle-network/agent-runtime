@@ -1,7 +1,7 @@
 import type { AgentProfile, ProxySecretBinding } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import { type SuperviseOptions, supervise } from '../../src/runtime/supervise/supervise'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
@@ -169,13 +169,13 @@ describe('public supervise proxy-secret descendant admission', () => {
       await supervise(
         testAgentProfile('root', {
           harness: 'codex',
-          model: { provider: 'openai', default: 'offline-seat-model' },
+          model: { provider: 'openai', default: 'gpt-6-sol' },
           tools: runtimeToolDeclarations('stop'),
           seats: [
             {
               harness: 'codex',
               provider: 'openai',
-              model: 'offline-seat-model',
+              model: 'gpt-6-sol',
               selector: { kind: 'all-eligible' },
             },
           ],
@@ -284,6 +284,7 @@ describe('public supervise proxy-secret descendant admission', () => {
     const seen: AgentProfile[] = []
     const journal = new InMemorySpawnJournal()
     const replies: unknown[] = []
+    const blobs = new InMemoryResultBlobStore()
     const turns = new Map<string, number>()
     const grandchild = profile('grandchild', [{ ...childBinding, ttlSeconds: 30 }])
     const authorizations: string[] = []
@@ -298,6 +299,7 @@ describe('public supervise proxy-secret descendant admission', () => {
       },
       journal,
       runId: 'proxy-tree',
+      blobs,
       driveHarness: async ({ profile: manager, coordinationMcpUrl }) => {
         const turn = turns.get(manager.name) ?? 0
         turns.set(manager.name, turn + 1)
@@ -330,8 +332,14 @@ describe('public supervise proxy-secret descendant admission', () => {
     expect(authorizations).toContain('root:child')
     expect(authorizations).toContain('child:grandchild')
     expect(JSON.stringify(replies[0])).toContain('proxySecrets')
-    const serializedJournal = JSON.stringify(await journal.loadTree('proxy-tree'))
-    expect(serializedJournal).toContain('reporting-api')
+    const events = await journal.loadTree('proxy-tree')
+    const admittedChild = events?.find((event) => event.kind === 'spawned' && event.parent === 'proxy-tree')
+    if (!admittedChild || admittedChild.kind !== 'spawned' || !admittedChild.profileRef) {
+      throw new Error('admitted child must retain its content-addressed profile')
+    }
+    expect(await blobs.get(admittedChild.profileRef)).toMatchObject({ proxySecrets: [childBinding] })
+    const serializedJournal = JSON.stringify(events)
+    expect(serializedJournal).not.toContain('reporting-api')
     expect(serializedJournal).not.toContain('Authorization')
   })
 })

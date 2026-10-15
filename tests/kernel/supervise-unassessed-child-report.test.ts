@@ -100,7 +100,7 @@ async function childReportFlow(
     ...base,
     capabilities: async () => ({
       ...(await base.capabilities()),
-      create: { runtimeAttachments: { mcp: true }, workspaceCheckpoint: true },
+      create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities, workspaceCheckpoint: true },
     }),
     create: async (input) => {
       const environment = await base.create(input)

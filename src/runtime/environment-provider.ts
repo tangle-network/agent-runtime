@@ -294,7 +294,7 @@ export interface ProviderAsSandboxClientOptions {
   /** Called after verification and before deletion so the run result can retain the exact join. */
   onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void | Promise<void>
   mapCreateOptions?: (
-    options: CreateSandboxOptions | undefined,
+    options: Parameters<SandboxClient['create']>[0],
   ) => Partial<CreateAgentEnvironmentInput>
 }
 
@@ -316,7 +316,7 @@ export function providerAsSandboxClient(
     }
   }
   return {
-    async create(createOptions?: CreateSandboxOptions): Promise<SandboxInstance> {
+    async create(createOptions?: Parameters<SandboxClient['create']>[0]): Promise<SandboxInstance> {
       const defaults = options.defaults ?? {}
       const sandboxInput = createInputFromSandboxOptions(createOptions)
       const customInput = options.mapCreateOptions?.(createOptions) ?? {}
@@ -2867,7 +2867,7 @@ async function providerExecutionSource(
 }
 
 function createInputFromSandboxOptions(
-  options: CreateSandboxOptions | undefined,
+  options: Parameters<SandboxClient['create']>[0],
 ): Partial<CreateAgentEnvironmentInput> {
   const profile = options?.backend?.profile
   const backend = options?.backend?.type

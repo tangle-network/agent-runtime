@@ -832,7 +832,6 @@ export const DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY: AgentProfileSecurityPolic
  * coordination authority inside one shared box.
  */
 function managerExecutorConfig(config: ExecutorConfig): ExecutorConfig {
-  assertNoInheritedProxySecrets(config)
   if (config.backend !== 'provider' || config.shared === undefined) return config
   const { shared: _shared, ...dedicated } = config
   return Object.freeze(dedicated)
@@ -1062,6 +1061,7 @@ function driveHarnessFromBackend(
             afterRecheck = true
           }
         }
+        assertNoInheritedProxySecrets(activeSeat.backend)
         boundBackend = bindReusableExecutorExecutionId(
           managerExecutorConfig(
             captureReusableExecutorConfig(
@@ -2934,6 +2934,8 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
                 }),
           })
         })()
+  assertNoInheritedProxySecrets(backend)
+  assertNoInheritedProxySecrets(driverBackend)
   const capturedBackend = backend === undefined ? undefined : snapshotExecutorConfig(backend)
   const capturedDriverBackend =
     driverBackend === undefined ? undefined : snapshotExecutorConfig(driverBackend)
@@ -3502,8 +3504,6 @@ function superviseInternal(
   testBrain?: ToolLoopChat,
 ) {
   const options = captureSuperviseOptions(opts)
-  assertNoInheritedProxySecrets(options.backend)
-  assertNoInheritedProxySecrets(options.driverBackend)
   if (options.runContext?.durability === 'sql') {
     if (
       options.runDir !== undefined ||

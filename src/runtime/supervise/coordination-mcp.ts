@@ -21,9 +21,8 @@
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
-import { isIP } from 'node:net'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { type ProxySecretBinding, ProxySecretBindingSchema } from '@tangle-network/agent-interface/environment-provider'
+import { type ProxySecretBinding, ProxySecretBindingSchema, ProxySecretScopeSchema } from '@tangle-network/agent-interface/environment-provider'
 import { ConfigError, ValidationError } from '../../errors'
 import type { JsonRpcMessage } from '../../mcp/protocol'
 import type { McpToolDescriptor } from '../../mcp/server'
@@ -169,11 +168,11 @@ export interface CoordinationProxySecretOptions {
 /** Proxy bindings support public HTTPS on its default port, never a dynamic local HTTP port. */
 function assertProxySecretAddress(address: URL): void {
   if (
-    address.protocol !== 'https:' || address.port || isIP(address.hostname) ||
-    isLoopbackHost(address.hostname) ||
-    !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(address.hostname)
+    address.protocol !== 'https:' || address.port || isLoopbackHost(address.hostname) ||
+    address.pathname.includes('*') ||
+    !ProxySecretScopeSchema.safeParse({ hosts: [address.hostname], paths: [address.pathname] }).success
   ) {
-    throw new ConfigError('coordination proxySecret requires an exact public FQDN on HTTPS port 443')
+    throw new ConfigError('coordination proxySecret requires an exact public FQDN on HTTPS port 443 and a canonical exact path')
   }
 }
 

@@ -158,14 +158,14 @@ const MATERIALIZED_PROMPT_DELIVERIES = {
     executable: 'codex',
     delivered: (plan) =>
       plan.files.some((file) => file.relPath === '.codex/system-prompt.md') &&
-      plan.flags.some((flag) => flag.value === 'model_instructions_file=.codex/system-prompt.md'),
+      plan.flags.some((flag) => publicText(flag) === 'model_instructions_file=.codex/system-prompt.md'),
     conflictsWithArgs: argsSetCodexInstructionOverride,
   },
   gemini: {
     executable: 'gemini',
     delivered: (plan) =>
       plan.files.some((file) => file.relPath === '.gemini/system.md') &&
-      plan.env.GEMINI_SYSTEM_MD?.value === '1',
+      plan.env.GEMINI_SYSTEM_MD !== undefined && publicText(plan.env.GEMINI_SYSTEM_MD) === '1',
     conflictsWithArgs: argsSetSystemPromptFlag,
   },
 } as const satisfies Partial<Record<HarnessId, MaterializedPromptDelivery>>
@@ -175,11 +175,11 @@ export function projectCandidatePromptIntents(
   plan: AgentCandidateWorkspacePlan,
   launch: AgentCandidateLaunch,
   systemPromptFilePath: string,
-  requestedSystemPrompt: string | undefined = plan.systemPrompt?.value,
-  requestedAppendSystemPrompt: string | undefined = plan.appendSystemPrompt?.value,
+  requestedSystemPrompt: string | undefined = plan.systemPrompt === undefined ? undefined : publicText(plan.systemPrompt),
+  requestedAppendSystemPrompt: string | undefined = plan.appendSystemPrompt === undefined ? undefined : publicText(plan.appendSystemPrompt),
 ): AgentCandidateWorkspacePlan {
-  const systemPrompt = plan.systemPrompt
-  const appendSystemPrompt = plan.appendSystemPrompt
+  const systemPrompt = plan.systemPrompt === undefined ? undefined : publicText(plan.systemPrompt)
+  const appendSystemPrompt = plan.appendSystemPrompt === undefined ? undefined : publicText(plan.appendSystemPrompt)
   const delivery = MATERIALIZED_PROMPT_DELIVERIES[
     plan.harness as keyof typeof MATERIALIZED_PROMPT_DELIVERIES
   ] as MaterializedPromptDelivery | undefined
@@ -213,19 +213,19 @@ export function projectCandidatePromptIntents(
       `profile materializer added an unexpected candidate system prompt for ${plan.harness}`,
     )
   }
-  if (systemPrompt !== undefined && systemPrompt.value !== requestedSystemPrompt) {
+  if (systemPrompt !== undefined && systemPrompt !== requestedSystemPrompt) {
     throw new Error('profile materializer changed the candidate system prompt')
   }
   if (
     appendSystemPrompt !== undefined &&
-    appendSystemPrompt.value !== requestedAppendSystemPrompt
+    appendSystemPrompt !== requestedAppendSystemPrompt
   ) {
     throw new Error('profile materializer changed the candidate append system prompt')
   }
 
   const intent = requestedReplacement ? 'replacement' : 'addition'
   assertProvableNativeLaunch(plan.harness, projection.executable, launch, intent)
-  const launchArgs = (launch.args ?? []).map((value) => value.value)
+  const launchArgs = (launch.args ?? []).map(publicText)
   if (requestedReplacement && projection.conflictsWithArgs(launchArgs)) {
     throw new Error(
       `${plan.harness} launch arguments conflict with the candidate profile system prompt`,
@@ -243,7 +243,7 @@ export function projectCandidatePromptIntents(
       projection.retainsProjectedSystemPrompt
         ? projected
         : omitPromptIntent(projected, 'systemPrompt'),
-      systemPrompt.value,
+      systemPrompt,
       systemPromptFilePath,
     )
   }
@@ -255,7 +255,7 @@ export function projectCandidatePromptIntents(
     }
     projected = projection.projectAppend(
       omitPromptIntent(projected, 'appendSystemPrompt'),
-      appendSystemPrompt.value,
+      appendSystemPrompt,
       posix.join(posix.dirname(systemPromptFilePath), 'append-system-prompt.md'),
     )
   }
@@ -292,7 +292,7 @@ function assertNoShadowingArgs(
   launch: Extract<AgentCandidateLaunch, { kind: 'container-command' }>,
   intent: 'replacement' | 'addition',
 ): void {
-  if (conflictsWithArgs((launch.args ?? []).map((value) => value.value))) {
+  if (conflictsWithArgs((launch.args ?? []).map(publicText))) {
     throw new Error(
       `${harness} launch arguments conflict with the candidate profile ${intent === 'replacement' ? 'system' : 'append system'} prompt`,
     )
@@ -316,6 +316,13 @@ function appendFlags(
     ...plan,
     flags: [...plan.flags, ...values.map(publicValue)],
   }
+}
+
+function publicText(value: AgentCandidateConfigValue): string {
+  if (value.kind !== 'public') {
+    throw new Error('candidate prompt and launch controls cannot resolve secret references')
+  }
+  return value.value
 }
 
 function publicValue(value: string): AgentCandidateConfigValue {

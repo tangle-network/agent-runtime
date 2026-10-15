@@ -2086,6 +2086,8 @@ describe('proxy-held coordination transport', () => {
     'https://localhost/mcp',
     'https://coordination.example:8443/mcp',
     'https://singlelabel/mcp',
+    'https://coordination.example/mcp/*',
+    'https://coordination.example/mcp%2fchild',
   ])('refuses unsupported proxy address %s before secret registration', async (publicUrl) => {
     const prepare = vi.fn()
     await expect(
@@ -2261,7 +2263,15 @@ it('fences an expired proxy registration at the listener even when its scope rem
             headers: { ...headers, 'content-type': 'application/json' },
             body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
           })
-          expect(response.status).toBe(401)
+          expect(response.status).toBe(403)
+          // The trusted host also probes the listener directly: the proxy fixture's own
+          // expiry fence must not hide a listener accepting the previous real credential.
+          const direct = await fetch(`http://127.0.0.1:${mcp.port}/manager`, {
+            method: 'POST',
+            headers: { ...mcp.headers, 'content-type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+          })
+          expect(direct.status).toBe(401)
         } finally {
           clock.mockRestore()
         }

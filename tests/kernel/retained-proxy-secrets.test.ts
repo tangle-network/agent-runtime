@@ -124,13 +124,14 @@ it('refuses a differently bound fresh receipt before native dispatch', async () 
   expect(dispatches).toBe(0)
 })
 
-it('refuses an unacknowledged retained rebind before looking up its native session', async () => {
+it('verifies original identity but refuses native reattachment after an unacknowledged rebind', async () => {
   const base = await fixture()
   const initial = await startRetainedRun({
     provider: base, environment: { profile, proxySecrets: [binding], idempotencyKey: 'missing-receipt' },
     turn: { turnId: 'turn', prompt: 'work' }, onAdmission: async () => {},
   })
   let sessions = 0
+  let ownershipChecks = 0
   const provider: AgentEnvironmentProvider = {
     ...base,
     async get(id, options) {
@@ -138,13 +139,18 @@ it('refuses an unacknowledged retained rebind before looking up its native sessi
       if (!environment) return null
       return {
         ...environment, proxySecretReceipt: undefined,
-        session(id) { sessions++; return environment.session!(id) },
+        session(id) {
+          if (options?.proxySecrets === undefined) ownershipChecks++
+          else sessions++
+          return environment.session!(id)
+        },
       }
     },
   }
   await expect(reconnectRetainedRun({
     provider, controlRef: initial.controlRef, proxySecrets: [binding],
   })).rejects.toThrow('did not confirm proxy-secret installation')
+  expect(ownershipChecks).toBe(1)
   expect(sessions).toBe(0)
 })
 

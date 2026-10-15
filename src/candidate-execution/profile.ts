@@ -193,6 +193,7 @@ const CANDIDATE_PROFILE_DIRECT_FIELDS = [
   'permissions',
   'tools',
   'confidential',
+  'proxySecrets',
 ] as const
 
 /** Convert only behavior-preserving generic profile fields into the closed candidate contract. */
@@ -307,6 +308,9 @@ export function parseExactCandidateProfile(input: unknown): AgentCandidateProfil
 /** Reject profile fields whose behavioral effect is not yet proven by candidate executors. */
 export function assertCandidateProfileExecutionSupport(profile: AgentCandidateProfile): void {
   assertResolvedKnowledgeResources(profile.resources)
+  if (profile.proxySecrets?.length) {
+    throw new Error('candidate local execution cannot materialize proxy-held secret declarations')
+  }
   const fields = ['tools', 'permissions', 'modes', 'confidential'] as const
   const unsupported = fields.filter((field) => hasEntries(profile[field]))
   if (unsupported.length > 0) {
@@ -330,10 +334,8 @@ export function agentCandidateProfileAsAgentProfile(
         name,
         {
           ...server,
-          // Candidate config values ({kind:'public', value}) are already valid
-          // AgentProfileConfigValue entries under interface >=0.40 — clone them
-          // rather than unwrapping to plain strings, which the 0.40 profile
-          // schema rejects.
+          // Preserve tagged config values for the materializer; this conversion
+          // neither resolves secret references nor unwraps them into public text.
           ...(server.args ? { args: server.args.map((value) => ({ ...value })) } : {}),
           ...(server.env ? { env: cloneRecord(server.env) } : {}),
         },
@@ -528,9 +530,8 @@ function publicResource(resource: AgentCandidateResourceRef): unknown {
   }
 }
 
-/** Freeze one profile config value into the candidate's PUBLIC-only config
- *  shape. A secret-ref has no candidate representation (AgentCandidateConfigValue
- *  is public-only), so it is rejected, never silently dropped or unwrapped. */
+/** Generic freezing stays public-only until the sealed local materializer supports custody.
+ * References are rejected, never resolved, silently dropped or unwrapped. */
 function candidatePublicValue(
   value: AgentProfileConfigValue,
   path: string,
@@ -552,6 +553,9 @@ function mapCandidatePublicValues(
 }
 
 function publicValue(value: AgentCandidateConfigValue): string {
+  if (value.kind !== 'public') {
+    throw new Error('candidate hook command arguments cannot contain secret references')
+  }
   return value.value
 }
 
