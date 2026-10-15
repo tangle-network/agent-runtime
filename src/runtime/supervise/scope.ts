@@ -2590,11 +2590,13 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       if (nested !== undefined) await closeRetainedSlots(nested)
     }
     // A confirmed release is the sweep's to record, and after a crash the resume heal's, so this
-    // pass writes only the unconfirmed state and never a second `released` record.
+    // pass writes only the unconfirmed state and never a second `released` record. It does not
+    // read `cleanupConfirmed`: a nested manager that settled retained-pending reports its teardown
+    // confirmed while its owner environment is held, so the sweep skipped it and the slot stayed
+    // open for good. Measured 2026-10-15: 38 of 38 such directors over 45 runs, 0 closed.
     const open = [...children.values()].filter(
       (child) =>
         child.recoveryPending === true &&
-        !child.cleanupConfirmed &&
         isTerminalNodeStatus(child.status) &&
         child.retainedExecution !== 'released' &&
         child.retainedExecution !== 'release-unconfirmed',
@@ -3828,10 +3830,11 @@ async function runChild<C>(
       live.recoveryPending = true
       live.executorDone = true
       const trace = await captureTraceOnce()
-      // Attempt teardown so a receipt exists at all. A pending retained execution answers
-      // `destroyed: false` by construction, so this cannot confirm cleanup and the permit release
-      // above deliberately does not depend on it — but the attempt and its answer belong in the
-      // record, and today these children carry no teardown receipt of any kind.
+      // Attempt teardown so a receipt exists at all; the permit release above does not depend on
+      // it. A pending retained leaf answers `destroyed: false`, but a nested manager's executor
+      // answers `destroyed: true` whenever its own descendants are confirmed, though its owner
+      // environment is still held. So `cleanupConfirmed` here does not mean the execution is
+      // gone, and the final close below still closes this slot (#1189).
       await teardownOnce(opts.shutdown ?? 'brutalKill').catch(() => undefined)
       // Charge what was observed, not the reservation ceiling — by the one rule the done and crash
       // paths already apply: a recursive executor's explicit accounting, else the running total
