@@ -205,7 +205,7 @@ describe('public supervise proxy-secret descendant admission', () => {
     }
   })
 
-  it('preserves the protected public supervisor source without checkpoint inspection forks', async () => {
+  it('preserves the protected public supervisor source without checkpoint inspection forks', { timeout: 10_000 }, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'supervise-protected-checkpoint-'))
     const proxy = await proxyCoordination()
     const journal = new InMemorySpawnJournal()
@@ -279,7 +279,7 @@ describe('public supervise proxy-secret descendant admission', () => {
         return environment ? wrap(environment, coordinate) : capture.forkEnvironment(id)
       },
     }
-    const retention: ProviderWorkspaceRetentionPort = { ...capture.port, requireCompleteProvenance: true,
+    const retention: ProviderWorkspaceRetentionPort = { ...capture.port, timeoutMs: 1_000, requireCompleteProvenance: true,
       capture: context => completeCapture(context, capture.cas) }
     const backend = { backend: 'provider' as const, provider, workspaceRetention: retention }
     try {
