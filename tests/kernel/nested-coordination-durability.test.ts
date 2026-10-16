@@ -108,7 +108,19 @@ describe('nested supervisor coordination durability', () => {
     })
     const evidence: Array<Record<string, unknown>> = []
     let recorded = 0
-    const driveHarness: DriveHarness = async ({
+    const cancellation = new AbortController()
+    const harnessErrors: unknown[] = []
+    const driveHarness: DriveHarness = async (args) => {
+      try {
+        await runHarness(args)
+      } catch (error) {
+        harnessErrors.push(error)
+        release()
+        cancellation.abort(error)
+        throw error
+      }
+    }
+    const runHarness: DriveHarness = async ({
       authoredProfile,
       scope,
       coordinationMcpUrl,
@@ -116,12 +128,14 @@ describe('nested supervisor coordination durability', () => {
     }) => {
       const name = authoredProfile.name!
       if (name === 'root') {
-        for (const name of ['peer-a', 'peer-b'])
-          await callTool(coordinationMcpUrl, 'spawn_worker', {
+        for (const name of ['peer-a', 'peer-b']) {
+          const started = await callTool(coordinationMcpUrl, 'spawn_worker', {
             profile: manager(name),
             task: name,
             key: name,
           })
+          expect(started.workerId, JSON.stringify(started)).toBeTypeOf('string')
+        }
         await ready
         return
       }
@@ -145,7 +159,6 @@ describe('nested supervisor coordination durability', () => {
       expect(peers[0]?.workerId).toBe(other.nodeId)
       const sent = await callTool(peerMailUrl!, 'send_mail', {
         to: other.nodeId,
-        kind: 'ask',
         subject: 'Audit request',
         body: 'Please fact-check the recorded page.',
       })
@@ -185,43 +198,52 @@ describe('nested supervisor coordination durability', () => {
         ),
         prompt: { systemPrompt: 'Read peer evidence and preserve ownership.' },
       })
-    await supervise(testAgentProfile('root', { harness: 'codex', tools: rootTools }), 'audit', {
-      backend: {
-        backend: 'router',
-        routerBaseUrl: 'http://unused.invalid',
-        routerKey: 'unused',
-        model: 'unused/model',
-      },
-      budget: { maxIterations: 20, maxTokens: 20_000 },
-      perWorker: { maxIterations: 6, maxTokens: 2_000 },
-      driveHarness,
-      driveHarnessMaterialization: fullProfileMaterialization,
-      peerAudit: true,
-      peerMail: true,
-      resolveSupervisorTools: (context) => {
-        if (context.depth === 1) expect(context.peerRootOwnerId).toBe(context.ownerId)
-        // Product-owned page reads share the manager endpoint with Runtime's journal.
-        return [
-          {
-            name: 'knowledge_read',
-            description: 'Read a recorded page from this run.',
-            inputSchema: {
-              type: 'object',
-              properties: { peerId: { type: 'string' } },
-              required: ['peerId'],
-              additionalProperties: false,
+    try {
+      await supervise(testAgentProfile('root', { harness: 'codex', tools: rootTools }), 'audit', {
+        signal: cancellation.signal,
+        driverRetry: { enabled: false },
+        backend: {
+          backend: 'router',
+          routerBaseUrl: 'http://unused.invalid',
+          routerKey: 'unused',
+          model: 'unused/model',
+        },
+        budget: { maxIterations: 20, maxTokens: 20_000 },
+        perWorker: { maxIterations: 6, maxTokens: 2_000 },
+        driveHarness,
+        driveHarnessMaterialization: fullProfileMaterialization,
+        peerAudit: true,
+        peerMail: true,
+        resolveSupervisorTools: (context) => {
+          if (context.depth === 1) expect(context.peerRootOwnerId).toBe(context.ownerId)
+          // Product-owned page reads share the manager endpoint with Runtime's journal.
+          return [
+            {
+              name: 'knowledge_read',
+              description: 'Read a recorded page from this run.',
+              inputSchema: {
+                type: 'object',
+                properties: { peerId: { type: 'string' } },
+                required: ['peerId'],
+                additionalProperties: false,
+              },
+              handler: async (raw) => {
+                const peerId = (raw as { peerId: string }).peerId
+                const peer = [...roots.entries()].find(([, root]) => root.nodeId === peerId)
+                if (!peer) return { error: 'unknown-peer' }
+                return { content: await readFile(join(runDir, `${peer[0]}.md`), 'utf8') }
+              },
             },
-            handler: async (raw) => {
-              const peerId = (raw as { peerId: string }).peerId
-              const peer = [...roots.entries()].find(([, root]) => root.nodeId === peerId)
-              if (!peer) return { error: 'unknown-peer' }
-              return { content: await readFile(join(runDir, `${peer[0]}.md`), 'utf8') }
-            },
-          },
-        ]
-      },
-      maxTurns: 8,
-    })
+          ]
+        },
+        maxTurns: 8,
+      })
+    } catch (error) {
+      throw harnessErrors[0] ?? error
+    } finally {
+      cancellation.abort()
+    }
+    if (harnessErrors.length > 0) throw harnessErrors[0]
     expect(evidence).toHaveLength(2)
   })
 
