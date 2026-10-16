@@ -21,6 +21,9 @@ import type {
   AgentSession,
   AgentSessionStatus,
 } from '@tangle-network/agent-interface/environment-provider'
+import { assertProxySecretSourceIdentity } from './proxy-secret-admission'
+import { assertProxySecretInstallation, assertProxySecretReceiptLive } from './proxy-secret-custody'
+import { assertProxySecretParentReadback, type ProxySecretParents } from './proxy-secret-parents'
 import {
   abortError,
   assertBoundaryBinding,
@@ -50,6 +53,22 @@ import type {
   RetainedRunHandle,
   RetainedRunSnapshot,
 } from './retained-run-types'
+import {
+  type CoordinationProxySecretSourceIdentity,
+  captureCoordinationProxySecretSourceIdentity,
+} from './supervise/coordination-credential'
+
+const retainedRunOwners = new WeakMap<
+  RetainedRunHandle,
+  { readonly environment: AgentEnvironment; readonly session: AgentSession }
+>()
+
+/** Internal access to the live provider objects already authorized by retained admission. */
+export function retainedRunOwner(handle: RetainedRunHandle) {
+  const owner = retainedRunOwners.get(handle)
+  if (!owner) throw new Error('retained run has no owned provider environment')
+  return owner
+}
 
 type NativeContinuationAdmissionCallback = (controlRef: AgentExactRunControlRef) => void
 
@@ -66,8 +85,27 @@ export function createRetainedRunHandle(
   initialControlRef: AgentExactRunControlRef,
   capabilities: AgentEnvironmentCapabilities,
   now: (() => number) | undefined,
+  proxySecretParents?: ProxySecretParents,
+  sourceValue?: CoordinationProxySecretSourceIdentity,
 ): RetainedRunHandle {
+  const sourceIdentity =
+    sourceValue === undefined
+      ? undefined
+      : captureCoordinationProxySecretSourceIdentity(sourceValue)
+  assertProxySecretSourceIdentity(environment.proxySecretReceipt, sourceIdentity)
   const clock = now ?? Date.now
+  assertProxySecretReceiptLive(environment)
+  const proxyBindings = environment.proxySecretReceipt?.bindings.map(
+    ({ envName, secretRef, grant }) =>
+      structuredClone({
+        envName,
+        secretRef,
+        ...grant.scope,
+        presentation: grant.presentation,
+        placeholderFormat: grant.placeholderFormat,
+      }),
+  )
+  const parentPins = assertProxySecretParentReadback(environment, proxySecretParents, true)
   const measuredCapabilities = structuredClone(capabilities)
   let activeControlRef = freezeControlRef(initialControlRef)
   // A provider may expose the previous reference while a terminal read catches up.
@@ -201,6 +239,10 @@ export function createRetainedRunHandle(
               ...(signal === undefined ? {} : { signal }),
               ...(admission === undefined ? {} : { onAdmission: admission.onAdmission }),
             }
+            assertProxySecretInstallation(environment, proxyBindings)
+            assertProxySecretParentReadback(environment, parentPins)
+            assertProxySecretReceiptLive(environment)
+            assertProxySecretSourceIdentity(environment.proxySecretReceipt, sourceIdentity)
             return session.continueNative!(exactRequest, providerOptions)
           }),
           signal,
@@ -377,7 +419,7 @@ export function createRetainedRunHandle(
     )
     return { admission: admissionPromise, result }
   }
-  return {
+  const handle: RetainedRunHandle = {
     get controlRef() {
       synchronizeActiveControlRef()
       return copyControlRef(activeControlRef)
@@ -536,4 +578,6 @@ export function createRetainedRunHandle(
       return structuredClone(acknowledgement)
     },
   }
+  retainedRunOwners.set(handle, { environment, session })
+  return handle
 }

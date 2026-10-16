@@ -7,6 +7,20 @@ import {
   retainHarnessTranscript,
 } from './harness-transcript'
 import { type ProviderPlacement, selectProviderPlacement } from './provider-placement'
+import {
+  assertProxySecretSourceIdentity,
+  createProxySecretBindingAdmission,
+  type ProxySecretBindingAdmission,
+} from './proxy-secret-admission'
+import {
+  assertProxySecretCapabilities,
+  assertProxySecretInstallation,
+  rejectUnmaterializedProviderEnvironment,
+} from './proxy-secret-custody'
+import {
+  type CoordinationProxySecretSourceIdentity,
+  captureCoordinationProxySecretSourceIdentity,
+} from './supervise/coordination-credential'
 import { promptOptionsFromAgentTurnInput } from './turn-input'
 
 export type { ProviderPlacement } from './provider-placement'
@@ -45,7 +59,6 @@ import type {
   ResourceRequest,
 } from '@tangle-network/agent-interface/environment-provider'
 import type {
-  CreateSandboxOptions,
   PromptInputPart,
   PromptOptions,
   PromptResult,
@@ -66,6 +79,13 @@ import {
   type ProviderWorkspaceRetentionPort,
   workspaceCaptureReceipt,
 } from './provider-workspace-retention'
+import {
+  assertProxySecretParentReadback,
+  captureProxySecretParents,
+  type ProxySecretParents,
+  prepareProxySecretParents,
+  proxySecretParentsSeamKey,
+} from './proxy-secret-parents'
 import { environmentGone } from './retained-interactive-lifecycle'
 import {
   describeRetainedNativeStops,
@@ -75,17 +95,19 @@ import {
 import {
   assertEventBinding,
   awaitAbortable,
-  exactSession,
   freezeControlRef,
   RetainedRunProviderContractError,
   sameControlCoordinates,
 } from './retained-run-binding'
+import { retainedRunOwner } from './retained-run-handle'
 import {
   assertRetainedRunReplayMaterial,
   mintRetainedIdentity,
   reconnectRetainedRun,
   recoverRetainedRun,
+  retainedProxySecretBindings,
   startRetainedRun,
+  startRetainedRunInEnvironment,
 } from './retained-run-start'
 import type { RetainedRunHandle } from './retained-run-types'
 import {
@@ -281,6 +303,10 @@ export function resolveAgentEnvironmentProvider(
 /** Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port.
  * @experimental */
 export interface ProviderAsSandboxClientOptions {
+  /** Exact metadata supplied by the trusted host credential issuer. */
+  proxySecretSourceIdentity?: CoordinationProxySecretSourceIdentity
+  /** Await durable storage of the exact parent pins before protected provider allocation. */
+  onAdmission?: (admission: ProxySecretBindingAdmission) => Promise<void>
   defaults?: Partial<CreateAgentEnvironmentInput>
   requireTerminalEvent?: boolean
   /** Require declared live continuation plus concrete session controls. */
@@ -294,7 +320,7 @@ export interface ProviderAsSandboxClientOptions {
   /** Translate Sandbox-specific controls that have no neutral representation. Without this
    * callback, unsupported fields are refused before any environment is created. */
   mapCreateOptions?: (
-    options: CreateSandboxOptions | undefined,
+    options: Parameters<SandboxClient['create']>[0],
   ) => Partial<CreateAgentEnvironmentInput>
 }
 
@@ -315,8 +341,12 @@ export function providerAsSandboxClient(
       )
     }
   }
+  const proxySecretSourceIdentity =
+    options.proxySecretSourceIdentity === undefined
+      ? undefined
+      : captureCoordinationProxySecretSourceIdentity(options.proxySecretSourceIdentity)
   return {
-    async create(createOptions?: CreateSandboxOptions): Promise<SandboxInstance> {
+    async create(createOptions?: Parameters<SandboxClient['create']>[0]): Promise<SandboxInstance> {
       const defaults = options.defaults ?? {}
       const sandboxInput = createInputFromSandboxOptions(
         createOptions,
@@ -358,14 +388,79 @@ export function providerAsSandboxClient(
           `providerAsSandboxClient(${provider.name}): live session continuation is required`,
         )
       }
-      const environment = await provider.create(mapped as CreateAgentEnvironmentInput)
-      if (options.requireSession && !environment.session) {
-        if (options.workspaceRetention === undefined) await environment.destroy?.()
+      const input: CreateAgentEnvironmentInput = {
+        ...mapped,
+        profile:
+          typeof mapped.profile === 'string'
+            ? mapped.profile
+            : detachedSnapshot(mapped.profile, 'provider adapter profile'),
+        ...(mapped.proxySecrets === undefined
+          ? {}
+          : {
+              proxySecrets: detachedSnapshot(mapped.proxySecrets, 'provider adapter proxySecrets'),
+            }),
+      }
+      const proxySecrets = retainedProxySecretBindings(input)
+      if (
+        proxySecrets !== undefined &&
+        proxySecrets.length > 0 &&
+        (input.proxySecretParents === undefined || options.onAdmission === undefined)
+      ) {
         throw new ValidationError(
-          `providerAsSandboxClient(${provider.name}): session() is required`,
+          'protected provider adapter requires explicit proxySecretParents and an awaited onAdmission hook',
+        )
+      }
+      const proxySecretParents = prepareProxySecretParents(input.proxySecretParents, proxySecrets)
+      let createAdmission: Record<string, unknown> | undefined
+      if (proxySecrets !== undefined && proxySecrets.length > 0) {
+        assertProxySecretCapabilities(await provider.capabilities(), proxySecrets)
+        if (proxySecretParents === undefined || options.onAdmission === undefined) {
+          throw new ValidationError('protected provider adapter has no durable parent admission')
+        }
+        input.proxySecretParents = proxySecretParents
+        input.idempotencyKey ??= 'runtime-adapter:' + randomUUID()
+        createAdmission = {
+          phase: 'proxy-secrets',
+          stage: 'selected',
+          provider: provider.name,
+          idempotencyKey: input.idempotencyKey,
+          proxySecrets,
+          proxySecretParents,
+          ...(proxySecretSourceIdentity === undefined
+            ? {}
+            : { sourceIdentity: proxySecretSourceIdentity }),
+        }
+        await options.onAdmission(createProxySecretBindingAdmission(createAdmission))
+      }
+      const environment = await provider.create(input)
+      try {
+        assertProxySecretInstallation(environment, proxySecrets?.length ? proxySecrets : undefined)
+        assertProxySecretParentReadback(environment, proxySecretParents)
+        assertProxySecretSourceIdentity(environment.proxySecretReceipt, proxySecretSourceIdentity)
+        if (options.requireSession && !environment.session) {
+          throw new ValidationError(
+            'providerAsSandboxClient(' + provider.name + '): session() is required',
+          )
+        }
+      } catch (error) {
+        return rejectUnmaterializedProviderEnvironment(
+          environment,
+          error,
+          options.workspaceRetention !== undefined,
+        )
+      }
+      if (createAdmission !== undefined && options.onAdmission !== undefined) {
+        await options.onAdmission(
+          createProxySecretBindingAdmission({
+            ...createAdmission,
+            stage: 'installed',
+            environmentId: environment.id,
+            receipt: environment.proxySecretReceipt,
+          }),
         )
       }
       return environmentAsSandboxInstance(environment, {
+        requiresProxySecretCustody: (proxySecrets?.length ?? 0) > 0,
         ...(typeof mapped.profile === 'string' ? {} : { profile: mapped.profile }),
         requireTerminalEvent: options.requireTerminalEvent ?? true,
         ...(options.workspaceRetention === undefined
@@ -625,6 +720,9 @@ function createProviderExecutor(
       `providerAsExecutor(${provider.name})`,
     )
   }
+  const parentPins = ctx.seams[proxySecretParentsSeamKey]
+  const proxySecretParents =
+    parentPins === undefined ? undefined : captureProxySecretParents(parentPins)
   const controller = new AbortController()
   const node =
     ctx.node === undefined ? undefined : detachedSnapshot(ctx.node, 'provider executor node')
@@ -1333,6 +1431,7 @@ function createProviderExecutor(
           workspacePreservationRequired = options.workspaceRetention !== undefined
         }
         const ended = yield* streamProviderExecutor({
+          ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
           provider,
           profile,
           createProfile,
@@ -1770,6 +1869,7 @@ function admittedEnvironmentId(retention: RetainedExecutorContext | undefined): 
 }
 
 interface StreamProviderExecutorArgs {
+  proxySecretParents?: ProxySecretParents
   provider: AgentEnvironmentProvider
   profile: AgentProfile
   /** The exact profile handed to `provider.create` — the authored profile unless the caller
@@ -2497,6 +2597,33 @@ async function providerExecutionSource(
   events: AsyncIterable<AgentEnvironmentEvent>
   retained: boolean
 }> {
+  const environmentInput: CreateAgentEnvironmentInput = {
+    ...args.options.defaults,
+    profile: detachedSnapshot(args.createProfile, 'provider executor create profile'),
+    ...(args.options.defaults?.proxySecrets === undefined
+      ? {}
+      : {
+          proxySecrets: detachedSnapshot(
+            args.options.defaults.proxySecrets,
+            'provider executor proxySecrets',
+          ),
+        }),
+    ...(args.options.defaults?.proxySecretParents === undefined
+      ? {}
+      : {
+          proxySecretParents: captureProxySecretParents(args.options.defaults.proxySecretParents),
+        }),
+  }
+  const proxySecrets = retainedProxySecretBindings(environmentInput)
+  const proxySecretParents = prepareProxySecretParents(
+    args.proxySecretParents,
+    proxySecrets,
+    environmentInput.proxySecretParents,
+  )
+  const proxySecretSourceIdentity =
+    args.retention?.proxySecretSourceIdentity === undefined
+      ? undefined
+      : captureCoordinationProxySecretSourceIdentity(args.retention.proxySecretSourceIdentity)
   const selectedTurn = subscriptionTurnProfile(turn, args.profile)
   AgentTurnInputSchema.parse(selectedTurn)
   const needsMcp = hasRuntimeMcpAttachments(args.options.defaults)
@@ -2505,12 +2632,59 @@ async function providerExecutionSource(
   const useRetained = args.retention !== undefined && capabilities?.retainedControl !== undefined
   if (!useRetained) {
     if (args.recovering)
-      throw new Error(`provider ${args.provider.name} cannot recover retained executions`)
-    const environment = await args.provider.create({
-      ...args.options.defaults,
-      profile: args.createProfile,
+      throw new Error('provider cannot recover retained executions without retained control')
+    if (proxySecrets !== undefined)
+      assertProxySecretCapabilities(await args.provider.capabilities(), proxySecrets)
+    const createInput = {
+      ...environmentInput,
+      ...(proxySecrets === undefined ? {} : { proxySecretParents }),
       signal,
-    })
+    }
+    let createAdmission: Record<string, unknown> | undefined
+    if (proxySecrets !== undefined && proxySecrets.length > 0) {
+      const admitParents = args.retention?.onProxySecretParentsAdmission
+      if (
+        proxySecretParents === undefined ||
+        admitParents === undefined ||
+        args.retention === undefined
+      ) {
+        throw new ValidationError(
+          'protected provider executor requires awaited durable parent admission',
+        )
+      }
+      await admitParents(proxySecretParents)
+      createInput.idempotencyKey ??= 'runtime:' + args.executionId
+      createAdmission = {
+        phase: 'proxy-secrets',
+        stage: 'selected',
+        provider: args.provider.name,
+        idempotencyKey: createInput.idempotencyKey,
+        proxySecrets,
+        proxySecretParents,
+        ...(proxySecretSourceIdentity === undefined
+          ? {}
+          : { sourceIdentity: proxySecretSourceIdentity }),
+      }
+      await args.retention.onAdmission(createProxySecretBindingAdmission(createAdmission))
+    }
+    const environment = await args.provider.create(createInput)
+    try {
+      assertProxySecretInstallation(environment, proxySecrets)
+      assertProxySecretParentReadback(environment, proxySecretParents)
+      assertProxySecretSourceIdentity(environment.proxySecretReceipt, proxySecretSourceIdentity)
+    } catch (error) {
+      return rejectUnmaterializedProviderEnvironment(environment, error)
+    }
+    if (createAdmission !== undefined && args.retention !== undefined) {
+      await args.retention.onAdmission(
+        createProxySecretBindingAdmission({
+          ...createAdmission,
+          stage: 'installed',
+          environmentId: environment.id,
+          receipt: environment.proxySecretReceipt,
+        }),
+      )
+    }
     return { environment, events: environment.stream(selectedTurn), retained: false }
   }
   const retention = args.retention!
@@ -2540,12 +2714,17 @@ async function providerExecutionSource(
   // the re-entered manager keeps its files. An environment that is continued needs none.
   const restore = priorSession === undefined ? retention.restoreWorkspace : undefined
   const material = {
+    ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
+    ...(proxySecretSourceIdentity === undefined
+      ? {}
+      : {
+          proxySecretSourceIdentity: proxySecretSourceIdentity,
+        }),
     environment: {
-      ...args.options.defaults,
+      ...environmentInput,
       ...(restore === undefined
         ? {}
-        : { workspace: { ...args.options.defaults?.workspace, checkpoint: restore.checkpoint } }),
-      profile: args.createProfile,
+        : { workspace: { ...environmentInput.workspace, checkpoint: restore.checkpoint } }),
       idempotencyKey: environmentKey,
       signal,
     },
@@ -2576,13 +2755,25 @@ async function providerExecutionSource(
     // Start with the original execution keys; once any admission exists, validate its intent.
     if (args.recovering && admissions.length > 0) {
       if (!intent) throw new Error('retained provider execution has no original intent')
+      const originalMaterial =
+        intent.proxySecrets === undefined
+          ? material
+          : {
+              ...material,
+              environment: { ...material.environment, proxySecrets: intent.proxySecrets },
+              ...(intent.proxySecretSourceIdentity === undefined
+                ? {}
+                : {
+                    proxySecretSourceIdentity: intent.proxySecretSourceIdentity,
+                  }),
+            }
       try {
-        assertRetainedRunReplayMaterial(args.provider, material, intent)
+        assertRetainedRunReplayMaterial(args.provider, originalMaterial, intent)
       } catch (error) {
         if (selectedTurn === turn) throw error
         // An older admission may have relied on the create-time profile. Only
         // its exact original material may replay; a new turn uses the profile.
-        const original = { ...material, turn: { ...turn, turnId } }
+        const original = { ...originalMaterial, turn: { ...turn, turnId } }
         assertRetainedRunReplayMaterial(args.provider, original, intent)
         material.turn = original.turn
       }
@@ -2592,6 +2783,11 @@ async function providerExecutionSource(
       const reconnected = await reconnectRetainedRun({
         provider: args.provider,
         controlRef: dispatched.controlRef,
+        proxySecrets: retainedProxySecretBindings(material.environment),
+        proxySecretParents,
+        proxySecretSourceIdentity: proxySecretSourceIdentity,
+        onAdmission,
+        signal,
       })
       if (!reconnected) throw new Error('retained provider environment is unavailable')
       handle = reconnected
@@ -2600,17 +2796,39 @@ async function providerExecutionSource(
       // Replay the committed intent rather than mistaking that prior result for this execution.
       let recovered =
         material.existingEnvironmentId !== undefined && intent?.phase === 'intent'
-          ? await recoverRetainedRun({
-              provider: args.provider,
-              admission: intent,
-              replay: material,
-              onAdmission,
-            })
+          ? {
+              outcome: 'recovered' as const,
+              via: 'resumed' as const,
+              // The original intent was checked above. Current custody is admitted separately;
+              // replay only the committed dispatch coordinates, never a rewritten create intent.
+              handle: await startRetainedRunInEnvironment({
+                provider: args.provider,
+                environment: {
+                  id: environmentAdmission.environmentId,
+                  idempotencyKey: environmentAdmission.idempotencyKey,
+                },
+                identity: {
+                  sessionId: environmentAdmission.sessionId,
+                  executionId: environmentAdmission.executionId,
+                },
+                turn: material.turn,
+                proxySecrets: retainedProxySecretBindings(material.environment),
+                proxySecretParents,
+                proxySecretSourceIdentity,
+                onAdmission,
+                signal,
+              }),
+            }
           : await recoverRetainedRun({
               provider: args.provider,
               environmentId: environmentAdmission.environmentId,
               sessionId: environmentAdmission.sessionId,
               executionId: environmentAdmission.executionId,
+              proxySecrets: retainedProxySecretBindings(material.environment),
+              proxySecretParents,
+              proxySecretSourceIdentity: proxySecretSourceIdentity,
+              onAdmission,
+              signal,
             })
       if (recovered.outcome === 'unverifiable' && intent?.phase === 'intent') {
         // The environment admission precedes dispatch. Replay the validated original keys
@@ -2649,8 +2867,11 @@ async function providerExecutionSource(
     executionAdmitted = true
     args.onRetained(handle)
     args.onPending(true)
-    const environment = await args.provider.get?.(handle.controlRef.environmentId)
-    if (!environment) throw new Error('retained provider environment is unavailable')
+    const { environment, session } = retainedRunOwner(handle)
+    assertProxySecretInstallation(environment, proxySecrets)
+    assertProxySecretParentReadback(environment, proxySecretParents)
+    assertProxySecretSourceIdentity(environment.proxySecretReceipt, proxySecretSourceIdentity)
+    retention.onRetained?.(handle)
     if (restore !== undefined && !args.recovering) {
       // The provider restores a checkpoint or fails the create; the marker Runtime wrote before
       // the checkpoint is the evidence it did, journaled before the turn's result is judged.
@@ -2661,7 +2882,6 @@ async function providerExecutionSource(
         ...found,
       })
     }
-    const session = exactSession(environment, handle.controlRef).session
     async function* events(): AsyncIterable<AgentEnvironmentEvent> {
       let observationFailure: { error: unknown } | undefined
       // Give an immediately available frame its binding check before reading the exact result.
@@ -2920,7 +3140,7 @@ async function providerExecutionSource(
 }
 
 function createInputFromSandboxOptions(
-  options: CreateSandboxOptions | undefined,
+  options: Parameters<SandboxClient['create']>[0],
   customMapping: boolean,
 ): Partial<CreateAgentEnvironmentInput> {
   if (!customMapping) {
@@ -2932,6 +3152,8 @@ function createInputFromSandboxOptions(
       'resources',
       'env',
       'secrets',
+      'proxySecrets',
+      'proxySecretParents',
       'metadata',
       'name',
       'idempotencyKey',
@@ -2955,7 +3177,8 @@ function createInputFromSandboxOptions(
           unsupported.push(`backend.model.${key}`)
         }
       }
-      const profile = options?.backend?.profile
+      const authoredProfile = options?.backend?.profile
+      const profile = typeof authoredProfile === 'string' ? undefined : authoredProfile
       if (model.provider !== undefined && model.provider !== profile?.model?.provider?.trim()) {
         unsupported.push('backend.model.provider')
       }
@@ -2990,6 +3213,10 @@ function createInputFromSandboxOptions(
     ...(options?.env ? { env: options.env } : {}),
     // Neutral inputs name secrets; a custom mapper owns any provider-specific selector.
     ...(Array.isArray(options?.secrets) ? { secrets: options.secrets } : {}),
+    ...(options?.proxySecrets === undefined ? {} : { proxySecrets: options.proxySecrets }),
+    ...(options?.proxySecretParents === undefined
+      ? {}
+      : { proxySecretParents: options.proxySecretParents }),
     ...(options?.metadata ? { metadata: options.metadata } : {}),
     ...(options?.name ? { name: options.name } : {}),
     ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
@@ -3001,11 +3228,16 @@ function environmentAsSandboxInstance(
   options: {
     profile?: AgentProfile
     requireTerminalEvent: boolean
+    requiresProxySecretCustody?: boolean
     workspaceRetention?: ProviderWorkspaceRetentionPort
     retentionIdentity?: { executionId: string; profile: AgentProfile; node?: ExecutorNodeContext }
     onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void | Promise<void>
   },
 ): SandboxInstance {
+  const protectedAllocation =
+    options.requiresProxySecretCustody === true ||
+    (environment.proxySecretReceipt?.bindings.length ?? 0) > 0 ||
+    Object.keys(environment.proxySecretParents ?? {}).length > 0
   let providerSessionId: string | null = null
   let controlRef: AgentExactRunControlRef | undefined
   const noteControlRef = (candidate: unknown): void => {
@@ -3188,6 +3420,15 @@ function environmentAsSandboxInstance(
     ...(environment.fork
       ? {
           async fork(checkpointId: string, forkOptions?: ForkRequest) {
+            if (
+              protectedAllocation ||
+              (environment.proxySecretReceipt?.bindings.length ?? 0) > 0 ||
+              Object.keys(environment.proxySecretParents ?? {}).length > 0
+            ) {
+              throw new ValidationError(
+                'protected provider adapter fork requires a trusted durable parent admission port',
+              )
+            }
             const forked = await environment.fork?.({ id: checkpointId }, forkOptions)
             if (!forked)
               throw new ValidationError('providerAsSandboxClient: fork returned no environment')

@@ -445,6 +445,7 @@ export {
 // Agent-eval integrations (judges, optimizers) use this exact-profile adapter instead of opening
 // a second provider path. It lowers one AgentProfile through createExecutor + streamAgentTurn.
 export { profileChatClient, profileOptimizerModelCall } from './profile-chat-client'
+export type { ProxySecretBindingAdmission } from './proxy-secret-admission'
 export {
   type ResolveSandboxClientOptions,
   resolveSandboxClient,
@@ -788,6 +789,10 @@ export {
   type CoordinationHttpAudit,
   type CoordinationHttpOptions,
   type CoordinationMcpHandle,
+  type CoordinationProxySecret,
+  type CoordinationProxySecretOptions,
+  type CoordinationProxySecretRegistration,
+  type CoordinationProxySecretSourceIdentity,
   type CoordinationPublicAddress,
   type CoordinationReadAccess,
   type CoordinationRejectReason,

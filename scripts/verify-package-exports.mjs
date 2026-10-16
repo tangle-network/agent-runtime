@@ -1,5 +1,6 @@
 import { sandboxOwnedContractCopies } from './lib/sandbox-owned-contracts.mjs'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
   copyFileSync,
   existsSync,
@@ -40,6 +41,8 @@ const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
 const suppliedTarball = process.argv[2] ? resolve(process.argv[2]) : undefined
 const suppliedKnowledgeTarball = process.argv[3] ? resolve(process.argv[3]) : undefined
 const suppliedSandboxTarball = process.argv[4] ? resolve(process.argv[4]) : undefined
+const suppliedMaterializerTarball = process.argv[5] ? resolve(process.argv[5]) : undefined
+const suppliedRuntimeContractsTarball = process.argv[6] ? resolve(process.argv[6]) : undefined
 
 try {
   const packDir = join(tempRoot, 'pack')
@@ -60,6 +63,12 @@ try {
   if (suppliedSandboxTarball && !existsSync(suppliedSandboxTarball)) {
     throw new Error(`supplied sandbox tarball does not exist: ${suppliedSandboxTarball}`)
   }
+  if (Boolean(suppliedMaterializerTarball) !== Boolean(suppliedRuntimeContractsTarball)) {
+    throw new Error('staged materializer and runtime-contracts archives must be supplied together')
+  }
+  for (const archive of [suppliedMaterializerTarball, suppliedRuntimeContractsTarball]) {
+    if (archive && !existsSync(archive)) throw new Error(`supplied materializer pair archive does not exist: ${archive}`)
+  }
   if (!suppliedTarball) {
     run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
   }
@@ -73,6 +82,7 @@ try {
     throw new Error(`expected exactly one packed tarball, found ${tarballs.length}`)
   }
 
+  console.log(`Runtime package archive SHA256: ${createHash('sha256').update(readFileSync(tarballs[0])).digest('hex')}`)
   run('tar', ['-xzf', tarballs[0], '-C', unpackDir], repoRoot)
   const packageDir = join(unpackDir, 'package')
   const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
@@ -187,6 +197,28 @@ try {
   if (suppliedSandboxTarball) {
     peerDependencies['@tangle-network/sandbox'] = `file:${suppliedSandboxTarball}`
   }
+  const materializerDependencies = {}
+  const materializerVersions = {}
+  if (suppliedMaterializerTarball) {
+    const materializer = JSON.parse(run('tar', ['-xOf', suppliedMaterializerTarball, 'package/package.json'], repoRoot))
+    const contracts = JSON.parse(run('tar', ['-xOf', suppliedRuntimeContractsTarball, 'package/package.json'], repoRoot))
+    for (const [candidate, name, archive] of [
+      [materializer, '@tangle-network/agent-profile-materialize', suppliedMaterializerTarball],
+      [contracts, '@tangle-network/runtime-contracts', suppliedRuntimeContractsTarball],
+    ]) {
+      if (candidate.name !== name || !isExactVersionSpec(candidate.version)) {
+        throw new Error(`supplied ${name} archive has an invalid package identity or version`)
+      }
+      materializerDependencies[name] = `file:${archive}`
+      materializerVersions[name] = candidate.version
+    }
+    if (!rangeAdmits(packageJson.dependencies?.[materializer.name], materializer.version)) {
+      throw new Error('packed Runtime dependency does not admit supplied materializer')
+    }
+    if (materializer.dependencies?.[contracts.name] !== contracts.version) {
+      throw new Error('supplied runtime-contracts must match the materializer exact dependency')
+    }
+  }
   const consumerTypeScriptAlias = packageJson.devDependencies?.['typescript-consumer']
   const consumerTypeScriptPrefix = 'npm:typescript@'
   if (
@@ -212,6 +244,7 @@ try {
           '@tangle-network/agent-knowledge': knowledgePackageSpec,
           ...peerDependencies,
           ...providerDependencies,
+          ...materializerDependencies,
         },
         devDependencies: {
           '@types/node': requiredPackedDevelopmentDependency(packageJson, '@types/node'),
@@ -522,6 +555,7 @@ try {
   run('npm', ['install', '--strict-peer-deps', '--ignore-scripts', '--no-audit', '--no-fund'], appDir)
   const installedScope = join(appDir, 'node_modules', '@tangle-network')
   const expectedFirstPartyVersions = {
+    ...materializerVersions,
     ...providerDependencies,
     '@tangle-network/agent-core': requiredPackedPackageVersion(
       packageJson.dependencies?.['@tangle-network/agent-core'],
@@ -549,15 +583,15 @@ try {
     assertSingleFirstPartyPackageVersion(installedScope, packageName, expectedVersion)
   }
   assertNoEdgeUnsafeStaticImports(installedScope)
-  run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], appDir)
-  run(process.execPath, ['--experimental-strip-types', 'provider-consumer.ts'], appDir)
   copyFileSync(
     join(repoRoot, 'scripts', 'fixtures', 'packed-sandbox-contract-consumer.mjs'),
     join(appDir, 'sandbox-contract-consumer.mjs'),
   )
   const cohortBoundary = sandboxBoundaryResult(
-    run(process.execPath, ['sandbox-contract-consumer.mjs'], appDir),
+    run(process.execPath, ['sandbox-contract-consumer.mjs', ...(suppliedMaterializerTarball ? ['--require-proxy-materializer'] : [])], appDir),
   )
+  run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], appDir)
+  run(process.execPath, ['--experimental-strip-types', 'provider-consumer.ts'], appDir)
 
   run(
     process.execPath,
@@ -620,9 +654,8 @@ try {
   `)
   run(process.execPath, ['code-mode-consumer.mjs'], appDir)
 
-  // Verify the install a new Runtime consumer actually performs. The app has
-  // no direct peer declarations, so npm must install every required peer from
-  // Runtime's metadata before any public entrypoint can load.
+  // Ordinary mode verifies automatic peer installation from Runtime metadata.
+  // A supplied SDK qualifies those same candidate bytes in both consumer layouts.
   writeFileSync(
     join(standaloneAppDir, 'package.json'),
     `${JSON.stringify(
@@ -631,6 +664,8 @@ try {
         type: 'module',
         dependencies: {
           '@tangle-network/agent-runtime': `file:${tarballs[0]}`,
+          ...materializerDependencies,
+          ...(suppliedSandboxTarball ? { '@tangle-network/sandbox': `file:${suppliedSandboxTarball}` } : {}),
         },
       },
       null,
@@ -643,6 +678,13 @@ try {
     standaloneAppDir,
   )
   const standaloneScope = join(standaloneAppDir, 'node_modules', '@tangle-network')
+  if (suppliedSandboxTarball) {
+    assertSingleFirstPartyPackageVersion(standaloneScope, '@tangle-network/sandbox', sandboxVersion)
+    console.log('Standalone consumer: supplied SDK candidate; registry auto-peer proof is separate.')
+  }
+  for (const [name, version] of Object.entries(materializerVersions)) {
+    assertSingleFirstPartyPackageVersion(standaloneScope, name, version)
+  }
   assertPeerInstalled(
     standaloneScope,
     '@tangle-network/sandbox',
@@ -653,7 +695,7 @@ try {
     join(standaloneAppDir, 'sandbox-contract-consumer.mjs'),
   )
   const standaloneBoundary = sandboxBoundaryResult(
-    run(process.execPath, ['sandbox-contract-consumer.mjs'], standaloneAppDir),
+    run(process.execPath, ['sandbox-contract-consumer.mjs', ...(suppliedMaterializerTarball ? ['--require-proxy-materializer'] : [])], standaloneAppDir),
   )
   if (standaloneBoundary.conversionCanonicalSha256 !== cohortBoundary.conversionCanonicalSha256) {
     throw new Error(
@@ -1266,18 +1308,31 @@ function ownJavascriptFiles(directory) {
 
 function sandboxBoundaryResult(stdout) {
   const result = JSON.parse(stdout.trim().split('\n').at(-1))
-  if (result.kind !== 'packed-sandbox-contract-boundary') {
+  if (
+    result.kind !== 'packed-sandbox-contract-boundary' ||
+    !/^[a-f0-9]{64}$/.test(result.conversionCanonicalSha256)
+  ) {
     throw new Error(`unexpected Sandbox contract boundary result: ${stdout.trim()}`)
   }
   return result
 }
 
 function run(command, args, cwd) {
+  const observed = command === process.execPath || command === 'npm'
+  const phase = [command === process.execPath ? 'node' : command, ...args.slice(0, 2)].join(' ')
+  const started = Date.now()
+  if (observed) console.log(`Package check started: ${phase}`)
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  if (observed) {
+    console.log(`Package check finished: ${phase}; exit=${result.status}; duration_ms=${Date.now() - started}`)
+    if (args[0]?.endsWith('consumer.mjs') || args[1] === 'provider-consumer.ts') {
+      if (result.stdout.trim()) console.log(result.stdout.trim())
+    }
+  }
   if (result.status !== 0) {
     throw new Error(
       [

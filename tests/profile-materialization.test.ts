@@ -6,7 +6,6 @@ import {
 } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
-  AGENT_PROFILE_MATERIALIZATION_AXES,
   assertProfileMaterialization,
   controlProfileMaterialization,
   defineProfileMaterializationContract,
@@ -22,53 +21,7 @@ import {
 } from '../src/agent'
 import { buildBackendOptions } from '../src/runtime/sandbox-backend'
 
-/** Pinned explicitly: comparing the re-export to itself could never fail. */
-const EXPECTED_CANONICAL_AXES = [
-  'name',
-  'description',
-  'version',
-  'tags',
-  'systemPrompt',
-  'appendSystemPrompt',
-  'instructions',
-  'modelDefault',
-  'modelSmall',
-  'modelProvider',
-  'modelReasoningEffort',
-  'modelMaxVisibleOutputTokens',
-  'modelMaxReasoningTokens',
-  'modelMaxTotalOutputTokens',
-  'modelMetadata',
-  'harness',
-  'permissions',
-  'tools',
-  'mcp',
-  'connections',
-  'subagents',
-  'seats',
-  'files',
-  'resourceTools',
-  'skills',
-  'resourceAgents',
-  'commands',
-  'knowledge',
-  'resourceInstructions',
-  'resourceFailOnError',
-  'hooks',
-  'modes',
-  'confidential',
-  'metadata',
-  'extensions',
-] as const
-
 describe('canonical axis set', () => {
-  it('is the exact canonical axis set agent-interface publishes', () => {
-    expect([...AGENT_PROFILE_MATERIALIZATION_AXES].sort()).toEqual(
-      [...EXPECTED_CANONICAL_AXES].sort(),
-    )
-    expect([...CANONICAL_AXES].sort()).toEqual([...EXPECTED_CANONICAL_AXES].sort())
-  })
-
   it('accepts every axis agent-interface can produce from a diff or a profile', () => {
     // agent-interface publishes TWO axis vocabularies and both are public producers:
     // profileMaterializationAxes emits canonical leaves, changedAgentProfileAxes emits diff

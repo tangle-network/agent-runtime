@@ -18,11 +18,15 @@ import type {
 import type {
   AgentEnvironment,
   AgentEnvironmentCapabilities,
+  AgentEnvironmentGetOptions,
   AgentEnvironmentProvider,
   AgentTurnInput,
   AgentTurnResult,
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
+import type { ProxySecretBindingAdmission } from './proxy-secret-admission'
+import type { ProxySecretParents } from './proxy-secret-parents'
+import type { CoordinationProxySecretSourceIdentity } from './supervise/coordination-credential'
 
 /** Cursor plus runtime sequence needed to continue one ordered replay. @stable */
 export interface RetainedRunReplayPoint {
@@ -126,6 +130,11 @@ export interface RetainedRunHandle {
  * @stable
  */
 export interface RetainedRunIntentAdmission {
+  readonly proxySecretSourceIdentity?: CoordinationProxySecretSourceIdentity
+  /** Exact public host declarations; a later credential generation never rewrites this snapshot. */
+  readonly proxySecrets?: CreateAgentEnvironmentInput['proxySecrets']
+  /** Runtime-owned exact parent pins, persisted before provider effects. */
+  readonly proxySecretParents?: ProxySecretParents
   readonly phase: 'intent'
   readonly provider: string
   readonly idempotencyKey: string
@@ -139,6 +148,7 @@ export interface RetainedRunIntentAdmission {
 
 /** Recovery coordinates durable after environment creation and before dispatch. @stable */
 export interface RetainedRunEnvironmentAdmission {
+  readonly proxySecretParents?: ProxySecretParents
   readonly phase: 'environment'
   readonly provider: string
   readonly environmentId: string
@@ -204,6 +214,7 @@ export type RetainedInteractiveAdmission =
 
 /** One detached-run admission record the runtime persists before creation or dispatch proceeds. @stable */
 export type RetainedRunAdmission =
+  | ProxySecretBindingAdmission
   | RetainedRunIntentAdmission
   | RetainedRunEnvironmentAdmission
   | RetainedRunDispatchedAdmission
@@ -222,6 +233,9 @@ export type RetainedRunAdmissionHook = (admission: RetainedRunAdmission) => Prom
 
 /** Environment, turn, and optional identity needed to replay one retained start. @stable */
 export interface RetainedRunStartMaterial {
+  readonly proxySecretSourceIdentity?: CoordinationProxySecretSourceIdentity
+  /** Runtime-owned exact parent pins, persisted before provider effects. */
+  readonly proxySecretParents?: ProxySecretParents
   readonly environment: CreateAgentEnvironmentInput & { idempotencyKey: string }
   /** Reuse an environment whose retained ownership key is verified instead of creating one. */
   readonly existingEnvironmentId?: string
@@ -249,7 +263,12 @@ export interface StartRetainedRunOptions extends RetainedRunStartMaterial {
 }
 
 /** A fresh retained session inside a provider environment that already exists. @stable */
-export interface StartRetainedRunInEnvironmentOptions {
+export interface StartRetainedRunInEnvironmentOptions
+  extends Pick<
+    AgentEnvironmentGetOptions,
+    'proxySecrets' | 'proxySecretParents' | 'expectedProxySecretGeneration' | 'signal'
+  > {
+  readonly proxySecretSourceIdentity?: CoordinationProxySecretSourceIdentity
   readonly provider: AgentEnvironmentProvider
   readonly environment: {
     /** Stable provider environment identifier used by `provider.get`. */
@@ -271,9 +290,16 @@ export interface StartRetainedRunInEnvironmentOptions {
 }
 
 /** Inputs sufficient to rebuild a control client in a new process. @stable */
-export interface ReconnectRetainedRunOptions {
+export interface ReconnectRetainedRunOptions
+  extends Pick<
+    AgentEnvironmentGetOptions,
+    'proxySecrets' | 'proxySecretParents' | 'expectedProxySecretGeneration' | 'signal'
+  > {
+  readonly proxySecretSourceIdentity?: CoordinationProxySecretSourceIdentity
   readonly provider: AgentEnvironmentProvider
   readonly controlRef: AgentExactRunControlRef
+  /** Required before any provider lookup carrying protected custody. */
+  readonly onAdmission?: RetainedRunAdmissionHook
   readonly now?: () => number
 }
 
@@ -295,11 +321,18 @@ export interface RecoverRetainedRunIntentOptions {
  *
  * @stable
  */
-export interface RecoverRetainedRunOptions {
+export interface RecoverRetainedRunOptions
+  extends Pick<
+    AgentEnvironmentGetOptions,
+    'proxySecrets' | 'proxySecretParents' | 'expectedProxySecretGeneration' | 'signal'
+  > {
+  readonly proxySecretSourceIdentity?: CoordinationProxySecretSourceIdentity
   readonly provider: AgentEnvironmentProvider
   readonly environmentId: string
   readonly sessionId: string
   readonly executionId: string
+  /** Required before any provider lookup carrying protected custody. */
+  readonly onAdmission?: RetainedRunAdmissionHook
   /**
    * Transfer replay identity, when the crashed run started from an ACCEPTED
    * context transfer: the original request and its authoritative receipt.

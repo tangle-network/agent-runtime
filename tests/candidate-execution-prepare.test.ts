@@ -49,6 +49,28 @@ afterEach(() => {
 })
 
 describe('candidate execution preparation', () => {
+  it('refuses a tagged secret reference in local launch argv before returning executable inputs', async () => {
+    const value = fixture()
+    value.bundle = redigestBundle(value.bundle, {
+      execution: {
+        ...value.bundle.execution,
+        launch: {
+          kind: 'container-command',
+          executable: 'codex',
+          args: [{ kind: 'secret-ref', key: 'local-launch-reference' }],
+        },
+      },
+    })
+    bindCandidateFixtureBundle(value)
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(value.bundle, value.ports),
+        value.task,
+        value.ports,
+      ),
+    ).rejects.toThrow(/cannot resolve secret references/)
+  })
+
   it.each([
     {
       // codex delivery is materializer-lowered file+flag since agent-profile-materialize 0.13.1:

@@ -32,6 +32,7 @@ import type {
   AgentTurnResult,
   ChildTaskEvent,
   InteractionRequest,
+  ProxySecretBinding,
   ReasoningEffort,
   Sha256Digest,
   WorkspaceCheckpointRef,
@@ -40,6 +41,7 @@ import type {
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type { HarnessTranscriptCapture, HarnessTranscriptEvidence } from '../harness-transcript'
+import type { ProxySecretParents } from '../proxy-secret-parents'
 import type { RetainedInteractiveRunHandle } from '../retained-interactive-types'
 import type { RetainedRunEffect } from '../retained-run-types'
 import type { LoopTokenUsage } from '../types'
@@ -1445,6 +1447,8 @@ export type SpawnEvent =
        *  names the agent, while this is the blob store's own content address, which retrieves its
        *  bytes. Absent on records written before the body was persisted. */
       profileRef?: string
+      /** Runtime-owned complete parent request pins, persisted before provider creation. */
+      proxySecretParents?: ProxySecretParents
       seq: number
       at: string
     }
@@ -1453,6 +1457,10 @@ export type SpawnEvent =
       kind: 'execution-input'
       id: NodeId
       taskRef: string
+      /** Canonical authored proxy declarations, including an explicit empty selection. */
+      proxySecrets?: readonly ProxySecretBinding[]
+      /** Runtime-owned exact parent request pins for this invocation. */
+      proxySecretParents?: ProxySecretParents
       /** @internal Whether this owner must preserve an unreceipted provider workspace on resume. */
       workspaceRetention?: boolean
       seq: number
@@ -1517,6 +1525,8 @@ export type SpawnEvent =
       kind: 'execution-evidence'
       id: NodeId
       outRef: string
+      /** Set only by Runtime's private host admission writers; generic evidence has none. */
+      authority?: 'coordination-credential-generation' | 'proxy-secret-binding-admission'
       traceRoot?: TraceRootReceipt
       seq: number
       at: string

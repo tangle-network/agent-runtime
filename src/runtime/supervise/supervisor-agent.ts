@@ -59,6 +59,7 @@ import { driverAgent } from './coordination-driver'
 import type { PriorCoordination } from './coordination-log'
 import {
   assertCoordinationTransport,
+  type CoordinationProxySecret,
   type CoordinationTransportOptions,
   serveCoordinationMcpForManager,
 } from './coordination-mcp'
@@ -472,6 +473,7 @@ export interface DriveHarness {
     readonly coordinationMcpUrl: string
     /** Runtime-only transport credentials; never append them to the authored profile or task. */
     readonly coordinationMcpHeaders?: Readonly<Record<string, string>>
+    readonly coordinationProxySecret?: CoordinationProxySecret
     /** Parent-minted peer post office. Runtime attachment only, never part of the profile. */
     readonly peerMailUrl?: string
     /** Fires when the coordination server accepts a result or declares completion. */
@@ -1469,6 +1471,7 @@ function buildSupervisorAgent(
                   scope,
                   coordinationMcpUrl: mcp.url,
                   coordinationMcpHeaders: mcp.headers,
+                  ...(mcp.proxySecret ? { coordinationProxySecret: mcp.proxySecret } : {}),
                   ...(deps.peerMailUrl ? { peerMailUrl: deps.peerMailUrl } : {}),
                   stopSignal: stopController.signal,
                   coordinationTools,

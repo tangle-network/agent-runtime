@@ -17,8 +17,11 @@ import type { SpawnEvent } from '../../src/runtime/supervise/types'
 import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
 import { completeCapture } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
-import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
+import {
+  proxyCoordination as coordinationProxy,
+  proxySecretCapabilities,
+} from '../helpers/proxy-coordination'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 // The error text of a production failure measured 2026-09-17 on a Discovery director placed on
@@ -153,15 +156,18 @@ async function harnessFailureFixture(options: {
     ...base,
     capabilities: async () => ({
       ...(await base.capabilities()),
-      create: { runtimeAttachments: { mcp: true } },
+      create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
     }),
     create: async (input) => {
       creates += 1
-      token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+      token ||= proxy.authorizationFor(input).slice('Bearer '.length)
       return wrap(await base.create(input))
     },
-    get: async (id) => {
-      const environment = await base.get!(id)
+    get: async (id, options) => {
+      if (options?.proxySecrets) {
+        token = proxy.authorizationFor(options).slice('Bearer '.length)
+      }
+      const environment = await base.get!(id, options)
       return environment ? wrap(environment) : null
     },
   }
@@ -263,6 +269,7 @@ async function harnessFailureFixture(options: {
         },
         continuation: testContinuation(),
         coordination: {
+          proxySecret: proxy.proxySecret,
           authentication: {
             signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
           },

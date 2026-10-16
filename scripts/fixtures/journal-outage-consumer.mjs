@@ -64,8 +64,15 @@ if (mode === 'controller') {
   const phase = fault.split(':')[0]
   const faultPoint = fault.split(':')[1]
   const rootOwner = fault.split(':')[2] === 'root'
+  const credentialCrash = faultPoint === 'credential-crash'
+  const transport = credentialCrash ? await import('../../tests/helpers/proxy-coordination.ts') : undefined
+  const routing = transport ? await transport.proxyCoordination() : undefined
+  const context = credentialCrash ? kernel.createFileRunContext(directory) : undefined
+  const kill = credentialCrash && phase === 'interrupt' ? (await import('../../tests/helpers/durability/kill-switch.ts')).armKillSwitch({
+    killAt: 'coordination:dispatched', labelsFile: join(directory, 'kill-labels'), killedFile: join(directory, 'killed-at'),
+  }) : undefined
   let injected = false
-  if (phase === 'interrupt') {
+  if (phase === 'interrupt' && !credentialCrash) {
     const open = fs.open.bind(fs)
     fs.open = async (path, flags, ...rest) => {
       const handle = await open(path, flags, ...rest)
@@ -109,8 +116,10 @@ if (mode === 'controller') {
     if (!response.ok) throw new Error(await response.text())
     return response.json()
   }
+  let environmentMetadata
   const environment = () => ({
-    id: 'local-environment',
+    id: environmentMetadata?.id ?? 'local-environment',
+    ...(credentialCrash ? { proxySecretReceipt: environmentMetadata.proxySecretReceipt, proxySecretParents: environmentMetadata.proxySecretParents } : {}),
     provider: 'local-process',
     status: async () => 'running',
     async *stream() {},
@@ -132,12 +141,18 @@ if (mode === 'controller') {
   })
   const provider = {
     name: 'local-process',
-    capabilities: async () => capabilities,
+    capabilities: async () => ({ ...capabilities, ...(transport ? { create: { ...capabilities.create, proxySecrets: transport.proxySecretCapabilities } } : {}) }),
     create: async (input) => {
-      await rpc('create', input)
+      const created = await rpc('create', input)
+      if (credentialCrash) environmentMetadata = created
       return environment()
     },
-    get: async (id) => ((await rpc('get', id)) ? environment() : null),
+    get: async (id, options) => {
+      const current = await rpc('get', credentialCrash ? { id, options } : id)
+      if (!current) return null
+      if (credentialCrash) environmentMetadata = current
+      return environment()
+    },
     list: () => rpc('list'),
   }
   const factory = kernel.providerAsExecutor(provider, { destroyOnSettle: false })
@@ -173,6 +188,14 @@ if (mode === 'controller') {
         pursuitId: 'local-journal-outage',
         runId,
         runDir: directory,
+        ...(context ? { blobs: context.blobs, journal: {
+          beginTree: context.journal.beginTree.bind(context.journal),
+          loadTree: context.journal.loadTree.bind(context.journal),
+          async appendEvent(root, event) {
+            await context.journal.appendEvent(root, event)
+            if (event.kind === 'execution-admitted' && event.admission.phase === 'dispatched') kill?.('coordination:dispatched')
+          },
+        } } : {}),
         budget: { maxIterations: 20, maxTokens: 1000, deadlineMs: 30000 },
         perWorker: { maxIterations: 2, maxTokens: 100, deadlineMs: 20000 },
         ...(rootOwner
@@ -186,9 +209,19 @@ if (mode === 'controller') {
                     keys: { fixture: 'offline-test-key-'.repeat(4) },
                   },
                 },
+                ...(routing ? { proxySecret: {
+                  async prepare(input) {
+                    const { signal, ...material } = input
+                    signal.throwIfAborted()
+                    const registered = await rpc('prepare', material)
+                    return { ...registered, revoke: () => rpc('revoke', registered.binding.secretRef.key) }
+                  },
+                } } : {}),
                 publicUrl: async (address) => {
-                  await rpc('forward', address.port)
-                  return `${endpoint}/mcp`
+                  if (!routing) { await rpc('forward', address.port); return `${endpoint}/mcp` }
+                  const url = await rpc('forward', { port: address.port, host: address.host, runId: address.runId, actorId: address.actorId })
+                  routing.forwardTo(address.port, address.host, url)
+                  return url
                 },
               },
             }
@@ -230,6 +263,7 @@ if (mode === 'controller') {
   } catch (error) {
     outcome = { status: 'interrupted', name: error.name, message: error.message }
   }
+  await routing?.close()
   console.log(
     JSON.stringify({
       ...outcome,
@@ -245,6 +279,18 @@ if (mode === 'controller') {
   await fs.mkdir(root, { recursive: true })
   const rootOwner = mode?.startsWith('root-') ?? false
   const faultPoint = (rootOwner ? mode.slice(5) : mode) ?? 'dispatch'
+  const credentialCrash = faultPoint === 'credential-crash'
+  const transport = credentialCrash ? await import('../../tests/helpers/proxy-coordination.ts') : undefined
+  const issuer = transport ? await transport.proxyCoordination() : undefined
+  const metadataProvider = credentialCrash ? (await import('../../tests/helpers/durable-retained-provider.ts')).durableRetainedProvider(join(root, 'provider.json')) : undefined
+  const registrations = new Map()
+  let metadataEnvironment
+  let originalAuthorization
+  let originalRegistration
+  let registeredUrl
+  let authenticatedReplay = false
+  let sourceCreates = 0, sourceReplays = 0, sourceRevokes = 0, sameCredential = true, sameSource = true
+  const metadata = environment => ({ id: environment.id, proxySecretReceipt: environment.proxySecretReceipt, proxySecretParents: environment.proxySecretParents })
   let creates = 0
   let dispatchCalls = 0
   let starts = 0
@@ -284,8 +330,23 @@ if (mode === 'controller') {
       const { method, input } = JSON.parse(raw)
       let value
       if (method === 'forward') {
-        coordinationPort = input
-        value = true
+        coordinationPort = credentialCrash ? input.port : input
+        value = credentialCrash ? issuer.publicUrl(input) : true
+      } else if (method === 'prepare' && issuer) {
+        const registered = await issuer.proxySecret.prepare({ ...input, signal: AbortSignal.timeout(5000) })
+        if (input.replay) {
+          sourceReplays++
+          sameCredential &&= input.authorization === originalAuthorization
+          sameSource &&= canonicalCandidateDigest({ binding: registered.binding, sourceIdentity: registered.sourceIdentity }) === canonicalCandidateDigest(originalRegistration)
+        } else sourceCreates++
+        originalAuthorization ??= input.authorization
+        registeredUrl ??= input.url
+        originalRegistration ??= { binding: registered.binding, sourceIdentity: registered.sourceIdentity }
+        registrations.set(registered.binding.secretRef.key, registered)
+        value = { binding: registered.binding, sourceIdentity: registered.sourceIdentity, expiresAt: registered.expiresAt }
+      } else if (method === 'revoke' && issuer) {
+        sourceRevokes++
+        value = await registrations.get(input).revoke()
       } else if (method === 'create') {
         if (createMaterial) assert.equal(input.idempotencyKey, createMaterial.idempotencyKey)
         else {
@@ -293,14 +354,32 @@ if (mode === 'controller') {
           createMaterial = input
         }
         assert.deepEqual(input.profile, rootOwner ? rootProfile : profile)
-        value = true
-      } else if (method === 'get') value = creates > 0 && destroys === 0
+        if (metadataProvider) metadataEnvironment = await metadataProvider.create(input)
+        value = metadataProvider ? metadata(metadataEnvironment) : true
+      } else if (method === 'get') {
+        value = creates > 0 && destroys === 0
+        if (value && metadataProvider) {
+          const current = await metadataProvider.get(input.id, input.options)
+          value = current ? metadata(current) : false
+          if (current && sourceReplays === 1 && !input.options?.readOnly && !authenticatedReplay) {
+            const authenticated = await fetch(registeredUrl, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', ...issuer.guestHeadersFor(originalRegistration.binding) },
+              body: JSON.stringify({ jsonrpc: '2.0', id: 'crash-replay', method: 'tools/list', params: {} }),
+              signal: AbortSignal.timeout(5000),
+            })
+            const body = await authenticated.json()
+            authenticatedReplay = authenticated.ok && !body.error
+            assert.equal(authenticatedReplay, true, 'the replayed source must authenticate to the real listener')
+          }
+        }
+      }
       else if (method === 'list')
         value =
           creates > 0
             ? [
                 {
-                  id: 'local-environment',
+                  id: metadataEnvironment?.id ?? 'local-environment',
                   provider: 'local-process',
                   metadata: createMaterial.metadata,
                 },
@@ -315,7 +394,7 @@ if (mode === 'controller') {
           starts++
           controlRef = {
             provider: 'local-process',
-            environmentId: 'local-environment',
+            environmentId: metadataEnvironment?.id ?? 'local-environment',
             sessionId: input.sessionId,
             executionId: input.executionId,
             runId: `native:${input.turnId}`,
@@ -397,7 +476,8 @@ if (mode === 'controller') {
       child.once('exit', (code, signal) => {
         clearTimeout(timeout)
         fs.writeFile(join(root, `${name}.log`), stdout + '\n' + stderr).then(() => {
-          if (code !== 0) reject(new Error(`controller ${name}: ${code}/${signal} ${stderr}`))
+          if (credentialCrash && name === 'interrupt' && signal === 'SIGKILL') accept({ status: 'killed', signal, resultExists: existsSync(join(root, 'result.json')) })
+          else if (code !== 0) reject(new Error(`controller ${name}: ${code}/${signal} ${stderr}`))
           else accept(JSON.parse(stdout.trim().split('\n').at(-1)))
         }, reject)
       })
@@ -410,7 +490,8 @@ if (mode === 'controller') {
     receipt.firstCreates = creates
     receipt.firstStarts = starts
     receipt.firstDestroys = destroys
-    receipt.fault = JSON.parse(await fs.readFile(join(root, 'injected.json'), 'utf8'))
+    if (credentialCrash) receipt.firstSourceRevokes = sourceRevokes
+    receipt.fault = credentialCrash ? { code: 'SIGKILL', at: (await fs.readFile(join(root, 'killed-at'), 'utf8')).trim() } : JSON.parse(await fs.readFile(join(root, 'injected.json'), 'utf8'))
     const journal = new kernel.FileSpawnJournal(join(root, 'spawn-journal.jsonl'))
     const before = await journal.loadTree(runId)
     const originalBytes = await fs.readFile(join(root, 'spawn-journal.jsonl'))
@@ -419,7 +500,7 @@ if (mode === 'controller') {
     receipt.pendingAdmissions = before
       .filter((event) => event.kind === 'execution-admitted')
       .map((event) => event.admission)
-    assert.equal(receipt.fault.code, 'ENOSPC')
+    assert.equal(receipt.fault.code, credentialCrash ? 'SIGKILL' : 'ENOSPC')
     if (process.env.RUNTIME_EXPECT_LEGACY_FAILURE === '1') {
       assert.equal(receipt.first.status, 'settled')
       assert.equal(receipt.first.resultExists, true)
@@ -429,7 +510,7 @@ if (mode === 'controller') {
       receipt.legacyTerminalGuardBlockedRecovery = true
       receipt.passed = true
     } else {
-      assert.equal(receipt.first.status, 'interrupted')
+      assert.equal(receipt.first.status, credentialCrash ? 'killed' : 'interrupted')
       assert.equal(receipt.first.resultExists, false)
       assert.equal(destroys, 0)
       if (faultPoint !== 'result') assert.equal(alive, true)
@@ -440,6 +521,10 @@ if (mode === 'controller') {
       )
       await fs.writeFile(join(root, 'complete'), '')
       assert.equal(await completed, 0)
+      if (credentialCrash) {
+        assert.equal(sourceRevokes, 0, 'SIGKILL must skip graceful source revocation')
+        assert.equal(sourceCreates, 1)
+      }
       receipt.second = await phase('resume')
       const after = await journal.loadTree(runId)
       receipt.settlements = after.filter((event) => event.kind === 'settled')
@@ -466,17 +551,36 @@ if (mode === 'controller') {
       assert.equal(after.filter((event) => event.kind === 'execution-result').length, 1)
       receipt.originalIdentityAndDeadlinePreserved = true
       receipt.committedPrefixPreserved = true
+      if (credentialCrash) {
+        Object.assign(receipt, { sourceCreates, sourceReplays, sourceRevokes, sameCredential, sameSource, authenticatedReplay })
+        assert.equal(sourceCreates, 1, 'same-generation crash replay must not mint another source')
+        assert.equal(sourceReplays, 1)
+        assert.equal(authenticatedReplay, true)
+        assert.equal(sourceRevokes, 1, 'terminal close must revoke the original generation')
+        assert.equal(sameCredential, true, 'same-generation replay changed its credential')
+        assert.equal(sameSource, true, 'same-generation replay changed its source identity or declaration')
+        const files = await fs.readdir(root, { recursive: true, withFileTypes: true })
+        let exposed = false
+        for (const file of files) if (file.isFile()) {
+          const bytes = await fs.readFile(join(file.parentPath ?? file.path, file.name))
+          exposed ||= bytes.includes(originalAuthorization) || bytes.includes(originalAuthorization.slice('Bearer '.length)) || bytes.includes('offline-test-key-'.repeat(4))
+        }
+        assert.equal(exposed, false, 'fixture credential material must remain host-memory-only')
+        receipt.noReadableCredentialPersisted = true
+      }
       receipt.passed = true
     }
   } catch (error) {
     receipt.passed = false
     receipt.error = String(error)
+    if (credentialCrash) Object.assign(receipt, { sourceCreates, sourceReplays, sourceRevokes, sameCredential, sameSource, authenticatedReplay })
     process.exitCode = 1
   } finally {
     if (alive) {
       worker.kill()
       await completed
     }
+    await issuer?.close()
     server.closeAllConnections()
     await new Promise((close) => server.close(close))
     await fs.writeFile(join(root, 'receipt.json'), JSON.stringify(receipt, null, 2))

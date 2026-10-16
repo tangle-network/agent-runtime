@@ -74,6 +74,7 @@ interface MaterializeAgentCandidateProfilePlanOptions {
 export function materializeAgentCandidateProfilePlan(
   options: MaterializeAgentCandidateProfilePlanOptions,
 ): AgentCandidateWorkspacePlan {
+  assertLocalCandidateCustody(options.profile)
   const root =
     options.workspace === 'task' ? options.workspaces.taskRoot : options.workspaces.candidateRoot
   if (!root) throw new Error('candidate profile target is missing its execution workspace root')
@@ -194,6 +195,7 @@ const CANDIDATE_PROFILE_DIRECT_FIELDS = [
   'permissions',
   'tools',
   'confidential',
+  'proxySecrets',
 ] as const
 
 /** Convert only behavior-preserving generic profile fields into the closed candidate contract. */
@@ -311,12 +313,19 @@ export function parseExactCandidateProfile(input: unknown): AgentCandidateProfil
 export function assertCandidateProfileExecutionSupport(profile: AgentCandidateProfile): void {
   assertResolvedKnowledgeResources(profile.resources)
   refuseFieldsSandboxCannotCarry(profile)
+  assertLocalCandidateCustody(profile)
   const fields = ['tools', 'permissions', 'modes', 'confidential'] as const
   const unsupported = fields.filter((field) => hasEntries(profile[field]))
   if (unsupported.length > 0) {
     throw new Error(
       `candidate execution cannot prove in-session effects for non-empty AgentProfile fields: ${unsupported.join(', ')}`,
     )
+  }
+}
+
+function assertLocalCandidateCustody(profile: AgentCandidateProfile): void {
+  if (profile.proxySecrets?.length) {
+    throw new Error('candidate local execution cannot materialize proxy-held secret declarations')
   }
 }
 
@@ -335,10 +344,8 @@ export function agentCandidateProfileAsAgentProfile(
         name,
         {
           ...server,
-          // Candidate config values ({kind:'public', value}) are already valid
-          // AgentProfileConfigValue entries under interface >=0.40 — clone them
-          // rather than unwrapping to plain strings, which the 0.40 profile
-          // schema rejects.
+          // Preserve tagged config values for the materializer; this conversion
+          // neither resolves secret references nor unwraps them into public text.
           ...(server.args ? { args: server.args.map((value) => ({ ...value })) } : {}),
           ...(server.env ? { env: cloneRecord(server.env) } : {}),
         },
@@ -606,6 +613,9 @@ function mapCandidatePublicValues(
 }
 
 function publicValue(value: AgentCandidateConfigValue): string {
+  if (value.kind !== 'public') {
+    throw new Error('candidate hook command arguments cannot contain secret references')
+  }
   return value.value
 }
 

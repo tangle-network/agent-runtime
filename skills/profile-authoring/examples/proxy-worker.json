@@ -1,0 +1,47 @@
+{
+  "name": "proxy-worker",
+  "description": "Makes one approved request using a proxy-held credential.",
+  "harness": "codex",
+  "model": {
+    "provider": "openai",
+    "default": "gpt-6.1-sol",
+    "metadata": {
+      "credentialSource": "subscription"
+    }
+  },
+  "resources": {
+    "failOnError": true
+  },
+  "prompt": {
+    "instructions": [
+      "You are the proxy worker. Use the harness shell to GET the reviewed /v1/result endpoint with curl --fail --silent --show-error, sending Authorization: Bearer from the SERVICE_TOKEN placeholder. Save the response as out/result.json, then call submit_result with that path.",
+      "On denied placement or request, call report_blocked with the non-secret failure receipt, then end your turn."
+    ]
+  },
+  "tools": {
+    "agent_runtime_coordination_submit_result": true,
+    "agent_runtime_coordination_report_blocked": true
+  },
+  "proxySecrets": [
+    {
+      "envName": "SERVICE_TOKEN",
+      "secretRef": {
+        "kind": "secret-ref",
+        "key": "service-account"
+      },
+      "hosts": [
+        "api.example.test"
+      ],
+      "presentation": {
+        "type": "bearer"
+      },
+      "methods": [
+        "GET"
+      ],
+      "paths": [
+        "/v1/result"
+      ],
+      "ttlSeconds": 60
+    }
+  ]
+}

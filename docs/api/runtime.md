@@ -1223,7 +1223,7 @@ Manager-scoped assignment identity, including deterministic ids for unkeyed sibl
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-11)
+[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-12)
 
 ##### materialization?
 
@@ -4870,6 +4870,32 @@ Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox cl
 
 #### Properties
 
+##### proxySecretSourceIdentity?
+
+> `optional` **proxySecretSourceIdentity?**: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity)
+
+**`Experimental`**
+
+Exact metadata supplied by the trusted host credential issuer.
+
+##### onAdmission?
+
+> `optional` **onAdmission?**: (`admission`) => `Promise`\<`void`\>
+
+**`Experimental`**
+
+Await durable storage of the exact parent pins before protected provider allocation.
+
+###### Parameters
+
+###### admission
+
+\{ `phase`: `"proxy-secrets"`; `stage`: `"selected"`; `provider`: `string`; `environmentId?`: `string`; `idempotencyKey?`: `string`; `proxySecrets`: `object`[]; `proxySecretParents`: `Record`\<`string`, `string` \| `null`\>; `requestDigest`: `string`; `sourceIdentity?`: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity); \} \| \{ `phase`: `"proxy-secrets"`; `provider`: `string`; `idempotencyKey?`: `string`; `proxySecrets`: `object`[]; `proxySecretParents`: `Record`\<`string`, `string` \| `null`\>; `requestDigest`: `string`; `sourceIdentity?`: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity); `stage`: `"replacement"`; `environmentId`: `string`; `priorReceipt`: \{ \} \| \{ \} \| \{ \}; `expectedProxySecretGeneration`: `number`; \} \| \{ `phase`: `"proxy-secrets"`; `provider`: `string`; `idempotencyKey?`: `string`; `proxySecrets`: `object`[]; `proxySecretParents`: `Record`\<`string`, `string` \| `null`\>; `requestDigest`: `string`; `sourceIdentity?`: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity); `stage`: `"installed"`; `environmentId`: `string`; `priorReceipt?`: \{ \} \| \{ \} \| \{ \}; `expectedProxySecretGeneration?`: `number`; `receipt`: \{ \} \| \{ \} \| \{ \}; \}
+
+###### Returns
+
+`Promise`\<`void`\>
+
 ##### defaults?
 
 > `optional` **defaults?**: `Partial`\<`CreateAgentEnvironmentInput`\>
@@ -4949,7 +4975,7 @@ callback, unsupported fields are refused before any environment is created.
 
 ###### options
 
-`CreateSandboxOptions` \| `undefined`
+`CreateSandboxOptions` & `Pick`\<`CreateAgentEnvironmentInput`, `"proxySecrets"` \| `"proxySecretParents"`\> \| `undefined`
 
 ###### Returns
 
@@ -10105,6 +10131,22 @@ this record after a process crash.
 
 #### Properties
 
+##### proxySecretSourceIdentity?
+
+> `readonly` `optional` **proxySecretSourceIdentity?**: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity)
+
+##### proxySecrets?
+
+> `readonly` `optional` **proxySecrets?**: readonly `object`[]
+
+Exact public host declarations; a later credential generation never rewrites this snapshot.
+
+##### proxySecretParents?
+
+> `readonly` `optional` **proxySecretParents?**: `Record`\<`string`, `string` \| `null`\>
+
+Runtime-owned exact parent pins, persisted before provider effects.
+
 ##### phase
 
 > `readonly` **phase**: `"intent"`
@@ -10150,6 +10192,10 @@ this record after a process crash.
 Recovery coordinates durable after environment creation and before dispatch.
 
 #### Properties
+
+##### proxySecretParents?
+
+> `readonly` `optional` **proxySecretParents?**: `Record`\<`string`, `string` \| `null`\>
 
 ##### phase
 
@@ -10333,6 +10379,16 @@ Environment, turn, and optional identity needed to replay one retained start.
 
 #### Properties
 
+##### proxySecretSourceIdentity?
+
+> `readonly` `optional` **proxySecretSourceIdentity?**: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity)
+
+##### proxySecretParents?
+
+> `readonly` `optional` **proxySecretParents?**: `Record`\<`string`, `string` \| `null`\>
+
+Runtime-owned exact parent pins, persisted before provider effects.
+
 ##### environment
 
 > `readonly` **environment**: `CreateAgentEnvironmentInput` & `object`
@@ -10388,6 +10444,24 @@ A retained start is retry-safe only when environment and turn keys are explicit.
 - [`RetainedRunStartMaterial`](#retainedrunstartmaterial)
 
 #### Properties
+
+##### proxySecretSourceIdentity?
+
+> `readonly` `optional` **proxySecretSourceIdentity?**: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity)
+
+###### Inherited from
+
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`proxySecretSourceIdentity`](#proxysecretsourceidentity-2)
+
+##### proxySecretParents?
+
+> `readonly` `optional` **proxySecretParents?**: `Record`\<`string`, `string` \| `null`\>
+
+Runtime-owned exact parent pins, persisted before provider effects.
+
+###### Inherited from
+
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`proxySecretParents`](#proxysecretparents-2)
 
 ##### environment
 
@@ -10481,7 +10555,15 @@ A previously persisted intent used to replay the exact create operation.
 
 A fresh retained session inside a provider environment that already exists.
 
+#### Extends
+
+- `Pick`\<`AgentEnvironmentGetOptions`, `"proxySecrets"` \| `"proxySecretParents"` \| `"expectedProxySecretGeneration"` \| `"signal"`\>
+
 #### Properties
+
+##### proxySecretSourceIdentity?
+
+> `readonly` `optional` **proxySecretSourceIdentity?**: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity)
 
 ##### provider
 
@@ -10542,7 +10624,15 @@ from `(environment.idempotencyKey, turn.turnId)`.
 
 Inputs sufficient to rebuild a control client in a new process.
 
+#### Extends
+
+- `Pick`\<`AgentEnvironmentGetOptions`, `"proxySecrets"` \| `"proxySecretParents"` \| `"expectedProxySecretGeneration"` \| `"signal"`\>
+
 #### Properties
+
+##### proxySecretSourceIdentity?
+
+> `readonly` `optional` **proxySecretSourceIdentity?**: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity)
 
 ##### provider
 
@@ -10551,6 +10641,12 @@ Inputs sufficient to rebuild a control client in a new process.
 ##### controlRef
 
 > `readonly` **controlRef**: `AgentExactRunControlRef`
+
+##### onAdmission?
+
+> `readonly` `optional` **onAdmission?**: [`RetainedRunAdmissionHook`](#retainedrunadmissionhook)
+
+Required before any provider lookup carrying protected custody.
 
 ##### now?
 
@@ -10607,7 +10703,15 @@ Pre-dispatch admission coordinates for one recovery attempt.
 A `phase: 'environment'` admission record carries these fields, so a caller
 can pass that record after a crash before the dispatched record landed.
 
+#### Extends
+
+- `Pick`\<`AgentEnvironmentGetOptions`, `"proxySecrets"` \| `"proxySecretParents"` \| `"expectedProxySecretGeneration"` \| `"signal"`\>
+
 #### Properties
+
+##### proxySecretSourceIdentity?
+
+> `readonly` `optional` **proxySecretSourceIdentity?**: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity)
 
 ##### provider
 
@@ -10624,6 +10728,12 @@ can pass that record after a crash before the dispatched record landed.
 ##### executionId
 
 > `readonly` **executionId**: `string`
+
+##### onAdmission?
+
+> `readonly` `optional` **onAdmission?**: [`RetainedRunAdmissionHook`](#retainedrunadmissionhook)
+
+Required before any provider lookup carrying protected custody.
 
 ##### contextTransfer?
 
@@ -13316,7 +13426,7 @@ The name of the strategy it was authored from; null for the root.
 
 ##### status
 
-> **status**: `"rejected"` \| `"advanced"` \| `"pruned"` \| `"invalid"` \| `"finalist"` \| `"selected"` \| `null`
+> **status**: `"rejected"` \| `"selected"` \| `"advanced"` \| `"pruned"` \| `"invalid"` \| `"finalist"` \| `null`
 
 The node's latest decision; null while undecided.
 
@@ -16612,6 +16722,34 @@ Re-entered drives in a row, this one included, that ended without progress.
 
 ***
 
+### CoordinationProxySecretSourceIdentity
+
+Immutable, metadata-only identity of the existing encrypted source, supplied by its owner.
+
+#### Properties
+
+##### identity
+
+> `readonly` **identity**: `object`
+
+##### key
+
+> `readonly` **key**: `string`
+
+##### sourceValidUntil
+
+> `readonly` **sourceValidUntil**: `string`
+
+##### proxyPolicy
+
+> `readonly` **proxyPolicy**: `object`
+
+##### expiresAt
+
+> `readonly` **expiresAt**: `string`
+
+***
+
 ### CoordinationHttpAudit
 
 #### Properties
@@ -16854,6 +16992,12 @@ Runtime-only credentials. Never put these headers in canonical profiles or journ
 The current credential's expiry under `authentication.ttlMs`; undefined when it lives as long
  as the scope.
 
+##### proxySecret
+
+> `readonly` **proxySecret**: [`CoordinationProxySecret`](#coordinationproxysecret) \| `undefined`
+
+Metadata only; absent while rotation is pending or after registration expiry.
+
 ##### submittedResult
 
 > **submittedResult**: () => \{ `result`: `unknown`; \} \| `undefined`
@@ -16964,13 +17108,13 @@ Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE
 
 ##### rotateCredential()
 
-> **rotateCredential**(): `void`
+> **rotateCredential**(): `Promise`\<`void`\>
 
-Revoke this listener’s current token and mint another. Remove a signing key to revoke across restarts.
+Fence the previous credential immediately; await fresh registration before continuation.
 
 ###### Returns
 
-`void`
+`Promise`\<`void`\>
 
 ##### settled()
 
@@ -17082,6 +17226,139 @@ Listener lifetime: aborts on close, failed setup, manager cancellation, or deadl
 
 ***
 
+### CoordinationProxySecret
+
+An actor credential registered by the trusted host; installation belongs to the provider.
+
+#### Extended by
+
+- [`CoordinationProxySecretRegistration`](#coordinationproxysecretregistration)
+
+#### Properties
+
+##### binding
+
+> `readonly` **binding**: `object`
+
+##### sourceIdentity
+
+> `readonly` **sourceIdentity**: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity)
+
+##### expiresAt
+
+> `readonly` **expiresAt**: `string`
+
+***
+
+### CoordinationProxySecretRegistration
+
+An actor credential registered by the trusted host; installation belongs to the provider.
+
+#### Extends
+
+- [`CoordinationProxySecret`](#coordinationproxysecret)
+
+#### Properties
+
+##### binding
+
+> `readonly` **binding**: `object`
+
+###### Inherited from
+
+[`CoordinationProxySecret`](#coordinationproxysecret).[`binding`](#binding)
+
+##### sourceIdentity
+
+> `readonly` **sourceIdentity**: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity)
+
+###### Inherited from
+
+[`CoordinationProxySecret`](#coordinationproxysecret).[`sourceIdentity`](#sourceidentity)
+
+##### expiresAt
+
+> `readonly` **expiresAt**: `string`
+
+###### Inherited from
+
+[`CoordinationProxySecret`](#coordinationproxysecret).[`expiresAt`](#expiresat-1)
+
+#### Methods
+
+##### revoke()
+
+> **revoke**(): `Promise`\<\{ `confirmed`: `true`; \}\>
+
+Confirm removal from the trusted secret store. A failed or unconfirmed revoke fails close.
+
+###### Returns
+
+`Promise`\<\{ `confirmed`: `true`; \}\>
+
+***
+
+### CoordinationProxySecretOptions
+
+#### Methods
+
+##### prepare()
+
+> **prepare**(`input`): `Promise`\<[`CoordinationProxySecretRegistration`](#coordinationproxysecretregistration)\>
+
+Host-only callback. Register in the existing encrypted secret store, never guest env/files.
+ Observe signal and clean up partial registration before rejecting. The provider must verify
+ its sandbox-bound installed receipt before it launches the harness.
+
+###### Parameters
+
+###### input
+
+###### runId
+
+`string`
+
+###### actorId
+
+`string`
+
+###### url
+
+`string`
+
+###### authorization
+
+`string`
+
+Full Authorization header. The trusted bearer-store adapter parses it once and stores
+ only the token bytes; the store itself does no presentation normalization. Never log it.
+
+###### replay
+
+`boolean`
+
+Lookup-only replay of an exact live generation. Never recreate or upsert a missing source.
+
+###### expectedSourceIdentity?
+
+[`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity)
+
+###### credentialExpiresAt
+
+`number` \| `undefined`
+
+Credential deadline in epoch milliseconds, when explicitly bounded by Runtime auth.
+
+###### signal
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`CoordinationProxySecretRegistration`](#coordinationproxysecretregistration)\>
+
+***
+
 ### CoordinationReadAccess
 
 Runtime-only read capability delivered to an operator client, never to the canonical profile.
@@ -17169,6 +17446,12 @@ Audit fields exclude credentials, request bodies, and arbitrary error strings.
 ###### Inherited from
 
 [`CoordinationHttpOptions`](#coordinationhttpoptions).[`onAudit`](#onaudit)
+
+##### proxySecret?
+
+> `readonly` `optional` **proxySecret?**: [`CoordinationProxySecretOptions`](#coordinationproxysecretoptions)
+
+Trusted registration for provider managers; never an authored profile credential.
 
 ##### onReadReady?
 
@@ -25302,7 +25585,7 @@ Stable first-level peer manager owner, inherited by its managed descendants when
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-6)
+[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-7)
 
 ##### assignmentId?
 
@@ -25505,6 +25788,10 @@ The standing instruction assembled from the profile: its system prompt in either
 `Readonly`\<`Record`\<`string`, `string`\>\>
 
 Runtime-only transport credentials; never append them to the authored profile or task.
+
+###### coordinationProxySecret?
+
+[`CoordinationProxySecret`](#coordinationproxysecret)
 
 ###### peerMailUrl?
 
@@ -31349,7 +31636,7 @@ the kernel falls back to `{ placement: 'sibling', sandboxId: box.id }`.
 
 ###### options?
 
-`CreateSandboxOptions`
+`CreateSandboxOptions` & `Pick`\<`CreateAgentEnvironmentInput`, `"proxySecrets"` \| `"proxySecretParents"`\>
 
 ###### requestOptions?
 
@@ -33556,6 +33843,14 @@ When [ProviderWorkspaceRetentionPort.captureNative](#capturenative) runs relativ
 
 ***
 
+### ProxySecretBindingAdmission
+
+> **ProxySecretBindingAdmission** = \{ `phase`: `"proxy-secrets"`; `stage`: `"selected"`; `provider`: `string`; `environmentId?`: `string`; `idempotencyKey?`: `string`; `proxySecrets`: `object`[]; `proxySecretParents`: `Record`\<`string`, `string` \| `null`\>; `requestDigest`: `string`; `sourceIdentity?`: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity); \} \| \{ `phase`: `"proxy-secrets"`; `provider`: `string`; `idempotencyKey?`: `string`; `proxySecrets`: `object`[]; `proxySecretParents`: `Record`\<`string`, `string` \| `null`\>; `requestDigest`: `string`; `sourceIdentity?`: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity); `stage`: `"replacement"`; `environmentId`: `string`; `priorReceipt`: \{ \} \| \{ \} \| \{ \}; `expectedProxySecretGeneration`: `number`; \} \| \{ `phase`: `"proxy-secrets"`; `provider`: `string`; `idempotencyKey?`: `string`; `proxySecrets`: `object`[]; `proxySecretParents`: `Record`\<`string`, `string` \| `null`\>; `requestDigest`: `string`; `sourceIdentity?`: [`CoordinationProxySecretSourceIdentity`](#coordinationproxysecretsourceidentity); `stage`: `"installed"`; `environmentId`: `string`; `priorReceipt?`: \{ \} \| \{ \} \| \{ \}; `expectedProxySecretGeneration?`: `number`; `receipt`: \{ \} \| \{ \} \| \{ \}; \}
+
+Public metadata only, carried through the existing awaited admission hook.
+
+***
+
 ### RetainedInteractiveEnvironmentInput
 
 > **RetainedInteractiveEnvironmentInput** = `Omit`\<`CreateAgentEnvironmentInput`, `"idempotencyKey"` \| `"profile"` \| `"signal"`\> & `object`
@@ -33658,7 +33953,7 @@ Durable records for one exact native coding-agent process.
 
 ### RetainedRunAdmission
 
-> **RetainedRunAdmission** = [`RetainedRunIntentAdmission`](#retainedrunintentadmission) \| [`RetainedRunEnvironmentAdmission`](#retainedrunenvironmentadmission) \| [`RetainedRunDispatchedAdmission`](#retainedrundispatchedadmission)
+> **RetainedRunAdmission** = [`ProxySecretBindingAdmission`](#proxysecretbindingadmission) \| [`RetainedRunIntentAdmission`](#retainedrunintentadmission) \| [`RetainedRunEnvironmentAdmission`](#retainedrunenvironmentadmission) \| [`RetainedRunDispatchedAdmission`](#retainedrundispatchedadmission)
 
 **`Stable`**
 
@@ -35292,13 +35587,13 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-10); `parent?`: [`NodeId`](#nodeid-10); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-10); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-8); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-10); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-10); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-10); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-10); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-10); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-10); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-10); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-10); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-10); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-10); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-10); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-10); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-10); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-10); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-10); `label`: `string`; `runtime`: [`Runtime`](#runtime-8); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-10); `label`: `string`; `runtime`: [`Runtime`](#runtime-8); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-10); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-10); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-10); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-10); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-10); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-10); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-10); `resumeAt`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-10); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-10); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-10); `parent?`: [`NodeId`](#nodeid-10); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-10); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-8); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-10); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `proxySecretParents?`: `ProxySecretParents`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-10); `taskRef`: `string`; `proxySecrets?`: readonly `ProxySecretBinding`[]; `proxySecretParents?`: `ProxySecretParents`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-10); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-10); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `authority?`: `"coordination-credential-generation"` \| `"proxy-secret-binding-admission"`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-10); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-10); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-10); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-10); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-10); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-10); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-10); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-10); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-10); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-10); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-10); `label`: `string`; `runtime`: [`Runtime`](#runtime-8); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-10); `label`: `string`; `runtime`: [`Runtime`](#runtime-8); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-10); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-10); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-10); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-10); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-10); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-10); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-10); `resumeAt`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-10); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-10); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-10); `parent?`: [`NodeId`](#nodeid-10); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-10); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-8); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-10); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-10); `parent?`: [`NodeId`](#nodeid-10); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-10); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-8); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-10); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `proxySecretParents?`: `ProxySecretParents`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -35377,6 +35672,12 @@ Exact profile/task digests plus trusted candidate/campaign attribution when avai
  names the agent, while this is the blob store's own content address, which retrieves its
  bytes. Absent on records written before the body was persisted.
 
+###### proxySecretParents?
+
+> `optional` **proxySecretParents?**: `ProxySecretParents`
+
+Runtime-owned complete parent request pins, persisted before provider creation.
+
 ###### seq
 
 > **seq**: `number`
@@ -35389,7 +35690,7 @@ Exact profile/task digests plus trusted candidate/campaign attribution when avai
 
 ##### Type Literal
 
-\{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-10); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-10); `taskRef`: `string`; `proxySecrets?`: readonly `ProxySecretBinding`[]; `proxySecretParents?`: `ProxySecretParents`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -35404,6 +35705,18 @@ Exact task bytes durable before admitting a retained invocation.
 ###### taskRef
 
 > **taskRef**: `string`
+
+###### proxySecrets?
+
+> `optional` **proxySecrets?**: readonly `ProxySecretBinding`[]
+
+Canonical authored proxy declarations, including an explicit empty selection.
+
+###### proxySecretParents?
+
+> `optional` **proxySecretParents?**: `ProxySecretParents`
+
+Runtime-owned exact parent request pins for this invocation.
 
 ###### seq
 
@@ -35580,7 +35893,7 @@ The provider's answer to the stop Runtime requested, when the invocation had dis
 
 ##### Type Literal
 
-\{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `authority?`: `"coordination-credential-generation"` \| `"proxy-secret-binding-admission"`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -35595,6 +35908,12 @@ Capture output retained independently of terminal outcome, spend, and recovery s
 ###### outRef
 
 > **outRef**: `string`
+
+###### authority?
+
+> `optional` **authority?**: `"coordination-credential-generation"` \| `"proxy-secret-binding-admission"`
+
+Set only by Runtime's private host admission writers; generic evidence has none.
 
 ###### traceRoot?
 

@@ -14,14 +14,20 @@ import type {
   AgentEnvironmentCapabilities,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { fullProfileMaterialization } from '../../src/agent/profile-materialization'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import type { SuperviseOptions } from '../../src/runtime/supervise/supervise'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type { NodeId, SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
+import { proxyCoordination, proxySecretCapabilities } from '../helpers/proxy-coordination'
 import { supervise } from '../helpers/runtime-with-test-brain'
 import { runtimeToolDeclarations } from './test-agent-profile'
+
+const proxies: Awaited<ReturnType<typeof proxyCoordination>>[] = []
+afterEach(async () => {
+  await Promise.all(proxies.splice(0).map((proxy) => proxy.close()))
+})
 
 function recordingJournal(into: SpawnEvent[]): SpawnJournal {
   const journal = new InMemorySpawnJournal()
@@ -142,9 +148,15 @@ describe('supervise coordination-channel pre-flight', () => {
 
 it('refuses advertised remote coordination when the provider cannot mount runtime attachments', async () => {
   const { provider, creates } = neverCreatingProvider()
+  const proxy = await proxyCoordination()
+  proxies.push(proxy)
   const { events, toolResults } = await spawnLeadFromRoot({
     backend: { backend: 'provider', provider },
-    coordination: { authentication: true, publicUrl: 'https://coordination.example/manager' },
+    coordination: {
+      authentication: true,
+      proxySecret: proxy.proxySecret,
+      publicUrl: `${proxy.url}/manager`,
+    },
   })
   expect(creates()).toBe(0)
   expect(events.some((event) => event.kind === 'spawned' && event.key === 'lead')).toBe(false)
@@ -154,12 +166,16 @@ it('refuses advertised remote coordination when the provider cannot mount runtim
 it.each([false, true])(
   'mounts coordination without changing the profile, async resolution=%s',
   async (asynchronous) => {
+    const proxy = await proxyCoordination()
+    proxies.push(proxy)
     let creates = 0
     let mountedStatus: number | undefined
     let receivedProfile: AgentProfile | undefined
     const provider: AgentEnvironmentProvider = {
       name: 'attachment-boundary',
-      capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
+      capabilities: () => ({
+        create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
+      }),
       async create(input) {
         creates++
         receivedProfile = input.profile
@@ -172,7 +188,9 @@ it.each([false, true])(
               Object.entries(server.headers ?? {}).map(([name, value]) => {
                 if (value.kind !== 'secret-ref' || value.format !== 'bearer')
                   throw new Error('test expects a private bearer reference')
-                return [name, `Bearer ${input.env?.[value.key]}`]
+                const binding = input.proxySecrets?.find((entry) => entry.envName === value.key)
+                if (!binding) throw new Error('missing proxy binding')
+                return [name, proxy.guestHeadersFor(binding).Authorization]
               }),
             ),
             'content-type': 'application/json',
@@ -189,8 +207,9 @@ it.each([false, true])(
         backend: { backend: 'provider', provider },
         coordination: {
           authentication: true,
-          publicUrl: ({ port }) => {
-            const url = `http://127.0.0.1:${port}/mcp`
+          proxySecret: proxy.proxySecret,
+          publicUrl: (address) => {
+            const url = proxy.publicUrl(address)
             return asynchronous ? Promise.resolve(url) : url
           },
         },
@@ -209,14 +228,19 @@ it('never admits a provider manager when asynchronous endpoint provisioning fail
   const { provider: base, creates } = neverCreatingProvider()
   const provider: AgentEnvironmentProvider = {
     ...base,
-    capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
+    capabilities: () => ({
+      create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
+    }),
   }
+  const proxy = await proxyCoordination()
+  proxies.push(proxy)
   let localUrl = ''
   const { events } = await spawnLeadFromRoot(
     {
       backend: { backend: 'provider', provider },
       coordination: {
         authentication: true,
+        proxySecret: proxy.proxySecret,
         publicUrl: async ({ port }) => {
           localUrl = `http://127.0.0.1:${port}/mcp`
           throw new Error('endpoint provisioning failed')
@@ -243,15 +267,21 @@ it.each([401, 403, 404, 503, 200, 'timeout'] as const)(
     const { provider: base, creates } = neverCreatingProvider()
     const provider: AgentEnvironmentProvider = {
       ...base,
-      capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
+      capabilities: () => ({
+        create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
+      }),
     }
+    const proxy = await proxyCoordination()
+    proxies.push(proxy)
+    proxy.forwardTo(address.port)
     try {
       const { events } = await spawnLeadFromRoot(
         {
           backend: { backend: 'provider', provider },
           coordination: {
             authentication: true,
-            publicUrl: `http://127.0.0.1:${address.port}/manager`,
+            proxySecret: proxy.proxySecret,
+            publicUrl: `${proxy.url}/manager`,
             requestTimeoutMs: 100,
           },
           driverRetry: { enabled: false },
@@ -268,3 +298,25 @@ it.each([401, 403, 404, 503, 200, 'timeout'] as const)(
     }
   },
 )
+
+it('refuses provider coordination before create when no proxy-held credential placement is configured', async () => {
+  const { provider: base, creates } = neverCreatingProvider()
+  const provider: AgentEnvironmentProvider = {
+    ...base,
+    capabilities: () => ({
+      create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
+    }),
+  }
+  await spawnLeadFromRoot(
+    {
+      backend: { backend: 'provider', provider },
+      coordination: {
+        authentication: true,
+        publicUrl: ({ port }) => `http://127.0.0.1:${port}/mcp`,
+      },
+      driverRetry: { enabled: false },
+    },
+    true,
+  )
+  expect(creates()).toBe(0)
+})

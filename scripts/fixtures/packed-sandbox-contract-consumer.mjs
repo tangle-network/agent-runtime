@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import * as current from '@tangle-network/agent-interface'
-import { materializeCandidateProfile } from '@tangle-network/agent-profile-materialize'
+import {
+  applyWorkspacePlan,
+  applyWorkspacePlanWithSecretProvider,
+  materializeCandidateProfile,
+  materializeProfile,
+} from '@tangle-network/agent-profile-materialize'
 import { ValidationError } from '@tangle-network/agent-runtime'
 import { assertProfileMaterializes } from '@tangle-network/agent-runtime/agent'
 import {
@@ -92,9 +100,74 @@ for (const event of [
   assert.deepEqual(sdkUsage(event), readTokenUsage(event))
   assert.deepEqual(sdkCost(event), readTokenCostUsd(event))
 }
-// Interface 5.2 adds execution-owned knowledge references that the SDK's private
-// Interface 4 schema does not understand. Refuse them before crossing that boundary;
-// qualifying this tuple never means dropping a field the older SDK cannot carry.
+// Planning preserves declarations; application needs trusted placement and acknowledgement.
+const proxySecrets = current.ProxySecretsSchema.parse([{
+  envName: 'PACKED_MATERIALIZER_TOKEN',
+  secretRef: { kind: 'secret-ref', key: 'packed-materializer-reference' },
+  hosts: ['service.packed.invalid'],
+  presentation: { type: 'bearer' },
+  methods: ['POST'],
+  paths: ['/mcp'],
+  ttlSeconds: 60,
+}])
+const proxyProfile = current.agentProfileSchema.parse({
+  name: 'packed-materializer',
+  harness: 'codex',
+  prompt: { systemPrompt: 'Synthetic instructions for the protected native plan.' },
+  proxySecrets,
+  mcp: {
+    service: {
+      transport: 'http', url: 'https://service.packed.invalid/mcp',
+      headers: { Authorization: { ...proxySecrets[0].secretRef, format: 'bearer' } },
+    },
+  },
+})
+const proxyPlan = materializeProfile(proxyProfile, 'codex')
+const materializerProxySupported = proxyPlan.proxySecrets !== undefined
+const materializerVersion = JSON.parse(
+  readFileSync(new URL('./node_modules/@tangle-network/agent-profile-materialize/package.json', import.meta.url), 'utf8'),
+).version
+if (process.argv.includes('--require-proxy-materializer')) {
+  assert.equal(materializerProxySupported, true, 'the selected materializer must preserve canonical proxy declarations')
+}
+let missingProxyContextRefusals = 0
+let unsupportedProxyWrapperRefusals = 0
+let proxyPrivateSecretReads = 0
+if (materializerProxySupported) {
+  assert.deepEqual(proxyPlan.proxySecrets, proxySecrets)
+  assert.deepEqual(assertProfileMaterializes(proxyProfile, 'codex', 'packed proxy plan').proxySecrets, proxySecrets)
+  assert.ok(proxyPlan.files.length > 0, 'the refusing application must have native files to protect')
+  assert.ok(proxyPlan.files.some(file => file.content === proxyProfile.prompt.systemPrompt))
+  const workspace = await mkdtemp(join(tmpdir(), 'packed-proxy-plan-'))
+  try {
+    assert.throws(() => applyWorkspacePlan(proxyPlan, workspace), /executor-bound placeholder environment/)
+    missingProxyContextRefusals += 1
+    await assert.rejects(applyWorkspacePlanWithSecretProvider(proxyPlan, workspace, {
+      async get() { proxyPrivateSecretReads += 1; throw new Error('private fallback must not run') },
+    }), /trusted placement receipt and acknowledgement/)
+    missingProxyContextRefusals += 1
+    assert.equal(proxyPrivateSecretReads, 0)
+    assert.deepEqual(await readdir(workspace), [])
+  } finally {
+    await rm(workspace, { recursive: true, force: true })
+  }
+} else {
+  const declarationOnlyProfile = current.agentProfileSchema.parse({
+    name: 'packed-proxy-declaration', harness: 'codex', proxySecrets,
+  })
+  assert.equal(materializeProfile(declarationOnlyProfile, 'codex').proxySecrets, undefined)
+  assert.throws(
+    () => assertProfileMaterializes(declarationOnlyProfile, 'codex', 'packed proxy declaration'),
+    (error) => error instanceof ValidationError && /proxySecrets|proxy-held/.test(error.message),
+    `protected planning must refuse an omitted proxySecrets plan (materializer ${materializerVersion})`,
+  )
+  unsupportedProxyWrapperRefusals += 1
+}
+let candidateProxyAdmissionRefusals = 0
+// Knowledge schema support follows the installed peer. Runtime still requires owner
+// authorization and resolution before materialization, including peers that parse the pins.
+let knowledgeSchemaParityChecks = 0
+let unsupportedSdkKnowledgeRefusals = 0
 let unresolvedKnowledgeRefusals = 0
 let candidateKnowledgeConversionRefusals = 0
 let candidateKnowledgeAdmissionRefusals = 0
@@ -104,7 +177,15 @@ if (current.agentProfileSchema.safeParse({ resources: { knowledge } }).success) 
     for (const failOnError of [true, false]) {
       const profile = { resources: { knowledge, failOnError } }
       assert.equal(current.agentProfileSchema.safeParse(profile).success, true)
-      assert.equal(sdk.agentProfileSchema.safeParse(profile).success, false)
+      const sdkProfile = sdk.agentProfileSchema.safeParse(profile)
+      if (sdkProfile.success) {
+        assert.deepEqual(sdkProfile.data, current.agentProfileSchema.parse(profile))
+        assert.equal(sdk.canonicalAgentProfileDigest(profile), current.canonicalAgentProfileDigest(profile))
+        knowledgeSchemaParityChecks += 1
+      } else {
+        assert.throws(() => sdk.agentProfileSchema.parse(profile))
+        unsupportedSdkKnowledgeRefusals += 1
+      }
       assert.throws(
         () => assertProfileMaterializes(profile, harness, 'packed SDK boundary'),
         /must be owner-authorized and resolved/,
@@ -160,6 +241,14 @@ if (current.agentProfileSchema.safeParse({ resources: { knowledge } }).success) 
     )
     candidateKnowledgeAdmissionRefusals += 1
   }
+  const proxyCandidateBundle = sealAgentCandidateBundle({
+    ...baselineMaterial,
+    profile: { ...baselineBundle.profile, proxySecrets },
+  })
+  await assert.rejects(verifyAgentCandidateBundle(proxyCandidateBundle, {
+    artifacts: { read: forbiddenRead }, repositories: { resolve: forbiddenRead },
+  }), (error) => error instanceof ValidationError && error.message.startsWith('candidate profile field proxySecrets is refused:'))
+  candidateProxyAdmissionRefusals += 1
   assert.equal(artifactReads, 0)
   assert.throws(
     () => materializeCandidateProfile({ resources: { knowledge, failOnError: true } }, 'codex'),
@@ -169,7 +258,7 @@ if (current.agentProfileSchema.safeParse({ resources: { knowledge } }).success) 
 
 // Interface 5.3 admits profile proxySecrets and candidate secret-ref config values that the
 // SDK's private Interface 4 cannot carry. Runtime refuses them by name and never drops them.
-const proxySecrets = [
+const uncarriedProxySecrets = [
   {
     hosts: ['api.example.com'],
     envName: 'EXAMPLE_API_KEY',
@@ -182,7 +271,7 @@ const secretRefServer = {
   env: { SEARCH_REGION: { kind: 'secret-ref', key: 'example' } },
 }
 const uncarried = [
-  ['proxySecrets', { name: 'proxy-boundary', harness: 'codex', proxySecrets }],
+  ['proxySecrets', { name: 'proxy-boundary', harness: 'codex', proxySecrets: uncarriedProxySecrets }],
   ['mcp.search.env.SEARCH_REGION (secret-ref)', { name: 'secret-ref-boundary', mcp: { search: secretRefServer } }],
 ]
 const interfaceVersion = JSON.parse(
@@ -250,6 +339,14 @@ const conversionCanonicalSha256 = createHash('sha256')
 
 const result = {
   kind: 'packed-sandbox-contract-boundary',
+  materializerVersion,
+  materializerProxySupported,
+  unsupportedProxyMaterializer: !materializerProxySupported,
+  proxyPlanPreserved: materializerProxySupported,
+  missingProxyContextRefusals,
+  unsupportedProxyWrapperRefusals,
+  proxyPrivateSecretReads,
+  candidateProxyAdmissionRefusals,
   interfaceVersion,
   interfaceAdmitsProxySecrets,
   uncarriedFieldRefusals,
@@ -258,6 +355,8 @@ const result = {
   runCancellationAndControl: true,
   terminalAdmissionAndUnknownKeyRefusal: true,
   usageAndCostReadParity: true,
+  knowledgeSchemaParityChecks,
+  unsupportedSdkKnowledgeRefusals,
   unresolvedKnowledgeRefusals,
   candidateKnowledgeConversionRefusals,
   candidateKnowledgeAdmissionRefusals,

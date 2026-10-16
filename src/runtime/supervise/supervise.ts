@@ -23,6 +23,7 @@ import {
   type Sha256Digest,
   validateAgentProfileSecurity,
 } from '@tangle-network/agent-interface'
+import { ProxySecretCapabilitiesSchema } from '@tangle-network/agent-interface/environment-provider'
 import { withProfileKb } from '@tangle-network/agent-interface/profile-kb'
 import {
   type HarnessId,
@@ -71,6 +72,12 @@ import {
   persistHarnessTranscript,
   readHarnessTranscript,
 } from '../harness-transcript'
+import {
+  assertProxySecretParentKeys,
+  captureProxySecretParents,
+  type ProxySecretParents,
+  proxySecretParentsSeamKey,
+} from '../proxy-secret-parents'
 import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import {
@@ -83,6 +90,7 @@ import { RunCancellationReason } from './abortable'
 import { assertValidBudget, meterUsageEvent, newUsageTotals, spendFromUsageTotals } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { CONTINUATIONS_DIR, type ContinuationPolicy } from './continuation'
+import { captureCoordinationProxySecretSourceIdentity } from './coordination-credential'
 import { isLoopbackHost } from './coordination-mcp'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, type DeadlineCheckIn, teardownExecutor } from './deadline'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
@@ -121,6 +129,8 @@ import {
 } from './otel-spans'
 import type { PeerMailLimits } from './peer-mail'
 import { createActivityLog } from './progress'
+import { bindProxySecretParentState } from './proxy-secret-parent-state'
+import { assertNoInheritedProxySecrets, assertProxySecretDescendant } from './proxy-secrets'
 import { type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import { registerRetainedExecutorPreparation, retainedExecutorSeamKey } from './retained-executor'
@@ -132,6 +142,7 @@ import {
   prepareScopeRetainedOwnerSeatSwitch,
   prepareScopeRetainedOwnerTask,
   reconcileScopeRetainedOwnerEnvironment,
+  scopeProxySecretParentEnvironment,
   scopeRetainedOwnerContext,
   scopeRetainedOwnerJournalRoot,
   scopeRetainedOwnerPriorSpend,
@@ -798,12 +809,19 @@ function coordinationChannelSpawnPreflight(
     return async (profile) => {
       if (!isExternalSupervisor(profile) || declaredRuntimeToolNames(profile).length === 0)
         return undefined
-      return (await providerAcceptsCoordinationAttachments(managerBackend))
+      const unsupported = await providerCoordinationRefusal(managerBackend)
+      if (unsupported) {
+        return {
+          cause: 'unmountable-tool',
+          detail: `the 'provider' backend does not advertise ${unsupported}; Runtime cannot mount this manager's coordination tools before dispatch`,
+        }
+      }
+      return coordination?.proxySecret
         ? undefined
         : {
             cause: 'unmountable-tool',
             detail:
-              "the 'provider' backend does not advertise create.runtimeAttachments.mcp; Runtime cannot mount this manager's coordination tools before dispatch",
+              'provider coordination requires proxy-held credential placement through coordination.proxySecret',
           }
     }
   }
@@ -856,8 +874,8 @@ export const DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY: AgentProfileSecurityPolic
 })
 
 /**
- * A manager keeps a dedicated environment. It serves its coordination credential through
- * create-time environment, and every co-tenant of a shared box could read it.
+ * A manager keeps a dedicated environment: a proxy cannot distinguish co-tenants with different
+ * coordination authority inside one shared box.
  */
 function managerExecutorConfig(config: ExecutorConfig): ExecutorConfig {
   if (config.backend !== 'provider' || config.shared === undefined) return config
@@ -882,22 +900,29 @@ function automaticDriverBackendSupported(
   )
 }
 
-async function providerAcceptsCoordinationAttachments(
+async function providerCoordinationRefusal(
   backend: Extract<ExecutorConfig, { backend: 'provider' }>,
-): Promise<boolean> {
+): Promise<'create.runtimeAttachments.mcp' | 'create.proxySecrets' | undefined> {
   const capabilities = await resolveAgentEnvironmentProvider(
     backend.provider,
     backend.registry,
   ).capabilities()
   const create = capabilities.create
-  if (!create || !('runtimeAttachments' in create)) return false
+  if (!create || !('runtimeAttachments' in create)) return 'create.runtimeAttachments.mcp'
   const attachments = create.runtimeAttachments
-  return Boolean(
-    attachments &&
-      typeof attachments === 'object' &&
-      'mcp' in attachments &&
-      attachments.mcp === true,
+  if (
+    !attachments ||
+    typeof attachments !== 'object' ||
+    !('mcp' in attachments) ||
+    attachments.mcp !== true
   )
+    return 'create.runtimeAttachments.mcp'
+  const proxySecrets = ProxySecretCapabilitiesSchema.safeParse(create.proxySecrets)
+  return proxySecrets.success &&
+    proxySecrets.data.presentations.includes('bearer') &&
+    proxySecrets.data.placeholderFormats.includes('opaque')
+    ? undefined
+    : 'create.proxySecrets'
 }
 
 /**
@@ -933,6 +958,10 @@ function driveHarnessFromBackend(
       resumeAt: string,
       phase: 'paused' | 'resumed',
     ) => Promise<void>
+  },
+  parentState?: {
+    readonly parents?: ProxySecretParents
+    readonly bind: (read: () => ReturnType<typeof scopeProxySecretParentEnvironment>) => void
   },
 ): DriveHarness {
   // Same refusal the router arm makes in `driverAgent`: a negative cap would silently run zero
@@ -1026,6 +1055,7 @@ function driveHarnessFromBackend(
     scope,
     coordinationMcpUrl,
     coordinationMcpHeaders,
+    coordinationProxySecret,
     peerMailUrl,
     stopSignal,
     coordinationTools,
@@ -1100,6 +1130,7 @@ function driveHarnessFromBackend(
             afterRecheck = true
           }
         }
+        assertNoInheritedProxySecrets(activeSeat.backend)
         boundBackend = bindReusableExecutorExecutionId(
           managerExecutorConfig(
             captureReusableExecutorConfig(
@@ -1145,6 +1176,7 @@ function driveHarnessFromBackend(
         const execution = runtimeOwnedExecutorMaterialization(activeExecutor)?.execution
         return execution?.kind === 'environment' ? execution.id : undefined
       })
+      parentState?.bind(() => scopeProxySecretParentEnvironment(scope))
       // The workspace capture the previous turn handed over reads the environment this turn
       // would change, and its receipt belongs to that turn's invocation: it finishes first.
       await scopeRetainedOwnerTurnEnded(scope)
@@ -1201,8 +1233,40 @@ function driveHarnessFromBackend(
         ].join('\n')
       }
     }
+    let proxySecretParents: ProxySecretParents | undefined
+    if (boundBackend.backend === 'provider') {
+      if (!coordinationProxySecret) {
+        throw new ValidationError('provider coordination has no selected host proxy binding')
+      }
+      const authoredBindings = authoredProfile.proxySecrets ?? []
+      const authoredParents =
+        parentState?.parents ??
+        captureProxySecretParents(
+          Object.fromEntries(authoredBindings.map((binding) => [binding.envName, null])),
+        )
+      assertProxySecretParentKeys(authoredParents, authoredBindings)
+      if (Object.hasOwn(authoredParents, coordinationProxySecret.binding.envName)) {
+        throw new ValidationError(
+          'authored proxySecrets conflict with the host coordination binding',
+        )
+      }
+      proxySecretParents = captureProxySecretParents({
+        ...authoredParents,
+        [coordinationProxySecret.binding.envName]: null,
+      })
+      assertProxySecretParentKeys(proxySecretParents, [
+        ...authoredBindings,
+        coordinationProxySecret.binding,
+      ])
+    }
     const originalTask = retainedOwner
-      ? await prepareScopeRetainedOwnerTask(scope, driveTask, session ?? 'native')
+      ? await prepareScopeRetainedOwnerTask(
+          scope,
+          driveTask,
+          session ?? 'native',
+          proxySecretParents,
+          authoredProfile.proxySecrets ?? [],
+        )
       : driveTask
     const acceptedOwner = retainedOwner ? await scopeRetainedOwnerResult(scope) : undefined
     if (acceptedOwner) {
@@ -1282,13 +1346,20 @@ function driveHarnessFromBackend(
           : AbortSignal.any([stopSignal, turnStop.signal])
     // The harness is asked for a 300 s tool-call timeout so a fenced tool can hold its response
     // longer than the 60 s harness default; a sidecar that applies it says so on each request.
+    if (coordinationProxySecret && boundBackend.backend !== 'provider') {
+      throw new ValidationError(
+        'proxy-held coordination requires a provider that enforces proxy bindings',
+      )
+    }
     const peerMailAttachment = peerMailRuntimeAttachment(authoredProfile, boundBackend, {
       peerMailUrl,
     })
     const attachment = {
       transport: 'http' as const,
       url: coordinationMcpUrl,
-      ...(coordinationMcpHeaders ? { headers: coordinationMcpHeaders } : {}),
+      ...(boundBackend.backend !== 'provider' && coordinationMcpHeaders
+        ? { headers: coordinationMcpHeaders }
+        : {}),
       metadata: { toolTimeoutMs: COORDINATION_CLIENT_TOOL_TIMEOUT_MS },
     }
     // A bridge keys the harness conversation by session id. A fresh re-entry binds a new one,
@@ -1307,15 +1378,21 @@ function driveHarnessFromBackend(
         : baseFactory
     if (boundBackend.backend === 'provider') {
       const credentialName = 'AGENT_RUNTIME_COORDINATION_TOKEN'
-      const authorization = coordinationMcpHeaders?.Authorization
-      if (!authorization?.startsWith('Bearer ')) {
+      if (!coordinationProxySecret || Date.parse(coordinationProxySecret.expiresAt) <= now()) {
         throw new ValidationError(
-          'driveHarnessFromBackend: provider coordination requires a bearer credential',
+          'driveHarnessFromBackend: provider coordination requires unexpired proxy-held credential placement',
         )
       }
       if (Object.hasOwn(boundBackend.defaults?.env ?? {}, credentialName)) {
         throw new ValidationError(
           'driveHarnessFromBackend: provider defaults contain the reserved coordination credential name',
+        )
+      }
+      if (
+        boundBackend.defaults?.proxySecrets?.some((binding) => binding.envName === credentialName)
+      ) {
+        throw new ValidationError(
+          'driveHarnessFromBackend: provider defaults contain the reserved coordination proxy binding',
         )
       }
       if (
@@ -1333,9 +1410,10 @@ function driveHarnessFromBackend(
           'driveHarnessFromBackend: provider defaults contain the reserved peer-mail attachment alias',
         )
       }
-      if (!(await providerAcceptsCoordinationAttachments(boundBackend))) {
+      const unsupported = await providerCoordinationRefusal(boundBackend)
+      if (unsupported) {
         throw new ValidationError(
-          'driveHarnessFromBackend: provider does not advertise create.runtimeAttachments.mcp; no environment was created',
+          `driveHarnessFromBackend: provider does not advertise ${unsupported}; no environment was created`,
         )
       }
       factory = createExecutor({
@@ -1347,8 +1425,11 @@ function driveHarnessFromBackend(
               ? { [CLAUDE_CODE_ONE_HOUR_CACHE]: '1' }
               : {}),
             ...(boundBackend.defaults?.env ?? {}),
-            [credentialName]: authorization.slice(7),
           },
+          proxySecrets: [
+            ...(boundBackend.defaults?.proxySecrets ?? []),
+            coordinationProxySecret.binding,
+          ],
           runtimeAttachments: {
             mcp: {
               ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
@@ -1372,10 +1453,20 @@ function driveHarnessFromBackend(
       signal: scope.signal,
       node: scopeOwnerExecutorNodeContext(scope),
       seams: {
+        ...(proxySecretParents === undefined
+          ? {}
+          : { [proxySecretParentsSeamKey]: proxySecretParents }),
         ...(retainedOwner
           ? {
               [retainedExecutorSeamKey]: {
                 ...retainedOwner,
+                ...(coordinationProxySecret === undefined
+                  ? {}
+                  : {
+                      proxySecretSourceIdentity: captureCoordinationProxySecretSourceIdentity(
+                        coordinationProxySecret.sourceIdentity,
+                      ),
+                    }),
                 onResult: async (result: ExecutorResult<unknown>) => commitOwnerResult(result),
               },
             }
@@ -2990,13 +3081,20 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     coordination === undefined
       ? undefined
       : (() => {
-          const { publicUrl, onAudit, ...configuration } = coordination
+          const { publicUrl, onAudit, proxySecret, ...configuration } = coordination
           return Object.freeze({
             ...detachedSnapshot(configuration, 'supervise coordination configuration'),
             ...(publicUrl === undefined ? {} : { publicUrl }),
             ...(onAudit === undefined ? {} : { onAudit }),
+            ...(proxySecret === undefined
+              ? {}
+              : {
+                  proxySecret: Object.freeze({ prepare: proxySecret.prepare }),
+                }),
           })
         })()
+  assertNoInheritedProxySecrets(backend)
+  assertNoInheritedProxySecrets(driverBackend)
   const capturedBackend = backend === undefined ? undefined : snapshotExecutorConfig(backend)
   const capturedDriverBackend =
     driverBackend === undefined ? undefined : snapshotExecutorConfig(driverBackend)
@@ -3916,7 +4014,14 @@ function superviseInternal(
     }
     return harness
   }
-  const driveHarnessForOwner = (context: DriveHarnessOwnerContext): DriveHarness | undefined => {
+  const parentAllocationReaders = new Map<
+    string,
+    () => ReturnType<typeof scopeProxySecretParentEnvironment>
+  >()
+  const driveHarnessForOwner = (
+    context: DriveHarnessOwnerContext,
+    proxySecretParents?: ProxySecretParents,
+  ): DriveHarness | undefined => {
     if (options.resolveDriveHarness) {
       return claimDriveHarness(options.resolveDriveHarness(context), context.ownerId)
     }
@@ -3968,6 +4073,10 @@ function superviseInternal(
                   )
                 },
               },
+          {
+            ...(proxySecretParents === undefined ? {} : { parents: proxySecretParents }),
+            bind: (read) => parentAllocationReaders.set(context.ownerId, read),
+          },
         )
       : undefined
   }
@@ -4050,6 +4159,7 @@ function superviseInternal(
         authoredProfile: AgentProfile,
         spawnContext: WorkerSpawnContext | undefined,
         recovering = false,
+        recoveredParents?: ProxySecretParents,
       ): ReturnType<MakeWorkerAgent> => {
         if (!spawnContext) {
           throw new ValidationError('supervise: backend-derived workers require spawn context')
@@ -4081,6 +4191,29 @@ function superviseInternal(
           throw new ValidationError('supervise: authorizeSpawn must return an AuthorizedSpawn')
         }
         const authorized = freezeDetachedProfile(applyTraceTools(decision.profile))
+        assertProxySecretDescendant(parent, authorized, options.authorizeSpawn !== undefined)
+        const bindings = authorized.proxySecrets ?? []
+        let proxySecretParents: ProxySecretParents
+        if (recovering) {
+          if (recoveredParents === undefined && bindings.length > 0) {
+            throw new ValidationError('recovered child has no original proxy-secret parent pins')
+          }
+          proxySecretParents = captureProxySecretParents(recoveredParents ?? {})
+        } else {
+          const allocation =
+            bindings.length > 0 ? parentAllocationReaders.get(parentOwnerId)?.() : undefined
+          if (bindings.length > 0 && allocation === undefined) {
+            throw new ValidationError(
+              'spawned proxySecrets require an actual parent provider allocation',
+            )
+          }
+          proxySecretParents = captureProxySecretParents(
+            Object.fromEntries(
+              bindings.map((binding) => [binding.envName, allocation?.environmentId]),
+            ),
+          )
+        }
+        assertProxySecretParentKeys(proxySecretParents, bindings)
         const childExecution = canonicalExecution(
           authorized,
           spawnContext.task,
@@ -4142,16 +4275,19 @@ function superviseInternal(
             childDeliverable === deliverable
               ? makeLeaf
               : withRetry(workerFromBackend(options.backend as ExecutorConfig, childDeliverable))
-          return makeSelectedLeaf(
-            authorized,
-            Object.freeze({
-              ...authorizedContext,
-              assignmentId: workerAssignmentNamespace(
-                runNamespace,
-                parentOwnerId,
-                spawnContext.assignmentId,
-              ),
-            }),
+          return bindProxySecretParentState(
+            makeSelectedLeaf(
+              authorized,
+              Object.freeze({
+                ...authorizedContext,
+                assignmentId: workerAssignmentNamespace(
+                  runNamespace,
+                  parentOwnerId,
+                  spawnContext.assignmentId,
+                ),
+              }),
+            ),
+            proxySecretParents,
           )
         }
         const ownerId = childCoordinationOwner(
@@ -4172,6 +4308,7 @@ function superviseInternal(
                 profile: authorized,
                 task: spawnContext.task,
               }),
+              proxySecretParents,
             )
           : undefined
         if (isExternalSupervisor(authorized) && !nestedDriveHarness) {
@@ -4327,15 +4464,18 @@ function superviseInternal(
             ? {}
             : { controlScope: 'subtree' as const }),
         })
-        return driverChild(
-          authorized,
-          nested,
-          journal,
-          childExecution.ref,
-          () => acceptedSubmission,
-          recoveryFactories.get(childFactory),
-          () => unassessedOutput,
-          seatManagedLeaf ? childDeliverable : undefined,
+        return bindProxySecretParentState(
+          driverChild(
+            authorized,
+            nested,
+            journal,
+            childExecution.ref,
+            () => acceptedSubmission,
+            recoveryFactories.get(childFactory),
+            () => unassessedOutput,
+            seatManagedLeaf ? childDeliverable : undefined,
+          ),
+          proxySecretParents,
         )
       }
       if (
@@ -4373,6 +4513,7 @@ function superviseInternal(
                 execution,
               },
               true,
+              spawned.proxySecretParents,
             )
             const spec = (reconstructed as Agent<unknown, unknown> & { executorSpec?: AgentSpec })
               .executorSpec
@@ -4414,6 +4555,20 @@ function superviseInternal(
   // The root driver loop reports what it did once it ends; the settle record carries it.
   let rootContinuation: DriverContinuationRecord | undefined
   const start = async () => {
+    if (
+      isExternalSupervisor(canonicalProfile) &&
+      !hasCustomDriveHarness &&
+      managerBackend?.backend === 'provider'
+    ) {
+      if (!options.coordination?.proxySecret) {
+        throw new ValidationError(
+          'provider coordination requires proxy-held credential placement through coordination.proxySecret',
+        )
+      }
+      const unsupported = await providerCoordinationRefusal(managerBackend)
+      if (unsupported)
+        throw new ValidationError(`provider coordination does not advertise ${unsupported}`)
+    }
     if (ctx.durability === 'sql') {
       if (
         options.backend?.backend !== 'provider' ||

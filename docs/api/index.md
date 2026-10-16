@@ -233,7 +233,7 @@ The caller could not persist one detached-run recovery record.
 
 ##### phase
 
-> `readonly` **phase**: `"intent"` \| `"environment"` \| `"dispatched"`
+> `readonly` **phase**: `"proxy-secrets"` \| `"intent"` \| `"environment"` \| `"dispatched"`
 
 ###### Inherited from
 

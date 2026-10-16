@@ -25,8 +25,11 @@ import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Agent, SpawnEvent } from '../../src/runtime/supervise/types'
 import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
 import { testContinuation } from '../helpers/continuation'
-import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
+import {
+  proxyCoordination as coordinationProxy,
+  proxySecretCapabilities,
+} from '../helpers/proxy-coordination'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
@@ -87,7 +90,6 @@ function liveProcessProvider(
   const base = durableRetainedProvider(stateFile)
   let creates = 0
   let destroys = 0
-  let token = ''
   const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
     ...environment,
     dispatch: async (turn) => {
@@ -160,15 +162,15 @@ function liveProcessProvider(
     ...base,
     capabilities: async () => ({
       ...(await base.capabilities()),
-      create: { runtimeAttachments: { mcp: true } },
+      create: { runtimeAttachments: { mcp: true }, proxySecrets: proxySecretCapabilities },
     }),
     create: async (input) => {
       creates += 1
-      token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+      expect(Object.hasOwn(input.env ?? {}, 'AGENT_RUNTIME_COORDINATION_TOKEN')).toBe(false)
       return wrap(await base.create(input))
     },
-    get: async (id) => {
-      const environment = await base.get!(id)
+    get: async (id, options) => {
+      const environment = await base.get!(id, options)
       return environment ? wrap(environment) : null
     },
   }
@@ -265,6 +267,7 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
         deliverable: { describe: 'never submitted', check: () => false },
         continuation: testContinuation(),
         coordination: {
+          proxySecret: proxy.proxySecret,
           authentication: {
             signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
           },

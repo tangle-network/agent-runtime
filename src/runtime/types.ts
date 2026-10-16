@@ -14,6 +14,7 @@
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { CreateAgentEnvironmentInput } from '@tangle-network/agent-interface/environment-provider'
 import type {
   CreateRequestOptions,
   CreateSandboxOptions,
@@ -384,7 +385,8 @@ export interface LoopResult<Task, Output, Decision> {
  */
 export interface SandboxClient {
   create(
-    options?: CreateSandboxOptions,
+    options?: CreateSandboxOptions &
+      Pick<CreateAgentEnvironmentInput, 'proxySecrets' | 'proxySecretParents'>,
     requestOptions?: CreateRequestOptions,
   ): Promise<SandboxInstance>
   describePlacement?(box: SandboxInstance): LoopSandboxPlacement

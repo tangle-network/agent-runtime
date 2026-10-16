@@ -3,7 +3,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, relative } from 'node:path'
 
-// Exact published package tuples, qualified at the Runtime/Sandbox adapter boundary.
+// Exact immutable package tuples, qualified at the Runtime/Sandbox adapter boundary.
+// The frozen .58 candidate is distinct from the published legacy artifact by exact bytes.
 // The .41 tuple has byte-identical shared contracts. The .49, .50, .51, .53 and .58 tuples preserve
 // shared execution fields and explicitly refuse unresolved Interface 5.2 knowledge pins. The
 // .58 tuple with Interface 5.3.1 also relies on Runtime refusing Interface 5.3 proxySecrets and
@@ -25,6 +26,9 @@ const qualifiedArtifacts = {
   sandbox0_60_51: ['sandbox', '0.60.51', '38b7cb3029e294acb0c796fe9d33ebc31d176b09ab5a7028b2217d0ec0c45b6b'],
   sandbox0_60_53: ['sandbox', '0.60.53', 'c2f7faf11b8e001f81774a61f3a41196f41f669762777fba3435f2a3e4c021f9'],
   sandbox0_60_58: ['sandbox', '0.60.58', 'd0c68868c1f07c64a44d84bc9dd8b1e6546579acda2db01b142940f6f2004c29'],
+  sandbox0_60_58Candidate: ['sandbox', '0.60.58', 'ff6d93d95da2ebd13929ac6b709973d04864fc861cb1e7e842114e6b58731d04'],
+  sdkCoreInterface4_0_0: ['sandbox/node_modules/@tangle-network/agent-core/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
+  sandbox0_60_59: ['sandbox', '0.60.59', '952ea347f7b669ce320049f1bece98e3c2a0c565ede6d091cd3d49ab02dc398c'],
   interface5_3_1: ['agent-interface', '5.3.1', '75aaca3eadc2f4cc9c34eb00fcd88aa11e5ba08fb829af291943468c7b016e4f'],
 }
 
@@ -39,6 +43,9 @@ const qualifiedCohorts = [
   ['sandbox0_60_53', 'interface5_2_1', 'core0_12_0', 'sdkInterface4_0_0', 'sdkCore0_11_0'],
   ['sandbox0_60_58', 'interface5_2_1', 'core0_12_0', 'sdkInterface4_0_0', 'sdkCore0_11_0'],
   ['sandbox0_60_58', 'interface5_3_1', 'core0_12_0', 'sdkInterface4_0_0', 'sdkCore0_11_0'],
+  ['sandbox0_60_49', 'interface5_3_1', 'core0_12_0', 'sdkCore0_11_0', 'sdkInterface4_0_0'],
+  ['sandbox0_60_58Candidate', 'interface5_3_1', 'core0_12_0', 'sdkCore0_11_0', 'sdkCoreInterface4_0_0'],
+  ['sandbox0_60_59', 'interface5_3_1', 'core0_12_0', 'sdkCore0_11_0', 'sdkInterface4_0_0'],
 ].map(cohort => cohort.map(artifact => qualifiedArtifacts[artifact]))
 
 function ownFiles(directory) {

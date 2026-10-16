@@ -2,6 +2,8 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   AGENT_PROFILE_MATERIALIZATION_AXES,
   type CanonicalAgentProfileMaterializationAxis,
+  canonicalAgentProfileDigest,
+  ProxySecretsSchema,
   profileMaterializationAxes,
 } from '@tangle-network/agent-interface'
 import {
@@ -292,6 +294,19 @@ export function assertProfileMaterializes(
   skip?: readonly SkippableDimension[],
 ): WorkspacePlan {
   const plan = materializeProfile(profile, harness, skip ? { skip: [...skip] } : undefined)
+  if ((profile.proxySecrets?.length ?? 0) > 0) {
+    const declared = ProxySecretsSchema.parse(profile.proxySecrets)
+    const planned = ProxySecretsSchema.safeParse(
+      'proxySecrets' in plan ? plan.proxySecrets : undefined,
+    )
+    if (
+      !planned.success ||
+      canonicalAgentProfileDigest({ proxySecrets: declared }) !==
+        canonicalAgentProfileDigest({ proxySecrets: planned.data })
+    ) {
+      throw new ValidationError(`${context}: materializer cannot preserve proxySecrets`)
+    }
+  }
   if (plan.unsupported.length > 0) {
     throw new ValidationError(
       `${context}: ${harness} cannot materialize the profile: ${renderUnsupported(plan.unsupported)}`,

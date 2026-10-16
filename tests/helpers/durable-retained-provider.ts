@@ -1,11 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import {
+  AgentEnvironmentCapabilitiesSchema,
   type AgentExactRunControlRef,
   type AgentNativeContextContinuationResult,
   type AgentRunCancellationAcknowledgement,
   type AgentRunCancellationRequest,
   AgentRunCancellationRequestSchema,
   canonicalCandidateDigest,
+  deepFreeze,
   type InteractionAcknowledgement,
   type InteractionResponseCommand,
   interactionRequestDigest,
@@ -24,7 +26,18 @@ import type {
   AgentSession,
   AgentSessionStatus,
   AgentTurnInput,
+  ProxySecretBinding,
+  ProxySecretParents,
+  ProxySecretReceipt,
 } from '@tangle-network/agent-interface/environment-provider'
+import {
+  AgentEnvironmentReadOnlyGetOptionsSchema,
+  isProxySecretParentsTotal,
+  mergeProxySecretBindings,
+  ProxySecretParentsSchema,
+  ProxySecretReceiptSchema,
+} from '@tangle-network/agent-interface/environment-provider'
+import { proxySecretCapabilities } from './proxy-coordination'
 
 interface StoredSession {
   readonly id: string
@@ -56,6 +69,9 @@ interface StoredEnvironment {
   readonly id: string
   readonly metadata?: Record<string, unknown>
   readonly sessions: Record<string, StoredSession>
+  proxySecrets?: ProxySecretBinding[]
+  proxySecretParents?: ProxySecretParents
+  proxySecretReceipt?: ProxySecretReceipt
 }
 
 interface DurableProviderState {
@@ -77,13 +93,97 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
         sessions: {},
         ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
       }
+      const authored = typeof input.profile === 'string' ? undefined : input.profile.proxySecrets
+      if (
+        (authored !== undefined || input.proxySecrets !== undefined) &&
+        state.environments[id].proxySecrets === undefined
+      ) {
+        installProxySecrets(
+          state.environments[id],
+          mergeProxySecretBindings(authored, input.proxySecrets),
+        )
+      }
+      const stored = state.environments[id]
+      const parents = fixtureProxySecretParents(
+        stored,
+        stored.proxySecrets ?? [],
+        input.proxySecretParents,
+      )
+      if (parents !== undefined) stored.proxySecretParents = parents
       writeState(stateFile, state)
       return environmentFor(stateFile, providerName, id)
     },
-    async get(id) {
-      return readState(stateFile).environments[id]
-        ? environmentFor(stateFile, providerName, id)
-        : null
+    async get(id, options) {
+      if (options !== undefined && 'readOnly' in options) {
+        const operation = AgentEnvironmentReadOnlyGetOptionsSchema.parse(options)
+        operation.signal?.throwIfAborted()
+        const stored = readState(stateFile).environments[id]
+        if (!stored) return null
+        const snapshot: AgentEnvironment = {
+          id,
+          provider: providerName,
+          ...(stored.metadata === undefined ? {} : { metadata: stored.metadata }),
+          ...(stored.proxySecretReceipt === undefined
+            ? {}
+            : { proxySecretReceipt: stored.proxySecretReceipt }),
+          ...(stored.proxySecretParents === undefined
+            ? {}
+            : { proxySecretParents: stored.proxySecretParents }),
+          capabilities: deepFreeze(
+            AgentEnvironmentCapabilitiesSchema.parse({
+              profile: {
+                namedProfiles: false,
+                systemPrompt: { replace: false, append: false },
+                instructions: false,
+                tools: false,
+                permissions: false,
+                mcp: false,
+                subagents: false,
+                resources: { files: false, instructions: false },
+                runtimeUpdate: false,
+                validation: false,
+              },
+              streaming: { live: false, replay: false, detach: false, turnIdempotency: false },
+              sessions: { continue: false, list: false, messages: false },
+              workspace: {
+                read: false,
+                write: false,
+                exec: false,
+                git: false,
+                upload: false,
+                download: false,
+              },
+              branching: { checkpoint: false, fork: false },
+              placement: false,
+              usage: false,
+              confidential: false,
+            }),
+          ),
+          status: async () => 'running',
+          stream(): AsyncIterable<AgentEnvironmentEvent> {
+            throw new Error('fixture read-only environment cannot execute turns')
+          },
+        }
+        return deepFreeze(snapshot)
+      }
+      const state = readState(stateFile)
+      const stored = state.environments[id]
+      if (!stored) return null
+      if (options?.proxySecrets !== undefined) {
+        const expected = options.expectedProxySecretGeneration
+        if (expected !== undefined && expected !== (stored.proxySecretReceipt?.generation ?? 0)) {
+          throw new Error('fixture proxy-secret generation conflict')
+        }
+        const parents = fixtureProxySecretParents(
+          stored,
+          options.proxySecrets,
+          options.proxySecretParents,
+        )
+        installProxySecrets(stored, options.proxySecrets)
+        if (parents !== undefined) stored.proxySecretParents = parents
+        writeState(stateFile, state)
+      }
+      return environmentFor(stateFile, providerName, id)
     },
     async list(query?: AgentEnvironmentQuery): Promise<AgentEnvironmentSummary[]> {
       return Object.values(readState(stateFile).environments)
@@ -100,10 +200,90 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
   }
 }
 
+/** Test state records public pins; it does not authenticate a server or issue real authority. */
+function fixtureProxySecretParents(
+  stored: StoredEnvironment,
+  bindings: readonly ProxySecretBinding[],
+  requested: ProxySecretParents | undefined,
+): ProxySecretParents | undefined {
+  if (requested === undefined && stored.proxySecretParents === undefined) return undefined
+  const parents = requested === undefined ? {} : ProxySecretParentsSchema.parse(requested)
+  for (const binding of bindings) {
+    const prior = stored.proxySecrets?.find(
+      (entry) =>
+        entry.envName === binding.envName &&
+        canonicalCandidateDigest(entry.secretRef) === canonicalCandidateDigest(binding.secretRef),
+    )
+    const priorPin = stored.proxySecretParents?.[binding.envName]
+    if (requested === undefined) {
+      if (prior === undefined || priorPin === undefined)
+        throw new Error('fixture parent pin is missing')
+      Object.defineProperty(parents, binding.envName, { value: priorPin, enumerable: true })
+    } else if (
+      prior !== undefined &&
+      priorPin !== undefined &&
+      requested[binding.envName] !== priorPin
+    ) {
+      throw new Error('fixture parent pin changes before revocation')
+    }
+  }
+  if (!isProxySecretParentsTotal(bindings, parents))
+    throw new Error('fixture parent map is not total')
+  return structuredClone(parents)
+}
+
+/** Metadata-only installed receipt at the fake provider boundary, not a real proxy/materializer. */
+function installProxySecrets(stored: StoredEnvironment, bindings: readonly ProxySecretBinding[]) {
+  const generation = (stored.proxySecretReceipt?.generation ?? -1) + 1
+  const issuedAt = new Date().toISOString()
+  stored.proxySecrets = structuredClone([...bindings])
+  stored.proxySecretReceipt = ProxySecretReceiptSchema.parse({
+    protocolVersion: 1,
+    sandboxId: stored.id,
+    generation,
+    status: bindings.length === 0 ? 'revoked' : 'installed',
+    proxyAcknowledged: true,
+    materializationAcknowledged: true,
+    bindings: bindings.map((binding, index) => ({
+      envName: binding.envName,
+      secretRef: binding.secretRef,
+      grant: {
+        protocolVersion: 1,
+        grantId: `fixture-${generation}-${index}`,
+        sandboxId: stored.id,
+        epoch: `fixture-${generation}`,
+        identity: {
+          tenantId: 'fixture-tenant',
+          issuerId: 'durable-test',
+          secretId: binding.secretRef.key,
+          revision: 'fixture-source',
+        },
+        scope: {
+          hosts: binding.hosts,
+          ...(binding.methods === undefined ? {} : { methods: binding.methods }),
+          ...(binding.paths === undefined ? {} : { paths: binding.paths }),
+        },
+        presentation: binding.presentation,
+        placeholderFormat: binding.placeholderFormat ?? 'opaque',
+        issuedAt,
+        expiresAt: new Date(
+          Date.parse(issuedAt) + (binding.ttlSeconds ?? 60) * 1_000,
+        ).toISOString(),
+      },
+    })),
+  })
+}
+
 function environmentFor(stateFile: string, provider: string, id: string): AgentEnvironment {
   return {
     id,
     provider,
+    get proxySecretParents() {
+      return readState(stateFile).environments[id]?.proxySecretParents
+    },
+    get proxySecretReceipt() {
+      return readState(stateFile).environments[id]?.proxySecretReceipt
+    },
     status: async () => 'running',
     async *stream(): AsyncIterable<AgentEnvironmentEvent> {
       yield* []
@@ -204,6 +384,17 @@ function environmentFor(stateFile: string, provider: string, id: string): AgentE
   }
 }
 
+/** Failed acknowledgements never become the session's active execution identity. */
+function latestNativeControlRef(
+  session: StoredSession,
+  fallback = session.controlRef,
+): AgentExactRunControlRef {
+  for (const operation of Object.values(session.nativeOperations).reverse()) {
+    if ('controlRef' in operation.result) return operation.result.controlRef
+  }
+  return fallback
+}
+
 function sessionFor(
   stateFile: string,
   environmentId: string,
@@ -217,8 +408,7 @@ function sessionFor(
     },
     async *events(options): AsyncIterable<AgentEnvironmentEvent> {
       const current = sessionState(stateFile, environmentId, initial.id)
-      const latestControlRef =
-        Object.values(current.nativeOperations).at(-1)?.result.controlRef ?? current.controlRef
+      const latestControlRef = latestNativeControlRef(current)
       const events = rebindInteractionEvents(current.events, latestControlRef)
       const start =
         options?.since === undefined
@@ -231,26 +421,16 @@ function sessionFor(
     },
     async result() {
       const current = sessionState(stateFile, environmentId, initial.id)
-      const latest = Object.values(current.nativeOperations).at(-1)?.result.controlRef
+      const latest = latestNativeControlRef(current, initial.controlRef)
       return {
         text: 'durable result',
         success: true,
         sessionId: initial.id,
-        ...(latest?.executionId
-          ? {
-              metadata: {
-                executionId: latest.executionId,
-                runId: latest.runId,
-                requestDigest: latest.requestDigest,
-              },
-            }
-          : {
-              metadata: {
-                executionId: initial.controlRef.executionId,
-                runId: initial.controlRef.runId,
-                requestDigest: initial.controlRef.requestDigest,
-              },
-            }),
+        metadata: {
+          executionId: latest.executionId,
+          runId: latest.runId,
+          requestDigest: latest.requestDigest,
+        },
       }
     },
     async prompt(input) {
@@ -272,8 +452,7 @@ function sessionFor(
       }
       const exact =
         (command.binding.runId === session.controlRef.runId ||
-          command.binding.runId ===
-            Object.values(session.nativeOperations).at(-1)?.result.controlRef.runId) &&
+          command.binding.runId === latestNativeControlRef(session).runId) &&
         command.binding.environmentId === environmentId &&
         command.binding.sessionId === initial.id &&
         command.binding.interactionId === 'interaction-1'
@@ -319,9 +498,11 @@ function sessionFor(
             },
           }
         }
+        const result = prior.result
+        if (!('controlRef' in result)) return structuredClone(result)
         return {
-          ...structuredClone(prior.result),
-          acknowledgement: { ...prior.result.acknowledgement, status: 'replayed' },
+          ...structuredClone(result),
+          acknowledgement: { ...result.acknowledgement, status: 'replayed' },
         }
       }
       if (
@@ -419,8 +600,7 @@ function sessionFor(
       const exactRequest = AgentRunCancellationRequestSchema.parse(request)
       const state = readState(stateFile)
       const session = requireSession(state, environmentId, initial.id)
-      const latestControlRef =
-        Object.values(session.nativeOperations).at(-1)?.result.controlRef ?? session.controlRef
+      const latestControlRef = latestNativeControlRef(session)
       if (
         canonicalCandidateDigest(exactRequest.run) !== canonicalCandidateDigest(latestControlRef)
       ) {
@@ -608,6 +788,7 @@ function writeState(file: string, state: DurableProviderState): void {
 
 function retainedCapabilities(): AgentEnvironmentCapabilities {
   return {
+    create: { proxySecrets: proxySecretCapabilities },
     profile: {
       namedProfiles: true,
       systemPrompt: { replace: true, append: true },

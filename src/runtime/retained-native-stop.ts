@@ -61,6 +61,11 @@ export async function stopRetainedNativeExecution(options: {
       (await reconnectRetainedRun({ provider: options.provider, controlRef: options.controlRef }))
     // The provider no longer holds the environment, so nothing inside it can still run.
     if (handle === null) return 'not_live'
+    if (
+      canonicalCandidateDigest(handle.controlRef) !== canonicalCandidateDigest(options.controlRef)
+    ) {
+      throw new Error('retained native stop handle no longer identifies the requested execution')
+    }
     const cancellation = await handle.cancel({
       operationId,
       reason: NATIVE_STOP_REASON,

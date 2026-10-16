@@ -446,9 +446,9 @@ export async function prepareAgentCandidateExecution(
       materializationReceipt,
       launch: {
         executable: baseLaunch.executable,
-        args: baseLaunch.args.map((value) => value.value),
+        args: baseLaunch.args.map(publicLaunchValue),
         env: unwrapPublicEnvironment(publicEnv),
-        flags: profileApplication.flags.map((value) => value.value),
+        flags: profileApplication.flags.map(publicLaunchValue),
         cwd: absoluteExecutionCwd(bundle.execution.cwd, task.executionRoots),
       },
       instruction: {
@@ -912,7 +912,7 @@ function mergePublicEnvironment(
   for (const record of records) {
     for (const [name, value] of Object.entries(record)) {
       const previous = output[name]
-      if (previous && previous.value !== value.value) {
+      if (previous && canonicalCandidateDigest(previous) !== canonicalCandidateDigest(value)) {
         throw new Error(`candidate and profile environment disagree on ${name}`)
       }
       output[name] = value
@@ -924,7 +924,18 @@ function mergePublicEnvironment(
 function unwrapPublicEnvironment(
   values: Record<string, AgentCandidateConfigValue>,
 ): Record<string, string> {
-  return Object.fromEntries(Object.entries(values).map(([name, value]) => [name, value.value]))
+  return Object.fromEntries(
+    Object.entries(values).map(([name, value]) => [name, publicLaunchValue(value)]),
+  )
+}
+
+function publicLaunchValue(value: AgentCandidateConfigValue): string {
+  if (value.kind !== 'public') {
+    throw new Error(
+      'candidate local launch cannot resolve secret references; use proxy-held materialization',
+    )
+  }
+  return value.value
 }
 
 function modelRoutes(

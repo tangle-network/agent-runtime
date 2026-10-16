@@ -271,6 +271,9 @@ export interface SharedBoxPlacement {
  * resource the materializer does not lower into the worker's directory.
  */
 export function sharedBoxRefusal(profile: AgentProfile): string | undefined {
+  if ((profile.proxySecrets?.length ?? 0) > 0) {
+    return 'profile.proxySecrets requires a dedicated provider'
+  }
   if (profile.model?.metadata?.credentialSource !== undefined) {
     return 'model.metadata.credentialSource requires a dedicated provider'
   }
@@ -501,6 +504,7 @@ function assertWorkerCreateInput(input: CreateAgentEnvironmentInput): void {
     'workspace',
     'resources',
     'runtimeAttachments',
+    'proxySecrets',
     'requestedId',
     'egress',
     'billingOwner',

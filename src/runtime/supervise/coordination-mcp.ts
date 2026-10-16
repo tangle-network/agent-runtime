@@ -21,7 +21,13 @@
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server } from 'node:http'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import {
+  isProxySecretScopeAttenuation,
+  type ProxySecretBinding,
+  ProxySecretBindingSchema,
+  ProxySecretScopeSchema,
+} from '@tangle-network/agent-interface/environment-provider'
 import { ConfigError, ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import { createStdioToolServer } from '../../mcp/tool-server'
@@ -48,6 +54,13 @@ import {
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import { runAbortable } from './abortable'
 import {
+  type CoordinationProxySecretSourceIdentity,
+  type CoordinationSignedCredentialGeneration,
+  captureCoordinationProxySecretSourceIdentity,
+  createCoordinationSignedCredentialGeneration,
+  signCoordinationCredentialGeneration,
+} from './coordination-credential'
+import {
   type CoordinationHttpOptions,
   type CoordinationRejection,
   coordinationHttpHandler,
@@ -56,9 +69,17 @@ import {
 import { preflightPublicCoordination } from './coordination-preflight'
 import {
   noteScopeRetainedOwnerCoordination,
+  scopeRetainedOwnerCoordinationGeneration,
+  scopeRetainedOwnerCoordinationGenerationRegistered,
+  scopeRetainedOwnerCoordinationGenerationRevoked,
+  scopeRetainedOwnerCoordinationSource,
   scopeRetainedOwnerResourceReader,
+  trackScopeCoordinationRevocation,
 } from './retained-scope-owner'
 import { singleFlightTools } from './single-flight-tools'
+import { detachedSnapshot } from './snapshot'
+
+export type { CoordinationProxySecretSourceIdentity } from './coordination-credential'
 
 export type {
   CoordinationHttpAudit,
@@ -82,8 +103,10 @@ export interface CoordinationMcpHandle {
   /** The current credential's expiry under `authentication.ttlMs`; undefined when it lives as long
    *  as the scope. */
   readonly credentialExpiresAt: number | undefined
-  /** Revoke this listener’s current token and mint another. Remove a signing key to revoke across restarts. */
-  rotateCredential(): void
+  /** Metadata only; absent while rotation is pending or after registration expiry. */
+  readonly proxySecret: CoordinationProxySecret | undefined
+  /** Fence the previous credential immediately; await fresh registration before continuation. */
+  rotateCredential(): Promise<void>
   /** The coordination tools' settled-worker ledger (for the driver's finalize). */
   settled(): ReadonlyArray<SettledWorker>
   /** The first driver-authored result whose injected independent check passed. */
@@ -139,6 +162,88 @@ export interface CoordinationPublicAddress {
   readonly signal: AbortSignal
 }
 
+/** An actor credential registered by the trusted host; installation belongs to the provider. */
+export interface CoordinationProxySecret {
+  readonly binding: ProxySecretBinding
+  readonly sourceIdentity: CoordinationProxySecretSourceIdentity
+  readonly expiresAt: string
+}
+
+export interface CoordinationProxySecretRegistration extends CoordinationProxySecret {
+  /** Confirm removal from the trusted secret store. A failed or unconfirmed revoke fails close. */
+  revoke(): Promise<{ readonly confirmed: true }>
+}
+
+export interface CoordinationProxySecretOptions {
+  /** Host-only callback. Register in the existing encrypted secret store, never guest env/files.
+   *  Observe signal and clean up partial registration before rejecting. The provider must verify
+   *  its sandbox-bound installed receipt before it launches the harness. */
+  prepare(input: {
+    readonly runId: string
+    readonly actorId: string
+    readonly url: string
+    /** Full Authorization header. The trusted bearer-store adapter parses it once and stores
+     *  only the token bytes; the store itself does no presentation normalization. Never log it. */
+    readonly authorization: string
+    /** Lookup-only replay of an exact live generation. Never recreate or upsert a missing source. */
+    readonly replay: boolean
+    readonly expectedSourceIdentity?: CoordinationProxySecretSourceIdentity
+    /** Credential deadline in epoch milliseconds, when explicitly bounded by Runtime auth. */
+    readonly credentialExpiresAt: number | undefined
+    readonly signal: AbortSignal
+  }): Promise<CoordinationProxySecretRegistration>
+}
+
+/** Proxy bindings support public HTTPS on its default port, never a dynamic local HTTP port. */
+function assertProxySecretAddress(address: URL): void {
+  if (
+    address.protocol !== 'https:' ||
+    address.port ||
+    isLoopbackHost(address.hostname) ||
+    address.pathname.includes('*') ||
+    !ProxySecretScopeSchema.safeParse({ hosts: [address.hostname], paths: [address.pathname] })
+      .success
+  ) {
+    throw new ConfigError(
+      'coordination proxySecret requires an exact public FQDN on HTTPS port 443 and a canonical exact path',
+    )
+  }
+}
+
+function assertCoordinationProxySecret(
+  registered: CoordinationProxySecretRegistration,
+  address: URL,
+  credentialExpiresAt: number | undefined,
+): Pick<CoordinationProxySecret, 'binding' | 'sourceIdentity'> {
+  const binding = ProxySecretBindingSchema.parse(registered.binding)
+  const expiresAt = Date.parse(registered.expiresAt)
+  const source = captureCoordinationProxySecretSourceIdentity(registered.sourceIdentity)
+  if (
+    typeof registered.revoke !== 'function' ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt - Date.now() < 1000 ||
+    (credentialExpiresAt !== undefined && expiresAt > credentialExpiresAt) ||
+    binding.envName !== 'AGENT_RUNTIME_COORDINATION_TOKEN' ||
+    binding.hosts.length !== 1 ||
+    binding.hosts[0] !== address.hostname ||
+    binding.presentation.type !== 'bearer' ||
+    binding.methods?.length !== 1 ||
+    binding.methods[0] !== 'POST' ||
+    binding.paths?.length !== 1 ||
+    binding.paths[0] !== address.pathname ||
+    binding.ttlSeconds === undefined ||
+    source.key !== binding.secretRef.key ||
+    source.expiresAt !== registered.expiresAt ||
+    !isProxySecretScopeAttenuation(source.proxyPolicy, binding) ||
+    binding.ttlSeconds > source.proxyPolicy.maxTtlSeconds
+  ) {
+    throw new ConfigError(
+      'coordination proxySecret registration must bind the actor endpoint and a bounded lifetime',
+    )
+  }
+  return { binding, sourceIdentity: source }
+}
+
 /** Runtime-only read capability delivered to an operator client, never to the canonical profile. */
 export interface CoordinationReadAccess {
   readonly url: string
@@ -146,6 +251,8 @@ export interface CoordinationReadAccess {
 }
 
 export interface CoordinationTransportOptions extends CoordinationHttpOptions {
+  /** Trusted registration for provider managers; never an authored profile credential. */
+  readonly proxySecret?: CoordinationProxySecretOptions
   /** Publish the read capability before dispatch, so a remote client can observe the first worker. */
   readonly onReadReady?: (
     access: CoordinationReadAccess & { readonly runId: string; readonly actorId: string },
@@ -187,6 +294,18 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
   }
   if (options.publicUrl !== undefined && !options.authentication) {
     throw new ConfigError('coordination publicUrl requires authentication')
+  }
+  if (options.proxySecret !== undefined) {
+    if (
+      !options.authentication ||
+      options.publicUrl === undefined ||
+      typeof options.proxySecret.prepare !== 'function'
+    ) {
+      throw new ConfigError(
+        'coordination proxySecret requires authentication, publicUrl and prepare',
+      )
+    }
+    if (typeof options.publicUrl === 'string') assertProxySecretAddress(new URL(options.publicUrl))
   }
   const signingKeys =
     typeof options.authentication === 'object' ? options.authentication.signingKeys : undefined
@@ -373,15 +492,51 @@ export async function serveCoordinationMcpForManager(
   let headers: Readonly<Record<string, string>> = Object.freeze({})
   let credentialAudience = ''
   let closed = false
+  let registeredProxySecret: CoordinationProxySecretRegistration | undefined
+  let signedGeneration: CoordinationSignedCredentialGeneration | undefined
+  let replayCredential = false
+  let expectedRegistration:
+    | {
+        readonly binding: ProxySecretBinding
+        readonly sourceIdentity: CoordinationProxySecretSourceIdentity
+      }
+    | undefined
+  let rotation: Promise<void> | undefined
+  let proxyRevocation: Promise<void> | undefined
+  const queueRevocation = (
+    registered: CoordinationProxySecretRegistration,
+    generation: CoordinationSignedCredentialGeneration | undefined,
+  ) => {
+    proxyRevocation = Promise.resolve().then(async () => {
+      try {
+        if ((await registered.revoke())?.confirmed !== true) throw new Error('unconfirmed')
+        await scopeRetainedOwnerCoordinationGenerationRevoked(opts.scope, generation, {
+          binding: registered.binding,
+          sourceIdentity: registered.sourceIdentity,
+        })
+      } catch {
+        throw new ConfigError('coordination proxySecret revocation was not confirmed')
+      }
+    })
+    trackScopeCoordinationRevocation(opts.scope, proxyRevocation)
+    // Scope cancellation and synchronous rotation cannot await; close observes the same promise.
+    void proxyRevocation.catch(() => undefined)
+  }
+  const revokeProxySecret = () => {
+    const registered = registeredProxySecret
+    registeredProxySecret = undefined
+    if (registered) queueRevocation(registered, signedGeneration)
+  }
   const revoked = new Map<string, number>()
   const grantDigest = createHash('sha256')
     .update(JSON.stringify([...opts.toolNames].sort()))
     .digest('hex')
-  const rotateCredential = () => {
-    if (!opts.authentication) throw new ConfigError('coordination authentication is not configured')
-    if (closed) throw new ConfigError('coordination server is closed')
-    // Without `ttlMs` the credential carries no expiry: it lives as long as the scope
-    // (`refusedCredential`), and a scope's deadline is not always its stop.
+  const fenceCredential = () => {
+    if (token) revoked.set(token.toString(), credentialExpiresAt ?? Number.POSITIVE_INFINITY)
+    token = undefined
+    headers = Object.freeze({})
+  }
+  const mintCredential = async (renew: boolean) => {
     const expiresAt = auth?.ttlMs === undefined ? undefined : Date.now() + auth.ttlMs
     if (expiresAt !== undefined && !Number.isSafeInteger(expiresAt)) {
       throw new ConfigError('coordination credential expiry must remain a safe integer')
@@ -389,30 +544,126 @@ export async function serveCoordinationMcpForManager(
     for (const [credential, expiry] of revoked) {
       if (expiry <= Date.now()) revoked.delete(credential)
     }
-    if (token) revoked.set(token.toString(), credentialExpiresAt ?? Number.POSITIVE_INFINITY)
-    credentialExpiresAt = expiresAt
-    const nonce = randomBytes(32).toString('base64url')
-    let text = nonce
+    replayCredential = false
+    expectedRegistration = undefined
+    let text: string
     if (signingKeys) {
-      const payload = Buffer.from(
-        JSON.stringify({
-          key: signingKeys.activeKeyId,
-          run: identity.runId,
-          actor: identity.actorId,
+      const createGeneration = () =>
+        createCoordinationSignedCredentialGeneration({
+          ...identity,
           audience: credentialAudience,
           grants: grantDigest,
-          expires: credentialExpiresAt ?? null,
-          nonce,
-        }),
-      ).toString('base64url')
-      const signature = createHmac('sha256', signingKeys.keys[signingKeys.activeKeyId]!)
-        .update(payload)
-        .digest('base64url')
-      text = `${payload}.${signature}`
+          keyId: signingKeys.activeKeyId,
+          expiresAt: expiresAt ?? null,
+        })
+      let created = false
+      signedGeneration = opts.proxySecret
+        ? await scopeRetainedOwnerCoordinationGeneration(
+            opts.scope,
+            () => {
+              created = true
+              return createGeneration()
+            },
+            renew,
+          )
+        : createGeneration()
+      if (!signedGeneration)
+        throw new ConfigError('coordination signed generation admission is unavailable')
+      replayCredential = Boolean(opts.proxySecret) && !created
+      if (replayCredential) {
+        expectedRegistration = await scopeRetainedOwnerCoordinationSource(
+          opts.scope,
+          signedGeneration,
+        )
+        if (!expectedRegistration)
+          throw new ConfigError('coordination credential replay has no confirmed source identity')
+      }
+      text = signCoordinationCredentialGeneration(
+        signedGeneration,
+        signingKeys.keys,
+        {
+          ...identity,
+          audience: credentialAudience,
+          grants: grantDigest,
+        },
+        auth?.ttlMs,
+      )
+      credentialExpiresAt = signedGeneration.expiresAt ?? undefined
+    } else {
+      if (opts.proxySecret)
+        await scopeRetainedOwnerCoordinationGeneration(opts.scope, undefined, renew)
+      signedGeneration = undefined
+      credentialExpiresAt = expiresAt
+      text = randomBytes(32).toString('base64url')
     }
     readerToken = Buffer.from(randomBytes(32).toString('base64url'))
     token = Buffer.from(text)
     headers = Object.freeze({ Authorization: `Bearer ${text}` })
+  }
+  const prepareProxySecret = async () => {
+    if (!opts.proxySecret) return
+    let prepared: CoordinationProxySecretRegistration | undefined
+    try {
+      addressLifetime.signal.throwIfAborted()
+      prepared = await opts.proxySecret.prepare({
+        ...identity,
+        url: credentialAudience,
+        authorization: headers.Authorization!,
+        replay: replayCredential,
+        ...(expectedRegistration
+          ? { expectedSourceIdentity: expectedRegistration.sourceIdentity }
+          : {}),
+        credentialExpiresAt,
+        signal: addressLifetime.signal,
+      })
+      const { binding, sourceIdentity } = assertCoordinationProxySecret(
+        prepared,
+        new URL(credentialAudience),
+        credentialExpiresAt,
+      )
+      if (
+        expectedRegistration &&
+        (canonicalCandidateDigest(binding) !==
+          canonicalCandidateDigest(expectedRegistration.binding) ||
+          canonicalCandidateDigest(sourceIdentity) !==
+            canonicalCandidateDigest(expectedRegistration.sourceIdentity))
+      ) {
+        throw new ConfigError('coordination credential replay differs from its admitted source')
+      }
+      await scopeRetainedOwnerCoordinationGenerationRegistered(opts.scope, signedGeneration, {
+        binding,
+        sourceIdentity,
+      })
+      addressLifetime.signal.throwIfAborted()
+      registeredProxySecret = {
+        binding: detachedSnapshot(binding, 'coordination proxySecret binding'),
+        sourceIdentity,
+        expiresAt: prepared.expiresAt,
+        revoke: prepared.revoke.bind(prepared),
+      }
+    } catch {
+      if (prepared) queueRevocation(prepared, signedGeneration)
+      await proxyRevocation
+      throw new ConfigError('coordination proxySecret registration failed')
+    }
+  }
+  const rotateCredential = (): Promise<void> => {
+    if (!opts.authentication) throw new ConfigError('coordination authentication is not configured')
+    if (closed) throw new ConfigError('coordination server is closed')
+    if (rotation) return rotation
+    fenceCredential()
+    revokeProxySecret()
+    const renewing = (async () => {
+      await proxyRevocation
+      await mintCredential(true)
+      await prepareProxySecret()
+    })()
+    const tracked = renewing.finally(() => {
+      if (rotation === tracked) rotation = undefined
+    })
+    rotation = tracked
+    void tracked.catch(() => undefined)
+    return tracked
   }
   /**
    * Why a supplied credential is refused, or undefined when it is valid. A credential lives as
@@ -427,10 +678,17 @@ export async function serveCoordinationMcpForManager(
     supplied: Buffer,
   ): 'scope-stopped' | 'credential-refused' | undefined => {
     if (opts.scope.signal.aborted) return 'scope-stopped'
+    if (registeredProxySecret && Date.now() >= Date.parse(registeredProxySecret.expiresAt))
+      return 'credential-refused'
     return validCredential(supplied) ? undefined : 'credential-refused'
   }
   const validCredential = (supplied: Buffer): boolean => {
     if (revoked.has(supplied.toString())) return false
+    if (
+      opts.proxySecret &&
+      (token === undefined || supplied.length !== token.length || !timingSafeEqual(supplied, token))
+    )
+      return false
     if (!signingKeys)
       return (
         token !== undefined &&
@@ -712,7 +970,10 @@ export async function serveCoordinationMcpForManager(
   })
 
   const addressLifetime = new AbortController()
-  const abortAddress = () => addressLifetime.abort(opts.scope.signal.reason)
+  const abortAddress = () => {
+    addressLifetime.abort(opts.scope.signal.reason)
+    revokeProxySecret()
+  }
   opts.scope.signal.addEventListener('abort', abortAddress, { once: true })
   if (opts.scope.signal.aborted) abortAddress()
   const releaseAddress = () => {
@@ -753,9 +1014,10 @@ export async function serveCoordinationMcpForManager(
     ) {
       throw new ConfigError('remote coordination publicUrl must use HTTPS')
     }
+    if (opts.proxySecret) assertProxySecretAddress(publicAddress)
     url = publicAddress.href
     credentialAudience = url
-    if (opts.authentication) rotateCredential()
+    if (opts.authentication) await mintCredential(false)
     audiences.add(new URL(localUrl).host)
     audiences.add(publicAddress.host)
     if (host === '0.0.0.0' || host === '::') audiences.add(`127.0.0.1:${port}`)
@@ -773,13 +1035,16 @@ export async function serveCoordinationMcpForManager(
         toolNames: selectedNames,
       })
     }
+    await prepareProxySecret()
   } catch (error) {
     releaseAddress()
     closed = true
+    revokeProxySecret()
     await new Promise<void>((resolve) => {
       server.close(() => resolve())
       server.closeAllConnections()
     })
+    await proxyRevocation
     throw error
   }
 
@@ -803,6 +1068,15 @@ export async function serveCoordinationMcpForManager(
     get credentialExpiresAt() {
       return credentialExpiresAt
     },
+    get proxySecret() {
+      return registeredProxySecret && Date.now() < Date.parse(registeredProxySecret.expiresAt)
+        ? {
+            binding: registeredProxySecret.binding,
+            sourceIdentity: registeredProxySecret.sourceIdentity,
+            expiresAt: registeredProxySecret.expiresAt,
+          }
+        : undefined
+    },
     rotateCredential,
     settled: () => coord.settled(),
     submittedResult: () => coord.submittedResult(),
@@ -817,9 +1091,25 @@ export async function serveCoordinationMcpForManager(
     close: async () => {
       releaseAddress()
       closed = true
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve())
-      })
+      fenceCredential()
+      const failures: unknown[] = []
+      try {
+        await rotation
+      } catch (error) {
+        failures.push(error)
+      }
+      revokeProxySecret()
+      const cleanup = await Promise.allSettled([
+        new Promise<void>((resolve) => {
+          server.close(() => resolve())
+          server.closeAllConnections()
+        }),
+        proxyRevocation,
+      ])
+      for (const result of cleanup) if (result.status === 'rejected') failures.push(result.reason)
+      if (failures.length === 1) throw failures[0]
+      if (failures.length > 1)
+        throw new AggregateError(failures, 'coordination listener cleanup failed')
     },
   }
   try {

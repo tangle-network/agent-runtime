@@ -66,7 +66,10 @@ export { maxSeqOf, sumMeasuredSpendFromEvents, uncertainSpawnBudgets } from './r
 
 import { withBudgetResources } from './resources'
 import { RetainedWorkspaceCapturePendingError } from './retained-executor'
-import { retainedOwnerWorkspaceRetentionSeamKey } from './retained-scope-owner'
+import {
+  createConfirmedCoordinationRevocation,
+  retainedOwnerWorkspaceRetentionSeamKey,
+} from './retained-scope-owner'
 import { guardRunPersistence } from './run-persistence'
 import {
   assertRecursiveReservationPolicy,
@@ -693,6 +696,12 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         pool,
         journal,
         blobs: opts.blobs,
+        // A failed execution store stays latched; confirmed revocation may only remove authority.
+        // These original stores still enforce their own ownership lease and storage failures.
+        confirmedCoordinationRevocation: createConfirmedCoordinationRevocation({
+          journal: journalStore,
+          blobs: blobStore,
+        }),
         executors: opts.executors,
         seams: { [retainedOwnerWorkspaceRetentionSeamKey]: ownerWorkspaceRetention === true },
         depth: 0,
@@ -955,6 +964,12 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           // A failed journal cannot prove a terminal outcome or authorize release. Join local
           // observers and admitted writes; retained providers keep their exact invocation alive.
           await waitForScopeChildren(openScope)
+          // A failed child drain must not skip confirmed coordination revocation acknowledgements.
+          try {
+            await settleManagerWork(openScope)
+          } catch (error) {
+            if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
+          }
           await persistence.drain()
         }
         // Explicit cancellation can arrive during the join barrier; its cleanup abort is distinct.

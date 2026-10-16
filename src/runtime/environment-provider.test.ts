@@ -44,6 +44,26 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 }
 
 describe('environment provider adapters', () => {
+  it('preserves an explicit empty proxy-secret selection at the public Sandbox adapter boundary', async () => {
+    let created: unknown
+    const provider: AgentEnvironmentProvider = {
+      name: 'proxy-forwarding-fixture',
+      capabilities: fakeCapabilities,
+      async create(input) {
+        created = input
+        throw new Error('captured create')
+      },
+    }
+    await expect(
+      providerAsSandboxClient(provider, {}).create({
+        backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
+        secrets: [],
+        proxySecrets: [],
+      }),
+    ).rejects.toThrow('captured create')
+    expect(created).toMatchObject({ secrets: [], proxySecrets: [] })
+  })
+
   it('refuses invalid turn metadata before provisioning any environment', async () => {
     let creates = 0
     const provider: AgentEnvironmentProvider = {
@@ -1034,6 +1054,7 @@ describe('environment provider adapters', () => {
       name: 'box-name',
       idempotencyKey: 'create-1',
     })
+    expect(created).not.toHaveProperty('providerOptions.sandboxCreateOptions')
     expect(turn).toMatchObject({ prompt: 'hello', sessionId: 's1', turnId: 't1' })
     expect(dispatched).toMatchObject({
       sessionId: 'provider-session',
@@ -1533,6 +1554,7 @@ describe('environment provider adapters', () => {
       capabilities: () => fakeCapabilities(),
       async create() {
         return fakeEnvironment({
+          creation: 'created',
           stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {},
           async destroy() {
             destroyed += 1

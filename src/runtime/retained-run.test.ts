@@ -64,6 +64,7 @@ function assertDetachedAdmissionPhase(admission: RetainedRunAdmission): void {
     case 'intent':
     case 'environment':
     case 'dispatched':
+    case 'proxy-secrets':
       return
     default: {
       const exhaustive: never = admission
@@ -562,6 +563,57 @@ describe('retained runtime run control', () => {
     },
   )
 
+  it('keeps an initially ordinary create decision unchanged while admission is paused', async () => {
+    const reached = abortGate()
+    const release = abortGate()
+    const provider = providerWithEnvironment({
+      async dispatch() {
+        throw new Error('ordinary create observed')
+      },
+    })
+    const create = provider.create.bind(provider)
+    let created: CreateAgentEnvironmentInput | undefined
+    provider.create = async (input) => {
+      created = input
+      return create(input)
+    }
+    const environment: CreateAgentEnvironmentInput & { idempotencyKey: string } = {
+      profile: { name: 'ordinary' },
+      idempotencyKey: 'ordinary-admission-snapshot',
+    }
+    const starting = startRetainedRun({
+      provider,
+      environment,
+      turn: { prompt: 'work', turnId: 'ordinary-admission-snapshot' },
+      onAdmission: async (admission) => {
+        if (admission.phase === 'intent') {
+          reached.resolve()
+          await release.promise
+        }
+      },
+    })
+    try {
+      await reached.promise
+      const injected = {
+        envName: 'UNADMITTED_TOKEN',
+        secretRef: { kind: 'secret-ref' as const, key: 'unadmitted-caller-reference' },
+        hosts: ['unadmitted.example'],
+        presentation: { type: 'bearer' as const },
+      }
+      environment.proxySecrets = [injected]
+      environment.proxySecretParents = { UNADMITTED_TOKEN: null }
+      if (typeof environment.profile !== 'string') environment.profile.proxySecrets = [injected]
+      release.resolve()
+      await expect(starting).rejects.toThrow('ordinary create observed')
+      expect(created?.profile).toEqual({ name: 'ordinary' })
+      expect(created?.proxySecrets).toBeUndefined()
+      expect(created?.proxySecretParents).toBeUndefined()
+    } finally {
+      release.resolve()
+      await starting.catch(() => {})
+    }
+  })
+
   it('destroys exactly the environment this call created when dispatch fails', async () => {
     // Braid measured the opposite failure first: an unconditional destroy deleted a workspace a
     // same-key replay had returned. The provider's creation receipt is what separates the two.
@@ -634,6 +686,7 @@ describe('retained runtime run control', () => {
 
   it('keeps an environment after dispatch becomes uncertain, but cleans an unused one', async () => {
     let destroys = 0
+    // An unknown creation receipt does not prove this caller owns the uncertain allocation.
     const uncertain = providerWithEnvironment({
       async dispatch() {
         throw new Error('connection lost after dispatch')
@@ -659,6 +712,7 @@ describe('retained runtime run control', () => {
     ])
 
     const unusable = providerWithEnvironment({
+      creation: 'created',
       dispatch: undefined,
       session: undefined,
       async destroy() {
@@ -1280,6 +1334,7 @@ describe('retained runtime run control', () => {
         idempotencyKey: controlRef.environmentId,
         metadata: { tenant: 'acme' },
       },
+      proxySecretParents: {},
       turn: { prompt: 'owned task', turnId: 'owned-turn', sessionId: 'stale-session' },
       onAdmission: recorder.onAdmission,
       identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
@@ -1295,6 +1350,7 @@ describe('retained runtime run control', () => {
     // Caller metadata is preserved, while the Runtime ownership marker is canonical.
     const intent = recorder.admissions[0]
     if (intent?.phase !== 'intent') throw new Error('expected the headless intent admission')
+    expect(intent.proxySecretParents).toEqual({})
     expect(created?.metadata).toEqual({
       tenant: 'acme',
       retainedIdempotencyKey: controlRef.environmentId,

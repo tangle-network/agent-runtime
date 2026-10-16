@@ -66,6 +66,9 @@ A leaf that starts on OpenCode:
 
 Before a large run, compare the materialization receipt and served tool list with what you wrote; a mounted skill or listed tool proves only availability.
 Keep credential values out of profiles, tasks, resources and journals.
+For network credentials, declare `proxySecrets` with an authorized `secret-ref`, exact request scope and bounded lifetime; a reference alone does not establish custody.
+Use the executor's readable-secret path only for local signing or offline use; proxy-held bindings require placeholders and a confirmed placement receipt before launch, without raw-value fallback.
+Children start with no proxy grants: request only narrower authority, verify the receipt on creation and continuation, and follow [secure declarations and the recursive acceptance test](references/execution-and-credentials.md#proxy-held-network-credentials).
 
 ## A brief that delivers
 
