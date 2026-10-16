@@ -1,3 +1,7 @@
+## 0.322.3
+
+Republish of 0.322.2: the 0.322.2 tag failed release lint before publishing. Includes the retained-turn capture fix (failed turns with incomplete workspace capture stay under the driver retry policy).
+
 ## 0.322.2
 
 Keep failed retained turns under the driver retry policy when workspace capture remains incomplete. Journal pending evidence and preserve its source while retrying in another environment; accepted turns still require complete capture before reuse.
