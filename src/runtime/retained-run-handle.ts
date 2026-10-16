@@ -58,6 +58,18 @@ import {
   captureCoordinationProxySecretSourceIdentity,
 } from './supervise/coordination-credential'
 
+const retainedRunOwners = new WeakMap<
+  RetainedRunHandle,
+  { readonly environment: AgentEnvironment; readonly session: AgentSession }
+>()
+
+/** Internal access to the live provider objects already authorized by retained admission. */
+export function retainedRunOwner(handle: RetainedRunHandle) {
+  const owner = retainedRunOwners.get(handle)
+  if (!owner) throw new Error('retained run has no owned provider environment')
+  return owner
+}
+
 type NativeContinuationAdmissionCallback = (controlRef: AgentExactRunControlRef) => void
 
 interface NativeContinuationAdmissionState {
@@ -407,7 +419,7 @@ export function createRetainedRunHandle(
     )
     return { admission: admissionPromise, result }
   }
-  return {
+  const handle: RetainedRunHandle = {
     get controlRef() {
       synchronizeActiveControlRef()
       return copyControlRef(activeControlRef)
@@ -566,4 +578,6 @@ export function createRetainedRunHandle(
       return structuredClone(acknowledgement)
     },
   }
+  retainedRunOwners.set(handle, { environment, session })
+  return handle
 }

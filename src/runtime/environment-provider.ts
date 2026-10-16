@@ -95,18 +95,17 @@ import {
 import {
   assertEventBinding,
   awaitAbortable,
-  exactSession,
   freezeControlRef,
   RetainedRunProviderContractError,
   sameControlCoordinates,
 } from './retained-run-binding'
+import { retainedRunOwner } from './retained-run-handle'
 import {
   assertRetainedRunReplayMaterial,
   mintRetainedIdentity,
   reconnectRetainedRun,
   recoverRetainedRun,
   retainedProxySecretBindings,
-  retainedReadOnlyOptions,
   startRetainedRun,
 } from './retained-run-start'
 import type { RetainedRunHandle } from './retained-run-types'
@@ -2810,11 +2809,7 @@ async function providerExecutionSource(
     executionAdmitted = true
     args.onRetained(handle)
     args.onPending(true)
-    const environment = await args.provider.get?.(
-      handle.controlRef.environmentId,
-      retainedReadOnlyOptions({ signal }),
-    )
-    if (!environment) throw new Error('retained provider environment is unavailable')
+    const { environment, session } = retainedRunOwner(handle)
     assertProxySecretInstallation(environment, proxySecrets)
     assertProxySecretParentReadback(environment, proxySecretParents)
     assertProxySecretSourceIdentity(environment.proxySecretReceipt, proxySecretSourceIdentity)
@@ -2828,7 +2823,6 @@ async function providerExecutionSource(
         ...found,
       })
     }
-    const session = exactSession(environment, handle.controlRef).session
     async function* events(): AsyncIterable<AgentEnvironmentEvent> {
       let observationFailure: { error: unknown } | undefined
       // Give an immediately available frame its binding check before reading the exact result.

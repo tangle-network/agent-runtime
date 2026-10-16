@@ -946,18 +946,7 @@ export async function recoverRetainedRun(
             expectedProxySecretGeneration: options.expectedProxySecretGeneration,
             signal: options.signal,
           },
-          (current) => {
-            const stored = current.session?.(options.sessionId).controlRef
-            const parsed = AgentExactRunControlRefSchema.safeParse(stored)
-            if (
-              !parsed.success ||
-              parsed.data.provider !== options.provider.name ||
-              parsed.data.environmentId !== options.environmentId ||
-              parsed.data.sessionId !== options.sessionId ||
-              parsed.data.executionId !== options.executionId
-            )
-              throw new Error('provider session is bound to other retained run coordinates')
-          },
+          undefined,
           options.onAdmission,
           options.proxySecretSourceIdentity,
         )
@@ -1221,9 +1210,7 @@ export async function reconnectRetainedRun(
       expectedProxySecretGeneration: options.expectedProxySecretGeneration,
       signal: options.signal,
     },
-    (current) => {
-      exactSession(current, controlRef)
-    },
+    undefined,
     options.onAdmission,
     options.proxySecretSourceIdentity,
   )
