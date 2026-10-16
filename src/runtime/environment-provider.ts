@@ -291,6 +291,8 @@ export interface ProviderAsSandboxClientOptions {
   retentionIdentity?: { executionId: string; profile: AgentProfile; node?: ExecutorNodeContext }
   /** Called after verification and before deletion so the run result can retain the exact join. */
   onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void | Promise<void>
+  /** Translate Sandbox-specific controls that have no neutral representation. Without this
+   * callback, unsupported fields are refused before any environment is created. */
   mapCreateOptions?: (
     options: CreateSandboxOptions | undefined,
   ) => Partial<CreateAgentEnvironmentInput>
@@ -316,7 +318,7 @@ export function providerAsSandboxClient(
   return {
     async create(createOptions?: CreateSandboxOptions): Promise<SandboxInstance> {
       const defaults = options.defaults ?? {}
-      const sandboxInput = createInputFromSandboxOptions(createOptions)
+      const sandboxInput = createInputFromSandboxOptions(createOptions, options.mapCreateOptions !== undefined)
       const customInput = options.mapCreateOptions?.(createOptions) ?? {}
       const mapped = {
         ...defaults,
@@ -2908,7 +2910,30 @@ async function providerExecutionSource(
 
 function createInputFromSandboxOptions(
   options: CreateSandboxOptions | undefined,
+  customMapping: boolean,
 ): Partial<CreateAgentEnvironmentInput> {
+  if (!customMapping) {
+    const mapped = new Set([
+      'backend', 'environment', 'git', 'cwd', 'resources', 'env', 'secrets', 'metadata', 'name', 'idempotencyKey',
+    ])
+    const unsupported = Object.entries(options ?? {})
+      .filter(([key, value]) => value !== undefined && !mapped.has(key))
+      .map(([key]) => key)
+    for (const [prefix, value, keys] of [
+      ['backend', options?.backend, ['type', 'profile']],
+      ['git', options?.git, ['url', 'ref']],
+    ] as const) {
+      for (const [key, field] of Object.entries(value ?? {})) {
+        if (field !== undefined && !(keys as readonly string[]).includes(key)) unsupported.push(`${prefix}.${key}`)
+      }
+    }
+    if (options?.secrets === 'all') unsupported.push('secrets=all')
+    if (unsupported.length > 0) {
+      throw new ValidationError(
+        `providerAsSandboxClient: Sandbox create controls require mapCreateOptions: ${unsupported.join(', ')}`,
+      )
+    }
+  }
   const profile = options?.backend?.profile
   const backend = options?.backend?.type
   const cwd =
@@ -2927,12 +2952,11 @@ function createInputFromSandboxOptions(
     ...(Object.keys(workspace).length > 0 ? { workspace } : {}),
     ...(options?.resources ? { resources: options.resources as ResourceRequest } : {}),
     ...(options?.env ? { env: options.env } : {}),
-    // Sandbox's "all" selector stays in the transport options; neutral inputs name secrets.
+    // Neutral inputs name secrets; a custom mapper owns any provider-specific selector.
     ...(Array.isArray(options?.secrets) ? { secrets: options.secrets } : {}),
     ...(options?.metadata ? { metadata: options.metadata } : {}),
     ...(options?.name ? { name: options.name } : {}),
     ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
-    providerOptions: { sandboxCreateOptions: options ?? {} },
   }
 }
 
