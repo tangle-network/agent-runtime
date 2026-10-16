@@ -5,11 +5,11 @@ Domain policy belongs in adapters and agent profiles.
 
 ## Delivery
 
-Work on a feature branch, run relevant checks while developing, and report actual results. Push the branch and land the exact intended head in `main`. Source integration does not require a green CI run, local signoff, a version bump, published dependencies, or a queue label. A draft or explicit hold is not permission to merge. Post-merge CI is a safety net, not a condition for finishing a source-only task.
+Work on a feature branch and run relevant checks while developing. Land authorized PRs into `main` with `gh pr merge <PR> --merge --match-head-commit <INTENDED_HEAD_SHA>`. Capture the intended head first; read back `mergedAt` and `mergeCommit` before reporting a completed merge. No additional merge wrapper or host installation is required.
 
-The shared command is `tangle-ops merge` after the companion tooling change is installed. Until then, use the ordinary GitHub merge endpoint with the exact expected head SHA. Native restrictions still apply; never forge statuses, remove a hold or use an administrator bypass. Removing obsolete required-check settings is a separate administrator rollout.
+Ordinary internal source PRs do not wait for CI, local signoff, a version bump or package publication. Release PRs and external contributions retain verification. Drafts, explicit holds, conflicts and native repository restrictions still apply; do not use an administrator bypass or fabricate passing checks. A skipped job is not test evidence.
 
-Release qualification and package publication remain separate, explicitly authorized operations. The existing publishing workflow owns tag/source identity, packed artifacts, cohort compatibility, credential isolation and publication. Do not dispatch publication or alter release controls to finish a source task. A merge is not a package release or a production result.
+Publication is a separate authorized operation. The existing publisher qualifies the frozen tagged revision and exact package artifacts, including cohort compatibility and credential isolation. Advancing main does not retarget that candidate. A source merge is neither a package release nor a production result.
 
 ## Read for the task
 
