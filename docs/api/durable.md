@@ -2082,6 +2082,26 @@ OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_m
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`peerMail`](runtime.md#peermail-1)
 
+##### peerAudit?
+
+> `readonly` `optional` **peerAudit?**: `boolean`
+
+Let sibling root managers read each other's recorded evidence. No mutation or steering. Default false.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`peerAudit`](runtime.md#peeraudit-1)
+
+##### traceTools?
+
+> `readonly` `optional` **traceTools?**: `boolean`
+
+False removes observe_agent/read_journal from the root and every authored descendant. Default true.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`traceTools`](runtime.md#tracetools-1)
+
 ##### makeWorkerAgent?
 
 > `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
