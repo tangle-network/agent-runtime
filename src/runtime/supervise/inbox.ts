@@ -111,7 +111,7 @@ function fenceSafe(body: string): string {
 function renderPeerMail(message: PeerInboxMessage, nonce: string): string {
   const e = message.envelope
   const head =
-    `from=${e.from} kind=${e.kind} mailId=${e.mailId} thread=${e.threadId} depth=${e.depth}` +
+    `from=${e.from} mailId=${e.mailId} thread=${e.threadId} depth=${e.depth}` +
     `${e.replyTo === undefined ? '' : ` replyTo=${e.replyTo}`}` +
     `\nsubject: ${fenceSafe(e.subject)}` +
     `\nevidence: ${e.evidenceRefs.length === 0 ? '(none cited)' : e.evidenceRefs.join(', ')}`
