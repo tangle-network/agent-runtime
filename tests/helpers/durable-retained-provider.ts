@@ -160,7 +160,7 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
             }),
           ),
           status: async () => 'running',
-          async *stream(): AsyncIterable<AgentEnvironmentEvent> {
+          stream(): AsyncIterable<AgentEnvironmentEvent> {
             throw new Error('fixture read-only environment cannot execute turns')
           },
         }

@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.321.0.**
+> **Version 0.322.1.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > Read `package.json` `peerDependencies` for the compatible `agent-eval`, `agent-interface`, and `sandbox` versions.
 > Portable profile and tool-part types come from `@tangle-network/agent-interface`.
@@ -123,6 +123,8 @@ Large profile resources do not belong in bounded `providerOptions` metadata.
 Runtime validates the turn before environment creation and binds its profile digest into retained admission identity. `assertProfileMaterializes(profile, harness, context)` from `/agent` or `/kernel` checks harness support without processes or I/O. Use it before admission when an adapter has no optional `validateProfile`; the provider remains authoritative for its execution capabilities and complete profile materialization.
 A request-schema refusal ends the driver attempt without repeated provisioning.
 A capacity refusal before dispatch was refused before it ran, and pauses the driver.
+A permanent unsupported credential-route refusal (`model_credential_refused`) before dispatch
+ends the driver after one attempt; after admission it does not settle the execution.
 A dispatch that Sandbox did not admit, because another execution owns the session or turn, was refused before it ran, and stops the driver with that refusal named.
 Post-admission uncertainty still requires reconciliation; a manager turn that fails it the same way twice is abandoned with its outcome journaled, and the driver continues in a new invocation.
 Abandonments in a row without progress are bounded by `maxConsecutiveFailures`; once they are spent, the next invocation that fails reconciliation the same way twice ends the driver with `stop: 'pending-unresolved'` and its `pendingCause`, journaled on the `driver-attempt` record, so the owner reconciles the execution before re-driving the run.
@@ -605,3 +607,13 @@ A pre-harness failure can retain partial evidence with an unknown native session
 Incomplete required coverage preserves the source environment.
 
 Native analyst assignments retain `sourceEvidenceRef` and pass trusted `sourceEvidenceRefs` to the worker factory. A managed reviewer whose authored profile grants `observe_agent` can read these exact envelope, output, and trace refs through the existing paged `observe_agent({outRef})` reader. Other refs remain denied. Profiles without that grant receive bounded excerpts and must leave claims about omitted evidence unassessed. No tool is added to an authored profile implicitly.
+
+## Remote supervisor observation and provider peer mail
+
+The coordination handle exposes `readOnly`, with its own URL and protected headers. Pass that endpoint to `connectRemoteSupervisor` from `/kernel` to list the complete owned tree, preserve parent identities and statuses, and read a selected worker's live output. The endpoint grants only the existing observation and journal tools; its credential cannot spawn, steer or stop work. Rotate credentials through the coordination handle. Never put these headers in a profile or journal.
+
+`observe_agent` accepts `tree: true`, or a worker id with `events: true` and the previous event cursor. Live event pages are bounded and process-local. `reset` names a changed stream epoch, `historyExpired` names evicted history, and an unavailable page names absent capture. These are not durable transcript replay. The Runtime-owned journal and retained transcript remain authoritative for historical evidence.
+
+Peer mail shares the existing coordination listener and its caller-supplied public route. Each worker gets its own unguessable capability path and only its own send/read tools. Provider workers receive that endpoint through `runtimeAttachments.mcp` and use the existing steerable session inbox, without changing the authored profile. Shared placement and options incompatible with steerable sessions fail before environment creation. A provider that does not advertise runtime MCP attachments is refused before environment creation. The public route must carry the peer paths as well as the manager endpoint. Runtime creates no tunnel. Tangle callers must also declare egress for the coordinator destination through Sandbox's existing egress policy. MCP attachment support does not grant network access; Sandbox's egress denial API identifies rejected destinations.
+
+The provider-backed Sandbox adapter translates supported create fields into neutral input instead of forwarding the raw SDK request in `providerOptions`. Unmapped physical controls, backend overrides and the all-secret selector require the existing `mapCreateOptions` callback and otherwise fail before admission. Explicit caller provider options remain caller-owned; shared-box placement still refuses controls it cannot honor. Steerable provider session creates carry the existing worker attempt key; explicit caller keys take precedence. The adapter carries the creation profile into each subscription turn. A fresh call without a turn key receives one operation identity before dispatch; explicit keys and exact replay coordinates remain unchanged.

@@ -287,6 +287,7 @@ export {
   type HarvestReport,
   harvestCorpus,
 } from './harvest-corpus'
+export type { HttpMcpServerSpec } from './http-mcp-client'
 // The in-process pseudo-box: a user `onPrompt` callback → a SandboxClient for
 // runAgentRounds / openSandboxRun (the typed offline seam, no SandboxInstance cast).
 export {
@@ -792,6 +793,7 @@ export {
   type CoordinationProxySecretRegistration,
   type CoordinationProxySecretSourceIdentity,
   type CoordinationPublicAddress,
+  type CoordinationReadAccess,
   type CoordinationRejectReason,
   type CoordinationTransportOptions,
   serveCoordinationMcp,
@@ -1051,6 +1053,13 @@ export {
   type ReentryTaskInput,
   UNPROVEN_CONTINUITY,
 } from './supervise/reentry'
+export {
+  connectRemoteSupervisor,
+  type RemoteSupervisorAgent,
+  type RemoteSupervisorReader,
+  type RemoteSupervisorTree,
+  type RemoteWorkerEvents,
+} from './supervise/remote-supervisor'
 // The one-call store bundle for a supervised run: a journal + blob store + executor registry,
 // shaped to spread straight into `SupervisorOpts`. `createInMemoryRunContext` is the default
 // (fresh, process-lifetime); `createFileRunContext(dir)` is the durable one — file-backed stores
@@ -1359,6 +1368,11 @@ export {
   DEFAULT_DEADLINE_WARNING_MS,
   type ManagerWakePolicy,
 } from './supervise/wake'
+export type {
+  WorkerEventCursor,
+  WorkerEventEntry,
+  WorkerEventPage,
+} from './supervise/worker-events'
 // The bounded settle-evidence block a worker exposes so the brain's next decision is not authored
 // blind. Complementary to `CompletionEvidence` (a pointer), which this block is the target of.
 // Promoted from the loops repo (#4519).

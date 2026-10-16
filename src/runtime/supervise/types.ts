@@ -1190,6 +1190,13 @@ export interface Scope<Out> {
     nodeId: NodeId,
     opts?: { now?: number; stallAfterMs?: number },
   ): WorkerProgress | undefined
+  /** The complete owned tree, including nested managers and resumed nodes. */
+  observeTree?(): TreeView
+  /** Bounded live output; unavailable or expired history is reported explicitly. */
+  observeEvents?(
+    nodeId: NodeId,
+    cursor?: import('./worker-events').WorkerEventCursor,
+  ): import('./worker-events').WorkerEventPage
   /** The live tool-call trace of one child when its executor exposes one (`Executor.traceSource`),
    *  for running the online detector panel over a RUNNING worker. `undefined` otherwise. */
   traceSource(nodeId: NodeId): TraceSource | undefined

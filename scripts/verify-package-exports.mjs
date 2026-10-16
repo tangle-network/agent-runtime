@@ -1129,6 +1129,14 @@ try {
     appDir,
   )
 
+  run(process.execPath, ['--input-type=module', '--eval', `
+    const kernel = await import('@tangle-network/agent-runtime/kernel')
+    const { verifyRemoteSupervisorConsumer } = await import(
+      ${JSON.stringify(new URL('./lib/remote-supervisor-proof.mjs', import.meta.url).href)}
+    )
+    await verifyRemoteSupervisorConsumer(kernel)
+  `], appDir)
+
   const repackDir = join(tempRoot, 'repack')
   mkdirSync(repackDir, { recursive: true })
   run(

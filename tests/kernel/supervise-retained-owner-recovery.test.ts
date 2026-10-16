@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
-  AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
@@ -710,11 +709,16 @@ describe('retained external supervisor recovery', () => {
       )
       expect(admitted).toHaveLength(1)
       const detail = await fixture.resume().then(
-        (result) => result?.kind === 'no-winner' && result.reason === 'driver-failed'
-          ? result.error.message : '',
-        (error: unknown) => error instanceof Error ? error.message : '',
+        (result) =>
+          result?.kind === 'no-winner' && result.reason === 'driver-failed'
+            ? result.error.message
+            : '',
+        (error: unknown) => (error instanceof Error ? error.message : ''),
       )
-      expect(detail, 'owner refusal must identify durable authority rather than snapshot session support').toContain(
+      expect(
+        detail,
+        'owner refusal must identify durable authority rather than snapshot session support',
+      ).toContain(
         failure === 'replacement-ack'
           ? 'test owner replacement CAS acknowledgement refused'
           : failure === 'prior-generation'
@@ -725,15 +729,20 @@ describe('retained external supervisor recovery', () => {
       if (failure === 'prior-generation' || failure === 'replacement-ack') {
         expect(after.readonlyLookups).toBeGreaterThan(before.readonlyLookups)
       }
-      expect(after.mutatingGets, 'owner authority must be verified before any mutating provider get').toBe(before.mutatingGets)
+      expect(
+        after.mutatingGets,
+        'owner authority must be verified before any mutating provider get',
+      ).toBe(before.mutatingGets)
       expect(after.sessionInspections).toBe(before.sessionInspections)
       expect(after.resultReads).toBe(before.resultReads)
       expect(fixture.dispatches()).toBe(before.dispatches)
       expect(fixture.creates()).toBe(1)
       expect(after.destroys).toBe(before.destroys)
-      expect((await fixture.events()).filter(
-        (event) => event.kind === 'execution-admitted' && event.admission.phase === 'environment',
-      )).toEqual(admitted)
+      expect(
+        (await fixture.events()).filter(
+          (event) => event.kind === 'execution-admitted' && event.admission.phase === 'environment',
+        ),
+      ).toEqual(admitted)
       const provider = durableRetainedProvider(fixture.stateFile)
       const retained = await provider.list!()
       expect(retained).toHaveLength(1)
@@ -1474,25 +1483,42 @@ async function setup(
       beginTree: current.journal.beginTree.bind(current.journal),
       async loadTree(root) {
         const events = await current.journal.loadTree(root)
-        if (interrupt || events === undefined ||
-            (ownerAuthorityFailure !== 'missing-link' && ownerAuthorityFailure !== 'wrong-link')) return events
+        if (
+          interrupt ||
+          events === undefined ||
+          (ownerAuthorityFailure !== 'missing-link' && ownerAuthorityFailure !== 'wrong-link')
+        )
+          return events
         // Simulate a missing/conflicting durable owner link without altering the committed log
         // or the private installed-custody artifacts in CAS.
         return events.flatMap((event): SpawnEvent[] => {
-          if (event.kind !== 'execution-admitted' || event.admission.phase !== 'environment') return [event]
+          if (event.kind !== 'execution-admitted' || event.admission.phase !== 'environment')
+            return [event]
           if (ownerAuthorityFailure === 'missing-link') return []
-          if (ownerAuthorityFailure === 'wrong-link') return [{
-            ...event, admission: { ...event.admission, environmentId: 'another-owner-environment' },
-          }]
+          if (ownerAuthorityFailure === 'wrong-link')
+            return [
+              {
+                ...event,
+                admission: { ...event.admission, environmentId: 'another-owner-environment' },
+              },
+            ]
           return [event]
         })
       },
       appendEvent: async (root, event) => {
         await current.journal.appendEvent(root, event)
-        if (!interrupt && ownerAuthorityFailure === 'replacement-ack' &&
-            event.kind === 'execution-evidence' && event.authority === 'proxy-secret-binding-admission') {
+        if (
+          !interrupt &&
+          ownerAuthorityFailure === 'replacement-ack' &&
+          event.kind === 'execution-evidence' &&
+          event.authority === 'proxy-secret-binding-admission'
+        ) {
           const artifact = await current.blobs.get(event.outRef)
-          if (artifact !== null && typeof artifact === 'object' && Reflect.get(artifact, 'stage') === 'replacement') {
+          if (
+            artifact !== null &&
+            typeof artifact === 'object' &&
+            Reflect.get(artifact, 'stage') === 'replacement'
+          ) {
             throw new Error('test owner replacement CAS acknowledgement refused')
           }
         }
@@ -1560,7 +1586,14 @@ async function setup(
   }
   return {
     stateFile,
-    activity: () => ({ readonlyLookups, mutatingGets, sessionInspections, resultReads, destroys, dispatches }),
+    activity: () => ({
+      readonlyLookups,
+      mutatingGets,
+      sessionInspections,
+      resultReads,
+      destroys,
+      dispatches,
+    }),
     creates: () => creates,
     dispatches: () => dispatches,
     rebinds: () => rebinds,
