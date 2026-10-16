@@ -179,7 +179,7 @@
   "packageManager": "pnpm@11.17.0",
   "peerDependencies": {
     "@tangle-network/agent-eval": ">=0.214.0 <0.215.0",
-    "@tangle-network/agent-interface": ">=5.2.1 <5.3.2",
+    "@tangle-network/agent-interface": ">=5.2.1 <5.3.0",
     "@tangle-network/sandbox": ">=0.58.4 <0.60.59"
   },
   "dependencies": {
