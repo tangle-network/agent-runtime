@@ -699,7 +699,7 @@ A live integration connection, as returned by `/v1/hub/connections`.
 
 ##### status
 
-> **status**: `string` & `object` \| `"active"` \| `"unhealthy"` \| `"revoked"` \| `"reconnect_required"`
+> **status**: `"revoked"` \| `string` & `object` \| `"active"` \| `"unhealthy"` \| `"reconnect_required"`
 
 ##### health
 
