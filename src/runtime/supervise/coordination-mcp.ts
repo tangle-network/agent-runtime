@@ -207,6 +207,9 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
       }
     }
   }
+  if (options.onReadReady && !options.authentication) {
+    throw new ConfigError('coordination read capability publication requires authentication')
+  }
   coordinationHttpLimits(options)
 }
 
@@ -784,6 +787,7 @@ export async function serveCoordinationMcpForManager(
     url,
     port,
     get readOnly() {
+      if (!opts.authentication) throw new ConfigError('coordination read access requires authentication')
       return {
         url: url.replace(/\/$/, '') + '/read',
         headers: Object.freeze({ Authorization: `Bearer ${readerToken.toString()}` }),
