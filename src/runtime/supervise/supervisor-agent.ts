@@ -82,7 +82,7 @@ import {
   profileModelExecutionSettings,
 } from './model-policy'
 import { isLiveNodeStatus } from './node-status'
-import type { PeerMailLimits } from './peer-mail'
+import { isPeerMailEnvelope, PEER_MAIL_WIRE_KEY, type PeerMailLimits } from './peer-mail'
 import type { ExecutorProgress } from './progress'
 import {
   coordinationMcpAlias,
@@ -1041,6 +1041,7 @@ function buildSupervisorAgent(
       // Filled by `serveCoordinationMcp` right after it builds this manager's coordination tools
       // and before it listens, so a product tool can compose from its first invocation.
       const slot = createVerbSlot()
+      const peerInbox = createInbox()
       const nodeTools =
         resolveTools && context
           ? await bindSupervisorTools(resolveTools, context, scope.signal, slot)
@@ -1168,6 +1169,13 @@ function buildSupervisorAgent(
           deliver(message)
         ) {
           return true
+        }
+        const envelope =
+          message !== null && typeof message === 'object'
+            ? (message as Record<string, unknown>)[PEER_MAIL_WIRE_KEY]
+            : undefined
+        if (deps.peerMailUrl && isPeerMailEnvelope(envelope)) {
+          return peerInbox.deliver({ [PEER_MAIL_WIRE_KEY]: envelope })
         }
         return controls.receiveLeadMessage(message)
       }
@@ -1428,6 +1436,12 @@ function buildSupervisorAgent(
                         state: controls.reentryState(),
                         attempt,
                       })
+              const peerMessages = peerInbox.drain()
+              const peerText = peerMessages.length === 0 ? undefined : peerInbox.fold(peerMessages)
+              const withPeerMail = (input: unknown): string | unknown =>
+                peerText === undefined
+                  ? input
+                  : `${typeof input === 'string' ? input : (JSON.stringify(input) ?? String(input))}\n\n${peerText}`
               harnessInvocationActive = true
               let completed = false
               try {
@@ -1437,13 +1451,14 @@ function buildSupervisorAgent(
                   ...(registeredProfile === stableProfile ? {} : { registeredProfile }),
                   ...(profilePrompt !== undefined ? { systemPrompt: profilePrompt } : {}),
                   ...(session === undefined ? {} : { session }),
-                  task: compose === undefined ? task : compose(UNPROVEN_CONTINUITY),
+                  task: withPeerMail(compose === undefined ? task : compose(UNPROVEN_CONTINUITY)),
                   ...(compose === undefined
                     ? {}
                     : {
                         reentry: {
                           reason: reentry!,
-                          compose,
+                          compose: (continuity: ReentryContinuity) =>
+                            withPeerMail(compose(continuity)) as string,
                           ...(refresh === undefined ? {} : { refresh }),
                           onContinuity: (continuity: ReentryContinuity) => {
                             if (continuity.environment === 'replaced') environmentReplacements += 1
@@ -1509,6 +1524,12 @@ function buildSupervisorAgent(
                     // A stop (accepted result, stop rule, the manager's own stop) ends the wait too.
                     signal: AbortSignal.any([scope.signal, stopController.signal]),
                     heartbeatMs: wakePolicy.heartbeatMs,
+                    ...(deps.peerMailUrl
+                      ? {
+                          alsoWakeOn:
+                            peerInbox.pending() > 0 ? Promise.resolve() : peerInbox.nextDelivery(),
+                        }
+                      : {}),
                     debounceMs: wakePolicy.debounceMs,
                     ...(warnAt === undefined ? {} : { deadlineAt: warnAt }),
                   })

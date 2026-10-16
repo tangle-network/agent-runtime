@@ -162,7 +162,7 @@ describe('nested supervisor coordination durability', () => {
         subject: 'Audit request',
         body: 'Please fact-check the recorded page.',
       })
-      expect(sent.delivered).toBe(true)
+      expect(sent.delivered, JSON.stringify(sent)).toBe(true)
       const page = await callTool(coordinationMcpUrl, 'knowledge_read', { peerId: other.nodeId })
       expect(page.content).toBe(`Recorded page from ${name === 'peer-a' ? 'peer-b' : 'peer-a'}.`)
       const journal = await callTool(coordinationMcpUrl, 'read_journal', { peerId: other.nodeId })
