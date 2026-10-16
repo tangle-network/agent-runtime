@@ -353,7 +353,10 @@ describe('supervised root with a pending retained turn', () => {
         captureFailure,
         submitOn: 2,
       })
-      expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
+      expect(run.result, JSON.stringify({ result: run.result, attempts: run.attempts,
+        dispatched: run.dispatched.length, evidence: run.evidence })).toMatchObject({
+        kind: 'winner', out: { answer: 'delivered' },
+      })
       expect(run.dispatched).toHaveLength(2)
       expect(run.attempts[0]).toMatchObject({ classification: 'unavailable' })
       expect(run.attempts[0]?.retryInMs).toBeGreaterThan(0)
