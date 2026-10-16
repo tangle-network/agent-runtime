@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -100,7 +100,7 @@ describe('nested supervisor coordination durability', () => {
     await rm(runDir, { recursive: true, force: true })
   })
 
-  it('lets peer roots read journals and events without granting peer steering', async () => {
+  it('lets peer roots read recorded pages, journals and events without granting peer steering', async () => {
     const roots = new Map<string, { nodeId: string; url: string }>()
     let release!: () => void
     const ready = new Promise<void>((resolve) => {
@@ -111,6 +111,7 @@ describe('nested supervisor coordination durability', () => {
     const driveHarness: DriveHarness = async ({ authoredProfile, scope, coordinationMcpUrl }) => {
       const name = authoredProfile.name!
       roots.set(name, { nodeId: scope.view.root, url: coordinationMcpUrl })
+      await writeFile(join(runDir, `${name}.md`), `Recorded page from ${name}.`)
       await callTool(coordinationMcpUrl, 'ask_parent', {
         from: name,
         level: 'driver',
@@ -122,6 +123,8 @@ describe('nested supervisor coordination durability', () => {
       if (recorded === 2) release()
       await ready
       const other = [...roots.entries()].find(([peer]) => peer !== name)![1]
+      const page = await callTool(coordinationMcpUrl, 'knowledge_read', { peerId: other.nodeId })
+      expect(page.content).toBe(`Recorded page from ${name === 'peer-a' ? 'peer-b' : 'peer-a'}.`)
       const journal = await callTool(coordinationMcpUrl, 'read_journal', { peerId: other.nodeId })
       expect(JSON.stringify(journal)).toContain(
         `recorded evidence from ${name === 'peer-a' ? 'peer-b' : 'peer-a'}`,
@@ -151,6 +154,7 @@ describe('nested supervisor coordination durability', () => {
           'observe_agent',
           'read_journal',
           'steer_agent',
+          'knowledge_read',
         ),
         prompt: { systemPrompt: 'Read peer evidence and preserve ownership.' },
       })
@@ -176,6 +180,28 @@ describe('nested supervisor coordination durability', () => {
       driveHarness,
       driveHarnessMaterialization: fullProfileMaterialization,
       peerAudit: true,
+      resolveSupervisorTools: (context) => {
+        if (context.depth === 1) expect(context.peerRootOwnerId).toBe(context.ownerId)
+        // Product-owned page reads share the manager endpoint with Runtime's journal.
+        return [
+          {
+            name: 'knowledge_read',
+            description: 'Read a recorded page from this run.',
+            inputSchema: {
+              type: 'object',
+              properties: { peerId: { type: 'string' } },
+              required: ['peerId'],
+              additionalProperties: false,
+            },
+            handler: async (raw) => {
+              const peerId = (raw as { peerId: string }).peerId
+              const peer = [...roots.entries()].find(([, root]) => root.nodeId === peerId)
+              if (!peer) return { error: 'unknown-peer' }
+              return { content: await readFile(join(runDir, `${peer[0]}.md`), 'utf8') }
+            },
+          },
+        ]
+      },
       maxTurns: 8,
     })
     expect(evidence).toHaveLength(2)
