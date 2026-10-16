@@ -29,8 +29,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import { coordinationProxy } from '../helpers/coordination-proxy'
-import { supervisorAgent } from '../helpers/runtime-with-test-brain'
-import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
+import { testAgentProfile } from './test-agent-profile'
 
 const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
 afterEach(async () => {

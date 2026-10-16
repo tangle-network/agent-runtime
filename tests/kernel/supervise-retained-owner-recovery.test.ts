@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
-  AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
