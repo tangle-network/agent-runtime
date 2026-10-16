@@ -366,6 +366,7 @@ export function providerAsSandboxClient(
         )
       }
       return environmentAsSandboxInstance(environment, {
+        profile: mapped.profile,
         requireTerminalEvent: options.requireTerminalEvent ?? true,
         ...(options.workspaceRetention === undefined
           ? {}
@@ -2127,6 +2128,7 @@ async function* streamProviderExecutor(
       iteration: 0,
       ...(args.node === undefined ? {} : { node: args.node }),
       box: environmentAsSandboxInstance(environment, {
+        profile: args.profile,
         requireTerminalEvent: args.options.requireTerminalEvent ?? true,
       }),
       signal: linked,
@@ -2991,6 +2993,7 @@ function createInputFromSandboxOptions(
 function environmentAsSandboxInstance(
   environment: AgentEnvironment,
   options: {
+    profile: AgentProfile
     requireTerminalEvent: boolean
     workspaceRetention?: ProviderWorkspaceRetentionPort
     retentionIdentity?: { executionId: string; profile: AgentProfile; node?: ExecutorNodeContext }
@@ -3027,7 +3030,7 @@ function environmentAsSandboxInstance(
       promptOptions?: PromptOptions,
     ): AsyncGenerator<SandboxEvent> {
       let terminal = false
-      const input = turnInputFromPrompt(message, promptOptions)
+      const input = turnInputFromPrompt(message, promptOptions, options.profile)
       providerSessionId = input.sessionId ?? null
       noteControlRef(input.controlRef)
       let cancellation: Promise<void> | undefined
@@ -3106,7 +3109,7 @@ function environmentAsSandboxInstance(
       const usageLedger = createSandboxUsageLedger()
       let terminal = false
       const failures = createProviderFailureLedger()
-      const input = turnInputFromPrompt(message, promptOptions)
+      const input = turnInputFromPrompt(message, promptOptions, options.profile)
       providerSessionId = input.sessionId ?? null
       noteControlRef(input.controlRef)
       for await (const event of environment.stream(input)) {
@@ -3140,7 +3143,7 @@ function environmentAsSandboxInstance(
       ? {
           async dispatchPrompt(message: string | PromptInputPart[], promptOptions?: PromptOptions) {
             const session = await environment.dispatch?.(
-              turnInputFromPrompt(message, promptOptions),
+              turnInputFromPrompt(message, promptOptions, options.profile),
             )
             if (!session)
               throw new ValidationError('providerAsSandboxClient: dispatch returned no session')
@@ -3156,6 +3159,7 @@ function environmentAsSandboxInstance(
             return sandboxSessionFromAgentSession(
               environment.session?.(id, sessionOptions),
               sessionOptions?.controlRef,
+              options.profile,
             )
           },
         }
@@ -3239,6 +3243,7 @@ function environmentAsSandboxInstance(
 function sandboxSessionFromAgentSession(
   session: AgentSession | undefined,
   expectedControlRef?: AgentRunControlRef,
+  profile?: AgentProfile,
 ): SandboxSessionLike {
   if (!session) throw new ValidationError('providerAsSandboxClient: session is unavailable')
   const controlRef = resolveSessionControlRef(session.controlRef, expectedControlRef)
@@ -3275,7 +3280,7 @@ function sandboxSessionFromAgentSession(
       options?: PromptOptions,
     ): Promise<PromptResult> {
       return promptResultFromAgentTurnResult(
-        await session.prompt(turnInputFromPrompt(message, options)),
+        await session.prompt(turnInputFromPrompt(message, options, profile)),
       )
     },
     ...(session.respondToInteraction
@@ -3620,8 +3625,9 @@ function tokenUsageData(usage: TokenUsage): Record<string, number> {
 function turnInputFromPrompt(
   message: string | PromptInputPart[],
   options?: PromptOptions,
+  profile?: AgentProfile,
 ): AgentTurnInput {
-  return {
+  const input: AgentTurnInput = {
     ...(typeof message === 'string' ? { prompt: message } : { parts: message }),
     ...(options?.sessionId ? { sessionId: options.sessionId } : {}),
     ...(options?.model ? { model: options.model } : {}),
@@ -3636,6 +3642,7 @@ function turnInputFromPrompt(
     ...(options?.signal ? { signal: options.signal } : {}),
     ...(options?.backend ? { providerOptions: { backend: options.backend } } : {}),
   }
+  return profile === undefined ? input : subscriptionTurnProfile(input, profile)
 }
 
 function resolveSessionControlRef(
