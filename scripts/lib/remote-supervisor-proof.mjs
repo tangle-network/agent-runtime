@@ -10,10 +10,15 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 
 async function connect(url, protectedHeaders) {
   const client = new Client({ name: 'packed-runtime-proof', version: '1' })
-  await client.connect(new StreamableHTTPClientTransport(new URL(url), {
-    requestInit: { headers: protectedHeaders },
-  }))
-  return client
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(url), {
+      requestInit: { headers: protectedHeaders },
+    }))
+    return client
+  } catch (error) {
+    await client.close().catch(() => {})
+    throw error
+  }
 }
 
 async function call(client, name, args) {
@@ -118,11 +123,8 @@ export async function verifyRemoteSupervisorConsumer(kernel) {
           await assert.rejects(() => call(readMcp, 'spawn_worker', { profile: { name: 'forbidden' }, task: {} }),
             error => error.code === -32601 && error.message.includes('unknown tool: spawn_worker'))
           assert.equal((await reader.tree()).nodes.length, 2)
-          const escalation = await fetch(handle.url, {
-            method: 'POST', headers: { ...access.headers, 'content-type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
-          })
-          assert.equal(escalation.status, 401)
+          await assert.rejects(() => connect(handle.url, { ...access.headers }),
+            error => error.code === 401, 'read credentials cannot initialize a manager connection')
           const first = await attach(peers.get('alpha'))
           const second = await attach(peers.get('beta'))
           const marker = 'peer-transport-received'

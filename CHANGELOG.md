@@ -1,3 +1,13 @@
+## 0.322.0
+
+Limit peer maxima to the checked standalone cohort so fresh installs cannot silently select unqualified artifacts. The exact release cohort and current Lab and Braid pins remain admitted.
+
+Stop retrying typed credential route refusals before admission, while preserving reconciliation uncertainty after execution may have occurred.
+
+Translate provider-backed session creation into neutral fields instead of sending an unsupported raw Sandbox request. Refuse unmapped physical controls unless the caller supplies the existing mapping callback. Steerable provider creates retain the worker attempt as their stable create key. The adapter preserves the exact subscription profile on streaming, one-shot, dispatched and session turns. Fresh subscription calls without an explicit turn key receive one operation identity before provider dispatch; exact replays retain their existing coordinates.
+
+Expose remote supervisor tree and bounded live worker events through a separate read capability on the existing coordination listener. Provider workers can receive their own peer-mail MCP attachment, subject to provider capability checks, without receiving manager authority.
+
 ## 0.321.0
 
 Keep completion from skipping an inbox-accepted lead message while its publication is pending, preserving independent-turn delivery and the existing deadline exception.

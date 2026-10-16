@@ -125,6 +125,15 @@ export function peerWindowVersions(name, range, developmentVersion) {
   return registryVersions
 }
 
+const interfacePeerRange = declaredPeerRange('@tangle-network/agent-interface')
+const interfaceCompatibilityVersions = Object.freeze(
+  peerWindowVersions(
+    '@tangle-network/agent-interface',
+    interfacePeerRange,
+    runtimePackage.devDependencies?.['@tangle-network/agent-interface'],
+  ),
+)
+
 const evalPeerRange = declaredPeerRange('@tangle-network/agent-eval')
 
 export { evalPeerRange }
@@ -143,6 +152,10 @@ export const evalCompatibilityVersions = Object.freeze(
  * Every other first-party peer must equal its development minor.
  */
 export const peerCompatibility = Object.freeze({
+  '@tangle-network/agent-interface': Object.freeze({
+    expectedRange: interfacePeerRange,
+    admittedVersions: interfaceCompatibilityVersions,
+  }),
   '@tangle-network/agent-eval': Object.freeze({
     expectedRange: evalPeerRange,
     admittedVersions: evalCompatibilityVersions,
