@@ -47,6 +47,9 @@ jobs:
       - name: Check publish credential isolation
         run: pnpm run check:publish-workflow
 
+      - name: Verify frozen release admission
+        run: node --test scripts/verify-release-line.node-test.mjs
+
       - name: Check upstream evidence workflow
         run: pnpm run check:upstream-evidence-workflow
 
