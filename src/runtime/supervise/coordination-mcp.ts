@@ -1098,7 +1098,6 @@ export async function serveCoordinationMcpForManager(
           server.close(() => resolve())
           server.closeAllConnections()
         }),
-        mailListener?.close(),
         proxyRevocation,
       ])
       for (const result of cleanup) if (result.status === 'rejected') failures.push(result.reason)

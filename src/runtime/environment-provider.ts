@@ -3121,7 +3121,7 @@ async function providerExecutionSource(
 }
 
 function createInputFromSandboxOptions(
-  options: CreateSandboxOptions | undefined,
+  options: Parameters<SandboxClient['create']>[0],
   customMapping: boolean,
 ): Partial<CreateAgentEnvironmentInput> {
   if (!customMapping) {
