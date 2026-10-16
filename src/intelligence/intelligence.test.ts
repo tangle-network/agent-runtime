@@ -1,3 +1,5 @@
+import { canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
+import { ATTR } from '@tangle-network/agent-trace-contract'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LoopTraceEvent } from '../runtime/types'
 import {
@@ -477,6 +479,48 @@ describe('exportRunRecord — typed RunRecord send (the withIntelligence SEND pa
     expect(names).toContain('loop')
     const traceIds = new Set(spans.map((s) => s.traceId))
     expect(traceIds.size).toBe(1)
+  })
+
+  it('says who acted on the run span and on every span under it', async () => {
+    const { calls } = installFetchSpy('ok')
+    const client = createIntelligenceClient({ project: 'support-agent', apiKey, baseUrl })
+    const profile = {
+      name: 'support',
+      harness: 'opencode' as const,
+      model: { provider: 'moonshot', default: 'kimi-k2' },
+    }
+    client.exportRunRecord({
+      runId: 'run-who',
+      traceId: 'e'.repeat(32),
+      project: 'support-agent',
+      target: 'support-agent',
+      input: {},
+      output: {},
+      outcome: { usage: { inferenceUsd: 0, intelligenceUsd: 0 } },
+      profile,
+      harness: 'claude-code',
+      loopEvents: loopStream(),
+    })
+    await client.flush()
+
+    const spans = calls.flatMap((call) => {
+      const resourceSpans = (call.body as { resourceSpans?: unknown[] })?.resourceSpans ?? []
+      return resourceSpans.flatMap((rs) =>
+        ((rs as { scopeSpans?: unknown[] }).scopeSpans ?? []).flatMap(
+          (ss) => (ss as { spans?: unknown[] }).spans ?? [],
+        ),
+      )
+    })
+    expect(spans.length).toBeGreaterThan(1)
+    for (const span of spans) {
+      expect(attrsOf({ resourceSpans: [{ scopeSpans: [{ spans: [span] }] }] })).toMatchObject({
+        [ATTR.profileDigest]: canonicalAgentProfileDigest(profile),
+        [ATTR.profileName]: 'support',
+        [ATTR.agentModel]: 'kimi-k2',
+        // The harness the record says ran it, over the one the profile declares.
+        [ATTR.harness]: 'claude-code',
+      })
+    }
   })
 
   it('clamps intelligence_usd to 0 at the OFF tier even if the record reports spend', async () => {

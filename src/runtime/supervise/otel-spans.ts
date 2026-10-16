@@ -29,7 +29,11 @@
  * mistake an unmeasured turn for a free one.
  */
 
-import { ATTR } from '@tangle-network/agent-trace-contract'
+import {
+  type AgentIdentity,
+  ATTR,
+  agentIdentityAttributes,
+} from '@tangle-network/agent-trace-contract'
 import { contentAddress } from '../../durable/spawn-journal'
 import type { OtelExportConfig, OtelExporter, OtelExportStats, OtelSpan } from '../../otel-export'
 import { createOtelExporter, generateSpanId, toOtelAttributes } from '../../otel-export'
@@ -86,6 +90,12 @@ export interface SupervisorSpanOptions {
   readonly agentName?: string
   /** Extra attributes stamped on every span this recorder emits (subject, workspace, campaign, …). */
   readonly attributes?: Attrs
+  /**
+   * Who the run's root agent is: stamped on the root span and on the root manager's own turns.
+   * Every spawned node's span carries its OWN profile instead, from the spawn it opened with, and
+   * a node's turns carry the node's. `supervise()` derives this from the root profile.
+   */
+  readonly agentIdentity?: AgentIdentity
   /** Injectable clock; used only for the root span's start/end. Default `Date.now`. */
   readonly now?: () => number
 }
@@ -158,6 +168,11 @@ export function createSupervisorSpanRecorder(
     ...(opts.attributes ?? {}),
   }
 
+  // Who acted, per span: the root's identity, and each opened node's own. A turn whose node this
+  // recorder never opened names no one rather than borrowing the root's.
+  const rootIdentity = agentIdentityAttributes(opts.agentIdentity)
+  const identityOf = new Map<string, Attrs>([[opts.runId, rootIdentity]])
+
   /** Node id → its open span. Seeded with the run id ⇒ the root span, because a depth-0 spawn's
    *  `parentId` is the run id itself and every deeper spawn's is a real node id. */
   const open = new Map<string, OpenNode>()
@@ -225,6 +240,9 @@ export function createSupervisorSpanRecorder(
       // is what joins a span back to the journal rows that prove its spend.
       'tangle.supervise.tree.root': event.runId,
     }
+    const identity = agentIdentityAttributes(record(p.agent) as AgentIdentity)
+    identityOf.set(childId, identity)
+    Object.assign(attrs, identity)
     if (event.parentId) attrs['tangle.supervise.node.parent_id'] = event.parentId
     if (runtime) attrs['tangle.supervise.node.runtime'] = runtime
     if (typeof p.depth === 'number') attrs['tangle.supervise.node.depth'] = p.depth
@@ -305,6 +323,7 @@ export function createSupervisorSpanRecorder(
     const parentSpanId = parent.spanId
     const attrs: Attrs = {
       ...base,
+      ...(identityOf.get(parentId ?? opts.runId) ?? {}),
       [ATTR.parentConfidence]: parent.confidence,
       [ATTR.spanKind]: 'LLM',
       'inference.observation_kind': 'LLM',
@@ -410,6 +429,7 @@ export function createSupervisorSpanRecorder(
             endMs,
             {
               ...rootAttrs(base, opts.agentName ?? 'supervisor', outcome),
+              ...rootIdentity,
               ...(opts.parentSpanId ? { [ATTR.parentConfidence]: 'explicit' } : {}),
             },
             rootStatus(outcome),

@@ -96,6 +96,7 @@ import { executorFailure } from './executor-outcome'
 import type { SupervisorFinalizer } from './finalizer'
 import {
   attestRuntimeOwnedScopeOwner,
+  authoredAgentIdentity,
   providerAttemptEvidence,
   recordRuntimeOwnedDriveHarnessProviderEvidence,
   runtimeOwnedDriveHarnessProviderEvidence,
@@ -4472,7 +4473,19 @@ function superviseInternal(
     // Built ONLY when `otel` is configured AND an exporter resolves, so the default path allocates
     // nothing and passes no `hooks` at all — byte-for-byte the wiring every existing caller gets.
     spans = options.otel
-      ? createSupervisorSpanRecorder({ runId, namespace: runNamespace, ...options.otel, now })
+      ? createSupervisorSpanRecorder({
+          runId,
+          namespace: runNamespace,
+          ...options.otel,
+          // The root span names the profile this segment runs, under the digest the journal
+          // recorded for the root. A caller adds what only it knows (a directive variant); the
+          // fields the profile decides are not the caller's to restate.
+          agentIdentity: {
+            ...options.otel.agentIdentity,
+            ...authoredAgentIdentity(canonicalProfile, rootExecution.identity.profileDigest),
+          },
+          now,
+        })
       : undefined
     const recorder = spans
     const hooks = recorder ? composeRuntimeHooks(options.hooks, recorder.hooks) : options.hooks
