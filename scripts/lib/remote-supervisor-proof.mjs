@@ -159,6 +159,10 @@ export async function verifyRemoteSupervisorProvider(kernel, { provider, profile
   const { connectRemoteSupervisor, createInMemoryRunContext, createSupervisor, serveCoordinationMcp, workerFromBackend } = kernel
   const context = createInMemoryRunContext()
   const nonce = `peer-proof-${Date.now()}`
+  const translated = kernel.providerAsSandboxClient(provider, { defaults: { profile } })
+  for (const unsupported of [{ confidential: true }, { secrets: 'all' }]) {
+    await assert.rejects(() => translated.create(unsupported), /Sandbox create controls require mapCreateOptions/)
+  }
   const seen = new Map()
   const gaps = new Set()
   const settledWorkers = []
