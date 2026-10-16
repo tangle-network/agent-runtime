@@ -36,9 +36,7 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
           persist-credentials: false
 
-      # Manual retries may target tags that predate the new admission helper.
-      # Read that helper from this workflow's immutable revision, not from a
-      # moving main or a candidate whose release source must remain unchanged.
+      # Old-tag retries use this workflow's immutable policy, not candidate code.
       - name: Read workflow-pinned release policy
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -102,44 +100,32 @@ jobs:
         with:
           ref: ${{ needs.release-source.outputs.sha }}
           persist-credentials: false
-
       - name: Read exact first-party cohort
         id: cohort
         run: node scripts/release-cohort.mjs --github-output "$GITHUB_OUTPUT"
-
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
-
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-
       - name: Install deps
         run: pnpm install --frozen-lockfile && pnpm peers check
-
       - name: Lint (biome)
         run: pnpm run lint
-
       - name: Test
         run: pnpm run test
-
       - name: Build
         run: pnpm run build
-
       - name: Typecheck (src + examples; examples resolve against built dist)
         run: pnpm run typecheck
-
       - name: Verify package source and metadata
         run: pnpm run verify:package:static
-
       - name: Verify release API surface record
         run: pnpm run check:api-surface-record
-
       - name: Check out exact Interface release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -147,7 +133,6 @@ jobs:
           ref: ${{ steps.cohort.outputs.agent_interface_ref }}
           path: .cohort/agent-sdk
           persist-credentials: false
-
       - name: Check out exact Eval release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -155,7 +140,6 @@ jobs:
           ref: ${{ steps.cohort.outputs.agent_eval_ref }}
           path: .cohort/agent-eval
           persist-credentials: false
-
       - name: Check out exact Knowledge release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -163,7 +147,6 @@ jobs:
           ref: ${{ steps.cohort.outputs.agent_knowledge_ref }}
           path: .cohort/agent-knowledge
           persist-credentials: false
-
       - name: Verify exact Interface, Eval, Knowledge, and Runtime archives together
         run: >-
           node scripts/verify-packed-cohort.mjs
@@ -172,7 +155,6 @@ jobs:
           --agent-knowledge-repo .cohort/agent-knowledge
           --cohort-manifest release/cohort.json
           --report "$RUNNER_TEMP/cohort-report.json"
-
       - name: Package and verify the exact Runtime archive
         id: package
         run: |
@@ -190,7 +172,6 @@ jobs:
           sha256=$(sha256sum "$package" | cut -d' ' -f1)
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
           echo "Runtime archive locked: $package ($sha256)"
-
       - name: Emit and verify the conformance manifest for the exact archive
         run: |
           package_dir="$RUNNER_TEMP/agent-runtime-package"
@@ -209,7 +190,6 @@ jobs:
             --tarball "${packages[0]}" \
             --cohort-report "$RUNNER_TEMP/cohort-report.json" \
             --source-root .
-
       - name: Upload exact Runtime archive and its conformance manifest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -279,6 +259,8 @@ jobs:
       EXPECTED_NAME: '@tangle-network/agent-runtime'
       EXPECTED_VERSION: ${{ needs.verify.outputs.release-version }}
       EXPECTED_SHA256: ${{ needs.verify.outputs.package-sha256 }}
+      PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-runtime-package
+      LINE_SCOPED_BACKPORTS: 'true'
       NPM_CONFIG_PROVENANCE: 'true'
     steps:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -288,7 +270,8 @@ jobs:
         with:
           name: agent-runtime-package
           path: ${{ runner.temp }}/agent-runtime-package
-      - name: Configure npm auth (OIDC by default, token only when set)
+      - &npm-auth
+        name: Configure npm auth (OIDC by default, token only when set)
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -299,54 +282,67 @@ jobs:
           else
             echo 'No NPM_TOKEN: publishing through npm trusted publishing (OIDC).'
           fi
-      # No checkout or dependency execution in the credentialed publisher.
+      # Shared YAML, not a new action or executable downloaded with authority.
+      # Neither publisher checks out source, installs dependencies or builds.
       - name: Publish exact Runtime archive
-        run: |
+        run: &publish-exact |
+          set -euo pipefail
           npm_version=$(npm --version)
           if [[ "$npm_version" != 11.* ]] ||
              [ "$(printf '%s\n%s\n' 11.5.1 "$npm_version" | sort -V | head -1)" != 11.5.1 ]; then
             echo "::error::Expected npm >= 11.5.1 and < 12, received $npm_version."
             exit 1
           fi
-          mapfile -t packages < <(find "$RUNNER_TEMP/agent-runtime-package" -maxdepth 1 -type f -name '*.tgz' -print)
+          mapfile -t packages < <(find "$PACKAGE_DIRECTORY" -maxdepth 1 -type f -name '*.tgz' -print)
           if [ "${#packages[@]}" -ne 1 ]; then
-            echo "::error::Expected one Runtime archive, found ${#packages[@]}."
+            echo "::error::Expected one archive, found ${#packages[@]}."
             exit 1
           fi
           package="${packages[0]}"
           actual_sha256=$(sha256sum "$package" | cut -d' ' -f1)
           if [ "$actual_sha256" != "$EXPECTED_SHA256" ]; then
-            echo "::error::Runtime archive digest mismatch."
+            echo '::error::Archive digest mismatch.'
             exit 1
           fi
           manifest=$(tar -xOzf "$package" package/package.json)
           name=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).name)' "$manifest")
           version=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).version)' "$manifest")
           if [ "$name" != "$EXPECTED_NAME" ] || [ "$version" != "$EXPECTED_VERSION" ]; then
-            echo "::error::Runtime archive identity mismatch: $name@$version."
+            echo "::error::Archive identity mismatch: $name@$version."
             exit 1
           fi
+          expected_integrity=$(node -e 'const fs=require("node:fs"),crypto=require("node:crypto");process.stdout.write("sha512-"+crypto.createHash("sha512").update(fs.readFileSync(process.argv[1])).digest("base64"))' "$package")
           if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-            echo "$name@$version already on registry; skipping publish"
+            echo "$name@$version exists; verifying its archive, not republishing"
           else
-            latest=$(npm view "$name" version --registry=https://registry.npmjs.org 2>/dev/null || true)
-            if [ -n "$latest" ] && \
-               [ "$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -1)" != "$version" ]; then
-              line_tag="release-${version%.*}"
-              echo "$version is below latest ($latest); publishing under dist-tag $line_tag"
-              npm publish "$package" --ignore-scripts --provenance --access public --tag "$line_tag" --registry=https://registry.npmjs.org
-            else
-              npm publish "$package" --ignore-scripts --provenance --access public --registry=https://registry.npmjs.org
+            # Retain the existing Runtime backport dist-tag policy.
+            tag_args=()
+            if [ "$LINE_SCOPED_BACKPORTS" = true ]; then
+              latest=$(npm view "$name" version --registry=https://registry.npmjs.org 2>/dev/null || true)
+              if [ -n "$latest" ] &&
+                 [ "$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -1)" != "$version" ]; then
+                tag_args=(--tag "release-${version%.*}")
+              fi
             fi
+            npm publish "$package" --ignore-scripts --provenance --access public "${tag_args[@]}" --registry=https://registry.npmjs.org
           fi
+          # A version string alone is not evidence that the qualified bytes were served.
+          # Check npm's archive integrity for both new publication and existing-version retries.
           for _ in $(seq 1 20); do
-            if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-              echo "$name@$version is served by the registry"
+            if integrity_json=$(npm view "$name@$version" dist.integrity --json --registry=https://registry.npmjs.org 2>/dev/null); then
+              REGISTRY_INTEGRITY_JSON="$integrity_json" EXPECTED_INTEGRITY="$expected_integrity" node <<'NODE'
+          const raw = JSON.parse(process.env.REGISTRY_INTEGRITY_JSON)
+          if (typeof raw !== 'string' || !raw.split(/\s+/).includes(process.env.EXPECTED_INTEGRITY)) {
+            console.error('::error::Registry archive differs from the qualified archive or has no SHA-512 integrity.')
+            process.exit(1)
+          }
+          NODE
+              echo "$name@$version is served by the registry with matching archive integrity"
               exit 0
             fi
             sleep 30
           done
-          echo "::error::$name@$version is not served by the registry after 10 minutes. If npm staged it, a maintainer must run 'npm stage list $name' and 'npm stage approve <stage-id>'."
+          echo "::error::$name@$version is not served by the registry after 10 minutes; inspect staging and publication before retrying."
           exit 1
 
   verify-agent-bench:
@@ -422,6 +418,8 @@ jobs:
       EXPECTED_NAME: '@tangle-network/agent-bench'
       EXPECTED_VERSION: ${{ needs.verify-agent-bench.outputs.release-version }}
       EXPECTED_SHA256: ${{ needs.verify-agent-bench.outputs.package-sha256 }}
+      PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-bench-package
+      LINE_SCOPED_BACKPORTS: 'false'
       NPM_CONFIG_PROVENANCE: 'true'
     steps:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -431,54 +429,6 @@ jobs:
         with:
           name: agent-bench-package
           path: ${{ runner.temp }}/agent-bench-package
-      - name: Configure npm auth (OIDC by default, token only when set)
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          sed -i '/_authToken/d' "$HOME/.npmrc" 2>/dev/null || true
-          if [ -n "${NPM_TOKEN:-}" ]; then
-            npm config set --location=user //registry.npmjs.org/:_authToken "$NPM_TOKEN"
-            echo 'NPM_TOKEN is set: publishing with the token fallback, still attested.'
-          else
-            echo 'No NPM_TOKEN: publishing through npm trusted publishing (OIDC).'
-          fi
+      - *npm-auth
       - name: Publish exact agent-bench archive
-        run: |
-          npm_version=$(npm --version)
-          if [[ "$npm_version" != 11.* ]] ||
-             [ "$(printf '%s\n%s\n' 11.5.1 "$npm_version" | sort -V | head -1)" != 11.5.1 ]; then
-            echo "::error::Expected npm >= 11.5.1 and < 12, received $npm_version."
-            exit 1
-          fi
-          mapfile -t packages < <(find "$RUNNER_TEMP/agent-bench-package" -maxdepth 1 -type f -name '*.tgz' -print)
-          if [ "${#packages[@]}" -ne 1 ]; then
-            echo "::error::Expected one agent-bench archive, found ${#packages[@]}."
-            exit 1
-          fi
-          package="${packages[0]}"
-          actual_sha256=$(sha256sum "$package" | cut -d' ' -f1)
-          if [ "$actual_sha256" != "$EXPECTED_SHA256" ]; then
-            echo "::error::agent-bench archive digest mismatch."
-            exit 1
-          fi
-          manifest=$(tar -xOzf "$package" package/package.json)
-          name=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).name)' "$manifest")
-          version=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).version)' "$manifest")
-          if [ "$name" != "$EXPECTED_NAME" ] || [ "$version" != "$EXPECTED_VERSION" ]; then
-            echo "::error::agent-bench archive identity mismatch: $name@$version."
-            exit 1
-          fi
-          if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-            echo "$name@$version already on registry; skipping publish"
-          else
-            npm publish "$package" --ignore-scripts --provenance --access public --registry=https://registry.npmjs.org
-          fi
-          for _ in $(seq 1 20); do
-            if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-              echo "$name@$version is served by the registry"
-              exit 0
-            fi
-            sleep 30
-          done
-          echo "::error::$name@$version is not served by the registry after 10 minutes. If npm staged it, a maintainer must run 'npm stage list $name' and 'npm stage approve <stage-id>'."
-          exit 1
+        run: *publish-exact
