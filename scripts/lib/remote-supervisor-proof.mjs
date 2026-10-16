@@ -46,18 +46,26 @@ export async function verifyRemoteSupervisorConsumer(kernel) {
             let artifact
             // These are real code workers through the public BYO Executor contract. They write
             // their tasks and delivered mail to disk. There is no inference or usage estimate.
+            const begin = async task => {
+              const began = Date.now()
+              await writeFile(join(root, profile.name), task)
+              return began
+            }
+            const finish = async (task, began) => {
+              await released
+              artifact = {
+                outRef: `file:${profile.name}`, out: task,
+                spent: { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: Date.now() - began },
+              }
+              return artifact
+            }
             const executor = {
               runtime: 'inline',
-              async execute(task) {
-                const began = Date.now()
-                await writeFile(join(root, profile.name), task)
-                await released
-                artifact = {
-                  outRef: `file:${profile.name}`, out: task,
-                  spent: { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: Date.now() - began },
-                }
-                return artifact
-              },
+              execute: profile.name === 'alpha' ? async function* (task) {
+                const began = await begin(task)
+                yield { kind: 'progress', progress: { kind: 'text_delta', text: await readFile(join(root, profile.name), 'utf8') } }
+                await finish(task, began)
+              } : async task => finish(task, await begin(task)),
               deliver(message) {
                 appendFileSync(join(root, `${profile.name}.mail`), JSON.stringify(message) + '\n')
                 return true
@@ -88,9 +96,22 @@ export async function verifyRemoteSupervisorConsumer(kernel) {
           const tree = await reader.tree()
           assert.equal(tree.nodes.length, 2)
           for (const node of tree.nodes) assert.equal(node.parent, tree.root)
-          const observed = await reader.observe(ids[0])
+          let observed
+          const until = Date.now() + 3000
+          do {
+            observed = await reader.observe(ids[0])
+            if (observed.events.status === 'available' && observed.events.entries.length > 0) break
+            await new Promise(resolve => setTimeout(resolve, 10))
+          } while (Date.now() < until)
           assert.equal(observed.agent.id, ids[0])
-          assert.equal(observed.events.status, 'unavailable', 'one-shot code does not invent live events')
+          assert.equal(observed.events.status, 'available')
+          assert.deepEqual(observed.events.entries.map(entry => entry.event), [{ kind: 'text_delta', text: 'written-by-alpha' }])
+          const next = await reader.observe(ids[0], observed.events.cursor)
+          assert.equal(next.events.status, 'available')
+          assert.deepEqual(next.events.entries, [])
+          const reset = await reader.observe(ids[0], { epoch: 'previous-process', next: 0 })
+          assert.equal(reset.events.reset, true)
+          assert.equal((await reader.observe(ids[1])).events.status, 'unavailable', 'one-shot code does not invent live events')
           await assert.rejects(() => reader.observe('foreign-worker'))
           const readMcp = await attach(access.url, { ...access.headers })
           assert.deepEqual((await readMcp.listTools()).tools.map(tool => tool.name).sort(), ['observe_agent', 'read_journal'])
@@ -119,7 +140,7 @@ export async function verifyRemoteSupervisorConsumer(kernel) {
           }
           for (const name of ['alpha', 'beta']) assert.equal(await readFile(join(root, name), 'utf8'), `written-by-${name}`)
           return { tree: true, readerCannotControl: true, readerCannotEscalate: true,
-            rotationRevokesReader: true, peerMail: true, files: true, modelCalls: 0,
+            rotationRevokesReader: true, streamEvents: true, cursors: true, peerMail: true, files: true, modelCalls: 0,
             providerPeerMail: 'separate-live-qualification' }
         } finally {
           release()
