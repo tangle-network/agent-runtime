@@ -67,7 +67,7 @@ function dispatchNotAdmitted(): Error {
 }
 
 interface Fixture {
-  readonly firstTurnFailure?: { error: string; statusCode?: number }
+  readonly firstTurnFailure?: { error: string }
   readonly captureFailure?: 'throw' | 'partial' | 'recover'
   /** Called before each dispatch reaches the provider; throw to refuse it. */
   readonly beforeDispatch?: (call: number) => void
@@ -349,14 +349,14 @@ describe('supervised root with a pending retained turn', () => {
     'continues an unavailable turn with %s capture and delivers the next output',
     async (captureFailure) => {
       const run = await superviseRoot({
-        firstTurnFailure: { error: 'HTTP 429 rate_limit_error', statusCode: 429 },
+        firstTurnFailure: { error: 'HTTP 429 rate_limit_error' },
         captureFailure,
         submitOn: 2,
       })
-      expect(run.result, JSON.stringify({ result: run.result, attempts: run.attempts,
-        dispatched: run.dispatched.length, evidence: run.evidence })).toMatchObject({
-        kind: 'winner', out: { answer: 'delivered' },
-      })
+      expect(
+        run.result,
+        JSON.stringify({ attempts: run.attempts, dispatched: run.dispatched.length }),
+      ).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
       expect(run.dispatched).toHaveLength(2)
       expect(run.attempts[0]).toMatchObject({ classification: 'unavailable' })
       expect(run.attempts[0]?.retryInMs).toBeGreaterThan(0)
@@ -401,7 +401,7 @@ describe('supervised root with a pending retained turn', () => {
 
   it('keeps an accepted turn with incomplete capture open without sealing a winner', async () => {
     await expect(
-      superviseRoot({ captureFailure: 'partial', submitOn: Number.POSITIVE_INFINITY }),
+      superviseRoot({ captureFailure: 'partial', submitOn: 2 }),
     ).rejects.toMatchObject({ name: 'RetainedWorkspaceCapturePendingError' })
     const runDir = join(directories.at(-1)!, 'run')
     const events = (await createFileRunContext(runDir).journal.loadTree('pending-root')) ?? []
