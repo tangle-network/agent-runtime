@@ -317,6 +317,7 @@ export function workerFromBackend(
       spawnContext?.peerMailUrl && boundBackend.backend === 'provider'
         ? {
             ...boundBackend,
+            steering: boundBackend.steering ?? {},
             defaults: {
               ...(boundBackend.defaults ?? {}),
               runtimeAttachments: {
@@ -404,7 +405,8 @@ const peerMailMcpAlias = 'agent-runtime-peer-mail'
  *
  *  - `bridge` MOUNTS it. cli-bridge advertises `capabilities.runtimeAttachments.mcp` and mounts
  *    the named servers for the run without binding them into the session profile.
- *  - `provider` mounts the same capability through runtimeAttachments.mcp.
+ *  - `provider` mounts the same capability through runtimeAttachments.mcp and uses the existing
+ *    steerable session inbox so peer delivery can be acknowledged.
  *  - `router` and `router-tools` mount NOTHING. Those workers are in-process tool
  *    loops with no MCP client; their tool surface is the caller's own array, and
  *    `WorkerSpawnContext.peerMailUrl` is the deliverable a caller uses directly.
@@ -420,6 +422,9 @@ function peerMailRuntimeAttachment(
 ): Readonly<Record<string, AgentProfileMcpServer>> | undefined {
   const url = spawnContext?.peerMailUrl
   if (url === undefined) return undefined
+  if (backend.backend === 'provider' && backend.shared) {
+    throw new ValidationError('provider peer mail requires a dedicated steerable session; shared placement is not supported')
+  }
   switch (backend.backend) {
     case 'router':
     case 'router-tools':
