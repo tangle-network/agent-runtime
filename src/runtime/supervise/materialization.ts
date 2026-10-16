@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { AgentIdentity } from '@tangle-network/agent-trace-contract'
 import {
   agentProfileSchema,
   canonicalAgentProfileDigest,
@@ -497,6 +498,34 @@ export function authoredProfileDigest(profile: unknown): Sha256Digest | undefine
     return canonicalAgentProfileDigest(agentProfileSchema.parse(profile))
   } catch {
     return undefined
+  }
+}
+
+/**
+ * Who acted, as a trace span says it: the authored profile's canonical digest, its name, the model
+ * and harness it declares, and a digest of its skill set. `profileDigest` is the digest the spawn
+ * journal already recorded for the node, passed so the span and the journal name the same agent.
+ * A field the profile does not declare stays absent; input that is not an AgentProfile yields only
+ * the recorded digest, if any.
+ */
+export function authoredAgentIdentity(profile: unknown, profileDigest?: string): AgentIdentity {
+  const parsed = agentProfileSchema.safeParse(profile)
+  if (!parsed.success) return profileDigest === undefined ? {} : { profileDigest }
+  const authored = parsed.data
+  const digest = profileDigest ?? authoredProfileDigest(authored)
+  const skills = authored.resources?.skills
+  let skillsDigest: string | undefined
+  try {
+    skillsDigest = skills && skills.length > 0 ? canonicalCandidateDigest(skills) : undefined
+  } catch {
+    skillsDigest = undefined
+  }
+  return {
+    ...(digest === undefined ? {} : { profileDigest: digest }),
+    ...(authored.name ? { profileName: authored.name } : {}),
+    ...(authored.model?.default ? { model: authored.model.default } : {}),
+    ...(authored.harness ? { harness: authored.harness } : {}),
+    ...(skillsDigest === undefined ? {} : { skillsDigest }),
   }
 }
 
