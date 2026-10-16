@@ -4942,6 +4942,9 @@ Called after verification and before deletion so the run result can retain the e
 
 **`Experimental`**
 
+Translate Sandbox-specific controls that have no neutral representation. Without this
+callback, unsupported fields are refused before any environment is created.
+
 ###### Parameters
 
 ###### options

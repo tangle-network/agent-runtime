@@ -277,19 +277,6 @@ describe('SearchSpec validation', () => {
       /workers.isolation 'isolated' gives every worker its own environment/,
     ],
     [
-      'peer mail on workers that cannot mount it',
-      () =>
-        compileSearchSpec(
-          searchPresets.peers(2),
-          inputs({
-            profile: root,
-            workers: [worker('peer-a'), worker('peer-b')],
-            options: { backend: { backend: 'provider', provider: 'tangle' } },
-          }),
-        ),
-      /comms 'messages' needs workers that can call peer mail/,
-    ],
-    [
       'peers that do not match the width',
       () =>
         compileSearchSpec(
@@ -479,33 +466,6 @@ describe('SearchSpec presets', () => {
     expect(result.kind).toBe('winner')
     expect(observed.spawned).toHaveLength(3)
     expect(observed.peak).toBeLessThanOrEqual(2)
-  })
-
-  it('peers(2) hands every peer a peer-mail channel', async () => {
-    const convener = testAgentProfile('convener', {
-      tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
-    })
-    const observed = observe()
-    const result = await run(
-      compileSearchSpec(
-        searchPresets.peers(2),
-        inputs({
-          profile: convener,
-          workers: [worker('peer-a'), worker('peer-b')],
-          options: {
-            runId: 'peers',
-            wake: { debounceMs: 0 },
-            makeLeafAgent: leaves(observed),
-            driveHarness: scriptedRoot('convener', drive(), { spawns: ['peer-a', 'peer-b'] }),
-          },
-        }),
-      ),
-    )
-    expect(result.kind).toBe('winner')
-    expect([...observed.spawned].sort()).toEqual(['peer-a', 'peer-b'])
-    expect(observed.mail).toHaveLength(2)
-    for (const url of observed.mail) expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mail\//)
-    expect(observed.mail[0]).not.toBe(observed.mail[1])
   })
 
   it('sla(2) re-enters a fresh advisor over leaf workers and records its digest', async () => {

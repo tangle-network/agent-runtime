@@ -291,6 +291,8 @@ export interface ProviderAsSandboxClientOptions {
   retentionIdentity?: { executionId: string; profile: AgentProfile; node?: ExecutorNodeContext }
   /** Called after verification and before deletion so the run result can retain the exact join. */
   onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void | Promise<void>
+  /** Translate Sandbox-specific controls that have no neutral representation. Without this
+   * callback, unsupported fields are refused before any environment is created. */
   mapCreateOptions?: (
     options: CreateSandboxOptions | undefined,
   ) => Partial<CreateAgentEnvironmentInput>
@@ -316,7 +318,10 @@ export function providerAsSandboxClient(
   return {
     async create(createOptions?: CreateSandboxOptions): Promise<SandboxInstance> {
       const defaults = options.defaults ?? {}
-      const sandboxInput = createInputFromSandboxOptions(createOptions)
+      const sandboxInput = createInputFromSandboxOptions(
+        createOptions,
+        options.mapCreateOptions !== undefined,
+      )
       const customInput = options.mapCreateOptions?.(createOptions) ?? {}
       const mapped = {
         ...defaults,
@@ -361,6 +366,7 @@ export function providerAsSandboxClient(
         )
       }
       return environmentAsSandboxInstance(environment, {
+        ...(typeof mapped.profile === 'string' ? {} : { profile: mapped.profile }),
         requireTerminalEvent: options.requireTerminalEvent ?? true,
         ...(options.workspaceRetention === undefined
           ? {}
@@ -2122,6 +2128,7 @@ async function* streamProviderExecutor(
       iteration: 0,
       ...(args.node === undefined ? {} : { node: args.node }),
       box: environmentAsSandboxInstance(environment, {
+        profile: args.profile,
         requireTerminalEvent: args.options.requireTerminalEvent ?? true,
       }),
       signal: linked,
@@ -2439,7 +2446,7 @@ async function* streamProviderExecutor(
   }
 }
 
-/** Subscription selection needs the same complete profile on creation and every new turn. */
+/** Subscription selection needs its complete profile and one identity for each fresh turn. */
 function subscriptionTurnProfile(turn: AgentTurnInput, profile: AgentProfile): AgentTurnInput {
   if (profile.model?.metadata?.credentialSource !== 'subscription') return turn
   const backend = promptOptionsFromAgentTurnInput(turn).backend ?? {}
@@ -2450,7 +2457,13 @@ function subscriptionTurnProfile(turn: AgentTurnInput, profile: AgentProfile): A
   ) {
     throw new ValidationError('provider subscription turn cannot replace its exact AgentProfile')
   }
-  return { ...turn, profile }
+  return {
+    ...turn,
+    profile,
+    ...(turn.turnId === undefined && turn.lastEventId === undefined && turn.controlRef === undefined
+      ? { turnId: randomUUID() }
+      : {}),
+  }
 }
 
 function hasRuntimeMcpAttachments(
@@ -2908,7 +2921,55 @@ async function providerExecutionSource(
 
 function createInputFromSandboxOptions(
   options: CreateSandboxOptions | undefined,
+  customMapping: boolean,
 ): Partial<CreateAgentEnvironmentInput> {
+  if (!customMapping) {
+    const mapped = new Set([
+      'backend',
+      'environment',
+      'git',
+      'cwd',
+      'resources',
+      'env',
+      'secrets',
+      'metadata',
+      'name',
+      'idempotencyKey',
+    ])
+    const unsupported = Object.entries(options ?? {})
+      .filter(([key, value]) => value !== undefined && !mapped.has(key))
+      .map(([key]) => key)
+    for (const [prefix, value, keys] of [
+      ['backend', options?.backend, ['type', 'profile', 'model']],
+      ['git', options?.git, ['url', 'ref']],
+    ] as const) {
+      for (const [key, field] of Object.entries(value ?? {})) {
+        if (field !== undefined && !(keys as readonly string[]).includes(key))
+          unsupported.push(`${prefix}.${key}`)
+      }
+    }
+    const model = options?.backend?.model
+    if (model !== undefined) {
+      for (const [key, value] of Object.entries(model)) {
+        if (value !== undefined && !['provider', 'model'].includes(key)) {
+          unsupported.push(`backend.model.${key}`)
+        }
+      }
+      const profile = options?.backend?.profile
+      if (model.provider !== undefined && model.provider !== profile?.model?.provider?.trim()) {
+        unsupported.push('backend.model.provider')
+      }
+      if (model.model !== undefined && model.model !== concreteProfileModel(profile ?? {})) {
+        unsupported.push('backend.model.model')
+      }
+    }
+    if (options?.secrets === 'all') unsupported.push('secrets=all')
+    if (unsupported.length > 0) {
+      throw new ValidationError(
+        `providerAsSandboxClient: Sandbox create controls require mapCreateOptions: ${unsupported.join(', ')}`,
+      )
+    }
+  }
   const profile = options?.backend?.profile
   const backend = options?.backend?.type
   const cwd =
@@ -2927,18 +2988,18 @@ function createInputFromSandboxOptions(
     ...(Object.keys(workspace).length > 0 ? { workspace } : {}),
     ...(options?.resources ? { resources: options.resources as ResourceRequest } : {}),
     ...(options?.env ? { env: options.env } : {}),
-    // Sandbox's "all" selector stays in the transport options; neutral inputs name secrets.
+    // Neutral inputs name secrets; a custom mapper owns any provider-specific selector.
     ...(Array.isArray(options?.secrets) ? { secrets: options.secrets } : {}),
     ...(options?.metadata ? { metadata: options.metadata } : {}),
     ...(options?.name ? { name: options.name } : {}),
     ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
-    providerOptions: { sandboxCreateOptions: options ?? {} },
   }
 }
 
 function environmentAsSandboxInstance(
   environment: AgentEnvironment,
   options: {
+    profile?: AgentProfile
     requireTerminalEvent: boolean
     workspaceRetention?: ProviderWorkspaceRetentionPort
     retentionIdentity?: { executionId: string; profile: AgentProfile; node?: ExecutorNodeContext }
@@ -2975,7 +3036,7 @@ function environmentAsSandboxInstance(
       promptOptions?: PromptOptions,
     ): AsyncGenerator<SandboxEvent> {
       let terminal = false
-      const input = turnInputFromPrompt(message, promptOptions)
+      const input = turnInputFromPrompt(message, promptOptions, options.profile)
       providerSessionId = input.sessionId ?? null
       noteControlRef(input.controlRef)
       let cancellation: Promise<void> | undefined
@@ -3054,7 +3115,7 @@ function environmentAsSandboxInstance(
       const usageLedger = createSandboxUsageLedger()
       let terminal = false
       const failures = createProviderFailureLedger()
-      const input = turnInputFromPrompt(message, promptOptions)
+      const input = turnInputFromPrompt(message, promptOptions, options.profile)
       providerSessionId = input.sessionId ?? null
       noteControlRef(input.controlRef)
       for await (const event of environment.stream(input)) {
@@ -3088,7 +3149,7 @@ function environmentAsSandboxInstance(
       ? {
           async dispatchPrompt(message: string | PromptInputPart[], promptOptions?: PromptOptions) {
             const session = await environment.dispatch?.(
-              turnInputFromPrompt(message, promptOptions),
+              turnInputFromPrompt(message, promptOptions, options.profile),
             )
             if (!session)
               throw new ValidationError('providerAsSandboxClient: dispatch returned no session')
@@ -3104,6 +3165,7 @@ function environmentAsSandboxInstance(
             return sandboxSessionFromAgentSession(
               environment.session?.(id, sessionOptions),
               sessionOptions?.controlRef,
+              options.profile,
             )
           },
         }
@@ -3187,6 +3249,7 @@ function environmentAsSandboxInstance(
 function sandboxSessionFromAgentSession(
   session: AgentSession | undefined,
   expectedControlRef?: AgentRunControlRef,
+  profile?: AgentProfile,
 ): SandboxSessionLike {
   if (!session) throw new ValidationError('providerAsSandboxClient: session is unavailable')
   const controlRef = resolveSessionControlRef(session.controlRef, expectedControlRef)
@@ -3223,7 +3286,7 @@ function sandboxSessionFromAgentSession(
       options?: PromptOptions,
     ): Promise<PromptResult> {
       return promptResultFromAgentTurnResult(
-        await session.prompt(turnInputFromPrompt(message, options)),
+        await session.prompt(turnInputFromPrompt(message, options, profile)),
       )
     },
     ...(session.respondToInteraction
@@ -3568,8 +3631,9 @@ function tokenUsageData(usage: TokenUsage): Record<string, number> {
 function turnInputFromPrompt(
   message: string | PromptInputPart[],
   options?: PromptOptions,
+  profile?: AgentProfile,
 ): AgentTurnInput {
-  return {
+  const input: AgentTurnInput = {
     ...(typeof message === 'string' ? { prompt: message } : { parts: message }),
     ...(options?.sessionId ? { sessionId: options.sessionId } : {}),
     ...(options?.model ? { model: options.model } : {}),
@@ -3584,6 +3648,7 @@ function turnInputFromPrompt(
     ...(options?.signal ? { signal: options.signal } : {}),
     ...(options?.backend ? { providerOptions: { backend: options.backend } } : {}),
   }
+  return profile === undefined ? input : subscriptionTurnProfile(input, profile)
 }
 
 function resolveSessionControlRef(
