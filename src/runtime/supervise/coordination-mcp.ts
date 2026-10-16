@@ -298,11 +298,9 @@ export async function serveCoordinationMcp(
      * (`runtime/supervise/peer-mail`). Each spawn receives a capability URL on
      * `WorkerSpawnContext.peerMailUrl`.
      *
-     * It is a SEPARATE listener on its own port, not another tool on this server, and that is the
-     * whole point: this server grants spawn_worker / steer_agent / stop to its manager, so a
-     * worker handed its URL could send a REAL `[SUPERVISOR]` instruction to a sibling and the peer
-     * channel's authority marking would mean nothing. The mail listener serves `send_mail` and
-     * `read_mail` and no other verb, on a per-worker secret path bound to that worker's identity.
+     * It uses a separate capability path on the coordination listener. The manager endpoint
+     * grants spawn, steer and stop; the mail path serves only `send_mail` and `read_mail`,
+     * bound to one worker identity. A mail capability cannot authorize a manager request.
      *
      * The residual, stated plainly: the boundary is between AGENTS, not between processes. A worker
      * that can read another worker's environment or process memory still holds that worker's

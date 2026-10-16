@@ -54,7 +54,9 @@ const result = await createSupervisor().run({
     const call = async (client, name, args) => {
       const text = await client.callTool(name, args)
       assert.ok(!text.startsWith('ERROR:'), text)
-      return JSON.parse(text)
+      const result = JSON.parse(text)
+      assert.ok(!result.error, JSON.stringify(result))
+      return result
     }
     try {
       const manager = await connect(handle.url, { ...handle.headers })
@@ -84,8 +86,8 @@ const result = await createSupervisor().run({
       const first = await connect(peers.get('alpha'))
       const second = await connect(peers.get('beta'))
       const marker = 'peer-transport-received'
-      const sent = await call(first, 'send_mail', { kind: 'tell', to: [ids[1]], body: marker })
-      assert.ok(!sent.error, JSON.stringify(sent))
+      const sent = await call(first, 'send_mail', { kind: 'ask', to: ids[1], subject: 'Transport proof', body: marker })
+      assert.equal(sent.delivered, true, JSON.stringify(sent))
       const inbox = await call(second, 'read_mail', {})
       assert.ok(JSON.stringify(inbox).includes(marker))
       handle.rotateCredential()
