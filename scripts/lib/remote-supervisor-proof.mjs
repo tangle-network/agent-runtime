@@ -63,7 +63,7 @@ const result = await createSupervisor().run({
       const manager = await connect(handle.url, { ...handle.headers })
       const ids = []
       for (const name of ['alpha', 'beta']) {
-        const spawned = await call(manager, 'spawn_worker', { profile: { name }, task: `written-by-${name}` })
+        const spawned = await call(manager, 'spawn_worker', { profile: { name, harness: 'cli-base', model: { provider: 'local-process', default: 'node-process' } }, task: `written-by-${name}` })
         assert.ok(spawned.workerId ?? spawned.id, JSON.stringify(spawned))
         ids.push(spawned.workerId ?? spawned.id)
       }
