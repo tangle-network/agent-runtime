@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ValidationError } from '../../errors'
 import { connectHttpMcp, type HttpMcpServerSpec } from '../http-mcp-client'
-import type { WorkerEventCursor } from './worker-events'
+import type { WorkerEventCursor, WorkerEventPage } from './worker-events'
 
 const agentSchema = z
   .object({
@@ -18,7 +18,7 @@ const treeSchema = z.object({
   inFlight: z.number().int().nonnegative(),
 })
 const eventPageSchema = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('unavailable'), reason: z.string() }),
+  z.object({ status: z.literal('unavailable'), reason: z.enum(['unknown-worker', 'not-captured']) }),
   z.object({
     status: z.literal('available'),
     entries: z.array(
@@ -26,7 +26,7 @@ const eventPageSchema = z.discriminatedUnion('status', [
         sequence: z.number().int().nonnegative(),
         at: z.number(),
         event: z.unknown(),
-        omitted: z.string().optional(),
+        omitted: z.enum(['event-too-large', 'event-not-serializable']).optional(),
       }),
     ),
     cursor: z.object({ epoch: z.string(), next: z.number().int().nonnegative() }),
@@ -36,9 +36,24 @@ const eventPageSchema = z.discriminatedUnion('status', [
   }),
 ])
 
-export type RemoteSupervisorTree = z.infer<typeof treeSchema>
-export type RemoteSupervisorAgent = z.infer<typeof agentSchema>
-export type RemoteWorkerEvents = z.infer<typeof eventPageSchema>
+/** Minimal agent identity and topology returned by the protected reader. */
+export interface RemoteSupervisorAgent {
+  readonly id: string
+  readonly parent?: string
+  readonly label: string
+  readonly status: string
+  readonly runtime: string
+}
+
+/** Current owned tree, including nested managers and resumed nodes. */
+export interface RemoteSupervisorTree {
+  readonly root: string
+  readonly nodes: readonly RemoteSupervisorAgent[]
+  readonly inFlight: number
+}
+
+/** The same bounded event page served by Scope's live observation owner. */
+export type RemoteWorkerEvents = WorkerEventPage
 
 /** The existing coordination transport, restricted to reading the owned tree and worker output. */
 export interface RemoteSupervisorReader {

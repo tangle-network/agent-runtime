@@ -18,6 +18,7 @@ export { type AnalystFinding, computeFindingId, makeFinding } from '@tangle-netw
 export type { AgentProfile } from '@tangle-network/agent-interface'
 export type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 export { assertProfileMaterializes } from '../agent/profile-materialization'
+export type { HttpMcpServerSpec } from './http-mcp-client'
 export {
   contentAddress,
   FileResultBlobStore,
