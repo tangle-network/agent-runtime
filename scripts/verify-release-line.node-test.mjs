@@ -119,7 +119,6 @@ test('a removed remote line cannot be authorized by its stale tracking ref', t =
   const candidate = f.commit('backport')
   f.git('push', '-q', 'origin', 'release/1.2.x')
   f.git('push', '-q', 'origin', '--delete', 'release/1.2.x')
-  // Recreate a stale local tracking ref, not a remote branch.
   f.git('update-ref', 'refs/remotes/origin/release/1.2.x', candidate)
   refused(f.run(candidate))
 })
@@ -146,7 +145,6 @@ test('malformed candidates and noncanonical line selectors are refused', t => {
   refused(f.run(f.initial, { line: 'refs/remotes/origin/release/2.0.x' }))
   refused(f.run(f.initial, { extra: ['unexpected'] }))
 })
-
 test('working-tree metadata cannot choose the release line', t => {
   const f = fixture(t)
   writeFileSync(join(f.source, 'package.json'), JSON.stringify({ version: '2.0.0' }))
@@ -155,7 +153,17 @@ test('working-tree metadata cannot choose the release line', t => {
 })
 test('invalid committed release versions fail before lineage approval', t => {
   const f = fixture(t)
-  const candidate = f.commit('invalid version', '1.2.3-beta.1')
-  f.git('push', '-q', 'origin', 'main')
-  refused(f.run(candidate))
+  for (const version of ['1.02.3', '1.2.3-01', '../main']) {
+    const candidate = f.commit('invalid version', version)
+    f.git('push', '-q', 'origin', 'main')
+    refused(f.run(candidate))
+  }
+})
+test('valid prerelease and build metadata retain their core release line', t => {
+  const f = fixture(t)
+  for (const version of ['1.2.3-beta.1', '1.2.3+build.1', '1.2.3-beta.1+build.01']) {
+    const candidate = f.commit('prerelease', version)
+    f.git('push', '-q', 'origin', 'main')
+    assert.equal(passed(f.run(candidate)).candidate, candidate)
+  }
 })
