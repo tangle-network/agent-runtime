@@ -3,6 +3,14 @@
 This package owns agent execution and composes evaluation and knowledge workflows.
 Domain policy belongs in adapters and agent profiles.
 
+## Delivery
+
+Work on a feature branch and run relevant checks while developing. Land authorized PRs into `main` with `gh pr merge <PR> --merge --match-head-commit <INTENDED_HEAD_SHA>`. Capture the intended head first; read back `mergedAt` and `mergeCommit` before reporting a completed merge. No additional merge wrapper or host installation is required.
+
+Ordinary internal source PRs do not wait for CI, local signoff, a version bump or package publication. Release PRs and external contributions retain verification. Drafts, explicit holds, conflicts and native repository restrictions still apply; do not use an administrator bypass or fabricate passing checks. A skipped job is not test evidence.
+
+Publication is a separate authorized operation. The existing publisher qualifies the frozen tagged revision and exact package artifacts, including cohort compatibility and credential isolation. Advancing main does not retarget that candidate. A source merge is neither a package release nor a production result.
+
 ## Read for the task
 
 - Before implementation, read [BUILDING.md](docs/BUILDING.md) for build discipline and [ANTI_PATTERNS.md](docs/ANTI_PATTERNS.md) for known failure modes.
@@ -56,7 +64,7 @@ Keep run status and measurements in those records rather than this entrypoint.
 ## Local conventions
 
 Use the repository's package scripts for checks and build commands.
-For changes to published code, run the package verification path; a source build alone does not prove the packed artifact.
+Run relevant checks while developing. Package verification is required at publication, not as a source-merge prerequisite; a source build alone does not prove the packed artifact.
 Comments explain current behavior and reasons; change history belongs in commits and pull requests.
 Do not add AI-attribution trailers to commits or artifacts.
 External-boundary calls return typed outcomes with explicit success or failure and diagnostic information.
