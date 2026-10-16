@@ -1,3 +1,7 @@
+## 0.322.1
+
+Retire an obsolete package-helper unit fixture that assumes every supported Sandbox peer ceiling ends at a minor boundary. Keep the actual packed, standalone, cohort, Edge and native provider qualification paths unchanged.
+
 ## 0.322.0
 
 Limit peer maxima to the checked standalone cohort so fresh installs cannot silently select unqualified artifacts. The exact release cohort and current Lab and Braid pins remain admitted.
