@@ -29,7 +29,7 @@ Native tool ids (agent-container `packages/agent-profile-materialize/src/control
 
 | Harness | Accepted | Refused |
 |---|---|---|
-| opencode | read, write, edit, apply_patch (or patch), bash, glob, grep, webfetch, websearch, todowrite, skill, question, codesearch; `task` turns native subagents on (`true`) or off (`false`) | list, ls, find, lsp, any other name |
+| opencode | read, write, edit, apply_patch (or patch), bash, glob, grep, webfetch, websearch, todowrite, skill, question, codesearch; the tool key `"task": true` turns native subagents on (`"task": false` turns them off) | list, ls, find, lsp, any other name |
 | claude-code | Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, TodoWrite, NotebookEdit, Skill, AskUserQuestion; Agent, Task and TaskOutput when the profile wants native subagents | any other name, every `mcp__` name included |
 | codex | `web_search` (true or false); `web_fetch` only as false | every other key, and any `permissions` entry |
 | pi | names in Pi's own registry: read, bash, edit, write (glob becomes find, shell becomes bash); a named tool Pi lacks ends the session | names Pi lacks |
