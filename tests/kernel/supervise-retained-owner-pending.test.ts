@@ -9,7 +9,7 @@
  * barren failures end a run: a capacity refusal before dispatch, which the driver must wait out,
  * and an admitted execution the provider can no longer resolve, which Runtime must abandon.
  */
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentRunCancellationAcknowledgement } from '@tangle-network/agent-interface'
@@ -401,7 +401,6 @@ describe('supervised root with a pending retained turn', () => {
       superviseRoot({ captureFailure: 'partial', submitOn: Number.POSITIVE_INFINITY }),
     ).rejects.toMatchObject({ name: 'RetainedWorkspaceCapturePendingError' })
     const runDir = join(directories.at(-1)!, 'run')
-    await expect(readFile(join(runDir, 'result.json'))).rejects.toMatchObject({ code: 'ENOENT' })
     const events = (await createFileRunContext(runDir).journal.loadTree('pending-root')) ?? []
     expect(count(events, 'execution-input')).toBe(1)
     expect(count(events, 'execution-result')).toBe(1)

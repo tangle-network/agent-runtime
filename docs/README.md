@@ -39,6 +39,7 @@ These are internal working documents: design theses, research narrative, and roa
 | [execution-model.md](./execution-model.md) | the picture | The unified `Executor` port (router/bridge/cli/sandbox/BYO) + two engines, driver vs worker, spawn mechanics. |
 | [agent-bus-protocol.md](./agent-bus-protocol.md) | normative protocol | The multi-agent call bus — depth limits, headers, refusal contract. |
 | [durability.md](./durability.md) | owner map | Every durability primitive across Runtime, Sandbox, Platform Workflows, Agent App, Hub and provider adapters: what each one durably owns, who uses it, and what survives a crash. |
+| [invariants.md](./invariants.md) | retained execution contract | Capture requirements for accepted turns, pending evidence for failed turns, and retry ownership. |
 | [intelligence-sdk.md](./intelligence-sdk.md) | product SDK | Observe + OFF billing floor + effort tiers + certified delivery + capability resolver — the `/intelligence` subpath. Designed-not-shipped verbs fenced at the tail. |
 | [live-agent-improvement-loop.md](./live-agent-improvement-loop.md) | execution contract | Trace-to-candidate-to-promotion path, evidence gates, and missing product joins for a live agent. |
 | [recursive-improvement-readiness.md](./recursive-improvement-readiness.md) | evidence scorecard | Dated pass/fail decisions for the live-agent improvement requirements. |
