@@ -155,7 +155,7 @@ export async function verifyRemoteSupervisorConsumer(kernel) {
 }
 
 /** Opt-in live qualification. The caller owns the real provider, seat and public route. */
-export async function verifyRemoteSupervisorProvider(kernel, { provider, profile, coordination, budget }) {
+export async function verifyRemoteSupervisorProvider(kernel, { provider, profile, coordination, budget, defaults }) {
   const { connectRemoteSupervisor, createInMemoryRunContext, createSupervisor, serveCoordinationMcp, workerFromBackend } = kernel
   const context = createInMemoryRunContext()
   const nonce = `peer-proof-${Date.now()}`
@@ -171,7 +171,7 @@ export async function verifyRemoteSupervisorProvider(kernel, { provider, profile
         ...coordination, scope, blobs: context.blobs, authentication: true, peerMail: true,
         perWorker: budget.perWorker,
         toolNames: ['spawn_worker', 'observe_agent', 'read_journal'],
-        makeWorkerAgent: workerFromBackend({ backend: 'provider', provider }),
+        makeWorkerAgent: workerFromBackend({ backend: 'provider', provider, ...(defaults ? { defaults } : {}) }),
       })
       const manager = await connect(handle.url, { ...handle.headers })
       const access = handle.readOnly
@@ -226,7 +226,7 @@ export async function verifyRemoteSupervisorProvider(kernel, { provider, profile
         for (const id of ids) {
           assert.ok(mail.some(entry => entry.delivered && entry.envelope.from === id && entry.envelope.body.startsWith(nonce)), 'worker did not send its actual peer message')
           assert.ok(mail.some(entry => entry.delivered && entry.envelope.to === id), 'worker mailbox did not receive a peer message')
-          assert.ok(seen.get(id).length > 0, 'remote worker produced no observed live events')
+          assert.ok(seen.get(id).some(entry => entry.event?.kind === 'tool_call' && entry.event.toolName.includes('read_mail')), 'remote worker did not expose its actual mailbox read')
         }
         return { workers: settledWorkers, tree: finalTree, liveEventCounts: ids.map(id => ({ id, count: seen.get(id).length, explicitGap: gaps.has(id) })),
           mail: mail.map(entry => ({ from: entry.envelope.from, to: entry.envelope.to, delivered: entry.delivered, outcome: entry.outcome, body: entry.envelope.body })) }
