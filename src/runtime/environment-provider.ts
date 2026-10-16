@@ -318,7 +318,10 @@ export function providerAsSandboxClient(
   return {
     async create(createOptions?: CreateSandboxOptions): Promise<SandboxInstance> {
       const defaults = options.defaults ?? {}
-      const sandboxInput = createInputFromSandboxOptions(createOptions, options.mapCreateOptions !== undefined)
+      const sandboxInput = createInputFromSandboxOptions(
+        createOptions,
+        options.mapCreateOptions !== undefined,
+      )
       const customInput = options.mapCreateOptions?.(createOptions) ?? {}
       const mapped = {
         ...defaults,
@@ -2914,17 +2917,42 @@ function createInputFromSandboxOptions(
 ): Partial<CreateAgentEnvironmentInput> {
   if (!customMapping) {
     const mapped = new Set([
-      'backend', 'environment', 'git', 'cwd', 'resources', 'env', 'secrets', 'metadata', 'name', 'idempotencyKey',
+      'backend',
+      'environment',
+      'git',
+      'cwd',
+      'resources',
+      'env',
+      'secrets',
+      'metadata',
+      'name',
+      'idempotencyKey',
     ])
     const unsupported = Object.entries(options ?? {})
       .filter(([key, value]) => value !== undefined && !mapped.has(key))
       .map(([key]) => key)
     for (const [prefix, value, keys] of [
-      ['backend', options?.backend, ['type', 'profile']],
+      ['backend', options?.backend, ['type', 'profile', 'model']],
       ['git', options?.git, ['url', 'ref']],
     ] as const) {
       for (const [key, field] of Object.entries(value ?? {})) {
-        if (field !== undefined && !(keys as readonly string[]).includes(key)) unsupported.push(`${prefix}.${key}`)
+        if (field !== undefined && !(keys as readonly string[]).includes(key))
+          unsupported.push(`${prefix}.${key}`)
+      }
+    }
+    const model = options?.backend?.model
+    if (model !== undefined) {
+      for (const [key, value] of Object.entries(model)) {
+        if (value !== undefined && !['provider', 'model'].includes(key)) {
+          unsupported.push(`backend.model.${key}`)
+        }
+      }
+      const profile = options?.backend?.profile
+      if (model.provider !== undefined && model.provider !== profile?.model?.provider?.trim()) {
+        unsupported.push('backend.model.provider')
+      }
+      if (model.model !== undefined && model.model !== concreteProfileModel(profile ?? {})) {
+        unsupported.push('backend.model.model')
       }
     }
     if (options?.secrets === 'all') unsupported.push('secrets=all')
