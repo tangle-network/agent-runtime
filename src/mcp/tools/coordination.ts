@@ -3168,7 +3168,7 @@ export function createCoordinationToolsForManager(
     }
     return rows
   }
-  const readJournal = (raw: unknown): JournalPage => {
+  const readJournal = (raw: unknown, trackOwnRead = true): JournalPage => {
     const a = raw === undefined ? {} : obj(raw)
     const sinceRow =
       a.sinceRow === undefined
@@ -3238,7 +3238,7 @@ export function createCoordinationToolsForManager(
     }
     const last = entries[entries.length - 1]
     const nextRow = last === undefined ? sinceRow : last.row + 1
-    journalReadTo = Math.max(journalReadTo, nextRow)
+    if (trackOwnRead) journalReadTo = Math.max(journalReadTo, nextRow)
     return {
       entries,
       nextRow,
@@ -4842,7 +4842,15 @@ export function createCoordinationToolsForManager(
         return opts.peerAudit?.read(peerId, name, readArgs)
       }
     }
-    opts.peerAudit.register(opts.scope.view.root, tools)
+    // A peer read must not claim that this manager has consumed its own journal.
+    opts.peerAudit.register(
+      opts.scope.view.root,
+      tools.map((tool) =>
+        tool.name === 'read_journal'
+          ? { ...tool, handler: async (raw) => readJournal(raw, false) }
+          : tool,
+      ),
+    )
   }
 
   if (opts.analysts) {
