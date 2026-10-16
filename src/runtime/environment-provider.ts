@@ -366,7 +366,7 @@ export function providerAsSandboxClient(
         )
       }
       return environmentAsSandboxInstance(environment, {
-        profile: mapped.profile,
+        ...(typeof mapped.profile === 'string' ? {} : { profile: mapped.profile }),
         requireTerminalEvent: options.requireTerminalEvent ?? true,
         ...(options.workspaceRetention === undefined
           ? {}
@@ -2993,7 +2993,7 @@ function createInputFromSandboxOptions(
 function environmentAsSandboxInstance(
   environment: AgentEnvironment,
   options: {
-    profile: AgentProfile
+    profile?: AgentProfile
     requireTerminalEvent: boolean
     workspaceRetention?: ProviderWorkspaceRetentionPort
     retentionIdentity?: { executionId: string; profile: AgentProfile; node?: ExecutorNodeContext }
