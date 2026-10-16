@@ -2446,7 +2446,7 @@ async function* streamProviderExecutor(
   }
 }
 
-/** Subscription selection needs the same complete profile on creation and every new turn. */
+/** Subscription selection needs its complete profile and one identity for each fresh turn. */
 function subscriptionTurnProfile(turn: AgentTurnInput, profile: AgentProfile): AgentTurnInput {
   if (profile.model?.metadata?.credentialSource !== 'subscription') return turn
   const backend = promptOptionsFromAgentTurnInput(turn).backend ?? {}
@@ -2457,7 +2457,13 @@ function subscriptionTurnProfile(turn: AgentTurnInput, profile: AgentProfile): A
   ) {
     throw new ValidationError('provider subscription turn cannot replace its exact AgentProfile')
   }
-  return { ...turn, profile }
+  return {
+    ...turn,
+    profile,
+    ...(turn.turnId === undefined && turn.lastEventId === undefined && turn.controlRef === undefined
+      ? { turnId: randomUUID() }
+      : {}),
+  }
 }
 
 function hasRuntimeMcpAttachments(
