@@ -68,7 +68,7 @@ function dispatchNotAdmitted(): Error {
 
 interface Fixture {
   readonly firstTurnFailure?: { error: string }
-  readonly captureFailure?: 'throw' | 'partial' | 'recover'
+  readonly captureFailure?: 'throw' | 'partial' | 'raw-partial' | 'recover'
   /** Called before each dispatch reaches the provider; throw to refuse it. */
   readonly beforeDispatch?: (call: number) => void
   /** Executions whose result the provider can never return. */
@@ -245,6 +245,35 @@ async function superviseRoot(fixture: Fixture) {
             provenance: {
               ...captured.provenance,
               workspace: { ...captured.provenance.workspace!, complete: false },
+              missing: ['process_io_missing'],
+            },
+          }
+        }
+        if (fixture.captureFailure === 'raw-partial') {
+          const captured = await completeCapture(captureContext, artifacts)
+          return {
+            ...captured,
+            provenance: {
+              ...captured.provenance,
+              missing: [
+                `Sandbox session ${captureContext.controlRef!.sessionId} declared partial raw capture`,
+                `Sandbox session ${captureContext.controlRef!.sessionId}: process_io_missing`,
+                `Sandbox session ${captureContext.controlRef!.sessionId}: process_io_unavailable`,
+                `Sandbox session ${captureContext.controlRef!.sessionId}: process_source_unavailable`,
+                `Sandbox session ${captureContext.controlRef!.sessionId}: process_source_unavailable:${captureContext.controlRef!.executionId}`,
+                `Sandbox session ${captureContext.controlRef!.sessionId} attempt ${captureContext.controlRef!.executionId}/1: process_io_missing`,
+                `Sandbox session ${captureContext.controlRef!.sessionId} attempt ${captureContext.controlRef!.executionId}/1: process_source_unavailable`,
+                `Sandbox session ${captureContext.controlRef!.sessionId} has no original process source: ${captureContext.controlRef!.executionId}`,
+                `Raw native session capture for Sandbox session ${captureContext.controlRef!.sessionId} is unavailable: process_io_missing; process_io_unavailable; process_source_unavailable; process_source_unavailable:${captureContext.controlRef!.executionId}`,
+              ],
+              sessions: captured.provenance.sessions!.map((session) => ({
+                ...session,
+                processStreams: { ...session.processStreams!, complete: false },
+              })),
+              attempts: captured.provenance.attempts!.map((attempt) => ({
+                ...attempt,
+                missingReasons: ['process_io_missing', 'process_source_unavailable'],
+              })),
             },
           }
         }
@@ -339,6 +368,13 @@ async function superviseRoot(fixture: Fixture) {
         event.kind === 'execution-evidence' ? [context.blobs.get(event.outRef)] : [],
       ),
     ),
+    captures: await Promise.all(
+      events.flatMap((event) =>
+        event.kind === 'execution-evidence' || event.kind === 'execution-result'
+          ? [context.blobs.get(event.outRef)]
+          : [],
+      ),
+    ),
   }
 }
 
@@ -414,6 +450,27 @@ describe('supervised root with a pending retained turn', () => {
     expect(events.some((event) => event.kind === 'environment-teardown' && event.destroyed)).toBe(
       false,
     )
+  })
+
+  it('continues a retained Codex turn when only raw process capture is partial', async () => {
+    const run = await superviseRoot({ captureFailure: 'raw-partial', submitOn: 2 })
+    expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
+    expect(run.dispatched).toHaveLength(2)
+    expect(run.environments).toHaveLength(1)
+    expect(run.captures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workspaceCapture: expect.objectContaining({
+            coverageComplete: false,
+            incompleteReason: expect.stringContaining('process_io_missing'),
+            provenance: expect.objectContaining({
+              workspace: expect.objectContaining({ complete: true }),
+            }),
+          }),
+        }),
+      ]),
+    )
+    expect(run.destroyed).not.toContain(run.environments[0])
   })
 
   it('settles a root from its exact result when its provider stream has no terminal event', async () => {
