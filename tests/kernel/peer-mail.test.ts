@@ -579,8 +579,6 @@ describe('peer mailbox refusals — each one fails closed and is recorded', () =
       outcome: 'send-quota-exhausted',
     })
   })
-
-
 })
 
 // ── inbox: what a peer message may and may not do to a receiving worker ────────
