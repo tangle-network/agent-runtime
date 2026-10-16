@@ -29,6 +29,7 @@ import {
   agentProfileSchema,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
+  ProxySecretsSchema,
   type Sha256Digest,
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
@@ -122,6 +123,7 @@ import {
 } from './retained-executor'
 import {
   bindScopeRetainedOwnerWorkspaceRetention,
+  type createConfirmedCoordinationRevocation,
   registerScopeRetainedOwner,
   releaseScopeRetainedOwnerEnvironment,
   retainedOwnerReleaseRetriable,
@@ -216,6 +218,10 @@ export interface ScopeArgs {
   readonly journal: SpawnJournal
   /** Content-addressed result store backing `outRef` rehydration. */
   readonly blobs: ResultBlobStore
+  /** @internal Private denial-only cleanup capability, never an executor seam. */
+  readonly confirmedCoordinationRevocation?: ReturnType<
+    typeof createConfirmedCoordinationRevocation
+  >
   /** The open executor resolver (BYO → router/inline → registered harness factory). */
   readonly executors: ExecutorRegistry
   /** Per-spawn executor-construction seams (sandbox client, router config, cli bin). */
@@ -474,9 +480,16 @@ export function releaseManagerEnvironment(scope: Scope<unknown>): Promise<void> 
  * the run's journal after the run settles and no capture is cut short by the process exiting.
  */
 export async function settleManagerWork(scope: Scope<unknown>): Promise<void> {
-  await Promise.all(nestedManagerScopes(scope).map((nested) => settleManagerWork(nested)))
-  await scopeRetainedOwnerSettled(scope)
-  await managerEnvironmentReleases.get(scope)?.catch(() => undefined)
+  // Await every owner even when one fails, so no sibling denial can outlive settlement.
+  const results = await Promise.allSettled([
+    ...nestedManagerScopes(scope).map((nested) => settleManagerWork(nested)),
+    scopeRetainedOwnerSettled(scope),
+    managerEnvironmentReleases.get(scope)?.catch(() => undefined),
+  ])
+  const failures = results.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : [],
+  )
+  if (failures.length > 0) throw new AggregateError(failures, 'manager settlement unconfirmed')
 }
 
 /**
@@ -821,6 +834,7 @@ function makeNestedScopeSeam(
       pool: createBudgetPool(nestedBudget, mountedAtMs, restored?.poolRestore),
       journal: args.journal,
       blobs: args.blobs,
+      confirmedCoordinationRevocation: args.confirmedCoordinationRevocation,
       executors: args.executors,
       // Re-seed the parent's NON-recursion seams (sandbox/router for leaf grandchildren);
       // the nested scope adds its OWN nested-scope seam per child in `spawn`.
@@ -1414,6 +1428,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               kind: 'execution-input',
               id,
               taskRef,
+              proxySecrets: ProxySecretsSchema.parse(spec.profile.proxySecrets ?? []),
               ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
               seq: nextSeq,
               at: new Date(now()).toISOString(),
@@ -1651,6 +1666,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
                   kind: 'execution-input',
                   id,
                   taskRef,
+                  proxySecrets: ProxySecretsSchema.parse(spec.profile.proxySecrets ?? []),
                   ...(proxySecretParents === undefined ? {} : { proxySecretParents }),
                   seq: ordinal,
                   at: new Date(now()).toISOString(),
@@ -2726,6 +2742,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     depth: args.depth,
     journal: args.journal,
     blobs: args.blobs,
+    confirmedCoordinationRevocation: args.confirmedCoordinationRevocation,
     priorEvents: args.resumeFrom?.events ?? [],
     now,
   })

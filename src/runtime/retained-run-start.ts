@@ -544,17 +544,15 @@ export async function startRetainedRun(
     )
   }
 
-  if (createAdmission !== undefined) {
-    await admitDurably(
-      options.onAdmission,
-      createProxySecretBindingAdmission({
-        ...createAdmission,
-        stage: 'installed',
-        environmentId: environment.id,
-        receipt: environment.proxySecretReceipt,
-      }),
-    )
-  }
+  const installedAdmission =
+    createAdmission === undefined
+      ? undefined
+      : createProxySecretBindingAdmission({
+          ...createAdmission,
+          stage: 'installed',
+          environmentId: environment.id,
+          receipt: environment.proxySecretReceipt,
+        })
   return dispatchRetainedRun({
     provider: options.provider,
     environment,
@@ -568,6 +566,11 @@ export async function startRetainedRun(
     expectedRunId: transferReceipt?.runId,
     identity,
     onAdmission: options.onAdmission,
+    ...(installedAdmission === undefined
+      ? {}
+      : {
+          onEnvironmentAdmitted: () => admitDurably(options.onAdmission, installedAdmission),
+        }),
     capabilities,
     now: options.now,
     preserveEnvironment:
@@ -735,6 +738,8 @@ interface DispatchRetainedRunOptions {
   readonly contextTransfer?: ContextTransferRequest
   readonly identity: { readonly sessionId: string; readonly executionId: string }
   readonly onAdmission: RetainedRunAdmissionHook
+  /** Initial custody is committed after durable environment ownership, before session creation. */
+  readonly onEnvironmentAdmitted?: () => Promise<void>
   readonly capabilities: AgentEnvironmentCapabilities
   readonly now?: () => number
 }
@@ -761,6 +766,7 @@ async function dispatchRetainedRun(
     sessionId: identity.sessionId,
     executionId: identity.executionId,
   })
+  await options.onEnvironmentAdmitted?.()
 
   // Dispatch failure leaks a paid environment when THIS call provisioned it, and deletes another
   // caller's workspace when it did not. The provider's creation receipt is what separates the two:

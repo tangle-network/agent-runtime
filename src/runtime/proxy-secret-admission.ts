@@ -50,7 +50,9 @@ const installed = selected.extend({
 })
 const admissionSchema = z.discriminatedUnion('stage', [selected, replacement, installed])
 
-/** Public metadata only, carried through the existing awaited admission hook. */
+/** Public metadata only, carried through the existing awaited admission hook.
+ * @useDeclaredType
+ */
 export type ProxySecretBindingAdmission = z.infer<typeof admissionSchema>
 
 /** The owner admits only canonical, exactly digested metadata into its private evidence channel. */

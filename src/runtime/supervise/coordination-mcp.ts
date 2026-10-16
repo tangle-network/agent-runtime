@@ -73,6 +73,7 @@ import {
   scopeRetainedOwnerCoordinationGenerationRevoked,
   scopeRetainedOwnerCoordinationSource,
   scopeRetainedOwnerResourceReader,
+  trackScopeCoordinationRevocation,
 } from './retained-scope-owner'
 import { singleFlightTools } from './single-flight-tools'
 import { detachedSnapshot } from './snapshot'
@@ -507,12 +508,15 @@ export async function serveCoordinationMcpForManager(
     proxyRevocation = Promise.resolve().then(async () => {
       try {
         if ((await registered.revoke())?.confirmed !== true) throw new Error('unconfirmed')
-        if (generation)
-          await scopeRetainedOwnerCoordinationGenerationRevoked(opts.scope, generation)
+        await scopeRetainedOwnerCoordinationGenerationRevoked(opts.scope, generation, {
+          binding: registered.binding,
+          sourceIdentity: registered.sourceIdentity,
+        })
       } catch {
         throw new ConfigError('coordination proxySecret revocation was not confirmed')
       }
     })
+    trackScopeCoordinationRevocation(opts.scope, proxyRevocation)
     // Scope cancellation and synchronous rotation cannot await; close observes the same promise.
     void proxyRevocation.catch(() => undefined)
   }
@@ -624,11 +628,10 @@ export async function serveCoordinationMcpForManager(
       ) {
         throw new ConfigError('coordination credential replay differs from its admitted source')
       }
-      if (signedGeneration)
-        await scopeRetainedOwnerCoordinationGenerationRegistered(opts.scope, signedGeneration, {
-          binding,
-          sourceIdentity,
-        })
+      await scopeRetainedOwnerCoordinationGenerationRegistered(opts.scope, signedGeneration, {
+        binding,
+        sourceIdentity,
+      })
       addressLifetime.signal.throwIfAborted()
       registeredProxySecret = {
         binding: detachedSnapshot(binding, 'coordination proxySecret binding'),

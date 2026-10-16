@@ -1124,12 +1124,13 @@ describe('retained external supervisor recovery', () => {
         status: 'failed',
       }),
     )
-    expect(terminalCleanupCalls).toBe(1)
+    expect(terminalCleanupCalls).toBe(0)
     expect(events).toContainEqual(
       expect.objectContaining({
         kind: 'environment-teardown',
         environmentId: environmentIds[0],
-        destroyed: true,
+        destroyed: false,
+        detail: expect.stringContaining('checkpoint kept uncaptured'),
       }),
     )
     expect(checkpoint).toMatchObject({
@@ -1460,7 +1461,11 @@ async function setup(
         if (options?.proxySecrets !== undefined) {
           rebinds++
           if (injected && rebindFailure === 'revoked') {
-            const environment = await base.get!(id, { ...options, proxySecrets: [] })
+            const environment = await base.get!(id, {
+              ...options,
+              proxySecrets: [],
+              proxySecretParents: {},
+            })
             observedRevocation = environment?.proxySecretReceipt?.status === 'revoked'
             return environment ? wrap(environment) : null
           }

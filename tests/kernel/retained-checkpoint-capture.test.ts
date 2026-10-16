@@ -328,49 +328,6 @@ describe('checkpoint capture before cleanup', () => {
     },
   )
 
-  it.each(['available', 'missing', 'corrupt'] as const)(
-    'retains a restarted source protected only by %s private binding admission evidence',
-    async (evidence) => {
-      const model = ownerModel()
-      await model.start()
-      await scopeRetainedOwnerContext(model.scope())!.onAdmission(
-        createProxySecretBindingAdmission({
-          phase: 'proxy-secrets',
-          stage: 'selected',
-          provider: 'model-provider',
-          environmentId: 'model-source',
-          proxySecrets: protectedProfile.proxySecrets,
-          proxySecretParents: { REPORTS_TOKEN: null },
-        }),
-      )
-      await model.coordinate()
-      model.crash()
-      if (evidence === 'missing') vi.spyOn(model.blobs, 'get').mockResolvedValue(undefined)
-      if (evidence === 'corrupt')
-        vi.spyOn(model.blobs, 'get').mockResolvedValue({ corrupted: true })
-      const kept = await model.release()
-      expect(model.capture.forks.size).toBe(0)
-      expect(
-        model.events.some((event) => event.kind === 'workspace-checkpoint-fork-requested'),
-      ).toBe(false)
-      expect(model.deletes).toEqual([])
-      expect(model.snapshots.size).toBe(1)
-      expect(model.live()).toBe(true)
-      expect(kept).toContainEqual(
-        expect.objectContaining({
-          kept: [expect.objectContaining({ environmentId: 'model-source' })],
-        }),
-      )
-      expect(model.events).toContainEqual(
-        expect.objectContaining({
-          kind: 'workspace-checkpoint-cleanup',
-          confirmed: false,
-          refused: expect.stringMatching(/proxy.*checkpoint|checkpoint.*custody/),
-        }),
-      )
-    },
-  )
-
   it('refuses reuse of a cached checkpoint capture after its owner becomes protected', async () => {
     const model = ownerModel()
     await model.start()

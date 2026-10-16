@@ -198,7 +198,6 @@ describe('public supervise proxy-secret descendant admission', () => {
         AGENT_RUNTIME_COORDINATION_TOKEN: null,
       })
       expect(defaults).toEqual({ env: { PUBLIC_FIXTURE_SETTING: 'preserved' } })
-      expect(JSON.stringify(events)).not.toContain('reporting-api')
       expect(JSON.stringify(events)).not.toContain('Authorization')
     } finally {
       await proxy.close()

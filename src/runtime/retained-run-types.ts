@@ -213,10 +213,8 @@ export type RetainedInteractiveAdmission =
   | RetainedInteractiveStartedAdmission
 
 /** One detached-run admission record the runtime persists before creation or dispatch proceeds. @stable */
-export type RetainedProxySecretAdmission = ProxySecretBindingAdmission
-
 export type RetainedRunAdmission =
-  | RetainedProxySecretAdmission
+  | ProxySecretBindingAdmission
   | RetainedRunIntentAdmission
   | RetainedRunEnvironmentAdmission
   | RetainedRunDispatchedAdmission

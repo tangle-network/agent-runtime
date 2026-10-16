@@ -32,6 +32,7 @@ import type {
   AgentTurnResult,
   ChildTaskEvent,
   InteractionRequest,
+  ProxySecretBinding,
   ReasoningEffort,
   Sha256Digest,
   WorkspaceCheckpointRef,
@@ -1456,6 +1457,8 @@ export type SpawnEvent =
       kind: 'execution-input'
       id: NodeId
       taskRef: string
+      /** Canonical authored proxy declarations, including an explicit empty selection. */
+      proxySecrets?: readonly ProxySecretBinding[]
       /** Runtime-owned exact parent request pins for this invocation. */
       proxySecretParents?: ProxySecretParents
       /** @internal Whether this owner must preserve an unreceipted provider workspace on resume. */

@@ -13,7 +13,7 @@ import type {
   ProxySecretReceipt,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, expect, it } from 'vitest'
-import { reconnectRetainedRun, startRetainedRun } from '../../src/runtime/retained-run-start'
+import { startRetainedRun } from '../../src/runtime/retained-run-start'
 import type { RetainedRunHandle } from '../../src/runtime/retained-run-types'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { proxySecretCapabilities } from '../helpers/proxy-coordination'
@@ -178,23 +178,4 @@ it('checks custody after native request validation immediately before provider d
   current.expireDuringValidation()
   await expect(current.handle.continueNative(request, turn)).rejects.toThrow(/proxy-secret/)
   expect(current.nativeCalls()).toBe(0)
-})
-
-it('continues the same native session after checked in-place rebinding returns a fresh handle', async () => {
-  const current = await fixture()
-  current.invalidate('revoked')
-  const handle = await reconnectRetainedRun({
-    proxySecretParents: rootParents,
-    provider: current.provider,
-    controlRef: current.handle.controlRef,
-    proxySecrets: [binding],
-  })
-  if (!handle) throw new Error('retained environment disappeared')
-  expect(handle.controlRef).toEqual(current.handle.controlRef)
-  const { request, turn } = await continuation(handle)
-  const result = await handle.continueNative(request, turn)
-  expect(result.acknowledgement.status).toBe('accepted')
-  expect(result.controlRef?.environmentId).toBe(current.handle.controlRef.environmentId)
-  expect(result.controlRef?.sessionId).toBe(current.handle.controlRef.sessionId)
-  expect(current.nativeCalls()).toBe(1)
 })

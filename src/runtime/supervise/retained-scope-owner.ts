@@ -5,6 +5,7 @@ import {
   type AgentWorkspaceBranching,
   agentCandidateWorkspaceSnapshotEvidenceSchema,
   canonicalAgentProfileDigest,
+  ProxySecretsSchema,
   type Sha256Digest,
   workspaceCheckpointRequestDigest,
   workspaceCheckpointResultMatchesRequest,
@@ -87,6 +88,8 @@ interface OwnerState {
     typeof runtimeAuthorityEvidence<CoordinationGenerationRecord>
   >
   readonly proxySecretAdmissions: ReturnType<typeof proxySecretBindingEvidence>
+  readonly revokeCoordinationGeneration: ReturnType<ConfirmedCoordinationRevocation>
+  readonly coordinationRevocations: Set<Promise<void>>
   coordinationWrite?: Promise<void>
   coordinationRegistration?: CoordinationRegistration
   inputSequence?: number
@@ -146,6 +149,7 @@ interface OwnerRegistration {
   readonly depth?: number
   readonly journal: SpawnJournal
   readonly blobs: ResultBlobStore
+  readonly confirmedCoordinationRevocation?: ConfirmedCoordinationRevocation
   readonly priorEvents: readonly SpawnEvent[]
   readonly now: () => number
 }
@@ -335,19 +339,34 @@ export async function scopeRetainedOwnerCoordinationSource(
 /** Persist the exact canonical source and binding after prepare, before provider allocation. */
 export async function scopeRetainedOwnerCoordinationGenerationRegistered(
   scope: Scope<unknown>,
-  credential: CoordinationSignedCredentialGeneration,
+  credential: CoordinationSignedCredentialGeneration | undefined,
   registration: CoordinationRegistration,
 ): Promise<void> {
   const state = owners.get(scope)
-  if (state === undefined)
+  if (state === undefined) {
+    if (credential === undefined) return
     throw new ValidationError('coordination registration requires a durable owner')
-  const captured = captureCoordinationSignedCredentialGeneration(credential)
+  }
+  const captured =
+    credential === undefined ? undefined : captureCoordinationSignedCredentialGeneration(credential)
   const source = detachedSnapshot(
     captureCoordinationRegistration(registration),
     'coordination registration',
   )
   await serializeCoordinationWrite(state, async () => {
     scope.signal.throwIfAborted()
+    if (captured === undefined) {
+      if (
+        state.coordinationRegistration !== undefined &&
+        contentAddress(state.coordinationRegistration) !== contentAddress(source)
+      ) {
+        throw new ValidationError('coordination source changed without confirmed revocation')
+      }
+      // The first selected binding admission persists this safe metadata before allocation.
+      // An unsigned bearer and its nonce never enter a generation artifact.
+      state.coordinationRegistration = source
+      return
+    }
     const latest = latestCoordinationGeneration(await state.credentialGenerations.read())
     scope.signal.throwIfAborted()
     if (
@@ -369,26 +388,101 @@ export async function scopeRetainedOwnerCoordinationGenerationRegistered(
   })
 }
 
+/** Private denial capability; the supervisor supplies its original lease-bound stores. */
+export function createConfirmedCoordinationRevocation(stores: {
+  readonly journal: SpawnJournal
+  readonly blobs: ResultBlobStore
+}) {
+  return (owner: {
+    readonly rootId: NodeId
+    readonly nodeId: NodeId
+    readonly nextSequence: () => number
+    readonly now: () => number
+  }) => {
+    const generations = runtimeAuthorityEvidence({
+      ...stores,
+      ...owner,
+      authority: 'coordination-credential-generation',
+      capture: captureCoordinationGenerationRecord,
+    })
+    return async (
+      credential: CoordinationSignedCredentialGeneration,
+      registration: CoordinationRegistration,
+    ): Promise<void> => {
+      const latest = latestCoordinationGeneration(await generations.read())
+      if (
+        latest === undefined ||
+        contentAddress(latest.credential) !== contentAddress(credential)
+      ) {
+        throw new ValidationError(
+          'coordination credential revocation does not match its admitted generation',
+        )
+      }
+      const registered = coordinationRegistration(latest)
+      if (registered !== undefined && contentAddress(registered) !== contentAddress(registration)) {
+        throw new ValidationError('coordination revocation does not match its registered source')
+      }
+      if (latest.status !== 'revoked') await generations.write({ ...latest, status: 'revoked' })
+    }
+  }
+}
+
+type ConfirmedCoordinationRevocation = ReturnType<typeof createConfirmedCoordinationRevocation>
+
+/** Register the complete revoke-to-denial operation before abort can settle the run. */
+export function trackScopeCoordinationRevocation(
+  scope: Scope<unknown>,
+  pending: Promise<void>,
+): void {
+  owners.get(scope)?.coordinationRevocations.add(pending)
+}
+
+async function settleCoordinationRevocations(state: OwnerState): Promise<void> {
+  const failures: unknown[] = []
+  while (state.coordinationRevocations.size > 0) {
+    const pending = [...state.coordinationRevocations]
+    const results = await Promise.allSettled(pending)
+    for (const operation of pending) state.coordinationRevocations.delete(operation)
+    for (const result of results) if (result.status === 'rejected') failures.push(result.reason)
+  }
+  if (failures.length > 0) throw new AggregateError(failures, 'coordination revocation unconfirmed')
+}
+
 /** Confirmed source revocation ends replay authority before graceful close resolves. */
 export async function scopeRetainedOwnerCoordinationGenerationRevoked(
   scope: Scope<unknown>,
-  credential: CoordinationSignedCredentialGeneration,
+  credential: CoordinationSignedCredentialGeneration | undefined,
+  registration?: CoordinationRegistration,
 ): Promise<void> {
   const state = owners.get(scope)
   if (state === undefined) {
+    if (credential === undefined) return
     throw new ValidationError('coordination credential revocation requires a durable owner')
   }
-  const captured = captureCoordinationSignedCredentialGeneration(credential)
+  const captured =
+    credential === undefined ? undefined : captureCoordinationSignedCredentialGeneration(credential)
+  const source =
+    registration === undefined
+      ? undefined
+      : detachedSnapshot(
+          captureCoordinationRegistration(registration),
+          'coordination revoked registration',
+        )
   await serializeCoordinationWrite(state, async () => {
-    const latest = latestCoordinationGeneration(await state.credentialGenerations.read())
-    if (latest === undefined || contentAddress(latest.credential) !== contentAddress(captured)) {
-      throw new ValidationError(
-        'coordination credential revocation does not match its admitted generation',
-      )
+    if (captured === undefined) {
+      if (source === undefined)
+        throw new ValidationError('coordination revocation requires exact source metadata')
+      if (
+        state.coordinationRegistration !== undefined &&
+        contentAddress(state.coordinationRegistration) === contentAddress(source)
+      ) {
+        state.coordinationRegistration = undefined
+      }
+      return
     }
-    if (latest.status !== 'revoked') {
-      await state.credentialGenerations.write({ ...latest, status: 'revoked' })
-    }
+    if (source === undefined)
+      throw new ValidationError('coordination revocation requires exact source metadata')
+    await state.revokeCoordinationGeneration(captured, source)
     state.coordinationRegistration = undefined
   })
 }
@@ -415,6 +509,15 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
     proxySecretAdmissions: proxySecretBindingEvidence({
       ...args,
       nextSequence: () => ++sequence,
+      currentRegistration: () => state.coordinationRegistration,
+    }),
+    revokeCoordinationGeneration: (
+      args.confirmedCoordinationRevocation ?? createConfirmedCoordinationRevocation(args)
+    )({
+      rootId: args.rootId,
+      nodeId: args.nodeId,
+      nextSequence: () => ++sequence,
+      now: args.now,
     }),
     credentialGenerations: runtimeAuthorityEvidence({
       ...args,
@@ -422,6 +525,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
       authority: 'coordination-credential-generation',
       capture: captureCoordinationGenerationRecord,
     }),
+    coordinationRevocations: new Set(),
     workspaceRetention: false,
     nextSequence: () => ++sequence,
     ...(taskEvent?.kind === 'execution-input'
@@ -1756,9 +1860,14 @@ export async function scopeRetainedOwnerTurnEnded(scope: Scope<unknown>): Promis
 export async function scopeRetainedOwnerSettled(scope: Scope<unknown>): Promise<void> {
   const state = owners.get(scope)
   if (state === undefined) return
-  await ownerDriveEnded(state)
-  await scopeRetainedOwnerTurnEnded(scope)
-  await state.releasing?.catch(() => undefined)
+  try {
+    await ownerDriveEnded(state)
+    await scopeRetainedOwnerTurnEnded(scope)
+    await state.releasing?.catch(() => undefined)
+  } finally {
+    // Denial must settle even when a failed execution store prevents other finalization.
+    await settleCoordinationRevocations(state)
+  }
 }
 
 /**
@@ -2529,17 +2638,42 @@ export async function prepareScopeRetainedOwnerTask(
   task: unknown,
   session: 'native' | 'fresh' = 'native',
   proxySecretParents?: ProxySecretParents,
+  authoredProxySecrets: readonly ProxySecretBinding[] = [],
 ): Promise<unknown> {
   const state = owners.get(scope)
   if (!state) return task
+  const authored = ProxySecretsSchema.safeParse(authoredProxySecrets)
+  if (!authored.success) {
+    throw new ValidationError('retained owner authored proxy-secret declaration is invalid')
+  }
+  const proxySecrets = detachedSnapshot(authored.data, 'retained owner authored proxy secrets')
   const { args } = state
   state.freshSessions = session === 'fresh'
   scope.signal.throwIfAborted()
   const journal = (await args.journal.loadTree(args.rootId)) ?? []
   const owned = journal.filter((event) => event.id === args.nodeId)
   const latestInput = [...owned].reverse().find((event) => event.kind === 'execution-input')
+  const unusable = unusableEnvironmentIds(owned)
+  const inFlight = continuedEnvironment(owned)
   if (latestInput?.kind === 'execution-input') {
     const attempt = owned.slice(owned.indexOf(latestInput))
+    const pending = !attempt.some(
+      (event) => event.kind === 'execution-result' || event.kind === 'execution-abandoned',
+    )
+    if (
+      pending &&
+      !(inFlight?.inFlight && unusable.has(inFlight.admission.environmentId)) &&
+      (latestInput.proxySecrets !== undefined ||
+        proxySecrets.length > 0 ||
+        Object.keys(proxySecretParents ?? {}).length > 0)
+    ) {
+      const original = ProxySecretsSchema.safeParse(latestInput.proxySecrets)
+      if (!original.success || contentAddress(original.data) !== contentAddress(proxySecrets)) {
+        throw new ValidationError(
+          'retained owner authored proxy-secret declaration is missing or changed',
+        )
+      }
+    }
     state.taskRef = latestInput.taskRef
     state.inputSequence = latestInput.seq
     state.admissions.splice(
@@ -2555,8 +2689,6 @@ export async function prepareScopeRetainedOwnerTask(
   if (state.taskRef !== undefined && state.acceptedRef === undefined) {
     await reconcileOwnerWorkspaceBeforeReuse(state, scope.signal)
   }
-  const unusable = unusableEnvironmentIds(owned)
-  const inFlight = continuedEnvironment(owned)
   if (inFlight?.inFlight && unusable.has(inFlight.admission.environmentId)) {
     // An in-flight invocation in an absent or terminal environment cannot be recovered, and
     // nothing is left running to pay for twice. The next drive is a new invocation.
@@ -2679,6 +2811,7 @@ export async function prepareScopeRetainedOwnerTask(
     kind: 'execution-input',
     id: args.nodeId,
     taskRef,
+    proxySecrets,
     ...(proxySecretParents === undefined
       ? {}
       : { proxySecretParents: captureProxySecretParents(proxySecretParents) }),

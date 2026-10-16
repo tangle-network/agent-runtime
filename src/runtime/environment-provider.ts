@@ -107,6 +107,7 @@ import {
   recoverRetainedRun,
   retainedProxySecretBindings,
   startRetainedRun,
+  startRetainedRunInEnvironment,
 } from './retained-run-start'
 import type { RetainedRunHandle } from './retained-run-types'
 import {
@@ -2795,12 +2796,29 @@ async function providerExecutionSource(
       // Replay the committed intent rather than mistaking that prior result for this execution.
       let recovered =
         material.existingEnvironmentId !== undefined && intent?.phase === 'intent'
-          ? await recoverRetainedRun({
-              provider: args.provider,
-              admission: intent,
-              replay: material,
-              onAdmission,
-            })
+          ? {
+              outcome: 'recovered' as const,
+              via: 'resumed' as const,
+              // The original intent was checked above. Current custody is admitted separately;
+              // replay only the committed dispatch coordinates, never a rewritten create intent.
+              handle: await startRetainedRunInEnvironment({
+                provider: args.provider,
+                environment: {
+                  id: environmentAdmission.environmentId,
+                  idempotencyKey: environmentAdmission.idempotencyKey,
+                },
+                identity: {
+                  sessionId: environmentAdmission.sessionId,
+                  executionId: environmentAdmission.executionId,
+                },
+                turn: material.turn,
+                proxySecrets: retainedProxySecretBindings(material.environment),
+                proxySecretParents,
+                proxySecretSourceIdentity,
+                onAdmission,
+                signal,
+              }),
+            }
           : await recoverRetainedRun({
               provider: args.provider,
               environmentId: environmentAdmission.environmentId,

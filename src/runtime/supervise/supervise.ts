@@ -1261,6 +1261,7 @@ function driveHarnessFromBackend(
           driveTask,
           session ?? 'native',
           proxySecretParents,
+          authoredProfile.proxySecrets ?? [],
         )
       : driveTask
     const acceptedOwner = retainedOwner ? await scopeRetainedOwnerResult(scope) : undefined
