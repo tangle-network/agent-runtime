@@ -1211,6 +1211,7 @@ export {
   type SuperviseRegistry,
   type SuperviseRegistryTable,
   supervise,
+  superviseFleetCapabilities,
   workerFromBackend,
 } from './supervise/supervise'
 export { createRootHandle, createSupervisor, DEFAULT_MAX_DEPTH } from './supervise/supervisor'

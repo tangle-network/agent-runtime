@@ -1,0 +1,3 @@
+type: minor
+---
+Allow supervised peer roots to read one another's journals and recorded agent events with `peerAudit: true`, through the existing `read_journal` and `observe_agent` tools. Peer steering and writes retain their existing ownership boundary. `traceTools: false` removes both observation tools from the root and all authored descendants. `superviseFleetCapabilities` exposes support before a consumer builds an opted-in run, and node tool context carries the stable peer root owner for product-owned page permissions.

@@ -32,6 +32,7 @@ import type {
   CoordinationTools,
   EscalateQuestion,
   MakeWorkerAgent,
+  PeerAuditAccess,
   ManagerWake,
   SpawnPreflight,
   SuperviseProfileEntry,
@@ -280,6 +281,8 @@ export interface SupervisorNodeContext {
   readonly nodeId: string
   /** Stable identity of this manager's coordination stream. */
   readonly ownerId: string
+  /** Stable first-level peer manager owner, inherited by its managed descendants when peer audit is enabled. */
+  readonly peerRootOwnerId?: string
   readonly depth: number
   readonly identity: NodeExecutionIdentity
   /** Assignment identity within the parent manager; absent only for the root. */
@@ -604,6 +607,7 @@ export interface SupervisorAgentDeps {
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
   /** Trusted source refs for this manager’s existing observe_agent capability. */
   readonly sourceEvidenceRefs?: ReadonlyArray<string>
+  readonly peerAudit?: PeerAuditAccess
   /** Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so the driver
    *  learns a worker is looping mid-run instead of at settle. Omit = no online watching. */
   readonly watchWorkers?: WorkerWatchOptions
@@ -916,6 +920,7 @@ function buildSupervisorAgent(
         ...(deps.analysts ? { analysts: deps.analysts } : {}),
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
         ...(deps.sourceEvidenceRefs ? { sourceEvidenceRefs: deps.sourceEvidenceRefs } : {}),
+        ...(deps.peerAudit ? { peerAudit: deps.peerAudit } : {}),
         ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
@@ -1106,6 +1111,7 @@ function buildSupervisorAgent(
           ...(deps.analysts ? { analysts: deps.analysts } : {}),
           ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
           ...(deps.sourceEvidenceRefs ? { sourceEvidenceRefs: deps.sourceEvidenceRefs } : {}),
+        ...(deps.peerAudit ? { peerAudit: deps.peerAudit } : {}),
           ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
           ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
           ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
