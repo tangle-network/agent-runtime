@@ -607,3 +607,11 @@ A pre-harness failure can retain partial evidence with an unknown native session
 Incomplete required coverage preserves the source environment.
 
 Native analyst assignments retain `sourceEvidenceRef` and pass trusted `sourceEvidenceRefs` to the worker factory. A managed reviewer whose authored profile grants `observe_agent` can read these exact envelope, output, and trace refs through the existing paged `observe_agent({outRef})` reader. Other refs remain denied. Profiles without that grant receive bounded excerpts and must leave claims about omitted evidence unassessed. No tool is added to an authored profile implicitly.
+
+## Remote supervisor observation and provider peer mail
+
+The coordination handle exposes `readOnly`, with its own URL and protected headers. Pass that endpoint to `connectRemoteSupervisor` from `/kernel` to list the complete owned tree, preserve parent identities and statuses, and read a selected worker's live output. The endpoint grants only the existing observation and journal tools; its credential cannot spawn, steer or stop work. Rotate credentials through the coordination handle. Never put these headers in a profile or journal.
+
+`observe_agent` accepts `tree: true`, or a worker id with `events: true` and the previous event cursor. Live event pages are bounded and process-local. `reset` names a changed stream epoch, `historyExpired` names evicted history, and an unavailable page names absent capture. These are not durable transcript replay. The Runtime-owned journal and retained transcript remain authoritative for historical evidence.
+
+Peer mail shares the existing coordination listener and its caller-supplied public route. Each worker gets its own unguessable capability path and only its own send/read tools. Provider workers receive that endpoint through `runtimeAttachments.mcp`, without changing the authored profile. A provider that does not advertise runtime MCP attachments is refused before environment creation. The public route must carry the peer paths as well as the manager endpoint. Runtime creates no tunnel.

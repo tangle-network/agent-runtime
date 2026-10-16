@@ -1506,3 +1506,6 @@ export {
   type WorkspaceCommit,
   type WorkspaceRun,
 } from './workspace'
+
+export { connectRemoteSupervisor, type RemoteSupervisorReader, type RemoteSupervisorTree, type RemoteSupervisorAgent, type RemoteWorkerEvents } from './supervise/remote-supervisor'
+export type { WorkerEventCursor, WorkerEventEntry, WorkerEventPage } from './supervise/worker-events'

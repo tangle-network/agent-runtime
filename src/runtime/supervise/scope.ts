@@ -124,6 +124,7 @@ import {
 } from './retained-scope-owner'
 import { authoredSeatStages, seatExecutionProfile } from './seat-chain'
 import { detachedSnapshot } from './snapshot'
+import { WorkerEvents, type WorkerEventCursor, type WorkerEventPage } from './worker-events'
 import {
   type DownSettlement,
   releasedChildPayload,
@@ -591,6 +592,7 @@ export function assertRecursiveReservationPolicy(
  * delivery; `seq` is stamped by `next()`, never here.
  */
 interface LiveChild {
+  readonly events: WorkerEvents
   cancellationReason?: RunCancellationReason
   readonly id: NodeId
   status: NodeStatus
@@ -1450,6 +1452,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         live.teardownAttempts += 1
       })
       const live: LiveChild = {
+        events: new WorkerEvents(),
         id,
         status: permit.granted ? 'acquiring' : 'queued',
         runtime: executor.runtime,
@@ -2176,6 +2179,27 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     nextResolved,
     send,
     progress,
+    observeTree: () => {
+      const view = makeTreeView(args.parentId, children)
+      const nodes = new Map((args.resumeFrom?.view.nodes ?? []).map((node) => [node.id, node]))
+      for (const node of view.nodes) nodes.set(node.id, node)
+      for (const child of children.values()) {
+        const nested = child.readNestedScope?.()
+        if (nested) for (const node of (nested.observeTree?.() ?? nested.view).nodes) nodes.set(node.id, node)
+      }
+      const all = [...nodes.values()]
+      return { root: view.root, nodes: all, inFlight: all.filter((node) => isLiveNodeStatus(node.status)).length }
+    },
+    observeEvents: (nodeId: NodeId, cursor?: WorkerEventCursor): WorkerEventPage => {
+      const child = children.get(nodeId)
+      if (child) return child.events.read(cursor)
+      for (const candidate of children.values()) {
+        const nested = candidate.readNestedScope?.()
+        const page = nested?.observeEvents?.(nodeId, cursor)
+        if (page && (page.status === 'available' || page.reason !== 'unknown-worker')) return page
+      }
+      return { status: 'unavailable', reason: args.resumeFrom?.view.nodes.some((node) => node.id === nodeId) ? 'not-captured' : 'unknown-worker' }
+    },
     traceSource,
     interactive,
     cancel,
@@ -3688,6 +3712,7 @@ async function runChild<C>(
         },
         childAbort.signal,
         priorSpent,
+        (event) => live.events.append(event, now()),
       )
       live.spent = spend
       const reported = executor.resultArtifact() as ExecutorResult<C>
@@ -4268,6 +4293,7 @@ async function foldStream(
   onProgress?: (running: Spend) => void | Promise<void>,
   signal?: AbortSignal,
   priorSpent?: Spend,
+  onEvent?: (event: import('./types').ExecutorProgressEvent) => void,
 ): Promise<Spend> {
   const totals = newUsageTotals(priorSpent)
   const iterator = stream[Symbol.asyncIterator]()
@@ -4278,6 +4304,7 @@ async function foldStream(
         : await iterator.next()
       if (next.done) break
       const ev = next.value
+      if (ev.kind === 'progress') onEvent?.(ev.progress)
       meterUsageEvent(totals, ev)
       await onProgress?.({
         ...addResourceSpend(totals.resources),

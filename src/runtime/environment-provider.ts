@@ -2461,7 +2461,15 @@ async function providerExecutionSource(
 }> {
   const selectedTurn = subscriptionTurnProfile(turn, args.profile)
   AgentTurnInputSchema.parse(selectedTurn)
-  const capabilities = args.retention ? await args.provider.capabilities() : undefined
+  const mcpAttachments = args.options.defaults?.runtimeAttachments?.mcp
+  const needsMcp = mcpAttachments !== undefined && Object.keys(mcpAttachments).length > 0
+  const capabilities = args.retention || needsMcp ? await args.provider.capabilities() : undefined
+  if (needsMcp) {
+    const create = capabilities?.create
+    if (!create || !('runtimeAttachments' in create) || create.runtimeAttachments?.mcp !== true) {
+      throw new ValidationError(`provider ${args.provider.name} does not advertise create.runtimeAttachments.mcp; no environment was created`)
+    }
+  }
   const useRetained = args.retention !== undefined && capabilities?.retainedControl !== undefined
   if (!useRetained) {
     if (args.recovering)
