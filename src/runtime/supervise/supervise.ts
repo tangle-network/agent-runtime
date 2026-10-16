@@ -3599,8 +3599,17 @@ function superviseInternal(
           read: async (peerId, name, args) => {
             const peer = auditPeers.get(peerId)
             if (peer?.parent !== parent) return { error: 'unknown-peer' }
-            const tool = peer.tools.find((tool) => tool.name === name)
-            return tool ? tool.handler(args) : { error: 'peer-tool-unavailable' }
+            // A scope records its descendants. Its own root's provider events belong to the parent.
+            const rootRead =
+              name === 'observe_agent' &&
+              args.tree !== true &&
+              args.outRef === undefined &&
+              (args.workerId === undefined || args.workerId === peerId)
+            const tools = rootRead ? auditPeers.get(parent)?.tools : peer.tools
+            const tool = tools?.find((tool) => tool.name === name)
+            return tool
+              ? tool.handler(rootRead ? { ...args, workerId: peerId } : args)
+              : { error: 'peer-tool-unavailable' }
           },
         }
       : undefined
@@ -4424,7 +4433,9 @@ function superviseInternal(
     const priorCoordination = log ? await log.load(runId, rootOwnerId) : undefined
 
     const authorizeRootMessage = authorizeDownFor(canonicalProfile, 1)
+    const rootPeerAudit = peerAuditFor('')
     const agentDeps = {
+      ...(rootPeerAudit ? { peerAudit: rootPeerAudit } : {}),
       blobs,
       makeWorkerAgent: workerFactory,
       ...(authorizeRootMessage ? { authorizeDownMessage: authorizeRootMessage } : {}),
