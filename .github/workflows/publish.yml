@@ -259,7 +259,6 @@ jobs:
       EXPECTED_NAME: '@tangle-network/agent-runtime'
       EXPECTED_VERSION: ${{ needs.verify.outputs.release-version }}
       EXPECTED_SHA256: ${{ needs.verify.outputs.package-sha256 }}
-      PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-runtime-package
       LINE_SCOPED_BACKPORTS: 'true'
       NPM_CONFIG_PROVENANCE: 'true'
     steps:
@@ -285,6 +284,8 @@ jobs:
       # Shared YAML, not a new action or executable downloaded with authority.
       # Neither publisher checks out source, installs dependencies or builds.
       - name: Publish exact Runtime archive
+        env:
+        PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-runtime-package
         run: &publish-exact |
           set -euo pipefail
           npm_version=$(npm --version)
@@ -418,7 +419,6 @@ jobs:
       EXPECTED_NAME: '@tangle-network/agent-bench'
       EXPECTED_VERSION: ${{ needs.verify-agent-bench.outputs.release-version }}
       EXPECTED_SHA256: ${{ needs.verify-agent-bench.outputs.package-sha256 }}
-      PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-bench-package
       LINE_SCOPED_BACKPORTS: 'false'
       NPM_CONFIG_PROVENANCE: 'true'
     steps:
@@ -431,4 +431,6 @@ jobs:
           path: ${{ runner.temp }}/agent-bench-package
       - *npm-auth
       - name: Publish exact agent-bench archive
+        env:
+        PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-bench-package
         run: *publish-exact
