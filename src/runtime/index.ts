@@ -981,7 +981,6 @@ export {
   type PeerMailboxOptions,
   type PeerMailEnvelope,
   type PeerMailEvent,
-  type PeerMailKind,
   type PeerMailLimits,
   type PeerMailOutcome,
   type PeerMailReadout,
