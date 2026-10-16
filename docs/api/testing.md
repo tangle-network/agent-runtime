@@ -125,6 +125,10 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result 
 
 Trusted source refs for this manager’s existing observe_agent capability.
 
+##### peerAudit?
+
+> `readonly` `optional` **peerAudit?**: [`PeerAuditAccess`](mcp.md#peerauditaccess)
+
 ##### watchWorkers?
 
 > `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
@@ -738,6 +742,26 @@ OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_m
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`peerMail`](runtime.md#peermail-1)
+
+##### peerAudit?
+
+> `readonly` `optional` **peerAudit?**: `boolean`
+
+Let sibling root managers read each other's recorded evidence. No mutation or steering. Default false.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`peerAudit`](runtime.md#peeraudit-1)
+
+##### traceTools?
+
+> `readonly` `optional` **traceTools?**: `boolean`
+
+False removes observe_agent/read_journal from the root and every authored descendant. Default true.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`traceTools`](runtime.md#tracetools-1)
 
 ##### recoverExecutor?
 
@@ -1650,6 +1674,26 @@ OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_m
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`peerMail`](runtime.md#peermail-1)
+
+##### peerAudit?
+
+> `readonly` `optional` **peerAudit?**: `boolean`
+
+Let sibling root managers read each other's recorded evidence. No mutation or steering. Default false.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`peerAudit`](runtime.md#peeraudit-1)
+
+##### traceTools?
+
+> `readonly` `optional` **traceTools?**: `boolean`
+
+False removes observe_agent/read_journal from the root and every authored descendant. Default true.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`traceTools`](runtime.md#tracetools-1)
 
 ##### makeWorkerAgent?
 
@@ -2637,6 +2681,16 @@ entry; production supervisor surfaces cannot replace profile-derived model execu
 
 #### Properties
 
+##### peerMailUrl?
+
+> `readonly` `optional` **peerMailUrl?**: `string`
+
+Parent post office bound to this manager's worker identity.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`peerMailUrl`](runtime.md#peermailurl-1)
+
 ##### blobs
 
 > `readonly` **blobs**: [`ResultBlobStore`](runtime.md#resultblobstore)
@@ -2999,6 +3053,14 @@ Trusted source refs for this manager’s existing observe_agent capability.
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`sourceEvidenceRefs`](runtime.md#sourceevidencerefs-1)
+
+##### peerAudit?
+
+> `readonly` `optional` **peerAudit?**: [`PeerAuditAccess`](mcp.md#peerauditaccess)
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`peerAudit`](runtime.md#peeraudit-2)
 
 ##### watchWorkers?
 

@@ -33,6 +33,7 @@ import type {
   EscalateQuestion,
   MakeWorkerAgent,
   ManagerWake,
+  PeerAuditAccess,
   SpawnPreflight,
   SuperviseProfileEntry,
   WorkerWatchOptions,
@@ -81,7 +82,7 @@ import {
   profileModelExecutionSettings,
 } from './model-policy'
 import { isLiveNodeStatus } from './node-status'
-import type { PeerMailLimits } from './peer-mail'
+import { isPeerMailEnvelope, PEER_MAIL_WIRE_KEY, type PeerMailLimits } from './peer-mail'
 import type { ExecutorProgress } from './progress'
 import {
   coordinationMcpAlias,
@@ -280,6 +281,8 @@ export interface SupervisorNodeContext {
   readonly nodeId: string
   /** Stable identity of this manager's coordination stream. */
   readonly ownerId: string
+  /** Stable first-level peer manager owner, inherited by its managed descendants when peer audit is enabled. */
+  readonly peerRootOwnerId?: string
   readonly depth: number
   readonly identity: NodeExecutionIdentity
   /** Assignment identity within the parent manager; absent only for the root. */
@@ -469,6 +472,8 @@ export interface DriveHarness {
     readonly coordinationMcpUrl: string
     /** Runtime-only transport credentials; never append them to the authored profile or task. */
     readonly coordinationMcpHeaders?: Readonly<Record<string, string>>
+    /** Parent-minted peer post office. Runtime attachment only, never part of the profile. */
+    readonly peerMailUrl?: string
     /** Fires when the coordination server accepts a result or declares completion. */
     readonly stopSignal?: AbortSignal
     /** Data-only product tool surface mounted on the coordination MCP. Runtime-owned drivers include
@@ -521,6 +526,8 @@ export type DriveHarnessOwnerContext = Omit<SupervisorNodeContext, 'nodeId'>
 export type ResolveDriveHarness = (context: DriveHarnessOwnerContext) => DriveHarness
 
 export interface SupervisorAgentDeps {
+  /** Parent post office bound to this manager's worker identity. */
+  readonly peerMailUrl?: string
   readonly blobs: ResultBlobStore
   /** Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same for both arms). */
   readonly makeWorkerAgent: MakeWorkerAgent
@@ -604,6 +611,7 @@ export interface SupervisorAgentDeps {
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
   /** Trusted source refs for this manager’s existing observe_agent capability. */
   readonly sourceEvidenceRefs?: ReadonlyArray<string>
+  readonly peerAudit?: PeerAuditAccess
   /** Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so the driver
    *  learns a worker is looping mid-run instead of at settle. Omit = no online watching. */
   readonly watchWorkers?: WorkerWatchOptions
@@ -916,6 +924,7 @@ function buildSupervisorAgent(
         ...(deps.analysts ? { analysts: deps.analysts } : {}),
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
         ...(deps.sourceEvidenceRefs ? { sourceEvidenceRefs: deps.sourceEvidenceRefs } : {}),
+        ...(deps.peerAudit ? { peerAudit: deps.peerAudit } : {}),
         ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
@@ -1032,6 +1041,7 @@ function buildSupervisorAgent(
       // Filled by `serveCoordinationMcp` right after it builds this manager's coordination tools
       // and before it listens, so a product tool can compose from its first invocation.
       const slot = createVerbSlot()
+      const peerInbox = createInbox()
       const nodeTools =
         resolveTools && context
           ? await bindSupervisorTools(resolveTools, context, scope.signal, slot)
@@ -1106,6 +1116,7 @@ function buildSupervisorAgent(
           ...(deps.analysts ? { analysts: deps.analysts } : {}),
           ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
           ...(deps.sourceEvidenceRefs ? { sourceEvidenceRefs: deps.sourceEvidenceRefs } : {}),
+          ...(deps.peerAudit ? { peerAudit: deps.peerAudit } : {}),
           ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
           ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
           ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
@@ -1158,6 +1169,13 @@ function buildSupervisorAgent(
           deliver(message)
         ) {
           return true
+        }
+        const envelope =
+          message !== null && typeof message === 'object'
+            ? (message as Record<string, unknown>)[PEER_MAIL_WIRE_KEY]
+            : undefined
+        if (deps.peerMailUrl && isPeerMailEnvelope(envelope)) {
+          return peerInbox.deliver({ [PEER_MAIL_WIRE_KEY]: envelope })
         }
         return controls.receiveLeadMessage(message)
       }
@@ -1418,6 +1436,12 @@ function buildSupervisorAgent(
                         state: controls.reentryState(),
                         attempt,
                       })
+              const peerMessages = peerInbox.drain()
+              const peerText = peerMessages.length === 0 ? undefined : peerInbox.fold(peerMessages)
+              const withPeerMail = (input: unknown): string | unknown =>
+                peerText === undefined
+                  ? input
+                  : `${typeof input === 'string' ? input : (JSON.stringify(input) ?? String(input))}\n\n${peerText}`
               harnessInvocationActive = true
               let completed = false
               try {
@@ -1427,13 +1451,14 @@ function buildSupervisorAgent(
                   ...(registeredProfile === stableProfile ? {} : { registeredProfile }),
                   ...(profilePrompt !== undefined ? { systemPrompt: profilePrompt } : {}),
                   ...(session === undefined ? {} : { session }),
-                  task: compose === undefined ? task : compose(UNPROVEN_CONTINUITY),
+                  task: withPeerMail(compose === undefined ? task : compose(UNPROVEN_CONTINUITY)),
                   ...(compose === undefined
                     ? {}
                     : {
                         reentry: {
                           reason: reentry!,
-                          compose,
+                          compose: (continuity: ReentryContinuity) =>
+                            withPeerMail(compose(continuity)) as string,
                           ...(refresh === undefined ? {} : { refresh }),
                           onContinuity: (continuity: ReentryContinuity) => {
                             if (continuity.environment === 'replaced') environmentReplacements += 1
@@ -1444,6 +1469,7 @@ function buildSupervisorAgent(
                   scope,
                   coordinationMcpUrl: mcp.url,
                   coordinationMcpHeaders: mcp.headers,
+                  ...(deps.peerMailUrl ? { peerMailUrl: deps.peerMailUrl } : {}),
                   stopSignal: stopController.signal,
                   coordinationTools,
                 })
@@ -1498,6 +1524,12 @@ function buildSupervisorAgent(
                     // A stop (accepted result, stop rule, the manager's own stop) ends the wait too.
                     signal: AbortSignal.any([scope.signal, stopController.signal]),
                     heartbeatMs: wakePolicy.heartbeatMs,
+                    ...(deps.peerMailUrl
+                      ? {
+                          alsoWakeOn:
+                            peerInbox.pending() > 0 ? Promise.resolve() : peerInbox.nextDelivery(),
+                        }
+                      : {}),
                     debounceMs: wakePolicy.debounceMs,
                     ...(warnAt === undefined ? {} : { deadlineAt: warnAt }),
                   })

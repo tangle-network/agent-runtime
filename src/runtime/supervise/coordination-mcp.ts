@@ -36,6 +36,7 @@ import {
   type DefinedAnalystRecord,
   type EscalateQuestion,
   type MakeWorkerAgent,
+  type PeerAuditAccess,
   type QuestionEscalationRecord,
   type QuestionPolicy,
   type QuestionRecord,
@@ -262,6 +263,7 @@ export async function serveCoordinationMcp(
     analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
     /** Trusted source refs for this manager’s existing observe_agent capability. */
     sourceEvidenceRefs?: ReadonlyArray<string>
+    peerAudit?: PeerAuditAccess
     /** Run the ONLINE detector panel over each worker's live tool trace (raises `finding` events). */
     watchWorkers?: WorkerWatchOptions
     /** Idle time after which `observe_agent` reports a worker as stalled. */
@@ -489,6 +491,7 @@ export async function serveCoordinationMcpForManager(
       ...(opts.analysts ? { analysts: opts.analysts } : {}),
       ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
       ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
+      ...(opts.peerAudit ? { peerAudit: opts.peerAudit } : {}),
       ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
       ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
       ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
