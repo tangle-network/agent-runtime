@@ -1,3 +1,7 @@
+## 0.322.4
+
+Republish with regenerated release artifacts (0.322.3 shipped stale testing fixtures). Carries the retained-turn capture fix: failed turns with incomplete workspace capture stay under the driver retry policy.
+
 ## 0.322.3
 
 Republish of 0.322.2: the 0.322.2 tag failed release lint before publishing. Includes the retained-turn capture fix (failed turns with incomplete workspace capture stay under the driver retry policy).
