@@ -83,7 +83,6 @@ describe('router-tools executor drains the inbox', () => {
                   depth: 0,
                   from: 'peer',
                   to: 'w',
-                  kind: 'tell',
                   subject: 'inspection result',
                   body: 'the peer measured 41ms',
                   evidenceRefs: ['blob:inspection'],

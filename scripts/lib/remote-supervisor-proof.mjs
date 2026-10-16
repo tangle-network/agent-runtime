@@ -128,7 +128,7 @@ export async function verifyRemoteSupervisorConsumer(kernel) {
           const first = await attach(peers.get('alpha'))
           const second = await attach(peers.get('beta'))
           const marker = 'peer-transport-received'
-          const sent = await call(first, 'send_mail', { kind: 'ask', to: ids[1], subject: 'Transport proof', body: marker })
+          const sent = await call(first, 'send_mail', { to: ids[1], subject: 'Transport proof', body: marker })
           assert.equal(sent.delivered, true, JSON.stringify(sent))
           assert.ok(JSON.stringify(await call(second, 'read_mail', {})).includes(marker))
           assert.ok((await readFile(join(root, 'beta.mail'), 'utf8')).includes(marker))
