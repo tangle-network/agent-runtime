@@ -342,9 +342,13 @@ export function providerAsSandboxClient(
         )
       }
       const needsMcp = hasRuntimeMcpAttachments(mapped)
-      const capabilities = options.requireSession || needsMcp ? await provider.capabilities() : undefined
+      const capabilities =
+        options.requireSession || needsMcp ? await provider.capabilities() : undefined
       assertRuntimeMcpAttachments(provider.name, mapped, capabilities)
-      if (options.requireSession && (!capabilities?.streaming.live || !capabilities.sessions.continue)) {
+      if (
+        options.requireSession &&
+        (!capabilities?.streaming.live || !capabilities.sessions.continue)
+      ) {
         throw new ValidationError(
           `providerAsSandboxClient(${provider.name}): live session continuation is required`,
         )
@@ -2449,7 +2453,9 @@ function subscriptionTurnProfile(turn: AgentTurnInput, profile: AgentProfile): A
   return { ...turn, profile }
 }
 
-function hasRuntimeMcpAttachments(input: Partial<CreateAgentEnvironmentInput> | undefined): boolean {
+function hasRuntimeMcpAttachments(
+  input: Partial<CreateAgentEnvironmentInput> | undefined,
+): boolean {
   const mcp = input?.runtimeAttachments?.mcp
   return mcp !== undefined && Object.keys(mcp).length > 0
 }

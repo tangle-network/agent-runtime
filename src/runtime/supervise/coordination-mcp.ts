@@ -20,7 +20,7 @@
  */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { createServer, type Server, type IncomingMessage } from 'node:http'
+import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError, ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
@@ -787,7 +787,8 @@ export async function serveCoordinationMcpForManager(
     url,
     port,
     get readOnly() {
-      if (!opts.authentication) throw new ConfigError('coordination read access requires authentication')
+      if (!opts.authentication)
+        throw new ConfigError('coordination read access requires authentication')
       return {
         url: url.replace(/\/$/, '') + '/read',
         headers: Object.freeze({ Authorization: `Bearer ${readerToken.toString()}` }),

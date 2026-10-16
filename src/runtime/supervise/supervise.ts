@@ -423,7 +423,9 @@ function peerMailRuntimeAttachment(
   const url = spawnContext?.peerMailUrl
   if (url === undefined) return undefined
   if (backend.backend === 'provider' && backend.shared) {
-    throw new ValidationError('provider peer mail requires a dedicated steerable session; shared placement is not supported')
+    throw new ValidationError(
+      'provider peer mail requires a dedicated steerable session; shared placement is not supported',
+    )
   }
   switch (backend.backend) {
     case 'router':

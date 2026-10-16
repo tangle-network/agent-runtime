@@ -124,7 +124,6 @@ import {
 } from './retained-scope-owner'
 import { authoredSeatStages, seatExecutionProfile } from './seat-chain'
 import { detachedSnapshot } from './snapshot'
-import { WorkerEvents, type WorkerEventCursor, type WorkerEventPage } from './worker-events'
 import {
   type DownSettlement,
   releasedChildPayload,
@@ -185,6 +184,7 @@ import type {
   WorkerInteractiveUnavailableReason,
   WorkerTraceEvidence,
 } from './types'
+import { type WorkerEventCursor, type WorkerEventPage, WorkerEvents } from './worker-events'
 import { writeWorkerInteractiveBinding } from './worker-interactive'
 import {
   createWorkerSlots,
