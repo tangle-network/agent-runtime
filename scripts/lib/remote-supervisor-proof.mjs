@@ -80,7 +80,8 @@ const result = await createSupervisor().run({
       await assert.rejects(() => reader.observe('foreign-worker'))
       const readMcp = await connect(access.url, { ...access.headers })
       assert.deepEqual(readMcp.tools.map((tool) => tool.name).sort(), ['observe_agent', 'read_journal'])
-      assert.match(await readMcp.callTool('spawn_worker', { profile: { name: 'forbidden' }, task: {} }), /^ERROR:/)
+      await assert.rejects(() => readMcp.callTool('spawn_worker', { profile: { name: 'forbidden' }, task: {} }), error => error.code === -32601 && error.message.includes('unknown tool: spawn_worker'))
+      assert.equal((await reader.tree()).nodes.length, 2)
       const escalation = await fetch(handle.url, {
         method: 'POST', headers: { ...access.headers, 'content-type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
