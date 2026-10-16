@@ -1,3 +1,7 @@
+## 0.322.2
+
+Keep failed retained turns under the driver retry policy when workspace capture remains incomplete. Journal pending evidence and preserve its source while retrying in another environment; accepted turns still require complete capture before reuse.
+
 ## 0.322.1
 
 Retire an obsolete package-helper unit fixture that assumes every supported Sandbox peer ceiling ends at a minor boundary. Keep the actual packed, standalone, cohort, Edge and native provider qualification paths unchanged.
