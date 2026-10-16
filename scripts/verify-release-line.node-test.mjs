@@ -146,3 +146,16 @@ test('malformed candidates and noncanonical line selectors are refused', t => {
   refused(f.run(f.initial, { line: 'refs/remotes/origin/release/2.0.x' }))
   refused(f.run(f.initial, { extra: ['unexpected'] }))
 })
+
+test('working-tree metadata cannot choose the release line', t => {
+  const f = fixture(t)
+  writeFileSync(join(f.source, 'package.json'), JSON.stringify({ version: '2.0.0' }))
+  assert.equal(passed(f.run(f.initial)).candidate, f.initial)
+  refused(f.run(f.initial, { line: 'refs/remotes/origin/release/2.0.x' }))
+})
+test('invalid committed release versions fail before lineage approval', t => {
+  const f = fixture(t)
+  const candidate = f.commit('invalid version', '1.2.3-beta.1')
+  f.git('push', '-q', 'origin', 'main')
+  refused(f.run(candidate))
+})
