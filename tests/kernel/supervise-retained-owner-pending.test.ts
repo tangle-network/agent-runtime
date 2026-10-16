@@ -235,7 +235,9 @@ async function superviseRoot(fixture: Fixture) {
           fixture.captureFailure === 'throw' ||
           (fixture.captureFailure === 'recover' && captureCalls === 1)
         )
-          throw new Error('process streams incomplete: process_io_missing; process_source_unavailable')
+          throw new Error(
+            'process streams incomplete: process_io_missing; process_source_unavailable',
+          )
         if (fixture.captureFailure === 'partial') {
           const captured = await completeCapture(captureContext, artifacts)
           return {
@@ -386,7 +388,9 @@ describe('supervised root with a pending retained turn', () => {
         expect(run.evidence).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
-              workspaceCaptureFailure: expect.stringContaining('retained workspace capture pending'),
+              workspaceCaptureFailure: expect.stringContaining(
+                'retained workspace capture pending',
+              ),
               executionId: run.firstCaptureExecution,
               environmentId: run.environments[0],
               controlRef: first.admission.controlRef,
@@ -400,14 +404,16 @@ describe('supervised root with a pending retained turn', () => {
   )
 
   it('keeps an accepted turn with incomplete capture open without sealing a winner', async () => {
-    await expect(
-      superviseRoot({ captureFailure: 'partial', submitOn: 2 }),
-    ).rejects.toMatchObject({ name: 'RetainedWorkspaceCapturePendingError' })
+    await expect(superviseRoot({ captureFailure: 'partial', submitOn: 2 })).rejects.toMatchObject({
+      name: 'RetainedWorkspaceCapturePendingError',
+    })
     const runDir = join(directories.at(-1)!, 'run')
     const events = (await createFileRunContext(runDir).journal.loadTree('pending-root')) ?? []
     expect(count(events, 'execution-input')).toBe(1)
     expect(count(events, 'execution-result')).toBe(1)
-    expect(events.some((event) => event.kind === 'environment-teardown' && event.destroyed)).toBe(false)
+    expect(events.some((event) => event.kind === 'environment-teardown' && event.destroyed)).toBe(
+      false,
+    )
   })
 
   it('settles a root from its exact result when its provider stream has no terminal event', async () => {
