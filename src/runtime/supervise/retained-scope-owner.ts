@@ -33,7 +33,11 @@ import type { ProxySecretBindingAdmission } from '../proxy-secret-admission'
 import { captureProxySecretParents, type ProxySecretParents } from '../proxy-secret-parents'
 import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../retained-native-stop'
 import { sameControlCoordinates } from '../retained-run-binding'
-import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
+import type {
+  RetainedRunAdmission,
+  RetainedRunEnvironmentAdmission,
+  RetainedRunHandle,
+} from '../retained-run-types'
 import { addSpend, zeroSpend } from '../util'
 import { abortError, runAbortable } from './abortable'
 import { assertValidSpend } from './budget'
@@ -90,6 +94,7 @@ interface OwnerState {
   readonly proxySecretAdmissions: ReturnType<typeof proxySecretBindingEvidence>
   readonly revokeCoordinationGeneration: ReturnType<ConfirmedCoordinationRevocation>
   readonly coordinationRevocations: Set<Promise<void>>
+  readonly retainedHandles: Map<string, RetainedRunHandle>
   coordinationWrite?: Promise<void>
   coordinationRegistration?: CoordinationRegistration
   inputSequence?: number
@@ -526,6 +531,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
       capture: captureCoordinationGenerationRecord,
     }),
     coordinationRevocations: new Set(),
+    retainedHandles: new Map(),
     workspaceRetention: false,
     nextSequence: () => ++sequence,
     ...(taskEvent?.kind === 'execution-input'
@@ -565,6 +571,21 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
           seq: state.nextSequence(),
           at: new Date(args.now()).toISOString(),
         })
+      },
+      onRetained: (handle) => {
+        const reference = handle.controlRef
+        if (
+          !admissions.some(
+            (admission) =>
+              admission.phase === 'dispatched' &&
+              sameControlCoordinates(admission.controlRef, reference),
+          )
+        ) {
+          throw new ValidationError(
+            'retained owner cancellation handle has no dispatched admission',
+          )
+        }
+        state.retainedHandles.set(contentAddress(reference), handle)
       },
       onProxySecretParentsAdmission: async (parents) => {
         scope.signal.throwIfAborted()
@@ -737,6 +758,7 @@ export async function abandonScopeRetainedOwnerInvocation(
       : await stopRetainedNativeExecution({
           provider: state.provider,
           controlRef: dispatched.controlRef,
+          handle: state.retainedHandles.get(contentAddress(dispatched.controlRef)),
           signal: AbortSignal.any([scope.signal, AbortSignal.timeout(ABANDON_STOP_TIMEOUT_MS)]),
           now: args.now,
         })
@@ -2056,6 +2078,7 @@ async function releaseOwnerEnvironment(
             stopRetainedNativeExecution({
               provider,
               controlRef,
+              handle: state.retainedHandles.get(contentAddress(controlRef)),
               signal: AbortSignal.timeout(30_000),
               now: args.now,
             }),

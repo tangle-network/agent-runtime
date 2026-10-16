@@ -5,6 +5,7 @@ import type {
   RetainedRunAdmission,
   RetainedRunAdmissionHook,
   RetainedRunEnvironmentAdmission,
+  RetainedRunHandle,
 } from '../retained-run-types'
 import type { CoordinationProxySecretSourceIdentity } from './coordination-credential'
 import { isCredentialRefusal } from './credential-refusal'
@@ -42,6 +43,8 @@ export interface RetainedExecutorContext {
   readonly admissions: readonly RetainedRunAdmission[]
   readonly onReady?: () => void | Promise<void>
   readonly onAdmission: RetainedRunAdmissionHook
+  /** @internal Keep an admitted live handle for exact cancellation without credential rebind. */
+  readonly onRetained?: (handle: RetainedRunHandle) => void
   /** Exact host coordination source metadata, only after its registration is durable. */
   readonly proxySecretSourceIdentity?: CoordinationProxySecretSourceIdentity
   /** Verify a legacy adapter's final parent map against this invocation's durable input. */

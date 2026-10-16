@@ -2871,6 +2871,7 @@ async function providerExecutionSource(
     assertProxySecretInstallation(environment, proxySecrets)
     assertProxySecretParentReadback(environment, proxySecretParents)
     assertProxySecretSourceIdentity(environment.proxySecretReceipt, proxySecretSourceIdentity)
+    retention.onRetained?.(handle)
     if (restore !== undefined && !args.recovering) {
       // The provider restores a checkpoint or fails the create; the marker Runtime wrote before
       // the checkpoint is the evidence it did, journaled before the turn's result is judged.
