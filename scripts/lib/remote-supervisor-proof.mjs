@@ -153,3 +153,91 @@ export async function verifyRemoteSupervisorConsumer(kernel) {
     console.log(JSON.stringify({ remoteSupervisorConsumer: result.out }))
   } finally { await rm(root, { recursive: true, force: true }) }
 }
+
+/** Opt-in live qualification. The caller owns the real provider, seat and public route. */
+export async function verifyRemoteSupervisorProvider(kernel, { provider, profile, coordination, budget }) {
+  const { connectRemoteSupervisor, createInMemoryRunContext, createSupervisor, serveCoordinationMcp, workerFromBackend } = kernel
+  const context = createInMemoryRunContext()
+  const nonce = `peer-proof-${Date.now()}`
+  const seen = new Map()
+  const gaps = new Set()
+  const settledWorkers = []
+  let finalTree
+  let mail
+  const result = await createSupervisor().run({
+    name: 'remote-provider-consumer',
+    async act(_, scope) {
+      const handle = await serveCoordinationMcp({
+        ...coordination, scope, blobs: context.blobs, authentication: true, peerMail: true,
+        perWorker: budget.perWorker,
+        toolNames: ['spawn_worker', 'observe_agent', 'read_journal'],
+        makeWorkerAgent: workerFromBackend({ backend: 'provider', provider }),
+      })
+      const manager = await connect(handle.url, { ...handle.headers })
+      const access = handle.readOnly
+      const reader = await connectRemoteSupervisor({ url: access.url, protectedHeaders: { ...access.headers } })
+      let finished = false
+      try {
+        const ids = []
+        for (const name of ['alpha', 'beta']) {
+          const marker = `${nonce}-${name}`
+          const task = [
+            'This task checks the available peer-mail MCP tools. Never print environment variables, tokens or credential files.',
+            'Call read_mail to find your sibling. If none is visible yet, wait briefly and read again.',
+            `Send the sibling one ask with subject "Peer proof" and body exactly "${marker}". Require delivered=true.`,
+            `Then read your own mailbox until a message whose body begins "${nonce}-" arrives from the sibling.`,
+            `After observing it, reply with "${marker}" and the received body. Do not finish before reading that message.`,
+          ].join('\n')
+          const spawned = await call(manager, 'spawn_worker', { profile: { ...profile, name: `remote-peer-${name}` }, task })
+          assert.equal(typeof spawned.workerId, 'string', JSON.stringify(spawned))
+          ids.push(spawned.workerId)
+          seen.set(spawned.workerId, [])
+        }
+        const cursors = new Map()
+        const observe = async () => {
+          while (!finished) {
+            const tree = await reader.tree()
+            assert.equal(tree.nodes.length, 2)
+            for (const node of tree.nodes) assert.equal(node.parent, tree.root)
+            finalTree = tree
+            for (const id of ids) {
+              const observed = await reader.observe(id, cursors.get(id))
+              if (observed.events.status !== 'available') continue
+              if (observed.events.historyExpired || observed.events.reset) gaps.add(id)
+              seen.get(id).push(...observed.events.entries)
+              cursors.set(id, observed.events.cursor)
+            }
+            if (!finished) await new Promise(resolve => setTimeout(resolve, 1000))
+          }
+        }
+        const work = async () => {
+          try {
+            for (;;) {
+              const settled = await scope.next()
+              if (!settled) break
+              settledWorkers.push({ id: settled.handle.id, kind: settled.kind })
+              assert.equal(settled.kind, 'done', JSON.stringify(settled))
+            }
+          } finally { finished = true }
+        }
+        await Promise.all([work(), observe()])
+        assert.equal(settledWorkers.length, 2)
+        mail = handle.mailHistory()
+        for (const id of ids) {
+          assert.ok(mail.some(entry => entry.delivered && entry.envelope.from === id && entry.envelope.body.startsWith(nonce)), 'worker did not send its actual peer message')
+          assert.ok(mail.some(entry => entry.delivered && entry.envelope.to === id), 'worker mailbox did not receive a peer message')
+          assert.ok(seen.get(id).length > 0, 'remote worker produced no observed live events')
+        }
+        return { workers: settledWorkers, tree: finalTree, liveEventCounts: ids.map(id => ({ id, count: seen.get(id).length, explicitGap: gaps.has(id) })),
+          mail: mail.map(entry => ({ from: entry.envelope.from, to: entry.envelope.to, delivered: entry.delivered, outcome: entry.outcome, body: entry.envelope.body })) }
+      } finally {
+        finished = true
+        await Promise.allSettled([manager.close(), reader.close()])
+        await handle.close()
+      }
+    },
+  }, {}, { ...context, budget: budget.total, runId: nonce })
+  assert.equal(result.kind, 'winner', JSON.stringify(result))
+  assert.equal(result.teardownUnconfirmed?.length ?? 0, 0, JSON.stringify(result.teardownUnconfirmed))
+  return { ...result.out, providerModel: result.providerModel, spentTotal: result.spentTotal }
+}
