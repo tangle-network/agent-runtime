@@ -108,8 +108,19 @@ describe('nested supervisor coordination durability', () => {
     })
     const evidence: Array<Record<string, unknown>> = []
     let recorded = 0
-    const driveHarness: DriveHarness = async ({ authoredProfile, scope, coordinationMcpUrl }) => {
+    const driveHarness: DriveHarness = async ({
+      authoredProfile,
+      scope,
+      coordinationMcpUrl,
+      peerMailUrl,
+    }) => {
       const name = authoredProfile.name!
+      if (name === 'root') {
+        for (const name of ['peer-a', 'peer-b'])
+          await callTool(coordinationMcpUrl, 'spawn_worker', { profile: manager(name), task: name })
+        await ready
+        return
+      }
       roots.set(name, { nodeId: scope.view.root, url: coordinationMcpUrl })
       await writeFile(join(runDir, `${name}.md`), `Recorded page from ${name}.`)
       await callTool(coordinationMcpUrl, 'ask_parent', {
@@ -122,7 +133,19 @@ describe('nested supervisor coordination durability', () => {
       recorded += 1
       if (recorded === 2) release()
       await ready
+      expect(peerMailUrl).toBeDefined()
+      const mailbox = await callTool(peerMailUrl!, 'read_mail', {})
+      const peers = mailbox.peers as Array<{ workerId: string }>
+      expect(peers).toHaveLength(1)
       const other = [...roots.entries()].find(([peer]) => peer !== name)![1]
+      expect(peers[0]?.workerId).toBe(other.nodeId)
+      const sent = await callTool(peerMailUrl!, 'send_mail', {
+        to: other.nodeId,
+        kind: 'ask',
+        subject: 'Audit request',
+        body: 'Please fact-check the recorded page.',
+      })
+      expect(sent.delivered).toBe(true)
       const page = await callTool(coordinationMcpUrl, 'knowledge_read', { peerId: other.nodeId })
       expect(page.content).toBe(`Recorded page from ${name === 'peer-a' ? 'peer-b' : 'peer-a'}.`)
       const journal = await callTool(coordinationMcpUrl, 'read_journal', { peerId: other.nodeId })
@@ -158,17 +181,7 @@ describe('nested supervisor coordination durability', () => {
         ),
         prompt: { systemPrompt: 'Read peer evidence and preserve ownership.' },
       })
-    await supervise(testAgentProfile('root', { harness: 'cli-base', tools: rootTools }), 'audit', {
-      brain: scriptedBrain([
-        {
-          toolCalls: ['peer-a', 'peer-b'].map((name) => ({
-            name: 'spawn_worker',
-            arguments: { profile: manager(name), task: name },
-          })),
-        },
-        { content: 'wait' },
-        { content: 'finished' },
-      ]),
+    await supervise(testAgentProfile('root', { harness: 'codex', tools: rootTools }), 'audit', {
       backend: {
         backend: 'router',
         routerBaseUrl: 'http://unused.invalid',
@@ -180,6 +193,7 @@ describe('nested supervisor coordination durability', () => {
       driveHarness,
       driveHarnessMaterialization: fullProfileMaterialization,
       peerAudit: true,
+      peerMail: true,
       resolveSupervisorTools: (context) => {
         if (context.depth === 1) expect(context.peerRootOwnerId).toBe(context.ownerId)
         // Product-owned page reads share the manager endpoint with Runtime's journal.

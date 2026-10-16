@@ -472,6 +472,8 @@ export interface DriveHarness {
     readonly coordinationMcpUrl: string
     /** Runtime-only transport credentials; never append them to the authored profile or task. */
     readonly coordinationMcpHeaders?: Readonly<Record<string, string>>
+    /** Parent-minted peer post office. Runtime attachment only, never part of the profile. */
+    readonly peerMailUrl?: string
     /** Fires when the coordination server accepts a result or declares completion. */
     readonly stopSignal?: AbortSignal
     /** Data-only product tool surface mounted on the coordination MCP. Runtime-owned drivers include
@@ -524,6 +526,8 @@ export type DriveHarnessOwnerContext = Omit<SupervisorNodeContext, 'nodeId'>
 export type ResolveDriveHarness = (context: DriveHarnessOwnerContext) => DriveHarness
 
 export interface SupervisorAgentDeps {
+  /** Parent post office bound to this manager's worker identity. */
+  readonly peerMailUrl?: string
   readonly blobs: ResultBlobStore
   /** Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same for both arms). */
   readonly makeWorkerAgent: MakeWorkerAgent
@@ -1450,6 +1454,7 @@ function buildSupervisorAgent(
                   scope,
                   coordinationMcpUrl: mcp.url,
                   coordinationMcpHeaders: mcp.headers,
+                  ...(deps.peerMailUrl ? { peerMailUrl: deps.peerMailUrl } : {}),
                   stopSignal: stopController.signal,
                   coordinationTools,
                 })

@@ -421,7 +421,7 @@ const peerMailMcpAlias = 'agent-runtime-peer-mail'
 function peerMailRuntimeAttachment(
   profile: AgentProfile,
   backend: ExecutorConfig,
-  spawnContext: WorkerSpawnContext | undefined,
+  spawnContext: Pick<WorkerSpawnContext, 'peerMailUrl'> | undefined,
 ): Readonly<Record<string, AgentProfileMcpServer>> | undefined {
   const url = spawnContext?.peerMailUrl
   if (url === undefined) return undefined
@@ -1026,6 +1026,7 @@ function driveHarnessFromBackend(
     scope,
     coordinationMcpUrl,
     coordinationMcpHeaders,
+    peerMailUrl,
     stopSignal,
     coordinationTools,
     reentry,
@@ -1281,6 +1282,9 @@ function driveHarnessFromBackend(
           : AbortSignal.any([stopSignal, turnStop.signal])
     // The harness is asked for a 300 s tool-call timeout so a fenced tool can hold its response
     // longer than the 60 s harness default; a sidecar that applies it says so on each request.
+    const peerMailAttachment = peerMailRuntimeAttachment(authoredProfile, boundBackend, {
+      peerMailUrl,
+    })
     const attachment = {
       transport: 'http' as const,
       url: coordinationMcpUrl,
@@ -1321,6 +1325,14 @@ function driveHarnessFromBackend(
           'driveHarnessFromBackend: provider defaults contain the reserved coordination attachment alias',
         )
       }
+      if (
+        peerMailUrl &&
+        Object.hasOwn(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}, peerMailMcpAlias)
+      ) {
+        throw new ValidationError(
+          'driveHarnessFromBackend: provider defaults contain the reserved peer-mail attachment alias',
+        )
+      }
       if (!(await providerAcceptsCoordinationAttachments(boundBackend))) {
         throw new ValidationError(
           'driveHarnessFromBackend: provider does not advertise create.runtimeAttachments.mcp; no environment was created',
@@ -1340,6 +1352,9 @@ function driveHarnessFromBackend(
           runtimeAttachments: {
             mcp: {
               ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
+              ...(peerMailUrl
+                ? { [peerMailMcpAlias]: { transport: 'http' as const, url: peerMailUrl } }
+                : {}),
               [coordinationMcpAlias]: {
                 transport: 'http',
                 url: coordinationMcpUrl,
@@ -1369,6 +1384,7 @@ function driveHarnessFromBackend(
           ? {}
           : { [bridgeStopSignalKey]: effectiveStopSignal }),
         [bridgeRuntimeAttachmentsKey]: {
+          ...(peerMailAttachment ?? {}),
           [coordinationMcpAlias]: attachment,
         },
       },
@@ -4200,6 +4216,7 @@ function superviseInternal(
         let unassessedOutput = false
         const peerAudit = depth === 1 ? peerAuditFor(spawnContext.parentNodeId) : undefined
         const nested = supervisorAgent(authorized, {
+          ...(spawnContext.peerMailUrl ? { peerMailUrl: spawnContext.peerMailUrl } : {}),
           ...(peerAudit ? { peerAudit } : {}),
           blobs,
           onUnassessedOutput: () => {
