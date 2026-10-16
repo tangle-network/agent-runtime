@@ -219,7 +219,7 @@ export async function verifyRemoteSupervisorProvider(kernel, { provider, profile
             for (;;) {
               const settled = await scope.next()
               if (!settled) break
-              settledWorkers.push({ id: settled.handle.id, kind: settled.kind })
+              settledWorkers.push({ id: settled.handle.id, kind: settled.kind, ...(settled.kind === 'done' ? { out: settled.out, trace: settled.trace } : { reason: settled.reason }) })
               assert.equal(settled.kind, 'done', JSON.stringify(settled))
             }
           } finally { finished = true }
@@ -244,7 +244,7 @@ export async function verifyRemoteSupervisorProvider(kernel, { provider, profile
   const journal = await context.journal.loadTree(nonce)
   const failures = (journal ?? []).filter(event => event.kind === 'settled' && event.status === 'down')
     .map(event => ({ id: event.id, reason: event.reason, infra: event.infra }))
-  assert.equal(result.kind, 'winner', JSON.stringify({ result, failures, settledWorkers }))
+  assert.equal(result.kind, 'winner', JSON.stringify({ result, failures, settledWorkers, mail, observedEvents: [...seen].map(([id, entries]) => ({ id, events: entries.slice(-32).map(entry => ({ kind: entry.event?.kind, toolName: entry.event?.toolName })) })) }))
   assert.equal(result.teardownUnconfirmed?.length ?? 0, 0, JSON.stringify(result.teardownUnconfirmed))
   return { ...result.out, providerModel: result.providerModel, spentTotal: result.spentTotal }
 }
