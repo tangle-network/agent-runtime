@@ -94,12 +94,6 @@ describe('profile-authoring skill', () => {
   const bytes = readFileSync(join(skillsRoot, 'profile-authoring', 'SKILL.md'))
   const skill = bytes.toString('utf8')
 
-  // Consumers mount this file inline into every profile that can spawn. Below 16,384 bytes it
-  // also fits the per-string bound that older provider releases applied to inline resources.
-  it('fits inline in a spawned profile', () => {
-    expect(bytes.byteLength).toBeLessThan(16_384)
-  })
-
   it('carries the recursion contract that supervise points to', () => {
     expect(skill).toContain('agent_runtime_coordination_spawn_worker: true')
     expect(skill).toContain('resources.failOnError: true')

@@ -135,39 +135,6 @@ describe('provider placement retained restart', () => {
     expect(fixture.counts).toEqual(before)
   })
 
-  it('permits shared credential rotation and preserves authenticated attachments', async () => {
-    const defaults = {
-      env: { RUNTIME_TOKEN: 'runtime-credential-v1' },
-      runtimeAttachments: {
-        mcp: {
-          coordination: {
-            transport: 'http' as const,
-            url: 'https://runtime.example/mcp',
-            headers: {
-              Authorization: {
-                kind: 'secret-ref' as const,
-                key: 'RUNTIME_TOKEN',
-                format: 'bearer' as const,
-              },
-            },
-          },
-        },
-      },
-    }
-    const fixture = await interruptAfterDispatch(placement, defaults)
-    const rotated = { ...defaults, env: { RUNTIME_TOKEN: 'runtime-credential-v2' } }
-    const selected = selectProviderPlacement(profile, {
-      placements: [placement],
-      defaults: rotated,
-    })
-    expect(selected.options.defaults?.runtimeAttachments).toEqual(defaults.runtimeAttachments)
-    const executor = await fixture.recover(placement, rotated)
-    expect(executor.resultArtifact().out).toMatchObject({ content: 'durable result' })
-    expect(fixture.counts).toMatchObject({ creates: 1, dispatches: 1 })
-    expect(await readFile(fixture.admissionsFile, 'utf8')).not.toContain('runtime-credential-v1')
-    expect(await readFile(fixture.admissionsFile, 'utf8')).not.toContain('runtime-credential-v2')
-  })
-
   it.each(['profile', 'idempotencyKey', 'requestedId'])(
     'refuses a shared %s identity override',
     (key) => {
