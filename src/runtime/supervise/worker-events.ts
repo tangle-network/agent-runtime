@@ -34,13 +34,17 @@ export class WorkerEvents {
   readonly #epoch = randomUUID()
   readonly #entries: { entry: WorkerEventEntry; bytes: number }[] = []
   #next = 0
+  #capturing = false
+
+  start(): void { this.#capturing = true }
   #bytes = 0
 
   append(event: ExecutorProgressEvent, at: number): void {
     let entry: WorkerEventEntry = { sequence: this.#next++, at, event: defaultRedactor(event) }
     let bytes: number
-    try { bytes = Buffer.byteLength(JSON.stringify(entry)) }
-    catch {
+    try {
+      bytes = Buffer.byteLength(JSON.stringify(entry))
+    } catch {
       entry = { sequence: entry.sequence, at, event: null, omitted: 'event-not-serializable' }
       bytes = Buffer.byteLength(JSON.stringify(entry))
     }
@@ -56,6 +60,7 @@ export class WorkerEvents {
   }
 
   read(cursor?: WorkerEventCursor): WorkerEventPage {
+    if (!this.#capturing) return { status: 'unavailable', reason: 'not-captured' }
     if (cursor && (!Number.isSafeInteger(cursor.next) || cursor.next < 0)) {
       throw new Error('worker event cursor must name a non-negative safe integer')
     }
@@ -65,7 +70,9 @@ export class WorkerEvents {
     if (!reset && start > this.#next) throw new Error('worker event cursor is ahead of this stream')
     return {
       status: 'available',
-      entries: this.#entries.filter(({ entry }) => entry.sequence >= start).map(({ entry }) => structuredClone(entry)),
+      entries: this.#entries
+        .filter(({ entry }) => entry.sequence >= start)
+        .map(({ entry }) => structuredClone(entry)),
       cursor: { epoch: this.#epoch, next: this.#next },
       reset,
       historyExpired: start < first || (cursor === undefined && first > 0),

@@ -788,6 +788,7 @@ export {
   type CoordinationHttpOptions,
   type CoordinationMcpHandle,
   type CoordinationPublicAddress,
+  type CoordinationReadAccess,
   type CoordinationRejectReason,
   type CoordinationTransportOptions,
   serveCoordinationMcp,
@@ -1507,5 +1508,15 @@ export {
   type WorkspaceRun,
 } from './workspace'
 
-export { connectRemoteSupervisor, type RemoteSupervisorReader, type RemoteSupervisorTree, type RemoteSupervisorAgent, type RemoteWorkerEvents } from './supervise/remote-supervisor'
-export type { WorkerEventCursor, WorkerEventEntry, WorkerEventPage } from './supervise/worker-events'
+export {
+  connectRemoteSupervisor,
+  type RemoteSupervisorReader,
+  type RemoteSupervisorTree,
+  type RemoteSupervisorAgent,
+  type RemoteWorkerEvents,
+} from './supervise/remote-supervisor'
+export type {
+  WorkerEventCursor,
+  WorkerEventEntry,
+  WorkerEventPage,
+} from './supervise/worker-events'

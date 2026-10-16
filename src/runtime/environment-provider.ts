@@ -2467,7 +2467,9 @@ async function providerExecutionSource(
   if (needsMcp) {
     const create = capabilities?.create
     if (!create || !('runtimeAttachments' in create) || create.runtimeAttachments?.mcp !== true) {
-      throw new ValidationError(`provider ${args.provider.name} does not advertise create.runtimeAttachments.mcp; no environment was created`)
+      throw new ValidationError(
+        `provider ${args.provider.name} does not advertise create.runtimeAttachments.mcp; no environment was created`,
+      )
     }
   }
   const useRetained = args.retention !== undefined && capabilities?.retainedControl !== undefined

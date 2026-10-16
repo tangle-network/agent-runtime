@@ -304,24 +304,31 @@ export function workerFromBackend(
     // Resolved BEFORE the executor exists, so a run that asked for peer mail on a backend that
     // cannot deliver it fails the spawn instead of handing the worker a capability nobody serves.
     const peerMailAttachment = peerMailRuntimeAttachment(profile, capturedBackend, spawnContext)
-    if (spawnContext?.peerMailUrl && boundBackend.backend === 'provider' && Object.hasOwn(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}, peerMailMcpAlias)) {
-      throw new ValidationError('workerFromBackend: provider defaults contain the reserved peer-mail attachment alias')
+    if (
+      spawnContext?.peerMailUrl &&
+      boundBackend.backend === 'provider' &&
+      Object.hasOwn(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}, peerMailMcpAlias)
+    ) {
+      throw new ValidationError(
+        'workerFromBackend: provider defaults contain the reserved peer-mail attachment alias',
+      )
     }
-    const leafBackend = spawnContext?.peerMailUrl && boundBackend.backend === 'provider'
-      ? {
-          ...boundBackend,
-          defaults: {
-            ...(boundBackend.defaults ?? {}),
-            runtimeAttachments: {
-              ...(boundBackend.defaults?.runtimeAttachments ?? {}),
-              mcp: {
-                ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
-                [peerMailMcpAlias]: { transport: 'http' as const, url: spawnContext.peerMailUrl },
+    const leafBackend =
+      spawnContext?.peerMailUrl && boundBackend.backend === 'provider'
+        ? {
+            ...boundBackend,
+            defaults: {
+              ...(boundBackend.defaults ?? {}),
+              runtimeAttachments: {
+                ...(boundBackend.defaults?.runtimeAttachments ?? {}),
+                mcp: {
+                  ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
+                  [peerMailMcpAlias]: { transport: 'http' as const, url: spawnContext.peerMailUrl },
+                },
               },
             },
-          },
-        }
-      : boundBackend
+          }
+        : boundBackend
     const baseFactory = createExecutor(leafBackend)
     // Carry the configured factory into Scope. It is built only AFTER reservation with the real
     // child signal/context, so a rejected or already-completed keyed spawn creates no executor.
@@ -339,7 +346,8 @@ export function workerFromBackend(
       // and nothing a caller passes may replace the endpoint a sibling's identity is bound to.
       const extraSeams = seams?.()
       const seamsForChild =
-        extraSeams === undefined && (peerMailAttachment === undefined || boundBackend.backend === 'provider')
+        extraSeams === undefined &&
+        (peerMailAttachment === undefined || boundBackend.backend === 'provider')
           ? ctx.seams
           : {
               ...extraSeams,

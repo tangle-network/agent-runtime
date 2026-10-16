@@ -23,7 +23,6 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { createServer, type Server, type IncomingMessage } from 'node:http'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError, ValidationError } from '../../errors'
-import type { JsonRpcMessage } from '../../mcp/protocol'
 import type { McpToolDescriptor } from '../../mcp/server'
 import { createStdioToolServer } from '../../mcp/tool-server'
 import {
@@ -139,7 +138,15 @@ export interface CoordinationPublicAddress {
   readonly signal: AbortSignal
 }
 
+/** Runtime-only read capability delivered to an operator client, never to the canonical profile. */
+export interface CoordinationReadAccess {
+  readonly url: string
+  readonly headers: Readonly<Record<string, string>>
+}
+
 export interface CoordinationTransportOptions extends CoordinationHttpOptions {
+  /** Publish the read capability before dispatch, so a remote client can observe the first worker. */
+  readonly onReadReady?: (access: CoordinationReadAccess & { readonly runId: string; readonly actorId: string }) => void | Promise<void>
   readonly host?: string
   readonly port?: number
   /** Required for remote binds. Each server mints a distinct run/actor credential. */
@@ -575,32 +582,50 @@ export async function serveCoordinationMcpForManager(
   opts.onCoordinationTools?.([...mcp.tools.values()], coord)
 
   const authority = (req: IncomingMessage): CoordinationRejection | undefined => {
-        // A proxy may use the destination IP as Host. A wildcard bind must
-        // recognize its actual socket address without trusting forwarded names.
-        const address = req.socket.localAddress?.replace(/^::ffff:/, '')
-        const localAuthority = address?.includes(':')
-          ? `[${address}]:${req.socket.localPort}`
-          : `${address}:${req.socket.localPort}`
-        const boundAuthority =
-          audiences.size > 0 &&
-          (host === '0.0.0.0' || host === '::') &&
-          address !== undefined &&
-          req.socket.localPort !== undefined &&
-          req.headers.host === localAuthority
-        if (!audiences.has(req.headers.host ?? '') && !boundAuthority)
-          return { status: 403, reason: 'wrong-host' }
-        if (closed) return { status: 401, reason: 'listener-closed' }
+    // A proxy may use the destination IP as Host. A wildcard bind must
+    // recognize its actual socket address without trusting forwarded names.
+    const address = req.socket.localAddress?.replace(/^::ffff:/, '')
+    const localAuthority = address?.includes(':')
+      ? `[${address}]:${req.socket.localPort}`
+      : `${address}:${req.socket.localPort}`
+    const boundAuthority =
+      audiences.size > 0 &&
+      (host === '0.0.0.0' || host === '::') &&
+      address !== undefined &&
+      req.socket.localPort !== undefined &&
+      req.headers.host === localAuthority
+    if (!audiences.has(req.headers.host ?? '') && !boundAuthority)
+      return { status: 403, reason: 'wrong-host' }
+    if (closed) return { status: 401, reason: 'listener-closed' }
     return undefined
   }
-  const readMcp = createStdioToolServer({ serverName: 'supervisor-reader', serverVersion: '1', tools: coord.tools.filter((tool) => tool.name === 'observe_agent' || tool.name === 'read_journal') })
+  const readMcp = createStdioToolServer({
+    serverName: 'supervisor-reader',
+    serverVersion: '1',
+    tools: coord.tools.filter(
+      (tool) => tool.name === 'observe_agent' || tool.name === 'read_journal',
+    ),
+  })
   const readPaths = new Set<string>()
   const readHandler = coordinationHttpHandler({
-    options: opts, identity, toolNames: new Set(['observe_agent', 'read_journal']), backgroundActions: () => 0,
+    options: opts,
+    identity,
+    toolNames: new Set(['observe_agent', 'read_journal']),
+    backgroundActions: () => 0,
     authorize: (req) => {
       const refused = authority(req)
       if (refused) return refused
-      const supplied = typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ') ? Buffer.from(req.headers.authorization.slice(7)) : Buffer.alloc(0)
-      if (supplied.length !== readerToken.length || !timingSafeEqual(supplied, readerToken) || (credentialExpiresAt !== undefined && credentialExpiresAt <= Date.now())) return { status: 401, reason: 'credential-refused' }
+      const supplied =
+        typeof req.headers.authorization === 'string' &&
+        req.headers.authorization.startsWith('Bearer ')
+          ? Buffer.from(req.headers.authorization.slice(7))
+          : Buffer.alloc(0)
+      if (
+        supplied.length !== readerToken.length ||
+        !timingSafeEqual(supplied, readerToken) ||
+        (credentialExpiresAt !== undefined && credentialExpiresAt <= Date.now())
+      )
+        return { status: 401, reason: 'credential-refused' }
       return undefined
     },
     handle: (message) => readMcp.handle(message),
@@ -608,44 +633,58 @@ export async function serveCoordinationMcpForManager(
   const peerHandlers = new Map<string, ReturnType<typeof coordinationHttpHandler>>()
   const mailPaths = new Set<string>()
   const mainHandler = coordinationHttpHandler({
-      options: opts,
-      identity,
-      toolNames: new Set(servedTools.map((tool) => tool.name)),
-      handle: async (message) => {
-        const response = await mcp.handle(message)
-        // A coordination call is where a manager commits work, so it is when its workspace is
-        // worth a checkpoint (`retained-scope-owner`, rate-limited, off the request path).
-        if (message.method === 'tools/call') noteScopeRetainedOwnerCoordination(opts.scope)
-        return response
-      },
-      backgroundActions: () => nodeTools.background() + fencedVerbs.background(),
-      authorize: (req) => {
-        if (!paths.has(req.url ?? '')) return { status: 404, reason: 'unknown-path' }
-        const refusedAuthority = authority(req)
-        if (refusedAuthority) return refusedAuthority
-        if (!opts.authentication) return undefined
-        const authorization = req.headers.authorization
-        const supplied =
-          typeof authorization === 'string' && authorization.startsWith('Bearer ')
-            ? Buffer.from(authorization.slice(7))
-            : Buffer.alloc(0)
-        const refused = refusedCredential(supplied)
-        return refused === undefined ? undefined : { status: 401, reason: refused }
-      },
-    })
+    options: opts,
+    identity,
+    toolNames: new Set(servedTools.map((tool) => tool.name)),
+    handle: async (message) => {
+      const response = await mcp.handle(message)
+      // A coordination call is where a manager commits work, so it is when its workspace is
+      // worth a checkpoint (`retained-scope-owner`, rate-limited, off the request path).
+      if (message.method === 'tools/call') noteScopeRetainedOwnerCoordination(opts.scope)
+      return response
+    },
+    backgroundActions: () => nodeTools.background() + fencedVerbs.background(),
+    authorize: (req) => {
+      if (!paths.has(req.url ?? '')) return { status: 404, reason: 'unknown-path' }
+      const refusedAuthority = authority(req)
+      if (refusedAuthority) return refusedAuthority
+      if (!opts.authentication) return undefined
+      const authorization = req.headers.authorization
+      const supplied =
+        typeof authorization === 'string' && authorization.startsWith('Bearer ')
+          ? Buffer.from(authorization.slice(7))
+          : Buffer.alloc(0)
+      const refused = refusedCredential(supplied)
+      return refused === undefined ? undefined : { status: 401, reason: refused }
+    },
+  })
   const server: Server = createServer((req, res) => {
     if (readPaths.has(req.url ?? '')) return readHandler(req, res)
     for (const base of mailPaths) {
       if (!(req.url ?? '').startsWith(base + '/')) continue
       const capabilityId = (req.url ?? '').slice(base.length + 1)
       const mailbox = coord.peerMail
-      if (!/^[0-9a-f]{32}$/.test(capabilityId) || !mailbox?.hasCapability(capabilityId)) { res.writeHead(404).end(); return }
+      if (!/^[0-9a-f]{32}$/.test(capabilityId) || !mailbox?.hasCapability(capabilityId)) {
+        res.writeHead(404).end()
+        return
+      }
       let handler = peerHandlers.get(capabilityId)
       if (!handler) {
-        const peerMcp = createStdioToolServer({ serverName: 'peer-mail', serverVersion: '1', tools: mailbox.tools(capabilityId) })
+        const peerMcp = createStdioToolServer({
+          serverName: 'peer-mail',
+          serverVersion: '1',
+          tools: mailbox.tools(capabilityId),
+        })
         handler = coordinationHttpHandler({
-          options: opts, identity: { runId: identity.runId, actorId: 'peer' }, toolNames: new Set(['send_mail', 'read_mail']), backgroundActions: () => 0,
-          authorize: (request) => authority(request) ?? (!mailbox.hasCapability(capabilityId) ? { status: 401, reason: 'credential-refused' } : undefined),
+          options: opts,
+          identity: { runId: identity.runId, actorId: 'peer' },
+          toolNames: new Set(['send_mail', 'read_mail']),
+          backgroundActions: () => 0,
+          authorize: (request) =>
+            authority(request) ??
+            (!mailbox.hasCapability(capabilityId)
+              ? { status: 401, reason: 'credential-refused' }
+              : undefined),
           handle: (message) => peerMcp.handle(message),
         })
         peerHandlers.set(capabilityId, handler)
@@ -744,7 +783,12 @@ export async function serveCoordinationMcpForManager(
   const handle: CoordinationMcpHandle = {
     url,
     port,
-    get readOnly() { return { url: url.replace(/\/$/, '') + '/read', headers: Object.freeze({ Authorization: `Bearer ${readerToken.toString()}` }) } },
+    get readOnly() {
+      return {
+        url: url.replace(/\/$/, '') + '/read',
+        headers: Object.freeze({ Authorization: `Bearer ${readerToken.toString()}` }),
+      }
+    },
     get headers() {
       return headers
     },
@@ -770,6 +814,11 @@ export async function serveCoordinationMcpForManager(
       })
     },
   }
+  try {
+    await runAbortable(async () => opts.onReadReady?.({ ...handle.readOnly, ...identity }), opts.scope.signal, 'read capability publication aborted')
+  } catch (error) {
+    await handle.close()
+    throw error
+  }
   return { handle, controls: coord }
 }
-
