@@ -20082,6 +20082,14 @@ Parent span id (16 hex chars) to hang the run's root span under — an inherited
 
 Extra attributes stamped on every span this recorder emits (subject, workspace, campaign, …).
 
+##### agentIdentity?
+
+> `readonly` `optional` **agentIdentity?**: `AgentIdentity`
+
+Who the run's root agent is: stamped on the root span and on the root manager's own turns.
+Every spawned node's span carries its OWN profile instead, from the spawn it opened with, and
+a node's turns carry the node's. `supervise()` derives this from the root profile.
+
 ##### now?
 
 > `readonly` `optional` **now?**: () => `number`
