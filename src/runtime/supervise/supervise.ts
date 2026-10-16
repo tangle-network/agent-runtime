@@ -44,6 +44,7 @@ import {
   worktreeCliProfileMaterialization,
 } from '../../agent/profile-materialization'
 import { ConfigError, RuntimeRunStateError, ValidationError } from '../../errors'
+import type { McpToolDescriptor } from '../../mcp/server'
 import {
   type AnalystRegistry,
   type AnalyzeOnSettleRoute,
@@ -55,6 +56,7 @@ import {
   type DownMessageAuthorizationInput,
   type EscalateQuestion,
   type MakeWorkerAgent,
+  type PeerAuditAccess,
   type SpawnPreflight,
   type SuperviseProfileEntry,
   type WorkerSpawnContext,
@@ -96,6 +98,7 @@ import { executorFailure } from './executor-outcome'
 import type { SupervisorFinalizer } from './finalizer'
 import {
   attestRuntimeOwnedScopeOwner,
+  authoredAgentIdentity,
   providerAttemptEvidence,
   recordRuntimeOwnedDriveHarnessProviderEvidence,
   runtimeOwnedDriveHarnessProviderEvidence,
@@ -304,7 +307,33 @@ export function workerFromBackend(
     // Resolved BEFORE the executor exists, so a run that asked for peer mail on a backend that
     // cannot deliver it fails the spawn instead of handing the worker a capability nobody serves.
     const peerMailAttachment = peerMailRuntimeAttachment(profile, capturedBackend, spawnContext)
-    const baseFactory = createExecutor(boundBackend)
+    if (
+      spawnContext?.peerMailUrl &&
+      boundBackend.backend === 'provider' &&
+      Object.hasOwn(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}, peerMailMcpAlias)
+    ) {
+      throw new ValidationError(
+        'workerFromBackend: provider defaults contain the reserved peer-mail attachment alias',
+      )
+    }
+    const leafBackend =
+      spawnContext?.peerMailUrl && boundBackend.backend === 'provider'
+        ? {
+            ...boundBackend,
+            steering: boundBackend.steering ?? {},
+            defaults: {
+              ...(boundBackend.defaults ?? {}),
+              runtimeAttachments: {
+                ...(boundBackend.defaults?.runtimeAttachments ?? {}),
+                mcp: {
+                  ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
+                  [peerMailMcpAlias]: { transport: 'http' as const, url: spawnContext.peerMailUrl },
+                },
+              },
+            },
+          }
+        : boundBackend
+    const baseFactory = createExecutor(leafBackend)
     // Carry the configured factory into Scope. It is built only AFTER reservation with the real
     // child signal/context, so a rejected or already-completed keyed spawn creates no executor.
     const executorFactory = (spec: AgentSpec, ctx: ExecutorContext) => {
@@ -321,12 +350,13 @@ export function workerFromBackend(
       // and nothing a caller passes may replace the endpoint a sibling's identity is bound to.
       const extraSeams = seams?.()
       const seamsForChild =
-        extraSeams === undefined && peerMailAttachment === undefined
+        extraSeams === undefined &&
+        (peerMailAttachment === undefined || boundBackend.backend === 'provider')
           ? ctx.seams
           : {
               ...extraSeams,
               ...ctx.seams,
-              ...(peerMailAttachment === undefined
+              ...(peerMailAttachment === undefined || boundBackend.backend === 'provider'
                 ? {}
                 : {
                     [bridgeRuntimeAttachmentsKey]: {
@@ -378,7 +408,9 @@ const peerMailMcpAlias = 'agent-runtime-peer-mail'
  *
  *  - `bridge` MOUNTS it. cli-bridge advertises `capabilities.runtimeAttachments.mcp` and mounts
  *    the named servers for the run without binding them into the session profile.
- *  - `router`, `router-tools` and `provider` mount NOTHING. Those workers are in-process tool
+ *  - `provider` mounts the same capability through runtimeAttachments.mcp and uses the existing
+ *    steerable session inbox so peer delivery can be acknowledged.
+ *  - `router` and `router-tools` mount NOTHING. Those workers are in-process tool
  *    loops with no MCP client; their tool surface is the caller's own array, and
  *    `WorkerSpawnContext.peerMailUrl` is the deliverable a caller uses directly.
  *  - Every other backend REFUSES the spawn. A sandbox box or a local CLI harness receives tools
@@ -389,15 +421,20 @@ const peerMailMcpAlias = 'agent-runtime-peer-mail'
 function peerMailRuntimeAttachment(
   profile: AgentProfile,
   backend: ExecutorConfig,
-  spawnContext: WorkerSpawnContext | undefined,
+  spawnContext: Pick<WorkerSpawnContext, 'peerMailUrl'> | undefined,
 ): Readonly<Record<string, AgentProfileMcpServer>> | undefined {
   const url = spawnContext?.peerMailUrl
   if (url === undefined) return undefined
+  if (backend.backend === 'provider' && backend.shared) {
+    throw new ValidationError(
+      'provider peer mail requires a dedicated steerable session; shared placement is not supported',
+    )
+  }
   switch (backend.backend) {
     case 'router':
     case 'router-tools':
-    case 'provider':
       return undefined
+    case 'provider':
     case 'bridge':
       break
     default:
@@ -937,8 +974,25 @@ function driveHarnessFromBackend(
       }
     }
   }
-  // The manager's own harness session, as the newest attempt captured it.
+  // The manager's own harness session, as the attempts before the newest one captured it.
   let managerTranscript: HarnessTranscriptCapture | undefined
+  // The newest attempt's executor. It keeps capturing after its attempt returns: a retained
+  // owner's final session copy and workspace capture run as end-of-turn work after the turn
+  // commits, so its transcript is read when a receipt is taken, never copied when the attempt
+  // ends. Copying it there recorded the `capture-did-not-run` placeholder for roots whose session
+  // was stored minutes later: 7 of 8 such nodes on Runtime 0.319.8 and later (#1360).
+  let lastExecutor: Executor<unknown> | undefined
+  // The newest capture wins; a capture never gives way to an attempt that captured nothing.
+  const keepTranscript = (capture: HarnessTranscriptCapture | undefined): void => {
+    if (
+      capture !== undefined &&
+      (capture.status !== 'unavailable' ||
+        managerTranscript?.status === 'unavailable' ||
+        managerTranscript === undefined)
+    ) {
+      managerTranscript = capture
+    }
+  }
   let managerArtifact: ExecutorResult<unknown> | undefined
   const committedTranscriptDigest = (artifact: ExecutorResult<unknown> | undefined): string => {
     if (artifact === undefined)
@@ -972,9 +1026,11 @@ function driveHarnessFromBackend(
     scope,
     coordinationMcpUrl,
     coordinationMcpHeaders,
+    peerMailUrl,
     stopSignal,
     coordinationTools,
     reentry,
+    session,
   }) => {
     const priorCommittedArtifact = managerArtifact
     managerArtifact = undefined
@@ -1098,7 +1154,7 @@ function driveHarnessFromBackend(
     // and the coordinator's run state.
     let driveTask = task
     if (reentry !== undefined) {
-      const continuity: ReentryContinuity =
+      const proven: ReentryContinuity =
         switchedProviderCheckpointAt === undefined
           ? await reentryContinuity(boundBackend, scope, retainedOwner !== undefined)
           : {
@@ -1112,10 +1168,17 @@ function driveHarnessFromBackend(
         activeSeat.previous.seat !== activeSeat.seat &&
         activeSeat.previous.provider === activeSeat.stage.provider &&
         activeSeat.previous.harness === activeSeat.stage.harness &&
-        (continuity.session !== 'continued' || continuity.environment !== 'same')
+        (proven.session !== 'continued' || proven.environment !== 'same')
       ) {
         throw new ValidationError('same-provider seat continuation lost its native environment')
       }
+      // A fresh re-entry keeps the environment the backend proves and starts a new session in it:
+      // the bridge under a new session id below, a retained provider owner under a new session id
+      // in its live environment (`prepareScopeRetainedOwnerTask`).
+      const continuity: ReentryContinuity =
+        session === 'fresh' && proven.session === 'continued'
+          ? { ...proven, session: 'new' }
+          : proven
       reentry.onContinuity?.(continuity)
       // After the capture wait above: a wake names what settled while the turn was held.
       await reentry.refresh?.()
@@ -1139,7 +1202,7 @@ function driveHarnessFromBackend(
       }
     }
     const originalTask = retainedOwner
-      ? await prepareScopeRetainedOwnerTask(scope, driveTask)
+      ? await prepareScopeRetainedOwnerTask(scope, driveTask, session ?? 'native')
       : driveTask
     const acceptedOwner = retainedOwner ? await scopeRetainedOwnerResult(scope) : undefined
     if (acceptedOwner) {
@@ -1219,13 +1282,29 @@ function driveHarnessFromBackend(
           : AbortSignal.any([stopSignal, turnStop.signal])
     // The harness is asked for a 300 s tool-call timeout so a fenced tool can hold its response
     // longer than the 60 s harness default; a sidecar that applies it says so on each request.
+    const peerMailAttachment = peerMailRuntimeAttachment(authoredProfile, boundBackend, {
+      peerMailUrl,
+    })
     const attachment = {
       transport: 'http' as const,
       url: coordinationMcpUrl,
       ...(coordinationMcpHeaders ? { headers: coordinationMcpHeaders } : {}),
       metadata: { toolTimeoutMs: COORDINATION_CLIENT_TOOL_TIMEOUT_MS },
     }
-    let factory = baseFactory
+    // A bridge keys the harness conversation by session id. A fresh re-entry binds a new one,
+    // derived from the owner's attempt id, which is new for every re-entry and every process.
+    let factory =
+      session === 'fresh' && reentry !== undefined && boundBackend.backend === 'bridge'
+        ? createExecutor(
+            bindReusableExecutorExecutionId(
+              boundBackend,
+              externalExecutionId('supervised-manager-session', {
+                sessionId: boundBackend.sessionId ?? executionId,
+                attemptId: scopeOwnerExecutorNodeContext(scope).attemptId,
+              }),
+            ),
+          )
+        : baseFactory
     if (boundBackend.backend === 'provider') {
       const credentialName = 'AGENT_RUNTIME_COORDINATION_TOKEN'
       const authorization = coordinationMcpHeaders?.Authorization
@@ -1244,6 +1323,14 @@ function driveHarnessFromBackend(
       ) {
         throw new ValidationError(
           'driveHarnessFromBackend: provider defaults contain the reserved coordination attachment alias',
+        )
+      }
+      if (
+        peerMailUrl &&
+        Object.hasOwn(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}, peerMailMcpAlias)
+      ) {
+        throw new ValidationError(
+          'driveHarnessFromBackend: provider defaults contain the reserved peer-mail attachment alias',
         )
       }
       if (!(await providerAcceptsCoordinationAttachments(boundBackend))) {
@@ -1265,6 +1352,9 @@ function driveHarnessFromBackend(
           runtimeAttachments: {
             mcp: {
               ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
+              ...(peerMailUrl
+                ? { [peerMailMcpAlias]: { transport: 'http' as const, url: peerMailUrl } }
+                : {}),
               [coordinationMcpAlias]: {
                 transport: 'http',
                 url: coordinationMcpUrl,
@@ -1294,11 +1384,15 @@ function driveHarnessFromBackend(
           ? {}
           : { [bridgeStopSignalKey]: effectiveStopSignal }),
         [bridgeRuntimeAttachmentsKey]: {
+          ...(peerMailAttachment ?? {}),
           [coordinationMcpAlias]: attachment,
         },
       },
     })
+    // The attempt this one replaces may have captured since it returned.
+    keepTranscript(lastExecutor?.harnessTranscript?.())
     activeExecutor = executor
+    lastExecutor = executor
     let completed = false
     let started = false
     let terminalAccountingCaptured = false
@@ -1778,17 +1872,8 @@ function driveHarnessFromBackend(
         }
       }
       // The provider executor reads the session store at the end of its stream, before any
-      // teardown. A later attempt in the same environment reads that store again, longer, so the
-      // newest capture wins; a capture never gives way to an attempt that captured nothing.
-      const capture = executor.harnessTranscript?.()
-      if (
-        capture !== undefined &&
-        (capture.status !== 'unavailable' ||
-          managerTranscript?.status === 'unavailable' ||
-          managerTranscript === undefined)
-      ) {
-        managerTranscript = capture
-      }
+      // teardown. A later attempt in the same environment reads that store again, longer.
+      keepTranscript(executor.harnessTranscript?.())
       if (activeExecutor === executor) activeExecutor = undefined
       endDrive()
     }
@@ -1822,9 +1907,18 @@ function driveHarnessFromBackend(
   // Only the provider backend has a transcript port. Any other backend leaves the method off, so
   // its managers keep settling as `executor-exposes-no-transcript`.
   if (boundBackend.backend === 'provider') {
-    drive.harnessTranscript = () => managerTranscript ?? activeExecutor?.harnessTranscript?.()
+    // The same rule as `keepTranscript`, with the newest attempt read live: its capture wins, an
+    // earlier capture outranks its absence, and its absence names the newest reason.
+    drive.harnessTranscript = () => {
+      const latest = lastExecutor?.harnessTranscript?.()
+      if (latest === undefined) return managerTranscript
+      if (latest.status !== 'unavailable') return latest
+      return managerTranscript !== undefined && managerTranscript.status !== 'unavailable'
+        ? managerTranscript
+        : latest
+    }
     drive.harnessTranscriptSettled = () =>
-      activeExecutor?.harnessTranscriptSettled?.() ?? Promise.resolve()
+      lastExecutor?.harnessTranscriptSettled?.() ?? Promise.resolve()
   }
   drive.closeSeatSegment = async (reason) => {
     await seatChain?.close(reason)
@@ -2054,6 +2148,9 @@ async function verifyProfilePromotions(
   }
 }
 
+/** Capabilities a data-only consumer may require before building an opted-in run. */
+export const superviseFleetCapabilities = Object.freeze({ peerAudit: true, traceTools: true })
+
 export interface SuperviseOptions {
   /** Whole-run persistence and ownership. SQL contexts are acquired before replay and compute. */
   readonly runContext?: RunContext
@@ -2105,13 +2202,17 @@ export interface SuperviseOptions {
    *  receives its coordination MCP: out of band on the bridge's `runtime_attachments`, so the
    *  authored profile digest never moves, and inside the leaf factory, so `authorizeSpawn` has
    *  already decided the profile. A `bridge` worker therefore calls `send_mail` / `read_mail` as
-   *  native tools. `router`, `router-tools` and `provider` workers run no MCP client, so the URL
+   *  native tools. `provider` workers mount it through their runtime MCP attachment capability. `router` and `router-tools` workers run no MCP client, so the URL
    *  stays the caller's to use; every other backend refuses the spawn rather than mint a
    *  capability it can never reach. A caller-owned `makeWorkerAgent` owns its own mount.
    *
    *  Requires a harness-brained supervisor; a router-brained supervisor is refused rather than
    *  silently unmailed. */
   readonly peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
+  /** Let sibling root managers read each other's recorded evidence. No mutation or steering. Default false. */
+  readonly peerAudit?: boolean
+  /** False removes observe_agent/read_journal from the root and every authored descendant. Default true. */
+  readonly traceTools?: boolean
   /** Override the worker seam directly (tests / advanced) instead of deriving it from `backend`.
    *  This is caller-owned execution: profile security, spawn authorization, and recursive-driver
    *  selection below apply only to the backend-derived worker path. `authorizeMessage` still
@@ -2587,6 +2688,8 @@ const superviseOptionKeys = [
   'onProgressStop',
   'otel',
   'peerMail',
+  'peerAudit',
+  'traceTools',
   'perWorker',
   'reservationPolicy',
   'deadlineCheckIn',
@@ -3486,9 +3589,48 @@ function superviseInternal(
   assertValidBudget(options.budget, 'supervise budget')
   // Fail loud before any compute: every configured model must be in the allowed subset (no-op
   // when allowedModels is unset). The backend seam carries its own model on most backends.
-  const composeSpawnProfile = profileGuidanceComposer(options.profileGuidance)
+  const guidanceComposer = profileGuidanceComposer(options.profileGuidance)
+  const applyTraceTools = (profile: AgentProfile): AgentProfile => {
+    if (options.traceTools !== false || profile.tools === undefined) return profile
+    const tools = Object.fromEntries(
+      Object.entries(profile.tools).filter(
+        ([name]) =>
+          name !== `${coordinationProfileToolPrefix}observe_agent` &&
+          name !== `${coordinationProfileToolPrefix}read_journal`,
+      ),
+    )
+    return agentProfileSchema.parse({ ...profile, tools })
+  }
+  const composeSpawnProfile =
+    options.traceTools === false
+      ? (profile: AgentProfile) => applyTraceTools(guidanceComposer?.(profile) ?? profile)
+      : guidanceComposer
+  const auditPeers = new Map<string, { parent: string; tools: ReadonlyArray<McpToolDescriptor> }>()
+  const peerAuditFor = (parent: string): PeerAuditAccess | undefined =>
+    options.peerAudit
+      ? {
+          register: (nodeId, tools) => {
+            auditPeers.set(nodeId, { parent, tools })
+          },
+          read: async (peerId, name, args) => {
+            const peer = auditPeers.get(peerId)
+            if (peer?.parent !== parent) return { error: 'unknown-peer' }
+            // A scope records its descendants. Its own root's provider events belong to the parent.
+            const rootRead =
+              name === 'observe_agent' &&
+              args.tree !== true &&
+              args.outRef === undefined &&
+              (args.workerId === undefined || args.workerId === peerId)
+            const tools = rootRead ? auditPeers.get(parent)?.tools : peer.tools
+            const tool = tools?.find((tool) => tool.name === name)
+            return tool
+              ? tool.handler(rootRead ? { ...args, workerId: peerId } : args)
+              : { error: 'peer-tool-unavailable' }
+          },
+        }
+      : undefined
   // The recorded root profile fixes the run's identity; a segment only alters what it executes.
-  const registeredProfile = superviseRootProfile(profile, options.profileGuidance)
+  const registeredProfile = applyTraceTools(superviseRootProfile(profile, options.profileGuidance))
   if (options.segment !== undefined) admitSegment(options.segment)
   const canonicalProfile =
     options.segment === undefined
@@ -3902,6 +4044,7 @@ function superviseInternal(
       depth: number,
       parentOwnerId: string,
       analystLineage = false,
+      peerRootOwnerId?: string,
     ): MakeWorkerAgent => {
       const makeRecursiveWorker = (
         authoredProfile: AgentProfile,
@@ -3937,7 +4080,7 @@ function superviseInternal(
         if (typeof decision !== 'object' || decision === null || Array.isArray(decision)) {
           throw new ValidationError('supervise: authorizeSpawn must return an AuthorizedSpawn')
         }
-        const authorized = freezeDetachedProfile(decision.profile)
+        const authorized = freezeDetachedProfile(applyTraceTools(decision.profile))
         const childExecution = canonicalExecution(
           authorized,
           spawnContext.task,
@@ -4052,6 +4195,11 @@ function superviseInternal(
           )
         }
 
+        const rootPeerOwner = options.peerAudit
+          ? depth === 1
+            ? ownerId
+            : peerRootOwnerId
+          : undefined
         const childFactory = makeRecursiveWorkerFor(
           authorized,
           childExecution.identity,
@@ -4060,12 +4208,16 @@ function superviseInternal(
           analystLineage ||
             spawnContext.analyst !== undefined ||
             spawnContext.assignmentId.startsWith('analyst:'),
+          rootPeerOwner,
         )
         const nestedPerWorker = defaultPerWorker(spawnContext.budget, ownerShare)
         const authorizeNestedMessage = authorizeDownFor(authorized, depth + 1)
         let acceptedSubmission = false
         let unassessedOutput = false
+        const peerAudit = depth === 1 ? peerAuditFor(spawnContext.parentNodeId) : undefined
         const nested = supervisorAgent(authorized, {
+          ...(spawnContext.peerMailUrl ? { peerMailUrl: spawnContext.peerMailUrl } : {}),
+          ...(peerAudit ? { peerAudit } : {}),
           blobs,
           onUnassessedOutput: () => {
             unassessedOutput = true
@@ -4090,6 +4242,7 @@ function superviseInternal(
             depth,
             identity: childExecution.identity,
             assignmentId: spawnContext.assignmentId,
+            ...(rootPeerOwner ? { peerRootOwnerId: rootPeerOwner } : {}),
           },
           ...(options.resolveSupervisorTools
             ? { resolveSupervisorTools: options.resolveSupervisorTools }
@@ -4297,7 +4450,9 @@ function superviseInternal(
     const priorCoordination = log ? await log.load(runId, rootOwnerId) : undefined
 
     const authorizeRootMessage = authorizeDownFor(canonicalProfile, 1)
+    const rootPeerAudit = peerAuditFor('')
     const agentDeps = {
+      ...(rootPeerAudit ? { peerAudit: rootPeerAudit } : {}),
       blobs,
       makeWorkerAgent: workerFactory,
       ...(authorizeRootMessage ? { authorizeDownMessage: authorizeRootMessage } : {}),
@@ -4397,7 +4552,19 @@ function superviseInternal(
     // Built ONLY when `otel` is configured AND an exporter resolves, so the default path allocates
     // nothing and passes no `hooks` at all — byte-for-byte the wiring every existing caller gets.
     spans = options.otel
-      ? createSupervisorSpanRecorder({ runId, namespace: runNamespace, ...options.otel, now })
+      ? createSupervisorSpanRecorder({
+          runId,
+          namespace: runNamespace,
+          ...options.otel,
+          // The root span names the profile this segment runs, under the digest the journal
+          // recorded for the root. A caller adds what only it knows (a directive variant); the
+          // fields the profile decides are not the caller's to restate.
+          agentIdentity: {
+            ...options.otel.agentIdentity,
+            ...authoredAgentIdentity(canonicalProfile, rootExecution.identity.profileDigest),
+          },
+          now,
+        })
       : undefined
     const recorder = spans
     const hooks = recorder ? composeRuntimeHooks(options.hooks, recorder.hooks) : options.hooks
@@ -4525,6 +4692,9 @@ function superviseInternal(
         ...(rootStream === undefined ? {} : { rootStream }),
         ...(rootHarnessTranscript === undefined ? {} : { rootHarnessTranscript }),
         ...(rootContinuation === undefined ? {} : { continuation: rootContinuation }),
+        // The settle record names the attribution the root registered under, so a reader of
+        // result.json can group or compare runs without the journal.
+        ...(rootExecution.ref === undefined ? {} : { execution: rootExecution.ref }),
       }
     }
     if (!recorder) return settle()

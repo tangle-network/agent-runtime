@@ -287,6 +287,7 @@ export {
   type HarvestReport,
   harvestCorpus,
 } from './harvest-corpus'
+export type { HttpMcpServerSpec } from './http-mcp-client'
 // The in-process pseudo-box: a user `onPrompt` callback → a SandboxClient for
 // runAgentRounds / openSandboxRun (the typed offline seam, no SandboxInstance cast).
 export {
@@ -788,6 +789,7 @@ export {
   type CoordinationHttpOptions,
   type CoordinationMcpHandle,
   type CoordinationPublicAddress,
+  type CoordinationReadAccess,
   type CoordinationRejectReason,
   type CoordinationTransportOptions,
   serveCoordinationMcp,
@@ -979,7 +981,6 @@ export {
   type PeerMailboxOptions,
   type PeerMailEnvelope,
   type PeerMailEvent,
-  type PeerMailKind,
   type PeerMailLimits,
   type PeerMailOutcome,
   type PeerMailReadout,
@@ -1047,6 +1048,13 @@ export {
   type ReentryTaskInput,
   UNPROVEN_CONTINUITY,
 } from './supervise/reentry'
+export {
+  connectRemoteSupervisor,
+  type RemoteSupervisorAgent,
+  type RemoteSupervisorReader,
+  type RemoteSupervisorTree,
+  type RemoteWorkerEvents,
+} from './supervise/remote-supervisor'
 // The one-call store bundle for a supervised run: a journal + blob store + executor registry,
 // shaped to spread straight into `SupervisorOpts`. `createInMemoryRunContext` is the default
 // (fresh, process-lifetime); `createFileRunContext(dir)` is the durable one — file-backed stores
@@ -1141,6 +1149,19 @@ export {
   SUBTREE_RESULT_LIMIT,
   settledToIteration,
 } from './supervise/scope'
+// One data value per multi-agent research configuration (seven axes, a canonical digest, five
+// presets) and the compiler that maps it onto exactly one `supervise` or `runGraph` call.
+export {
+  assertSearchSpec,
+  type CompiledSearchSpec,
+  compileSearchSpec,
+  SEARCH_SPEC_CORRELATION_KEY,
+  type SearchSpec,
+  type SearchSpecInputs,
+  type SearchSpecOwnedOption,
+  searchPresets,
+  searchSpecDigest,
+} from './supervise/search-spec'
 export type {
   SeatSegment,
   SeatSelection,
@@ -1189,6 +1210,7 @@ export {
   type SuperviseRegistry,
   type SuperviseRegistryTable,
   supervise,
+  superviseFleetCapabilities,
   workerFromBackend,
 } from './supervise/supervise'
 export { createRootHandle, createSupervisor, DEFAULT_MAX_DEPTH } from './supervise/supervisor'
@@ -1222,6 +1244,14 @@ export {
   type WorkerToolTraceArtifact,
   workerTraceAnalysisStore,
 } from './supervise/trace-evidence'
+// The Merkle root over the events a turn archived. Journal records carry its receipt beside the
+// `outRef` it commits to; the artifact under `traceRoot.ref` holds every leaf and salt.
+export {
+  TRACE_ROOT_SCHEMA,
+  TRACE_SUMMARY_SCHEMA,
+  type TraceRootArtifact,
+  type TraceSummary,
+} from './supervise/trace-root'
 // The substrate-agnostic trace source: a worker's tool calls as agent-eval `ToolSpan`s, from an
 // OWNED loop (push) OR a sandbox box session (message parts). The common currency for both analysts.
 export {
@@ -1305,6 +1335,7 @@ export type {
   Supervisor,
   SupervisorOpts,
   TokenUsageProvenance,
+  TraceRootReceipt,
   TreeView,
   UnconfirmedTeardown,
   UnknownMaterializationReason,
@@ -1333,6 +1364,11 @@ export {
   DEFAULT_DEADLINE_WARNING_MS,
   type ManagerWakePolicy,
 } from './supervise/wake'
+export type {
+  WorkerEventCursor,
+  WorkerEventEntry,
+  WorkerEventPage,
+} from './supervise/worker-events'
 // The bounded settle-evidence block a worker exposes so the brain's next decision is not authored
 // blind. Complementary to `CompletionEvidence` (a pointer), which this block is the target of.
 // Promoted from the loops repo (#4519).

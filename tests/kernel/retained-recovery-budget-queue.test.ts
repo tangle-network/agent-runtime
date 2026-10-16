@@ -83,7 +83,9 @@ it.each(['complete', 'exhaust', 'cancel'] as const)(
         },
       },
       'task',
-      common,
+      // The run is resumed below, so it keeps its retained work. A released run is final: its
+      // settlement closes every retained-pending slot, a manager's included (#1189).
+      { ...common, retainedAtSettlement: 'keep' },
     )
     expect(fresh).toEqual(['first', 'second'])
     const before = (await context.journal.loadTree('root'))!

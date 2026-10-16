@@ -42,6 +42,7 @@ import {
   workspaceCaptureWriter,
 } from './retained-executor'
 import { detachedSnapshot } from './snapshot'
+import { traceRootWriter } from './trace-root'
 import type {
   ExecutionBindingReceipt,
   ExecutorNodeContext,
@@ -74,6 +75,10 @@ interface OwnerState {
   priorSession?: RetainedRunEnvironmentAdmission
   /** A changed native provider starts a new harness session from a verified checkpoint. */
   forceNewSession?: boolean
+  /** `continuation.session: 'fresh'`: a later invocation keeps the environment and starts a new
+   *  harness session in it. Set on every prepare, so a recovered invocation replays the identity
+   *  it committed. */
+  freshSessions?: boolean
   provider?: AgentEnvironmentProvider
   /** The provider backend captures executable workspace evidence for unsettled owner turns. */
   workspaceRetention: boolean
@@ -139,6 +144,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
   const acceptedRef = [...attempt].reverse().find((event) => event.kind === 'execution-result')
   const priorSession = taskEvent === undefined ? undefined : committedSession(events, start)
   let sequence = Math.max(0, ...events.map((event) => ('seq' in event ? event.seq : 0)))
+  const traceRoots = traceRootWriter(args.blobs, args.nodeId)
   const state: OwnerState = {
     args,
     admissions,
@@ -157,6 +163,9 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
       },
       get priorSession() {
         return state.priorSession
+      },
+      get newSession() {
+        return state.freshSessions === true && state.priorSession !== undefined
       },
       // The first retained turn must stay alive so a later deliberate invocation can reuse it.
       // The owning scope releases it once the complete manager scope finishes.
@@ -205,6 +214,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         nodeId: args.nodeId,
         nextSequence: () => state.nextSequence(),
         now: args.now,
+        traceRoots,
       }),
       onWorkspaceCapture: workspaceCaptureWriter({
         journal: args.journal,
@@ -225,10 +235,14 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         const outRef = contentAddress(result.out)
         await args.blobs.put(outRef, result.out)
         scope.signal.throwIfAborted()
+        // The abort is decided once the result is stored. Hashing the completed turn's events
+        // decides nothing, so an abort that arrives while they hash still commits the result.
+        const traceRoot = await traceRoots.write(outRef, result.out)
         const event: Extract<SpawnEvent, { kind: 'execution-result' }> = {
           kind: 'execution-result',
           id: args.nodeId,
           outRef,
+          ...(traceRoot === undefined ? {} : { traceRoot }),
           spent: detachedSnapshot(result.spent, 'retained owner spend'),
           ...(result.verdict ? { verdict: result.verdict } : {}),
           ...(result.outcome ? { outcome: result.outcome } : {}),
@@ -1840,7 +1854,11 @@ function ownerCaptureIdentity(attempt: OwnerAttempt, owner: OwnerRegistration) {
   return { profileDigest: intent?.requestedProfileDigest, node }
 }
 
-/** Recover evidence only, before a later turn or checkpoint can change the accepted workspace. */
+/**
+ * Recover evidence before reuse. An accepted turn requires a complete receipt. A failed turn
+ * keeps its source and pending evidence, while the driver's own classification decides retry.
+ * Retry uses another environment if recovery cannot certify the failed turn's workspace.
+ */
 async function reconcileOwnerWorkspaceBeforeReuse(
   state: OwnerState,
   signal: AbortSignal,
@@ -1949,7 +1967,21 @@ async function reconcileOwnerWorkspaceBeforeReuse(
           throw new Error(captured.incompleteReason ?? 'accepted workspace capture is incomplete')
         await state.context.onEvidence!(output)
       } catch (cause) {
-        throw new RetainedWorkspaceCapturePendingError(attempt.executionId ?? args.nodeId, cause)
+        const pending = new RetainedWorkspaceCapturePendingError(
+          attempt.executionId ?? args.nodeId,
+          cause,
+        )
+        if (executorFailureReason(attempt.result) === undefined) throw pending
+        // Reuse the evidence journal, retaining the original attempt's coordinates. Neither a
+        // missing nor a partial receipt permits mutation or deletion of this source.
+        await state.context.onEvidence!({
+          executionId: attempt.executionId,
+          environmentId,
+          controlRef: attempt.controlByEnvironment.get(environmentId),
+          ...ownerCaptureIdentity(attempt, args),
+          workspaceCaptureFailure: pending.message,
+        })
+        state.forceNewSession = true
       }
     }
   }
@@ -2143,14 +2175,18 @@ export async function reconcileScopeRetainedOwnerEnvironment(
   return { state: 'lost', environmentId }
 }
 
-/** Resume the original backend prompt; rebuilt coordination observations cannot replace it. */
+/** Resume the original backend prompt; rebuilt coordination observations cannot replace it.
+ *  `session: 'fresh'` makes every invocation after the first start a new harness session in the
+ *  environment it continues. */
 export async function prepareScopeRetainedOwnerTask(
   scope: Scope<unknown>,
   task: unknown,
+  session: 'native' | 'fresh' = 'native',
 ): Promise<unknown> {
   const state = owners.get(scope)
   if (!state) return task
   const { args } = state
+  state.freshSessions = session === 'fresh'
   scope.signal.throwIfAborted()
   const journal = (await args.journal.loadTree(args.rootId)) ?? []
   const owned = journal.filter((event) => event.id === args.nodeId)

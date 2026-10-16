@@ -2082,7 +2082,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-21)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-19)
 
 ##### sandboxId?
 
@@ -3983,6 +3983,54 @@ One rejected field of an authored analyst definition: which field, and what is w
 
 ***
 
+### PeerAuditAccess
+
+Run-owned read routing between sibling managers. It grants no mutation tools.
+
+#### Methods
+
+##### register()
+
+> **register**(`nodeId`, `tools`): `void`
+
+###### Parameters
+
+###### nodeId
+
+`string`
+
+###### tools
+
+readonly [`McpToolDescriptor`](#mcptooldescriptor)[]
+
+###### Returns
+
+`void`
+
+##### read()
+
+> **read**(`peerId`, `tool`, `args`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### peerId
+
+`string`
+
+###### tool
+
+`"observe_agent"` \| `"read_journal"`
+
+###### args
+
+`Record`\<`string`, `unknown`\>
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
 ### CoordinationToolsOptions
 
 #### Properties
@@ -3990,6 +4038,10 @@ One rejected field of an authored analyst definition: which field, and what is w
 ##### scope
 
 > `readonly` **scope**: [`Scope`](runtime.md#scope-3)\<`unknown`\>
+
+##### peerAudit?
+
+> `readonly` `optional` **peerAudit?**: [`PeerAuditAccess`](#peerauditaccess)
 
 ##### blobs
 
@@ -4007,7 +4059,7 @@ Trusted immutable source refs this manager may read using its granted observe_ag
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-17)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-18)
 
 ##### onStop?
 

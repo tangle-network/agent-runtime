@@ -81,6 +81,7 @@ import {
   writeWorkerInteractiveAdmission,
 } from './interactive-admission'
 import {
+  authoredAgentIdentity,
   authoredProfileDigest,
   knownExecutionBindingReceipt,
   knownMaterializationReceipt,
@@ -133,6 +134,7 @@ import {
   terminalDownEvent,
 } from './terminal-record'
 import { captureWorkerTraceEvidence } from './trace-evidence'
+import { type TraceRootWriter, traceRootWriter } from './trace-root'
 import type { TraceSource } from './trace-source'
 import { runtimeOwnedNestedDriverTreeRoot } from './tree-key'
 import type {
@@ -175,6 +177,7 @@ import type {
   Spend,
   SubtreeResult,
   SubtreeSummary,
+  TraceRootReceipt,
   TreeView,
   UnconfirmedTeardown,
   UsageEvent,
@@ -182,6 +185,7 @@ import type {
   WorkerInteractiveUnavailableReason,
   WorkerTraceEvidence,
 } from './types'
+import { type WorkerEventCursor, type WorkerEventPage, WorkerEvents } from './worker-events'
 import { writeWorkerInteractiveBinding } from './worker-interactive'
 import {
   createWorkerSlots,
@@ -589,6 +593,7 @@ export function assertRecursiveReservationPolicy(
  * delivery; `seq` is stamped by `next()`, never here.
  */
 interface LiveChild {
+  readonly events: WorkerEvents
   cancellationReason?: RunCancellationReason
   readonly id: NodeId
   status: NodeStatus
@@ -613,6 +618,8 @@ interface LiveChild {
   acceptedResult?: ExecutorResult<unknown>
   recoveryPending?: boolean
   outRef?: string
+  /** The trace root of each output this process stored for the node, by `outRef`. */
+  readonly traceRoots: TraceRootWriter
   /** Durable structured tool evidence once this executor is terminal. */
   trace?: WorkerTraceEvidence
   /** Provider-served model evidence once this executor has attempted inference. */
@@ -702,6 +709,7 @@ export type PreSeqSettled =
       kind: 'done'
       out: unknown
       outRef: string
+      traceRoot?: TraceRootReceipt
       verdict?: DefaultVerdict
       spent: Spend
       providerModel?: import('./types').ProviderModelExecutionEvidence
@@ -719,6 +727,7 @@ export type PreSeqSettled =
       /** See `Settled['infra']`: `true` platform, `false` the work, absent unattributable. */
       infra?: boolean
       outRef?: string
+      traceRoot?: TraceRootReceipt
       trace: WorkerTraceEvidence
       /** The dropped child's own harness transcript, or the named reason it is absent. The whole
        *  point of #1244: this path has no result artifact for a capture to ride in. */
@@ -1195,6 +1204,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           : new Promise<void>((resolve) => {
               markRecoveryReady = resolve
             })
+      // Built before the retained seam, which cites it before the live child exists.
+      const traceRoots = traceRootWriter(args.blobs, id)
       const retainedWrites = new Set<Promise<void>>()
       let retainedWritesClosed = false
       const retainedWrite = (write: () => Promise<void>): Promise<void> => {
@@ -1254,10 +1265,13 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           const outRef = contentAddress(result.out)
           await args.blobs.put(outRef, result.out)
           controller.signal.throwIfAborted()
+          // As for a retained owner: an abort that arrives while the events hash still commits.
+          const traceRoot = await traceRoots.write(outRef, result.out)
           await args.journal.appendEvent(args.root, {
             kind: 'execution-result',
             id,
             outRef,
+            ...(traceRoot === undefined ? {} : { traceRoot }),
             spent: result.spent,
             ...(result.verdict ? { verdict: result.verdict } : {}),
             ...(result.outcome ? { outcome: result.outcome } : {}),
@@ -1315,6 +1329,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           nodeId: id,
           nextSequence: () => ordinal,
           now,
+          traceRoots,
         }),
         onPause,
         onWorkspaceCapture,
@@ -1438,6 +1453,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         live.teardownAttempts += 1
       })
       const live: LiveChild = {
+        events: new WorkerEvents(),
         id,
         status: permit.granted ? 'acquiring' : 'queued',
         runtime: executor.runtime,
@@ -1448,6 +1464,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
         ...(opts.key !== undefined ? { key: opts.key } : {}),
         spent: zeroSpend(),
+        traceRoots,
         settled: undefined as unknown as Promise<PreSeqSettled>,
         delivered: false,
         executorDone: false,
@@ -1748,6 +1765,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               ...(opts.successorOf === undefined ? {} : { successorOf: opts.successorOf }),
               runtime: executor.runtime,
               ...(identity ? { identity } : {}),
+              // Who acted, for span observers: the authored profile under the digest the
+              // journal recorded for this node.
+              agent: authoredAgentIdentity(spec.profile, identity?.profileDigest),
               budget: opts.budget,
               depth: args.depth,
               attemptId,
@@ -1828,22 +1848,28 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         }
       })
       const settled = childRun
-        .then(async (s) => {
+        .then(async (ran) => {
+          // Every settlement arm that cites an output this process stored cites its trace root.
+          const traceRoot = await live.traceRoots.recorded(ran.outRef)
+          const s: PreSeqSettled = traceRoot === undefined ? ran : { ...ran, traceRoot }
           let resolution = s
           try {
             await interactiveBindingCommitted
           } catch {
-            resolution = downRecord(
-              'interactive worker binding persistence failed',
-              true,
-              s.trace,
-              s.metered,
-              s.providerModel,
-              s.outRef,
-              // Re-wrapping a record the child already settled: its transcript receipt is
-              // established evidence and a persistence failure here does not unmake it.
-              s.harnessTranscript,
-            )
+            resolution = {
+              ...downRecord(
+                'interactive worker binding persistence failed',
+                true,
+                s.trace,
+                s.metered,
+                s.providerModel,
+                s.outRef,
+                // Re-wrapping a record the child already settled: its transcript receipt is
+                // established evidence and a persistence failure here does not unmake it.
+                s.harnessTranscript,
+              ),
+              ...(s.traceRoot === undefined ? {} : { traceRoot: s.traceRoot }),
+            }
           }
           live.resolved = resolution
           return resolution
@@ -2157,6 +2183,38 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     nextResolved,
     send,
     progress,
+    observeTree: () => {
+      const view = makeTreeView(args.parentId, children)
+      const nodes = new Map((args.resumeFrom?.view.nodes ?? []).map((node) => [node.id, node]))
+      for (const node of view.nodes) nodes.set(node.id, node)
+      for (const child of children.values()) {
+        const nested = child.readNestedScope?.()
+        if (nested)
+          for (const node of (nested.observeTree?.() ?? nested.view).nodes) nodes.set(node.id, node)
+      }
+      const all = [...nodes.values()]
+      return {
+        root: view.root,
+        nodes: all,
+        inFlight: all.filter((node) => ['queued', 'acquiring', 'running'].includes(node.status))
+          .length,
+      }
+    },
+    observeEvents: (nodeId: NodeId, cursor?: WorkerEventCursor): WorkerEventPage => {
+      const child = children.get(nodeId)
+      if (child) return child.events.read(cursor)
+      for (const candidate of children.values()) {
+        const nested = candidate.readNestedScope?.()
+        const page = nested?.observeEvents?.(nodeId, cursor)
+        if (page && (page.status === 'available' || page.reason !== 'unknown-worker')) return page
+      }
+      return {
+        status: 'unavailable',
+        reason: args.resumeFrom?.view.nodes.some((node) => node.id === nodeId)
+          ? 'not-captured'
+          : 'unknown-worker',
+      }
+    },
     traceSource,
     interactive,
     cancel,
@@ -2572,11 +2630,13 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       if (nested !== undefined) await closeRetainedSlots(nested)
     }
     // A confirmed release is the sweep's to record, and after a crash the resume heal's, so this
-    // pass writes only the unconfirmed state and never a second `released` record.
+    // pass writes only the unconfirmed state and never a second `released` record. It does not
+    // read `cleanupConfirmed`: a nested manager that settled retained-pending reports its teardown
+    // confirmed while its owner environment is held, so the sweep skipped it and the slot stayed
+    // open for good. Measured 2026-10-15: 38 of 38 such directors over 45 runs, 0 closed.
     const open = [...children.values()].filter(
       (child) =>
         child.recoveryPending === true &&
-        !child.cleanupConfirmed &&
         isTerminalNodeStatus(child.status) &&
         child.retainedExecution !== 'released' &&
         child.retainedExecution !== 'release-unconfirmed',
@@ -3441,6 +3501,7 @@ async function finalizeSettlement<Out>(
     id: child.id,
     status: 'done',
     outRef: settlement.outRef,
+    ...(settlement.traceRoot === undefined ? {} : { traceRoot: settlement.traceRoot }),
     ...(settlement.verdict ? { verdict: settlement.verdict } : {}),
     spent: settlement.spent,
     ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
@@ -3554,6 +3615,7 @@ async function runChild<C>(
     const out = detachedSnapshot(result.out, 'scope child output')
     const outRef = contentAddress(out)
     await blobs.put(outRef, out)
+    await live.traceRoots.write(outRef, out)
     retainedOutputRef = outRef
     if (usageError !== undefined) throw usageError
     return { ...result, out, outRef }
@@ -3639,6 +3701,7 @@ async function runChild<C>(
       : executor.execute(task, childAbort.signal)
     let artifact: ExecutorResult<C>
     if (isAsyncIterable(ran)) {
+      live.events.start()
       // Streaming: fold the incremental usage events as they arrive (the conserved-pool
       // authority), then read the terminal artifact after the stream drains. Each event also
       // republishes the running total + a fresh activity stamp onto the live child, so a
@@ -3665,6 +3728,7 @@ async function runChild<C>(
         },
         childAbort.signal,
         priorSpent,
+        (event) => live.events.append(event, now()),
       )
       live.spent = spend
       const reported = executor.resultArtifact() as ExecutorResult<C>
@@ -3808,10 +3872,11 @@ async function runChild<C>(
       live.recoveryPending = true
       live.executorDone = true
       const trace = await captureTraceOnce()
-      // Attempt teardown so a receipt exists at all. A pending retained execution answers
-      // `destroyed: false` by construction, so this cannot confirm cleanup and the permit release
-      // above deliberately does not depend on it — but the attempt and its answer belong in the
-      // record, and today these children carry no teardown receipt of any kind.
+      // Attempt teardown so a receipt exists at all; the permit release above does not depend on
+      // it. A pending retained leaf answers `destroyed: false`, but a nested manager's executor
+      // answers `destroyed: true` whenever its own descendants are confirmed, though its owner
+      // environment is still held. So `cleanupConfirmed` here does not mean the execution is
+      // gone, and the final close below still closes this slot (#1189).
       await teardownOnce(opts.shutdown ?? 'brutalKill').catch(() => undefined)
       // Charge what was observed, not the reservation ceiling — by the one rule the done and crash
       // paths already apply: a recursive executor's explicit accounting, else the running total
@@ -4244,6 +4309,7 @@ async function foldStream(
   onProgress?: (running: Spend) => void | Promise<void>,
   signal?: AbortSignal,
   priorSpent?: Spend,
+  onEvent?: (event: import('./types').ExecutorProgressEvent) => void,
 ): Promise<Spend> {
   const totals = newUsageTotals(priorSpent)
   const iterator = stream[Symbol.asyncIterator]()
@@ -4254,6 +4320,7 @@ async function foldStream(
         : await iterator.next()
       if (next.done) break
       const ev = next.value
+      if (ev.kind === 'progress') onEvent?.(ev.progress)
       meterUsageEvent(totals, ev)
       await onProgress?.({
         ...addResourceSpend(totals.resources),

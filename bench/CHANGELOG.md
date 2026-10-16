@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.4
+
+Use the Runtime 0.321 cohort: Eval `>=0.214.0 <0.215.0` and Knowledge `^22.0.2`, whose Eval peer admits Eval 0.214.
+Benchmark execution and grading are unchanged.
+
 ## 0.14.3
 
 Align benchmark package dependencies with the Runtime release cohort in `release/cohort.json`.

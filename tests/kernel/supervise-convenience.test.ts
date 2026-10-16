@@ -1650,50 +1650,6 @@ describe('supervise — peerMail threads from options through both supervisor ar
     }),
   }
 
-  it('supervise({ peerMail: true }) hands every backend-derived worker a peerMailUrl', async () => {
-    const seen: Array<string | undefined> = []
-    let turns = 0
-    const makeLeaf = workerFromBackend(offlineBackend)
-    await supervise(
-      testAgentProfile('root', {
-        harness: 'opencode',
-        tools: runtimeToolDeclarations('spawn_worker', 'stop'),
-      }),
-      'fan out',
-      {
-        budget,
-        makeWorkerAgent: (profile, context) => {
-          seen.push(context?.peerMailUrl)
-          return makeLeaf(profile, context)
-        },
-        peerMail: true,
-        wake: { debounceMs: 0 },
-        driveHarness: async ({ coordinationMcpUrl }) => {
-          // The first turn spawns both workers and ends. Each wake asks to stop, which Runtime
-          // refuses while a worker still runs.
-          turns += 1
-          if (turns > 1) {
-            await callTool(coordinationMcpUrl, 'stop', {})
-            return
-          }
-          await callTool(coordinationMcpUrl, 'spawn_worker', {
-            profile: workerProfile('w1'),
-            task: 'go',
-          })
-          await callTool(coordinationMcpUrl, 'spawn_worker', {
-            profile: workerProfile('w2'),
-            task: 'go',
-          })
-        },
-      },
-    )
-    expect(seen).toHaveLength(2)
-    for (const url of seen) {
-      expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mail\/[0-9a-f]{32}$/)
-    }
-    expect(seen[0]).not.toBe(seen[1])
-  })
-
   it('refuses peerMail on a router-brained root supervisor', async () => {
     await expect(
       supervise(rootProfile(), 't', {

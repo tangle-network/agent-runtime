@@ -117,9 +117,11 @@ export async function connectHttpMcp(spec: HttpMcpServerSpec): Promise<HttpMcpCo
     path: string,
     body: unknown,
     method: 'POST' | 'DELETE' = 'POST',
+    signal?: AbortSignal,
   ): Promise<Response> =>
     fetchImpl(`${endpoint.origin}${endpoint.pathname}${endpoint.search}${path}`, {
       method,
+      ...(signal ? { signal } : {}),
       headers: {
         accept: 'application/json, text/event-stream',
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
@@ -137,7 +139,7 @@ export async function connectHttpMcp(spec: HttpMcpServerSpec): Promise<HttpMcpCo
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {
-      const res = await post('', { jsonrpc: '2.0', id, method, params }, 'POST')
+      const res = await post('', { jsonrpc: '2.0', id, method, params }, 'POST', controller.signal)
       const sessionHeader = res.headers.get('mcp-session-id')
       if (sessionHeader) sessionId = sessionHeader
       if (!res.ok) {

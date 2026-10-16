@@ -1,22 +1,33 @@
 name: CI
 
+# Ordinary internal source PRs allocate no qualification runner. Release PRs,
+# outside contributions, landed revisions and explicit verification retain it.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
   ci:
+    if: >-
+      github.event_name != 'pull_request' ||
+      startsWith(github.head_ref, 'release/') ||
+      startsWith(github.head_ref, 'changeset-release/') ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Release-note and release-prep checks diff against the merge base.
           fetch-depth: 0
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -36,10 +47,16 @@ jobs:
       - name: Check publish credential isolation
         run: pnpm run check:publish-workflow
 
+      - name: Verify frozen release admission
+        run: node --test scripts/verify-release-line.node-test.mjs
+
       - name: Check upstream evidence workflow
         run: pnpm run check:upstream-evidence-workflow
 
+      # Preserve the release-PR contract, but do not compare a landed revision
+      # to origin/main (itself) and misreport that as release-note evidence.
       - name: Check feature release note or release bump
+        if: github.event_name == 'pull_request'
         run: |
           base="origin/${GITHUB_BASE_REF:-main}"
           if git diff --name-only "$base"...HEAD | grep -qx 'CHANGELOG.md'; then
@@ -67,6 +84,11 @@ jobs:
         run: pnpm run docs:check
 
   packed-cohort:
+    if: >-
+      github.event_name != 'pull_request' ||
+      startsWith(github.head_ref, 'release/') ||
+      startsWith(github.head_ref, 'changeset-release/') ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -112,6 +134,11 @@ jobs:
           --cohort-manifest release/cohort.json
 
   agent-bench:
+    if: >-
+      github.event_name != 'pull_request' ||
+      startsWith(github.head_ref, 'release/') ||
+      startsWith(github.head_ref, 'changeset-release/') ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -135,6 +162,11 @@ jobs:
         run: pnpm run verify:bench
 
   official-optimizers:
+    if: >-
+      github.event_name != 'pull_request' ||
+      startsWith(github.head_ref, 'release/') ||
+      startsWith(github.head_ref, 'changeset-release/') ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

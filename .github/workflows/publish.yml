@@ -15,20 +15,18 @@ on:
 permissions:
   contents: read
 
-# One release at a time, and never a queue. Three sessions cut 0.228.0, 0.231.1 and 0.232.0 within
-# hours of each other on 2026-09-16, and v0.232.0 was pushed four minutes before #1259 merged, so
-# the tag published without the change main declared in that version. Two tags racing this
-# workflow would both pass the per-tag tip check below and publish out of order; the group makes
-# the second wait for the first, and `cancel-in-progress: false` means a tag that is already
-# publishing is never interrupted by a later one.
+# Explicit releases wait rather than replacing one another (up to GitHub's
+# 100 pending-run limit). Source merges never enter this publication group.
 concurrency:
   group: publish-agent-runtime
   cancel-in-progress: false
+  queue: max
 
 jobs:
   release-source:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       sha: ${{ steps.release.outputs.sha }}
       version: ${{ steps.release.outputs.version }}
@@ -38,10 +36,21 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
           persist-credentials: false
 
+      # Old-tag retries use this workflow's immutable policy, not candidate code.
+      - name: Read workflow-pinned release policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-policy
+          sparse-checkout: scripts/verify-release-line.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       - name: Verify release source and version
         id: release
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+          EXPECTED_RELEASE_SHA: ${{ github.event_name == 'push' && github.sha || '' }}
         run: |
           if [[ "$RELEASE_TAG" != v* ]] ||
              ! git check-ref-format "refs/tags/$RELEASE_TAG"; then
@@ -56,6 +65,10 @@ jobs:
             echo "::error::Checkout $CHECKOUT_SHA does not match $RELEASE_TAG at $TAG_SHA."
             exit 1
           fi
+          if [ -n "$EXPECTED_RELEASE_SHA" ] && [ "$CHECKOUT_SHA" != "$EXPECTED_RELEASE_SHA" ]; then
+            echo "::error::Release tag moved after the triggering event."
+            exit 1
+          fi
           NPM_VERSION=$(node -p "require('./package.json').version")
           TAG_VERSION="${RELEASE_TAG#v}"
           if [ "$TAG_VERSION" != "$NPM_VERSION" ]; then
@@ -66,58 +79,15 @@ jobs:
           echo "version=$NPM_VERSION" >> "$GITHUB_OUTPUT"
           echo "Release source locked: $RELEASE_TAG at $TAG_SHA"
 
-      # A release tag must sit on the tip of the line it releases. Without this, a
-      # tag cut from an older commit publishes while newer merged commits are
-      # silently excluded: 0.106.0 was tagged at the #624 merge and published 45
-      # minutes before #626 merged, so the parallel-tool-call fix never reached the
-      # registry even though it was already on main. Nothing failed — `latest`
-      # simply did not contain the code main had.
-      #
-      # A tag is valid at the tip of `main` (normal release) or at the tip of a
-      # `release/<major>.<minor>.x` branch (backport onto a line the fleet still
-      # resolves — 0.x caret ranges only admit patches, so this is the only way to
-      # ship a fix to a consumer pinned to an older minor). Comparing SHAs needs no
-      # shared history, so a shallow fetch is sufficient.
-      - name: Verify tag is the tip of its release line
+      - name: Verify frozen release line admission
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
         run: |
           TAG_SHA=$(git rev-parse HEAD)
-          git fetch --no-tags --depth=100 origin +refs/heads/main:refs/remotes/origin/main
-          MAIN_SHA=$(git rev-parse refs/remotes/origin/main)
-          if [ "$TAG_SHA" = "$MAIN_SHA" ]; then
-            echo "Tag is the tip of main: $TAG_SHA"
-            exit 0
-          fi
-          # A tag that was the tip of main when it was pushed, but is not by the time this job
-          # runs, is the race the concurrency group serialises: another session merged after the
-          # tag. Publishing it now would ship less than main declares under this version. Name the
-          # commits it would leave out and stop, exactly as for a stale tag.
-          if git merge-base --is-ancestor "$TAG_SHA" "$MAIN_SHA" 2>/dev/null; then
-            echo "::error::Tag $RELEASE_TAG is at $TAG_SHA, but main has moved to $MAIN_SHA since it was pushed."
-            echo "Commits on main this tag would NOT publish:"
-            git log --oneline "$TAG_SHA".."$MAIN_SHA" || true
-            echo "Bump the version on main and re-cut the tag at its tip."
-            exit 1
-          fi
           VERSION="${RELEASE_TAG#v}"
+          VERSION="${VERSION%%[-+]*}"
           LINE="release/${VERSION%.*}.x"
-          if git fetch --no-tags --depth=100 origin "+refs/heads/$LINE:refs/remotes/origin/$LINE" 2>/dev/null; then
-            LINE_SHA=$(git rev-parse "refs/remotes/origin/$LINE")
-            if [ "$TAG_SHA" = "$LINE_SHA" ]; then
-              echo "Tag is the tip of $LINE: $TAG_SHA"
-              exit 0
-            fi
-            echo "::error::Tag v$VERSION is at $TAG_SHA but $LINE is at $LINE_SHA."
-            echo "Commits on $LINE this tag would NOT publish:"
-            git log --oneline "$TAG_SHA".."$LINE_SHA" || true
-            exit 1
-          fi
-          echo "::error::Tag v$VERSION is at $TAG_SHA, which is neither the tip of main ($MAIN_SHA) nor of $LINE (no such branch)."
-          echo "Commits on main this tag would NOT publish:"
-          git log --oneline "$TAG_SHA".."$MAIN_SHA" || true
-          echo "Re-cut the tag at the tip of main, or push a $LINE branch for a backport."
-          exit 1
+          node .release-policy/scripts/verify-release-line.mjs "$TAG_SHA" refs/remotes/origin/main "refs/remotes/origin/$LINE"
 
   verify:
     needs: release-source
@@ -130,44 +100,32 @@ jobs:
         with:
           ref: ${{ needs.release-source.outputs.sha }}
           persist-credentials: false
-
       - name: Read exact first-party cohort
         id: cohort
         run: node scripts/release-cohort.mjs --github-output "$GITHUB_OUTPUT"
-
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
-
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-
       - name: Install deps
         run: pnpm install --frozen-lockfile && pnpm peers check
-
       - name: Lint (biome)
         run: pnpm run lint
-
       - name: Test
         run: pnpm run test
-
       - name: Build
         run: pnpm run build
-
       - name: Typecheck (src + examples; examples resolve against built dist)
         run: pnpm run typecheck
-
       - name: Verify package source and metadata
         run: pnpm run verify:package:static
-
       - name: Verify release API surface record
         run: pnpm run check:api-surface-record
-
       - name: Check out exact Interface release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -175,7 +133,6 @@ jobs:
           ref: ${{ steps.cohort.outputs.agent_interface_ref }}
           path: .cohort/agent-sdk
           persist-credentials: false
-
       - name: Check out exact Eval release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -183,7 +140,6 @@ jobs:
           ref: ${{ steps.cohort.outputs.agent_eval_ref }}
           path: .cohort/agent-eval
           persist-credentials: false
-
       - name: Check out exact Knowledge release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -191,7 +147,6 @@ jobs:
           ref: ${{ steps.cohort.outputs.agent_knowledge_ref }}
           path: .cohort/agent-knowledge
           persist-credentials: false
-
       - name: Verify exact Interface, Eval, Knowledge, and Runtime archives together
         run: >-
           node scripts/verify-packed-cohort.mjs
@@ -200,7 +155,6 @@ jobs:
           --agent-knowledge-repo .cohort/agent-knowledge
           --cohort-manifest release/cohort.json
           --report "$RUNNER_TEMP/cohort-report.json"
-
       - name: Package and verify the exact Runtime archive
         id: package
         run: |
@@ -218,9 +172,6 @@ jobs:
           sha256=$(sha256sum "$package" | cut -d' ' -f1)
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
           echo "Runtime archive locked: $package ($sha256)"
-
-      # The manifest reports what this exact archive proved about its own durable
-      # and control capabilities, so it travels with the archive it describes.
       - name: Emit and verify the conformance manifest for the exact archive
         run: |
           package_dir="$RUNNER_TEMP/agent-runtime-package"
@@ -239,7 +190,6 @@ jobs:
             --tarball "${packages[0]}" \
             --cohort-report "$RUNNER_TEMP/cohort-report.json" \
             --source-root .
-
       - name: Upload exact Runtime archive and its conformance manifest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -261,21 +211,16 @@ jobs:
         with:
           ref: ${{ needs.release-source.outputs.sha }}
           persist-credentials: false
-
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm
-
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-
       - name: Install deps
         run: pnpm install --frozen-lockfile && pnpm peers check
-
       - name: Verify official optimizers
         run: pnpm run verify:official-optimizers
 
@@ -288,21 +233,16 @@ jobs:
         with:
           ref: ${{ needs.release-source.outputs.sha }}
           persist-credentials: false
-
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm
-
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-
       - name: Install deps
         run: pnpm install --frozen-lockfile && pnpm peers check
-
       - name: Verify agent-bench against this release
         env:
           AGENT_BENCH_PACKAGE_TEST_TIMEOUT_MS: 900000
@@ -319,31 +259,21 @@ jobs:
       EXPECTED_NAME: '@tangle-network/agent-runtime'
       EXPECTED_VERSION: ${{ needs.verify.outputs.release-version }}
       EXPECTED_SHA256: ${{ needs.verify.outputs.package-sha256 }}
-      # Attest every publish on both the OIDC path and the token fallback. The
-      # `--provenance` flag says the same thing; the variable also covers a
-      # publish an npm lifecycle script starts.
+      LINE_SCOPED_BACKPORTS: 'true'
       NPM_CONFIG_PROVENANCE: 'true'
     steps:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.18.0
-
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: agent-runtime-package
           path: ${{ runner.temp }}/agent-runtime-package
-
-      # Tokenless by default. NPM_TOKEN is a break-glass fallback for repairing a
-      # publish by hand; it is not set, and a token set here TAKES PRECEDENCE over
-      # OIDC (agent-sdk #284: a repo token whose package scope missed three
-      # packages made every publish 404 on the PUT), so leave it unset.
-      - name: Configure npm auth (OIDC by default, token only when set)
+      - &npm-auth
+        name: Configure npm auth (OIDC by default, token only when set)
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          # An empty _authToken line also blocks the exchange, which is why this
-          # job takes no setup-node registry-url. Drop any such line, then write
-          # one back only for a real token.
           sed -i '/_authToken/d' "$HOME/.npmrc" 2>/dev/null || true
           if [ -n "${NPM_TOKEN:-}" ]; then
             npm config set --location=user //registry.npmjs.org/:_authToken "$NPM_TOKEN"
@@ -351,75 +281,73 @@ jobs:
           else
             echo 'No NPM_TOKEN: publishing through npm trusted publishing (OIDC).'
           fi
-
-      # Node 24.18.0 bundles npm 11.16.0, above the 11.5.1 trusted-publishing
-      # floor. This job has no source checkout and runs no dependency or package
-      # build, so the bundled CLI is the one that does the OIDC exchange.
-      # Requires the npmjs Trusted Publisher: org tangle-network, repo
-      # agent-runtime, workflow publish.yml, no environment.
+      # Shared YAML, not a new action or executable downloaded with authority.
+      # Neither publisher checks out source, installs dependencies or builds.
       - name: Publish exact Runtime archive
-        run: |
+        env:
+          PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-runtime-package
+        run: &publish-exact |
+          set -euo pipefail
           npm_version=$(npm --version)
-          # The OIDC exchange needs npm >= 11.5.1, and npm 12.0.0 ships a
-          # provenance publish that fails with MODULE_NOT_FOUND for sigstore, so
-          # accept only the 11.x line at or above the floor.
           if [[ "$npm_version" != 11.* ]] ||
              [ "$(printf '%s\n%s\n' 11.5.1 "$npm_version" | sort -V | head -1)" != 11.5.1 ]; then
             echo "::error::Expected npm >= 11.5.1 and < 12, received $npm_version."
             exit 1
           fi
-          mapfile -t packages < <(find "$RUNNER_TEMP/agent-runtime-package" -maxdepth 1 -type f -name '*.tgz' -print)
+          mapfile -t packages < <(find "$PACKAGE_DIRECTORY" -maxdepth 1 -type f -name '*.tgz' -print)
           if [ "${#packages[@]}" -ne 1 ]; then
-            echo "::error::Expected one Runtime archive, found ${#packages[@]}."
+            echo "::error::Expected one archive, found ${#packages[@]}."
             exit 1
           fi
           package="${packages[0]}"
           actual_sha256=$(sha256sum "$package" | cut -d' ' -f1)
           if [ "$actual_sha256" != "$EXPECTED_SHA256" ]; then
-            echo "::error::Runtime archive digest mismatch."
+            echo '::error::Archive digest mismatch.'
             exit 1
           fi
           manifest=$(tar -xOzf "$package" package/package.json)
           name=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).name)' "$manifest")
           version=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).version)' "$manifest")
           if [ "$name" != "$EXPECTED_NAME" ] || [ "$version" != "$EXPECTED_VERSION" ]; then
-            echo "::error::Runtime archive identity mismatch: $name@$version."
+            echo "::error::Archive identity mismatch: $name@$version."
             exit 1
           fi
+          expected_integrity=$(node -e 'const fs=require("node:fs"),crypto=require("node:crypto");process.stdout.write("sha512-"+crypto.createHash("sha512").update(fs.readFileSync(process.argv[1])).digest("base64"))' "$package")
           if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-            echo "$name@$version already on registry; skipping publish"
+            echo "$name@$version exists; verifying its archive, not republishing"
           else
-            # npm refuses to implicitly move `latest` to a LOWER version, which is
-            # exactly what a backport off release/<major>.<minor>.x is. When this
-            # version is not the highest published, publish it under a line-scoped
-            # dist-tag instead. Dist-tags do not affect semver range resolution, so
-            # a consumer pinned to ^0.84.0 still resolves 0.84.1.
-            latest=$(npm view "$name" version --registry=https://registry.npmjs.org 2>/dev/null || true)
-            if [ -n "$latest" ] && \
-               [ "$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -1)" != "$version" ]; then
-              line_tag="release-${version%.*}"
-              echo "$version is below latest ($latest); publishing under dist-tag $line_tag"
-              npm publish "$package" --ignore-scripts --provenance --access public --tag "$line_tag" --registry=https://registry.npmjs.org
-            else
-              npm publish "$package" --ignore-scripts --provenance --access public --registry=https://registry.npmjs.org
+            # Retain the existing Runtime backport dist-tag policy.
+            tag_args=()
+            if [ "$LINE_SCOPED_BACKPORTS" = true ]; then
+              latest=$(npm view "$name" version --registry=https://registry.npmjs.org 2>/dev/null || true)
+              if [ -n "$latest" ] &&
+                 [ "$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -1)" != "$version" ]; then
+                tag_args=(--tag "release-${version%.*}")
+              fi
             fi
+            npm publish "$package" --ignore-scripts --provenance --access public "${tag_args[@]}" --registry=https://registry.npmjs.org
           fi
-          # npm can accept an upload as a staged version that stays private until a
-          # maintainer approves it with 2FA, and npm publish still exits 0. A release
-          # is done only when the registry serves the exact version.
+          # A version string alone is not evidence that the qualified bytes were served.
+          # Check npm's archive integrity for both new publication and existing-version retries.
           for _ in $(seq 1 20); do
-            if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-              echo "$name@$version is served by the registry"
+            if integrity_json=$(npm view "$name@$version" dist.integrity --json --registry=https://registry.npmjs.org 2>/dev/null); then
+              REGISTRY_INTEGRITY_JSON="$integrity_json" EXPECTED_INTEGRITY="$expected_integrity" node <<'NODE'
+          const raw = JSON.parse(process.env.REGISTRY_INTEGRITY_JSON)
+          if (typeof raw !== 'string' || !raw.split(/\s+/).includes(process.env.EXPECTED_INTEGRITY)) {
+            console.error('::error::Registry archive differs from the qualified archive or has no SHA-512 integrity.')
+            process.exit(1)
+          }
+          NODE
+              echo "$name@$version is served by the registry with matching archive integrity"
               exit 0
             fi
             sleep 30
           done
-          echo "::error::$name@$version is not served by the registry after 10 minutes. If npm staged it, a maintainer must run 'npm stage list $name' and 'npm stage approve <stage-id>'."
+          echo "::error::$name@$version is not served by the registry after 10 minutes; inspect staging and publication before retrying."
           exit 1
 
   verify-agent-bench:
-    # Manual dispatch remains root-only. Re-run a failed bench tag workflow so
-    # tag/version locking stays intact and the root package is never co-published.
+    # Manual dispatch remains root-only; bench retries use their tag run.
     if: startsWith(github.ref, 'refs/tags/agent-bench-v')
     runs-on: ubuntu-latest
     outputs:
@@ -429,27 +357,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-
       - name: Install deps
         run: pnpm install --frozen-lockfile && pnpm peers check
-
       - name: Wait for published agent-bench dependencies
         timeout-minutes: 25
         run: pnpm --filter @tangle-network/agent-bench run wait:published-dependencies
-
       - name: Verify agent-bench source and package metadata
         env:
           AGENT_BENCH_PACKAGE_TEST_TIMEOUT_MS: 900000
         run: pnpm run verify:bench:source
-
       - name: Verify tag/version lock
         id: release
         run: |
@@ -461,7 +383,6 @@ jobs:
           fi
           echo "version=$NPM_VERSION" >> "$GITHUB_OUTPUT"
           echo "Version locked: $NPM_VERSION"
-
       - name: Package and verify the exact agent-bench archive
         id: package
         run: |
@@ -478,7 +399,6 @@ jobs:
           sha256=$(sha256sum "$package" | cut -d' ' -f1)
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
           echo "agent-bench archive locked: $package ($sha256)"
-
       - name: Upload exact agent-bench archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -499,85 +419,18 @@ jobs:
       EXPECTED_NAME: '@tangle-network/agent-bench'
       EXPECTED_VERSION: ${{ needs.verify-agent-bench.outputs.release-version }}
       EXPECTED_SHA256: ${{ needs.verify-agent-bench.outputs.package-sha256 }}
-      # Attest every publish on both the OIDC path and the token fallback. The
-      # `--provenance` flag says the same thing; the variable also covers a
-      # publish an npm lifecycle script starts.
+      LINE_SCOPED_BACKPORTS: 'false'
       NPM_CONFIG_PROVENANCE: 'true'
     steps:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.18.0
-
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: agent-bench-package
           path: ${{ runner.temp }}/agent-bench-package
-
-      # Tokenless by default. NPM_TOKEN is a break-glass fallback for repairing a
-      # publish by hand; it is not set, and a token set here TAKES PRECEDENCE over
-      # OIDC (agent-sdk #284: a repo token whose package scope missed three
-      # packages made every publish 404 on the PUT), so leave it unset.
-      - name: Configure npm auth (OIDC by default, token only when set)
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          # An empty _authToken line also blocks the exchange, which is why this
-          # job takes no setup-node registry-url. Drop any such line, then write
-          # one back only for a real token.
-          sed -i '/_authToken/d' "$HOME/.npmrc" 2>/dev/null || true
-          if [ -n "${NPM_TOKEN:-}" ]; then
-            npm config set --location=user //registry.npmjs.org/:_authToken "$NPM_TOKEN"
-            echo 'NPM_TOKEN is set: publishing with the token fallback, still attested.'
-          else
-            echo 'No NPM_TOKEN: publishing through npm trusted publishing (OIDC).'
-          fi
-
+      - *npm-auth
       - name: Publish exact agent-bench archive
-        run: |
-          # Requires the npmjs Trusted Publisher on @tangle-network/agent-bench:
-          # org tangle-network, repo agent-runtime, workflow publish.yml, no
-          # environment.
-          npm_version=$(npm --version)
-          # The OIDC exchange needs npm >= 11.5.1, and npm 12.0.0 ships a
-          # provenance publish that fails with MODULE_NOT_FOUND for sigstore, so
-          # accept only the 11.x line at or above the floor.
-          if [[ "$npm_version" != 11.* ]] ||
-             [ "$(printf '%s\n%s\n' 11.5.1 "$npm_version" | sort -V | head -1)" != 11.5.1 ]; then
-            echo "::error::Expected npm >= 11.5.1 and < 12, received $npm_version."
-            exit 1
-          fi
-          mapfile -t packages < <(find "$RUNNER_TEMP/agent-bench-package" -maxdepth 1 -type f -name '*.tgz' -print)
-          if [ "${#packages[@]}" -ne 1 ]; then
-            echo "::error::Expected one agent-bench archive, found ${#packages[@]}."
-            exit 1
-          fi
-          package="${packages[0]}"
-          actual_sha256=$(sha256sum "$package" | cut -d' ' -f1)
-          if [ "$actual_sha256" != "$EXPECTED_SHA256" ]; then
-            echo "::error::agent-bench archive digest mismatch."
-            exit 1
-          fi
-          manifest=$(tar -xOzf "$package" package/package.json)
-          name=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).name)' "$manifest")
-          version=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).version)' "$manifest")
-          if [ "$name" != "$EXPECTED_NAME" ] || [ "$version" != "$EXPECTED_VERSION" ]; then
-            echo "::error::agent-bench archive identity mismatch: $name@$version."
-            exit 1
-          fi
-          if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-            echo "$name@$version already on registry; skipping publish"
-          else
-            npm publish "$package" --ignore-scripts --provenance --access public --registry=https://registry.npmjs.org
-          fi
-          # npm can accept an upload as a staged version that stays private until a
-          # maintainer approves it with 2FA, and npm publish still exits 0. A release
-          # is done only when the registry serves the exact version.
-          for _ in $(seq 1 20); do
-            if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-              echo "$name@$version is served by the registry"
-              exit 0
-            fi
-            sleep 30
-          done
-          echo "::error::$name@$version is not served by the registry after 10 minutes. If npm staged it, a maintainer must run 'npm stage list $name' and 'npm stage approve <stage-id>'."
-          exit 1
+        env:
+          PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-bench-package
+        run: *publish-exact

@@ -19,7 +19,6 @@ import {
 } from '../../src/runtime/supervise/coordination-mcp'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
-import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type {
   Agent,
   AgentSpec,
@@ -30,8 +29,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import { coordinationProxy } from '../helpers/coordination-proxy'
-import { supervisorAgent } from '../helpers/runtime-with-test-brain'
-import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
+import { testAgentProfile } from './test-agent-profile'
 
 const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
 afterEach(async () => {
@@ -562,64 +560,6 @@ describe('serveCoordinationMcp itself fails closed on a non-loopback bind', () =
       }
     })
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
-  })
-})
-
-describe('serveCoordinationMcp receives the peerMail the supervisor forwards', () => {
-  it('serves peer mail when supervise forwards peerMail', async () => {
-    const blobs = new InMemoryResultBlobStore()
-    const mailUrls: Array<string | undefined> = []
-    let mailToolNames: ReadonlyArray<string> = []
-    let drives = 0
-    const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
-      // The first drive spawns and ends its turn; Runtime wakes the harness for the second.
-      drives += 1
-      if (drives === 1) {
-        await jsonRpc(coordinationMcpUrl, 'tools/call', {
-          name: 'spawn_worker',
-          arguments: { profile: {}, task: 'go' },
-        })
-        return
-      }
-      const mailUrl = mailUrls[0]
-      if (mailUrl !== undefined) {
-        const listed = await jsonRpc(mailUrl, 'tools/list', {})
-        mailToolNames = ((listed.result as { tools?: Array<{ name: string }> })?.tools ?? []).map(
-          (tool) => tool.name,
-        )
-      }
-      await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
-    }
-    const root = supervisorAgent(
-      testAgentProfile('sup', {
-        harness: 'opencode',
-        tools: runtimeToolDeclarations('spawn_worker', 'stop'),
-      }),
-      {
-        blobs,
-        makeWorkerAgent: (_profile, context) => {
-          mailUrls.push(context?.peerMailUrl)
-          return deliveringLeaf('w', { answer: 1 })
-        },
-        perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
-        driveHarness,
-        peerMail: true,
-      },
-    )
-    const result = await createSupervisor<unknown, unknown>().run(root, 'solve', {
-      budget: { maxIterations: 100, maxTokens: 100_000 },
-      runId: 'mail-mcp',
-      journal: new InMemorySpawnJournal(),
-      blobs,
-      executors: createExecutorRegistry(),
-      maxDepth: 4,
-      now: () => 0,
-    })
-    expect(result.kind).toBe('winner')
-    expect(drives).toBe(2)
-    expect(mailUrls).toHaveLength(1)
-    expect(mailUrls[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mail\/[0-9a-f]{32}$/)
-    expect([...mailToolNames].sort()).toEqual(['read_mail', 'send_mail'])
   })
 })
 

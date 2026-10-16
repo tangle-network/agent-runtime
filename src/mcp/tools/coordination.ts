@@ -910,8 +910,19 @@ export interface SuperviseProfileEntry {
   }
 }
 
+/** Run-owned read routing between sibling managers. It grants no mutation tools. */
+export interface PeerAuditAccess {
+  register(nodeId: string, tools: ReadonlyArray<McpToolDescriptor>): void
+  read(
+    peerId: string,
+    tool: 'observe_agent' | 'read_journal',
+    args: Record<string, unknown>,
+  ): Promise<unknown>
+}
+
 export interface CoordinationToolsOptions {
   readonly scope: Scope<unknown>
+  readonly peerAudit?: PeerAuditAccess
   readonly blobs: ResultBlobStore
   /** Trusted immutable source refs this manager may read using its granted observe_agent tool. */
   readonly sourceEvidenceRefs?: ReadonlyArray<string>
@@ -3157,7 +3168,7 @@ export function createCoordinationToolsForManager(
     }
     return rows
   }
-  const readJournal = (raw: unknown): JournalPage => {
+  const readJournal = (raw: unknown, trackOwnRead = true): JournalPage => {
     const a = raw === undefined ? {} : obj(raw)
     const sinceRow =
       a.sinceRow === undefined
@@ -3227,7 +3238,7 @@ export function createCoordinationToolsForManager(
     }
     const last = entries[entries.length - 1]
     const nextRow = last === undefined ? sinceRow : last.row + 1
-    journalReadTo = Math.max(journalReadTo, nextRow)
+    if (trackOwnRead) journalReadTo = Math.max(journalReadTo, nextRow)
     return {
       entries,
       nextRow,
@@ -4057,6 +4068,24 @@ export function createCoordinationToolsForManager(
       inputSchema: {
         type: 'object',
         properties: {
+          events: {
+            type: 'boolean',
+            description: 'Read bounded live output for an owned descendant.',
+          },
+          tree: {
+            type: 'boolean',
+            description: "Read this manager's complete owned tree without reading state files.",
+          },
+          eventCursor: {
+            type: 'object',
+            properties: {
+              epoch: { type: 'string', minLength: 1 },
+              next: { type: 'integer', minimum: 0 },
+            },
+            required: ['epoch', 'next'],
+            additionalProperties: false,
+          },
+
           workerId: idArg,
           outRef: {
             type: 'string',
@@ -4085,6 +4114,56 @@ export function createCoordinationToolsForManager(
       },
       handler: async (raw) => {
         const args = obj(raw)
+        if (args.tree === true) {
+          const tree = opts.scope.observeTree?.() ?? opts.scope.view
+          return redactJournalEvent({
+            tree: {
+              root: tree.root,
+              inFlight: tree.inFlight,
+              nodes: tree.nodes.map((node) => ({
+                id: node.id,
+                parent: node.parent,
+                label: node.label,
+                status: node.status,
+                runtime: node.runtime,
+                spawnedAt: node.spawnedAt,
+                settledAt: node.settledAt,
+              })),
+            },
+          })
+        }
+        const eventCursor =
+          args.eventCursor === undefined
+            ? undefined
+            : (() => {
+                const cursor = obj(args.eventCursor)
+                if (
+                  typeof cursor.epoch !== 'string' ||
+                  cursor.epoch.length === 0 ||
+                  !Number.isSafeInteger(cursor.next) ||
+                  Number(cursor.next) < 0
+                )
+                  throw new Error('eventCursor must name an epoch and a non-negative safe integer')
+                return { epoch: cursor.epoch, next: Number(cursor.next) }
+              })()
+        if (args.events === true) {
+          const id = str(args.workerId, 'workerId')
+          const node = (opts.scope.observeTree?.() ?? opts.scope.view).nodes.find(
+            (candidate) => candidate.id === id,
+          )
+          if (!node) return { error: 'unknown-worker' as const }
+          return redactJournalEvent({
+            id: node.id,
+            parent: node.parent,
+            label: node.label,
+            status: node.status,
+            runtime: node.runtime,
+            events: opts.scope.observeEvents?.(id, eventCursor) ?? {
+              status: 'unavailable',
+              reason: 'not-captured',
+            },
+          })
+        }
         const outputRead = workerOutputReadOptions(args)
         if (args.outRef !== undefined && args.workerId === undefined) {
           const outRef = str(args.outRef, 'outRef')
@@ -4122,6 +4201,10 @@ export function createCoordinationToolsForManager(
         const pending = node.settlementPending
         return {
           ...projectNodeEvidence(node),
+          events: opts.scope.observeEvents?.(node.id, eventCursor) ?? {
+            status: 'unavailable',
+            reason: 'not-captured',
+          },
           outRef: node.outRef ?? null,
           ...(await readWorkerOutput(node.outRef, outputRead)),
           progress: progress ?? null,
@@ -4736,6 +4819,39 @@ export function createCoordinationToolsForManager(
       handler: async (raw) => readJournal(raw),
     },
   ]
+
+  if (opts.peerAudit) {
+    for (const tool of tools) {
+      if (tool.name !== 'observe_agent' && tool.name !== 'read_journal') continue
+      const ownHandler = tool.handler
+      const name = tool.name
+      const schema = tool.inputSchema as { properties?: Record<string, unknown> }
+      schema.properties = {
+        ...schema.properties,
+        peerId: {
+          type: 'string',
+          description:
+            "Read a peer root's own record, using its workerId from read_mail.peers. Read-only; omit for your own tree.",
+        },
+      }
+      tool.handler = async (raw) => {
+        const args = obj(raw)
+        if (args.peerId === undefined) return ownHandler(raw)
+        const peerId = str(args.peerId, 'peerId')
+        const { peerId: _peerId, ...readArgs } = args
+        return opts.peerAudit?.read(peerId, name, readArgs)
+      }
+    }
+    // A peer read must not claim that this manager has consumed its own journal.
+    opts.peerAudit.register(
+      opts.scope.view.root,
+      tools.map((tool) =>
+        tool.name === 'read_journal'
+          ? { ...tool, handler: async (raw) => readJournal(raw, false) }
+          : tool,
+      ),
+    )
+  }
 
   if (opts.analysts) {
     tools.push({

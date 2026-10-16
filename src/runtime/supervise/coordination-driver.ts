@@ -44,6 +44,7 @@ import {
   type EscalateQuestion,
   type MakeWorkerAgent,
   normalizeAnalyzeOnSettle,
+  type PeerAuditAccess,
   type SettledWorker,
   type SpawnPreflight,
   type SuperviseProfileEntry,
@@ -150,6 +151,7 @@ export interface DriverAgentOptions {
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
   /** Trusted source refs for this manager’s existing observe_agent capability. */
   readonly sourceEvidenceRefs?: ReadonlyArray<string>
+  readonly peerAudit?: PeerAuditAccess
   /** Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `finding` the
    *  moment it loops/error-storms — mid-run evidence to steer on, not a settle-time post-mortem.
    *  Omit = no online watching. */
@@ -1023,6 +1025,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.analysts ? { analysts: opts.analysts } : {}),
         ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
         ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
+        ...(opts.peerAudit ? { peerAudit: opts.peerAudit } : {}),
         ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
         ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
         ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),

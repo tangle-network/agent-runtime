@@ -279,6 +279,8 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'resolveDeliverable',
   'coordination',
   'peerMail',
+  'peerAudit',
+  'traceTools',
   'driverBackend',
   'profileSecurity',
   'authorizeSpawn',

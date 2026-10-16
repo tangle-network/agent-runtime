@@ -1288,7 +1288,15 @@ function routerTurnRequestIdentity(
  * the recorded usage events are yielded; the terminal artifact is read from
  * `resultArtifact()` after the stream drains.
  */
-export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
+export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) =>
+  sandboxExecutorForPath(spec, ctx, 'sandbox')
+
+// The provider adapter preserves credential intent; a direct sandbox client cannot enforce it.
+function sandboxExecutorForPath(
+  spec: AgentSpec,
+  ctx: ExecutorContext,
+  modelPath: 'sandbox' | 'provider',
+): Executor<unknown> {
   if (spec.harness === null) {
     throw new ValidationError('sandboxExecutor: harness is null (router/inline) — wrong executor')
   }
@@ -1304,7 +1312,7 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // The harness owns its own model calls inside the box and the Sandbox API exposes no completion
   // cap, so a requested ceiling is refused here rather than dropped on the way to a paid run.
   const sandboxTokenLimits = enforceTokenLimits(
-    profileModelExecutionSettings(spec.profile, 'sandboxExecutor').tokenLimits,
+    profileModelExecutionSettings(spec.profile, 'sandboxExecutor', modelPath).tokenLimits,
     'sandbox',
     'sandboxExecutor',
   )
@@ -2529,6 +2537,8 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
           const sandboxClient = providerAsSandboxClient(provider, {
             defaults: {
               ...(providerSeam.defaults ?? {}),
+              idempotencyKey:
+                providerSeam.defaults?.idempotencyKey ?? seamed.node?.attemptId ?? randomUUID(),
               signal: seamed.signal,
             },
             requireTerminalEvent: providerSeam.requireTerminalEvent,
@@ -2577,7 +2587,7 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
               } satisfies SandboxSeam,
             },
           }
-          const executor = sandboxExecutor({ ...spec, harness }, providerCtx)
+          const executor = sandboxExecutorForPath({ ...spec, harness }, providerCtx, 'provider')
           // The copy renames the runtime only; it must keep the sandbox executor's materialization
           // evidence, or exact turn execution would refuse the executor Runtime itself built.
           const wrapper = inheritRuntimeOwnedExecutorAttestation(executor, {

@@ -29,13 +29,13 @@ Native tool ids (agent-container `packages/agent-profile-materialize/src/control
 
 | Harness | Accepted | Refused |
 |---|---|---|
-| opencode | read, write, edit, apply_patch (or patch), bash, glob, grep, webfetch, websearch, todowrite, skill, question, codesearch; its native subagent switch only as `"task": false` | list, ls, find, lsp, any other name |
-| claude-code | Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, TodoWrite, NotebookEdit, Skill, AskUserQuestion; leave out its native subagent tools | any other name, every `mcp__` name included |
+| opencode | read, write, edit, apply_patch (or patch), bash, glob, grep, webfetch, websearch, todowrite, skill, question, codesearch; the tool key `"task": true` turns native subagents on (`"task": false` turns them off) | list, ls, find, lsp, any other name |
+| claude-code | Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, TodoWrite, NotebookEdit, Skill, AskUserQuestion; Agent, Task and TaskOutput when the profile wants native subagents | any other name, every `mcp__` name included |
 | codex | `web_search` (true or false); `web_fetch` only as false | every other key, and any `permissions` entry |
 | pi | names in Pi's own registry: read, bash, edit, write (glob becomes find, shell becomes bash); a named tool Pi lacks ends the session | names Pi lacks |
 | any other | no `tools` and no `permissions` | every entry |
 
-A harness's own subagent runs outside Runtime: no journal row, no reservation from the shared budget, no grade.
+A harness's own subagent runs outside Runtime: no journal row, no reservation from the shared budget, no grade. Turn native subagents on when the agent needs internal throughput (split and merge, maker and critic, best of N) and separate Runtime identity, budget and grading are unnecessary; their work counts only through the delivered artifact. Use Runtime spawn (`agent_runtime_coordination_spawn_worker`) when a child needs its own record, budget or check. agent-dev-container maps these tools in `packages/agent-profile-materialize/src/control-maps.ts`.
 
 Runtime keys (agent-runtime `src/runtime/supervise/provider-visible-profile.ts`; verbs from `coordinationVerbNames` in `src/mcp/tools/coordination.ts`):
 
@@ -128,6 +128,7 @@ For continued research, read the installed continuation contract first and choos
 
 Write each trap as what the held-back acceptance refuses, never as what the proxy passes: "the outside check does not count a c = 0 instance" is a trap; "the checker passed c = 0 claims" is a recipe. Give the rule, not the incident: the operator owns the stack.
 Typical traps beyond the gap probe's canaries: wrong-field comparators, tests versus users, a demo versus a customer, a rater versus an expert.
+A profile that imitates a person (an operator, a reviewer, a voice) is not accepted on checks written from its own rules; those measure obedience. The held-back acceptance is the person's own next action on held-out turns, scored against a control arm, a blind judge, and the best predictor that uses no persona at all. Matching the person's voice does not establish matching their judgment.
 Record each new trap where the next author reads it, in the same change as its fix.
 
 ## 7. Set budget and caps

@@ -1189,6 +1189,13 @@ export interface Scope<Out> {
     nodeId: NodeId,
     opts?: { now?: number; stallAfterMs?: number },
   ): WorkerProgress | undefined
+  /** The complete owned tree, including nested managers and resumed nodes. */
+  observeTree?(): TreeView
+  /** Bounded live output; unavailable or expired history is reported explicitly. */
+  observeEvents?(
+    nodeId: NodeId,
+    cursor?: import('./worker-events').WorkerEventCursor,
+  ): import('./worker-events').WorkerEventPage
   /** The live tool-call trace of one child when its executor exposes one (`Executor.traceSource`),
    *  for running the online detector panel over a RUNNING worker. `undefined` otherwise. */
   traceSource(nodeId: NodeId): TraceSource | undefined
@@ -1395,6 +1402,18 @@ export interface WorkspaceCheckpointMarker {
   readonly content: string
 }
 
+/**
+ * The Merkle root over the events an output archived, as a journal record carries it beside that
+ * output's `outRef`. `ref` is the content address of the stored `TraceRootArtifact`; `leafCount` is
+ * the archived event count plus the summary leaf. Absent where the output archived no events, and
+ * on records written before trace roots existed.
+ */
+export interface TraceRootReceipt {
+  readonly root: string
+  readonly ref: string
+  readonly leafCount: number
+}
+
 export type SpawnEvent =
   | {
       kind: 'spawned'
@@ -1457,6 +1476,7 @@ export type SpawnEvent =
       }
       id: NodeId
       outRef: string
+      traceRoot?: TraceRootReceipt
       spent: Spend
       verdict?: DefaultVerdict
       seq: number
@@ -1497,6 +1517,7 @@ export type SpawnEvent =
       kind: 'execution-evidence'
       id: NodeId
       outRef: string
+      traceRoot?: TraceRootReceipt
       seq: number
       at: string
     }
@@ -1523,6 +1544,8 @@ export type SpawnEvent =
       status: 'done' | 'down'
       /** Content-addressed result pointer; rehydrates `out` from `ResultBlobStore`. */
       outRef?: string
+      /** The trace root of the output at `outRef`, when this process stored it. */
+      traceRoot?: TraceRootReceipt
       verdict?: DefaultVerdict
       spent: Spend
       /** Provider model evidence is independent from the planned materialization receipt. */
@@ -1576,6 +1599,7 @@ export type SpawnEvent =
        *  cancel. The settle path writes it on this record exactly as on `settled`. */
       harnessTranscript?: HarnessTranscriptEvidence
       outRef?: string
+      traceRoot?: TraceRootReceipt
       budgetViolation?: BudgetViolation
       /** As on `settled`: a retained child that was cancelled settles `cancelled`, and the one
        *  builder writes whichever kind the settlement had. */
@@ -1697,6 +1721,7 @@ export type SpawnEvent =
       infra?: boolean
       trace?: WorkerTraceEvidence
       outRef?: string
+      traceRoot?: TraceRootReceipt
       providerModel?: ProviderModelExecutionEvidence
       /** The overspend the RETAINED reconcile returned, which the open-slot surfaces withhold
        *  (`materializeTreeView` folds only `spent` from this record); journaled so the released
@@ -2485,6 +2510,9 @@ export type SupervisedResult<Out> =
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
       readonly continuation?: import('./driver-retry').DriverContinuationRecord
+      /** The root's caller-supplied attribution as it registered (`SuperviseOptions.execution`):
+       *  a fork's lineage keys, a SearchSpec's `searchSpecDigest`. Absent when the caller set none. */
+      readonly execution?: AgentExecutionRef
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
       /** Settled children whose teardown stayed unconfirmed after the settlement retry window
@@ -2534,6 +2562,9 @@ export type SupervisedResult<Out> =
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
       readonly continuation?: import('./driver-retry').DriverContinuationRecord
+      /** The root's caller-supplied attribution as it registered (`SuperviseOptions.execution`):
+       *  a fork's lineage keys, a SearchSpec's `searchSpecDigest`. Absent when the caller set none. */
+      readonly execution?: AgentExecutionRef
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
       /** Settled children whose teardown stayed unconfirmed after the settlement retry window
@@ -2617,6 +2648,9 @@ export type SupervisedResult<Out> =
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
       readonly continuation?: import('./driver-retry').DriverContinuationRecord
+      /** The root's caller-supplied attribution as it registered (`SuperviseOptions.execution`):
+       *  a fork's lineage keys, a SearchSpec's `searchSpecDigest`. Absent when the caller set none. */
+      readonly execution?: AgentExecutionRef
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
       /** Settled children whose teardown stayed unconfirmed after the settlement retry window
