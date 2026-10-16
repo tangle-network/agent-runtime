@@ -2192,7 +2192,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       return {
         root: view.root,
         nodes: all,
-        inFlight: all.filter((node) => ['queued', 'acquiring', 'running'].includes(node.status)).length,
+        inFlight: all.filter((node) => ['queued', 'acquiring', 'running'].includes(node.status))
+          .length,
       }
     },
     observeEvents: (nodeId: NodeId, cursor?: WorkerEventCursor): WorkerEventPage => {
