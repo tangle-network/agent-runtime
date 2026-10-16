@@ -304,7 +304,33 @@ export function workerFromBackend(
     // Resolved BEFORE the executor exists, so a run that asked for peer mail on a backend that
     // cannot deliver it fails the spawn instead of handing the worker a capability nobody serves.
     const peerMailAttachment = peerMailRuntimeAttachment(profile, capturedBackend, spawnContext)
-    const baseFactory = createExecutor(boundBackend)
+    if (
+      spawnContext?.peerMailUrl &&
+      boundBackend.backend === 'provider' &&
+      Object.hasOwn(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}, peerMailMcpAlias)
+    ) {
+      throw new ValidationError(
+        'workerFromBackend: provider defaults contain the reserved peer-mail attachment alias',
+      )
+    }
+    const leafBackend =
+      spawnContext?.peerMailUrl && boundBackend.backend === 'provider'
+        ? {
+            ...boundBackend,
+            steering: boundBackend.steering ?? {},
+            defaults: {
+              ...(boundBackend.defaults ?? {}),
+              runtimeAttachments: {
+                ...(boundBackend.defaults?.runtimeAttachments ?? {}),
+                mcp: {
+                  ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
+                  [peerMailMcpAlias]: { transport: 'http' as const, url: spawnContext.peerMailUrl },
+                },
+              },
+            },
+          }
+        : boundBackend
+    const baseFactory = createExecutor(leafBackend)
     // Carry the configured factory into Scope. It is built only AFTER reservation with the real
     // child signal/context, so a rejected or already-completed keyed spawn creates no executor.
     const executorFactory = (spec: AgentSpec, ctx: ExecutorContext) => {
@@ -321,12 +347,13 @@ export function workerFromBackend(
       // and nothing a caller passes may replace the endpoint a sibling's identity is bound to.
       const extraSeams = seams?.()
       const seamsForChild =
-        extraSeams === undefined && peerMailAttachment === undefined
+        extraSeams === undefined &&
+        (peerMailAttachment === undefined || boundBackend.backend === 'provider')
           ? ctx.seams
           : {
               ...extraSeams,
               ...ctx.seams,
-              ...(peerMailAttachment === undefined
+              ...(peerMailAttachment === undefined || boundBackend.backend === 'provider'
                 ? {}
                 : {
                     [bridgeRuntimeAttachmentsKey]: {
@@ -378,7 +405,9 @@ const peerMailMcpAlias = 'agent-runtime-peer-mail'
  *
  *  - `bridge` MOUNTS it. cli-bridge advertises `capabilities.runtimeAttachments.mcp` and mounts
  *    the named servers for the run without binding them into the session profile.
- *  - `router`, `router-tools` and `provider` mount NOTHING. Those workers are in-process tool
+ *  - `provider` mounts the same capability through runtimeAttachments.mcp and uses the existing
+ *    steerable session inbox so peer delivery can be acknowledged.
+ *  - `router` and `router-tools` mount NOTHING. Those workers are in-process tool
  *    loops with no MCP client; their tool surface is the caller's own array, and
  *    `WorkerSpawnContext.peerMailUrl` is the deliverable a caller uses directly.
  *  - Every other backend REFUSES the spawn. A sandbox box or a local CLI harness receives tools
@@ -393,11 +422,16 @@ function peerMailRuntimeAttachment(
 ): Readonly<Record<string, AgentProfileMcpServer>> | undefined {
   const url = spawnContext?.peerMailUrl
   if (url === undefined) return undefined
+  if (backend.backend === 'provider' && backend.shared) {
+    throw new ValidationError(
+      'provider peer mail requires a dedicated steerable session; shared placement is not supported',
+    )
+  }
   switch (backend.backend) {
     case 'router':
     case 'router-tools':
-    case 'provider':
       return undefined
+    case 'provider':
     case 'bridge':
       break
     default:
@@ -2146,7 +2180,7 @@ export interface SuperviseOptions {
    *  receives its coordination MCP: out of band on the bridge's `runtime_attachments`, so the
    *  authored profile digest never moves, and inside the leaf factory, so `authorizeSpawn` has
    *  already decided the profile. A `bridge` worker therefore calls `send_mail` / `read_mail` as
-   *  native tools. `router`, `router-tools` and `provider` workers run no MCP client, so the URL
+   *  native tools. `provider` workers mount it through their runtime MCP attachment capability. `router` and `router-tools` workers run no MCP client, so the URL
    *  stays the caller's to use; every other backend refuses the spawn rather than mint a
    *  capability it can never reach. A caller-owned `makeWorkerAgent` owns its own mount.
    *

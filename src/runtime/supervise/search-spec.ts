@@ -526,10 +526,11 @@ export function compileSearchSpec(raw: SearchSpec, inputs: SearchSpecInputs): Co
     spec.comms === 'messages' &&
     backend !== undefined &&
     backend.backend !== 'bridge' &&
+    backend.backend !== 'provider' &&
     !callerOwnsLeaves
   ) {
     refuse(
-      `comms 'messages' needs workers that can call peer mail: Runtime mounts it on 'bridge' ` +
+      `comms 'messages' needs workers that can call peer mail: Runtime mounts it on 'bridge' or capable 'provider' ` +
         `workers, and '${backend.backend}' workers run no client for it. Run the workers on a ` +
         'bridge, or mount WorkerSpawnContext.peerMailUrl through makeLeafAgent',
     )

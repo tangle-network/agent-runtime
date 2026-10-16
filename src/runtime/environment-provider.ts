@@ -341,13 +341,17 @@ export function providerAsSandboxClient(
           `providerAsSandboxClient(${provider.name}): profile required in defaults or CreateSandboxOptions.backend.profile`,
         )
       }
-      if (options.requireSession) {
-        const capabilities = await provider.capabilities()
-        if (!capabilities.streaming.live || !capabilities.sessions.continue) {
-          throw new ValidationError(
-            `providerAsSandboxClient(${provider.name}): live session continuation is required`,
-          )
-        }
+      const needsMcp = hasRuntimeMcpAttachments(mapped)
+      const capabilities =
+        options.requireSession || needsMcp ? await provider.capabilities() : undefined
+      assertRuntimeMcpAttachments(provider.name, mapped, capabilities)
+      if (
+        options.requireSession &&
+        (!capabilities?.streaming.live || !capabilities.sessions.continue)
+      ) {
+        throw new ValidationError(
+          `providerAsSandboxClient(${provider.name}): live session continuation is required`,
+        )
       }
       const environment = await provider.create(mapped as CreateAgentEnvironmentInput)
       if (options.requireSession && !environment.session) {
@@ -2449,6 +2453,27 @@ function subscriptionTurnProfile(turn: AgentTurnInput, profile: AgentProfile): A
   return { ...turn, profile }
 }
 
+function hasRuntimeMcpAttachments(
+  input: Partial<CreateAgentEnvironmentInput> | undefined,
+): boolean {
+  const mcp = input?.runtimeAttachments?.mcp
+  return mcp !== undefined && Object.keys(mcp).length > 0
+}
+
+function assertRuntimeMcpAttachments(
+  provider: string,
+  input: Partial<CreateAgentEnvironmentInput> | undefined,
+  capabilities: AgentEnvironmentCapabilities | undefined,
+): void {
+  if (!hasRuntimeMcpAttachments(input)) return
+  const create = capabilities?.create
+  if (!create || !('runtimeAttachments' in create) || create.runtimeAttachments?.mcp !== true) {
+    throw new ValidationError(
+      `provider ${provider} does not advertise create.runtimeAttachments.mcp; no environment was created`,
+    )
+  }
+}
+
 /** One retained dispatch owns creation, replay, result identity, and cancellation. */
 async function providerExecutionSource(
   args: StreamProviderExecutorArgs,
@@ -2461,7 +2486,9 @@ async function providerExecutionSource(
 }> {
   const selectedTurn = subscriptionTurnProfile(turn, args.profile)
   AgentTurnInputSchema.parse(selectedTurn)
-  const capabilities = args.retention ? await args.provider.capabilities() : undefined
+  const needsMcp = hasRuntimeMcpAttachments(args.options.defaults)
+  const capabilities = args.retention || needsMcp ? await args.provider.capabilities() : undefined
+  assertRuntimeMcpAttachments(args.provider.name, args.options.defaults, capabilities)
   const useRetained = args.retention !== undefined && capabilities?.retainedControl !== undefined
   if (!useRetained) {
     if (args.recovering)

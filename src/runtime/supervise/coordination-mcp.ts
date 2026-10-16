@@ -20,12 +20,11 @@
  */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { createServer, type Server } from 'node:http'
+import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError, ValidationError } from '../../errors'
-import type { JsonRpcMessage } from '../../mcp/protocol'
 import type { McpToolDescriptor } from '../../mcp/server'
-import { createStdioToolServer, type StdioToolServer } from '../../mcp/tool-server'
+import { createStdioToolServer } from '../../mcp/tool-server'
 import {
   type AnalystRegistry,
   type AnalyzeOnSettleRoute,
@@ -49,6 +48,7 @@ import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import { runAbortable } from './abortable'
 import {
   type CoordinationHttpOptions,
+  type CoordinationRejection,
   coordinationHttpHandler,
   coordinationHttpLimits,
 } from './coordination-http'
@@ -74,6 +74,8 @@ export interface CoordinationMcpHandle {
   /** The URL an in-box harness mounts as `mcp.mcpServers.coordination.url`. */
   readonly url: string
   readonly port: number
+  /** A separately authenticated read-only endpoint. Never persist its protected headers. */
+  readonly readOnly: { readonly url: string; readonly headers: Readonly<Record<string, string>> }
   /** Runtime-only credentials. Never put these headers in canonical profiles or journals. */
   readonly headers: Readonly<Record<string, string>>
   /** The current credential's expiry under `authentication.ttlMs`; undefined when it lives as long
@@ -136,7 +138,17 @@ export interface CoordinationPublicAddress {
   readonly signal: AbortSignal
 }
 
+/** Runtime-only read capability delivered to an operator client, never to the canonical profile. */
+export interface CoordinationReadAccess {
+  readonly url: string
+  readonly headers: Readonly<Record<string, string>>
+}
+
 export interface CoordinationTransportOptions extends CoordinationHttpOptions {
+  /** Publish the read capability before dispatch, so a remote client can observe the first worker. */
+  readonly onReadReady?: (
+    access: CoordinationReadAccess & { readonly runId: string; readonly actorId: string },
+  ) => void | Promise<void>
   readonly host?: string
   readonly port?: number
   /** Required for remote binds. Each server mints a distinct run/actor credential. */
@@ -194,6 +206,9 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
         )
       }
     }
+  }
+  if (options.onReadReady && !options.authentication) {
+    throw new ConfigError('coordination read capability publication requires authentication')
   }
   coordinationHttpLimits(options)
 }
@@ -288,11 +303,9 @@ export async function serveCoordinationMcp(
      * (`runtime/supervise/peer-mail`). Each spawn receives a capability URL on
      * `WorkerSpawnContext.peerMailUrl`.
      *
-     * It is a SEPARATE listener on its own port, not another tool on this server, and that is the
-     * whole point: this server grants spawn_worker / steer_agent / stop to its manager, so a
-     * worker handed its URL could send a REAL `[SUPERVISOR]` instruction to a sibling and the peer
-     * channel's authority marking would mean nothing. The mail listener serves `send_mail` and
-     * `read_mail` and no other verb, on a per-worker secret path bound to that worker's identity.
+     * It uses a separate capability path on the coordination listener. The manager endpoint
+     * grants spawn, steer and stop; the mail path serves only `send_mail` and `read_mail`,
+     * bound to one worker identity. A mail capability cannot authorize a manager request.
      *
      * The residual, stated plainly: the boundary is between AGENTS, not between processes. A worker
      * that can read another worker's environment or process memory still holds that worker's
@@ -336,11 +349,6 @@ export async function serveCoordinationMcpForManager(
   assertCoordinationTransport(opts)
   const requestTimeoutMs = coordinationHttpLimits(opts).requestTimeoutMs
   const responseFenceMs = coordinationResponseFenceMs(requestTimeoutMs)
-  if (opts.peerMail && (!isLoopbackHost(host) || opts.publicUrl)) {
-    throw new ConfigError(
-      'remote peer mail requires a separate reachable capability transport; coordination authentication does not authorize the peer listener',
-    )
-  }
   const identity = Object.freeze({
     ...(opts.identity ?? {
       runId: opts.scope.view?.root ?? '',
@@ -357,6 +365,7 @@ export async function serveCoordinationMcpForManager(
   const signingKeys = auth?.signingKeys
     ? { activeKeyId: auth.signingKeys.activeKeyId, keys: { ...auth.signingKeys.keys } }
     : undefined
+  let readerToken = Buffer.from(randomBytes(32).toString('base64url'))
   let token: Buffer | undefined
   let credentialExpiresAt: number | undefined
   let headers: Readonly<Record<string, string>> = Object.freeze({})
@@ -399,6 +408,7 @@ export async function serveCoordinationMcpForManager(
         .digest('base64url')
       text = `${payload}.${signature}`
     }
+    readerToken = Buffer.from(randomBytes(32).toString('base64url'))
     token = Buffer.from(text)
     headers = Object.freeze({ Authorization: `Bearer ${text}` })
   }
@@ -574,47 +584,118 @@ export async function serveCoordinationMcpForManager(
   // surface.
   opts.onCoordinationTools?.([...mcp.tools.values()], coord)
 
-  const server: Server = createServer(
-    coordinationHttpHandler({
-      options: opts,
-      identity,
-      toolNames: new Set(servedTools.map((tool) => tool.name)),
-      handle: async (message) => {
-        const response = await mcp.handle(message)
-        // A coordination call is where a manager commits work, so it is when its workspace is
-        // worth a checkpoint (`retained-scope-owner`, rate-limited, off the request path).
-        if (message.method === 'tools/call') noteScopeRetainedOwnerCoordination(opts.scope)
-        return response
-      },
-      backgroundActions: () => nodeTools.background() + fencedVerbs.background(),
-      authorize: (req) => {
-        if (!paths.has(req.url ?? '')) return { status: 404, reason: 'unknown-path' }
-        // A proxy may use the destination IP as Host. A wildcard bind must
-        // recognize its actual socket address without trusting forwarded names.
-        const address = req.socket.localAddress?.replace(/^::ffff:/, '')
-        const localAuthority = address?.includes(':')
-          ? `[${address}]:${req.socket.localPort}`
-          : `${address}:${req.socket.localPort}`
-        const boundAuthority =
-          audiences.size > 0 &&
-          (host === '0.0.0.0' || host === '::') &&
-          address !== undefined &&
-          req.socket.localPort !== undefined &&
-          req.headers.host === localAuthority
-        if (!audiences.has(req.headers.host ?? '') && !boundAuthority)
-          return { status: 403, reason: 'wrong-host' }
-        if (closed) return { status: 401, reason: 'listener-closed' }
-        if (!opts.authentication) return undefined
-        const authorization = req.headers.authorization
-        const supplied =
-          typeof authorization === 'string' && authorization.startsWith('Bearer ')
-            ? Buffer.from(authorization.slice(7))
-            : Buffer.alloc(0)
-        const refused = refusedCredential(supplied)
-        return refused === undefined ? undefined : { status: 401, reason: refused }
-      },
-    }),
-  )
+  const authority = (req: IncomingMessage): CoordinationRejection | undefined => {
+    // A proxy may use the destination IP as Host. A wildcard bind must
+    // recognize its actual socket address without trusting forwarded names.
+    const address = req.socket.localAddress?.replace(/^::ffff:/, '')
+    const localAuthority = address?.includes(':')
+      ? `[${address}]:${req.socket.localPort}`
+      : `${address}:${req.socket.localPort}`
+    const boundAuthority =
+      audiences.size > 0 &&
+      (host === '0.0.0.0' || host === '::') &&
+      address !== undefined &&
+      req.socket.localPort !== undefined &&
+      req.headers.host === localAuthority
+    if (!audiences.has(req.headers.host ?? '') && !boundAuthority)
+      return { status: 403, reason: 'wrong-host' }
+    if (closed) return { status: 401, reason: 'listener-closed' }
+    return undefined
+  }
+  const readMcp = createStdioToolServer({
+    serverName: 'supervisor-reader',
+    serverVersion: '1',
+    tools: coord.tools.filter(
+      (tool) => tool.name === 'observe_agent' || tool.name === 'read_journal',
+    ),
+  })
+  const readPaths = new Set<string>()
+  const readHandler = coordinationHttpHandler({
+    options: opts,
+    identity,
+    toolNames: new Set(['observe_agent', 'read_journal']),
+    backgroundActions: () => 0,
+    authorize: (req) => {
+      const refused = authority(req)
+      if (refused) return refused
+      const supplied =
+        typeof req.headers.authorization === 'string' &&
+        req.headers.authorization.startsWith('Bearer ')
+          ? Buffer.from(req.headers.authorization.slice(7))
+          : Buffer.alloc(0)
+      if (
+        supplied.length !== readerToken.length ||
+        !timingSafeEqual(supplied, readerToken) ||
+        (credentialExpiresAt !== undefined && credentialExpiresAt <= Date.now())
+      )
+        return { status: 401, reason: 'credential-refused' }
+      return undefined
+    },
+    handle: (message) => readMcp.handle(message),
+  })
+  const peerHandlers = new Map<string, ReturnType<typeof coordinationHttpHandler>>()
+  const mailPaths = new Set<string>()
+  const mainHandler = coordinationHttpHandler({
+    options: opts,
+    identity,
+    toolNames: new Set(servedTools.map((tool) => tool.name)),
+    handle: async (message) => {
+      const response = await mcp.handle(message)
+      // A coordination call is where a manager commits work, so it is when its workspace is
+      // worth a checkpoint (`retained-scope-owner`, rate-limited, off the request path).
+      if (message.method === 'tools/call') noteScopeRetainedOwnerCoordination(opts.scope)
+      return response
+    },
+    backgroundActions: () => nodeTools.background() + fencedVerbs.background(),
+    authorize: (req) => {
+      if (!paths.has(req.url ?? '')) return { status: 404, reason: 'unknown-path' }
+      const refusedAuthority = authority(req)
+      if (refusedAuthority) return refusedAuthority
+      if (!opts.authentication) return undefined
+      const authorization = req.headers.authorization
+      const supplied =
+        typeof authorization === 'string' && authorization.startsWith('Bearer ')
+          ? Buffer.from(authorization.slice(7))
+          : Buffer.alloc(0)
+      const refused = refusedCredential(supplied)
+      return refused === undefined ? undefined : { status: 401, reason: refused }
+    },
+  })
+  const server: Server = createServer((req, res) => {
+    if (readPaths.has(req.url ?? '')) return readHandler(req, res)
+    for (const base of mailPaths) {
+      if (!(req.url ?? '').startsWith(base + '/')) continue
+      const capabilityId = (req.url ?? '').slice(base.length + 1)
+      const mailbox = coord.peerMail
+      if (!/^[0-9a-f]{32}$/.test(capabilityId) || !mailbox?.hasCapability(capabilityId)) {
+        res.writeHead(404).end()
+        return
+      }
+      let handler = peerHandlers.get(capabilityId)
+      if (!handler) {
+        const peerMcp = createStdioToolServer({
+          serverName: 'peer-mail',
+          serverVersion: '1',
+          tools: mailbox.tools(capabilityId),
+        })
+        handler = coordinationHttpHandler({
+          options: opts,
+          identity: { runId: identity.runId, actorId: 'peer' },
+          toolNames: new Set(['send_mail', 'read_mail']),
+          backgroundActions: () => 0,
+          authorize: (request) =>
+            authority(request) ??
+            (!mailbox.hasCapability(capabilityId)
+              ? { status: 401, reason: 'credential-refused' }
+              : undefined),
+          handle: (message) => peerMcp.handle(message),
+        })
+        peerHandlers.set(capabilityId, handler)
+      }
+      return handler(req, res)
+    }
+    return mainHandler(req, res)
+  })
 
   server.requestTimeout = requestTimeoutMs
   server.headersTimeout = requestTimeoutMs
@@ -676,6 +757,10 @@ export async function serveCoordinationMcpForManager(
     audiences.add(publicAddress.host)
     if (host === '0.0.0.0' || host === '::') audiences.add(`127.0.0.1:${port}`)
     paths.add(publicAddress.pathname)
+    for (const path of paths) {
+      readPaths.add(path.replace(/\/$/, '') + '/read')
+      mailPaths.add(path.replace(/\/$/, '') + '/mail')
+    }
     if (configured !== undefined) {
       await preflightPublicCoordination({
         url,
@@ -696,11 +781,19 @@ export async function serveCoordinationMcpForManager(
   }
 
   const mailbox = coord.peerMail
-  const mailListener = mailbox === undefined ? undefined : await servePeerMail(mailbox, host)
+  mailbox?.setEndpoint(url.replace(/\/$/, '') + '/mail')
 
   const handle: CoordinationMcpHandle = {
     url,
     port,
+    get readOnly() {
+      if (!opts.authentication)
+        throw new ConfigError('coordination read access requires authentication')
+      return {
+        url: url.replace(/\/$/, '') + '/read',
+        headers: Object.freeze({ Authorization: `Bearer ${readerToken.toString()}` }),
+      }
+    },
     get headers() {
       return headers
     },
@@ -724,90 +817,17 @@ export async function serveCoordinationMcpForManager(
       await new Promise<void>((resolve) => {
         server.close(() => resolve())
       })
-      await mailListener?.close()
     },
   }
+  try {
+    await runAbortable(
+      async () => opts.onReadReady?.({ ...handle.readOnly, ...identity }),
+      opts.scope.signal,
+      'read capability publication aborted',
+    )
+  } catch (error) {
+    await handle.close()
+    throw error
+  }
   return { handle, controls: coord }
-}
-
-/**
- * Stand up the peer-mail capability listener: one HTTP server, one secret path per worker, and on
- * each path a tool server carrying ONLY `send_mail` / `read_mail` with that worker's identity
- * closed over. An unknown path is a flat 404 — the path is the credential, so a request that does
- * not present a minted one is not a client to reason with.
- *
- * The host is the coordination host, which the caller has already had to justify: the loopback gate
- * above governs both listeners, and there is deliberately no way to bind mail somewhere else.
- */
-async function servePeerMail(
-  mailbox: NonNullable<CoordinationTools['peerMail']>,
-  host: string,
-): Promise<{ close(): Promise<void> }> {
-  const servers = new Map<string, StdioToolServer>()
-  const forCapability = (capabilityId: string): StdioToolServer => {
-    const existing = servers.get(capabilityId)
-    if (existing) return existing
-    const created = createStdioToolServer({
-      serverName: 'peer-mail',
-      serverVersion: '1',
-      tools: mailbox.tools(capabilityId),
-    })
-    servers.set(capabilityId, created)
-    return created
-  }
-
-  const listener: Server = createServer((req, res) => {
-    const capabilityId = /^\/mail\/([0-9a-f]{32})$/.exec(req.url ?? '')?.[1]
-    if (
-      req.method !== 'POST' ||
-      capabilityId === undefined ||
-      !mailbox.hasCapability(capabilityId)
-    ) {
-      res.writeHead(404).end()
-      return
-    }
-    let body = ''
-    req.on('data', (chunk) => {
-      body += chunk
-    })
-    req.on('end', () => {
-      void (async () => {
-        try {
-          const message = JSON.parse(body) as JsonRpcMessage
-          const response = await forCapability(capabilityId).handle(message)
-          if (response === null) {
-            res.writeHead(202).end() // a notification — no body
-            return
-          }
-          res.writeHead(200, { 'content-type': 'application/json' })
-          res.end(JSON.stringify(response))
-        } catch (e) {
-          res.writeHead(200, { 'content-type': 'application/json' })
-          res.end(
-            JSON.stringify({
-              jsonrpc: '2.0',
-              id: null,
-              error: { code: -32700, message: e instanceof Error ? e.message : 'parse error' },
-            }),
-          )
-        }
-      })()
-    })
-  })
-
-  const port = await new Promise<number>((resolve, reject) => {
-    listener.once('error', reject)
-    listener.listen(0, host, () => {
-      const addr = listener.address()
-      resolve(typeof addr === 'object' && addr ? addr.port : 0)
-    })
-  })
-  // Only now is a capability URL a reachable address, so only now may one be minted.
-  mailbox.setEndpoint(`http://${host}:${port}/mail`)
-  return {
-    close: () =>
-      new Promise<void>((resolve) => {
-        listener.close(() => resolve())
-      }),
-  }
 }

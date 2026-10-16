@@ -4057,6 +4057,24 @@ export function createCoordinationToolsForManager(
       inputSchema: {
         type: 'object',
         properties: {
+          events: {
+            type: 'boolean',
+            description: 'Read bounded live output for an owned descendant.',
+          },
+          tree: {
+            type: 'boolean',
+            description: "Read this manager's complete owned tree without reading state files.",
+          },
+          eventCursor: {
+            type: 'object',
+            properties: {
+              epoch: { type: 'string', minLength: 1 },
+              next: { type: 'integer', minimum: 0 },
+            },
+            required: ['epoch', 'next'],
+            additionalProperties: false,
+          },
+
           workerId: idArg,
           outRef: {
             type: 'string',
@@ -4085,6 +4103,56 @@ export function createCoordinationToolsForManager(
       },
       handler: async (raw) => {
         const args = obj(raw)
+        if (args.tree === true) {
+          const tree = opts.scope.observeTree?.() ?? opts.scope.view
+          return redactJournalEvent({
+            tree: {
+              root: tree.root,
+              inFlight: tree.inFlight,
+              nodes: tree.nodes.map((node) => ({
+                id: node.id,
+                parent: node.parent,
+                label: node.label,
+                status: node.status,
+                runtime: node.runtime,
+                spawnedAt: node.spawnedAt,
+                settledAt: node.settledAt,
+              })),
+            },
+          })
+        }
+        const eventCursor =
+          args.eventCursor === undefined
+            ? undefined
+            : (() => {
+                const cursor = obj(args.eventCursor)
+                if (
+                  typeof cursor.epoch !== 'string' ||
+                  cursor.epoch.length === 0 ||
+                  !Number.isSafeInteger(cursor.next) ||
+                  Number(cursor.next) < 0
+                )
+                  throw new Error('eventCursor must name an epoch and a non-negative safe integer')
+                return { epoch: cursor.epoch, next: Number(cursor.next) }
+              })()
+        if (args.events === true) {
+          const id = str(args.workerId, 'workerId')
+          const node = (opts.scope.observeTree?.() ?? opts.scope.view).nodes.find(
+            (candidate) => candidate.id === id,
+          )
+          if (!node) return { error: 'unknown-worker' as const }
+          return redactJournalEvent({
+            id: node.id,
+            parent: node.parent,
+            label: node.label,
+            status: node.status,
+            runtime: node.runtime,
+            events: opts.scope.observeEvents?.(id, eventCursor) ?? {
+              status: 'unavailable',
+              reason: 'not-captured',
+            },
+          })
+        }
         const outputRead = workerOutputReadOptions(args)
         if (args.outRef !== undefined && args.workerId === undefined) {
           const outRef = str(args.outRef, 'outRef')
@@ -4122,6 +4190,10 @@ export function createCoordinationToolsForManager(
         const pending = node.settlementPending
         return {
           ...projectNodeEvidence(node),
+          events: opts.scope.observeEvents?.(node.id, eventCursor) ?? {
+            status: 'unavailable',
+            reason: 'not-captured',
+          },
           outRef: node.outRef ?? null,
           ...(await readWorkerOutput(node.outRef, outputRead)),
           progress: progress ?? null,
