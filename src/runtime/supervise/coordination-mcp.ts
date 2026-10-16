@@ -146,7 +146,9 @@ export interface CoordinationReadAccess {
 
 export interface CoordinationTransportOptions extends CoordinationHttpOptions {
   /** Publish the read capability before dispatch, so a remote client can observe the first worker. */
-  readonly onReadReady?: (access: CoordinationReadAccess & { readonly runId: string; readonly actorId: string }) => void | Promise<void>
+  readonly onReadReady?: (
+    access: CoordinationReadAccess & { readonly runId: string; readonly actorId: string },
+  ) => void | Promise<void>
   readonly host?: string
   readonly port?: number
   /** Required for remote binds. Each server mints a distinct run/actor credential. */
@@ -813,7 +815,11 @@ export async function serveCoordinationMcpForManager(
     },
   }
   try {
-    await runAbortable(async () => opts.onReadReady?.({ ...handle.readOnly, ...identity }), opts.scope.signal, 'read capability publication aborted')
+    await runAbortable(
+      async () => opts.onReadReady?.({ ...handle.readOnly, ...identity }),
+      opts.scope.signal,
+      'read capability publication aborted',
+    )
   } catch (error) {
     await handle.close()
     throw error

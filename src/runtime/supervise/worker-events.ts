@@ -36,7 +36,9 @@ export class WorkerEvents {
   #next = 0
   #capturing = false
 
-  start(): void { this.#capturing = true }
+  start(): void {
+    this.#capturing = true
+  }
   #bytes = 0
 
   append(event: ExecutorProgressEvent, at: number): void {
