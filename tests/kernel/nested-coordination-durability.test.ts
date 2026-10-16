@@ -117,7 +117,11 @@ describe('nested supervisor coordination durability', () => {
       const name = authoredProfile.name!
       if (name === 'root') {
         for (const name of ['peer-a', 'peer-b'])
-          await callTool(coordinationMcpUrl, 'spawn_worker', { profile: manager(name), task: name })
+          await callTool(coordinationMcpUrl, 'spawn_worker', {
+            profile: manager(name),
+            task: name,
+            key: name,
+          })
         await ready
         return
       }
@@ -222,7 +226,7 @@ describe('nested supervisor coordination durability', () => {
   })
 
   it('removes trace tools from the root and explicitly authored descendants when disabled', async () => {
-    const seen: string[][] = []
+    const seen = new Map<string, string[]>()
     const traceGrant = runtimeToolDeclarations(
       'spawn_worker',
       'observe_agent',
@@ -235,7 +239,7 @@ describe('nested supervisor coordination durability', () => {
       coordinationTools,
     }) => {
       const names = coordinationTools.map((tool) => tool.name)
-      seen.push(names)
+      seen.set(authoredProfile.name!, names)
       expect(names).not.toContain('observe_agent')
       expect(names).not.toContain('read_journal')
       expect(authoredProfile.tools?.agent_runtime_coordination_observe_agent).toBeUndefined()
@@ -248,6 +252,7 @@ describe('nested supervisor coordination durability', () => {
             prompt: { systemPrompt: 'Keep the same trace policy.' },
           }),
           task: 'child',
+          key: 'trace-policy-child',
         })
       }
     }
@@ -268,7 +273,7 @@ describe('nested supervisor coordination durability', () => {
         traceTools: false,
       },
     )
-    expect(seen).toHaveLength(2)
+    expect([...seen.keys()].sort()).toEqual(['child', 'root'])
   })
 
   it('isolates identical keyed siblings and restores each owner evidence on restart', async () => {
