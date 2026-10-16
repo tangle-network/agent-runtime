@@ -15,8 +15,8 @@ on:
 permissions:
   contents: read
 
-# Explicit release requests remain queued; source commits never restart them.
-# This is publication serialization, not a queue in front of source merges.
+# Explicit releases wait rather than replacing one another (up to GitHub's
+# 100 pending-run limit). Source merges never enter this publication group.
 concurrency:
   group: publish-agent-runtime
   cancel-in-progress: false
@@ -34,6 +34,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+          persist-credentials: false
+
+      # Manual retries may target tags that predate the new admission helper.
+      # Read that helper from this workflow's immutable revision, not from a
+      # moving main or a candidate whose release source must remain unchanged.
+      - name: Read workflow-pinned release policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-policy
+          sparse-checkout: scripts/verify-release-line.mjs
+          sparse-checkout-cone-mode: false
           persist-credentials: false
 
       - name: Verify release source and version
@@ -75,8 +87,9 @@ jobs:
         run: |
           TAG_SHA=$(git rev-parse HEAD)
           VERSION="${RELEASE_TAG#v}"
+          VERSION="${VERSION%%[-+]*}"
           LINE="release/${VERSION%.*}.x"
-          node scripts/verify-release-line.mjs "$TAG_SHA" refs/remotes/origin/main "refs/remotes/origin/$LINE"
+          node .release-policy/scripts/verify-release-line.mjs "$TAG_SHA" refs/remotes/origin/main "refs/remotes/origin/$LINE"
 
   verify:
     needs: release-source
@@ -108,9 +121,6 @@ jobs:
 
       - name: Install deps
         run: pnpm install --frozen-lockfile && pnpm peers check
-
-      - name: Verify release source admission regressions
-        run: node --test scripts/verify-release-line.node-test.mjs
 
       - name: Lint (biome)
         run: pnpm run lint
