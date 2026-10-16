@@ -1,4 +1,3 @@
-import type { McpToolDescriptor } from '../../mcp/server'
 /**
  * `supervise` — the one-call "just invoke the supervisor". Builds + runs a supervisor from its
  * profile with sensible defaults, so the common case is `supervise(profile, task, { backend, budget })`
@@ -45,6 +44,7 @@ import {
   worktreeCliProfileMaterialization,
 } from '../../agent/profile-materialization'
 import { ConfigError, RuntimeRunStateError, ValidationError } from '../../errors'
+import type { McpToolDescriptor } from '../../mcp/server'
 import {
   type AnalystRegistry,
   type AnalyzeOnSettleRoute,
@@ -3576,24 +3576,34 @@ function superviseInternal(
   const guidanceComposer = profileGuidanceComposer(options.profileGuidance)
   const applyTraceTools = (profile: AgentProfile): AgentProfile => {
     if (options.traceTools !== false || profile.tools === undefined) return profile
-    const tools = Object.fromEntries(Object.entries(profile.tools).filter(([name]) =>
-      name !== `${coordinationProfileToolPrefix}observe_agent` && name !== `${coordinationProfileToolPrefix}read_journal`,
-    ))
+    const tools = Object.fromEntries(
+      Object.entries(profile.tools).filter(
+        ([name]) =>
+          name !== `${coordinationProfileToolPrefix}observe_agent` &&
+          name !== `${coordinationProfileToolPrefix}read_journal`,
+      ),
+    )
     return agentProfileSchema.parse({ ...profile, tools })
   }
-  const composeSpawnProfile = options.traceTools === false
-    ? (profile: AgentProfile) => applyTraceTools(guidanceComposer?.(profile) ?? profile)
-    : guidanceComposer
+  const composeSpawnProfile =
+    options.traceTools === false
+      ? (profile: AgentProfile) => applyTraceTools(guidanceComposer?.(profile) ?? profile)
+      : guidanceComposer
   const auditPeers = new Map<string, { parent: string; tools: ReadonlyArray<McpToolDescriptor> }>()
-  const peerAuditFor = (parent: string): PeerAuditAccess | undefined => options.peerAudit ? {
-    register: (nodeId, tools) => { auditPeers.set(nodeId, { parent, tools }) },
-    read: async (peerId, name, args) => {
-      const peer = auditPeers.get(peerId)
-      if (peer?.parent !== parent) return { error: 'unknown-peer' }
-      const tool = peer.tools.find(tool => tool.name === name)
-      return tool ? tool.handler(args) : { error: 'peer-tool-unavailable' }
-    },
-  } : undefined
+  const peerAuditFor = (parent: string): PeerAuditAccess | undefined =>
+    options.peerAudit
+      ? {
+          register: (nodeId, tools) => {
+            auditPeers.set(nodeId, { parent, tools })
+          },
+          read: async (peerId, name, args) => {
+            const peer = auditPeers.get(peerId)
+            if (peer?.parent !== parent) return { error: 'unknown-peer' }
+            const tool = peer.tools.find((tool) => tool.name === name)
+            return tool ? tool.handler(args) : { error: 'peer-tool-unavailable' }
+          },
+        }
+      : undefined
   // The recorded root profile fixes the run's identity; a segment only alters what it executes.
   const registeredProfile = applyTraceTools(superviseRootProfile(profile, options.profileGuidance))
   if (options.segment !== undefined) admitSegment(options.segment)
@@ -4160,7 +4170,11 @@ function superviseInternal(
           )
         }
 
-        const rootPeerOwner = options.peerAudit ? (depth === 1 ? ownerId : peerRootOwnerId) : undefined
+        const rootPeerOwner = options.peerAudit
+          ? depth === 1
+            ? ownerId
+            : peerRootOwnerId
+          : undefined
         const childFactory = makeRecursiveWorkerFor(
           authorized,
           childExecution.identity,

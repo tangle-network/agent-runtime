@@ -103,56 +103,98 @@ describe('nested supervisor coordination durability', () => {
   it('lets peer roots read journals and events without granting peer steering', async () => {
     const roots = new Map<string, { nodeId: string; url: string }>()
     let release!: () => void
-    const ready = new Promise<void>((resolve) => { release = resolve })
+    const ready = new Promise<void>((resolve) => {
+      release = resolve
+    })
     const evidence: Array<Record<string, unknown>> = []
+    let recorded = 0
     const driveHarness: DriveHarness = async ({ authoredProfile, scope, coordinationMcpUrl }) => {
       const name = authoredProfile.name!
       roots.set(name, { nodeId: scope.view.root, url: coordinationMcpUrl })
       await callTool(coordinationMcpUrl, 'ask_parent', {
-        from: name, level: 'driver', question: `recorded evidence from ${name}`,
-        reason: 'peer audit proof', urgency: 'continue-without',
+        from: name,
+        level: 'driver',
+        question: `recorded evidence from ${name}`,
+        reason: 'peer audit proof',
+        urgency: 'continue-without',
       })
-      if (roots.size === 2) release()
+      recorded += 1
+      if (recorded === 2) release()
       await ready
       const other = [...roots.entries()].find(([peer]) => peer !== name)![1]
       const journal = await callTool(coordinationMcpUrl, 'read_journal', { peerId: other.nodeId })
-      expect(JSON.stringify(journal)).toContain(`recorded evidence from ${name === 'peer-a' ? 'peer-b' : 'peer-a'}`)
+      expect(JSON.stringify(journal)).toContain(
+        `recorded evidence from ${name === 'peer-a' ? 'peer-b' : 'peer-a'}`,
+      )
       const events = await callTool(coordinationMcpUrl, 'observe_agent', {
-        peerId: other.nodeId, workerId: other.nodeId, events: true,
+        peerId: other.nodeId,
+        workerId: other.nodeId,
+        events: true,
       })
       expect(events.id).toBe(other.nodeId)
       const steer = await callTool(coordinationMcpUrl, 'steer_agent', {
-        workerId: other.nodeId, instruction: 'change your task',
+        workerId: other.nodeId,
+        instruction: 'change your task',
       })
-      expect(steer.error).toBeDefined()
-      const unknown = await callTool(coordinationMcpUrl, 'read_journal', { peerId: 'outside-this-run' })
+      expect(steer).toMatchObject({ delivered: false, outcome: 'unknown-worker' })
+      const unknown = await callTool(coordinationMcpUrl, 'read_journal', {
+        peerId: 'outside-this-run',
+      })
       expect(unknown.error).toBe('unknown-peer')
       evidence.push({ journal, events, steer })
     }
-    const manager = (name: string) => testAgentProfile(name, {
-      harness: 'codex',
-      tools: runtimeToolDeclarations('ask_parent', 'observe_agent', 'read_journal', 'steer_agent'),
-      prompt: { systemPrompt: 'Read peer evidence and preserve ownership.' },
-    })
+    const manager = (name: string) =>
+      testAgentProfile(name, {
+        harness: 'codex',
+        tools: runtimeToolDeclarations(
+          'ask_parent',
+          'observe_agent',
+          'read_journal',
+          'steer_agent',
+        ),
+        prompt: { systemPrompt: 'Read peer evidence and preserve ownership.' },
+      })
     await supervise(testAgentProfile('root', { harness: 'cli-base', tools: rootTools }), 'audit', {
       brain: scriptedBrain([
-        { toolCalls: ['peer-a', 'peer-b'].map(name => ({ name: 'spawn_worker', arguments: { profile: manager(name), task: name } })) },
-        { content: 'wait' }, { content: 'finished' },
+        {
+          toolCalls: ['peer-a', 'peer-b'].map((name) => ({
+            name: 'spawn_worker',
+            arguments: { profile: manager(name), task: name },
+          })),
+        },
+        { content: 'wait' },
+        { content: 'finished' },
       ]),
-      backend: { backend: 'router', routerBaseUrl: 'http://unused.invalid', routerKey: 'unused', model: 'unused/model' },
+      backend: {
+        backend: 'router',
+        routerBaseUrl: 'http://unused.invalid',
+        routerKey: 'unused',
+        model: 'unused/model',
+      },
       budget: { maxIterations: 20, maxTokens: 20_000 },
       perWorker: { maxIterations: 6, maxTokens: 2_000 },
-      driveHarness, driveHarnessMaterialization: fullProfileMaterialization,
-      peerAudit: true, maxTurns: 8,
+      driveHarness,
+      driveHarnessMaterialization: fullProfileMaterialization,
+      peerAudit: true,
+      maxTurns: 8,
     })
     expect(evidence).toHaveLength(2)
   })
 
   it('removes trace tools from the root and explicitly authored descendants when disabled', async () => {
     const seen: string[][] = []
-    const traceGrant = runtimeToolDeclarations('spawn_worker', 'observe_agent', 'read_journal', 'ask_parent')
-    const driveHarness: DriveHarness = async ({ authoredProfile, coordinationMcpUrl, coordinationTools }) => {
-      const names = coordinationTools.map(tool => tool.name)
+    const traceGrant = runtimeToolDeclarations(
+      'spawn_worker',
+      'observe_agent',
+      'read_journal',
+      'ask_parent',
+    )
+    const driveHarness: DriveHarness = async ({
+      authoredProfile,
+      coordinationMcpUrl,
+      coordinationTools,
+    }) => {
+      const names = coordinationTools.map((tool) => tool.name)
       seen.push(names)
       expect(names).not.toContain('observe_agent')
       expect(names).not.toContain('read_journal')
@@ -160,18 +202,32 @@ describe('nested supervisor coordination durability', () => {
       expect(authoredProfile.tools?.agent_runtime_coordination_read_journal).toBeUndefined()
       if (authoredProfile.name === 'root') {
         await callTool(coordinationMcpUrl, 'spawn_worker', {
-          profile: testAgentProfile('child', { harness: 'codex', tools: traceGrant, prompt: { systemPrompt: 'Keep the same trace policy.' } }),
+          profile: testAgentProfile('child', {
+            harness: 'codex',
+            tools: traceGrant,
+            prompt: { systemPrompt: 'Keep the same trace policy.' },
+          }),
           task: 'child',
         })
       }
     }
-    await supervise(testAgentProfile('root', { harness: 'codex', tools: traceGrant }), 'trace policy', {
-      backend: { backend: 'router', routerBaseUrl: 'http://unused.invalid', routerKey: 'unused', model: 'unused/model' },
-      budget: { maxIterations: 20, maxTokens: 20_000 },
-      perWorker: { maxIterations: 6, maxTokens: 2_000 },
-      driveHarness, driveHarnessMaterialization: fullProfileMaterialization,
-      traceTools: false,
-    })
+    await supervise(
+      testAgentProfile('root', { harness: 'codex', tools: traceGrant }),
+      'trace policy',
+      {
+        backend: {
+          backend: 'router',
+          routerBaseUrl: 'http://unused.invalid',
+          routerKey: 'unused',
+          model: 'unused/model',
+        },
+        budget: { maxIterations: 20, maxTokens: 20_000 },
+        perWorker: { maxIterations: 6, maxTokens: 2_000 },
+        driveHarness,
+        driveHarnessMaterialization: fullProfileMaterialization,
+        traceTools: false,
+      },
+    )
     expect(seen).toHaveLength(2)
   })
 

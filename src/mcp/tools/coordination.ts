@@ -913,7 +913,11 @@ export interface SuperviseProfileEntry {
 /** Run-owned read routing between sibling managers. It grants no mutation tools. */
 export interface PeerAuditAccess {
   register(nodeId: string, tools: ReadonlyArray<McpToolDescriptor>): void
-  read(peerId: string, tool: 'observe_agent' | 'read_journal', args: Record<string, unknown>): Promise<unknown>
+  read(
+    peerId: string,
+    tool: 'observe_agent' | 'read_journal',
+    args: Record<string, unknown>,
+  ): Promise<unknown>
 }
 
 export interface CoordinationToolsOptions {
@@ -4822,10 +4826,14 @@ export function createCoordinationToolsForManager(
       const ownHandler = tool.handler
       const name = tool.name
       const schema = tool.inputSchema as { properties?: Record<string, unknown> }
-      schema.properties = { ...schema.properties, peerId: {
-        type: 'string',
-        description: "Read a peer root's own record, using its workerId from read_mail.peers. Read-only; omit for your own tree.",
-      } }
+      schema.properties = {
+        ...schema.properties,
+        peerId: {
+          type: 'string',
+          description:
+            "Read a peer root's own record, using its workerId from read_mail.peers. Read-only; omit for your own tree.",
+        },
+      }
       tool.handler = async (raw) => {
         const args = obj(raw)
         if (args.peerId === undefined) return ownHandler(raw)

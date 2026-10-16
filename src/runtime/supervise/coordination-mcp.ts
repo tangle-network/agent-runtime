@@ -491,7 +491,7 @@ export async function serveCoordinationMcpForManager(
       ...(opts.analysts ? { analysts: opts.analysts } : {}),
       ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
       ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
-        ...(opts.peerAudit ? { peerAudit: opts.peerAudit } : {}),
+      ...(opts.peerAudit ? { peerAudit: opts.peerAudit } : {}),
       ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
       ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
       ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
