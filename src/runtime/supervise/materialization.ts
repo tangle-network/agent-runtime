@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import type { AgentIdentity } from '@tangle-network/agent-trace-contract'
 import {
   agentProfileSchema,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
+import type { AgentIdentity } from '@tangle-network/agent-trace-contract'
 import { ValidationError } from '../../errors'
 import { detachedSnapshot } from './snapshot'
 import type {

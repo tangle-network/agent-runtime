@@ -756,8 +756,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
         ...authoredAgentIdentity(record.profile),
         ...(record.harness ? { harness: record.harness } : {}),
       })
-      const attributed = (span: OtelSpan): OtelSpan =>
-        withMissingAttributes(span, identity)
+      const attributed = (span: OtelSpan): OtelSpan => withMissingAttributes(span, identity)
       Object.assign(labels, identity)
       const redactedInput = record.input !== undefined ? redactor(record.input) : undefined
       const redactedOutput = record.output !== undefined ? redactor(record.output) : undefined
