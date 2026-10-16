@@ -30,10 +30,11 @@ try {
     throw new Error('Checkout does not match the frozen release candidate')
   }
   const { version } = JSON.parse(git('show', `${candidate}:package.json`))
-  if (typeof version !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
-    throw new Error('Release-line admission requires a stable package version')
+  const semver = typeof version === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version)
+  if (!semver || semver[4]?.split('.').some(part => /^0\d+$/.test(part))) {
+    throw new Error('Release-line admission requires a valid package version')
   }
-  const releaseLine = `release/${version.split('.').slice(0, 2).join('.')}.x`
+  const releaseLine = `release/${semver[1]}.${semver[2]}.x`
   if (lineRef !== `refs/remotes/origin/${releaseLine}`) {
     throw new Error('Backport line does not match the candidate package version')
   }
