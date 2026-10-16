@@ -29,13 +29,13 @@ Native tool ids (agent-container `packages/agent-profile-materialize/src/control
 
 | Harness | Accepted | Refused |
 |---|---|---|
-| opencode | read, write, edit, apply_patch (or patch), bash, glob, grep, webfetch, websearch, todowrite, skill, question, codesearch; its native subagent switch only as `"task": false` | list, ls, find, lsp, any other name |
-| claude-code | Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, TodoWrite, NotebookEdit, Skill, AskUserQuestion; leave out its native subagent tools | any other name, every `mcp__` name included |
+| opencode | read, write, edit, apply_patch (or patch), bash, glob, grep, webfetch, websearch, todowrite, skill, question, codesearch; `task` turns native subagents on (`true`) or off (`false`) | list, ls, find, lsp, any other name |
+| claude-code | Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, TodoWrite, NotebookEdit, Skill, AskUserQuestion; Agent, Task and TaskOutput when the profile wants native subagents | any other name, every `mcp__` name included |
 | codex | `web_search` (true or false); `web_fetch` only as false | every other key, and any `permissions` entry |
 | pi | names in Pi's own registry: read, bash, edit, write (glob becomes find, shell becomes bash); a named tool Pi lacks ends the session | names Pi lacks |
 | any other | no `tools` and no `permissions` | every entry |
 
-A harness's own subagent runs outside Runtime: no journal row, no reservation from the shared budget, no grade.
+A harness's own subagent runs outside Runtime: no journal row, no reservation from the shared budget, no grade. Turn native subagents on when the agent needs internal throughput (split and merge, maker and critic, best of N) and separate Runtime identity, budget and grading are unnecessary; their work counts only through the delivered artifact. Use Runtime spawn (`agent_runtime_coordination_spawn_worker`) when a child needs its own record, budget or check. agent-dev-container maps these tools in `packages/agent-profile-materialize/src/control-maps.ts`.
 
 Runtime keys (agent-runtime `src/runtime/supervise/provider-visible-profile.ts`; verbs from `coordinationVerbNames` in `src/mcp/tools/coordination.ts`):
 
