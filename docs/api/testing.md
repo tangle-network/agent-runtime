@@ -728,7 +728,7 @@ OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_m
  receives its coordination MCP: out of band on the bridge's `runtime_attachments`, so the
  authored profile digest never moves, and inside the leaf factory, so `authorizeSpawn` has
  already decided the profile. A `bridge` worker therefore calls `send_mail` / `read_mail` as
- native tools. `router`, `router-tools` and `provider` workers run no MCP client, so the URL
+ native tools. `provider` workers mount it through their runtime MCP attachment capability. `router` and `router-tools` workers run no MCP client, so the URL
  stays the caller's to use; every other backend refuses the spawn rather than mint a
  capability it can never reach. A caller-owned `makeWorkerAgent` owns its own mount.
 
@@ -1640,7 +1640,7 @@ OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_m
  receives its coordination MCP: out of band on the bridge's `runtime_attachments`, so the
  authored profile digest never moves, and inside the leaf factory, so `authorizeSpawn` has
  already decided the profile. A `bridge` worker therefore calls `send_mail` / `read_mail` as
- native tools. `router`, `router-tools` and `provider` workers run no MCP client, so the URL
+ native tools. `provider` workers mount it through their runtime MCP attachment capability. `router` and `router-tools` workers run no MCP client, so the URL
  stays the caller's to use; every other backend refuses the spawn rather than mint a
  capability it can never reach. A caller-owned `makeWorkerAgent` owns its own mount.
 

@@ -18,7 +18,6 @@ export { type AnalystFinding, computeFindingId, makeFinding } from '@tangle-netw
 export type { AgentProfile } from '@tangle-network/agent-interface'
 export type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 export { assertProfileMaterializes } from '../agent/profile-materialization'
-export type { HttpMcpServerSpec } from './http-mcp-client'
 export {
   contentAddress,
   FileResultBlobStore,
@@ -288,6 +287,7 @@ export {
   type HarvestReport,
   harvestCorpus,
 } from './harvest-corpus'
+export type { HttpMcpServerSpec } from './http-mcp-client'
 // The in-process pseudo-box: a user `onPrompt` callback → a SandboxClient for
 // runAgentRounds / openSandboxRun (the typed offline seam, no SandboxInstance cast).
 export {

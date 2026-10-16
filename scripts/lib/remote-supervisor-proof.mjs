@@ -237,7 +237,10 @@ export async function verifyRemoteSupervisorProvider(kernel, { provider, profile
       }
     },
   }, {}, { ...context, budget: budget.total, runId: nonce })
-  assert.equal(result.kind, 'winner', JSON.stringify(result))
+  const journal = await context.journal.loadTree(nonce)
+  const failures = (journal ?? []).filter(event => event.kind === 'settled' && event.status === 'down')
+    .map(event => ({ id: event.id, reason: event.reason, infra: event.infra }))
+  assert.equal(result.kind, 'winner', JSON.stringify({ result, failures, settledWorkers }))
   assert.equal(result.teardownUnconfirmed?.length ?? 0, 0, JSON.stringify(result.teardownUnconfirmed))
   return { ...result.out, providerModel: result.providerModel, spentTotal: result.spentTotal }
 }

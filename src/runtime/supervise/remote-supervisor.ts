@@ -18,7 +18,10 @@ const treeSchema = z.object({
   inFlight: z.number().int().nonnegative(),
 })
 const eventPageSchema = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('unavailable'), reason: z.enum(['unknown-worker', 'not-captured']) }),
+  z.object({
+    status: z.literal('unavailable'),
+    reason: z.enum(['unknown-worker', 'not-captured']),
+  }),
   z.object({
     status: z.literal('available'),
     entries: z.array(
