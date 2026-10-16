@@ -47,6 +47,10 @@ the repository's compiler-AST test helpers require the JavaScript compiler API.
 TypeScript 7.0.2 removes that API, so `typescript-consumer` keeps an exact 7.0.2
 alias for packed-consumer compatibility checks without breaking local tooling.
 
+One-shot fixture scripts use `node --import tsx` on the supported Node 22 runtime.
+They need TypeScript loading, not the tsx CLI supervisor or its IPC socket; arguments
+such as `--check` still reach the same maintained generator.
+
 ## Loop API Discipline
 
 The blessed loop surface is the substrate:

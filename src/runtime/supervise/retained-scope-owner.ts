@@ -2327,7 +2327,11 @@ function ownerCaptureIdentity(attempt: OwnerAttempt, owner: OwnerRegistration) {
   return { profileDigest: intent?.requestedProfileDigest, node }
 }
 
-/** Recover evidence only, before a later turn or checkpoint can change the accepted workspace. */
+/**
+ * Recover evidence before reuse. An accepted turn requires a complete receipt. A failed turn
+ * keeps its source and pending evidence, while the driver's own classification decides retry.
+ * Retry uses another environment if recovery cannot certify the failed turn's workspace.
+ */
 async function reconcileOwnerWorkspaceBeforeReuse(
   state: OwnerState,
   signal: AbortSignal,
@@ -2436,7 +2440,21 @@ async function reconcileOwnerWorkspaceBeforeReuse(
           throw new Error(captured.incompleteReason ?? 'accepted workspace capture is incomplete')
         await state.context.onEvidence!(output)
       } catch (cause) {
-        throw new RetainedWorkspaceCapturePendingError(attempt.executionId ?? args.nodeId, cause)
+        const pending = new RetainedWorkspaceCapturePendingError(
+          attempt.executionId ?? args.nodeId,
+          cause,
+        )
+        if (executorFailureReason(attempt.result) === undefined) throw pending
+        // Reuse the evidence journal, retaining the original attempt's coordinates. Neither a
+        // missing nor a partial receipt permits mutation or deletion of this source.
+        await state.context.onEvidence!({
+          executionId: attempt.executionId,
+          environmentId,
+          controlRef: attempt.controlByEnvironment.get(environmentId),
+          ...ownerCaptureIdentity(attempt, args),
+          workspaceCaptureFailure: pending.message,
+        })
+        state.forceNewSession = true
       }
     }
   }

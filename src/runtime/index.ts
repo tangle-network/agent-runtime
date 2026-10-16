@@ -986,7 +986,6 @@ export {
   type PeerMailboxOptions,
   type PeerMailEnvelope,
   type PeerMailEvent,
-  type PeerMailKind,
   type PeerMailLimits,
   type PeerMailOutcome,
   type PeerMailReadout,
@@ -1216,6 +1215,7 @@ export {
   type SuperviseRegistry,
   type SuperviseRegistryTable,
   supervise,
+  superviseFleetCapabilities,
   workerFromBackend,
 } from './supervise/supervise'
 export { createRootHandle, createSupervisor, DEFAULT_MAX_DEPTH } from './supervise/supervisor'

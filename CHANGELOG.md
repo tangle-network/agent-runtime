@@ -1,3 +1,21 @@
+## 0.323.0
+
+Peer mail now uses one message shape. Remove `kind` from `send_mail` calls and use optional `replyTo` for threading and optional `evidenceRefs` for supporting material. Removed the published `PeerMailKind` type, `kind` fields from `PeerMailSendInput` and `PeerMailEnvelope`, and the `evidence-required` refusal. Delivery guards and coordination audit events remain in place.
+
+Allow supervised peer roots to read one another's journals and recorded agent events with `peerAudit: true`, through the existing `read_journal` and `observe_agent` tools. Peer steering and writes retain their existing ownership boundary. `traceTools: false` removes both observation tools from the root and all authored descendants. `superviseFleetCapabilities` exposes support before a consumer builds an opted-in run, and node tool context carries the stable peer root owner for product-owned page permissions. The parent peer-mail capability now reaches recursive managers through the existing Runtime attachment, so managed peer roots can discover and message each other without changing their canonical profiles.
+
+## 0.322.4
+
+Republish with regenerated release artifacts (0.322.3 shipped stale testing fixtures). Carries the retained-turn capture fix: failed turns with incomplete workspace capture stay under the driver retry policy.
+
+## 0.322.3
+
+Republish of 0.322.2: the 0.322.2 tag failed release lint before publishing. Includes the retained-turn capture fix (failed turns with incomplete workspace capture stay under the driver retry policy).
+
+## 0.322.2
+
+Keep failed retained turns under the driver retry policy when workspace capture remains incomplete. Journal pending evidence and preserve its source while retrying in another environment; accepted turns still require complete capture before reuse.
+
 ## 0.322.1
 
 Retire an obsolete package-helper unit fixture that assumes every supported Sandbox peer ceiling ends at a minor boundary. Keep the actual packed, standalone, cohort, Edge and native provider qualification paths unchanged.

@@ -45,6 +45,7 @@ import {
   worktreeCliProfileMaterialization,
 } from '../../agent/profile-materialization'
 import { ConfigError, RuntimeRunStateError, ValidationError } from '../../errors'
+import type { McpToolDescriptor } from '../../mcp/server'
 import {
   type AnalystRegistry,
   type AnalyzeOnSettleRoute,
@@ -56,6 +57,7 @@ import {
   type DownMessageAuthorizationInput,
   type EscalateQuestion,
   type MakeWorkerAgent,
+  type PeerAuditAccess,
   type SpawnPreflight,
   type SuperviseProfileEntry,
   type WorkerSpawnContext,
@@ -104,6 +106,7 @@ import { executorFailure } from './executor-outcome'
 import type { SupervisorFinalizer } from './finalizer'
 import {
   attestRuntimeOwnedScopeOwner,
+  authoredAgentIdentity,
   providerAttemptEvidence,
   recordRuntimeOwnedDriveHarnessProviderEvidence,
   runtimeOwnedDriveHarnessProviderEvidence,
@@ -429,7 +432,7 @@ const peerMailMcpAlias = 'agent-runtime-peer-mail'
 function peerMailRuntimeAttachment(
   profile: AgentProfile,
   backend: ExecutorConfig,
-  spawnContext: WorkerSpawnContext | undefined,
+  spawnContext: Pick<WorkerSpawnContext, 'peerMailUrl'> | undefined,
 ): Readonly<Record<string, AgentProfileMcpServer>> | undefined {
   const url = spawnContext?.peerMailUrl
   if (url === undefined) return undefined
@@ -1053,6 +1056,7 @@ function driveHarnessFromBackend(
     coordinationMcpUrl,
     coordinationMcpHeaders,
     coordinationProxySecret,
+    peerMailUrl,
     stopSignal,
     coordinationTools,
     reentry,
@@ -1347,6 +1351,9 @@ function driveHarnessFromBackend(
         'proxy-held coordination requires a provider that enforces proxy bindings',
       )
     }
+    const peerMailAttachment = peerMailRuntimeAttachment(authoredProfile, boundBackend, {
+      peerMailUrl,
+    })
     const attachment = {
       transport: 'http' as const,
       url: coordinationMcpUrl,
@@ -1395,6 +1402,14 @@ function driveHarnessFromBackend(
           'driveHarnessFromBackend: provider defaults contain the reserved coordination attachment alias',
         )
       }
+      if (
+        peerMailUrl &&
+        Object.hasOwn(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}, peerMailMcpAlias)
+      ) {
+        throw new ValidationError(
+          'driveHarnessFromBackend: provider defaults contain the reserved peer-mail attachment alias',
+        )
+      }
       const unsupported = await providerCoordinationRefusal(boundBackend)
       if (unsupported) {
         throw new ValidationError(
@@ -1418,6 +1433,9 @@ function driveHarnessFromBackend(
           runtimeAttachments: {
             mcp: {
               ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
+              ...(peerMailUrl
+                ? { [peerMailMcpAlias]: { transport: 'http' as const, url: peerMailUrl } }
+                : {}),
               [coordinationMcpAlias]: {
                 transport: 'http',
                 url: coordinationMcpUrl,
@@ -1457,6 +1475,7 @@ function driveHarnessFromBackend(
           ? {}
           : { [bridgeStopSignalKey]: effectiveStopSignal }),
         [bridgeRuntimeAttachmentsKey]: {
+          ...(peerMailAttachment ?? {}),
           [coordinationMcpAlias]: attachment,
         },
       },
@@ -2220,6 +2239,9 @@ async function verifyProfilePromotions(
   }
 }
 
+/** Capabilities a data-only consumer may require before building an opted-in run. */
+export const superviseFleetCapabilities = Object.freeze({ peerAudit: true, traceTools: true })
+
 export interface SuperviseOptions {
   /** Whole-run persistence and ownership. SQL contexts are acquired before replay and compute. */
   readonly runContext?: RunContext
@@ -2278,6 +2300,10 @@ export interface SuperviseOptions {
    *  Requires a harness-brained supervisor; a router-brained supervisor is refused rather than
    *  silently unmailed. */
   readonly peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
+  /** Let sibling root managers read each other's recorded evidence. No mutation or steering. Default false. */
+  readonly peerAudit?: boolean
+  /** False removes observe_agent/read_journal from the root and every authored descendant. Default true. */
+  readonly traceTools?: boolean
   /** Override the worker seam directly (tests / advanced) instead of deriving it from `backend`.
    *  This is caller-owned execution: profile security, spawn authorization, and recursive-driver
    *  selection below apply only to the backend-derived worker path. `authorizeMessage` still
@@ -2753,6 +2779,8 @@ const superviseOptionKeys = [
   'onProgressStop',
   'otel',
   'peerMail',
+  'peerAudit',
+  'traceTools',
   'perWorker',
   'reservationPolicy',
   'deadlineCheckIn',
@@ -3659,9 +3687,48 @@ function superviseInternal(
   assertValidBudget(options.budget, 'supervise budget')
   // Fail loud before any compute: every configured model must be in the allowed subset (no-op
   // when allowedModels is unset). The backend seam carries its own model on most backends.
-  const composeSpawnProfile = profileGuidanceComposer(options.profileGuidance)
+  const guidanceComposer = profileGuidanceComposer(options.profileGuidance)
+  const applyTraceTools = (profile: AgentProfile): AgentProfile => {
+    if (options.traceTools !== false || profile.tools === undefined) return profile
+    const tools = Object.fromEntries(
+      Object.entries(profile.tools).filter(
+        ([name]) =>
+          name !== `${coordinationProfileToolPrefix}observe_agent` &&
+          name !== `${coordinationProfileToolPrefix}read_journal`,
+      ),
+    )
+    return agentProfileSchema.parse({ ...profile, tools })
+  }
+  const composeSpawnProfile =
+    options.traceTools === false
+      ? (profile: AgentProfile) => applyTraceTools(guidanceComposer?.(profile) ?? profile)
+      : guidanceComposer
+  const auditPeers = new Map<string, { parent: string; tools: ReadonlyArray<McpToolDescriptor> }>()
+  const peerAuditFor = (parent: string): PeerAuditAccess | undefined =>
+    options.peerAudit
+      ? {
+          register: (nodeId, tools) => {
+            auditPeers.set(nodeId, { parent, tools })
+          },
+          read: async (peerId, name, args) => {
+            const peer = auditPeers.get(peerId)
+            if (peer?.parent !== parent) return { error: 'unknown-peer' }
+            // A scope records its descendants. Its own root's provider events belong to the parent.
+            const rootRead =
+              name === 'observe_agent' &&
+              args.tree !== true &&
+              args.outRef === undefined &&
+              (args.workerId === undefined || args.workerId === peerId)
+            const tools = rootRead ? auditPeers.get(parent)?.tools : peer.tools
+            const tool = tools?.find((tool) => tool.name === name)
+            return tool
+              ? tool.handler(rootRead ? { ...args, workerId: peerId } : args)
+              : { error: 'peer-tool-unavailable' }
+          },
+        }
+      : undefined
   // The recorded root profile fixes the run's identity; a segment only alters what it executes.
-  const registeredProfile = superviseRootProfile(profile, options.profileGuidance)
+  const registeredProfile = applyTraceTools(superviseRootProfile(profile, options.profileGuidance))
   if (options.segment !== undefined) admitSegment(options.segment)
   const canonicalProfile =
     options.segment === undefined
@@ -4086,6 +4153,7 @@ function superviseInternal(
       depth: number,
       parentOwnerId: string,
       analystLineage = false,
+      peerRootOwnerId?: string,
     ): MakeWorkerAgent => {
       const makeRecursiveWorker = (
         authoredProfile: AgentProfile,
@@ -4122,7 +4190,7 @@ function superviseInternal(
         if (typeof decision !== 'object' || decision === null || Array.isArray(decision)) {
           throw new ValidationError('supervise: authorizeSpawn must return an AuthorizedSpawn')
         }
-        const authorized = freezeDetachedProfile(decision.profile)
+        const authorized = freezeDetachedProfile(applyTraceTools(decision.profile))
         assertProxySecretDescendant(parent, authorized, options.authorizeSpawn !== undefined)
         const bindings = authorized.proxySecrets ?? []
         let proxySecretParents: ProxySecretParents
@@ -4264,6 +4332,11 @@ function superviseInternal(
           )
         }
 
+        const rootPeerOwner = options.peerAudit
+          ? depth === 1
+            ? ownerId
+            : peerRootOwnerId
+          : undefined
         const childFactory = makeRecursiveWorkerFor(
           authorized,
           childExecution.identity,
@@ -4272,12 +4345,16 @@ function superviseInternal(
           analystLineage ||
             spawnContext.analyst !== undefined ||
             spawnContext.assignmentId.startsWith('analyst:'),
+          rootPeerOwner,
         )
         const nestedPerWorker = defaultPerWorker(spawnContext.budget, ownerShare)
         const authorizeNestedMessage = authorizeDownFor(authorized, depth + 1)
         let acceptedSubmission = false
         let unassessedOutput = false
+        const peerAudit = depth === 1 ? peerAuditFor(spawnContext.parentNodeId) : undefined
         const nested = supervisorAgent(authorized, {
+          ...(spawnContext.peerMailUrl ? { peerMailUrl: spawnContext.peerMailUrl } : {}),
+          ...(peerAudit ? { peerAudit } : {}),
           blobs,
           onUnassessedOutput: () => {
             unassessedOutput = true
@@ -4302,6 +4379,7 @@ function superviseInternal(
             depth,
             identity: childExecution.identity,
             assignmentId: spawnContext.assignmentId,
+            ...(rootPeerOwner ? { peerRootOwnerId: rootPeerOwner } : {}),
           },
           ...(options.resolveSupervisorTools
             ? { resolveSupervisorTools: options.resolveSupervisorTools }
@@ -4527,7 +4605,9 @@ function superviseInternal(
     const priorCoordination = log ? await log.load(runId, rootOwnerId) : undefined
 
     const authorizeRootMessage = authorizeDownFor(canonicalProfile, 1)
+    const rootPeerAudit = peerAuditFor('')
     const agentDeps = {
+      ...(rootPeerAudit ? { peerAudit: rootPeerAudit } : {}),
       blobs,
       makeWorkerAgent: workerFactory,
       ...(authorizeRootMessage ? { authorizeDownMessage: authorizeRootMessage } : {}),
@@ -4627,7 +4707,19 @@ function superviseInternal(
     // Built ONLY when `otel` is configured AND an exporter resolves, so the default path allocates
     // nothing and passes no `hooks` at all — byte-for-byte the wiring every existing caller gets.
     spans = options.otel
-      ? createSupervisorSpanRecorder({ runId, namespace: runNamespace, ...options.otel, now })
+      ? createSupervisorSpanRecorder({
+          runId,
+          namespace: runNamespace,
+          ...options.otel,
+          // The root span names the profile this segment runs, under the digest the journal
+          // recorded for the root. A caller adds what only it knows (a directive variant); the
+          // fields the profile decides are not the caller's to restate.
+          agentIdentity: {
+            ...options.otel.agentIdentity,
+            ...authoredAgentIdentity(canonicalProfile, rootExecution.identity.profileDigest),
+          },
+          now,
+        })
       : undefined
     const recorder = spans
     const hooks = recorder ? composeRuntimeHooks(options.hooks, recorder.hooks) : options.hooks

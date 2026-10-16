@@ -87,6 +87,7 @@ import {
   writeWorkerInteractiveAdmission,
 } from './interactive-admission'
 import {
+  authoredAgentIdentity,
   authoredProfileDigest,
   knownExecutionBindingReceipt,
   knownMaterializationReceipt,
@@ -1858,6 +1859,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               ...(opts.successorOf === undefined ? {} : { successorOf: opts.successorOf }),
               runtime: executor.runtime,
               ...(identity ? { identity } : {}),
+              // Who acted, for span observers: the authored profile under the digest the
+              // journal recorded for this node.
+              agent: authoredAgentIdentity(spec.profile, identity?.profileDigest),
               budget: opts.budget,
               depth: args.depth,
               attemptId,

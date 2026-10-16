@@ -12,7 +12,7 @@
  * so that only a consumer-visible edit moves it:
  *
  *   - comments are removed, so a doc edit moves nothing;
- *   - whitespace is collapsed, so a formatting change moves nothing;
+ *   - whitespace outside literals is collapsed, so a formatting change moves nothing;
  *   - the declaration's own local name is blanked and every type reference is
  *     rewritten to a stable token, so the private names a bundler invents when
  *     two modules declare the same identifier move nothing;
@@ -309,16 +309,19 @@ const exportsOfFile = (file, ctx, visiting = new Set()) => {
   return names
 }
 
-/** Every type this declaration names, as the identifier a reference resolves through. */
-const typeReferences = (node) => {
-  const found = []
+/** References to resolve, and literal spans whose whitespace is part of the type. */
+const declarationParts = (node) => {
+  const references = []
+  const literals = []
   const leftmost = (name) => {
     let current = name
-    while (current?.type === 'TSQualifiedName') current = current.left
+    while (current?.type === 'TSQualifiedName' || current?.type === 'MemberExpression') {
+      current = current.type === 'TSQualifiedName' ? current.left : current.object
+    }
     return current?.type === 'Identifier' ? current : null
   }
   const take = (identifier) => {
-    if (identifier !== null) found.push(identifier)
+    if (identifier !== null) references.push(identifier)
   }
   const visit = (value) => {
     if (value === null || typeof value !== 'object') return
@@ -327,6 +330,13 @@ const typeReferences = (node) => {
       return
     }
     switch (value.type) {
+      case 'Literal':
+      case 'TemplateElement':
+        literals.push(value)
+        break
+      case 'ClassDeclaration':
+        take(leftmost(value.superClass))
+        break
       case 'TSTypeReference':
         take(leftmost(value.typeName))
         break
@@ -346,7 +356,7 @@ const typeReferences = (node) => {
     }
   }
   visit(node)
-  return found
+  return { references, literals }
 }
 
 const originKey = (origin) => {
@@ -360,7 +370,7 @@ const digestOf = (text) => createHash('sha256').update(text).digest('hex').slice
 
 /**
  * The declaration as the shape comparison reads it: no comments, no private
- * naming, whitespace collapsed, and every type reference replaced by a token
+ * naming, non-literal whitespace collapsed, and every reference replaced by a token
  * that does not move when the bundler renames what it emits.
  */
 const normalizedDeclaration = (module, node, selfName, ctx, inlining) => {
@@ -378,21 +388,36 @@ const normalizedDeclaration = (module, node, selfName, ctx, inlining) => {
       edits.push({ start: comment.start, end: comment.end, text: ' ' })
     }
   }
-  for (const reference of typeReferences(node)) {
+  const { references, literals } = declarationParts(node)
+  for (const literal of literals) {
+    edits.push({
+      start: literal.start,
+      end: literal.end,
+      text: module.source.slice(literal.start, literal.end),
+      literal: true,
+    })
+  }
+  for (const reference of references) {
     const token = referenceToken(module, reference.name, selfName, ctx, inlining)
     if (token === null) continue
     edits.push({ start: reference.start, end: reference.end, text: token })
   }
   edits.sort((left, right) => left.start - right.start)
+  const parts = []
   let text = ''
   let cursor = node.start
   for (const edit of edits) {
     if (edit.start < cursor) continue
-    text += module.source.slice(cursor, edit.start) + edit.text
+    text += module.source.slice(cursor, edit.start)
+    if (edit.literal) {
+      parts.push(text.replace(/\s+/g, ' '), edit.text)
+      text = ''
+    } else text += edit.text
     cursor = edit.end
   }
   text += module.source.slice(cursor, node.end)
-  return text.replace(/\s+/g, ' ').trim()
+  parts.push(text.replace(/\s+/g, ' '))
+  return parts.join('').trim()
 }
 
 /**

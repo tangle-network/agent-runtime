@@ -22,7 +22,7 @@
 
 import { contentHash } from '@tangle-network/agent-eval'
 import type { AgentProfile, CandidateExecutionEvidence } from '@tangle-network/agent-interface'
-import { ATTR } from '@tangle-network/agent-trace-contract'
+import { ATTR, agentIdentityAttributes } from '@tangle-network/agent-trace-contract'
 import {
   buildLoopOtelSpans,
   buildRuntimeEventOtelSpans,
@@ -30,8 +30,11 @@ import {
   flatOtelSpan,
   type OtelExporter,
   type OtelExportStats,
+  type OtelSpan,
+  toOtelAttributes,
 } from '../otel-export'
 import { type Redactor, resolveRedactor } from '../redact'
+import { authoredAgentIdentity } from '../runtime/supervise/materialization'
 import type { LoopTraceEvent } from '../runtime/types'
 import type { RuntimeTelemetryOptions } from '../sanitize'
 import type { RuntimeStreamEvent } from '../types'
@@ -747,6 +750,14 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
         )
         if (record.profile.name) labels['gen_ai.agent.name'] = record.profile.name
       }
+      // Who acted, on the run span and on every span under it: the profile, and the harness the
+      // record says actually ran it.
+      const identity = agentIdentityAttributes({
+        ...authoredAgentIdentity(record.profile),
+        ...(record.harness ? { harness: record.harness } : {}),
+      })
+      const attributed = (span: OtelSpan): OtelSpan => withMissingAttributes(span, identity)
+      Object.assign(labels, identity)
       const redactedInput = record.input !== undefined ? redactor(record.input) : undefined
       const redactedOutput = record.output !== undefined ? redactor(record.output) : undefined
       if (redactedInput !== undefined) {
@@ -774,7 +785,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
           runSpan.spanId,
           { ...config.runtimeTelemetry, redact: redactor },
         )
-        for (const span of spans) ex.exportSpan(span)
+        for (const span of spans) ex.exportSpan(attributed(span))
       }
       // The loop topology (when present) exports under the SAME traceId, parented
       // under the run span — reusing the shipped builder, never a second one.
@@ -790,7 +801,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
           runSpan.spanId,
           redactor,
         )
-        for (const span of spans) ex.exportSpan(span)
+        for (const span of spans) ex.exportSpan(attributed(span))
       }
     } catch {
       // Best-effort — a send failure must never fail the agent's turn.
@@ -916,4 +927,14 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       return getExporter()?.stats()
     },
   }
+}
+
+/** `span` plus each of `attributes` it does not already carry; its own values win. */
+function withMissingAttributes(span: OtelSpan, attributes: Record<string, string>): OtelSpan {
+  const present = new Set((span.attributes ?? []).map((attribute) => attribute.key))
+  const missing = Object.fromEntries(
+    Object.entries(attributes).filter(([key]) => !present.has(key)),
+  )
+  if (Object.keys(missing).length === 0) return span
+  return { ...span, attributes: [...(span.attributes ?? []), ...toOtelAttributes(missing)] }
 }

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -98,6 +98,204 @@ describe('nested supervisor coordination durability', () => {
 
   afterEach(async () => {
     await rm(runDir, { recursive: true, force: true })
+  })
+
+  it('lets peer roots read recorded pages, journals and events without granting peer steering', async () => {
+    const roots = new Map<string, { nodeId: string; url: string }>()
+    let release!: () => void
+    const ready = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const evidence: Array<Record<string, unknown>> = []
+    let recorded = 0
+    const cancellation = new AbortController()
+    const harnessErrors: unknown[] = []
+    const driveHarness: DriveHarness = async (args) => {
+      try {
+        await runHarness(args)
+      } catch (error) {
+        harnessErrors.push(error)
+        release()
+        cancellation.abort(error)
+        throw error
+      }
+    }
+    const runHarness: DriveHarness = async ({
+      authoredProfile,
+      scope,
+      coordinationMcpUrl,
+      peerMailUrl,
+    }) => {
+      const name = authoredProfile.name!
+      if (name === 'root') {
+        for (const name of ['peer-a', 'peer-b']) {
+          const started = await callTool(coordinationMcpUrl, 'spawn_worker', {
+            profile: manager(name),
+            task: name,
+            key: name,
+          })
+          expect(started.workerId, JSON.stringify(started)).toBeTypeOf('string')
+        }
+        await ready
+        return
+      }
+      roots.set(name, { nodeId: scope.view.root, url: coordinationMcpUrl })
+      await writeFile(join(runDir, `${name}.md`), `Recorded page from ${name}.`)
+      await callTool(coordinationMcpUrl, 'ask_parent', {
+        from: name,
+        level: 'driver',
+        question: `recorded evidence from ${name}`,
+        reason: 'peer audit proof',
+        urgency: 'continue-without',
+      })
+      recorded += 1
+      if (recorded === 2) release()
+      await ready
+      expect(peerMailUrl).toBeDefined()
+      const mailbox = await callTool(peerMailUrl!, 'read_mail', {})
+      const peers = mailbox.peers as Array<{ workerId: string }>
+      expect(peers).toHaveLength(1)
+      const other = [...roots.entries()].find(([peer]) => peer !== name)![1]
+      expect(peers[0]?.workerId).toBe(other.nodeId)
+      const sent = await callTool(peerMailUrl!, 'send_mail', {
+        to: other.nodeId,
+        subject: 'Audit request',
+        body: 'Please fact-check the recorded page.',
+      })
+      expect(sent.delivered, JSON.stringify(sent)).toBe(true)
+      const page = await callTool(coordinationMcpUrl, 'knowledge_read', { peerId: other.nodeId })
+      expect(page.content).toBe(`Recorded page from ${name === 'peer-a' ? 'peer-b' : 'peer-a'}.`)
+      const journal = await callTool(coordinationMcpUrl, 'read_journal', { peerId: other.nodeId })
+      expect(JSON.stringify(journal)).toContain(
+        `recorded evidence from ${name === 'peer-a' ? 'peer-b' : 'peer-a'}`,
+      )
+      const events = await callTool(coordinationMcpUrl, 'observe_agent', {
+        peerId: other.nodeId,
+        workerId: other.nodeId,
+        events: true,
+      })
+      expect(events.id).toBe(other.nodeId)
+      const steer = await callTool(coordinationMcpUrl, 'steer_agent', {
+        workerId: other.nodeId,
+        instruction: 'change your task',
+      })
+      expect(steer).toMatchObject({ delivered: false, outcome: 'unknown-worker' })
+      const unknown = await callTool(coordinationMcpUrl, 'read_journal', {
+        peerId: 'outside-this-run',
+      })
+      expect(unknown.error).toBe('unknown-peer')
+      evidence.push({ journal, events, steer })
+    }
+    const manager = (name: string) =>
+      testAgentProfile(name, {
+        harness: 'codex',
+        tools: runtimeToolDeclarations(
+          'ask_parent',
+          'observe_agent',
+          'read_journal',
+          'steer_agent',
+          'knowledge_read',
+        ),
+        prompt: { systemPrompt: 'Read peer evidence and preserve ownership.' },
+      })
+    try {
+      await supervise(testAgentProfile('root', { harness: 'codex', tools: rootTools }), 'audit', {
+        signal: cancellation.signal,
+        driverRetry: { enabled: false },
+        backend: {
+          backend: 'router',
+          routerBaseUrl: 'http://unused.invalid',
+          routerKey: 'unused',
+          model: 'unused/model',
+        },
+        budget: { maxIterations: 20, maxTokens: 20_000 },
+        perWorker: { maxIterations: 6, maxTokens: 2_000 },
+        driveHarness,
+        driveHarnessMaterialization: fullProfileMaterialization,
+        peerAudit: true,
+        peerMail: true,
+        resolveSupervisorTools: (context) => {
+          if (context.depth === 1) expect(context.peerRootOwnerId).toBe(context.ownerId)
+          // Product-owned page reads share the manager endpoint with Runtime's journal.
+          return [
+            {
+              name: 'knowledge_read',
+              description: 'Read a recorded page from this run.',
+              inputSchema: {
+                type: 'object',
+                properties: { peerId: { type: 'string' } },
+                required: ['peerId'],
+                additionalProperties: false,
+              },
+              handler: async (raw) => {
+                const peerId = (raw as { peerId: string }).peerId
+                const peer = [...roots.entries()].find(([, root]) => root.nodeId === peerId)
+                if (!peer) return { error: 'unknown-peer' }
+                return { content: await readFile(join(runDir, `${peer[0]}.md`), 'utf8') }
+              },
+            },
+          ]
+        },
+        maxTurns: 8,
+      })
+    } catch (error) {
+      throw harnessErrors[0] ?? error
+    } finally {
+      cancellation.abort()
+    }
+    if (harnessErrors.length > 0) throw harnessErrors[0]
+    expect(evidence).toHaveLength(2)
+  })
+
+  it('removes trace tools from the root and explicitly authored descendants when disabled', async () => {
+    const seen = new Map<string, string[]>()
+    const traceGrant = runtimeToolDeclarations(
+      'spawn_worker',
+      'observe_agent',
+      'read_journal',
+      'ask_parent',
+    )
+    const driveHarness: DriveHarness = async ({
+      authoredProfile,
+      coordinationMcpUrl,
+      coordinationTools,
+    }) => {
+      const names = coordinationTools.map((tool) => tool.name)
+      seen.set(authoredProfile.name!, names)
+      expect(names).not.toContain('observe_agent')
+      expect(names).not.toContain('read_journal')
+      expect(authoredProfile.tools?.agent_runtime_coordination_observe_agent).toBeUndefined()
+      expect(authoredProfile.tools?.agent_runtime_coordination_read_journal).toBeUndefined()
+      if (authoredProfile.name === 'root') {
+        await callTool(coordinationMcpUrl, 'spawn_worker', {
+          profile: testAgentProfile('child', {
+            harness: 'codex',
+            tools: traceGrant,
+            prompt: { systemPrompt: 'Keep the same trace policy.' },
+          }),
+          task: 'child',
+          key: 'trace-policy-child',
+        })
+      }
+    }
+    await supervise(
+      testAgentProfile('root', { harness: 'codex', tools: traceGrant }),
+      'trace policy',
+      {
+        backend: {
+          backend: 'router',
+          routerBaseUrl: 'http://unused.invalid',
+          routerKey: 'unused',
+          model: 'unused/model',
+        },
+        budget: { maxIterations: 20, maxTokens: 20_000 },
+        perWorker: { maxIterations: 6, maxTokens: 2_000 },
+        driveHarness,
+        driveHarnessMaterialization: fullProfileMaterialization,
+        traceTools: false,
+      },
+    )
+    expect([...seen.keys()].sort()).toEqual(['child', 'root'])
   })
 
   it('isolates identical keyed siblings and restores each owner evidence on restart', async () => {

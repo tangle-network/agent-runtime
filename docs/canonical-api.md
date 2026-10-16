@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.322.1.**
+> **Version 0.323.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > Read `package.json` `peerDependencies` for the compatible `agent-eval`, `agent-interface`, and `sandbox` versions.
 > Portable profile and tool-part types come from `@tangle-network/agent-interface`.
@@ -617,3 +617,9 @@ The coordination handle exposes `readOnly`, with its own URL and protected heade
 Peer mail shares the existing coordination listener and its caller-supplied public route. Each worker gets its own unguessable capability path and only its own send/read tools. Provider workers receive that endpoint through `runtimeAttachments.mcp` and use the existing steerable session inbox, without changing the authored profile. Shared placement and options incompatible with steerable sessions fail before environment creation. A provider that does not advertise runtime MCP attachments is refused before environment creation. The public route must carry the peer paths as well as the manager endpoint. Runtime creates no tunnel. Tangle callers must also declare egress for the coordinator destination through Sandbox's existing egress policy. MCP attachment support does not grant network access; Sandbox's egress denial API identifies rejected destinations.
 
 The provider-backed Sandbox adapter translates supported create fields into neutral input instead of forwarding the raw SDK request in `providerOptions`. Unmapped physical controls, backend overrides and the all-secret selector require the existing `mapCreateOptions` callback and otherwise fail before admission. Explicit caller provider options remain caller-owned; shared-box placement still refuses controls it cannot honor. Steerable provider session creates carry the existing worker attempt key; explicit caller keys take precedence. The adapter carries the creation profile into each subscription turn. A fresh call without a turn key receives one operation identity before dispatch; explicit keys and exact replay coordinates remain unchanged.
+
+## Peer root audits and trace access
+
+`supervise(profile, task, { peerAudit: true })` lets direct child managers read their sibling roots with `read_journal({ peerId })` and `observe_agent({ peerId, ... })`. The peer ID is the worker ID exposed by the parent's existing peer mail. Reads run through the peer's existing bounded, redacted tools. They grant no steering or write access, and do not change independent completion checks. Product tools receive `context.peerRootOwnerId` on each peer root and its descendants so their page owner can enforce writes separately.
+
+`traceTools: false` removes `observe_agent` and `read_journal` from the root and every authored descendant, including profiles that explicitly request them. Omission keeps today's grants. `superviseFleetCapabilities` from `/kernel` identifies support for data-only consumers before dispatch.

@@ -194,6 +194,7 @@ export {
   type MakeWorkerAgent,
   type ManagerReentryState,
   type ManagerWake,
+  type PeerAuditAccess,
   parseAuthoredAnalystDefinition,
   type Question,
   type QuestionDecision,

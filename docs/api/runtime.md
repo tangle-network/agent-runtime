@@ -19137,6 +19137,26 @@ OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_m
 
 [`SuperviseOptions`](#superviseoptions).[`peerMail`](#peermail-1)
 
+##### peerAudit?
+
+> `readonly` `optional` **peerAudit?**: `boolean`
+
+Let sibling root managers read each other's recorded evidence. No mutation or steering. Default false.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`peerAudit`](#peeraudit-1)
+
+##### traceTools?
+
+> `readonly` `optional` **traceTools?**: `boolean`
+
+False removes observe_agent/read_journal from the root and every authored descendant. Default true.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`traceTools`](#tracetools-1)
+
 ##### recoverExecutor?
 
 > `readonly` `optional` **recoverExecutor?**: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
@@ -20365,6 +20385,14 @@ Parent span id (16 hex chars) to hang the run's root span under — an inherited
 
 Extra attributes stamped on every span this recorder emits (subject, workspace, campaign, …).
 
+##### agentIdentity?
+
+> `readonly` `optional` **agentIdentity?**: `AgentIdentity`
+
+Who the run's root agent is: stamped on the root span and on the root manager's own turns.
+Every spawned node's span carries its OWN profile instead, from the spawn it opened with, and
+a node's turns carry the node's. `supervise()` derives this from the root profile.
+
 ##### now?
 
 > `readonly` `optional` **now?**: () => `number`
@@ -20540,10 +20568,6 @@ The bound sender — resolved from the capability, never from a tool argument.
 
 > `readonly` **to**: `string`
 
-##### kind
-
-> `readonly` **kind**: [`PeerMailKind`](#peermailkind)
-
 ##### subject
 
 > `readonly` **subject**: `string`
@@ -20556,7 +20580,7 @@ The bound sender — resolved from the capability, never from a tool argument.
 
 > `readonly` **evidenceRefs**: readonly `string`[]
 
-Evidence the receiver can re-check for itself. Required for `tell` and `challenge`.
+Optional evidence refs, normalized to an empty array when none were supplied.
 
 ##### replyTo?
 
@@ -20630,7 +20654,7 @@ Total admitted body bytes one worker may receive for the whole run.
 
 > `readonly` **maxThreadDepth**: `number`
 
-Maximum reply depth; a root mail is depth 0, so `2` allows ask → answer → answer.
+Maximum reply depth; a root mail is depth 0, so `2` allows a root message and two replies.
 
 ##### maxBodyBytes
 
@@ -20690,10 +20714,6 @@ Sends still allowed, or `null` when this run set no send quota.
 ##### to
 
 > `readonly` **to**: `unknown`
-
-##### kind
-
-> `readonly` **kind**: `unknown`
 
 ##### subject
 
@@ -24416,6 +24436,18 @@ OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_m
  Requires a harness-brained supervisor; a router-brained supervisor is refused rather than
  silently unmailed.
 
+##### peerAudit?
+
+> `readonly` `optional` **peerAudit?**: `boolean`
+
+Let sibling root managers read each other's recorded evidence. No mutation or steering. Default false.
+
+##### traceTools?
+
+> `readonly` `optional` **traceTools?**: `boolean`
+
+False removes observe_agent/read_journal from the root and every authored descendant. Default true.
+
 ##### makeWorkerAgent?
 
 > `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](#makeworkeragent)
@@ -25293,6 +25325,12 @@ Concrete Scope node that owns this manager's coordination stream.
 
 Stable identity of this manager's coordination stream.
 
+##### peerRootOwnerId?
+
+> `readonly` `optional` **peerRootOwnerId?**: `string`
+
+Stable first-level peer manager owner, inherited by its managed descendants when peer audit is enabled.
+
 ##### depth
 
 > `readonly` **depth**: `number`
@@ -25523,6 +25561,16 @@ Stable identity of this manager's coordination stream.
 
 [`SupervisorNodeContext`](#supervisornodecontext).[`ownerId`](#ownerid-1)
 
+##### peerRootOwnerId?
+
+> `readonly` `optional` **peerRootOwnerId?**: `string`
+
+Stable first-level peer manager owner, inherited by its managed descendants when peer audit is enabled.
+
+###### Inherited from
+
+[`SupervisorNodeContext`](#supervisornodecontext).[`peerRootOwnerId`](#peerrootownerid)
+
 ##### depth
 
 > `readonly` **depth**: `number`
@@ -25745,6 +25793,12 @@ Runtime-only transport credentials; never append them to the authored profile or
 
 [`CoordinationProxySecret`](#coordinationproxysecret)
 
+###### peerMailUrl?
+
+`string`
+
+Parent-minted peer post office. Runtime attachment only, never part of the profile.
+
 ###### stopSignal?
 
 `AbortSignal`
@@ -25906,6 +25960,12 @@ Close the last subscription segment at this logical manager's settlement.
 - [`SupervisorAgentTestDeps`](testing.md#supervisoragenttestdeps)
 
 #### Properties
+
+##### peerMailUrl?
+
+> `readonly` `optional` **peerMailUrl?**: `string`
+
+Parent post office bound to this manager's worker identity.
 
 ##### blobs
 
@@ -26157,6 +26217,10 @@ Analyst kinds run on each worker-settle → a `finding` the driver composes its 
 > `readonly` `optional` **sourceEvidenceRefs?**: readonly `string`[]
 
 Trusted source refs for this manager’s existing observe_agent capability.
+
+##### peerAudit?
+
+> `readonly` `optional` **peerAudit?**: [`PeerAuditAccess`](mcp.md#peerauditaccess)
 
 ##### watchWorkers?
 
@@ -34565,22 +34629,9 @@ OTLP span attribute values. Exported because `SupervisorSpanOptions.attributes` 
 
 ***
 
-### PeerMailKind
-
-> **PeerMailKind** = `"ask"` \| `"tell"` \| `"challenge"` \| `"answer"`
-
-What one envelope IS, typed so a reader can act on it without parsing prose.
-
- - `ask` — request a fact the sender lacks; expects an `answer`.
- - `tell` — share a result; MUST carry evidence refs.
- - `challenge` — dispute a peer's claim; MUST cite the refs of the claim it disputes.
- - `answer` — reply to an `ask` or a `challenge`.
-
-***
-
 ### PeerMailRefusal
 
-> **PeerMailRefusal** = `"sender-unbound"` \| `"self-addressed"` \| `"send-quota-exhausted"` \| `"mailbox-full"` \| `"thread-depth-exceeded"` \| `"thread-stopped"` \| `"unknown-reply-target"` \| `"evidence-required"` \| `"subject-too-large"` \| `"body-too-large"` \| `"forged-authority"` \| `"unknown-worker"` \| `"already-settled"` \| `"worker-has-no-inbox"` \| `"scope-stopped"` \| `"runtime-error"`
+> **PeerMailRefusal** = `"sender-unbound"` \| `"self-addressed"` \| `"send-quota-exhausted"` \| `"mailbox-full"` \| `"thread-depth-exceeded"` \| `"thread-stopped"` \| `"unknown-reply-target"` \| `"subject-too-large"` \| `"body-too-large"` \| `"forged-authority"` \| `"unknown-worker"` \| `"already-settled"` \| `"worker-has-no-inbox"` \| `"scope-stopped"` \| `"runtime-error"`
 
 Why an attempt did not reach a sibling. Each value is a fact the sender can read and act on.
 
@@ -38467,6 +38518,14 @@ value's, and a consumer that changes any axis passes an inline spec with its own
 
 Manager-authored profiles are untrusted until product policy says otherwise. Remote MCP and
 ambient connection grants therefore fail closed by default, in addition to local MCP and hooks.
+
+***
+
+### superviseFleetCapabilities
+
+> `const` **superviseFleetCapabilities**: `Readonly`\<\{ `peerAudit`: `true`; `traceTools`: `true`; \}\>
+
+Capabilities a data-only consumer may require before building an opted-in run.
 
 ***
 

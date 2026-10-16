@@ -173,3 +173,161 @@ describe('the surface record states the shape behind each name', () => {
     expect(await record(root)).toEqual(before)
   })
 })
+
+describe('class declarations retain consumer-visible inheritance and members', () => {
+  it.each([
+    ['a public method', 'read(): string;', 'read(): number;'],
+    ['a protected member', 'protected path: string;', 'protected path: number;'],
+    ['a private brand', 'private brand;', ''],
+    ['an inherited constructor', 'constructor(path: string);', 'constructor(path: number);'],
+  ])('follows an unexported superclass when %s changes', async (_label, before, after) => {
+    const declarations = (member: string) =>
+      `declare class Base { ${member} } export declare class Child extends Base {}`
+    const root = await buildPackage(declarations(before))
+    const original = await record(root)
+    await rebuild(root, declarations(after))
+    expect((await record(root)).Child).not.toBe(original.Child)
+  })
+
+  it('ignores a bundler rename of an unexported superclass', async () => {
+    const root = await buildPackage(
+      'declare class Base { read(): string; } export declare class Child extends Base {}',
+    )
+    const before = await record(root)
+    await rebuild(
+      root,
+      'declare class Base$1 { read(): string; } export declare class Child extends Base$1 {}',
+    )
+    expect(await record(root)).toEqual(before)
+  })
+
+  it('reports a published superclass change on its own record line', async () => {
+    const declarations = (type: string) =>
+      `export declare class Base { read(): ${type}; } export declare class Child extends Base {}`
+    const root = await buildPackage(declarations('string'))
+    const before = await record(root)
+    await rebuild(root, declarations('number'))
+    const after = await record(root)
+    expect(after.Base).not.toBe(before.Base)
+    expect(after.Child).toBe(before.Child)
+  })
+
+  it('follows an aliased superclass through relative re-exports', async () => {
+    const root = await buildPackage(
+      'import { Base as Local } from "./bridge.js"; export declare class Child extends Local {}',
+    )
+    await writeFile(
+      join(root, 'dist', 'bridge.d.ts'),
+      'export { Original as Base } from "./base.js";',
+    )
+    const base = join(root, 'dist', 'base.d.ts')
+    await writeFile(base, 'export declare class Original { read(): string; }')
+    const before = await record(root)
+    await writeFile(base, 'export declare class Original { read(): number; }')
+    expect((await record(root)).Child).not.toBe(before.Child)
+  })
+
+  it('follows a namespace-qualified superclass', async () => {
+    const declarations = (type: string) =>
+      `declare namespace Internal { class Base { read(): ${type}; } }
+       export declare class Child extends Internal.Base {}`
+    const root = await buildPackage(declarations('string'))
+    const before = await record(root)
+    await rebuild(root, declarations('number'))
+    expect((await record(root)).Child).not.toBe(before.Child)
+  })
+
+  it('terminates a recursive superclass graph without hiding a reachable change', async () => {
+    const declarations = (type: string, base = 'Base') =>
+      `declare class ${base} { next?: Child; }
+       declare class Child extends ${base} { value: ${type}; }
+       export declare function create(): Child;`
+    const root = await buildPackage(declarations('string'))
+    const before = await record(root)
+    await rebuild(root, declarations('string', 'Base$1'))
+    expect(await record(root)).toEqual(before)
+    await rebuild(root, declarations('number'))
+    expect((await record(root)).create).not.toBe(before.create)
+  })
+
+  it.each([
+    [
+      'a private helper with another brand remaining',
+      'private retained; private helper;',
+      'private retained;',
+    ],
+    ['the last private brand', 'private brand;', ''],
+    ['the ECMAScript private brand', '#private;', ''],
+    ['a public readonly field', 'readonly path: string;', ''],
+    ['a protected member', 'protected path: string;', 'protected path: number;'],
+    ['constructor accessibility', 'constructor();', 'private constructor();'],
+    ['protected constructor accessibility', 'constructor();', 'protected constructor();'],
+    [
+      'constructor overloads',
+      'constructor(x: string); constructor(x: number);',
+      'constructor(x: string);',
+    ],
+    [
+      'method overloads',
+      'read(x: string): string; read(x: number): number;',
+      'read(x: string): string;',
+    ],
+  ])('still detects changes to %s', async (_label, before, after) => {
+    const root = await buildPackage(`export declare class Public { ${before} }`)
+    const original = await record(root)
+    await rebuild(root, `export declare class Public { ${after} }`)
+    expect((await record(root)).Public).not.toBe(original.Public)
+  })
+})
+
+describe('literal content is part of a declaration shape', () => {
+  it.each([
+    ['string spaces', '"a b"', '"a  b"'],
+    ['string tabs', '"a b"', '"a\tb"'],
+    ['template prefix', `\`a \${string} b\``, `\`a  \${string} b\``],
+    ['template suffix', `\`a \${string} b\``, `\`a \${string}  b\``],
+    ['template newline', '`a b`', '`a\nb`'],
+    ['nested templates', `\`a \${\`b \${string}\`} c\``, `\`a \${\`b  \${string}\`} c\``],
+    ['literal interpolation', `\`a \${"b c"} d\``, `\`a \${"b  c"} d\``],
+  ])('detects changed %s', async (_label, before, after) => {
+    const root = await buildPackage(`export type Value = ${before};`)
+    const original = await record(root)
+    await rebuild(root, `export type Value = ${after};`)
+    expect((await record(root)).Value).not.toBe(original.Value)
+  })
+
+  it('preserves literal whitespace while ignoring surrounding comments and formatting', async () => {
+    const root = await buildPackage(
+      `export type Value = "a  /*literal*/ b" | \`c  \${string}  d\`;`,
+    )
+    const before = await record(root)
+    await rebuild(
+      root,
+      `/** comment */ export type Value =\n  "a  /*literal*/ b" /** another */ |\n  \`c  \${string}  d\`;`,
+    )
+    expect(await record(root)).toEqual(before)
+  })
+
+  it('still resolves renamed types and changes inside template interpolations', async () => {
+    const declarations = (name: string, value: string) =>
+      `type ${name} = "${value}"; export type Value = \`prefix  \${${name}}  suffix\`;`
+    const root = await buildPackage(declarations('Hidden', 'a'))
+    const before = await record(root)
+    await rebuild(root, declarations('Hidden$1', 'a'))
+    expect(await record(root)).toEqual(before)
+    await rebuild(root, declarations('Hidden$1', 'b'))
+    expect((await record(root)).Value).not.toBe(before.Value)
+  })
+
+  it('still distinguishes removed exports and value-to-type narrowing', async () => {
+    const root = await buildPackage(
+      'declare class Public {} export { Public }; export type Gone = string;',
+    )
+    const before = await record(root)
+    await rebuild(root, 'declare class Public {} export type { Public };')
+    const after = await record(root)
+    expect(after.Gone).toBeUndefined()
+    expect(before.Public).toMatch(/^value /)
+    expect(after.Public).toMatch(/^type /)
+  })
+})
