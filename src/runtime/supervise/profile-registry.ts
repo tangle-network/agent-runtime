@@ -17,10 +17,17 @@
  * a profile revision with no runs behind it.
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
+import {
+  isNoEntError,
+  readCommittedJsonFile,
+  upsertCommittedJsonLine,
+  withJsonlFileLock,
+} from '../../durable/jsonl-file'
 import { ValidationError } from '../../errors'
+import { writeAtomicDurableFile } from './durable-file'
 
 /** One completed run of one exact profile revision, under its stable NAME. */
 export interface ProfileRunRecord {
@@ -60,27 +67,16 @@ function assertRecord(record: ProfileRunRecord): void {
     )
 }
 
+function recordKey(record: ProfileRunRecord): string {
+  assertRecord(record)
+  return JSON.stringify([record.name, record.profileDigest, record.startedAt])
+}
+
 /** Open (or lazily create) a profile registry rooted at a workspace directory. */
 export function profileRegistry(root: string): ProfileRegistryDir {
   if (!root || root.trim().length === 0)
     throw new ValidationError('profileRegistry: root directory is required')
   return { root }
-}
-
-async function ensureLayout(reg: ProfileRegistryDir): Promise<void> {
-  await mkdir(join(reg.root, PROFILES_DIR), { recursive: true })
-}
-
-async function readRecords(reg: ProfileRegistryDir): Promise<ProfileRunRecord[]> {
-  try {
-    const text = await readFile(join(reg.root, RECORDS_FILE), 'utf8')
-    return text
-      .split('\n')
-      .filter((line) => line.trim().length > 0)
-      .map((line) => JSON.parse(line) as ProfileRunRecord)
-  } catch {
-    return []
-  }
 }
 
 /** Record one run and persist the exact profile revision beside it. The
@@ -104,38 +100,22 @@ export async function recordProfileRun(
       `profile-registry: record.profileDigest ${record.profileDigest.slice(0, 12)} does not match the supplied profile (${digest.slice(0, 12)}) — record the revision that actually ran`,
     )
   }
-  await ensureLayout(reg)
-  const file = join(reg.root, PROFILES_DIR, `${digest}.json`)
-  try {
-    const existing = JSON.parse(await readFile(file, 'utf8')) as AgentProfile
-    if (canonicalAgentProfileDigest(existing) !== digest) {
-      throw new ValidationError(
-        `profile-registry: revision ${digest.slice(0, 12)} is immutable but its stored copy differs — refusing to overwrite`,
-      )
+  await mkdir(join(reg.root, PROFILES_DIR), { recursive: true })
+  await withJsonlFileLock(join(reg.root, RECORDS_FILE), async (canonicalPath) => {
+    const file = join(reg.root, PROFILES_DIR, `${digest}.json`)
+    try {
+      const existing = JSON.parse(await readFile(file, 'utf8')) as AgentProfile
+      if (canonicalAgentProfileDigest(existing) !== digest) {
+        throw new ValidationError(
+          `profile-registry: revision ${digest.slice(0, 12)} is immutable but its stored copy differs — refusing to overwrite`,
+        )
+      }
+    } catch (error) {
+      if (!isNoEntError(error)) throw error
+      writeAtomicDurableFile(file, JSON.stringify(profile))
     }
-  } catch (error) {
-    if (!(error instanceof ValidationError)) {
-      // First write of this revision.
-      await writeFile(file, JSON.stringify(profile), 'utf8')
-    } else {
-      throw error
-    }
-  }
-  const existing = await readRecords(reg)
-  const deduped = existing.filter(
-    (row) =>
-      !(
-        row.name === record.name &&
-        row.profileDigest === record.profileDigest &&
-        row.startedAt === record.startedAt
-      ),
-  )
-  deduped.push(record)
-  await writeFile(
-    join(reg.root, RECORDS_FILE),
-    deduped.map((row) => JSON.stringify(row)).join('\n') + '\n',
-    'utf8',
-  )
+    await upsertCommittedJsonLine(canonicalPath, record, recordKey)
+  })
 }
 
 /** All records for one name, newest last. */
@@ -143,7 +123,9 @@ export async function profileRunsForName(
   reg: ProfileRegistryDir,
   name: string,
 ): Promise<ProfileRunRecord[]> {
-  return (await readRecords(reg)).filter((row) => row.name === name)
+  return (await readCommittedJsonFile<ProfileRunRecord>(join(reg.root, RECORDS_FILE))).filter(
+    (row) => row.name === name,
+  )
 }
 
 /** The best revision of a name by the same documented heuristic as the graph

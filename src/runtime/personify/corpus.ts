@@ -18,7 +18,11 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { prepareJsonlAppend, readCommittedJsonLines, writeAllBytes } from '../../durable/jsonl-file'
+import {
+  appendCommittedJsonLine,
+  readCommittedJsonLines,
+  withJsonlFileLock,
+} from '../../durable/jsonl-file'
 import { detachedFrozen } from '../supervise/snapshot'
 import type {
   Corpus,
@@ -214,42 +218,21 @@ export class FileCorpus implements Corpus {
     try {
       assertCorpusRecord(record, 'append: record')
       const snapshot = detachedFrozen(record)
-      const fs = await import('node:fs/promises')
-      const { dirname } = await import('node:path')
-      const { tryAcquireAtomicFileLock } = await import('@tangle-network/agent-eval/ledger-core')
-      await fs.mkdir(dirname(this.path), { recursive: true })
-      // Create the file before resolving it so aliases share a lock on the first append too.
-      const file = await fs.open(this.path, 'a')
-      await file.close()
-      const canonicalPath = await fs.realpath(this.path)
-      const deadline = Date.now() + 5000
-      for (;;) {
-        const acquisition = tryAcquireAtomicFileLock({ lockPath: `${canonicalPath}.lock` })
-        if (!acquisition.acquired) {
-          if (Date.now() >= deadline) {
-            throw new Error(`corpus append lock unavailable after 5000ms: ${canonicalPath}`)
+      return await withJsonlFileLock(this.path, async (canonicalPath) => {
+        const stored = await this.load(canonicalPath)
+        const existing = stored.get(snapshot.id)
+        if (existing) {
+          if (recordsEqual(existing, snapshot)) return { succeeded: true as const }
+          return {
+            succeeded: false as const,
+            error:
+              `corpus conflict: id '${snapshot.id}' is already stored in ${canonicalPath} with a different ` +
+              'record; a learned fact is append-only — re-mint the id or reconcile before re-appending',
           }
-          await new Promise((resolve) => setTimeout(resolve, 25))
-          continue
         }
-        try {
-          const stored = await this.load(canonicalPath)
-          const existing = stored.get(snapshot.id)
-          if (existing) {
-            if (recordsEqual(existing, snapshot)) return { succeeded: true }
-            return {
-              succeeded: false,
-              error:
-                `corpus conflict: id '${snapshot.id}' is already stored in ${canonicalPath} with a different ` +
-                'record; a learned fact is append-only — re-mint the id or reconcile before re-appending',
-            }
-          }
-          await this.appendLine(canonicalPath, snapshot)
-          return { succeeded: true }
-        } finally {
-          acquisition.lock.release()
-        }
-      }
+        await appendCommittedJsonLine(canonicalPath, snapshot)
+        return { succeeded: true as const }
+      })
     } catch (err) {
       return { succeeded: false, error: err instanceof Error ? err.message : String(err) }
     }
@@ -275,18 +258,6 @@ export class FileCorpus implements Corpus {
       byId.set(parsed.id, detachedFrozen(parsed))
     }
     return byId
-  }
-
-  private async appendLine(path: string, record: CorpusRecord): Promise<void> {
-    const fs = await import('node:fs/promises')
-    const needsSeparator = await prepareJsonlAppend(path)
-    const fh = await fs.open(path, 'a')
-    try {
-      await writeAllBytes(fh, `${needsSeparator ? '\n' : ''}${JSON.stringify(record)}\n`)
-      await fh.sync()
-    } finally {
-      await fh.close()
-    }
   }
 }
 

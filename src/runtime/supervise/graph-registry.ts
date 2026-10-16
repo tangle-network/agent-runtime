@@ -24,10 +24,16 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  readCommittedJsonFile,
+  upsertCommittedJsonLine,
+  withJsonlFileLock,
+} from '../../durable/jsonl-file'
 import { ValidationError } from '../../errors'
+import { writeAtomicDurableFile } from './durable-file'
 import type { AgentGraph, GraphEdge } from './graph'
 
 /** A graph as stored: every axis serializable; the check re-bound at replay. */
@@ -132,17 +138,17 @@ function assertRecord(record: GraphRunRecord): void {
     )
 }
 
+function recordKey(record: GraphRunRecord): string {
+  assertRecord(record)
+  return JSON.stringify([record.taskDigest, record.graphDigest, record.startedAt])
+}
+
 /** Open (or lazily create) a registry rooted at a workspace directory. The
  *  directory is the sandbox workspace; snapshots carry it across runs. */
 export function graphRegistry(root: string): GraphRegistryDir {
   if (!root || root.trim().length === 0)
     throw new ValidationError('graphRegistry: root directory is required')
   return { root }
-}
-
-async function recordsPath(reg: GraphRegistryDir): Promise<string> {
-  await mkdir(join(reg.root, GRAPHS_DIR), { recursive: true })
-  return join(reg.root, RECORDS_FILE)
 }
 
 /** Append one run record; the exact graph is content-addressed beside it.
@@ -160,46 +166,19 @@ export async function recordGraphRun(
       `graph-registry: record.graphDigest ${record.graphDigest} does not match the supplied graph (${stored.digest}) — record the graph that actually ran`,
     )
   }
-  await recordsPath(reg)
-  await writeFile(
-    join(reg.root, GRAPHS_DIR, `${stored.digest}.json`),
-    JSON.stringify(stored),
-    'utf8',
-  )
+  await mkdir(join(reg.root, GRAPHS_DIR), { recursive: true })
   const file = join(reg.root, RECORDS_FILE)
-  let existing: GraphRunRecord[] = []
-  try {
-    existing = (await readFile(file, 'utf8'))
-      .split('\n')
-      .filter((line) => line.trim().length > 0)
-      .map((line) => JSON.parse(line) as GraphRunRecord)
-  } catch {
-    // First record.
-  }
-  const keyed = existing.filter(
-    (row) =>
-      !(
-        row.taskDigest === record.taskDigest &&
-        row.graphDigest === record.graphDigest &&
-        row.startedAt === record.startedAt
-      ),
-  )
-  keyed.push(record)
-  await writeFile(file, keyed.map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8')
-  return stored
+  return withJsonlFileLock(file, async (canonicalPath) => {
+    const revisionPath = join(reg.root, GRAPHS_DIR, `${stored.digest}.json`)
+    writeAtomicDurableFile(revisionPath, JSON.stringify(stored), { preserveMode: true })
+    await upsertCommittedJsonLine(canonicalPath, record, recordKey)
+    return stored
+  })
 }
 
 /** All records, newest last. */
 export async function listGraphRuns(reg: GraphRegistryDir): Promise<GraphRunRecord[]> {
-  try {
-    const text = await readFile(join(reg.root, RECORDS_FILE), 'utf8')
-    return text
-      .split('\n')
-      .filter((line) => line.trim().length > 0)
-      .map((line) => JSON.parse(line) as GraphRunRecord)
-  } catch {
-    return []
-  }
+  return readCommittedJsonFile<GraphRunRecord>(join(reg.root, RECORDS_FILE))
 }
 
 /** Records for one task shape, newest last. */

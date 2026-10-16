@@ -16,7 +16,11 @@ export function parseCommittedJsonLines<T>(text: string, source: string): T[] {
  * corruption, short reads, and other I/O errors remain failures. Closing the iterator closes the fd. */
 export async function* readCommittedJsonLines<T>(
   path: string,
-  options: { allowMissing?: boolean; onBytes?: (bytes: Uint8Array) => void } = {},
+  options: {
+    allowMissing?: boolean
+    allowWhitespaceLines?: boolean
+    onBytes?: (bytes: Uint8Array) => void
+  } = {},
 ): AsyncGenerator<T> {
   const fs = await import('node:fs/promises')
   let handle: FileHandle
@@ -42,7 +46,13 @@ export async function* readCommittedJsonLines<T>(
         let end = text.indexOf('\n', start)
         while (end !== -1) {
           fragments.push(text.slice(start, end))
-          const record = parseRecord<T>(fragments.join(''), path, lineNumber++, true)
+          const record = parseRecord<T>(
+            fragments.join(''),
+            path,
+            lineNumber++,
+            true,
+            options.allowWhitespaceLines,
+          )
           fragments.length = 0
           if (record !== undefined) yield record.value
           start = end + 1
@@ -54,7 +64,13 @@ export async function* readCommittedJsonLines<T>(
         throw new Error(`${path}: journal changed while reading its committed prefix`)
       }
       fragments.push(decoder.end())
-      const record = parseRecord<T>(fragments.join(''), path, lineNumber, false)
+      const record = parseRecord<T>(
+        fragments.join(''),
+        path,
+        lineNumber,
+        false,
+        options.allowWhitespaceLines,
+      )
       if (record !== undefined) yield record.value
     } finally {
       stream.destroy()
@@ -70,8 +86,9 @@ function parseRecord<T>(
   source: string,
   lineNumber: number,
   terminated: boolean,
+  allowWhitespaceLines = false,
 ): { value: T } | undefined {
-  if (line.length === 0) return undefined
+  if (line.length === 0 || (allowWhitespaceLines && line.trim().length === 0)) return undefined
   try {
     return { value: JSON.parse(line) as T }
   } catch (cause) {
@@ -79,6 +96,114 @@ function parseRecord<T>(
     if (!terminated) return undefined
     throw new Error(`${source}: malformed JSONL record at line ${lineNumber}`, { cause })
   }
+}
+
+/** Append one JSONL record under the caller's existing single-writer discipline.
+ * The caller creates the parent directory. Recover only an uncommitted tail, handle short
+ * writes, and fsync before acknowledging.
+ * An optional acknowledgement reads the same open descriptor after sync (the spawn journal
+ * validates its file stamp here). Queueing, validation, and failure policy belong to the owner.
+ * @internal
+ */
+export function appendCommittedJsonLine(path: string, record: unknown): Promise<void>
+export function appendCommittedJsonLine<T>(
+  path: string,
+  record: unknown,
+  acknowledge: (handle: FileHandle) => Promise<T>,
+): Promise<T>
+export async function appendCommittedJsonLine<T>(
+  path: string,
+  record: unknown,
+  acknowledge?: (handle: FileHandle) => Promise<T>,
+): Promise<T | undefined> {
+  const fs = await import('node:fs/promises')
+  const needsSeparator = await prepareJsonlAppend(path)
+  const handle = await fs.open(path, 'a')
+  try {
+    await writeAllBytes(handle, `${needsSeparator ? '\n' : ''}${JSON.stringify(record)}\n`)
+    await handle.sync()
+    return await acknowledge?.(handle)
+  } finally {
+    await handle.close()
+  }
+}
+
+/** Serialize JSONL file updates across processes and aliases using Eval's existing file lock.
+ * The caller owns validation and the record format. The lock path names the canonical file,
+ * including its first write, so two directory aliases cannot acquire different write heads.
+ * @internal
+ */
+export async function withJsonlFileLock<T>(
+  path: string,
+  operation: (canonicalPath: string) => Promise<T>,
+): Promise<T> {
+  const fs = await import('node:fs/promises')
+  const { dirname } = await import('node:path')
+  const { tryAcquireAtomicFileLock } = await import('@tangle-network/agent-eval/ledger-core')
+  await fs.mkdir(dirname(path), { recursive: true })
+  const file = await fs.open(path, 'a')
+  await file.close()
+  const canonicalPath = await fs.realpath(path)
+  const deadline = Date.now() + 5000
+  for (;;) {
+    const acquisition = tryAcquireAtomicFileLock({ lockPath: `${canonicalPath}.lock` })
+    if (!acquisition.acquired) {
+      if (Date.now() >= deadline) {
+        throw new Error(`journal file lock unavailable after 5000ms: ${canonicalPath}`)
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      continue
+    }
+    try {
+      return await operation(canonicalPath)
+    } finally {
+      acquisition.lock.release()
+    }
+  }
+}
+
+/** Read one keyed registry snapshot without an extra whole-file text allocation.
+ * Historical registry files allow whitespace-only separators; append journals remain strict.
+ * @internal
+ */
+export async function readCommittedJsonFile<T>(path: string): Promise<T[]> {
+  const records: T[] = []
+  for await (const record of readCommittedJsonLines<T>(path, {
+    allowMissing: true,
+    allowWhitespaceLines: true,
+  })) {
+    records.push(record)
+  }
+  return records
+}
+
+/** Replace one keyed row and publish one durable snapshot. The caller holds the file lock.
+ * Keep unrelated rows in order and put the replacement last. No revision archive is retained.
+ * @internal
+ */
+export async function upsertCommittedJsonLine<T>(
+  path: string,
+  record: T,
+  key: (record: T) => string,
+): Promise<void> {
+  const encoded = JSON.stringify(record)
+  if (encoded === undefined) throw new Error('JSONL records must be JSON serializable')
+  const snapshot: T = JSON.parse(encoded)
+  const id = key(snapshot)
+  const updated: T[] = []
+  for await (const prior of readCommittedJsonLines<T>(path, {
+    allowMissing: true,
+    allowWhitespaceLines: true,
+  })) {
+    if (key(prior) !== id) updated.push(prior)
+  }
+  updated.push(snapshot)
+  // Reuse Runtime's file publication owner; this module owns JSONL framing, not another
+  // durability implementation. Preserve the existing snapshot's permissions across rename.
+  const { writeAtomicDurableFile } = await import('../runtime/supervise/durable-file')
+  writeAtomicDurableFile(path, `${updated.map((row) => JSON.stringify(row)).join('\n')}\n`, {
+    preserveMode: true,
+  })
 }
 
 /** FileHandle.write may legally make a short write. Loop until every byte is appended. */

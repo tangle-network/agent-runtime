@@ -237,6 +237,53 @@ describe('createRouterTranscript', () => {
     expect(lines(capture.artifact)[0].content).toBe(long)
   })
 
+  it('keeps provider receipts in evidence without replaying prior turns or receipts into turn events', () => {
+    const recorder = createRouterTranscript()
+    const messages: Array<Record<string, unknown>> = [{ role: 'user', content: 'first' }]
+    recorder.observe(messages)
+    const response = {
+      callId: 'call-1',
+      attempt: 1,
+      endpoint: 'http://offline.invalid/v1/chat/completions',
+      startedAt: '2026-01-01T00:00:00Z',
+      endedAt: '2026-01-01T00:00:01Z',
+      status: 200,
+      headers: {},
+      body: 'physical response',
+    }
+    recorder.response(response)
+    expect(recorder.reply({ content: 'first reply' }).map((message) => message.content)).toEqual([
+      'first',
+      'first reply',
+    ])
+    messages.push(
+      { role: 'assistant', content: 'first reply' },
+      { role: 'user', content: 'second' },
+    )
+    recorder.observe(messages)
+    expect(recorder.reply({ content: 'second reply' }).map((message) => message.content)).toEqual([
+      'second',
+      'second reply',
+    ])
+    // Capture must also notice messages arriving after the final reply and remain repeatable.
+    messages.push({ role: 'assistant', content: 'second reply' }, { role: 'tool', content: 'late' })
+    const capture = recorder.capture()
+    if (capture.status !== 'captured') throw new Error('expected a capture')
+    expect(lines(capture.artifact)).toEqual([
+      { role: 'user', content: 'first' },
+      { type: 'provider.response', ...response },
+      { role: 'assistant', content: 'first reply' },
+      { role: 'user', content: 'second' },
+      { role: 'assistant', content: 'second reply' },
+      { role: 'tool', content: 'late' },
+    ])
+    expect(recorder.capture()).toEqual(capture)
+    expect(recorder.reply({ content: 'third reply' })).toEqual([
+      { role: 'tool', content: 'late' },
+      { role: 'assistant', content: 'third reply' },
+    ])
+  })
+
   it('names an agent that never took a turn', () => {
     expect(createRouterTranscript().capture()).toEqual({
       status: 'unavailable',

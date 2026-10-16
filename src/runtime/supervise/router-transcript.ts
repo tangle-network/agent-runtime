@@ -56,11 +56,10 @@ export interface RouterTranscript {
 }
 
 export function createRouterTranscript(): RouterTranscript {
-  const kept: ToolLoopMessageRecord[] = []
+  let turnMessages: ToolLoopMessageRecord[] = []
+  let started = false
   const records: unknown[] = []
   const seen = new WeakSet<object>()
-  // Index in `kept` where the current turn's additions start.
-  let turnStart = 0
   // The loop appends its own copy of the reply after the model returns; that copy is not new.
   let replyEchoPending = false
   // The loop's live array, so a capture also keeps what the loop added after its last turn.
@@ -75,7 +74,8 @@ export function createRouterTranscript(): RouterTranscript {
         replyEchoPending = false
         if (message.role === 'assistant') continue
       }
-      kept.push(message)
+      turnMessages.push(message)
+      started = true
       records.push(message)
     }
   }
@@ -99,16 +99,18 @@ export function createRouterTranscript(): RouterTranscript {
             }
           : {}),
       }
-      kept.push(message)
+      turnMessages.push(message)
+      started = true
       records.push(message)
       replyEchoPending = true
-      const added = kept.slice(turnStart).map(forTurnEvent)
-      turnStart = kept.length
+      const added = turnMessages.map(forTurnEvent)
+      // The evidence archive owns history; turn events need only the next unsent messages.
+      turnMessages = []
       return added
     },
     capture() {
       if (live !== undefined) observe(live)
-      if (kept.length === 0) return harnessTranscriptUnavailable('execution-never-started')
+      if (!started) return harnessTranscriptUnavailable('execution-never-started')
       return harnessTranscriptFromLines(
         ROUTER_TRANSCRIPT_HARNESS,
         'conversation',

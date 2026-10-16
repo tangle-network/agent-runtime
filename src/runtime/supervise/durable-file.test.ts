@@ -1,5 +1,6 @@
 import {
   appendFileSync,
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -64,6 +65,35 @@ describe('durable file helpers', () => {
     expect(readFileSync(filePath, 'utf8')).toBe('{"generation":2}\n')
     expect(statSync(filePath).mode & 0o777).toBe(0o600)
     expect(readdirSync(dirname(filePath))).toEqual(['state.json'])
+  })
+
+  it('preserves existing sharing permissions across an atomic replacement under a stricter umask', () => {
+    if (process.platform === 'win32') return
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-mode-'))
+    const filePath = join(root, 'state.json')
+    const previous = process.umask(0)
+    try {
+      writeFileSync(filePath, 'old', { mode: 0o664 })
+      process.umask(0o077)
+      writeAtomicDurableFile(filePath, 'new', { preserveMode: true })
+      expect(statSync(filePath).mode & 0o777).toBe(0o664)
+      expect(readFileSync(filePath, 'utf8')).toBe('new')
+      const fresh = join(root, 'fresh.json')
+      writeAtomicDurableFile(fresh, 'fresh', { preserveMode: true })
+      expect(statSync(fresh).mode & 0o777).toBe(0o600)
+    } finally {
+      process.umask(previous)
+    }
+  })
+
+  it('does not restore special permission bits when preserving ordinary access', () => {
+    if (process.platform === 'win32') return
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-mode-'))
+    const filePath = join(root, 'state.json')
+    writeFileSync(filePath, 'old')
+    chmodSync(filePath, 0o6764)
+    writeAtomicDurableFile(filePath, 'new', { preserveMode: true })
+    expect(statSync(filePath).mode & 0o7777).toBe(0o764)
   })
 
   it('writes worker cancellation acknowledgements through the durable replacement path', () => {
