@@ -1,5 +1,4 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 
 // Source admission only. The publisher still verifies and promotes the exact
 // archive; advancing an integration branch does not invalidate this candidate.
@@ -27,16 +26,16 @@ try {
       mainRef !== 'refs/remotes/origin/main') {
     throw new Error('Expected a full candidate SHA and the canonical main ref')
   }
-  const { version } = JSON.parse(readFileSync('package.json', 'utf8'))
+  if (git('rev-parse', 'HEAD') !== candidate) {
+    throw new Error('Checkout does not match the frozen release candidate')
+  }
+  const { version } = JSON.parse(git('show', `${candidate}:package.json`))
   if (typeof version !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
     throw new Error('Release-line admission requires a stable package version')
   }
   const releaseLine = `release/${version.split('.').slice(0, 2).join('.')}.x`
   if (lineRef !== `refs/remotes/origin/${releaseLine}`) {
     throw new Error('Backport line does not match the candidate package version')
-  }
-  if (git('rev-parse', 'HEAD') !== candidate) {
-    throw new Error('Checkout does not match the frozen release candidate')
   }
   // A depth-limited negative ancestry result is inconclusive. Complete the
   // graph before deciding; a failed fetch is never permission to use stale refs.
