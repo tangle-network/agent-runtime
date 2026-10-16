@@ -19,8 +19,8 @@ import type {
   AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
+import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import {
   readWorkerSteerAcknowledgement,
@@ -28,10 +28,10 @@ import {
 } from '../../src/runtime/supervise/run-layout'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
+import { completeCapture, fileWorkspaceArtifacts } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
-import { completeCapture, fileWorkspaceArtifacts } from '../helpers/complete-workspace-capture'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
@@ -231,13 +231,20 @@ async function superviseRoot(fixture: Fixture) {
       firstCaptureExecution ??= captureContext.executionId
       if (captureContext.executionId === firstCaptureExecution) {
         captureCalls += 1
-        if (fixture.captureFailure === 'throw' ||
-            (fixture.captureFailure === 'recover' && captureCalls === 1))
+        if (
+          fixture.captureFailure === 'throw' ||
+          (fixture.captureFailure === 'recover' && captureCalls === 1)
+        )
           throw new Error('process streams incomplete: process_io_missing; process_source_unavailable')
         if (fixture.captureFailure === 'partial') {
           const captured = await completeCapture(captureContext, artifacts)
-          return { ...captured, provenance: { ...captured.provenance,
-            workspace: { ...captured.provenance.workspace!, complete: false } } }
+          return {
+            ...captured,
+            provenance: {
+              ...captured.provenance,
+              workspace: { ...captured.provenance.workspace!, complete: false },
+            },
+          }
         }
       }
       return completeCapture(captureContext, artifacts)
@@ -325,8 +332,11 @@ async function superviseRoot(fixture: Fixture) {
     destroyed,
     firstCaptureExecution,
     base,
-    evidence: await Promise.all(events.flatMap((event) =>
-      event.kind === 'execution-evidence' ? [context.blobs.get(event.outRef)] : [])),
+    evidence: await Promise.all(
+      events.flatMap((event) =>
+        event.kind === 'execution-evidence' ? [context.blobs.get(event.outRef)] : [],
+      ),
+    ),
   }
 }
 
@@ -348,36 +358,48 @@ describe('supervised root with a pending retained turn', () => {
       expect(run.attempts[0]).toMatchObject({ classification: 'unavailable' })
       expect(run.attempts[0]?.retryInMs).toBeGreaterThan(0)
       expect(run.attempts.some((attempt) => attempt.error?.includes('capture pending'))).toBe(false)
-      const first = run.events.find((event) =>
-        event.kind === 'execution-admitted' && event.admission.phase === 'dispatched')
+      const first = run.events.find(
+        (event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
+      )
       if (first?.kind !== 'execution-admitted' || first.admission.phase !== 'dispatched')
         throw new Error('missing first dispatch')
       if (captureFailure === 'recover') {
         expect(run.environments).toHaveLength(1)
-        expect(run.evidence).toEqual(expect.arrayContaining([expect.objectContaining({
-          workspaceCapture: expect.objectContaining({
-            executionId: run.firstCaptureExecution,
-            controlRef: first.admission.controlRef,
-            coverageComplete: true,
-          }),
-        })]))
+        expect(run.evidence).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              workspaceCapture: expect.objectContaining({
+                executionId: run.firstCaptureExecution,
+                controlRef: first.admission.controlRef,
+                coverageComplete: true,
+              }),
+            }),
+          ]),
+        )
       } else {
         expect(run.environments).toHaveLength(2)
         expect(run.destroyed).not.toContain(run.environments[0])
         expect(await run.base.get!(run.environments[0]!)).not.toBeNull()
-        expect(run.evidence).toEqual(expect.arrayContaining([expect.objectContaining({
-          workspaceCaptureFailure: expect.stringContaining('retained workspace capture pending'),
-          executionId: expect.any(String),
-          environmentId: run.environments[0],
-          controlRef: first.admission.controlRef,
-        })]))
+        expect(run.evidence).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              workspaceCaptureFailure: expect.stringContaining('retained workspace capture pending'),
+              executionId: run.firstCaptureExecution,
+              environmentId: run.environments[0],
+              controlRef: first.admission.controlRef,
+              node: expect.objectContaining({ nodeId: 'pending-root' }),
+              profileDigest: expect.any(String),
+            }),
+          ]),
+        )
       }
     },
   )
 
   it('keeps an accepted turn with incomplete capture open without sealing a winner', async () => {
-    await expect(superviseRoot({ captureFailure: 'partial', submitOn: Infinity }))
-      .rejects.toMatchObject({ name: 'RetainedWorkspaceCapturePendingError' })
+    await expect(
+      superviseRoot({ captureFailure: 'partial', submitOn: Number.POSITIVE_INFINITY }),
+    ).rejects.toMatchObject({ name: 'RetainedWorkspaceCapturePendingError' })
     const runDir = join(directories.at(-1)!, 'run')
     await expect(readFile(join(runDir, 'result.json'))).rejects.toMatchObject({ code: 'ENOENT' })
     const events = (await createFileRunContext(runDir).journal.loadTree('pending-root')) ?? []
