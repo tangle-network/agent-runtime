@@ -9,7 +9,7 @@
  * barren failures end a run: a capacity refusal before dispatch, which the driver must wait out,
  * and an admitted execution the provider can no longer resolve, which Runtime must abandon.
  */
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentRunCancellationAcknowledgement } from '@tangle-network/agent-interface'
@@ -20,6 +20,7 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
+import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import {
   readWorkerSteerAcknowledgement,
@@ -30,6 +31,7 @@ import type { SpawnEvent } from '../../src/runtime/supervise/types'
 import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
+import { completeCapture, fileWorkspaceArtifacts } from '../helpers/complete-workspace-capture'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
@@ -65,6 +67,8 @@ function dispatchNotAdmitted(): Error {
 }
 
 interface Fixture {
+  readonly firstTurnFailure?: { error: string; statusCode?: number }
+  readonly captureFailure?: 'throw' | 'partial' | 'recover'
   /** Called before each dispatch reaches the provider; throw to refuse it. */
   readonly beforeDispatch?: (call: number) => void
   /** Executions whose result the provider can never return. */
@@ -92,6 +96,8 @@ async function superviseRoot(fixture: Fixture) {
   const lost = new Set<string>()
   const neverReturns = new Set<string>()
   const stopped: string[] = []
+  const destroyed: string[] = []
+  const environments: string[] = []
   let rejectMethod!: (error: Error) => void
   const methodResult = new Promise<unknown>((_resolve, reject) => {
     rejectMethod = reject
@@ -155,6 +161,9 @@ async function superviseRoot(fixture: Fixture) {
           if (executionId !== undefined && lost.has(executionId))
             throw Object.assign(new Error('retained run not found'), { status: 404 })
           const result = await session.result()
+          if (fixture.firstTurnFailure && executionId === dispatched[0]?.executionId) {
+            return { ...result, success: false, ...fixture.firstTurnFailure }
+          }
           if (fixture.queuedWakesOnFirstResult && !firstResultWakesQueued) {
             firstResultWakesQueued = true
             const steer = {
@@ -188,6 +197,10 @@ async function superviseRoot(fixture: Fixture) {
         },
       }
     },
+    destroy: async () => {
+      destroyed.push(environment.id)
+      await environment.destroy?.()
+    },
   })
   const base = durableRetainedProvider(stateFile)
   const provider: AgentEnvironmentProvider = {
@@ -198,11 +211,36 @@ async function superviseRoot(fixture: Fixture) {
     }),
     create: async (input) => {
       token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
-      return wrap(await base.create(input))
+      const environment = await base.create(input)
+      environments.push(environment.id)
+      return wrap(environment)
     },
     get: async (id) => {
       const environment = await base.get!(id)
       return environment ? wrap(environment) : null
+    },
+  }
+  const artifacts = fileWorkspaceArtifacts(join(directory, 'artifacts'))
+  let firstCaptureExecution: string | undefined
+  let captureCalls = 0
+  const retention: ProviderWorkspaceRetentionPort = {
+    timeoutMs: 5_000,
+    requireCompleteProvenance: true,
+    artifacts,
+    async capture(captureContext) {
+      firstCaptureExecution ??= captureContext.executionId
+      if (captureContext.executionId === firstCaptureExecution) {
+        captureCalls += 1
+        if (fixture.captureFailure === 'throw' ||
+            (fixture.captureFailure === 'recover' && captureCalls === 1))
+          throw new Error('process streams incomplete: process_io_missing; process_source_unavailable')
+        if (fixture.captureFailure === 'partial') {
+          const captured = await completeCapture(captureContext, artifacts)
+          return { ...captured, provenance: { ...captured.provenance,
+            workspace: { ...captured.provenance.workspace!, complete: false } } }
+        }
+      }
+      return completeCapture(captureContext, artifacts)
     },
   }
   const result = await supervise(
@@ -223,6 +261,7 @@ async function superviseRoot(fixture: Fixture) {
       driverBackend: {
         backend: 'provider',
         provider,
+        ...(fixture.captureFailure === undefined ? {} : { workspaceRetention: retention }),
         ...(fixture.resultNeverOn === undefined ? {} : { retainedResultWaitMs: 20 }),
       },
       budget: { maxIterations: 100, maxTokens: 1000, deadlineMs: 60_000 },
@@ -282,6 +321,12 @@ async function superviseRoot(fixture: Fixture) {
     methodReceipt,
     steerRecorded,
     steerReplayed,
+    environments,
+    destroyed,
+    firstCaptureExecution,
+    base,
+    evidence: await Promise.all(events.flatMap((event) =>
+      event.kind === 'execution-evidence' ? [context.blobs.get(event.outRef)] : [])),
   }
 }
 
@@ -290,6 +335,57 @@ function count(events: readonly SpawnEvent[], kind: SpawnEvent['kind']): number 
 }
 
 describe('supervised root with a pending retained turn', () => {
+  it.each(['throw', 'partial', 'recover'] as const)(
+    'continues an unavailable turn with %s capture and delivers the next output',
+    async (captureFailure) => {
+      const run = await superviseRoot({
+        firstTurnFailure: { error: 'HTTP 429 rate_limit_error', statusCode: 429 },
+        captureFailure,
+        submitOn: 2,
+      })
+      expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
+      expect(run.dispatched).toHaveLength(2)
+      expect(run.attempts[0]).toMatchObject({ classification: 'unavailable' })
+      expect(run.attempts[0]?.retryInMs).toBeGreaterThan(0)
+      expect(run.attempts.some((attempt) => attempt.error?.includes('capture pending'))).toBe(false)
+      const first = run.events.find((event) =>
+        event.kind === 'execution-admitted' && event.admission.phase === 'dispatched')
+      if (first?.kind !== 'execution-admitted' || first.admission.phase !== 'dispatched')
+        throw new Error('missing first dispatch')
+      if (captureFailure === 'recover') {
+        expect(run.environments).toHaveLength(1)
+        expect(run.evidence).toEqual(expect.arrayContaining([expect.objectContaining({
+          workspaceCapture: expect.objectContaining({
+            executionId: run.firstCaptureExecution,
+            controlRef: first.admission.controlRef,
+            coverageComplete: true,
+          }),
+        })]))
+      } else {
+        expect(run.environments).toHaveLength(2)
+        expect(run.destroyed).not.toContain(run.environments[0])
+        expect(await run.base.get!(run.environments[0]!)).not.toBeNull()
+        expect(run.evidence).toEqual(expect.arrayContaining([expect.objectContaining({
+          workspaceCaptureFailure: expect.stringContaining('retained workspace capture pending'),
+          executionId: expect.any(String),
+          environmentId: run.environments[0],
+          controlRef: first.admission.controlRef,
+        })]))
+      }
+    },
+  )
+
+  it('keeps an accepted turn with incomplete capture open without sealing a winner', async () => {
+    await expect(superviseRoot({ captureFailure: 'partial', submitOn: Infinity }))
+      .rejects.toMatchObject({ name: 'RetainedWorkspaceCapturePendingError' })
+    const runDir = join(directories.at(-1)!, 'run')
+    await expect(readFile(join(runDir, 'result.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+    const events = (await createFileRunContext(runDir).journal.loadTree('pending-root')) ?? []
+    expect(count(events, 'execution-input')).toBe(1)
+    expect(count(events, 'execution-result')).toBe(1)
+    expect(events.some((event) => event.kind === 'environment-teardown' && event.destroyed)).toBe(false)
+  })
+
   it('settles a root from its exact result when its provider stream has no terminal event', async () => {
     // The durable provider emits only nonterminal frames. The root can still commit its result and
     // enter the existing continuation path after the exact retained result is read.
