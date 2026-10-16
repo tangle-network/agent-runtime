@@ -285,7 +285,7 @@ jobs:
       # Neither publisher checks out source, installs dependencies or builds.
       - name: Publish exact Runtime archive
         env:
-        PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-runtime-package
+          PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-runtime-package
         run: &publish-exact |
           set -euo pipefail
           npm_version=$(npm --version)
@@ -432,5 +432,5 @@ jobs:
       - *npm-auth
       - name: Publish exact agent-bench archive
         env:
-        PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-bench-package
+          PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-bench-package
         run: *publish-exact
