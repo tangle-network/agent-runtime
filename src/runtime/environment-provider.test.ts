@@ -3434,4 +3434,3 @@ function fakeCapabilities() {
     confidential: true,
   }
 }
-

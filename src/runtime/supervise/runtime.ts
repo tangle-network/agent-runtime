@@ -2537,6 +2537,8 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
           const sandboxClient = providerAsSandboxClient(provider, {
             defaults: {
               ...(providerSeam.defaults ?? {}),
+              idempotencyKey:
+                providerSeam.defaults?.idempotencyKey ?? seamed.node?.attemptId ?? randomUUID(),
               signal: seamed.signal,
             },
             requireTerminalEvent: providerSeam.requireTerminalEvent,
