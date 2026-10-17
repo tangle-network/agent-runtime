@@ -1,7 +1,6 @@
 import { posix } from 'node:path'
 
 import type {
-  AgentCandidateConfigValue,
   AgentCandidateLaunch,
   AgentCandidateProfile,
   AgentCandidateProfileActivation,
@@ -42,6 +41,7 @@ import {
   omitTopLevelDigest,
   sha256Bytes,
 } from './digest'
+import { requirePublicCandidateConfigValue } from './public-config'
 import { projectCandidatePromptIntents } from './system-prompt'
 
 export function candidateMaterializerHarness(harness: HarnessType): HarnessId {
@@ -353,7 +353,14 @@ export function agentCandidateProfileAsAgentProfile(
         event,
         hooks.map(({ executable, args, env, ...hook }) => ({
           ...hook,
-          command: [executable, ...(args ?? []).map(publicValue)].map(shellQuote).join(' '),
+          command: [
+            executable,
+            ...(args ?? []).map((value, index) =>
+              requirePublicCandidateConfigValue(value, `hooks.${event}.args[${index}]`),
+            ),
+          ]
+            .map(shellQuote)
+            .join(' '),
           // Hook env stays in config-value form: the 0.40 profile hook contract
           // types env as Record<string, AgentProfileConfigValue>.
           ...(env ? { env: cloneRecord(env) } : {}),
@@ -603,10 +610,6 @@ function mapCandidatePublicValues(
       candidatePublicValue(value, `${pathPrefix}.${name}`),
     ]),
   )
-}
-
-function publicValue(value: AgentCandidateConfigValue): string {
-  return value.value
 }
 
 function cloneRecord<T>(values: Record<string, T>): Record<string, T> {
