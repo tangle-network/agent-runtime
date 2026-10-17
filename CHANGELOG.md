@@ -1,3 +1,9 @@
+## 0.325.2
+
+Complete the candidate secret-reference boundary release with source formatting accepted by the publisher lint gate.
+
+Refuse profile secret fields that the current Sandbox SDK cannot carry before direct Sandbox execution as well as candidate conversion, and limit the peer range to the qualified Sandbox artifact.
+
 ## 0.325.1
 
 Accept the current Agent Interface, Eval, and Sandbox cohort and verify the Tangle Provider through the packed consumer.
