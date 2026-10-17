@@ -17,6 +17,7 @@
  */
 
 import type { HarnessType, StreamEvent, TokenUsage } from '@tangle-network/agent-interface'
+import type { AgentEnvironmentEvent } from '@tangle-network/agent-interface/environment-provider'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import type { RuntimeStreamEvent } from '../types'
 import { decodeHarnessUsage, type HarnessUsage } from './harness-usage'
@@ -225,6 +226,27 @@ const terminalTypes: ReadonlySet<string> = new Set<string>(sandboxTerminalEventT
 /** True for an event type that ends a sandbox turn. */
 export function isSandboxTerminalEvent(type: string): type is SandboxTerminalEventType {
   return terminalTypes.has(type)
+}
+
+/** True for a provider environment event that ends its execution's turn, in any form a provider
+ *  transport reports it: a sandbox terminal type, an error, a namespaced completion, or a
+ *  terminal status. */
+export function isTerminalEnvironmentEvent(event: AgentEnvironmentEvent): boolean {
+  if (isTerminalEventShape(event.type, event.data)) return true
+  const normalized = event.normalized
+  return (
+    normalized?.type === 'status' &&
+    (normalized.status === 'completed' || normalized.status === 'failed')
+  )
+}
+
+function isTerminalEventShape(type: string, data: Record<string, unknown>): boolean {
+  if (type === 'error' || isSandboxTerminalEvent(type)) return true
+  // A namespaced completion this provider transport may emit under any prefix. Broader than the
+  // named sandbox list on purpose: an unknown `<x>.completed` still ends the stream.
+  if (type.endsWith('.completed') || type.endsWith('.failed')) return true
+  if (type !== 'status') return false
+  return data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled'
 }
 
 /**

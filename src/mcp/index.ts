@@ -170,6 +170,7 @@ export {
   type AnalystFindingEvent,
   type AnalystKind,
   type AnalystRegistry,
+  type AnalystRunContext,
   type AnalystToolGroupName,
   type AuthoredAnalystDefinition,
   type AuthoredAnalystLimits,

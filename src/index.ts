@@ -384,6 +384,14 @@ export {
   runtimeStreamServerSentEvent,
   type ServerSentEventOptions,
 } from './sse'
+// ── Terminal failure causes ──────────────────────────────────────────
+export {
+  type RuntimeFailureCause,
+  type RuntimeFailureCode,
+  type RuntimeFailureOwner,
+  runtimeFailureCause,
+  settlementFailureCause,
+} from './runtime/failure-cause'
 // ── Core types ───────────────────────────────────────────────────────
 export type {
   AgentAdapter,

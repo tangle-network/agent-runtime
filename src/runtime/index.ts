@@ -50,6 +50,7 @@ export type {
   AnalystKind,
   AnalystLensOutput,
   AnalystRegistry,
+  AnalystRunContext,
   AnalyzeOnSettleRoute,
   AuthoredAnalystDefinition,
   AuthoredAnalystLimits,
@@ -467,6 +468,13 @@ export type {
   RetainedInteractiveStartMaterial,
   StartRetainedInteractiveRunOptions,
 } from './retained-interactive-types'
+export {
+  type RuntimeFailureCause,
+  type RuntimeFailureCode,
+  type RuntimeFailureOwner,
+  runtimeFailureCause,
+  settlementFailureCause,
+} from './failure-cause'
 export {
   reconnectRetainedRun,
   recoverRetainedRun,

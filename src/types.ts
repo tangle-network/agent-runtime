@@ -23,6 +23,7 @@ import type {
   UserQuestion,
 } from '@tangle-network/agent-eval'
 import type { InputPart, RequestedInteractions, StreamEvent } from '@tangle-network/agent-interface'
+import type { RuntimeFailureCause } from './runtime/failure-cause'
 
 /** @stable */
 export interface AgentTaskSpec {
@@ -441,6 +442,8 @@ export type RuntimeStreamEvent =
        *    reason that isn't a recognized transport failure.
        */
       error?: BackendErrorDetail
+      /** The same failure as values: branch on `code` and `owner`, never on `message`. */
+      failure?: RuntimeFailureCause
       timestamp: string
     }
   | {
@@ -474,6 +477,12 @@ export type RuntimeStreamEvent =
        * `error: null` with empty `finalText`.
        */
       error?: BackendErrorDetail
+      /**
+       * The terminal failure as values — a stable `code`, the `owner` who must act, and redacted
+       * `cause` text. Set beside `error` when the run failed or was aborted; consumers branch on
+       * it instead of matching `reason` or `error.message` text.
+       */
+      failure?: RuntimeFailureCause
       timestamp: string
     }
 

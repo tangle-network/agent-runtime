@@ -71,6 +71,7 @@ import type {
   RuntimeSession,
   RuntimeStreamEvent,
 } from '../types'
+import { type RuntimeFailureCause, runtimeFailureCause } from './failure-cause'
 import { awaitAbortable } from './retained-run-binding'
 import {
   canonicalStreamEventFromSandboxEvent,
@@ -744,6 +745,7 @@ async function* streamAgentTurnInternal(
       (err instanceof BackendTransportError
         ? { kind: 'transport', message, status: err.status, body: err.body }
         : { kind: 'backend', message })
+    const failure = runtimeFailureCause(err, opts.signal)
     yield {
       type: 'backend_error',
       task,
@@ -752,13 +754,14 @@ async function* streamAgentTurnInternal(
       message,
       recoverable: !callerAborted,
       error,
+      failure,
       timestamp: nowIso(),
     }
     yield buildFinalEvent(
       task,
       session,
       acc,
-      { status, reason: message, error },
+      { status, reason: message, error, failure },
       turnProvenance(
         startedAt,
         opts.timeoutMs,
@@ -1372,7 +1375,12 @@ function buildFinalEvent(
   task: AgentTaskSpec,
   session: RuntimeSession | undefined,
   acc: TurnAccumulator,
-  outcome: { status: AgentTaskStatus; reason: string; error?: BackendErrorDetail },
+  outcome: {
+    status: AgentTaskStatus
+    reason: string
+    error?: BackendErrorDetail
+    failure?: RuntimeFailureCause
+  },
   provenance: Record<string, unknown>,
 ): RuntimeStreamEvent {
   const finalText = acc.terminalText ?? acc.deltaText
@@ -1418,6 +1426,7 @@ function buildFinalEvent(
       ...provenance,
     },
     ...(outcome.error ? { error: outcome.error } : {}),
+    ...(outcome.failure ? { failure: outcome.failure } : {}),
     timestamp: nowIso(),
   }
 }
