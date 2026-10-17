@@ -1163,13 +1163,8 @@ applies the profile prompt, name, placement, and metadata, but not model selecti
 
 > `const` **sandboxActProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
 
-Materialization contract for `createSandboxAct`.
-
-`createSandboxAct` hands the whole `AgentProfile` to the sandbox as `backend.profile`, so every
-profile leaf crosses the boundary. `buildBackendOptions` resolves the runner only from
-`profile.harness`; an explicit `sandboxOverrides.backend.type` may confirm that choice but cannot
-replace it. A candidate declaring a harness the sandbox cannot run throws rather than running
-elsewhere and reporting success.
+`createSandboxAct` sends the profile as `backend.profile`; its contract must match Sandbox.
+`buildBackendOptions` also refuses unsupported secret fields before creating a box.
 
 ***
 
