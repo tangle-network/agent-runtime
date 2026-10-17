@@ -228,7 +228,7 @@ Import from `@tangle-network/agent-runtime/agent` — 49 exports.
 | `promptModelProfileMaterialization` | const | Materialization contract for an intentionally limited prompt-and-model execution path. |
 | `promptOnlyProfileMaterialization` | const | Materialization contract for a run path that only injects prompt text. |
 | `promptResourceProfileMaterialization` | const | Materialization contract for a run path that injects prompt text plus inline resources. |
-| `sandboxActProfileMaterialization` | const | Materialization contract for `createSandboxAct`. |
+| `sandboxActProfileMaterialization` | const | `createSandboxAct` sends the profile as `backend.profile`; its contract must match Sandbox. |
 | `worktreeCliProfileMaterialization` | const | Materialization contract for a local coding CLI in an isolated git worktree. |
 | `AgentManifestError` | class | Thrown when `defineAgent` finds a required surface missing on disk. |
 | `AgentManifest` | interface | The full agent manifest. Each agent ships ONE of these. |

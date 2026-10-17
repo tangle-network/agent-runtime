@@ -193,18 +193,19 @@ export const promptControlProfileMaterialization = defineProfileMaterializationC
   ],
 })
 
+/** Sandbox carries every canonical profile leaf except proxySecrets until its Interface does. */
+export const sandboxProfileMaterialization = defineProfileMaterializationContract({
+  name: 'sandbox-profile-execution',
+  axes: AGENT_PROFILE_MATERIALIZATION_AXES.filter((axis) => axis !== 'proxySecrets'),
+})
+
 /**
- * Materialization contract for `createSandboxAct`.
- *
- * `createSandboxAct` hands the whole `AgentProfile` to the sandbox as `backend.profile`, so every
- * profile leaf crosses the boundary. `buildBackendOptions` resolves the runner only from
- * `profile.harness`; an explicit `sandboxOverrides.backend.type` may confirm that choice but cannot
- * replace it. A candidate declaring a harness the sandbox cannot run throws rather than running
- * elsewhere and reporting success.
+ * `createSandboxAct` sends the profile as `backend.profile`; its contract must match Sandbox.
+ * `buildBackendOptions` also refuses unsupported secret fields before creating a box.
  */
 export const sandboxActProfileMaterialization = defineProfileMaterializationContract({
   name: 'createSandboxAct',
-  axes: fullProfileMaterialization.axes,
+  axes: sandboxProfileMaterialization.axes,
 })
 
 /** Materialization contract for a run path that only injects prompt text. */
