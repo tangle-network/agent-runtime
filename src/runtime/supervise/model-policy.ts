@@ -64,7 +64,11 @@ export function profileBridgeWireModel(
     : undefined
   if (!harness) return providerModel
   if (!providerModel) return harness
-  return providerModel.startsWith(`${harness}/`) ? providerModel : `${harness}/${providerModel}`
+  // Always add the harness segment: a provider may share the harness's name. opencode's own keyless
+  // provider is `opencode`, so `opencode/glm-5.3-flash-free` is a provider/model pair; reading it as
+  // already harness-prefixed sent `opencode/glm-5.3-flash-free`, cli-bridge removed the harness, and
+  // opencode received the bare model and could not resolve it ("Model not found").
+  return `${harness}/${providerModel}`
 }
 
 /**

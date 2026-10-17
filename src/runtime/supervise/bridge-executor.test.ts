@@ -1488,6 +1488,40 @@ describe('bridgeExecutor upstream-error propagation', () => {
     expect(requestBody?.messages).toEqual([{ role: 'user', content: 'design the experiment' }])
   })
 
+  it('keeps a provider named like its harness as its own wire segment', async () => {
+    const models: unknown[] = []
+    const stub = await startBridgeStub('data: [DONE]\n\n', {
+      onRequest: (body) => {
+        models.push(body.model)
+      },
+    })
+    server = stub.server
+    for (const declared of ['glm-5.3-flash-free', 'opencode/glm-5.3-flash-free']) {
+      const executor = bridgeExecutor(
+        {
+          profile: {
+            name: 'keyless-seat',
+            harness: 'opencode',
+            model: { provider: 'opencode', default: declared },
+          },
+          harness: null,
+        },
+        {
+          signal: new AbortController().signal,
+          seams: { bridge: { bridgeUrl: stub.url, bridgeBearer: 'test-bearer' } },
+        },
+      )
+      await drain(
+        executor.execute('reply ok', new AbortController().signal) as AsyncIterable<UsageEvent>,
+      )
+    }
+    // cli-bridge removes the harness segment and hands opencode `opencode/glm-5.3-flash-free`.
+    expect(models).toEqual([
+      'opencode/opencode/glm-5.3-flash-free',
+      'opencode/opencode/glm-5.3-flash-free',
+    ])
+  })
+
   it('prices a turn the bridge reported no price for, and keeps the dollars unknown', async () => {
     const stub = await startBridgeStub(
       `data: ${JSON.stringify({ usage: { prompt_tokens: 3, completion_tokens: 2 } })}\n\ndata: [DONE]\n\n`,
