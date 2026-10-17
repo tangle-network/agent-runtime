@@ -583,7 +583,12 @@ export async function prepareScopeRetainedOwnerSeatSwitch(
     )
   }
   if (mode === 'replace-environment') {
-    await retireSeatEnvironment(scope, state)
+    // A seat may move from a verified checkpoint while the old source remains evidence.
+    // Only a complete capture permits retirement; the continuation exception above does not.
+    const incompleteRetainedSources = await ownerWorkspaceRetentionFailures(owned, state.args, true)
+    if (!incompleteRetainedSources.has(checkpoint.environmentId)) {
+      await retireSeatEnvironment(scope, state)
+    }
     state.forceNewSession = true
   }
   return {
@@ -1780,10 +1785,12 @@ function ownerWorkspaceAttempts(events: readonly SpawnEvent[], nodeId: NodeId): 
 async function ownerWorkspaceRetentionFailures(
   events: readonly SpawnEvent[],
   owner: OwnerRegistration,
+  retainedOnly = false,
 ): Promise<ReadonlySet<string>> {
   const attempts = ownerWorkspaceAttempts(events, owner.nodeId)
   const failures = new Set<string>()
   for (const attempt of attempts) {
+    if (retainedOnly && attempt.workspaceRetention !== true) continue
     if (attempt.environmentIds.size === 0) continue
     // One result receipt cannot prove which source belongs to which environment when a
     // recovered attempt admitted more than one. Preserve every source until a later run can
@@ -1809,6 +1816,7 @@ async function ownerAttemptHasCapture(
   environmentId: string,
   blobs: ResultBlobStore,
   owner?: OwnerRegistration,
+  allowPartialProcessCapture = false,
 ): Promise<boolean> {
   const controlRef = attempt.controlByEnvironment.get(environmentId)
   const receipts = [
@@ -1830,6 +1838,7 @@ async function ownerAttemptHasCapture(
         attempt.executionId,
         controlRef,
         owner === undefined ? undefined : ownerCaptureIdentity(attempt, owner),
+        allowPartialProcessCapture,
       )
     ) {
       verified = true
@@ -1877,7 +1886,9 @@ async function reconcileOwnerWorkspaceBeforeReuse(
     if (attempt.workspaceRetention !== true || attempt.result === undefined) continue
     for (const environmentId of attempt.environmentIds) {
       if (!reusing.has(environmentId) || unusable.has(environmentId)) continue
-      if (await ownerAttemptHasCapture(attempt, environmentId, args.blobs, args)) continue
+      // A verified workspace may continue in its retained environment even when Sandbox lost
+      // only raw process I/O. The partial receipt stays journaled and cleanup remains strict.
+      if (await ownerAttemptHasCapture(attempt, environmentId, args.blobs, args, true)) continue
       try {
         if (attempt.environmentIds.size !== 1 || attempt.executionId === undefined) {
           throw new Error('accepted workspace has ambiguous admission identity')
@@ -1962,6 +1973,7 @@ async function reconcileOwnerWorkspaceBeforeReuse(
             attempt.executionId,
             controlRef,
             identity,
+            true,
           )
         )
           throw new Error(captured.incompleteReason ?? 'accepted workspace capture is incomplete')
@@ -2005,6 +2017,7 @@ function hasDurableWorkspaceCapture(
   executionId: string | undefined,
   controlRef: AgentExactRunControlRef | undefined,
   identity?: ReturnType<typeof ownerCaptureIdentity>,
+  allowPartialProcessCapture = false,
 ): boolean {
   const parsed = agentCandidateWorkspaceSnapshotEvidenceSchema.safeParse(snapshot)
   if (
@@ -2037,7 +2050,8 @@ function hasDurableWorkspaceCapture(
     !sameControlCoordinates(capturedControl.data, controlRef) ||
     receipt.environmentId !== environmentId ||
     receipt.executionId !== executionId ||
-    receipt.coverageComplete !== true
+    (receipt.coverageComplete !== true &&
+      !(allowPartialProcessCapture && hasOnlyRawProcessCaptureGap(receipt)))
   )
     return false
   const linked = agentCandidateWorkspaceSnapshotEvidenceSchema.safeParse(receipt.snapshot)
@@ -2047,6 +2061,52 @@ function hasDurableWorkspaceCapture(
     JSON.stringify(linked.data.manifest) === JSON.stringify(parsed.data.manifest) &&
     JSON.stringify(linked.data.archive) === JSON.stringify(parsed.data.archive)
   )
+}
+
+/**
+ * A process I/O gap does not invalidate a verified workspace archive or the live environment
+ * that owns it. This narrow exception is for continuation only: release still requires complete
+ * capture. The reason is assembled by captureProviderWorkspaceSnapshot after identity, inventory,
+ * and archive checks, so any other gap keeps the accepted turn pending.
+ */
+function hasOnlyRawProcessCaptureGap(receipt: Record<string, unknown>): boolean {
+  const reason = receipt.incompleteReason
+  const prefix = 'provider workspace retention coverage incomplete: '
+  if (typeof reason !== 'string' || !reason.startsWith(prefix)) return false
+  const provenance = receipt.provenance
+  if (provenance === null || typeof provenance !== 'object') return false
+  const reported = provenance as Record<string, unknown>
+  const workspace = reported.workspace
+  if (
+    reported.status !== 'reported' ||
+    workspace === null ||
+    typeof workspace !== 'object' ||
+    (workspace as Record<string, unknown>).complete !== true
+  )
+    return false
+  const sessions = reported.sessions
+  if (
+    !Array.isArray(sessions) ||
+    !sessions.some(
+      (session) =>
+        session !== null &&
+        typeof session === 'object' &&
+        session.processStreams?.complete === false,
+    )
+  )
+    return false
+  const allowed = [
+    /^process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
+    /^Sandbox session [\w-]+ declared partial raw capture$/,
+    /^Sandbox session [\w-]+ attempt [\w-]+\/\d+: process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
+    /^Sandbox session [\w-]+ has no original process source: [\w-]+$/,
+    /^Sandbox session [\w-]+: process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
+    /^Raw native session capture for Sandbox session [\w-]+ is unavailable: process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
+    /^Session [\w-]+ process streams incomplete$/,
+    /^Attempt [\w-]+\/\d+: process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
+  ]
+  const gaps = reason.slice(prefix.length).split('; ')
+  return gaps.length > 0 && gaps.every((gap) => allowed.some((pattern) => pattern.test(gap)))
 }
 
 /** Environments that cannot execute another turn, whether absent or terminal at the provider. */
