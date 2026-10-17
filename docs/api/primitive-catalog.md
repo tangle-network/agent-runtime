@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.324.0` and `@tangle-network/agent-eval@0.214.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.325.0` and `@tangle-network/agent-eval@0.214.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -247,7 +247,7 @@ Import from `@tangle-network/agent-runtime/agent` — 49 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 62 exports.
+Import from `@tangle-network/agent-runtime/durable` — 64 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -264,6 +264,7 @@ Import from `@tangle-network/agent-runtime/durable` — 62 exports.
 | `readRunDirectoryLock` | function | Read the holder a lock file names, or `undefined` when no lock file names one. |
 | `readSettleRecord` | function | Read the settle record a run directory holds, or `undefined` when it holds none. A file that |
 | `runDirectoryHolderIsLive` | function | Whether a run directory is still held by the live process that took its lock. |
+| `superviseGraphPursuit` | function | One-call durable execution of an `AgentGraph`: the graph twin of {@link supervisePursuit}. |
 | `supervisePursuit` | function | One-call durable pursuit execution over the canonical `supervise()` kernel. |
 | `verifyObserverRecords` | function | Verify identity, monotonic sequence, payload shape, and the complete digest chain. |
 | `ROOT_STREAM_FILE` | const | The root stream: one JSONL line per progress event the root's executor observed. |
@@ -297,6 +298,7 @@ Import from `@tangle-network/agent-runtime/durable` — 62 exports.
 | `RunDirectoryLock` | interface | A held lock. `release()` removes the file; it is safe to call more than once. |
 | `RunDirectoryLockHolder` | interface | What the lock file records about its holder. |
 | `SettledPursuitVersion` | interface | A settled version, as the judge and `next` read it. |
+| `SuperviseGraphPursuitOptions` | interface | Options for {@link superviseGraphPursuit}: every `runGraph` option, plus the pursuit identity, |
 | `VersionJudge` | interface | An outside judge. Runtime calls it after a version's settle record exists, never inside the |
 | `NextPursuitVersion` | type | Build the one change the next version applies to `best.profile`. Its `id` must be non-empty. |
 | `PursuitCostProvenance` | type | Where a node's dollar figure came from. `reported` = a provider billed all of it; `estimated` = |
@@ -839,7 +841,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1109 exports.
 | `strategyAuthorContract` | const | The compressed consumable a skill carries: everything an author needs to emit a loop. |
 | `strategyAuthorSystemPrompt` | const | Standing behavior callers put in the strategy-author AgentProfile. |
 | `SUBTREE_RESULT_LIMIT` | const | How many of a manager's direct children its summary lists; the counts always cover all. |
-| `superviseFleetCapabilities` | const | Capabilities a data-only consumer may require before building an opted-in run. |
+| `superviseFleetCapabilities` | const | Capabilities a data-only consumer may require before building an opted-in run. `graphTools`: |
 | `TERMINAL_DECISIONS` | const | Decision values the kernel treats as terminal. Every other value returned by |
 | `TRACE_ROOT_SCHEMA` | const | Schema identifier of a stored {@link TraceRootArtifact}. |
 | `TRACE_SUMMARY_SCHEMA` | const | Schema identifier of the {@link TraceSummary} carried by a trace root's last leaf. |
@@ -1608,7 +1610,7 @@ Import from `@tangle-network/agent-runtime/testing` — 14 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 254 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 256 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1740,6 +1742,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 254 exports.
 | `DriveTurnCapableBox` | interface | The box surface detached turns need. `SandboxInstance` |
 | `EventAcknowledgement` | interface | One acknowledgement record: which delivered events are now processed, and on whose word. |
 | `FleetHandle` | interface | Minimal `SandboxFleet` surface the fleet executor calls. Declared |
+| `GraphSubtasks` | interface | How a run starts an agent graph as ONE subtask of a manager (`run_graph`). `supervise()` |
 | `HubIntegrationClient` | interface | The subset of `PlatformHubClient` this module needs — mocks plug in here. |
 | `JsonRpcMessage` | interface | One JSON-RPC 2.0 request or notification. |
 | `JsonRpcResponse` | interface | One JSON-RPC 2.0 response. |
@@ -1772,6 +1775,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 254 exports.
 | `DriveTurnTick` | type | Structural mirror of the sandbox SDK's `TurnDriveResult` (>= 0.6). |
 | `EscalateQuestion` | type | Where a question leaves this manager when `ask_parent` is called. |
 | `GitRunner` | type | Pluggable git runner (sync) — replaceable in tests. |
+| `GraphSubtaskPreparation` | type | A graph a manager asked `run_graph` to run, validated and composed by the run that owns the |
 | `LocalHarness` | type | Local coding harness available inside the sandbox — a narrowing of the shared `HarnessType` |
 | `QuestionEscalationOutcome` | type | The result of handing a question this manager cannot answer to whatever is above it. |
 | `ResearchSource` | type | Source families a researcher profile may prefer for a task. One owner: the delegation |

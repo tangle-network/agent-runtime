@@ -59,6 +59,12 @@ Shared blob store — `observe_agent` reads settled outputs through it.
 
 Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion seam).
 
+##### graphs?
+
+> `readonly` `optional` **graphs?**: [`GraphSubtasks`](mcp.md#graphsubtasks)
+
+Serve `run_graph` — see `CoordinationToolsOptions.graphs`.
+
 ##### authorizeDownMessage?
 
 > `readonly` `optional` **authorizeDownMessage?**: [`AuthorizeDownMessage`](runtime.md#authorizedownmessage)
@@ -896,6 +902,17 @@ OPT-IN standing guidance from the profile knowledge base
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`profileGuidance`](runtime.md#profileguidance-1)
+
+##### graphRegistry?
+
+> `readonly` `optional` **graphRegistry?**: `string`
+
+The graph registry directory (`graph-registry`) whose stored graphs a manager's `run_graph`
+ may start by `graphDigest`. Omit and `run_graph` takes graphs as data only.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`graphRegistry`](runtime.md#graphregistry-4)
 
 ##### driveHarness?
 
@@ -1948,6 +1965,17 @@ Whether a spawned profile that declares no Runtime coordination tool receives it
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`inheritSpawnRights`](runtime.md#inheritspawnrights)
 
+##### graphRegistry?
+
+> `readonly` `optional` **graphRegistry?**: `string`
+
+The graph registry directory (`graph-registry`) whose stored graphs a manager's `run_graph`
+ may start by `graphDigest`. Omit and `run_graph` takes graphs as data only.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`graphRegistry`](runtime.md#graphregistry-4)
+
 ##### driveHarness?
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](runtime.md#driveharness-2)
@@ -2708,6 +2736,16 @@ Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same 
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`makeWorkerAgent`](runtime.md#makeworkeragent-2)
+
+##### graphs?
+
+> `readonly` `optional` **graphs?**: [`GraphSubtasks`](mcp.md#graphsubtasks)
+
+Serve `run_graph` (both arms) — see `CoordinationToolsOptions.graphs`.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`graphs`](runtime.md#graphs)
 
 ##### authorizeDownMessage?
 

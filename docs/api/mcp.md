@@ -4037,6 +4037,39 @@ readonly [`McpToolDescriptor`](#mcptooldescriptor)[]
 
 ***
 
+### GraphSubtasks
+
+How a run starts an agent graph as ONE subtask of a manager (`run_graph`). `supervise()`
+ supplies it when it owns the worker path: the graph's root node then runs as a nested manager
+ under the graph's node pinning, inside the caller's reservation.
+
+#### Properties
+
+##### prepare
+
+> `readonly` **prepare**: (`input`) => `Promise`\<[`GraphSubtaskPreparation`](#graphsubtaskpreparation)\>
+
+Validate a graph a manager wrote, or load a stored one by digest, and compose the exact root
+ profile the spawn runs. Never throws: a refusal carries its reason.
+
+###### Parameters
+
+###### input
+
+###### graph?
+
+`unknown`
+
+###### graphDigest?
+
+`string`
+
+###### Returns
+
+`Promise`\<[`GraphSubtaskPreparation`](#graphsubtaskpreparation)\>
+
+***
+
 ### CoordinationToolsOptions
 
 #### Properties
@@ -4066,6 +4099,14 @@ Trusted immutable source refs this manager may read using its granted observe_ag
 ##### perWorker
 
 > `readonly` **perWorker**: [`Budget`](runtime.md#budget-18)
+
+##### graphs?
+
+> `readonly` `optional` **graphs?**: [`GraphSubtasks`](#graphsubtasks)
+
+Serve `run_graph`, which starts an agent graph as one subtask under this manager's conserved
+ pool. Present only when the run's worker path pins graph nodes; absent, the verb is not
+ mounted and a profile that grants it is refused at construction.
 
 ##### onStop?
 
@@ -6356,6 +6397,45 @@ after `intervalMs`; `completed` / `failed` settle the record.
 ### AnalystToolGroupName
 
 > **AnalystToolGroupName** = *typeof* [`analystToolGroupNames`](#analysttoolgroupnames)\[`number`\]
+
+***
+
+### GraphSubtaskPreparation
+
+> **GraphSubtaskPreparation** = \{ `ok`: `true`; `profile`: `AgentProfile`; `root`: `string`; `nodes`: `ReadonlyArray`\<`string`\>; \} \| \{ `ok`: `false`; `reason`: `string`; \}
+
+A graph a manager asked `run_graph` to run, validated and composed by the run that owns the
+ worker path, or the reason it was refused.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `ok`: `true`; `profile`: `AgentProfile`; `root`: `string`; `nodes`: `ReadonlyArray`\<`string`\>; \}
+
+###### ok
+
+> `readonly` **ok**: `true`
+
+###### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+The exact profile the spawn runs: the root node's pinned profile with the graph brief.
+
+###### root
+
+> `readonly` **root**: `string`
+
+###### nodes
+
+> `readonly` **nodes**: `ReadonlyArray`\<`string`\>
+
+***
+
+##### Type Literal
+
+\{ `ok`: `false`; `reason`: `string`; \}
 
 ***
 
