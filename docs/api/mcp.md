@@ -3802,6 +3802,12 @@ Conserved spend. Missing means unavailable; unknown accounting remains explicitl
 
 > `readonly` `optional` **reason?**: `string`
 
+##### failure?
+
+> `readonly` `optional` **failure?**: [`RuntimeFailureCause`](index.md#runtimefailurecause)
+
+Why a `down` worker failed, as values: branch on `code` and `owner`, never on `reason`.
+
 ##### budgetViolation?
 
 > `readonly` `optional` **budgetViolation?**: [`BudgetViolation`](runtime.md#budgetviolation-3)
@@ -8645,6 +8651,12 @@ Re-exports [AnalystKind](runtime.md#analystkind)
 ### AnalystRegistry
 
 Re-exports [AnalystRegistry](runtime.md#analystregistry)
+
+***
+
+### AnalystRunContext
+
+Re-exports [AnalystRunContext](runtime.md#analystruncontext)
 
 ***
 

@@ -1,7 +1,0 @@
-type: minor
----
-A registry analyst lens that throws, or whose trace cannot be read, now publishes `{ analystRunFailed }` like a failed agent analyst instead of escaping the settlement drain; later lenses and agent routes on that settlement still run. `AnalystRegistry.run` receives an optional `AnalystRunContext` whose `charge(spend)` meters lens spend into the run's conserved pool as Runtime-owned accounting, and `analystsFromRegistry` charges each eval analyst run's measured usage, failed runs included. Token counts the transport derived are charged as unknown, and under a dollar ceiling a lens with unknown dollar cost keeps its findings and closes dollar admission, as an agent analyst's unknown cost does.
-
-Final and `backend_error` stream events, and coordination `settled` events for down workers, carry `failure: { code, owner, cause, providerCode? }`: a stable code and owner read from the failure's structure, and redacted, bounded cause text. A turn whose own deadline expired reports `deadline-exceeded`, not a cancellation, and a failure the Sandbox reported without throwing is classified from its `errorCode` and `statusCode`. `runtimeFailureCause(error, { signal, deadlineExpired })` and `settlementFailureCause(down)` classify a thrown failure or a down settlement the same way. Existing `reason`, `error` and `message` fields are unchanged.
-
-A retained execution that settles `terminal-event-lost` now names why its event stream stopped short in the settlement reason, instead of leaving that text only inside an AggregateError's members.

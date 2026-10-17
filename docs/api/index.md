@@ -6044,6 +6044,59 @@ the same row on retry).
 
 ***
 
+### RuntimeFailureCause
+
+**`Stable`**
+
+A terminal failure as values, carried on final and settled events beside their existing
+`reason` and `error` fields.
+
+`code` and `owner` are read from the failure's structure — its class, machine code, HTTP status
+and cause chain, the caller's signal and deadline, or the settlement's typed fields — never from
+message text. `cause` is the redacted, bounded cause chain for people; it is not a contract.
+
+#### Properties
+
+##### code
+
+> `readonly` **code**: [`RuntimeFailureCode`](#runtimefailurecode)
+
+##### owner
+
+> `readonly` **owner**: [`RuntimeFailureOwner`](#runtimefailureowner)
+
+##### cause
+
+> `readonly` **cause**: `string`
+
+##### providerCode?
+
+> `readonly` `optional` **providerCode?**: `string`
+
+The upstream or provider machine code the failure carried, when it carried one.
+
+***
+
+### RuntimeFailureContext
+
+What the caller knows about how a failed operation ended.
+
+#### Properties
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+The caller's own signal. Aborted means the caller cancelled.
+
+##### deadlineExpired?
+
+> `readonly` `optional` **deadlineExpired?**: `boolean`
+
+The operation's own deadline expired before the caller cancelled it.
+
+***
+
 ### RuntimeTelemetryOptions
 
 **`Stable`**
@@ -8436,6 +8489,35 @@ environment and must never be required for agent correctness.
 
 ***
 
+### RuntimeFailureOwner
+
+> **RuntimeFailureOwner** = `"provider"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"` \| `"unknown"`
+
+**`Stable`**
+
+Who must act before the same work can succeed.
+
+- `provider`: the execution provider holds the answer — reconcile the admitted execution, or
+  repair the reader or provider that broke its contract.
+- `platform`: infrastructure or an upstream model service failed or is out of capacity.
+- `runtime`: Runtime could not reconstruct work it owns.
+- `work`: the agent's own work failed.
+- `caller`: the request, its credential, its budget, its deadline, or its cancellation decided
+  the outcome.
+- `unknown`: nothing structural attributes the failure.
+
+***
+
+### RuntimeFailureCode
+
+> **RuntimeFailureCode** = `"aborted"` \| `"deadline-exceeded"` \| `"budget-exhausted"` \| `"credential-refused"` \| `"request-rejected"` \| `"upstream-unavailable"` \| `"transport"` \| `"provider-contract"` \| `"terminal-event-lost"` \| `"retained-unobservable"` \| `"nested-recovery"` \| `"platform"` \| `"work-failed"` \| `"unknown"`
+
+**`Stable`**
+
+Stable failure codes. A consumer branches on these, never on `cause` text.
+
+***
+
 ### RuntimeStreamEventSink
 
 > **RuntimeStreamEventSink** = (`event`) => `void`
@@ -8573,7 +8655,7 @@ Agent Interface events that do not belong to Runtime's task vocabulary.
 
 ### RuntimeStreamEvent
 
-> **RuntimeStreamEvent** = [`RuntimeCanonicalStreamEvent`](#runtimecanonicalstreamevent) \| \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; `decision`: [`KnowledgeReadinessDecision`](#knowledgereadinessdecision); `timestamp`: `string`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `timestamp`: `string`; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; `timestamp`: `string`; \} \| \{ `type`: `"session_created"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"session_resumed"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp`: `string`; \} \| \{ `type`: `"text_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"reasoning_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_result"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tools?`: readonly `string`[]; `tokensIn?`: `number`; `tokensOut?`: `number`; `tokensKnown?`: `false`; `tokensUnknownReason?`: `string`; `costUsd?`: `number`; `usdKnown?`: `false`; `estimatedCostUsd?`: `number`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"artifact"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `artifactId`: `string`; `name?`: `string`; `mimeType?`: `string`; `uri?`: `string`; `content?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp?`: `string`; \} \| \{ `type`: `"proposal_created"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `proposalId`: `string`; `title`: `string`; `status?`: `"pending"` \| `"approved"` \| `"rejected"`; `content?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \} \| \{ `type`: `"backend_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
+> **RuntimeStreamEvent** = [`RuntimeCanonicalStreamEvent`](#runtimecanonicalstreamevent) \| \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; `decision`: [`KnowledgeReadinessDecision`](#knowledgereadinessdecision); `timestamp`: `string`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `timestamp`: `string`; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; `timestamp`: `string`; \} \| \{ `type`: `"session_created"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"session_resumed"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp`: `string`; \} \| \{ `type`: `"text_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"reasoning_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_result"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tools?`: readonly `string`[]; `tokensIn?`: `number`; `tokensOut?`: `number`; `tokensKnown?`: `false`; `tokensUnknownReason?`: `string`; `costUsd?`: `number`; `usdKnown?`: `false`; `estimatedCostUsd?`: `number`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"artifact"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `artifactId`: `string`; `name?`: `string`; `mimeType?`: `string`; `uri?`: `string`; `content?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp?`: `string`; \} \| \{ `type`: `"proposal_created"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `proposalId`: `string`; `title`: `string`; `status?`: `"pending"` \| `"approved"` \| `"rejected"`; `content?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `failure?`: [`RuntimeFailureCause`](#runtimefailurecause); `timestamp`: `string`; \} \| \{ `type`: `"backend_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `failure?`: [`RuntimeFailureCause`](#runtimefailurecause); `timestamp`: `string`; \}
 
 **`Stable`**
 
@@ -8797,7 +8879,7 @@ Provider-reported prompt-cache fields; absent fields remain unknown.
 
 ##### Type Literal
 
-\{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
+\{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `failure?`: [`RuntimeFailureCause`](#runtimefailurecause); `timestamp`: `string`; \}
 
 ###### type
 
@@ -8837,6 +8919,12 @@ and upstream outages from operators.
  - `kind: 'backend'` — the backend's `stream()` generator threw for a
    reason that isn't a recognized transport failure.
 
+###### failure?
+
+> `optional` **failure?**: [`RuntimeFailureCause`](#runtimefailurecause)
+
+The same failure as values: branch on `code` and `owner`, never on `message`.
+
 ###### timestamp
 
 > **timestamp**: `string`
@@ -8857,7 +8945,7 @@ and upstream outages from operators.
 
 ##### Type Literal
 
-\{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
+\{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `failure?`: [`RuntimeFailureCause`](#runtimefailurecause); `timestamp`: `string`; \}
 
 ###### type
 
@@ -8897,6 +8985,15 @@ loud, structured failure when the backend never produced output. Only
 set when `status !== 'completed'`. Consumers building a `RunRecord`
 MUST map this to `RunRecord.error` rather than recording silent
 `error: null` with empty `finalText`.
+
+###### failure?
+
+> `optional` **failure?**: [`RuntimeFailureCause`](#runtimefailurecause)
+
+The terminal failure as values — a stable `code`, the `owner` who must act, and redacted
+`cause` text. `runAgentTaskStream` and `streamAgentTurn` set it on every failed or aborted
+final, including a failure the Sandbox reported without throwing; consumers branch on it
+instead of matching `reason` or `error.message` text.
 
 ###### timestamp
 
@@ -10981,6 +11078,66 @@ lifetime; consumers should not share it across requests.
 #### Returns
 
 [`RuntimeRunHandle`](#runtimerunhandle)
+
+***
+
+### runtimeFailureCause()
+
+> **runtimeFailureCause**(`error`, `context?`): [`RuntimeFailureCause`](#runtimefailurecause)
+
+Classify a thrown failure. Pass the caller's signal so a cancellation the caller asked for is
+attributed to the caller even when the provider surfaced it as an ordinary error, and say when
+the operation's own deadline expired so a blown deadline is never reported as a cancellation.
+
+#### Parameters
+
+##### error
+
+`unknown`
+
+##### context?
+
+[`RuntimeFailureContext`](#runtimefailurecontext) = `{}`
+
+#### Returns
+
+[`RuntimeFailureCause`](#runtimefailurecause)
+
+***
+
+### settlementFailureCause()
+
+> **settlementFailureCause**(`down`): [`RuntimeFailureCause`](#runtimefailurecause)
+
+Classify a down settlement from the typed facts Runtime recorded while the cause was still a
+value: the retained cause, the failure classified where the executor threw, then `infra: false`,
+the throw path's statement that the work itself failed. `infra: true` is not an owner: Runtime
+also sets it for cancellations, budget reconcile faults and validation errors, and from the
+platform's failure messages, so a settlement with nothing else typed is `unknown`.
+
+#### Parameters
+
+##### down
+
+###### reason
+
+`string`
+
+###### infra?
+
+`boolean`
+
+###### retainedPendingCause?
+
+[`RetainedPendingCause`](runtime.md#retainedpendingcause-1)
+
+###### failure?
+
+[`RuntimeFailureCause`](#runtimefailurecause)
+
+#### Returns
+
+[`RuntimeFailureCause`](#runtimefailurecause)
 
 ***
 
