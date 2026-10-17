@@ -50,6 +50,7 @@ export type {
   AnalystKind,
   AnalystLensOutput,
   AnalystRegistry,
+  AnalystRunContext,
   AnalyzeOnSettleRoute,
   AuthoredAnalystDefinition,
   AuthoredAnalystLimits,
@@ -240,6 +241,14 @@ export {
   resolveAgentEnvironmentProvider,
   type WorkspaceRequest,
 } from './environment-provider'
+export {
+  type RuntimeFailureCause,
+  type RuntimeFailureCode,
+  type RuntimeFailureContext,
+  type RuntimeFailureOwner,
+  runtimeFailureCause,
+  settlementFailureCause,
+} from './failure-cause'
 // Two substrates for the same "recursive agent decision" atom, both exported here (per
 // docs/architecture.md): canonical = the reactive `Scope`/`Supervisor` + the personify
 // combinators (budget-conserving, equal-k by construction — prefer for new recursive work);

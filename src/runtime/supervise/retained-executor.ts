@@ -223,7 +223,7 @@ const readFailureCodes = new Set([
 ])
 
 /** Socket-level failures, by the codes Node and undici assign, plus the Sandbox SDK's own. */
-const transportCodes = new Set([
+export const TRANSPORT_ERROR_CODES: ReadonlySet<string> = new Set([
   'ECONNRESET',
   'ECONNREFUSED',
   'ETIMEDOUT',
@@ -322,7 +322,7 @@ function classifyPendingCause(
       onCredentialRefusal?.()
       return 'request-rejected'
     }
-    if (code !== undefined && transportCodes.has(code)) return 'transport'
+    if (code !== undefined && TRANSPORT_ERROR_CODES.has(code)) return 'transport'
     if (name === 'NetworkError' || name === 'ServerError') return 'transport'
     // A capacity refusal with no HTTP response is the account owner refusing to bind a credential
     // to a fresh dispatch: agent-provider-tangle resolves the subscription credential before it

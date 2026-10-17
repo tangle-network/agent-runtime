@@ -326,6 +326,15 @@ export {
 export { decideKnowledgeReadiness } from './readiness'
 // ── Run loop ─────────────────────────────────────────────────────────
 export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
+// ── Terminal failure causes ──────────────────────────────────────────
+export {
+  type RuntimeFailureCause,
+  type RuntimeFailureCode,
+  type RuntimeFailureContext,
+  type RuntimeFailureOwner,
+  runtimeFailureCause,
+  settlementFailureCause,
+} from './runtime/failure-cause'
 export {
   isolatedCheckBoxEvidenceSchema,
   isolatedCheckResultSchema,

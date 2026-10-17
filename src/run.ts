@@ -63,6 +63,7 @@ export function applyRunRecordDefaults(
 import { normalizeBackendStreamEvent } from './backends'
 import { BackendTransportError } from './errors'
 import { decideKnowledgeReadiness } from './readiness'
+import { runtimeFailureCause } from './runtime/failure-cause'
 import { nowIso, startOrResumeRuntimeSession, touchSession } from './sessions'
 import type {
   AgentBackendInput,
@@ -337,6 +338,7 @@ export async function* runAgentTaskStream<TInput extends AgentBackendInput = Age
             body: err.body,
           }
         : { kind: 'backend', message: combinedMessage }
+    const failure = runtimeFailureCause(err, { signal: options.signal })
     const backendError = streamEvent({
       type: 'backend_error',
       task,
@@ -345,6 +347,7 @@ export async function* runAgentTaskStream<TInput extends AgentBackendInput = Age
       message: combinedMessage,
       recoverable: !options.signal?.aborted,
       error: errorDetail,
+      failure,
     })
     await store?.appendEvent?.(session.id, backendError)
     yield backendError
@@ -360,6 +363,7 @@ export async function* runAgentTaskStream<TInput extends AgentBackendInput = Age
       reason: message,
       text: finalText || undefined,
       error: errorDetail,
+      failure,
     })
     await store?.appendEvent?.(session.id, final)
     yield final

@@ -5,6 +5,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import {
+  type AnalystUsageReceipt,
   createTraceAnalyst,
   DEFAULT_TRACE_ANALYST_KINDS,
   OUTPUT_VALUE,
@@ -22,6 +23,7 @@ import type {
   AuthoredAnalystDefinition,
 } from '../mcp/tools/coordination'
 import { isTraceAnalysisStore } from './supervise/trace-evidence'
+import type { Spend } from './supervise/types'
 
 /**
  * Adapt an `agent-eval` `AnalystRegistry` into the lens shape `supervise({ analysts })` takes.
@@ -75,14 +77,17 @@ export function analystsFromRegistry(
   const authoringRegistry = registry as AnalystRegistryAuthoringLike
   return {
     kinds: adapted,
-    run: async (kindId, trace) => {
+    run: async (kindId, trace, context) => {
       const result = await registry.run(
         `supervise-analyst-${kindId}-${randomUUID()}`,
         { traceStore: trace },
         { ...opts?.runOpts, only: [kindId] },
       )
-      // Registry failures are isolated, not successful reviews with zero findings.
       const summary = result.per_analyst.find((entry) => entry.analyst_id === kindId)
+      // A failed lens still spent what its calls cost, so the charge precedes the failure.
+      const spend = summary === undefined ? undefined : analystUsageSpend(summary.usage)
+      if (spend !== undefined) await context?.charge(spend)
+      // Registry failures are isolated, not successful reviews with zero findings.
       if (summary?.status !== 'ok') {
         throw new ValidationError(
           `analyst ${JSON.stringify(kindId)} did not complete: ${summary?.status ?? 'missing result'}`,
@@ -117,6 +122,39 @@ export function analystsFromRegistry(
             return { id: definition.id, description: definition.description, area: definition.area }
           },
         }),
+  }
+}
+
+function tokenCount(value: number | null | undefined): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
+}
+
+/**
+ * The conserved-pool spend one eval analyst run reports, or `undefined` when it made no model
+ * call. Accounting the receipt did not capture stays explicitly unknown: one-sided token counts
+ * are a known subtotal, token counts the transport derived rather than the provider measured are
+ * not a measurement, and an estimated price is carried as `usdEstimated`, never as a charge.
+ */
+function analystUsageSpend(usage: AnalystUsageReceipt | undefined): Spend | undefined {
+  if (usage === undefined || usage.calls === 0) return undefined
+  const tokens = usage.tokens
+  const tokensKnown =
+    tokens !== null && tokens.tokensKnown !== false && usage.tokensEstimated !== true
+  const cost = usage.cost
+  const priced = cost.kind === 'uncaptured' ? (usage.knownCostUsd ?? 0) : cost.usd
+  const usd = Number.isFinite(priced) && priced > 0 ? priced : 0
+  return {
+    iterations: 0,
+    tokens: {
+      input: tokenCount(tokens?.input ?? usage.partialTokens?.input),
+      output: tokenCount(tokens?.output ?? usage.partialTokens?.output),
+      ...(tokensKnown ? {} : { tokensKnown: false as const }),
+    },
+    ...(tokensKnown ? {} : { tokensKnown: false }),
+    usd,
+    ...(cost.kind === 'observed' ? {} : { usdKnown: false }),
+    ...(cost.kind === 'estimated' ? { usdEstimated: usd } : {}),
+    ms: 0,
   }
 }
 

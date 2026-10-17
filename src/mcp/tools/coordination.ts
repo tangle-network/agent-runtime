@@ -41,6 +41,7 @@ import type {
   Agent as SuperviseAgent,
   WorkerTraceEvidence,
 } from '../../runtime'
+import { type RuntimeFailureCause, settlementFailureCause } from '../../runtime/failure-cause'
 import { assertValidBudget, type ReservationShortfall } from '../../runtime/supervise/budget'
 import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
 import {
@@ -52,6 +53,7 @@ import {
   NOTE_FAILURE_LINES,
 } from '../../runtime/supervise/continuation'
 import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
+import { errMessage } from '../../runtime/supervise/error-message'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
 import { isLiveNodeStatus } from '../../runtime/supervise/node-status'
 import {
@@ -61,6 +63,7 @@ import {
   type PeerMailLimits,
 } from '../../runtime/supervise/peer-mail'
 import type { WorkerProgress } from '../../runtime/supervise/progress'
+import { meterRuntimeOwnedAccounting } from '../../runtime/supervise/scope'
 import { detachedFrozen } from '../../runtime/supervise/snapshot'
 import {
   parseWorkerToolTraceArtifact,
@@ -96,6 +99,8 @@ export interface SettledWorker {
   readonly valid?: boolean
   readonly outRef?: string
   readonly reason?: string
+  /** Why a `down` worker failed, as values: branch on `code` and `owner`, never on `reason`. */
+  readonly failure?: RuntimeFailureCause
   /** Present when the worker's measured spend exceeded its reservation. The pool already charged
    *  the true spend; a `done` worker's output is still its result. */
   readonly budgetViolation?: BudgetViolation
@@ -275,9 +280,26 @@ export interface DefinedAnalystRecord {
   readonly definedAt: number
 }
 
+/** What the coordination layer hands one registry lens run. */
+export interface AnalystRunContext {
+  /**
+   * Charge the model spend this lens run made to the run's conserved pool — the pool an agent
+   * analyst reserves from. A registry whose lens calls a model calls this with the spend it
+   * measured; unknown tokens or dollars stay explicitly unknown. The spend is journaled as
+   * Runtime-owned accounting. Under a dollar ceiling an unknown dollar cost closes the pool's
+   * dollar admission, as an agent analyst's unknown cost does, and the lens keeps its findings.
+   */
+  readonly charge: (spend: Spend) => Promise<void>
+}
+
 export interface AnalystRegistry {
   readonly kinds: ReadonlyArray<AnalystKind>
-  readonly run: (kindId: string, trace: TraceAnalysisStore) => Promise<AnalystLensOutput>
+  /** Run one lens. THROWING is the failure channel: it is published as `{ analystRunFailed }`. */
+  readonly run: (
+    kindId: string,
+    trace: TraceAnalysisStore,
+    context?: AnalystRunContext,
+  ) => Promise<AnalystLensOutput>
   /**
    * OPT-IN: admit a MANAGER-AUTHORED lens while the run is in flight, so a driver can change the
    * questions asked of its own children's traces instead of picking from a menu fixed before the
@@ -1993,6 +2015,7 @@ export function createCoordinationToolsForManager(
             ...(settled.outRef === undefined ? {} : { outRef: settled.outRef }),
             ...(node?.spent === undefined ? {} : { spent: node.spent }),
             reason: settled.reason,
+            failure: settlementFailureCause(settled),
           },
     )
   }
@@ -2627,6 +2650,20 @@ export function createCoordinationToolsForManager(
     }
   }
 
+  // A registry lens spends from the same conserved pool an agent analyst reserves from. Its spend
+  // is Runtime-owned accounting on this manager's node: journaled as `metered`, never an owner turn.
+  // The lens already ran, so an unknown dollar cost closes dollar admission rather than being
+  // refused: a refusal would replace the findings it paid for with `analystRunFailed`.
+  const analystRunContext = (kind: string, sourceWorker: string): AnalystRunContext => ({
+    charge: (spend) =>
+      meterRuntimeOwnedAccounting(
+        opts.scope,
+        spend,
+        { role: 'analyst', analyst: kind, sourceWorker },
+        { alreadySpent: true },
+      ),
+  })
+
   // Settlements being published with their analysis right now. The settled event is queued first
   // and the analysis it triggers follows, so a wake waits for both.
   let flushing = 0
@@ -2674,9 +2711,29 @@ export function createCoordinationToolsForManager(
       const lensRoutes = applicable.filter((route) => route.agent === undefined)
       const agentRoutes = applicable.filter((route) => route.agent !== undefined)
       if (lensRoutes.length > 0 && opts.analysts && pending.worker.trace.status === 'available') {
-        const trace = await workerTraceAnalysisStore(pending.worker.trace, opts.blobs)
+        // A lens that throws, or a trace it cannot read, is a FAILED analyst run, published as
+        // `{ analystRunFailed }` exactly like a failed agent analyst. Before this, the throw left
+        // the drain that carried the settlement, so the driver waited on a finding that never
+        // landed and every later lens and agent route on this settlement was skipped.
+        let trace: TraceAnalysisStore | undefined
+        let traceFailure: unknown
+        try {
+          trace = await workerTraceAnalysisStore(pending.worker.trace, opts.blobs)
+        } catch (error) {
+          traceFailure = error
+        }
         for (const route of lensRoutes) {
-          const findings = await opts.analysts.run(route.kind, trace)
+          let findings: unknown
+          try {
+            if (trace === undefined) throw traceFailure
+            findings = await opts.analysts.run(
+              route.kind,
+              trace,
+              analystRunContext(route.kind, pending.worker.id),
+            )
+          } catch (error) {
+            findings = { analystRunFailed: errMessage(error) }
+          }
           // The finding ALWAYS lands on the bus — the audit trail and the driver's pullable copy —
           // whether or not the route also delivers it to a named worker.
           await bus.publish({
@@ -4916,7 +4973,7 @@ export function createCoordinationToolsForManager(
             reason: `no lens named ${JSON.stringify(kind)} is on this manager's menu; call list_analysts to see what you may run`,
           }
         }
-        return { findings: await opts.analysts?.run(kind, store) }
+        return { findings: await opts.analysts?.run(kind, store, analystRunContext(kind, id)) }
       },
     })
     if (opts.analysts.register) {

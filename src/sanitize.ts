@@ -21,7 +21,7 @@ import type {
 } from '@tangle-network/agent-eval'
 
 import { redact } from '@tangle-network/agent-eval/traces'
-
+import type { RuntimeFailureCause } from './runtime/failure-cause'
 import type {
   AgentRuntimeEvent,
   AgentTaskSpec,
@@ -306,6 +306,9 @@ export function sanitizeRuntimeStreamEvent(
       text: options.includeControlPayloads ? included(event.text) : undefined,
       metadata: options.includeMetadata ? included(event.metadata) : undefined,
       ...(sanitizedError !== undefined ? { error: sanitizedError } : {}),
+      // Already redacted and bounded at its source; `code` and `owner` are the classification
+      // operators need regardless of payload opt-in, exactly like `error.kind`.
+      ...(event.failure !== undefined ? { failure: sanitizedFailure(event.failure) } : {}),
     }
   }
   return {
@@ -479,6 +482,15 @@ function included<T>(value: T): T {
   return value === undefined ? value : redact(value).value
 }
 
+function sanitizedFailure(failure: RuntimeFailureCause): RuntimeFailureCause {
+  return {
+    code: failure.code,
+    owner: failure.owner,
+    cause: included(failure.cause),
+    ...(failure.providerCode === undefined ? {} : { providerCode: failure.providerCode }),
+  }
+}
+
 function redactRecord(record: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.keys(record).map((key) => [key, '[redacted]']))
 }
@@ -505,6 +517,7 @@ function pickPublicStreamFields(event: RuntimeStreamEvent): Record<string, unkno
       message: included(event.message),
       recoverable: event.recoverable,
       ...(sanitizedError !== undefined ? { error: sanitizedError } : {}),
+      ...(event.failure !== undefined ? { failure: sanitizedFailure(event.failure) } : {}),
     }
   }
   if (event.type === 'task_end') return { status: event.status, reason: event.reason }

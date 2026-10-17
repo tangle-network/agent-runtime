@@ -404,10 +404,12 @@ export interface BudgetPool {
    * tokens and the in-loop budget guard (`readout().tokensLeft`) sees them. `free` may go negative
    * when a run overspends. Unknown enforced resource usage is recorded before throwing.
    * Partial increments defer completeness checks until the invocation reports its terminal spend.
+   * Unknown dollars under a dollar cap are refused, unless `alreadySpent` says the work finished
+   * with no caller left to refuse; that observation closes dollar admission instead.
    * The DURABLE record is the journal's `metered` event (written by `Scope.meter`); this debit
    * only makes the live `readout()` reflect driver inference for the in-loop guard.
    */
-  observe(spend: Spend, options?: { partial?: boolean }): void
+  observe(spend: Spend, options?: { partial?: boolean; alreadySpent?: boolean }): void
   /** Fail loud if any reservation is still open — the conserved-pool leak detector. Called at the
    *  supervisor's join barrier: once every child has settled, no ticket may remain (a leaked
    *  reservation would silently break `total ≡ free + reserved + committed`). */
@@ -960,14 +962,21 @@ export function createBudgetPool(
     return violation
   }
 
-  function observe(spend: Spend, options: { partial?: boolean } = {}): void {
+  function observe(
+    spend: Spend,
+    options: { partial?: boolean; alreadySpent?: boolean } = {},
+  ): void {
     assertValidSpend(spend, 'observed spend')
     validateResourceUnits(spend)
     // Unknown dollars under a dollar cap are REFUSED before any balance mutates: unlike a
     // reconciled child (whose reservation must settle), an observation has no ticket to strand,
     // so the honest reading is a fail-loud refusal the caller surfaces — `driver-failed` carrying
-    // this reason — rather than an invented figure or a silently consumed cap.
-    if (usdCapped && spend.usdKnown === false) {
+    // this reason — rather than an invented figure or a silently consumed cap. Work that already
+    // finished with no caller left to refuse it (a Runtime-owned analyst lens) closes dollar
+    // admission instead, as a reconciled child's unknown dollars do: refusing it would discard
+    // what that work produced and still leave its dollars unaccounted.
+    const unknownUnderCap = usdCapped && spend.usdKnown === false
+    if (unknownUnderCap && options.alreadySpent !== true) {
       // A typed refusal, not a bare invariant guard: this is a contract failure the caller sees on
       // the `driver-failed` arm, and a driver retry must be able to tell it apart from a foreign
       // accident it could recover from.
@@ -992,6 +1001,7 @@ export function createBudgetPool(
     committedIterations += spend.iterations
     committedUsd += spend.usd
     if (usdCapped) freeUsd -= spend.usd
+    if (unknownUnderCap) usdTainted = true
     const settlement = commitResources(spend, undefined, !options.partial)
     const violation = settlement.fault ?? settlement.rootExceeded
     if (violation) throw new ValidationError(`budget pool: ${violation}`)
