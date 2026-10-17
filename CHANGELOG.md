@@ -1,3 +1,7 @@
+## 0.325.2
+
+Complete the candidate secret-reference boundary release with source formatting accepted by the publisher lint gate.
+
 ## 0.325.1
 
 Accept the current Agent Interface, Eval, and Sandbox cohort and verify the Tangle Provider through the packed consumer.
