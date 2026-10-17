@@ -22,7 +22,13 @@ import { UNAVAILABLE_CODES, UNAVAILABLE_STATUSES } from './supervise/upstream-un
  * - `unknown`: nothing structural attributes the failure.
  * @stable
  */
-export type RuntimeFailureOwner = 'provider' | 'platform' | 'runtime' | 'work' | 'caller' | 'unknown'
+export type RuntimeFailureOwner =
+  | 'provider'
+  | 'platform'
+  | 'runtime'
+  | 'work'
+  | 'caller'
+  | 'unknown'
 
 /** Stable failure codes. A consumer branches on these, never on `cause` text. @stable */
 export type RuntimeFailureCode =

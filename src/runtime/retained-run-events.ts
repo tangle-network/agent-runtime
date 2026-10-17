@@ -151,7 +151,9 @@ export async function* retainedRunEvents(
         }
         const eventId = identity.eventId ?? identity.cursor
         if (!eventId) {
-          contractCheckFailed('replayable canonical event has no stable provider event id or cursor')
+          contractCheckFailed(
+            'replayable canonical event has no stable provider event id or cursor',
+          )
         }
         assertStableText(eventId, 'provider event id')
         // Only a resumed subscription can replay a delivered frame, so only it pays for a digest.
@@ -206,7 +208,9 @@ export async function* retainedRunEvents(
       throw new RetainedRunProviderContractError(
         error instanceof Error ? error.message : 'provider retained event stream failed',
         {
-          code: fromProvider ? 'RETAINED_EVENT_STREAM_READ_FAILED' : 'RETAINED_EVENT_STREAM_INVALID',
+          code: fromProvider
+            ? 'RETAINED_EVENT_STREAM_READ_FAILED'
+            : 'RETAINED_EVENT_STREAM_INVALID',
           cause: error,
         },
       )
