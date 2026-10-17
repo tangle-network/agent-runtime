@@ -4247,7 +4247,7 @@ Every parsed flag (standard + `spec.flags`), by name without `--`.
 
 ##### harnesses
 
-> **harnesses**: readonly `HarnessType`[]
+> **harnesses**: readonly (`"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`)[]
 
 ##### models
 
@@ -4530,7 +4530,7 @@ Harness × model axes for `expandProfileAxes`. Defaults: the canonical
 
 ###### harnesses?
 
-> `optional` **harnesses?**: readonly `HarnessType`[]
+> `optional` **harnesses?**: readonly (`"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`)[]
 
 ###### models?
 
@@ -5345,7 +5345,7 @@ measured none.
 
 ##### harness
 
-> `readonly` **harness**: `HarnessType`
+> `readonly` **harness**: `"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
 
 The harness family whose adapter produced this report.
 
@@ -8729,7 +8729,7 @@ Caller-declared execution placement. Matching never changes the authored profile
 
 ###### harness
 
-> **harness**: `NonNullable`\<`HarnessType` \| `undefined`\>
+> **harness**: `NonNullable`\<`"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"` \| `undefined`\>
 
 ###### provider?
 
@@ -15167,7 +15167,7 @@ session under `root`, which is correct only for a store no other run writes to.
 
 ##### harness
 
-> `readonly` **harness**: `HarnessType`
+> `readonly` **harness**: `"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
 
 The harness family that wrote the store.
 
@@ -19489,7 +19489,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### harness?
 
-> `readonly` `optional` **harness?**: `HarnessType`
+> `readonly` `optional` **harness?**: `"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
 
 ###### stack?
 
@@ -24822,7 +24822,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### harness?
 
-> `readonly` `optional` **harness?**: `HarnessType`
+> `readonly` `optional` **harness?**: `"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
 
 ###### stack?
 
@@ -39449,7 +39449,7 @@ cannot read the numbers.
 
 ##### harness?
 
-`HarnessType`
+`"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
 
 #### Returns
 
@@ -41238,7 +41238,7 @@ A [SandboxUsageLedger](#sandboxusageledger) for one worker. Pass the worker's ha
 
 ##### harness?
 
-`HarnessType`
+`"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
 
 #### Returns
 
@@ -45356,7 +45356,7 @@ Decode a part with a specific harness's adapter when known, else try every regis
 
 ##### harness?
 
-`HarnessType`
+`"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
 
 #### Returns
 
@@ -45431,7 +45431,7 @@ The SANDBOX / fleet trace source: read a box session's message parts and decode 
 
 ###### harness?
 
-`HarnessType`
+`"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
 
 The box's harness (e.g. 'opencode', 'claude-code') → selects its decoder adapter.
 

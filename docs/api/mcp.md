@@ -7835,7 +7835,7 @@ The two are different facts and a caller must not read one as the other.
 
 ##### harness
 
-`HarnessType`
+`"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
 
 #### Returns
 

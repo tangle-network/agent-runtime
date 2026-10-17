@@ -1558,7 +1558,7 @@ Exact profile identity admitted before the shot.
 
 ##### harness
 
-> `readonly` **harness**: `HarnessType`
+> `readonly` **harness**: `"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
 
 ##### provider
 

@@ -2829,7 +2829,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### harness?
 
-> `readonly` `optional` **harness?**: `HarnessType`
+> `readonly` `optional` **harness?**: `"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
 
 ###### stack?
 
@@ -3930,7 +3930,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### harness?
 
-> `readonly` `optional` **harness?**: `HarnessType`
+> `readonly` `optional` **harness?**: `"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
 
 ###### stack?
 
