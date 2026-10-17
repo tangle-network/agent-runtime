@@ -126,12 +126,10 @@ export function peerWindowVersions(name, range, developmentVersion) {
 }
 
 const interfacePeerRange = declaredPeerRange('@tangle-network/agent-interface')
+// Interface uses a major-version peer window. Qualify every published minor that
+// enters that window, including new minors released after Runtime's development pin.
 const interfaceCompatibilityVersions = Object.freeze(
-  peerWindowVersions(
-    '@tangle-network/agent-interface',
-    interfacePeerRange,
-    runtimePackage.devDependencies?.['@tangle-network/agent-interface'],
-  ),
+  publishedCompatibilityVersions('@tangle-network/agent-interface', interfacePeerRange),
 )
 
 const evalPeerRange = declaredPeerRange('@tangle-network/agent-eval')
@@ -149,7 +147,8 @@ export const evalCompatibilityVersions = Object.freeze(
 
 /**
  * The declared range and verified versions for peers admitted beyond the development pin.
- * Every other first-party peer must equal its development minor.
+ * Eval remains bounded to its development minor; Interface and Sandbox use
+ * registry-selected compatibility versions across their declared windows.
  */
 export const peerCompatibility = Object.freeze({
   '@tangle-network/agent-interface': Object.freeze({
