@@ -2560,15 +2560,15 @@ describe('run_graph — a director runs an agent graph as ONE subtask of its own
       },
     )
 
-    // The lead's own submission was accepted: the run's check is not a node's.
+    // The lead's own submission was accepted and stopped it: the run's check is not a node's. A
+    // refused submission would come back to the lead as `accepted: false` on a fourth model call.
     const leadResults = leadSaw.flatMap((body) =>
       ((body.messages ?? []) as Array<Record<string, unknown>>)
         .filter((message) => message.role === 'tool')
         .map((message) => String(message.content)),
     )
-    const submitted = leadResults.filter((content) => content.includes('"accepted"'))
-    expect(submitted.length).toBeGreaterThan(0)
-    expect(JSON.parse(submitted[0]!)).toMatchObject({ accepted: true })
+    expect(leadResults.filter((content) => content.includes('"accepted":false'))).toEqual([])
+    expect(leadSaw).toHaveLength(3)
 
     // The graph settled done and woke the director with it.
     const subtree = (await journal.loadTree('grg-gated')) ?? []
