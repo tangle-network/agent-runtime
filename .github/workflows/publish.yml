@@ -329,7 +329,7 @@ jobs:
           fi
           # A version string alone is not evidence that the qualified bytes were served.
           # Check npm's archive integrity for both new publication and existing-version retries.
-          # npm can take well over 10 minutes to serve a new version (0.322.4 was published and served, but not within 10).
+          # npm can take more than 10 minutes to serve a newly published version.
           for _ in $(seq 1 60); do
             if integrity_json=$(npm view "$name@$version" dist.integrity --json --registry=https://registry.npmjs.org 2>/dev/null); then
               REGISTRY_INTEGRITY_JSON="$integrity_json" EXPECTED_INTEGRITY="$expected_integrity" node <<'NODE'
