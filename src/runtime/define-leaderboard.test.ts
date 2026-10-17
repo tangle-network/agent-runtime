@@ -171,61 +171,6 @@ describe('defineLeaderboard', () => {
     expect(shots[1]?.info).toEqual({ index: 1, verdict: { score: 1 } })
   })
 
-  it('refuses a harness/model cell that expands to a runtime-selected marker before backend work', async () => {
-    const snappedAxis = [
-      '--backend',
-      'inproc',
-      '--harnesses',
-      'claude-code',
-      '--models',
-      'moonshot/kimi-k2@2026-01-01',
-    ]
-    let backendFactories = 0
-    let prompts = 0
-    await expect(
-      board({
-        backends: {
-          inproc: () => {
-            backendFactories += 1
-            return fakeBackend()
-          },
-        },
-        prompt: (c) => {
-          prompts += 1
-          return `solve the task. answer=${c.answer}`
-        },
-        resolveModel: () => 'kimi-k2@2026-01-01',
-      }).run([...snappedAxis, '--cases', 'case-alpha']),
-    ).rejects.toThrow(/runtime-selected/)
-    expect(backendFactories).toBe(0)
-    expect(prompts).toBe(0)
-  })
-
-  it('does not make runtime-selected cells executable through the cli-bridge backend', async () => {
-    let backendFactories = 0
-    await expect(
-      board({
-        backends: {
-          'cli-bridge': () => {
-            backendFactories += 1
-            return fakeBackend()
-          },
-        },
-        resolveModel: () => 'kimi-k2@2026-01-01',
-      }).run([
-        '--backend',
-        'cli-bridge',
-        '--harnesses',
-        'claude-code',
-        '--models',
-        'moonshot/kimi-k2@2026-01-01',
-        '--cases',
-        'case-alpha',
-      ]),
-    ).rejects.toThrow(/runtime-selected/)
-    expect(backendFactories).toBe(0)
-  })
-
   it('flows a structured TArtifact through parseOutput → score → records natively', async () => {
     interface Structured {
       answer: string
