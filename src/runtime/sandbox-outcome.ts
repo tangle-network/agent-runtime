@@ -1,5 +1,6 @@
 import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
 import type { AgentTaskStatus, BackendErrorDetail } from '../types'
+import { type RuntimeFailureCause, reportedFailureCause } from './failure-cause'
 import type { DefaultVerdict } from './supervise/types'
 
 /** The outcome carried by Runtime-owned Sandbox artifacts. */
@@ -13,6 +14,9 @@ export interface SandboxOutcomeProjection {
   reason: string
   verdict: DefaultVerdict
   error?: BackendErrorDetail
+  /** Present when the run failed: the reported failure's code and owner, read from its
+   *  `errorCode` and `statusCode`. */
+  failure?: RuntimeFailureCause
 }
 
 /** Map the public Sandbox outcome to Runtime's stream and verdict vocabulary. */
@@ -32,6 +36,11 @@ export function projectSandboxOutcome(outcome: AgentRunOutcome): SandboxOutcomeP
       reason,
       verdict: { valid: false, score: 0 },
       error: { kind: 'backend', message: reason },
+      failure: reportedFailureCause({
+        error: reason,
+        errorCode: outcome.errorCode,
+        statusCode: outcome.statusCode,
+      }),
     }
   }
 

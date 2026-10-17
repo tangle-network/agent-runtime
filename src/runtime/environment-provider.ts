@@ -1735,6 +1735,21 @@ class RetainedReadTimeoutError extends Error {
   }
 }
 
+/**
+ * Why the event stream stopped short, as bounded redacted text. A settlement reason is built from
+ * messages and `cause` links only, never from an AggregateError's members, so a wrapper that
+ * leaves this out hides which layer lost the stream: a tournament judge on 2026-10-16
+ * (critics-tournament-v1-158ca88e83bf:s1) settled `terminal-event-lost` and its journal could
+ * not say whether the stream ended, broke, or refused a frame.
+ */
+function observationFailureText(failure: { readonly error: unknown }): string {
+  const error = failure.error
+  return String(defaultRedactor(error instanceof Error ? error.message : String(error))).slice(
+    0,
+    2_048,
+  )
+}
+
 function retainedWaitBound(value: number | undefined, maximum: number, name: string): number {
   if (value === undefined) return maximum
   if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
@@ -2872,7 +2887,9 @@ async function providerExecutionSource(
           throw new RetainedExecutionPendingError(
             new AggregateError(
               [observationFailure?.error, error],
-              'retained event stream had no terminal event and its exact result is unavailable',
+              `retained event stream had no terminal event (${observationFailureText(
+                observationFailure ?? { error: 'no observation failure was recorded' },
+              )}) and its exact result is unavailable`,
               { cause: error },
             ),
             'terminal-event-lost',
@@ -2881,7 +2898,7 @@ async function providerExecutionSource(
         if (observationFailure === undefined) throw error
         throw new AggregateError(
           [observationFailure.error, error],
-          'retained event observation failed and its exact result could not be reconciled',
+          `retained event observation failed (${observationFailureText(observationFailure)}) and its exact result could not be reconciled`,
           { cause: error },
         )
       }
@@ -2898,13 +2915,7 @@ async function providerExecutionSource(
                 eventStreamComplete: false,
                 ...(result.usage === undefined ? { tokensKnown: false } : {}),
                 ...(result.usage?.cost === undefined ? { usdKnown: false } : {}),
-                eventStreamError: String(
-                  defaultRedactor(
-                    observationFailure.error instanceof Error
-                      ? observationFailure.error.message
-                      : String(observationFailure.error),
-                  ),
-                ).slice(0, 2_048),
+                eventStreamError: observationFailureText(observationFailure),
               }),
         },
         ...(result.usage ? { usage: result.usage } : {}),
