@@ -244,6 +244,7 @@ export {
 export {
   type RuntimeFailureCause,
   type RuntimeFailureCode,
+  type RuntimeFailureContext,
   type RuntimeFailureOwner,
   runtimeFailureCause,
   settlementFailureCause,

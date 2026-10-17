@@ -35,6 +35,7 @@ import {
 import { appendSpawnEvents, closesCursorSlot, contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
+import { type RuntimeFailureCause, runtimeFailureCause } from '../failure-cause'
 import {
   type HarnessTranscriptEvidence,
   persistHarnessTranscript,
@@ -302,6 +303,7 @@ type RuntimeOwnedProviderMeter = (
   providerModel: ProviderModelExecutionEvidence | undefined,
   detail?: Record<string, unknown>,
   accountingOnly?: boolean,
+  alreadySpent?: boolean,
 ) => Promise<void>
 
 /** Runtime-owned provider evidence is written through this private scope capability. */
@@ -743,6 +745,8 @@ export type PreSeqSettled =
       reconciled?: Spend
       /** Why the retained execution is pending, as a value (#1204). Present iff `reconciled` is. */
       retainedPendingCause?: RetainedPendingCause
+      /** See `Settled['failure']`: the thrown error, classified before `errMessage` flattens it. */
+      failure?: RuntimeFailureCause
     }
 
 /**
@@ -2113,6 +2117,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     providerModel?: ProviderModelExecutionEvidence,
     accountingOnly = false,
     runtimeOwned = false,
+    alreadySpent = false,
   ): Promise<void> {
     if (args.signal.aborted && !runtimeOwned) {
       throw new ValidationError('scope.meter: cannot record new driver work after scope abort')
@@ -2127,7 +2132,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     // returning the refusal; otherwise the terminal result would falsely report that cost as $0.
     let observeError: unknown
     try {
-      args.pool.observe(spend, { partial })
+      args.pool.observe(spend, { partial, ...(alreadySpent ? { alreadySpent } : {}) })
     } catch (error) {
       observeError = error
     }
@@ -2262,10 +2267,10 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   )
   runtimeOwnedProviderMeters.set(
     scope as Scope<unknown>,
-    async (spend, providerModel, detail, accountingOnly) =>
+    async (spend, providerModel, detail, accountingOnly, alreadySpent) =>
       // A provider attempt already started before abort can finish without a usage receipt.
       // Its unknown-cost marker still belongs in the durable journal after the scope aborts.
-      meterInternal(spend, detail, providerModel, accountingOnly, true),
+      meterInternal(spend, detail, providerModel, accountingOnly, true, alreadySpent),
   )
   let driverAttemptSeq: number | undefined
   driverAttemptRecorders.set(scope as Scope<unknown>, async (record) => {
@@ -2703,17 +2708,22 @@ export function recordScopeOwnerDriverAttempt(
   return record(attempt)
 }
 
-/** @internal Meter Runtime-owned accounting that does not represent provider execution. */
+/**
+ * @internal Meter Runtime-owned accounting that does not represent provider execution.
+ * `alreadySpent` marks work that finished with no caller left to refuse it: under a dollar cap its
+ * unknown dollars close dollar admission instead of being refused (`BudgetPool.observe`).
+ */
 export function meterRuntimeOwnedAccounting(
   scope: Scope<unknown>,
   spend: Spend,
   detail?: Record<string, unknown>,
+  options?: { readonly alreadySpent?: boolean },
 ): Promise<void> {
   const meter = runtimeOwnedProviderMeters.get(scope as object)
   if (meter === undefined) {
     throw new ValidationError('scope: Runtime-owned provider meter is not bound to this scope')
   }
-  return meter(spend, undefined, detail, true)
+  return meter(spend, undefined, detail, true, options?.alreadySpent === true)
 }
 
 interface OwnerMaterializationState {
@@ -3486,6 +3496,7 @@ async function finalizeSettlement<Out>(
       trace: settlement.trace,
       ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
       ...(subtree === undefined ? {} : { subtree }),
+      ...(settlement.failure === undefined ? {} : { failure: settlement.failure }),
       settledAt,
       seq,
     }
@@ -3969,8 +3980,9 @@ async function runChild<C>(
       live.spent = unknownFloor(live.spent)
     }
     const reconcileError = reconcileOnce(accounting?.reservation ?? live.spent)
+    const failure = runtimeFailureCause(err, { signal: childAbort.signal })
     // A crashed driver child still re-homes the partial inference it durably metered.
-    return downRecord(
+    const down = downRecord(
       // The operation that failed is the causal error. Cleanup and accounting can independently
       // fail while handling it, but must never replace it with a secondary diagnostic (for
       // example, missing terminal usage after a provider crash). Their presence still marks the
@@ -3988,6 +4000,7 @@ async function runChild<C>(
       retainedOutputRef,
       await persistTranscriptOnce(),
     )
+    return { ...down, failure }
   } finally {
     await closeRetainedWrites()
   }

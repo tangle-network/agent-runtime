@@ -2,6 +2,7 @@ import { defaultRedactor } from '../redact'
 import { ReservationWaitRefused } from './supervise/budget'
 import { isCredentialRefusal } from './supervise/credential-refusal'
 import { errMessage } from './supervise/error-message'
+import { PLATFORM_FAILURE_CODES } from './supervise/executor-outcome'
 import {
   classifyRetainedPendingCause,
   RetainedExecutionPendingError,
@@ -18,7 +19,8 @@ import { UNAVAILABLE_CODES, UNAVAILABLE_STATUSES } from './supervise/upstream-un
  * - `platform`: infrastructure or an upstream model service failed or is out of capacity.
  * - `runtime`: Runtime could not reconstruct work it owns.
  * - `work`: the agent's own work failed.
- * - `caller`: the request, its credential, its budget, or its cancellation decided the outcome.
+ * - `caller`: the request, its credential, its budget, its deadline, or its cancellation decided
+ *   the outcome.
  * - `unknown`: nothing structural attributes the failure.
  * @stable
  */
@@ -33,6 +35,7 @@ export type RuntimeFailureOwner =
 /** Stable failure codes. A consumer branches on these, never on `cause` text. @stable */
 export type RuntimeFailureCode =
   | 'aborted'
+  | 'deadline-exceeded'
   | 'budget-exhausted'
   | 'credential-refused'
   | 'request-rejected'
@@ -51,8 +54,8 @@ export type RuntimeFailureCode =
  * `reason` and `error` fields.
  *
  * `code` and `owner` are read from the failure's structure — its class, machine code, HTTP status
- * and cause chain, or the settlement's typed fields — never from message text. `cause` is the
- * redacted, bounded cause chain for people; it is not a contract.
+ * and cause chain, the caller's signal and deadline, or the settlement's typed fields — never from
+ * message text. `cause` is the redacted, bounded cause chain for people; it is not a contract.
  * @stable
  */
 export interface RuntimeFailureCause {
@@ -107,81 +110,149 @@ function chain(error: unknown): object[] {
   return out
 }
 
+/** What the caller knows about how a failed operation ended. */
+export interface RuntimeFailureContext {
+  /** The caller's own signal. Aborted means the caller cancelled. */
+  readonly signal?: AbortSignal
+  /** The operation's own deadline expired before the caller cancelled it. */
+  readonly deadlineExpired?: boolean
+}
+
+type Classified = { code: RuntimeFailureCode; owner: RuntimeFailureOwner }
+
+const UNATTRIBUTED: Classified = { code: 'unknown', owner: 'unknown' }
+
+/** One link's own structure: budget refusal, credential refusal, machine code, HTTP status. */
+function structuralFailure(link: object): Classified | undefined {
+  if (link instanceof ReservationWaitRefused || read(link, 'reason') === 'budget-exhausted') {
+    return { code: 'budget-exhausted', owner: 'caller' }
+  }
+  if (isCredentialRefusal(link)) return { code: 'credential-refused', owner: 'caller' }
+  const code = read(link, 'code')
+  const status = read(link, 'status') ?? read(link, 'statusCode')
+  if (typeof code === 'string' && UNAVAILABLE_CODES.has(code.toLowerCase())) {
+    return { code: 'upstream-unavailable', owner: 'platform' }
+  }
+  if (typeof status === 'number' && Number.isInteger(status)) {
+    if (UNAVAILABLE_STATUSES.has(status)) return { code: 'upstream-unavailable', owner: 'platform' }
+    if (status >= 500 || status === 0 || status === 408)
+      return { code: 'transport', owner: 'platform' }
+    if (status === 401 || status === 403) return { code: 'credential-refused', owner: 'caller' }
+    if (status >= 400) return { code: 'request-rejected', owner: 'caller' }
+  }
+  if (typeof code === 'string' && TRANSPORT_ERROR_CODES.has(code)) {
+    return { code: 'transport', owner: 'platform' }
+  }
+  if (typeof code === 'string' && PLATFORM_FAILURE_CODES.has(code.toLowerCase())) {
+    return { code: 'platform', owner: 'platform' }
+  }
+  const name = read(link, 'name')
+  if (name === 'NetworkError' || name === 'ServerError')
+    return { code: 'transport', owner: 'platform' }
+  return undefined
+}
+
+function machineCode(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/u.test(value)
+    ? value
+    : undefined
+}
+
 /**
  * Classify a thrown failure. Pass the caller's signal so a cancellation the caller asked for is
- * attributed to the caller even when the provider surfaced it as an ordinary error.
+ * attributed to the caller even when the provider surfaced it as an ordinary error, and say when
+ * the operation's own deadline expired so a blown deadline is never reported as a cancellation.
  */
-export function runtimeFailureCause(error: unknown, signal?: AbortSignal): RuntimeFailureCause {
+export function runtimeFailureCause(
+  error: unknown,
+  context: RuntimeFailureContext = {},
+): RuntimeFailureCause {
   const links = chain(error)
   let providerCode: string | undefined
   for (const link of links) {
-    const code = read(link, 'code')
-    if (typeof code === 'string' && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/u.test(code)) {
-      providerCode = code
-      break
-    }
+    providerCode = machineCode(read(link, 'code'))
+    if (providerCode !== undefined) break
   }
-  const failure = (code: RuntimeFailureCode, owner: RuntimeFailureOwner): RuntimeFailureCause => ({
+  const failure = ({ code, owner }: Classified): RuntimeFailureCause => ({
     code,
     owner,
     cause: boundedCause(errMessage(error)),
     ...(providerCode === undefined ? {} : { providerCode }),
   })
-  if (signal?.aborted || links.some((link) => read(link, 'name') === 'AbortError')) {
-    return failure('aborted', 'caller')
+  if (context.signal?.aborted) return failure({ code: 'aborted', owner: 'caller' })
+  if (context.deadlineExpired) return failure({ code: 'deadline-exceeded', owner: 'caller' })
+  // Without the caller's signal, an AbortError is the only evidence of a cancellation. With it,
+  // an AbortError the caller did not ask for is some other party's abort, classified below.
+  if (context.signal === undefined && links.some((link) => read(link, 'name') === 'AbortError')) {
+    return failure({ code: 'aborted', owner: 'caller' })
   }
   for (const link of links) {
     // A retained execution names why it has no accepted result as a value; a provider contract
     // error is classified the way the retained settlement classifies it.
     if (link instanceof RetainedExecutionPendingError) {
-      const typed = retainedFailures[link.pendingCause]
-      return failure(typed.code, typed.owner)
+      return failure(retainedFailures[link.pendingCause])
     }
     if (read(link, 'name') === 'RetainedRunProviderContractError') {
-      const typed = retainedFailures[classifyRetainedPendingCause(link)]
-      return failure(typed.code, typed.owner)
+      return failure(retainedFailures[classifyRetainedPendingCause(link)])
     }
   }
   for (const link of links) {
-    if (link instanceof ReservationWaitRefused || read(link, 'reason') === 'budget-exhausted') {
-      return failure('budget-exhausted', 'caller')
-    }
-    if (isCredentialRefusal(link)) return failure('credential-refused', 'caller')
-    const code = read(link, 'code')
-    const status = read(link, 'status') ?? read(link, 'statusCode')
-    if (typeof code === 'string' && UNAVAILABLE_CODES.has(code.toLowerCase())) {
-      return failure('upstream-unavailable', 'platform')
-    }
-    if (typeof status === 'number' && Number.isInteger(status)) {
-      if (UNAVAILABLE_STATUSES.has(status)) return failure('upstream-unavailable', 'platform')
-      if (status >= 500 || status === 0) return failure('transport', 'platform')
-      if (status === 401 || status === 403) return failure('credential-refused', 'caller')
-      if (status >= 400 && status !== 408) return failure('request-rejected', 'caller')
-      if (status === 408) return failure('transport', 'platform')
-    }
-    if (typeof code === 'string' && TRANSPORT_ERROR_CODES.has(code)) {
-      return failure('transport', 'platform')
-    }
-    const name = read(link, 'name')
-    if (name === 'NetworkError' || name === 'ServerError') return failure('transport', 'platform')
+    const classified = structuralFailure(link)
+    if (classified !== undefined) return failure(classified)
   }
-  return failure('unknown', 'unknown')
+  return failure(UNATTRIBUTED)
 }
 
 /**
- * Classify a down settlement from the typed fields Runtime recorded when the cause was still a
- * value: the retained cause, then the platform attribution (`infra`).
+ * Classify a failure the execution reported without throwing — a Sandbox outcome or executor
+ * envelope with `success: false` — from its machine code and HTTP status. A harness that reports
+ * a failure with neither does not say who must act, so it is `unknown`, never the work's fault.
+ */
+export function reportedFailureCause(outcome: {
+  readonly error?: string
+  readonly errorCode?: string
+  readonly statusCode?: number
+}): RuntimeFailureCause {
+  const providerCode = machineCode(outcome.errorCode)
+  const classified =
+    structuralFailure({
+      ...(outcome.errorCode === undefined ? {} : { code: outcome.errorCode }),
+      ...(outcome.statusCode === undefined ? {} : { status: outcome.statusCode }),
+    }) ?? UNATTRIBUTED
+  return {
+    ...classified,
+    cause: boundedCause(outcome.error ?? 'execution reported a failure'),
+    ...(providerCode === undefined ? {} : { providerCode }),
+  }
+}
+
+/**
+ * Classify a down settlement from the typed facts Runtime recorded while the cause was still a
+ * value: the retained cause, the failure classified where the executor threw, then `infra: false`,
+ * the throw path's statement that the work itself failed. `infra: true` is not an owner: Runtime
+ * also sets it for cancellations, budget reconcile faults and validation errors, and from the
+ * platform's failure messages, so a settlement with nothing else typed is `unknown`.
  */
 export function settlementFailureCause(down: {
   readonly reason: string
   readonly infra?: boolean
   readonly retainedPendingCause?: RetainedPendingCause
+  readonly failure?: RuntimeFailureCause
 }): RuntimeFailureCause {
   const cause = boundedCause(down.reason)
   if (down.retainedPendingCause !== undefined) {
     return { ...retainedFailures[down.retainedPendingCause], cause }
   }
-  if (down.infra === true) return { code: 'platform', owner: 'platform', cause }
-  if (down.infra === false) return { code: 'work-failed', owner: 'work', cause }
-  return { code: 'unknown', owner: 'unknown', cause }
+  const providerCode = down.failure?.providerCode
+  const recorded: Classified =
+    down.failure !== undefined && down.failure.code !== 'unknown'
+      ? { code: down.failure.code, owner: down.failure.owner }
+      : down.infra === false
+        ? { code: 'work-failed', owner: 'work' }
+        : UNATTRIBUTED
+  return {
+    ...recorded,
+    cause,
+    ...(providerCode === undefined ? {} : { providerCode }),
+  }
 }

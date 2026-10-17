@@ -75,10 +75,8 @@ import {
 import {
   assertEventBinding,
   awaitAbortable,
-  delay,
   exactSession,
   freezeControlRef,
-  isLiveSessionStatus,
   RetainedRunProviderContractError,
   sameControlCoordinates,
 } from './retained-run-binding'
@@ -96,7 +94,6 @@ import {
   createSandboxUsageLedger,
   extractTransportEventIdentity,
   isSandboxTerminalEvent,
-  isTerminalEnvironmentEvent,
   sandboxProgressEvents,
   sandboxTerminalUsageField,
 } from './sandbox-events'
@@ -1730,16 +1727,27 @@ const RETAINED_OBSERVATION_IDLE_MS = 8 * 60_000
 const RETAINED_RESULT_WAIT_MS = 60_000
 // Bound observation work, not elapsed provider latency. AsyncIterable has no buffered frontier.
 const RETAINED_OBSERVATION_BATCH_EVENTS = 1_024
-/** Bounds the provider status read that decides whether an ended stream is resumed. */
-const RETAINED_STATUS_READ_MS = 15_000
-/** Spacing before a resume that follows a subscription which delivered nothing new. */
-const RETAINED_QUIET_RESUME_DELAY_MS = 250
 
 class RetainedReadTimeoutError extends Error {
   constructor(label: string, ms: number) {
     super(`retained provider ${label} did not settle within ${ms} ms`)
     this.name = 'RetainedReadTimeoutError'
   }
+}
+
+/**
+ * Why the event stream stopped short, as bounded redacted text. A settlement reason is built from
+ * messages and `cause` links only, never from an AggregateError's members, so a wrapper that
+ * leaves this out hides which layer lost the stream: a tournament judge on 2026-10-16
+ * (critics-tournament-v1-158ca88e83bf:s1) settled `terminal-event-lost` and its journal could
+ * not say whether the stream ended, broke, or refused a frame.
+ */
+function observationFailureText(failure: { readonly error: unknown }): string {
+  const error = failure.error
+  return String(defaultRedactor(error instanceof Error ? error.message : String(error))).slice(
+    0,
+    2_048,
+  )
 }
 
 function retainedWaitBound(value: number | undefined, maximum: number, name: string): number {
@@ -2701,8 +2709,6 @@ async function providerExecutionSource(
       let lastReplayPosition: string | undefined
       let sawTerminal = false
       let lastObservedAt = Date.now()
-      // Frames that carried new evidence, across every subscription of this execution.
-      let newFrames = 0
       const seenEvents = new Map<string, string>()
       const drain = async function* (
         open: () => AsyncIterable<AgentEnvironmentEvent>,
@@ -2809,7 +2815,6 @@ async function providerExecutionSource(
             // A replayed frame is not progress. Only new evidence extends the silence bound;
             // otherwise a provider repeating one cursor could keep a finished turn open forever.
             lastObservedAt = Date.now()
-            newFrames += 1
             if (identity.cursor !== undefined) lastReplayPosition = identity.cursor
             else if (eventId !== undefined) lastReplayPosition = eventId
             const terminal = isTerminalEnvironmentEvent(next.value)
@@ -2826,68 +2831,33 @@ async function providerExecutionSource(
         }
         return !failed
       }
-      let completed = yield* drain(() =>
+      const completed = yield* drain(() =>
         session.events({ executionId: handle.controlRef.executionId, signal }),
       )
-      // The provider's stream ended or broke before the execution's terminal frame. A stream is
-      // transport, not the execution: an intermediary closes a quiet SSE response, a socket
-      // breaks mid-frame, and the execution keeps running. The terminal frame is also where a
-      // Sandbox execution reports its token usage, which the exact result does not carry; a break
-      // used to settle a 15-minute turn at 0 tokens (mech-interp-foundations-pi-20260915k turn 1,
-      // 926 s, and -20260915l turns 2 and 3, 1693 s and 846 s). So resume from the last replay
-      // position while the observation still makes progress. A stream that ENDED rather than
-      // broke resumes only while the provider still reports the exact execution running: a
-      // Discovery tournament judge's stream ended about 30 s into a quiet stretch on 2026-10-16
-      // (critics-tournament-v1-158ca88e83bf:s1, last frame 21:39:46Z), and the one 60 s exact-
-      // result read that followed recorded `terminal-event-lost` while its judge was still at
-      // work. Two consecutive resumes that deliver nothing new end the resumes, and the turn
-      // falls to the exact result. The first failure stays the recorded cause: it lost the frames.
-      const providerReportsRunning = async (): Promise<boolean> => {
-        try {
-          return isLiveSessionStatus(
-            await awaitRetainedRead(
-              awaitAbortable(
-                Promise.resolve().then(() => session.status({ signal })),
-                signal,
-              ),
-              RETAINED_STATUS_READ_MS,
-              'execution status',
-            ),
-          )
-        } catch (error) {
-          if (signal.aborted) throw error
-          return false
-        }
-      }
-      let firstFailure: { error: unknown } | undefined
-      let quietResumes = 0
-      let framesBefore = 0
-      while (
+      if (
+        !completed &&
         !sawTerminal &&
-        !exactResultSettled &&
-        !observationBudgetExceeded &&
         lastReplayPosition !== undefined &&
-        !(observationFailure?.error instanceof RetainedReadTimeoutError) &&
-        Date.now() - lastObservedAt < observationIdleMs
+        !(observationFailure?.error instanceof RetainedReadTimeoutError)
       ) {
-        const progressed = newFrames > framesBefore
-        quietResumes = progressed ? 0 : quietResumes + 1
-        if (quietResumes > 1) break
-        if (completed && !(await providerReportsRunning())) break
-        firstFailure ??= observationFailure
+        // The live stream broke before the terminal receipt. That receipt is where a Sandbox
+        // execution reports its token usage, and the exact result read below does not carry it,
+        // so a break here used to settle a 15-minute turn at 0 tokens with tokensKnown: false,
+        // which the conserved pool debits as nothing. Measured on
+        // mech-interp-foundations-pi-20260915k turn 1 (926 s, 0/0) and -20260915l turns 2 and 3
+        // (1693 s and 846 s, 0/0), each cut by one frame the provider refused mid-stream. The
+        // provider replays from a cursor, so resume once from the last replay position. A second
+        // failure keeps the first as the recorded cause; it is the one that lost the frames.
+        const firstFailure = observationFailure
         observationFailure = undefined
-        if (!progressed) await delay(RETAINED_QUIET_RESUME_DELAY_MS, signal)
-        framesBefore = newFrames
-        completed = yield* drain(() =>
+        const resumed = yield* drain(() =>
           session.events({
             executionId: handle.controlRef.executionId,
             since: lastReplayPosition,
             signal,
           }),
         )
-      }
-      if (observationFailure !== undefined && firstFailure !== undefined) {
-        observationFailure = firstFailure
+        if (!resumed) observationFailure = firstFailure
       }
       if (observationBudgetExceeded) {
         // Preserve a definite exact-result error instead of masking it as observation loss.
@@ -2917,7 +2887,9 @@ async function providerExecutionSource(
           throw new RetainedExecutionPendingError(
             new AggregateError(
               [observationFailure?.error, error],
-              'retained event stream had no terminal event and its exact result is unavailable',
+              `retained event stream had no terminal event (${observationFailureText(
+                observationFailure ?? { error: 'no observation failure was recorded' },
+              )}) and its exact result is unavailable`,
               { cause: error },
             ),
             'terminal-event-lost',
@@ -2926,7 +2898,7 @@ async function providerExecutionSource(
         if (observationFailure === undefined) throw error
         throw new AggregateError(
           [observationFailure.error, error],
-          'retained event observation failed and its exact result could not be reconciled',
+          `retained event observation failed (${observationFailureText(observationFailure)}) and its exact result could not be reconciled`,
           { cause: error },
         )
       }
@@ -2943,13 +2915,7 @@ async function providerExecutionSource(
                 eventStreamComplete: false,
                 ...(result.usage === undefined ? { tokensKnown: false } : {}),
                 ...(result.usage?.cost === undefined ? { usdKnown: false } : {}),
-                eventStreamError: String(
-                  defaultRedactor(
-                    observationFailure.error instanceof Error
-                      ? observationFailure.error.message
-                      : String(observationFailure.error),
-                  ),
-                ).slice(0, 2_048),
+                eventStreamError: observationFailureText(observationFailure),
               }),
         },
         ...(result.usage ? { usage: result.usage } : {}),
@@ -3877,6 +3843,24 @@ function resultTextFromData(data: Record<string, unknown>): string | undefined {
     if (typeof data[key] === 'string') return data[key]
   }
   return undefined
+}
+
+function isTerminalEnvironmentEvent(event: AgentEnvironmentEvent): boolean {
+  if (isTerminalEventShape(event.type, event.data)) return true
+  const normalized = event.normalized
+  return (
+    normalized?.type === 'status' &&
+    (normalized.status === 'completed' || normalized.status === 'failed')
+  )
+}
+
+function isTerminalEventShape(type: string, data: Record<string, unknown>): boolean {
+  if (type === 'error' || isSandboxTerminalEvent(type)) return true
+  // A namespaced completion this provider transport may emit under any prefix. Broader than the
+  // named sandbox list on purpose: an unknown `<x>.completed` still ends the stream.
+  if (type.endsWith('.completed') || type.endsWith('.failed')) return true
+  if (type !== 'status') return false
+  return data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled'
 }
 
 function isUsageType(type: string): boolean {

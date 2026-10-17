@@ -479,8 +479,9 @@ export type RuntimeStreamEvent =
       error?: BackendErrorDetail
       /**
        * The terminal failure as values — a stable `code`, the `owner` who must act, and redacted
-       * `cause` text. Set beside `error` when the run failed or was aborted; consumers branch on
-       * it instead of matching `reason` or `error.message` text.
+       * `cause` text. `runAgentTaskStream` and `streamAgentTurn` set it on every failed or aborted
+       * final, including a failure the Sandbox reported without throwing; consumers branch on it
+       * instead of matching `reason` or `error.message` text.
        */
       failure?: RuntimeFailureCause
       timestamp: string

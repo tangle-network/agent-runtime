@@ -330,6 +330,7 @@ export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
 export {
   type RuntimeFailureCause,
   type RuntimeFailureCode,
+  type RuntimeFailureContext,
   type RuntimeFailureOwner,
   runtimeFailureCause,
   settlementFailureCause,

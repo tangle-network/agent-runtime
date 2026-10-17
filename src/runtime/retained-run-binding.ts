@@ -372,11 +372,6 @@ export function isTerminalSessionStatus(status: AgentSessionStatus | null): bool
   return status !== null && sessionStatusIsTerminal[status]
 }
 
-/** The provider positively reports the execution still running. `unknown` is not that report. */
-export function isLiveSessionStatus(status: AgentSessionStatus | null): boolean {
-  return status === 'running' || status === 'pending' || status === 'provisioning'
-}
-
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.reject(abortError(signal.reason))
   return new Promise((resolveDelay, rejectDelay) => {

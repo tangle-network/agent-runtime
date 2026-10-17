@@ -39,6 +39,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
+import type { RuntimeFailureCause } from '../failure-cause'
 import type { HarnessTranscriptCapture, HarnessTranscriptEvidence } from '../harness-transcript'
 import type { RetainedInteractiveRunHandle } from '../retained-interactive-types'
 import type { RetainedRunEffect } from '../retained-run-types'
@@ -1083,6 +1084,11 @@ export type Settled<Out> =
        *  `retainedExecution` is; the `reason` text names the same thing, but a reader must never
        *  have to parse it (#1204). */
       retainedPendingCause?: RetainedPendingCause
+      /** Why the executor threw, classified from the thrown error and the child's abort signal
+       *  while both were still values. Present on a live settlement whose executor threw; the
+       *  journal does not record it, so a replayed settlement leaves it to
+       *  `settlementFailureCause`. */
+      failure?: RuntimeFailureCause
       /** Present when this child led workers of its own: a bounded account of its team. */
       subtree?: SubtreeSummary
       /** Epoch ms parsed from the durable settlement/cancellation record when available. */

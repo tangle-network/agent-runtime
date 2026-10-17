@@ -745,7 +745,13 @@ async function* streamAgentTurnInternal(
       (err instanceof BackendTransportError
         ? { kind: 'transport', message, status: err.status, body: err.body }
         : { kind: 'backend', message })
-    const failure = runtimeFailureCause(err, opts.signal)
+    // The turn's own deadline is not the caller's cancellation, and a failure the Sandbox reported
+    // is classified from its outcome, the same source as `status`, `reason` and `error` above.
+    const deadlineExpired = !callerAborted && deadline.signal.aborted
+    const failure =
+      callerAborted || deadlineExpired || sandboxProjection?.failure === undefined
+        ? runtimeFailureCause(err, { signal: opts.signal, deadlineExpired })
+        : sandboxProjection.failure
     yield {
       type: 'backend_error',
       task,

@@ -132,12 +132,14 @@ function tokenCount(value: number | null | undefined): number {
 /**
  * The conserved-pool spend one eval analyst run reports, or `undefined` when it made no model
  * call. Accounting the receipt did not capture stays explicitly unknown: one-sided token counts
- * are a known subtotal, and an estimated price is carried as `usdEstimated`, never as a charge.
+ * are a known subtotal, token counts the transport derived rather than the provider measured are
+ * not a measurement, and an estimated price is carried as `usdEstimated`, never as a charge.
  */
 function analystUsageSpend(usage: AnalystUsageReceipt | undefined): Spend | undefined {
   if (usage === undefined || usage.calls === 0) return undefined
   const tokens = usage.tokens
-  const tokensKnown = tokens !== null && tokens.tokensKnown !== false
+  const tokensKnown =
+    tokens !== null && tokens.tokensKnown !== false && usage.tokensEstimated !== true
   const cost = usage.cost
   const priced = cost.kind === 'uncaptured' ? (usage.knownCostUsd ?? 0) : cost.usd
   const usd = Number.isFinite(priced) && priced > 0 ? priced : 0

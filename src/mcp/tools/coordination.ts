@@ -285,8 +285,9 @@ export interface AnalystRunContext {
   /**
    * Charge the model spend this lens run made to the run's conserved pool — the pool an agent
    * analyst reserves from. A registry whose lens calls a model calls this with the spend it
-   * measured; unknown tokens or dollars stay explicitly unknown. The spend is journaled before any
-   * refusal, and under a dollar ceiling an unknown dollar cost is refused, which fails the run.
+   * measured; unknown tokens or dollars stay explicitly unknown. The spend is journaled as
+   * Runtime-owned accounting. Under a dollar ceiling an unknown dollar cost closes the pool's
+   * dollar admission, as an agent analyst's unknown cost does, and the lens keeps its findings.
    */
   readonly charge: (spend: Spend) => Promise<void>
 }
@@ -2651,13 +2652,16 @@ export function createCoordinationToolsForManager(
 
   // A registry lens spends from the same conserved pool an agent analyst reserves from. Its spend
   // is Runtime-owned accounting on this manager's node: journaled as `metered`, never an owner turn.
+  // The lens already ran, so an unknown dollar cost closes dollar admission rather than being
+  // refused: a refusal would replace the findings it paid for with `analystRunFailed`.
   const analystRunContext = (kind: string, sourceWorker: string): AnalystRunContext => ({
     charge: (spend) =>
-      meterRuntimeOwnedAccounting(opts.scope, spend, {
-        role: 'analyst',
-        analyst: kind,
-        sourceWorker,
-      }),
+      meterRuntimeOwnedAccounting(
+        opts.scope,
+        spend,
+        { role: 'analyst', analyst: kind, sourceWorker },
+        { alreadySpent: true },
+      ),
   })
 
   // Settlements being published with their analysis right now. The settled event is queued first

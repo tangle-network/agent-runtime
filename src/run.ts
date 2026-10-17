@@ -338,7 +338,7 @@ export async function* runAgentTaskStream<TInput extends AgentBackendInput = Age
             body: err.body,
           }
         : { kind: 'backend', message: combinedMessage }
-    const failure = runtimeFailureCause(err, options.signal)
+    const failure = runtimeFailureCause(err, { signal: options.signal })
     const backendError = streamEvent({
       type: 'backend_error',
       task,
