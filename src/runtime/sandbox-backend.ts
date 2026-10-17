@@ -10,6 +10,7 @@
 
 import type { AgentProfile, HarnessType } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions } from '@tangle-network/sandbox'
+import { assertSandboxProfileCompatibility } from './sandbox-profile-compat'
 import { assertExecutableAgentProfile, concreteProfileModel } from './supervise/model-policy'
 
 type BackendType = NonNullable<CreateSandboxOptions['backend']>['type']
@@ -84,6 +85,7 @@ export function buildBackendOptions(
   overrides: Partial<CreateSandboxOptions> | undefined,
 ): CreateSandboxOptions {
   assertExecutableAgentProfile(profile, 'buildBackendOptions')
+  assertSandboxProfileCompatibility(profile, 'sandbox backend profile')
   const base = overrides ?? {}
   const overrideBackend = base.backend
   const overrideProvider = overrideBackend?.model?.provider
