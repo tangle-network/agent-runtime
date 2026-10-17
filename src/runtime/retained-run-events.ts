@@ -84,11 +84,13 @@ async function providerReportsRunning(
 /**
  * The exact execution's canonical events, in provider order, until its terminal frame.
  *
- * A provider stream is transport, not the execution. When it ends after delivering events but
- * before the terminal frame, and the provider still reports the exact execution running, the
- * stream resumes from the last provider position instead of ending: a consumer that reads the
- * exact result next would otherwise wait on a run that is still working and report it lost.
- * Two consecutive resumes that deliver nothing new end the stream, and so does any doubt about
+ * A provider stream is transport, not the execution. When it ends before the terminal frame, and
+ * the provider still reports the exact execution running, the stream resumes from the last
+ * provider position instead of ending: a consumer that reads the exact result next would
+ * otherwise wait on a run that is still working and report it lost. That position is the last
+ * delivered frame, or the caller's `after` cursor when a reconnect lands in a quiet stretch and
+ * the provider closes before any new frame. A subscription that delivers nothing new counts as
+ * quiet; two consecutive quiet subscriptions end the stream, and so does any doubt about
  * the execution's status. A resumed subscription may replay frames already delivered; they are
  * skipped, and a frame two resumed subscriptions deliver with different content is a contract
  * violation.
@@ -133,7 +135,7 @@ export async function* retainedRunEvents(
         const identity = extractTransportEventIdentity(source)
         const sourceCursor = identity.cursor ?? identity.eventId
         verdict(() => assertEventBinding(source, controlRef))
-        if (sourceCursor !== undefined && sourceCursor === since) continue
+        if (sourceCursor === since) continue
         if (isTerminalEnvironmentEvent(source)) sawTerminal = true
         const event = canonicalEvent(source)
         if (!event) {
@@ -223,7 +225,7 @@ export async function* retainedRunEvents(
   for (;;) {
     const deliveredBefore = delivered
     yield* subscription(resumeCursor, resumed)
-    if (sawTerminal || delivered === 0 || resumeCursor === undefined) return
+    if (sawTerminal || resumeCursor === undefined) return
     const progressed = delivered > deliveredBefore
     quietResumes = progressed ? 0 : quietResumes + 1
     if (quietResumes > 1) return
