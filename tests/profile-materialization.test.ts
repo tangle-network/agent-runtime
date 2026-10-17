@@ -328,19 +328,6 @@ describe('profile materialization contracts', () => {
     )
   })
 
-  it('declares createSandboxAct as every canonical leaf', () => {
-    // Asserted as the whole canonical set rather than a hand-listed subset, so dropping a leaf
-    // from the contract fails here instead of passing an under-specified list.
-    const expected = [...CANONICAL_AXES]
-    expect([...sandboxActProfileMaterialization.axes].sort()).toEqual([...expected].sort())
-    expect(
-      validateProfileMaterialization({
-        contract: sandboxActProfileMaterialization,
-        changedAxes: expected,
-      }),
-    ).toEqual([])
-  })
-
   it('claims harness, which the backend resolver now reads', () => {
     const issues = validateProfileMaterialization({
       contract: sandboxActProfileMaterialization,

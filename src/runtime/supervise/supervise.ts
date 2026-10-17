@@ -40,6 +40,7 @@ import {
   promptControlProfileMaterialization,
   promptModelProfileMaterialization,
   renderUnsupported,
+  sandboxProfileMaterialization,
   unsupportedProfileDimensions,
   worktreeCliProfileMaterialization,
 } from '../../agent/profile-materialization'
@@ -555,9 +556,10 @@ function workerTraceUnpropagatedDeclaration(
 function backendProfileMaterialization(backend: ExecutorConfig): ProfileMaterializationContract {
   switch (backend.backend) {
     case 'bridge':
-    case 'sandbox':
     case 'provider':
       return fullProfileMaterialization
+    case 'sandbox':
+      return sandboxProfileMaterialization
     case 'cli-worktree':
       return backend.bridge ? fullProfileMaterialization : worktreeCliProfileMaterialization
     case 'cli-in-place':
