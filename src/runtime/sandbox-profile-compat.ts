@@ -10,7 +10,7 @@ export function assertSandboxProfileCompatibility(
   context = 'candidate profile',
 ): void {
   if (!isRecord(profile)) return
-  if (profile.proxySecrets !== undefined) refuseField('proxySecrets', context)
+  if (profile.proxySecrets !== undefined) refuseSandboxProfileField('proxySecrets', context)
   if (isRecord(profile.mcp)) {
     for (const [name, server] of Object.entries(profile.mcp)) {
       if (!isRecord(server)) continue
@@ -38,12 +38,12 @@ function refuseNonPublicConfigValues(values: unknown, path: string, context: str
       : []
   for (const [field, value] of entries) {
     if (isRecord(value) && value.kind !== 'public') {
-      refuseField(`${field} (${String(value.kind)})`, context)
+      refuseSandboxProfileField(`${field} (${String(value.kind)})`, context)
     }
   }
 }
 
-function refuseField(field: string, context: string): never {
+export function refuseSandboxProfileField(field: string, context = 'candidate profile'): never {
   throw new ValidationError(
     `${context} field ${field} is refused: Sandbox's Interface 4.0.0 cannot carry it yet, and Runtime does not drop it`,
   )

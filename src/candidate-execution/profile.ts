@@ -31,7 +31,10 @@ import {
   resolvePiRuntimePaths,
 } from '@tangle-network/agent-profile-materialize'
 
-import { assertSandboxProfileCompatibility } from '../runtime/sandbox-profile-compat'
+import {
+  assertSandboxProfileCompatibility,
+  refuseSandboxProfileField,
+} from '../runtime/sandbox-profile-compat'
 import {
   canonicalCandidateBytes,
   canonicalCandidateDigest,
@@ -546,7 +549,7 @@ function candidatePublicValue(
   value: AgentProfileConfigValue,
   path: string,
 ): { kind: 'public'; value: string } {
-  if (value.kind !== 'public') refuseFieldSandboxCannotCarry(`${path} (${value.kind})`)
+  if (value.kind !== 'public') refuseSandboxProfileField(`${path} (${value.kind})`)
   return { kind: 'public', value: value.value }
 }
 
