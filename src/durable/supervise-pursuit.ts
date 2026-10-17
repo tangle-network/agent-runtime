@@ -1,10 +1,21 @@
 import { resolve } from 'node:path'
+import {
+  type AgentGraph,
+  type GraphResult,
+  type RunGraphOptions,
+  superviseAgentGraph,
+} from '../runtime/supervise/graph'
 import { readRootStreamReceipt } from '../runtime/supervise/root-stream'
 import { supervisorRunDir } from '../runtime/supervise/run-layout'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import { errorMessage } from '../runtime/util'
-import { composeRuntimeHooks, type RuntimeHookEvent, withPursuitContext } from '../runtime-hooks'
+import {
+  composeRuntimeHooks,
+  type RuntimeHookEvent,
+  type RuntimeHooks,
+  withPursuitContext,
+} from '../runtime-hooks'
 import { createFileObserverHooks } from './observer-journal'
 import { type PursuitProjection, projectPursuit } from './observer-projection'
 import {
@@ -130,19 +141,7 @@ export async function supervisePursuit(
   task: unknown,
   opts: SupervisePursuitOptions,
 ): Promise<SupervisedPursuitResult<Awaited<ReturnType<typeof supervise>>>> {
-  const pursuitId = opts.pursuitId.trim()
-  if (pursuitId.length === 0) {
-    throw new TypeError('supervisePursuit: pursuitId must be non-empty')
-  }
-  const runDir = opts.runDir.trim()
-  if (runDir.length === 0) {
-    throw new TypeError('supervisePursuit: runDir must be non-empty')
-  }
-  if ((opts.retainedAtSettlement as string | undefined) === 'keep') {
-    throw new TypeError(
-      "supervisePursuit: retainedAtSettlement 'keep' cannot hold, because a settled pursuit is never re-entered",
-    )
-  }
+  assertPursuitDirectory(opts, 'supervisePursuit')
 
   if (opts.versions !== undefined) {
     return runPursuitVersions(
@@ -153,19 +152,14 @@ export async function supervisePursuit(
     ) as Promise<SupervisedPursuitResult<Awaited<ReturnType<typeof supervise>>>>
   }
 
-  const observerPath = resolve(runDir, 'observer.jsonl')
-  const settlePath = resolve(runDir, SETTLE_RECORD_FILE)
-  const failurePath = resolve(runDir, FAILURE_RECORD_FILE)
   const {
     pursuitId: _pursuitId,
-    hooks,
+    hooks: _hooks,
     fork,
     versions: _versions,
-    observerDelivery,
+    observerDelivery: _observerDelivery,
     ...superviseOptions
   } = opts
-  const runId = superviseOptions.runId ?? 'supervise'
-  const now = superviseOptions.now ?? Date.now
 
   // A fork is verified on every entry, a resume included, so the recorded root identity it
   // derives is the one the Supervisor's resume contract compares against. It reads only the
@@ -173,15 +167,139 @@ export async function supervisePursuit(
   const forked =
     fork === undefined ? undefined : await prepareRunFork(profile, task, superviseOptions, fork)
 
+  return runDurablePursuit(
+    opts,
+    ({ hooks, steerDir }) =>
+      supervise(forked?.profile ?? profile, task, {
+        ...superviseOptions,
+        ...(forked === undefined ? {} : { execution: forked.execution }),
+        steerDir,
+        // The settle record written at settlement makes this settlement final, so the
+        // environments a retained child holds are released at the barrier instead of kept for a
+        // resume that the record will refuse (measured 2026-09-11: 18 of a 60-slot fleet held 19
+        // to 37 hours).
+        retainedAtSettlement: 'release',
+        hooks,
+      }),
+    (result) => result,
+  )
+}
+
+/** Options for {@link superviseGraphPursuit}: every `runGraph` option, plus the pursuit identity,
+ *  the run directory this execution owns, and optional observer delivery. */
+export interface SuperviseGraphPursuitOptions extends RunGraphOptions {
+  /** Stable objective identity spanning concrete Runtime runs. */
+  readonly pursuitId: string
+  /** The directory this execution owns: journal, blobs, observer journal, lock and terminal
+   *  records. Re-running the same `runDir` and `runId` resumes the graph. */
+  readonly runDir: string
+  /** Always `'release'`, as for {@link supervisePursuit}: a settled graph is never re-entered. */
+  readonly retainedAtSettlement?: 'release'
+  /** As for {@link supervisePursuit}. */
+  readonly observerDelivery?: PursuitObserverDelivery
+}
+
+/**
+ * One-call durable execution of an `AgentGraph`: the graph twin of {@link supervisePursuit}.
+ *
+ * It owns the run directory exactly as `supervisePursuit` does — `supervise.lock` for the life of
+ * the call, `observer.jsonl`, `result.json` once the graph settles, `failure.json` for the most
+ * recent throw, and refusal of a settled directory before any compute — and runs the graph through
+ * `runGraph`'s own path, so the root node is a `supervise()` root and a restarted process resumes
+ * the graph from its spawn journal. `result.json` holds the graph's supervised result, the same
+ * record every supervised run leaves; the edge ledger is the journal's `edge` events and the
+ * returned `result.ledger`. Version chains and forks are `supervisePursuit` features and are not
+ * offered here.
+ */
+export async function superviseGraphPursuit(
+  graph: AgentGraph,
+  opts: SuperviseGraphPursuitOptions,
+): Promise<SupervisedPursuitResult<GraphResult>> {
+  assertPursuitDirectory(opts, 'superviseGraphPursuit')
+  const {
+    pursuitId: _pursuitId,
+    hooks: _hooks,
+    observerDelivery: _observerDelivery,
+    brain,
+    ...graphOptions
+  } = opts
+  return runDurablePursuit(
+    opts,
+    ({ hooks, steerDir }) =>
+      superviseAgentGraph(
+        graph,
+        {
+          ...graphOptions,
+          // The lock, the settle record and the journal name one run, so the graph takes the
+          // directory's run id rather than its own digest-derived default.
+          runId: graphOptions.runId ?? 'supervise',
+          steerDir,
+          retainedAtSettlement: 'release',
+          hooks,
+        },
+        brain,
+      ),
+    (result) => result.result,
+  )
+}
+
+/** The pursuit identity and run directory both durable entries require. */
+function assertPursuitDirectory(
+  opts: {
+    readonly pursuitId: string
+    readonly runDir: string
+    readonly retainedAtSettlement?: string
+  },
+  entry: string,
+): void {
+  if (opts.pursuitId.trim().length === 0) {
+    throw new TypeError(`${entry}: pursuitId must be non-empty`)
+  }
+  if (opts.runDir.trim().length === 0) {
+    throw new TypeError(`${entry}: runDir must be non-empty`)
+  }
+  if (opts.retainedAtSettlement === 'keep') {
+    throw new TypeError(
+      `${entry}: retainedAtSettlement 'keep' cannot hold, because a settled pursuit is never re-entered`,
+    )
+  }
+}
+
+/**
+ * The run directory's lifecycle around one execution: lock, settled-directory refusal, observer
+ * journal, failure record and settle record. `execute` receives the observer-composed hooks and
+ * the steer directory the run's control plane uses; `settled` names the value `result.json` holds.
+ */
+async function runDurablePursuit<Result>(
+  opts: {
+    readonly pursuitId: string
+    readonly runDir: string
+    readonly runId?: string
+    readonly now?: () => number
+    readonly hooks?: RuntimeHooks
+    readonly steerDir?: string
+    readonly observerDelivery?: PursuitObserverDelivery
+  },
+  execute: (seams: { readonly hooks: RuntimeHooks; readonly steerDir: string }) => Promise<Result>,
+  settled: (result: Result) => unknown,
+): Promise<SupervisedPursuitResult<Result>> {
+  const pursuitId = opts.pursuitId.trim()
+  const runDir = opts.runDir.trim()
+  const observerPath = resolve(runDir, 'observer.jsonl')
+  const settlePath = resolve(runDir, SETTLE_RECORD_FILE)
+  const failurePath = resolve(runDir, FAILURE_RECORD_FILE)
+  const runId = opts.runId ?? 'supervise'
+  const now = opts.now ?? Date.now
+
   // The lock is taken before the settle record is read so a run that settles between the read
   // and the lock cannot be re-entered; both refusals happen before the observer journal is touched.
   const lock = await acquireRunDirectoryLock(runDir, runId, now)
   let delivery: PursuitObserverDeliverer | undefined
   let terminalState: 'done' | 'failed' = 'failed'
   try {
-    const settled = await readSettleRecord(runDir)
-    if (settled !== undefined) {
-      throw new SettledRunDirectoryError(settlePath, settled.tree.root, runId)
+    const prior = await readSettleRecord(runDir)
+    if (prior !== undefined) {
+      throw new SettledRunDirectoryError(settlePath, prior.tree.root, runId)
     }
 
     const observer = createFileObserverHooks(observerPath, pursuitId)
@@ -190,28 +308,22 @@ export async function supervisePursuit(
     // narrate about itself. This also makes a zero-spawn/single-agent run observable.
     await observer.journal.appendEvent(rootEvent(pursuitId, runId, 'before', now()))
     delivery =
-      observerDelivery === undefined
+      opts.observerDelivery === undefined
         ? undefined
-        : startPursuitObserverDelivery(observerDelivery, async () =>
+        : startPursuitObserverDelivery(opts.observerDelivery, async () =>
             projectPursuit(await observer.journal.read()),
           )
 
-    let result: Awaited<ReturnType<typeof supervise>>
+    let result: Result
     try {
-      result = await supervise(forked?.profile ?? profile, task, {
-        ...superviseOptions,
-        ...(forked === undefined ? {} : { execution: forked.execution }),
-        // `runDir` owns the pursuit journal and terminal records. The public steer writer addresses
-        // the canonical per-run event directory beneath that root, so keep its control plane there
-        // without moving the durable pursuit records.
-        steerDir: superviseOptions.steerDir ?? supervisorRunDir(runDir, runId),
-        // The settle record written below makes this settlement final, so the environments a
-        // retained child holds are released at the barrier instead of kept for a resume that the
-        // record will refuse (measured 2026-09-11: 18 of a 60-slot fleet held 19 to 37 hours).
-        retainedAtSettlement: 'release',
+      result = await execute({
         // The observer runs first so a caller hook that throws cannot prevent the
         // canonical lifecycle fact from entering the durable journal.
-        hooks: withPursuitContext(pursuitId, composeRuntimeHooks(observer.hooks, hooks)),
+        hooks: withPursuitContext(pursuitId, composeRuntimeHooks(observer.hooks, opts.hooks)),
+        // `runDir` owns the pursuit journal and terminal records. The public steer writer
+        // addresses the canonical per-run event directory beneath that root, so keep its control
+        // plane there without moving the durable pursuit records.
+        steerDir: opts.steerDir ?? supervisorRunDir(runDir, runId),
       })
     } catch (error) {
       let pursuit: PursuitProjection | undefined
@@ -261,7 +373,7 @@ export async function supervisePursuit(
     // A record that cannot be written leaves the attempt open in the journal and the run
     // re-enterable, which replays the settled children and settles again.
     try {
-      await writeSettleRecord(runDir, result)
+      await writeSettleRecord(runDir, settled(result))
     } catch (cause) {
       throw new Error(
         `supervisePursuit: Runtime settled but the settle record ${settlePath} could not be written`,

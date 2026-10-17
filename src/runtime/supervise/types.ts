@@ -1985,6 +1985,9 @@ export type SpawnEvent =
       kind: 'edge'
       /** The destination node when known (a spawned worker's id), else `graph:<node>`. */
       id: NodeId
+      /** The node that drives this edge's graph, when a manager started the graph with `run_graph`.
+       *  One run journal can then hold several graphs' ledgers; absent for the run's own graph. */
+      graph?: NodeId
       edge: {
         kind: 'delegates' | 'analyzes' | 'data'
         from: string

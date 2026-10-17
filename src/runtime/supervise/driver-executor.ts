@@ -100,6 +100,10 @@ interface DriverSpec extends AgentSpec {
   readonly leafDeliverable?: DeliverableSpec<unknown>
   /** The driver returned native evidence without an assignment quality check. */
   readonly unassessedOutput?: () => boolean
+  /** Compose the settled output from the driver's result once its subtree has closed: a
+   *  `run_graph` root returns `{ deliverable, edges }`, the result and the graph's edge ledger.
+   *  The delivery verdict is still derived from the driver's own result. */
+  readonly finishOutput?: (out: unknown) => Promise<unknown>
   readonly recoverExecutor?: ExecutorFactory<unknown>
   readonly traceSource?: () => TraceSource | undefined
   readonly progress?: () => ExecutorProgress | undefined
@@ -125,6 +129,7 @@ export function driverChild<Out>(
   recoverExecutor?: ExecutorFactory<unknown>,
   unassessedOutput?: () => boolean,
   leafDeliverable?: DeliverableSpec<unknown>,
+  finishOutput?: (out: unknown) => Promise<unknown>,
 ): Agent<unknown, Out> {
   const name = profile.name ?? driver.name
   const traceSource = (
@@ -149,6 +154,7 @@ export function driverChild<Out>(
     ...(acceptedSubmission ? { acceptedSubmission } : {}),
     ...(unassessedOutput ? { unassessedOutput } : {}),
     ...(leafDeliverable ? { leafDeliverable } : {}),
+    ...(finishOutput ? { finishOutput } : {}),
     ...(recoverExecutor ? { recoverExecutor } : {}),
     ...(traceSource ? { traceSource } : {}),
     ...(progress ? { progress } : {}),
@@ -387,11 +393,12 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
                 out,
                 acceptedSubmission,
               )
+        const finished = spec.finishOutput ? await spec.finishOutput(out) : out
         artifact = {
           outRef: `${driverRuntime}:${nestedRoot}`,
           // No accepted finalizer output is a present, unassessed result. Undefined is the
           // blob reader's missing-artifact sentinel and cannot round-trip through JSON.
-          out: out === undefined ? null : out,
+          out: finished === undefined ? null : finished,
           spent: childWork,
           ...(verdict ? { verdict } : {}),
         }

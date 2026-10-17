@@ -35,6 +35,7 @@ import {
   createCoordinationToolsForManager,
   type DefinedAnalystRecord,
   type EscalateQuestion,
+  type GraphSubtasks,
   type MakeWorkerAgent,
   type PeerAuditAccess,
   type QuestionEscalationRecord,
@@ -246,6 +247,8 @@ export async function serveCoordinationMcp(
     scope: Scope<unknown>
     blobs: ResultBlobStore
     makeWorkerAgent: MakeWorkerAgent
+    /** Serve `run_graph` — see `CoordinationToolsOptions.graphs`. */
+    graphs?: GraphSubtasks
     authorizeDownMessage?: AuthorizeDownMessage
     perWorker: Budget
     /** Independent completion check exposed to the driver as `submit_result`. The check runs
@@ -483,6 +486,7 @@ export async function serveCoordinationMcpForManager(
       scope: opts.scope,
       blobs: opts.blobs,
       makeWorkerAgent: opts.makeWorkerAgent,
+      ...(opts.graphs ? { graphs: opts.graphs } : {}),
       ...(opts.authorizeDownMessage ? { authorizeDownMessage: opts.authorizeDownMessage } : {}),
       perWorker: opts.perWorker,
       ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),

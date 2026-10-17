@@ -56,6 +56,7 @@ import { ValidationError } from '../../src/errors'
 import type { MakeWorkerAgent, WorkerSpawnContext } from '../../src/mcp/tools/coordination'
 import {
   type AgentGraph,
+  type EdgeTraversal,
   GraphEdgeCapError,
   runGraph as productionRunGraph,
   type RunGraphOptions,
@@ -77,8 +78,8 @@ import type {
   SpawnEvent,
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
-import { runGraph } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { runGraph, supervise } from '../helpers/runtime-with-test-brain'
+import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 // ── Leaf fixtures (the offline execution seam; the graph machinery around them is real) ────────
@@ -2301,6 +2302,251 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
     expect(() =>
       runGraph(graph, { analysts, makeLeafAgent: leafSeam([]), brain: scriptedBrain([]) }),
     ).toThrow(/continuity is a delegates-edge axis only/)
+  })
+})
+
+describe('run_graph — a director runs an agent graph as ONE subtask of its own run', () => {
+  // The director is an ordinary supervise() root that grants itself run_graph. The graph's root
+  // node becomes a nested manager of the director, inside one reservation from the director's
+  // pool, and the graph layer (pinning, directives, the edge ledger) runs around it exactly as
+  // runGraph runs it around a run's root.
+
+  /** OpenAI-shape responses for the injected router transport the nested graph root runs on. */
+  const routerScript = (turns: ReadonlyArray<ScriptedTurn>) => {
+    let turn = 0
+    return async (): Promise<unknown> => {
+      const decision = turns[Math.min(turn, turns.length - 1)]!
+      turn += 1
+      return {
+        model: 'offline-test-model',
+        choices: [
+          {
+            message: {
+              ...(decision.content !== undefined ? { content: decision.content } : {}),
+              ...(decision.toolCalls
+                ? {
+                    tool_calls: decision.toolCalls.map((tc, j) => ({
+                      id: `lead-${turn}-${j}`,
+                      function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+                    })),
+                  }
+                : {}),
+            },
+          },
+        ],
+        usage: { prompt_tokens: 7, completion_tokens: 3 },
+      }
+    }
+  }
+  const router = (turns: ReadonlyArray<ScriptedTurn>) => ({
+    routerBaseUrl: 'http://injected.invalid/v1',
+    routerKey: 'injected-transport',
+    complete: routerScript(turns),
+  })
+  const spawnNode = (name: string, task: string): ScriptedTurn => ({
+    toolCalls: [{ name: 'spawn_worker', arguments: { profile: { name }, task } }],
+  })
+  /** The graph as a model writes it: plain data, directives as `<surface>/v<n>` strings. */
+  const refineGraph = {
+    nodes: [
+      {
+        id: 'lead',
+        profile: testAgentProfile('lead', {
+          harness: 'cli-base',
+          tools: runtimeToolDeclarations('spawn_worker'),
+          prompt: { systemPrompt: 'Run generate, then critique, then refine.' },
+        }),
+      },
+      {
+        id: 'generate',
+        profile: testAgentProfile('generate', { prompt: { systemPrompt: 'You write a draft.' } }),
+      },
+      {
+        id: 'critique',
+        profile: testAgentProfile('critique', {
+          prompt: { systemPrompt: 'You name the weakest line.' },
+        }),
+      },
+      {
+        id: 'refine',
+        profile: testAgentProfile('refine', {
+          prompt: { systemPrompt: 'You fix what the critique names.' },
+        }),
+      },
+    ],
+    edges: ['generate', 'critique', 'refine'].map((to) => ({
+      kind: 'delegates',
+      from: 'lead',
+      to,
+      directive: 'delegates/worker-brief/v1',
+    })),
+  }
+  const director = testAgentProfile('director', {
+    harness: 'cli-base',
+    tools: runtimeToolDeclarations('run_graph', 'spawn_worker'),
+  })
+  const toolResults = (seen: Array<ReadonlyArray<Record<string, unknown>>>, turn: number) =>
+    (seen[turn] ?? [])
+      .filter((message) => message.role === 'tool')
+      .map((message) => JSON.parse(String(message.content)) as Record<string, unknown>)
+
+  it('generate → critique → refine: pinned nodes, one pool, and the deliverable with its edge ledger', async () => {
+    const journal = new InMemorySpawnJournal()
+    const received: AgentProfile[] = []
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+    const res = await supervise(director, 'write a haiku through a graph', {
+      runId: 'grg',
+      journal,
+      budget: { maxIterations: 100, maxTokens: 200_000 },
+      deliverable: { describe: 'the refined haiku', check: (out) => out !== undefined },
+      makeLeafAgent: leafSeam(received),
+      router: router([
+        spawnNode('generate', 'write a draft haiku'),
+        { content: 'waiting for the draft' },
+        // A driver-authored field beyond the name is ignored: the node is pinned.
+        {
+          toolCalls: [
+            {
+              name: 'spawn_worker',
+              arguments: {
+                profile: { name: 'critique', prompt: { systemPrompt: 'smuggled' } },
+                task: 'critique the draft',
+              },
+            },
+          ],
+        },
+        { content: 'waiting for the critique' },
+        spawnNode('refine', 'refine the draft with the critique'),
+        { content: 'waiting for the refinement' },
+        { content: 'done' },
+      ]),
+      brain: scriptedBrain(
+        [
+          {
+            toolCalls: [
+              {
+                name: 'run_graph',
+                arguments: {
+                  graph: refineGraph,
+                  deliverable: 'a refined haiku',
+                  budget: { maxIterations: 30, maxTokens: 40_000 },
+                },
+              },
+            ],
+          },
+          { content: 'waiting for the graph' },
+          { content: 'done' },
+        ],
+        seen,
+      ),
+    })
+
+    // The tool started the graph root as one worker of the director and named the topology.
+    expect(toolResults(seen, 1)).toEqual([
+      expect.objectContaining({
+        workerId: 'grg:s0',
+        graph: { root: 'lead', nodes: ['lead', 'generate', 'critique', 'refine'] },
+      }),
+    ])
+
+    // Every node ran its pinned profile plus the edge directive, never the driver's stub.
+    expect(received.map((profile) => profile.name)).toEqual(['generate', 'critique', 'refine'])
+    expect(received[1]!.prompt?.systemPrompt).toBe('You name the weakest line.')
+    for (const profile of received) {
+      expect(profile.prompt?.instructions?.at(-1)).toContain('delegated sub-task')
+    }
+
+    // The director got the graph's deliverable and its edge ledger back as the worker's output.
+    expect(res.kind).toBe('winner')
+    const out = (res.kind === 'winner' ? res.out : undefined) as {
+      deliverable: unknown
+      edges: EdgeTraversal[]
+    }
+    expect(out.deliverable).toMatchObject({ built: expect.any(String) })
+    expect(out.edges.map((row) => [row.edge, row.outcome, row.continuity, row.workerId])).toEqual([
+      ['delegates:lead->generate', 'delivered', 'fresh', 'grg:s0:s0'],
+      ['delegates:lead->critique', 'delivered', 'fresh', 'grg:s0:s1'],
+      ['delegates:lead->refine', 'delivered', 'fresh', 'grg:s0:s2'],
+    ])
+
+    // The ledger's journal twin lands in the run's own journal, naming the graph's root node.
+    const events = (await journal.loadTree('grg')) ?? []
+    const edges = events.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'edge' }> => event.kind === 'edge',
+    )
+    expect(edges.map((event) => [event.graph, event.id, event.edge.to, event.outcome])).toEqual([
+      ['grg:s0', 'grg:s0:s0', 'generate', 'delivered'],
+      ['grg:s0', 'grg:s0:s1', 'critique', 'delivered'],
+      ['grg:s0', 'grg:s0:s2', 'refine', 'delivered'],
+    ])
+
+    // One pool: the graph is one reservation of the director's, and its nodes are that
+    // reservation's subtree in the same journal.
+    const graphSpawn = events.find((event) => event.kind === 'spawned' && event.id === 'grg:s0')
+    expect(graphSpawn).toMatchObject({ budget: { maxIterations: 30, maxTokens: 40_000 } })
+    const subtree = (await journal.loadTree('grg/grg:s0')) ?? []
+    expect(
+      subtree
+        .filter((event) => event.kind === 'settled' && event.status === 'done')
+        .map((event) => event.id),
+    ).toEqual(['grg:s0:s0', 'grg:s0:s1', 'grg:s0:s2'])
+  })
+
+  it('refuses a graph before any spend, and spawn_worker cannot smuggle a graph root', async () => {
+    const journal = new InMemorySpawnJournal()
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+    const noSpawnRoot = {
+      ...refineGraph,
+      nodes: refineGraph.nodes.map((node) =>
+        node.id === 'lead' ? { ...node, profile: testAgentProfile('lead') } : node,
+      ),
+    }
+    await supervise(director, 'try both', {
+      runId: 'grg-refused',
+      journal,
+      budget: { maxIterations: 100, maxTokens: 200_000 },
+      makeLeafAgent: leafSeam([]),
+      brain: scriptedBrain(
+        [
+          {
+            toolCalls: [
+              {
+                name: 'run_graph',
+                arguments: { graph: noSpawnRoot, deliverable: 'anything' },
+              },
+              {
+                name: 'run_graph',
+                arguments: {
+                  graph: { ...refineGraph, budget: { maxTokens: 1 } },
+                  deliverable: 'anything',
+                },
+              },
+              {
+                name: 'spawn_worker',
+                arguments: {
+                  profile: {
+                    ...testAgentProfile('lead'),
+                    metadata: { agentRuntimeGraph: { nodes: [], edges: [] } },
+                  },
+                  task: 'run a graph without the grant',
+                },
+              },
+            ],
+          },
+          { content: 'done' },
+        ],
+        seen,
+      ),
+    })
+    const [unspawnable, ownBudget, smuggled] = toolResults(seen, 1)
+    expect(unspawnable).toMatchObject({ error: 'invalid-graph' })
+    expect(String(unspawnable!.reason)).toContain('agent_runtime_coordination_spawn_worker')
+    expect(ownBudget).toMatchObject({ error: 'invalid-graph' })
+    expect(String(ownBudget!.reason)).toContain("pass budget as run_graph's own argument")
+    expect(smuggled).toMatchObject({ error: 'invalid-profile' })
+    expect(String(smuggled!.reason)).toContain('call run_graph to run a graph')
+    const events = (await journal.loadTree('grg-refused')) ?? []
+    expect(events.filter((event) => event.kind === 'spawned' && event.parent)).toEqual([])
   })
 })
 

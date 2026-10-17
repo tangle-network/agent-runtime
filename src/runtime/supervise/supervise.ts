@@ -55,6 +55,7 @@ import {
   coordinationVerbNames,
   type DownMessageAuthorizationInput,
   type EscalateQuestion,
+  type GraphSubtasks,
   type MakeWorkerAgent,
   type PeerAuditAccess,
   type SpawnPreflight,
@@ -97,6 +98,16 @@ import type { BusRecord } from './event-bus'
 import { executorFailure } from './executor-outcome'
 import type { SupervisorFinalizer } from './finalizer'
 import {
+  createGraphOverlay,
+  type GraphOverlay,
+  type GraphSubtaskTopology,
+  graphSubtaskOf,
+  parseGraphSubtaskTopology,
+  prepareGraphSubtask,
+  validateGraphTopology,
+} from './graph-overlay'
+import { graphRegistry, loadGraph } from './graph-registry'
+import {
   attestRuntimeOwnedScopeOwner,
   authoredAgentIdentity,
   providerAttemptEvidence,
@@ -121,6 +132,7 @@ import {
 } from './otel-spans'
 import type { PeerMailLimits } from './peer-mail'
 import { createActivityLog } from './progress'
+import { kernelPromptRegistry } from './prompt-registry'
 import { type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import { registerRetainedExecutorPreparation, retainedExecutorSeamKey } from './retained-executor'
@@ -2148,8 +2160,13 @@ async function verifyProfilePromotions(
   }
 }
 
-/** Capabilities a data-only consumer may require before building an opted-in run. */
-export const superviseFleetCapabilities = Object.freeze({ peerAudit: true, traceTools: true })
+/** Capabilities a data-only consumer may require before building an opted-in run. `graphTools`:
+ *  a manager whose profile grants `run_graph` can start an agent graph as one subtask. */
+export const superviseFleetCapabilities = Object.freeze({
+  peerAudit: true,
+  traceTools: true,
+  graphTools: true,
+})
 
 export interface SuperviseOptions {
   /** Whole-run persistence and ownership. SQL contexts are acquired before replay and compute. */
@@ -2307,6 +2324,9 @@ export interface SuperviseOptions {
    *  `false` runs every authored profile exactly as written. Applies to backend-derived workers;
    *  a caller-owned `makeWorkerAgent` decides its own children. */
   readonly inheritSpawnRights?: boolean
+  /** The graph registry directory (`graph-registry`) whose stored graphs a manager's `run_graph`
+   *  may start by `graphDigest`. Omit and `run_graph` takes graphs as data only. */
+  readonly graphRegistry?: string
   /** Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
    *  caller-owned override for a local bridge. */
   readonly driveHarness?: DriveHarness
@@ -2674,6 +2694,7 @@ const superviseOptionKeys = [
   'execution',
   'extraTools',
   'finalizer',
+  'graphRegistry',
   'hooks',
   'inheritSpawnRights',
   'journal',
@@ -3418,6 +3439,46 @@ export function superviseWithTestBrain(
   return superviseWithContext(profile, task, runtimeOptions, brain)
 }
 
+/** A stored graph's topology, from the registry `SuperviseOptions.graphRegistry` names. */
+async function storedGraphTopology(
+  dir: string | undefined,
+  digest: string,
+): Promise<GraphSubtaskTopology> {
+  if (dir === undefined) {
+    throw new ValidationError(
+      'run_graph: this run names no graph registry (SuperviseOptions.graphRegistry), so a ' +
+        'graphDigest cannot resolve; pass the graph as data',
+    )
+  }
+  const stored = await loadGraph(graphRegistry(dir), digest)
+  if (stored === undefined) {
+    throw new ValidationError(`run_graph: the graph registry holds no graph ${digest}`)
+  }
+  return parseGraphSubtaskTopology({ nodes: stored.nodes, edges: stored.edges })
+}
+
+/**
+ * What a `run_graph` subtask settles with once its root manager returned and its subtree closed:
+ * the root's result and the graph's edge ledger. A delegates cap that refused work while the root
+ * delivered nothing ended the graph, not the task, so that fails loud with the cap named, as
+ * `runGraph` fails a root graph with `GraphEdgeCapError`.
+ */
+async function graphSubtaskOutput(overlay: GraphOverlay, out: unknown): Promise<unknown> {
+  const { ledger, exhaustedEdges, exhaustedDelegates } = await overlay.settle()
+  if ((out === undefined || out === null) && exhaustedDelegates.length > 0) {
+    throw new ValidationError(
+      `run_graph: edge traversal cap exhausted on ${exhaustedDelegates.join(', ')} and the graph ` +
+        'delivered nothing — the cap (the cyclic-graph backstop), not the task, ended it; the ' +
+        'edge ledger is in the run journal',
+    )
+  }
+  return {
+    deliverable: out === undefined ? null : out,
+    edges: ledger,
+    ...(exhaustedEdges.length === 0 ? {} : { exhaustedEdges }),
+  }
+}
+
 /**
  * The composer `profileGuidance` selects, or `undefined` when no guidance is selected. The result
  * is re-validated as an AgentProfile, and a composition that breaks the schema is refused as a
@@ -4016,6 +4077,63 @@ function superviseInternal(
     : undefined
 
   const recoveryFactories = new WeakMap<MakeWorkerAgent, ExecutorFactory<unknown>>()
+  // `run_graph`: a manager starts an agent graph as ONE subtask. The graph's root node runs as a
+  // nested manager of the caller, inside the caller's reservation, with the graph layer composed
+  // around it (`graph-overlay`). Served only where this run builds the worker path, because that
+  // path is what pins the graph's nodes; a caller-owned `makeWorkerAgent` decides its own children.
+  const graphOverlays = new Set<GraphOverlay>()
+  const graphSubtasks: GraphSubtasks | undefined =
+    options.makeWorkerAgent === undefined
+      ? {
+          prepare: async (input) => {
+            try {
+              const topology =
+                input.graphDigest === undefined
+                  ? parseGraphSubtaskTopology(input.graph)
+                  : await storedGraphTopology(options.graphRegistry, input.graphDigest)
+              const prepared = prepareGraphSubtask(topology, {
+                registry: kernelPromptRegistry(),
+                ...(analysts ? { analysts } : {}),
+                ...(guidanceComposer ? { guidance: guidanceComposer } : {}),
+              })
+              // Every node is pinned, so a node the run would refuse at its spawn cannot be fixed
+              // by the graph's driver. The run's model policy and pre-flight resolver judge every
+              // node now, while the graph's author can still change it.
+              for (const profile of [
+                prepared.profile,
+                ...topology.nodes
+                  .filter((node) => node.id !== prepared.root)
+                  .map((node) => guidanceComposer?.(node.profile) ?? node.profile),
+              ]) {
+                assertProfileModelsAllowed(profile, options.allowedModels)
+                options.resolveSpawnProfile?.(profile)
+              }
+              return { ok: true as const, ...prepared }
+            } catch (error) {
+              return { ok: false as const, reason: errMessage(error) }
+            }
+          },
+        }
+      : undefined
+  // The graph layer for the root of a `run_graph` subtask, rebuilt from the topology its admitted
+  // profile carries — on a fresh spawn and on recovery alike.
+  const graphOverlayFor = (topology: GraphSubtaskTopology): GraphOverlay => {
+    const registry = kernelPromptRegistry()
+    const overlay = createGraphOverlay(
+      validateGraphTopology(topology.nodes, topology.edges, registry, analysts),
+      {
+        registry,
+        journal,
+        runId,
+        now,
+        ...(guidanceComposer ? { guidance: guidanceComposer } : {}),
+        ...(options.authorizeSpawn ? { authorizeSpawn: options.authorizeSpawn } : {}),
+        subtask: true,
+      },
+    )
+    graphOverlays.add(overlay)
+    return overlay
+  }
   let makeWorkerAgent = options.makeWorkerAgent
   if (!makeWorkerAgent) {
     if (!options.backend && !options.makeLeafAgent) {
@@ -4045,6 +4163,8 @@ function superviseInternal(
       parentOwnerId: string,
       analystLineage = false,
       peerRootOwnerId?: string,
+      // The graph this parent's subtree belongs to, when it is part of a `run_graph` subtask.
+      graph?: GraphOverlay,
     ): MakeWorkerAgent => {
       const makeRecursiveWorker = (
         authoredProfile: AgentProfile,
@@ -4069,10 +4189,13 @@ function superviseInternal(
           ...(spawnContext.analyst !== undefined ? { analyst: spawnContext.analyst } : {}),
           ...(spawnContext.continuity !== undefined ? { continuity: spawnContext.continuity } : {}),
         })
-        // Recovery reconstructs the admitted authority; authorization cannot replace it.
+        // Recovery reconstructs the admitted authority; authorization cannot replace it. Inside a
+        // graph subtask the graph pins each spawn first and hands the pinned profile to the run's
+        // own authority, as `runGraph` does for a run's root graph.
+        const authorize = graph?.authorizeSpawn ?? options.authorizeSpawn
         const decision =
-          !recovering && options.authorizeSpawn
-            ? freezeDetached(options.authorizeSpawn(authorizationInput))
+          !recovering && authorize
+            ? freezeDetached(authorize(authorizationInput))
             : Object.freeze({
                 profile: input,
                 ...(spawnContext.execution ? { execution: spawnContext.execution } : {}),
@@ -4160,6 +4283,17 @@ function superviseInternal(
           spawnContext,
           depth,
         )
+        // The root of a `run_graph` subtask carries its graph's topology, and its whole subtree
+        // runs under that graph's layer. A node already inside a graph cannot start another: the
+        // graph's pinning refuses that spawn before it reaches here, and recovery cannot add one.
+        const subtask = graphSubtaskOf(authorized)
+        if (subtask !== undefined && graph !== undefined) {
+          throw new ValidationError(
+            'supervise: a node of a graph cannot start another graph; add the work as nodes',
+          )
+        }
+        const ownGraph = subtask === undefined ? undefined : graphOverlayFor(subtask)
+        const subtreeGraph = ownGraph ?? graph
         const nestedDriveHarness = isExternalSupervisor(authorized)
           ? driveHarnessForOwner(
               freezeDetached({
@@ -4209,9 +4343,48 @@ function superviseInternal(
             spawnContext.analyst !== undefined ||
             spawnContext.assignmentId.startsWith('analyst:'),
           rootPeerOwner,
+          subtreeGraph,
         )
         const nestedPerWorker = defaultPerWorker(spawnContext.budget, ownerShare)
-        const authorizeNestedMessage = authorizeDownFor(authorized, depth + 1)
+        const runMessageAuthority = authorizeDownFor(authorized, depth + 1)
+        // A graph observes what the run's authority changes: a narrowed steer ledgers `stripped`.
+        const authorizeNestedMessage =
+          subtreeGraph && runMessageAuthority
+            ? subtreeGraph.observeMessages(runMessageAuthority)
+            : runMessageAuthority
+        // Inside a graph, its layer decides what `runGraph` decides for a root graph: the analyst
+        // routes, edge continuity, the pre-flight's pinned profile, and that a node gains no spawn
+        // rights it lacks. It also ledgers the steers and findings each of its managers publishes.
+        const nestedAnalyzeOnSettle = subtreeGraph
+          ? subtreeGraph.routes.length > 0
+            ? subtreeGraph.routes
+            : undefined
+          : options.analyzeOnSettle
+        const nestedContinuity = subtreeGraph
+          ? Object.keys(subtreeGraph.continuityByProfile).length > 0
+            ? subtreeGraph.continuityByProfile
+            : undefined
+          : options.continuityByProfile
+        // The graph resolves which node a spawn names; the run's own resolver then judges that
+        // node. A name that is no node passes through, and pinning refuses it with its reason.
+        const runResolveSpawnProfile = options.resolveSpawnProfile
+        const nestedResolveSpawnProfile = subtreeGraph
+          ? (authored: AgentProfile): AgentProfile => {
+              const pinned = subtreeGraph.resolveSpawnProfile(authored)
+              return runResolveSpawnProfile && pinned !== authored
+                ? runResolveSpawnProfile(pinned)
+                : pinned
+            }
+          : runResolveSpawnProfile
+        const nestedComposeSpawnProfile = subtreeGraph
+          ? composeSpawnProfile
+          : composeSpawnProfileFor(authorized)
+        const nestedObserveNodeEvent: typeof observeNodeEvent = subtreeGraph
+          ? async (context, event, record) => {
+              await observeNodeEvent?.(context, event, record)
+              subtreeGraph.onCoordinationEvent(event)
+            }
+          : observeNodeEvent
         let acceptedSubmission = false
         let unassessedOutput = false
         const peerAudit = depth === 1 ? peerAuditFor(spawnContext.parentNodeId) : undefined
@@ -4224,6 +4397,7 @@ function superviseInternal(
           },
           ...(spawnResourceRoot === undefined ? {} : { spawnResourceRoot }),
           makeWorkerAgent: childFactory,
+          ...(graphSubtasks ? { graphs: graphSubtasks } : {}),
           ...(spawnContext.sourceEvidenceRefs
             ? { sourceEvidenceRefs: spawnContext.sourceEvidenceRefs }
             : {}),
@@ -4247,28 +4421,24 @@ function superviseInternal(
           ...(options.resolveSupervisorTools
             ? { resolveSupervisorTools: options.resolveSupervisorTools }
             : {}),
-          ...(observeNodeEvent ? { observeNodeEvent, replaySettlements: true } : {}),
+          ...(nestedObserveNodeEvent
+            ? { observeNodeEvent: nestedObserveNodeEvent, replaySettlements: true }
+            : {}),
           ...(analysts ? { analysts } : {}),
           ...(options.escalateQuestion ? { escalateQuestion: options.escalateQuestion } : {}),
           ...(!analystLineage &&
           spawnContext.analyst === undefined &&
           !spawnContext.assignmentId.startsWith('analyst:') &&
-          options.analyzeOnSettle
-            ? { analyzeOnSettle: options.analyzeOnSettle }
+          nestedAnalyzeOnSettle
+            ? { analyzeOnSettle: nestedAnalyzeOnSettle }
             : {}),
           ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
           ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
           ...(options.wake !== undefined ? { wake: options.wake } : {}),
-          ...(options.continuityByProfile
-            ? { continuityByProfile: options.continuityByProfile }
-            : {}),
+          ...(nestedContinuity ? { continuityByProfile: nestedContinuity } : {}),
           ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
-          ...(options.resolveSpawnProfile
-            ? { resolveSpawnProfile: options.resolveSpawnProfile }
-            : {}),
-          ...(composeSpawnProfileFor(authorized)
-            ? { composeSpawnProfile: composeSpawnProfileFor(authorized) }
-            : {}),
+          ...(nestedResolveSpawnProfile ? { resolveSpawnProfile: nestedResolveSpawnProfile } : {}),
+          ...(nestedComposeSpawnProfile ? { composeSpawnProfile: nestedComposeSpawnProfile } : {}),
           ...(profileTable ? { profiles: profileTable } : {}),
           ...(options.peerMail ? { peerMail: options.peerMail } : {}),
           ...(options.stopRule ? { stopRule: stopRuleOf(options.stopRule) } : {}),
@@ -4336,6 +4506,7 @@ function superviseInternal(
           recoveryFactories.get(childFactory),
           () => unassessedOutput,
           seatManagedLeaf ? childDeliverable : undefined,
+          ownGraph ? (out) => graphSubtaskOutput(ownGraph, out) : undefined,
         )
       }
       if (
@@ -4455,6 +4626,7 @@ function superviseInternal(
       ...(rootPeerAudit ? { peerAudit: rootPeerAudit } : {}),
       blobs,
       makeWorkerAgent: workerFactory,
+      ...(graphSubtasks ? { graphs: graphSubtasks } : {}),
       ...(authorizeRootMessage ? { authorizeDownMessage: authorizeRootMessage } : {}),
       perWorker,
       ...(ownerShare > 0 ? { preserveOwnerTurns: true } : {}),
@@ -4567,7 +4739,32 @@ function superviseInternal(
         })
       : undefined
     const recorder = spans
-    const hooks = recorder ? composeRuntimeHooks(options.hooks, recorder.hooks) : options.hooks
+    // A `run_graph` subtask's ledger binds each spawn row to the worker the kernel started, on the
+    // same `agent.spawn` events `runGraph` binds a root graph's rows on.
+    const graphSpawnBinder: RuntimeHooks | undefined = graphSubtasks
+      ? {
+          onEvent: (event) => {
+            if (graphOverlays.size === 0) return
+            if (event.target !== 'agent.spawn' || event.phase !== 'after') return
+            const payload = event.payload as
+              | { childId?: unknown; assignmentId?: unknown }
+              | undefined
+            if (typeof payload?.childId !== 'string' || typeof payload.assignmentId !== 'string') {
+              return
+            }
+            const writes: Promise<void>[] = []
+            for (const overlay of graphOverlays) {
+              const write = overlay.bindSpawn(event.parentId, payload.assignmentId, payload.childId)
+              if (write !== undefined) writes.push(write)
+            }
+            return writes.length === 0 ? undefined : Promise.all(writes).then(() => undefined)
+          },
+        }
+      : undefined
+    const hooks =
+      recorder || graphSpawnBinder
+        ? composeRuntimeHooks(options.hooks, recorder?.hooks, graphSpawnBinder)
+        : options.hooks
 
     const supervisor = createSupervisor<unknown, unknown>()
     if (runControl !== undefined) supervisor.attach(runControl)

@@ -63,6 +63,7 @@ import {
   type PeerMailLimits,
 } from '../../runtime/supervise/peer-mail'
 import type { WorkerProgress } from '../../runtime/supervise/progress'
+import { runtimeGraphMetadataKey } from '../../runtime/supervise/provider-visible-profile'
 import { meterRuntimeOwnedAccounting } from '../../runtime/supervise/scope'
 import { detachedFrozen } from '../../runtime/supervise/snapshot'
 import {
@@ -942,6 +943,30 @@ export interface PeerAuditAccess {
   ): Promise<unknown>
 }
 
+/** A graph a manager asked `run_graph` to run, validated and composed by the run that owns the
+ *  worker path, or the reason it was refused. */
+export type GraphSubtaskPreparation =
+  | {
+      readonly ok: true
+      /** The exact profile the spawn runs: the root node's pinned profile with the graph brief. */
+      readonly profile: AgentProfile
+      readonly root: string
+      readonly nodes: ReadonlyArray<string>
+    }
+  | { readonly ok: false; readonly reason: string }
+
+/** How a run starts an agent graph as ONE subtask of a manager (`run_graph`). `supervise()`
+ *  supplies it when it owns the worker path: the graph's root node then runs as a nested manager
+ *  under the graph's node pinning, inside the caller's reservation. */
+export interface GraphSubtasks {
+  /** Validate a graph a manager wrote, or load a stored one by digest, and compose the exact root
+   *  profile the spawn runs. Never throws: a refusal carries its reason. */
+  readonly prepare: (input: {
+    readonly graph?: unknown
+    readonly graphDigest?: string
+  }) => Promise<GraphSubtaskPreparation>
+}
+
 export interface CoordinationToolsOptions {
   readonly scope: Scope<unknown>
   readonly peerAudit?: PeerAuditAccess
@@ -950,6 +975,10 @@ export interface CoordinationToolsOptions {
   readonly sourceEvidenceRefs?: ReadonlyArray<string>
   readonly makeWorkerAgent: MakeWorkerAgent
   readonly perWorker: Budget
+  /** Serve `run_graph`, which starts an agent graph as one subtask under this manager's conserved
+   *  pool. Present only when the run's worker path pins graph nodes; absent, the verb is not
+   *  mounted and a profile that grants it is refused at construction. */
+  readonly graphs?: GraphSubtasks
   /** Called once when this manager declares completion through `stop` or an accepted submission. */
   readonly onStop?: (reason: string | undefined) => void
   /**
@@ -1513,6 +1542,7 @@ export const coordinationVerbNames = [
   'list_analysts',
   'run_analyst',
   'define_analyst',
+  'run_graph',
 ] as const
 
 /**
@@ -1530,6 +1560,31 @@ const wakeEventKinds = [
 ] as const satisfies ReadonlyArray<CoordinationEvent['type']>
 
 const idArg = { type: 'string', description: 'The workerId returned by spawn_worker.' } as const
+
+/** The optional per-spawn budget `spawn_worker` and `run_graph` take. */
+const spawnBudgetArg = {
+  type: 'object',
+  description:
+    'Optional per-spawn budget that merges over the per-worker default (per field). ' +
+    'Only set the ceilings this sub-task needs raised; the conserved pool still fences.',
+  properties: {
+    maxIterations: { type: 'number', minimum: 0 },
+    maxTokens: { type: 'number', minimum: 0 },
+    maxUsd: { type: 'number', minimum: 0 },
+    deadlineMs: { type: 'number', minimum: 0 },
+    resources: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object',
+        properties: {
+          unit: { type: 'string', minLength: 1 },
+          limit: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+        },
+        required: ['unit', 'limit'],
+      },
+    },
+  },
+}
 
 /**
  * Strip zod's object-KEY CODEC artifact from a derived JSON Schema, at every depth.
@@ -3751,6 +3806,188 @@ export function createCoordinationToolsForManager(
     })
   }
 
+  /** One spawn whose exact profile is decided. `spawn_worker` and `run_graph` both admit through
+   *  {@link admitSpawn}, so a graph subtask takes the same pre-flight, budget reservation, key
+   *  semantics and response as any worker. */
+  interface SpawnAdmission {
+    readonly profile: AgentProfile
+    readonly args: Record<string, unknown>
+    readonly task: unknown
+    readonly key: string | undefined
+    readonly continuity: Exclude<ResolvedContinuity, { readonly error: string }>
+    readonly successorOf: string | undefined
+    /** The profile the pre-flight judges: a pinning layer's canonical profile. Read only when a
+     *  pre-flight is configured. */
+    readonly preflightProfile: () => AgentProfile
+    /** The receipt for every resource the server read by path. */
+    readonly resourcesFromPath: ReadonlyArray<unknown>
+    readonly defaultLabel: string
+    /** Fields a started spawn adds to its response. */
+    readonly accepted?: Readonly<Record<string, unknown>>
+  }
+  const admitSpawn = async (input: SpawnAdmission): Promise<unknown> => {
+    const { profile, key, continuity, successorOf } = input
+    const a = input.args
+    const task = detachedFrozen(input.task)
+    const label = typeof a.label === 'string' ? a.label : input.defaultLabel
+    // The ONE pre-journal point that may ask the backend a question: everything below —
+    // assignment, budget reservation, `Scope.spawn` — is synchronous and commits state.
+    if (opts.preflightSpawn) {
+      // The gate judges the profile that will RUN, which the caller resolved.
+      const refusal = await opts.preflightSpawn(input.preflightProfile(), {
+        label,
+        ...(key !== undefined ? { key } : {}),
+        task,
+      })
+      if (refusal) {
+        preflightCounts[refusal.cause] += 1
+        return {
+          error: 'preflight-refused' as const,
+          reason: `the spawn pre-flight refused this profile (${refusal.cause}): ${refusal.detail}`,
+          cause: refusal.cause,
+          detail: refusal.detail,
+          live: liveWorkerCount(),
+          freeSlots: freeWorkerSlots(),
+        }
+      }
+    }
+    const budget = Object.freeze(
+      a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget),
+    )
+    const assignmentId = key !== undefined ? `key:${key}` : `ordinal:${unkeyedAssignmentOrdinal++}`
+    // Minted BEFORE the worker exists, because the agent factory runs inside `scope.spawn` and
+    // the node id is not known until after it. The capability is bound to the concrete worker
+    // below, and sends nothing until then.
+    const peerMailUrl = peerMail?.mintCapability(assignmentId)
+    const context: WorkerSpawnContext = Object.freeze({
+      assignmentId,
+      parentNodeId: opts.scope.view.root,
+      budget,
+      task,
+      label,
+      ...(key !== undefined ? { key } : {}),
+      continuity: continuity.continuity,
+      ...(continuity.continuity === 'resume' ? { resume: continuity.resume } : {}),
+      ...(successorOf !== undefined ? { successorOf } : {}),
+      ...(peerMailUrl !== undefined ? { peerMailUrl } : {}),
+    })
+    const res = opts.scope.spawn(() => opts.makeWorkerAgent(profile, context), task, {
+      budget,
+      label,
+      assignmentId,
+      ...(key !== undefined ? { key } : {}),
+      ...(successorOf !== undefined ? { successorOf } : {}),
+    })
+    // A keyed spawn that resolved to committed work: NOTHING ran — return the finished result
+    // (it is already in the settled ledger, seeded from the resumed scope or recorded when the
+    // cursor yielded it), so the driver folds it in without waiting for a wake.
+    if (res.ok && res.prior?.state === 'completed') {
+      const s = res.prior.settled
+      const { id, status, resumed: _resumed, ...evidence } = projectSettled(s)
+      return Promise.resolve({
+        workerId: id,
+        resumed: 'completed' as const,
+        status,
+        ...evidence,
+        ...(evidence.outRef === undefined
+          ? {}
+          : {
+              outputRead: { tool: 'observe_agent', arguments: { workerId: id } },
+            }),
+        live: liveWorkerCount(),
+        freeSlots: freeWorkerSlots(),
+      })
+    }
+    if (res.ok) {
+      watchWorker(res.handle.id)
+      liveHandles.set(res.handle.id, res.handle)
+      // The capability becomes a sender only now, when there is a concrete worker to speak as.
+      peerMail?.bindCapability(assignmentId, res.handle.id)
+      if (typeof profile.name === 'string' && profile.name.length > 0) {
+        profileNameByWorker.set(res.handle.id, profile.name)
+      }
+    }
+    // A `completed` key returned above, so any prior still attached here is a real re-run:
+    // `retried` means the prior attempt reached a terminal down receipt.
+    const priorHistory =
+      res.ok && res.prior !== undefined && res.prior.state !== 'completed'
+        ? {
+            resumed: res.prior.state,
+            priorWorkerId: res.prior.priorId,
+            ...(res.prior.state === 'retried' ? { priorReason: res.prior.reason } : {}),
+          }
+        : {}
+    // Report the REMAINING capacity alongside the spawn, so one tool call tells the driver
+    // both "it started" and "you can still open N more" — the feedback that lets it fill
+    // slots instead of opening one worker per turn. `null` = uncapped. A fresh spawn under a
+    // key with a failed prior attempt carries that history (`resumed`/`priorWorkerId`), so a
+    // re-run is always explicit. An in-doubt prior is refused above and never duplicated.
+    return Promise.resolve(
+      res.ok
+        ? {
+            workerId: res.handle.id,
+            assignmentId: res.handle.assignmentId ?? assignmentId,
+            ...(res.handle.identity === undefined ? {} : { identity: res.handle.identity }),
+            ...(res.handle.materialization === undefined
+              ? {}
+              : { materialization: res.handle.materialization }),
+            ...(res.handle.executionBindings === undefined
+              ? {}
+              : { executionBindings: res.handle.executionBindings }),
+            // The EFFECTIVE continuity of this spawn, with the resume lineage when it
+            // re-attached — so the driver's transcript states how the node continued.
+            continuity: continuity.continuity,
+            ...(continuity.continuity === 'resume' ? { resume: continuity.resume } : {}),
+            ...(successorOf !== undefined ? { successorOf } : {}),
+            status: res.handle.status,
+            live: liveWorkerCount(),
+            queued: queuedWorkerCount(),
+            freeSlots: freeWorkerSlots(),
+            ...priorHistory,
+            // The receipt for every resource the server read by path: the manager can check
+            // the sha256 against its own file instead of trusting that the bytes arrived.
+            ...(input.resourcesFromPath.length === 0
+              ? {}
+              : { resourcesFromPath: input.resourcesFromPath }),
+            ...input.accepted,
+          }
+        : {
+            error: res.reason,
+            // `usd-unbudgeted` is the one rejection no retry can clear, so it says so: without
+            // that, a driver reads "budget" and walks its request down until it gives up.
+            // A refusal a driver can ACT on: each kind says what happened and what to do next.
+            reason: spawnRefusalReason(res.reason, res.shortfalls, {
+              usdUnbudgeted:
+                "this run's root budget declares no maxUsd, so a child budget naming maxUsd can never be admitted at any amount — spawn with a budget that omits maxUsd",
+              inDoubt:
+                'this key has a prior worker recorded as started without a terminal receipt; no replacement was started because that remote worker may still be running — inspect or recover the exact prior execution before retrying',
+              // Nothing is exhausted and nothing was cancelled: this run's driver already
+              // finished and the supervisor is joining. A caller that reaches here is working
+              // past the end of its own request; the honest report is that the stage never
+              // started, not that it failed.
+              scopeSettled:
+                'this run has already reached its join barrier — its driver returned and the supervisor is settling, so no further worker can be started, joined, or paid for; record this stage as not started',
+            }),
+            ...(res.shortfalls === undefined ? {} : { shortfalls: res.shortfalls }),
+            ...(res.reason === 'usd-unbudgeted'
+              ? {
+                  hint:
+                    "This run's root budget declares no maxUsd, so a child budget naming maxUsd " +
+                    'can never be admitted — at any amount. Retrying with a smaller maxUsd will ' +
+                    'fail identically. Spawn with a budget that omits maxUsd, or ask the caller ' +
+                    'to give the run a root maxUsd.',
+                }
+              : res.reason === 'in-doubt'
+                ? {
+                    hint: 'Do not retry this key. Use the recorded prior worker identity to inspect or recover that exact execution. A terminal receipt or explicit recovery is required before replacement work can start.',
+                  }
+                : {}),
+            live: liveWorkerCount(),
+            freeSlots: freeWorkerSlots(),
+          },
+    )
+  }
+
   const tools: McpToolDescriptor[] = [
     {
       name: 'spawn_worker',
@@ -3821,29 +4058,7 @@ export function createCoordinationToolsForManager(
               'a worker still live (`error: "successor-live"` — end your turn until it settles). ' +
               'Put what the successor needs from its predecessor in `task`.',
           },
-          budget: {
-            type: 'object',
-            description:
-              'Optional per-spawn budget that merges over the per-worker default (per field). ' +
-              'Only set the ceilings this sub-task needs raised; the conserved pool still fences.',
-            properties: {
-              maxIterations: { type: 'number', minimum: 0 },
-              maxTokens: { type: 'number', minimum: 0 },
-              maxUsd: { type: 'number', minimum: 0 },
-              deadlineMs: { type: 'number', minimum: 0 },
-              resources: {
-                type: 'object',
-                additionalProperties: {
-                  type: 'object',
-                  properties: {
-                    unit: { type: 'string', minLength: 1 },
-                    limit: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
-                  },
-                  required: ['unit', 'limit'],
-                },
-              },
-            },
-          },
+          budget: spawnBudgetArg,
         },
         required: ['profile', 'task'],
       },
@@ -3891,6 +4106,16 @@ export function createCoordinationToolsForManager(
             })),
           })
         }
+        // Only run_graph starts a graph: the topology a graph root carries is Runtime's to write,
+        // so a profile that carries one would start a graph without the run_graph grant.
+        if (parsedProfile.data.metadata?.[runtimeGraphMetadataKey] !== undefined) {
+          const reason = `metadata.${runtimeGraphMetadataKey} is written by Runtime for the root of a run_graph subtask; call run_graph to run a graph`
+          return {
+            error: 'invalid-profile' as const,
+            reason,
+            issues: [{ path: `metadata.${runtimeGraphMetadataKey}`, message: reason }],
+          }
+        }
         const profile = detachedFrozen(
           opts.composeSpawnProfile
             ? agentProfileSchema.parse(opts.composeSpawnProfile(parsedProfile.data))
@@ -3934,168 +4159,20 @@ export function createCoordinationToolsForManager(
             }
           }
         }
-        const task = detachedFrozen(a.task)
-        const label = typeof a.label === 'string' ? a.label : 'worker'
-        // The ONE pre-journal point that may ask the backend a question: everything below —
-        // assignment, budget reservation, `Scope.spawn` — is synchronous and commits state.
-        if (opts.preflightSpawn) {
+        return admitSpawn({
+          profile,
+          args: a,
+          task: a.task,
+          key,
+          continuity,
+          successorOf,
           // The gate judges the profile that will RUN. A pinning layer resolves the authored stub
           // to its canonical profile here, so the backend is asked about the real model and tools.
-          const preflightProfile = opts.resolveSpawnProfile
-            ? detachedFrozen(opts.resolveSpawnProfile(profile))
-            : profile
-          const refusal = await opts.preflightSpawn(preflightProfile, {
-            label,
-            ...(key !== undefined ? { key } : {}),
-            task,
-          })
-          if (refusal) {
-            preflightCounts[refusal.cause] += 1
-            return {
-              error: 'preflight-refused' as const,
-              reason: `the spawn pre-flight refused this profile (${refusal.cause}): ${refusal.detail}`,
-              cause: refusal.cause,
-              detail: refusal.detail,
-              live: liveWorkerCount(),
-              freeSlots: freeWorkerSlots(),
-            }
-          }
-        }
-        const budget = Object.freeze(
-          a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget),
-        )
-        const assignmentId =
-          key !== undefined ? `key:${key}` : `ordinal:${unkeyedAssignmentOrdinal++}`
-        // Minted BEFORE the worker exists, because the agent factory runs inside `scope.spawn` and
-        // the node id is not known until after it. The capability is bound to the concrete worker
-        // below, and sends nothing until then.
-        const peerMailUrl = peerMail?.mintCapability(assignmentId)
-        const context: WorkerSpawnContext = Object.freeze({
-          assignmentId,
-          parentNodeId: opts.scope.view.root,
-          budget,
-          task,
-          label,
-          ...(key !== undefined ? { key } : {}),
-          continuity: continuity.continuity,
-          ...(continuity.continuity === 'resume' ? { resume: continuity.resume } : {}),
-          ...(successorOf !== undefined ? { successorOf } : {}),
-          ...(peerMailUrl !== undefined ? { peerMailUrl } : {}),
+          preflightProfile: () =>
+            opts.resolveSpawnProfile ? detachedFrozen(opts.resolveSpawnProfile(profile)) : profile,
+          resourcesFromPath: resourcePaths.resolved,
+          defaultLabel: 'worker',
         })
-        const res = opts.scope.spawn(() => opts.makeWorkerAgent(profile, context), task, {
-          budget,
-          label,
-          assignmentId,
-          ...(key !== undefined ? { key } : {}),
-          ...(successorOf !== undefined ? { successorOf } : {}),
-        })
-        // A keyed spawn that resolved to committed work: NOTHING ran — return the finished result
-        // (it is already in the settled ledger, seeded from the resumed scope or recorded when the
-        // cursor yielded it), so the driver folds it in without waiting for a wake.
-        if (res.ok && res.prior?.state === 'completed') {
-          const s = res.prior.settled
-          const { id, status, resumed: _resumed, ...evidence } = projectSettled(s)
-          return Promise.resolve({
-            workerId: id,
-            resumed: 'completed' as const,
-            status,
-            ...evidence,
-            ...(evidence.outRef === undefined
-              ? {}
-              : {
-                  outputRead: { tool: 'observe_agent', arguments: { workerId: id } },
-                }),
-            live: liveWorkerCount(),
-            freeSlots: freeWorkerSlots(),
-          })
-        }
-        if (res.ok) {
-          watchWorker(res.handle.id)
-          liveHandles.set(res.handle.id, res.handle)
-          // The capability becomes a sender only now, when there is a concrete worker to speak as.
-          peerMail?.bindCapability(assignmentId, res.handle.id)
-          if (typeof profile.name === 'string' && profile.name.length > 0) {
-            profileNameByWorker.set(res.handle.id, profile.name)
-          }
-        }
-        // A `completed` key returned above, so any prior still attached here is a real re-run:
-        // `retried` means the prior attempt reached a terminal down receipt.
-        const priorHistory =
-          res.ok && res.prior !== undefined && res.prior.state !== 'completed'
-            ? {
-                resumed: res.prior.state,
-                priorWorkerId: res.prior.priorId,
-                ...(res.prior.state === 'retried' ? { priorReason: res.prior.reason } : {}),
-              }
-            : {}
-        // Report the REMAINING capacity alongside the spawn, so one tool call tells the driver
-        // both "it started" and "you can still open N more" — the feedback that lets it fill
-        // slots instead of opening one worker per turn. `null` = uncapped. A fresh spawn under a
-        // key with a failed prior attempt carries that history (`resumed`/`priorWorkerId`), so a
-        // re-run is always explicit. An in-doubt prior is refused above and never duplicated.
-        return Promise.resolve(
-          res.ok
-            ? {
-                workerId: res.handle.id,
-                assignmentId: res.handle.assignmentId ?? assignmentId,
-                ...(res.handle.identity === undefined ? {} : { identity: res.handle.identity }),
-                ...(res.handle.materialization === undefined
-                  ? {}
-                  : { materialization: res.handle.materialization }),
-                ...(res.handle.executionBindings === undefined
-                  ? {}
-                  : { executionBindings: res.handle.executionBindings }),
-                // The EFFECTIVE continuity of this spawn, with the resume lineage when it
-                // re-attached — so the driver's transcript states how the node continued.
-                continuity: continuity.continuity,
-                ...(continuity.continuity === 'resume' ? { resume: continuity.resume } : {}),
-                ...(successorOf !== undefined ? { successorOf } : {}),
-                status: res.handle.status,
-                live: liveWorkerCount(),
-                queued: queuedWorkerCount(),
-                freeSlots: freeWorkerSlots(),
-                ...priorHistory,
-                // The receipt for every resource the server read by path: the manager can check
-                // the sha256 against its own file instead of trusting that the bytes arrived.
-                ...(resourcePaths.resolved.length === 0
-                  ? {}
-                  : { resourcesFromPath: resourcePaths.resolved }),
-              }
-            : {
-                error: res.reason,
-                // `usd-unbudgeted` is the one rejection no retry can clear, so it says so: without
-                // that, a driver reads "budget" and walks its request down until it gives up.
-                // A refusal a driver can ACT on: each kind says what happened and what to do next.
-                reason: spawnRefusalReason(res.reason, res.shortfalls, {
-                  usdUnbudgeted:
-                    "this run's root budget declares no maxUsd, so a child budget naming maxUsd can never be admitted at any amount — spawn with a budget that omits maxUsd",
-                  inDoubt:
-                    'this key has a prior worker recorded as started without a terminal receipt; no replacement was started because that remote worker may still be running — inspect or recover the exact prior execution before retrying',
-                  // Nothing is exhausted and nothing was cancelled: this run's driver already
-                  // finished and the supervisor is joining. A caller that reaches here is working
-                  // past the end of its own request; the honest report is that the stage never
-                  // started, not that it failed.
-                  scopeSettled:
-                    'this run has already reached its join barrier — its driver returned and the supervisor is settling, so no further worker can be started, joined, or paid for; record this stage as not started',
-                }),
-                ...(res.shortfalls === undefined ? {} : { shortfalls: res.shortfalls }),
-                ...(res.reason === 'usd-unbudgeted'
-                  ? {
-                      hint:
-                        "This run's root budget declares no maxUsd, so a child budget naming maxUsd " +
-                        'can never be admitted — at any amount. Retrying with a smaller maxUsd will ' +
-                        'fail identically. Spawn with a budget that omits maxUsd, or ask the caller ' +
-                        'to give the run a root maxUsd.',
-                    }
-                  : res.reason === 'in-doubt'
-                    ? {
-                        hint: 'Do not retry this key. Use the recorded prior worker identity to inspect or recover that exact execution. A terminal receipt or explicit recovery is required before replacement work can start.',
-                      }
-                    : {}),
-                live: liveWorkerCount(),
-                freeSlots: freeWorkerSlots(),
-              },
-        )
       },
     },
     {
@@ -4908,6 +4985,96 @@ export function createCoordinationToolsForManager(
           : tool,
       ),
     )
+  }
+
+  if (opts.graphs) {
+    const graphs = opts.graphs
+    tools.push({
+      name: 'run_graph',
+      description:
+        'Run an agent graph as ONE subtask instead of one worker: a fixed topology whose nodes are ' +
+        'profiles and whose edges carry directives, driven by its root node. Pass `graph` ' +
+        "({ nodes: [{ id, profile }], edges: [{ kind: 'delegates', from, to, directive: " +
+        "'delegates/worker-brief/v1' }] }, where each profile.name equals its node id and the " +
+        'root node grants agent_runtime_coordination_spawn_worker) or `graphDigest` (a graph ' +
+        "stored in this run's graph registry). `deliverable` is what the graph must deliver; it " +
+        "becomes the root node's task. The subtask reserves `budget` (merged over the per-worker " +
+        'default, as for spawn_worker) from your conserved pool, and the whole graph spends only ' +
+        'that. Every node runs its own pinned profile; the run keeps its checks and graders, ' +
+        'which are never graph nodes. Returns a workerId as spawn_worker does; end your turn and ' +
+        'you are woken when the graph settles. Its output is { deliverable, edges }: the root ' +
+        "node's result and the edge ledger (every traversal, also recorded in the run journal).",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          graph: {
+            type: 'object',
+            description:
+              'The graph as data: { nodes: [{ id, profile }], edges: [...] }. Delegates edges ' +
+              'run from the root to each worker node; an optional analyzes edge ' +
+              "({ kind: 'analyzes', analyst, over, to, directive }) names an analyst node.",
+            additionalProperties: true,
+          },
+          graphDigest: {
+            type: 'string',
+            description: "A stored graph's digest in this run's graph registry, instead of graph.",
+          },
+          deliverable: {
+            type: 'string',
+            description: "What the graph must deliver. It becomes the root node's task.",
+          },
+          budget: spawnBudgetArg,
+          label: { type: 'string', description: 'Optional trace label.' },
+          key: {
+            type: 'string',
+            description:
+              'Optional semantic name for this subtask. The same key never runs twice, as for ' +
+              'spawn_worker: a completed key returns its committed result.',
+          },
+        },
+        required: ['deliverable'],
+      },
+      handler: async (raw) => {
+        const a = obj(raw)
+        const deliverable = typeof a.deliverable === 'string' ? a.deliverable.trim() : ''
+        if (deliverable.length === 0) {
+          return {
+            error: 'invalid-graph' as const,
+            reason: 'deliverable must be a non-empty string: what the graph must deliver',
+          }
+        }
+        if ((a.graph === undefined) === (a.graphDigest === undefined)) {
+          return {
+            error: 'invalid-graph' as const,
+            reason: 'pass exactly one of graph (the graph as data) or graphDigest (a stored graph)',
+          }
+        }
+        if (a.graphDigest !== undefined && typeof a.graphDigest !== 'string') {
+          return { error: 'invalid-graph' as const, reason: 'graphDigest must be a string' }
+        }
+        const key = a.key === undefined ? undefined : str(a.key, 'key')
+        const prepared = await graphs.prepare(
+          typeof a.graphDigest === 'string' ? { graphDigest: a.graphDigest } : { graph: a.graph },
+        )
+        if (!prepared.ok) return { error: 'invalid-graph' as const, reason: prepared.reason }
+        const profile = detachedFrozen(prepared.profile)
+        return admitSpawn({
+          profile,
+          args: a,
+          task: deliverable,
+          key,
+          // A graph root starts fresh: its continuity is its nodes' edges, inside the graph.
+          continuity: { continuity: 'fresh' },
+          successorOf: undefined,
+          // A graph root is canonical already; this manager's resolver still judges it.
+          preflightProfile: () =>
+            opts.resolveSpawnProfile ? detachedFrozen(opts.resolveSpawnProfile(profile)) : profile,
+          resourcesFromPath: [],
+          defaultLabel: `graph:${prepared.root}`,
+          accepted: { graph: { root: prepared.root, nodes: prepared.nodes } },
+        })
+      },
+    })
   }
 
   if (opts.analysts) {

@@ -11,7 +11,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { readSettleRecord, SettledRunDirectoryError } from '../../src/durable/settle-record'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal'
+import { superviseGraphPursuit } from '../../src/durable/supervise-pursuit'
 import { runGraph } from '../../src/runtime/supervise/graph'
 import { conformanceGraph, RUN_ID } from '../helpers/durability/conformance-graph'
 import {
@@ -55,6 +57,38 @@ describe('runGraph durable run context', () => {
     expect(tree).toBeDefined()
     // The resume contract's first reader sees the tree: one root spawned, a begin record before it.
     expect(tree?.filter((e) => e.kind === 'spawned' && e.parent === undefined)).toHaveLength(1)
+  })
+
+  it('superviseGraphPursuit owns the directory: observer journal, result.json, and no re-entry', async () => {
+    const site = openSideEffectSite(dir)
+    const pursue = () =>
+      superviseGraphPursuit(conformanceGraph(), {
+        pursuitId: 'graph-pursuit',
+        runId: RUN_ID,
+        runDir: dir,
+        workerSlots: 3,
+        maxTurns: 24,
+        brain: async () => ({ content: 'done' }),
+        makeLeafAgent: () => {
+          throw new Error('no workers should spawn from a done-only brain')
+        },
+        extraTools: [sideEffectToolSpec()],
+        executeExtraTool: async (name, args) =>
+          name === SIDE_EFFECT_TOOL_NAME
+            ? JSON.stringify(site.commit(String(args.idempotencyKey), args.payload))
+            : null,
+      })
+    const first = await pursue()
+    expect(first.result.result.kind).toBe('no-winner')
+    expect(first.result.runId).toBe(RUN_ID)
+    // The settle record holds the graph's supervised result, the record every supervised run leaves.
+    const settled = await readSettleRecord(dir)
+    expect(settled?.tree.root).toBe(RUN_ID)
+    expect(first.settlePath).toBe(join(dir, 'result.json'))
+    expect(existsSync(first.observerPath)).toBe(true)
+    expect(first.pursuit.runs.map((run) => run.runId)).toContain(RUN_ID)
+    // A settled directory refuses a second graph run before any compute.
+    await expect(pursue()).rejects.toBeInstanceOf(SettledRunDirectoryError)
   })
 
   it('a graph without runDir stays entirely in memory (no writes to disk)', async () => {

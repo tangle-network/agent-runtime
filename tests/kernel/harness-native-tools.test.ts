@@ -40,8 +40,8 @@ function stubScope(): Scope<unknown> {
 
 /** Every tool the coordination MCP can publish, read off the toolbox it actually builds. Every
  *  conditional family is switched on (`deliverable` mounts `submit_result`, `analysts` mounts the
- *  analyst pair, and an `analysts.register` mounts `define_analyst`) so no published name can hide
- *  from the sweep behind an unset option. */
+ *  analyst pair, an `analysts.register` mounts `define_analyst`, and `graphs` mounts `run_graph`)
+ *  so no published name can hide from the sweep behind an unset option. */
 function coordinationToolNames(): ReadonlyArray<string> {
   // A manager with a check is served submit_result and read_continuation; one without is served
   // stop. The sweep reads both, so every reserved verb is built by one of them.
@@ -51,6 +51,7 @@ function coordinationToolNames(): ReadonlyArray<string> {
       blobs,
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
+      graphs: { prepare: async () => ({ ok: false, reason: 'the sweep runs no graph' }) },
       ...(checked
         ? {
             deliverable: { describe: 'anything', check: () => true },

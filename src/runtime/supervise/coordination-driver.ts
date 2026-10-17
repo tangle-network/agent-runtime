@@ -42,6 +42,7 @@ import {
   createCoordinationTools,
   type DownMessageEvent,
   type EscalateQuestion,
+  type GraphSubtasks,
   type MakeWorkerAgent,
   normalizeAnalyzeOnSettle,
   type PeerAuditAccess,
@@ -130,6 +131,8 @@ export interface DriverAgentOptions {
   readonly blobs: ResultBlobStore
   /** Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion seam). */
   readonly makeWorkerAgent: MakeWorkerAgent
+  /** Serve `run_graph` — see `CoordinationToolsOptions.graphs`. */
+  readonly graphs?: GraphSubtasks
   readonly authorizeDownMessage?: AuthorizeDownMessage
   /** Per-child budget reserved from the conserved pool on each spawn. */
   readonly perWorker: Budget
@@ -1019,6 +1022,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         scope,
         blobs: opts.blobs,
         makeWorkerAgent: opts.makeWorkerAgent,
+        ...(opts.graphs ? { graphs: opts.graphs } : {}),
         ...(opts.authorizeDownMessage ? { authorizeDownMessage: opts.authorizeDownMessage } : {}),
         perWorker: opts.perWorker,
         ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),

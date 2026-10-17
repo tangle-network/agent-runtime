@@ -14,3 +14,21 @@
 
 Scenario coverage lives in `tests/kernel/supervise-retained-owner-pending.test.ts` and
 `tests/runtime/retained-capture-resume.test.ts`.
+
+# Graph subtasks
+
+- A `run_graph` subtask is one reservation from its caller's conserved pool. The graph's root node
+  runs as a nested manager inside that reservation, so the whole graph spends only what the caller
+  reserved, and its nodes are that node's subtree in the run's one journal.
+- Every node of a graph runs its canonical profile plus its edge directive. A driver selects a node
+  by name and nothing else it authors reaches the node. Checks and graders stay the run's; a graph
+  node is never one.
+- Every edge traversal of a subtask is an `edge` event in the run's root journal tree, naming the
+  graph's root node in `graph`. The subtask settles with `{ deliverable, edges }`.
+- Only `run_graph` starts a graph: `spawn_worker` refuses a profile carrying
+  `metadata.agentRuntimeGraph`, and a node of a graph cannot start another graph.
+- `superviseGraphPursuit` owns its run directory exactly as `supervisePursuit` does: one live
+  holder, `result.json` once, refusal of a settled directory, and resume from the spawn journal.
+
+Scenario coverage lives in `tests/kernel/graph.test.ts` (`run_graph`),
+`tests/durability/graph-rundir-journal.test.ts` and `tests/durability/graph-kill-resume.test.ts`.
