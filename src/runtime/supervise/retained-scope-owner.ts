@@ -583,7 +583,12 @@ export async function prepareScopeRetainedOwnerSeatSwitch(
     )
   }
   if (mode === 'replace-environment') {
-    await retireSeatEnvironment(scope, state)
+    // A seat may move from a verified checkpoint while the old source remains evidence.
+    // Only a complete capture permits retirement; the continuation exception above does not.
+    const incompleteRetainedSources = await ownerWorkspaceRetentionFailures(owned, state.args, true)
+    if (!incompleteRetainedSources.has(checkpoint.environmentId)) {
+      await retireSeatEnvironment(scope, state)
+    }
     state.forceNewSession = true
   }
   return {
@@ -1780,10 +1785,12 @@ function ownerWorkspaceAttempts(events: readonly SpawnEvent[], nodeId: NodeId): 
 async function ownerWorkspaceRetentionFailures(
   events: readonly SpawnEvent[],
   owner: OwnerRegistration,
+  retainedOnly = false,
 ): Promise<ReadonlySet<string>> {
   const attempts = ownerWorkspaceAttempts(events, owner.nodeId)
   const failures = new Set<string>()
   for (const attempt of attempts) {
+    if (retainedOnly && attempt.workspaceRetention !== true) continue
     if (attempt.environmentIds.size === 0) continue
     // One result receipt cannot prove which source belongs to which environment when a
     // recovered attempt admitted more than one. Preserve every source until a later run can

@@ -69,6 +69,8 @@ function dispatchNotAdmitted(): Error {
 interface Fixture {
   readonly firstTurnFailure?: { error: string }
   readonly captureFailure?: 'throw' | 'partial' | 'raw-partial' | 'recover'
+  /** Rotate from Claude to Codex after the first seat reaches its subscription limit. */
+  readonly seatSwitch?: boolean
   /** Called before each dispatch reaches the provider; throw to refuse it. */
   readonly beforeDispatch?: (call: number) => void
   /** Executions whose result the provider can never return. */
@@ -108,6 +110,38 @@ async function superviseRoot(fixture: Fixture) {
   let steerReplayed = false
   const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
     ...environment,
+    ...(fixture.seatSwitch
+      ? {
+          workspaceBranching: {
+            checkpoint: async (request) => ({
+              status: 'created' as const,
+              idempotencyKey: request.idempotencyKey,
+              requestDigest: request.requestDigest,
+              checkpoint: {
+                checkpointId: `checkpoint-${environment.id}`,
+                provider: environment.provider,
+                source: request.source,
+                idempotencyKey: request.idempotencyKey,
+                requestDigest: request.requestDigest,
+                createdAt: new Date().toISOString(),
+              },
+            }),
+            lookupCheckpoint: async () => {
+              throw new Error('seat switch must use its committed checkpoint')
+            },
+            deleteCheckpoint: async (request) => ({ ...request, status: 'deleted' as const }),
+            fork: async () => {
+              throw new Error('seat switch must create from its checkpoint')
+            },
+            lookupFork: async () => {
+              throw new Error('seat switch must create from its checkpoint')
+            },
+            destroyFork: async () => {
+              throw new Error('seat switch must create from its checkpoint')
+            },
+          },
+        }
+      : {}),
     dispatch: async (turn) => {
       calls += 1
       fixture.beforeDispatch?.(calls)
@@ -207,12 +241,17 @@ async function superviseRoot(fixture: Fixture) {
     ...base,
     capabilities: async () => ({
       ...(await base.capabilities()),
-      create: { runtimeAttachments: { mcp: true } },
+      create: {
+        runtimeAttachments: { mcp: true },
+        ...(fixture.seatSwitch ? { workspaceCheckpoint: true } : {}),
+      },
     }),
     create: async (input) => {
       token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
       const environment = await base.create(input)
       environments.push(environment.id)
+      if (input.workspace?.checkpoint)
+        restoredCheckpointIds.push(input.workspace.checkpoint.checkpointId)
       return wrap(environment)
     },
     get: async (id) => {
@@ -283,7 +322,26 @@ async function superviseRoot(fixture: Fixture) {
   }
   const result = await supervise(
     testAgentProfile('root', {
-      harness: 'codex',
+      harness: fixture.seatSwitch ? 'claude-code' : 'codex',
+      ...(fixture.seatSwitch
+        ? {
+            model: { provider: 'anthropic', default: 'claude-opus-4-1' },
+            seats: [
+              {
+                harness: 'claude-code',
+                provider: 'anthropic',
+                model: 'claude-opus-4-1',
+                selector: { kind: 'all-eligible' as const },
+              },
+              {
+                harness: 'codex',
+                provider: 'openai',
+                model: 'gpt-6-sol',
+                selector: { kind: 'all-eligible' as const },
+              },
+            ],
+          }
+        : {}),
       tools: runtimeToolDeclarations(
         'submit_result',
         ...(fixture.queuedWakesOnFirstResult ? ['failing_record'] : []),
@@ -302,6 +360,24 @@ async function superviseRoot(fixture: Fixture) {
         ...(fixture.captureFailure === undefined ? {} : { workspaceRetention: retention }),
         ...(fixture.resultNeverOn === undefined ? {} : { retainedResultWaitMs: 20 }),
       },
+      ...(fixture.seatSwitch
+        ? {
+            selectSeat: async (request: {
+              stageIndex: number
+              excludedSeatIds: readonly string[]
+            }) =>
+              request.stageIndex === 0 && request.excludedSeatIds.length > 0
+                ? { resumeAt: '2026-01-01T00:00:00.000Z' }
+                : {
+                    seat: request.stageIndex === 0 ? 'claude-seat' : 'codex-seat',
+                    backend: {
+                      backend: 'provider' as const,
+                      provider,
+                      workspaceRetention: retention,
+                    },
+                  },
+          }
+        : {}),
       budget: { maxIterations: 100, maxTokens: 1000, deadlineMs: 60_000 },
       // Strict: three barren failures end the run, with no outage window to shelter them.
       driverRetry: {
@@ -449,6 +525,36 @@ describe('supervised root with a pending retained turn', () => {
     expect(count(events, 'execution-result')).toBe(1)
     expect(events.some((event) => event.kind === 'environment-teardown' && event.destroyed)).toBe(
       false,
+    )
+  })
+
+  it('preserves a raw-partial source through a checkpointed seat switch', async () => {
+    const run = await superviseRoot({
+      captureFailure: 'raw-partial',
+      firstTurnFailure: { error: "You've hit your weekly limit" },
+      seatSwitch: true,
+      submitOn: 2,
+    })
+    expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
+    expect(run.environments).toHaveLength(2)
+    expect(run.dispatched).toHaveLength(2)
+    expect(run.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'workspace-checkpoint',
+          environmentId: run.environments[0],
+        }),
+      ]),
+    )
+    expect(run.destroyed).not.toContain(run.environments[0])
+    expect(run.events).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'environment-teardown',
+          environmentId: run.environments[0],
+          destroyed: true,
+        }),
+      ]),
     )
   })
 
