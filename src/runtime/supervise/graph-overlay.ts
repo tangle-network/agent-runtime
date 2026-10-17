@@ -305,7 +305,10 @@ export function validateGraphTopology(
 
 /** The root node's canonical profile with the graph brief appended: which nodes the driver may
  *  spawn, by exact name, each with its delegation cap and continuity. */
-export function graphRootProfile(validated: ValidatedGraph, registry: PromptRegistry): AgentProfile {
+export function graphRootProfile(
+  validated: ValidatedGraph,
+  registry: PromptRegistry,
+): AgentProfile {
   const { root, workers, delegatesByWorker, analyzes, analystNodes } = validated
   // Driver-destined analyzes findings are standing knowledge for the ROOT: the findings arrive
   // as bus events. For a lens edge the directive tells the driver what to do with them; for a

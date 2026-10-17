@@ -54,7 +54,6 @@ import {
 import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
 import { isLiveNodeStatus } from '../../runtime/supervise/node-status'
-import { runtimeGraphMetadataKey } from '../../runtime/supervise/provider-visible-profile'
 import {
   createPeerMailbox,
   type PeerMailbox,
@@ -62,6 +61,7 @@ import {
   type PeerMailLimits,
 } from '../../runtime/supervise/peer-mail'
 import type { WorkerProgress } from '../../runtime/supervise/progress'
+import { runtimeGraphMetadataKey } from '../../runtime/supervise/provider-visible-profile'
 import { detachedFrozen } from '../../runtime/supervise/snapshot'
 import {
   parseWorkerToolTraceArtifact,
@@ -3797,8 +3797,7 @@ export function createCoordinationToolsForManager(
     const budget = Object.freeze(
       a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget),
     )
-    const assignmentId =
-      key !== undefined ? `key:${key}` : `ordinal:${unkeyedAssignmentOrdinal++}`
+    const assignmentId = key !== undefined ? `key:${key}` : `ordinal:${unkeyedAssignmentOrdinal++}`
     // Minted BEFORE the worker exists, because the agent factory runs inside `scope.spawn` and
     // the node id is not known until after it. The capability is bound to the concrete worker
     // below, and sends nothing until then.
@@ -4941,7 +4940,7 @@ export function createCoordinationToolsForManager(
         "({ nodes: [{ id, profile }], edges: [{ kind: 'delegates', from, to, directive: " +
         "'delegates/worker-brief/v1' }] }, where each profile.name equals its node id and the " +
         'root node grants agent_runtime_coordination_spawn_worker) or `graphDigest` (a graph ' +
-        'stored in this run\'s graph registry). `deliverable` is what the graph must deliver; it ' +
+        "stored in this run's graph registry). `deliverable` is what the graph must deliver; it " +
         "becomes the root node's task. The subtask reserves `budget` (merged over the per-worker " +
         'default, as for spawn_worker) from your conserved pool, and the whole graph spends only ' +
         'that. Every node runs its own pinned profile; the run keeps its checks and graders, ' +
@@ -5010,7 +5009,9 @@ export function createCoordinationToolsForManager(
           // A graph root starts fresh: its continuity is its nodes' edges, inside the graph.
           continuity: { continuity: 'fresh' },
           successorOf: undefined,
-          preflightProfile: () => profile,
+          // A graph root is canonical already; this manager's resolver still judges it.
+          preflightProfile: () =>
+            opts.resolveSpawnProfile ? detachedFrozen(opts.resolveSpawnProfile(profile)) : profile,
           resourcesFromPath: [],
           defaultLabel: `graph:${prepared.root}`,
           accepted: { graph: { root: prepared.root, nodes: prepared.nodes } },

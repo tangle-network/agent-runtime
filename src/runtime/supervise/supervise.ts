@@ -94,6 +94,9 @@ import {
   HarnessTurnFailedError,
 } from './driver-retry'
 import { errMessage } from './error-message'
+import type { BusRecord } from './event-bus'
+import { executorFailure } from './executor-outcome'
+import type { SupervisorFinalizer } from './finalizer'
 import {
   createGraphOverlay,
   type GraphOverlay,
@@ -104,10 +107,6 @@ import {
   validateGraphTopology,
 } from './graph-overlay'
 import { graphRegistry, loadGraph } from './graph-registry'
-import { kernelPromptRegistry } from './prompt-registry'
-import type { BusRecord } from './event-bus'
-import { executorFailure } from './executor-outcome'
-import type { SupervisorFinalizer } from './finalizer'
 import {
   attestRuntimeOwnedScopeOwner,
   authoredAgentIdentity,
@@ -133,6 +132,7 @@ import {
 } from './otel-spans'
 import type { PeerMailLimits } from './peer-mail'
 import { createActivityLog } from './progress'
+import { kernelPromptRegistry } from './prompt-registry'
 import { type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import { registerRetainedExecutorPreparation, retainedExecutorSeamKey } from './retained-executor'
@@ -2160,8 +2160,13 @@ async function verifyProfilePromotions(
   }
 }
 
-/** Capabilities a data-only consumer may require before building an opted-in run. */
-export const superviseFleetCapabilities = Object.freeze({ peerAudit: true, traceTools: true })
+/** Capabilities a data-only consumer may require before building an opted-in run. `graphTools`:
+ *  a manager whose profile grants `run_graph` can start an agent graph as one subtask. */
+export const superviseFleetCapabilities = Object.freeze({
+  peerAudit: true,
+  traceTools: true,
+  graphTools: true,
+})
 
 export interface SuperviseOptions {
   /** Whole-run persistence and ownership. SQL contexts are acquired before replay and compute. */
@@ -4086,14 +4091,24 @@ function superviseInternal(
                 input.graphDigest === undefined
                   ? parseGraphSubtaskTopology(input.graph)
                   : await storedGraphTopology(options.graphRegistry, input.graphDigest)
-              return {
-                ok: true as const,
-                ...prepareGraphSubtask(topology, {
-                  registry: kernelPromptRegistry(),
-                  ...(analysts ? { analysts } : {}),
-                  ...(guidanceComposer ? { guidance: guidanceComposer } : {}),
-                }),
+              const prepared = prepareGraphSubtask(topology, {
+                registry: kernelPromptRegistry(),
+                ...(analysts ? { analysts } : {}),
+                ...(guidanceComposer ? { guidance: guidanceComposer } : {}),
+              })
+              // Every node is pinned, so a node the run would refuse at its spawn cannot be fixed
+              // by the graph's driver. The run's model policy and pre-flight resolver judge every
+              // node now, while the graph's author can still change it.
+              for (const profile of [
+                prepared.profile,
+                ...topology.nodes
+                  .filter((node) => node.id !== prepared.root)
+                  .map((node) => guidanceComposer?.(node.profile) ?? node.profile),
+              ]) {
+                assertProfileModelsAllowed(profile, options.allowedModels)
+                options.resolveSpawnProfile?.(profile)
               }
+              return { ok: true as const, ...prepared }
             } catch (error) {
               return { ok: false as const, reason: errMessage(error) }
             }
@@ -4350,8 +4365,17 @@ function superviseInternal(
             ? subtreeGraph.continuityByProfile
             : undefined
           : options.continuityByProfile
-        const nestedResolveSpawnProfile =
-          subtreeGraph?.resolveSpawnProfile ?? options.resolveSpawnProfile
+        // The graph resolves which node a spawn names; the run's own resolver then judges that
+        // node. A name that is no node passes through, and pinning refuses it with its reason.
+        const runResolveSpawnProfile = options.resolveSpawnProfile
+        const nestedResolveSpawnProfile = subtreeGraph
+          ? (authored: AgentProfile): AgentProfile => {
+              const pinned = subtreeGraph.resolveSpawnProfile(authored)
+              return runResolveSpawnProfile && pinned !== authored
+                ? runResolveSpawnProfile(pinned)
+                : pinned
+            }
+          : runResolveSpawnProfile
         const nestedComposeSpawnProfile = subtreeGraph
           ? composeSpawnProfile
           : composeSpawnProfileFor(authorized)
