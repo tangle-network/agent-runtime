@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.323.0` and `@tangle-network/agent-eval@0.214.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.324.0` and `@tangle-network/agent-eval@0.214.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 313 exports.
+Import from `@tangle-network/agent-runtime` — 319 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -92,12 +92,14 @@ Import from `@tangle-network/agent-runtime` — 313 exports.
 | `runPersonaConversation` | function | Run one worker profile against one persona as a multi-round conversation. |
 | `runPersonaDispatch` | function | Wrap {@link runPersonaConversation} as a `ProfileDispatchFn` for |
 | `runSupervisedKnowledgeUpdate` | function | Run a runtime supervisor that updates one candidate knowledge base and stops on readiness. |
+| `runtimeFailureCause` | function | Classify a thrown failure. Pass the caller's signal so a cancellation the caller asked for is |
 | `runtimeStreamServerSentEvent` | function | Serialize a `RuntimeStreamEvent` as a Server-Sent Event string. |
 | `sanitizeAgentRuntimeEvent` | function | Reduce an `AgentRuntimeEvent` to a PII-safe, serializable plain object for telemetry. |
 | `sanitizeKnowledgeReadinessReport` | function | Strip PII and large blobs from a `KnowledgeReadinessReport` for safe telemetry emission. |
 | `sanitizeRuntimeStreamEvent` | function | Reduce a `RuntimeStreamEvent` to a PII-safe, serializable plain object for telemetry. |
 | `searchMethod` | function | Build Runtime's native search for `improve(profile, { method })`. |
 | `serializeRolloutPolicy` | function | Stable serialization with fixed field order. |
+| `settlementFailureCause` | function | Classify a down settlement from the typed facts Runtime recorded while the cause was still a |
 | `sharedBoxLane` | function | Cells as workers packed into shared Sandbox boxes, `workersPerBox` to a box. |
 | `startRuntimeRun` | function | Construct a runtime-run handle. The returned handle is mutable across its |
 | `structuralRolloutPolicyFromProfile` | function | Read the persisted policy off the profile. `undefined` when the profile does |
@@ -156,6 +158,8 @@ Import from `@tangle-network/agent-runtime` — 313 exports.
 | `RouterEnv` | interface | Env keys the router base URL is resolved from. |
 | `RouterTokenPrice` | interface | USD per token. A null cache rate means the Router lists none, so those tokens bill at `input`. |
 | `RunRecord` | interface | Mandatory paper-grade fields for a single evaluation run. Optional |
+| `RuntimeFailureCause` | interface | A terminal failure as values, carried on final and settled events beside their existing |
+| `RuntimeFailureContext` | interface | What the caller knows about how a failed operation ended. |
 | `RuntimeHooks` | interface | The observation seam attached to a running loop (never to the portable genome). |
 | `SearchCellContext` | interface | What the agent of one attempt knows about where and as what it runs. |
 | `SearchLane` | interface | An execution lane: slots that share one cost rule, and the profiles they cannot run. |
@@ -186,6 +190,8 @@ Import from `@tangle-network/agent-runtime` — 313 exports.
 | `RetryableErrorPredicate` | type | Pure judgment of whether an error is worth retrying. Defaults: TimeoutError, AbortError, fetch-level network errors. |
 | `RetryBackoff` | type | Backoff between attempts. Constant ms, or `(attempt: 1-indexed) => ms`. |
 | `RuntimeCanonicalStreamEvent` | type | Agent Interface events that do not belong to Runtime's task vocabulary. |
+| `RuntimeFailureCode` | type | Stable failure codes. A consumer branches on these, never on `cause` text. |
+| `RuntimeFailureOwner` | type | Who must act before the same work can succeed. |
 | `RuntimeHookPhase` | type | Runtime hook contracts. Hooks are execution-scoped observers, not part of an |
 | `SearchDispatchContext` | type | A campaign dispatch context with the search attempt it runs. |
 | `SearchLaneKind` | type | What a lane's slots are. |
@@ -476,7 +482,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1102 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1109 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -723,6 +729,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1102 exports.
 | `runPersonified` | function | Compose the persona + chosen shape onto a fresh keystone `Supervisor`. Resolves the shape |
 | `runStrategyEvolution` | function | Evolve a strategy on the search kernel and claim once on the sealed test split. |
 | `runTaskQueue` | function | Admit bounded work and yield settlements for the caller's policy to interpret. |
+| `runtimeFailureCause` | function | Classify a thrown failure. Pass the caller's signal so a cancellation the caller asked for is |
 | `safeWorkerFile` | function | A worker label reduced to a safe filename stem. Empty labels get a stable fallback. |
 | `sampleFromSettled` | function | Build a `ProgressSample` from a scope settlement. The objective is the verdict score and |
 | `sandboxCheckRunner` | function | Default CheckRunner backend: pipes the check program into `python3` over the sandbox |
@@ -738,6 +745,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1102 exports.
 | `serveCoordinationMcp` | function | Stand up the existing coordination tools with bounded HTTP access over one live scope. |
 | `settledToIteration` | function | The step-8 merge-boundary adapter (M4): rehydrate a `Settled.done` into the kernel's |
 | `settledWorkerOut` | function | What a settled worker exposes as its output artifact (the blob the brain's |
+| `settlementFailureCause` | function | Classify a down settlement from the typed facts Runtime recorded while the cause was still a |
 | `sharedBoxPlacement` | function | Place accepted workers as processes in a pool of shared Sandbox boxes. |
 | `sharedBoxRefusal` | function | Why a shared box cannot carry `profile`, or `undefined` when it can. |
 | `sharedWorkerClientName` | function | The router client name of the worker that runs supervised node `nodeId`. |
@@ -874,6 +882,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1102 exports.
 | `AnalystFinding` | interface | Unified envelope every analyst emits. Schema-versioned so renderers |
 | `AnalystFindingEvent` | interface | A trace-analyst result re-entered as a message on the bus (the `finding` event kind). |
 | `AnalystKind` | interface | One lens on the menu `list_analysts` shows and `run_analyst` resolves. |
+| `AnalystRunContext` | interface | What the coordination layer hands one registry lens run. |
 | `AnalyzeOnSettleRoute` | interface | One analyst-on-settle ROUTE: which lens runs (`kind`), over WHICH settled workers (`over`), |
 | `AttachWorkerOptions` | interface | Options for reconstructing one worker's exact retained interactive process. |
 | `AuthoredAnalystDefinition` | interface | A trace analyst a MANAGER authored at run time: the research question, the policy for answering |
@@ -1138,6 +1147,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 1102 exports.
 | `RunGraphOptions` | interface | Options for one `runGraph` run. |
 | `RunPersonifiedOptions` | interface | The end-to-end entrypoint. Builds the persona's root `Agent` from the chosen shape, then |
 | `RunProvenance` | interface | Domain-free run provenance: a manifest of what was mounted into the run's |
+| `RuntimeFailureCause` | interface | A terminal failure as values, carried on final and settled events beside their existing |
+| `RuntimeFailureContext` | interface | What the caller knows about how a failed operation ended. |
 | `S3PrivateCasStore` | interface | The S3 store also holds small named pointers beside its content-addressed objects. A pointer |
 | `S3PrivateCasStoreOptions` | interface | An S3-compatible bucket (Amazon S3, Cloudflare R2) addressed with path-style requests. |
 | `SandboxClient` | interface | Minimal sandbox client surface the kernel calls. Satisfied structurally by |
@@ -1349,6 +1360,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 1102 exports.
 | `RunContext` | type | The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext` is the |
 | `RunPersonified` | type | The composed run signature. |
 | `Runtime` | type | The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name. |
+| `RuntimeFailureCode` | type | Stable failure codes. A consumer branches on these, never on `cause` text. |
+| `RuntimeFailureOwner` | type | Who must act before the same work can succeed. |
 | `SandboxOutputMarker` | type | What a settled turn produced, as an explicit marker. |
 | `ScoreOf` | type | Pull the headline score in [0,1] from a record. Default: the held-out split, else the search split, |
 | `SearchSpecOwnedOption` | type | A `SuperviseOptions` key that an axis or a typed input decides. |
@@ -1595,7 +1608,7 @@ Import from `@tangle-network/agent-runtime/testing` — 14 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 253 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 254 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1700,6 +1713,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 253 exports.
 | `AnalystDefinitionIssue` | interface | One rejected field of an authored analyst definition: which field, and what is wrong with it. |
 | `AnalystFindingEvent` | interface | A trace-analyst result re-entered as a message on the bus (the `finding` event kind). |
 | `AnalystKind` | interface | One lens on the menu `list_analysts` shows and `run_analyst` resolves. |
+| `AnalystRunContext` | interface | What the coordination layer hands one registry lens run. |
 | `AuthoredAnalystDefinition` | interface | A trace analyst a MANAGER authored at run time: the research question, the policy for answering |
 | `AuthoredAnalystLimits` | interface | Bounds on the recursive investigation a defined analyst may run. Each field is optional and is |
 | `AuthorizedDownMessage` | interface | Product-authorized continuation bytes. Returning a narrowed instruction replaces the proposed |
