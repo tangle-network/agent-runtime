@@ -7,7 +7,9 @@ export function requirePublicCandidateConfigValue(
   path: string,
 ): string {
   if (value.kind !== 'public') {
-    throw new ValidationError(`candidate ${path} requires a public value; secret references are unsupported`)
+    throw new ValidationError(
+      `candidate ${path} requires a public value; secret references are unsupported`,
+    )
   }
   return value.value
 }

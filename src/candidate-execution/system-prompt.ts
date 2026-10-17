@@ -229,7 +229,8 @@ export function projectCandidatePromptIntents(
   }
   if (
     systemPrompt !== undefined &&
-    requirePublicCandidateConfigValue(systemPrompt, 'profile.systemPrompt') !== requestedSystemPrompt
+    requirePublicCandidateConfigValue(systemPrompt, 'profile.systemPrompt') !==
+      requestedSystemPrompt
   ) {
     throw new Error('profile materializer changed the candidate system prompt')
   }
@@ -244,7 +245,8 @@ export function projectCandidatePromptIntents(
   const intent = requestedReplacement ? 'replacement' : 'addition'
   assertProvableNativeLaunch(plan.harness, projection.executable, launch, intent)
   const launchArgs = (launch.args ?? []).map((value, index) =>
-    requirePublicCandidateConfigValue(value, `launch.args[${index}]`))
+    requirePublicCandidateConfigValue(value, `launch.args[${index}]`),
+  )
   if (requestedReplacement && projection.conflictsWithArgs(launchArgs)) {
     throw new Error(
       `${plan.harness} launch arguments conflict with the candidate profile system prompt`,
@@ -311,8 +313,13 @@ function assertNoShadowingArgs(
   launch: Extract<AgentCandidateLaunch, { kind: 'container-command' }>,
   intent: 'replacement' | 'addition',
 ): void {
-  if (conflictsWithArgs((launch.args ?? []).map((value, index) =>
-    requirePublicCandidateConfigValue(value, `launch.args[${index}]`)))) {
+  if (
+    conflictsWithArgs(
+      (launch.args ?? []).map((value, index) =>
+        requirePublicCandidateConfigValue(value, `launch.args[${index}]`),
+      ),
+    )
+  ) {
     throw new Error(
       `${harness} launch arguments conflict with the candidate profile ${intent === 'replacement' ? 'system' : 'append system'} prompt`,
     )
