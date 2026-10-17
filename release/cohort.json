@@ -16,8 +16,8 @@
     "agentKnowledge": {
       "name": "@tangle-network/agent-knowledge",
       "repository": "tangle-network/agent-knowledge",
-      "version": "22.0.2",
-      "ref": "2e4fd25c151b93ea5809b07fab776b50f9d82885"
+      "version": "22.0.3",
+      "ref": "6dbdfd6e8a818d7760ba9393f62f58a0dad6d4fb"
     }
   }
 }
