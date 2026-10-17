@@ -3460,6 +3460,20 @@ async function storedGraphTopology(
 }
 
 /**
+ * The completion check of a managed node inside a `run_graph` subtask: its submission is accepted
+ * and settles it. Under the run's own check, a node's narrower result is refused for as long as
+ * the run's is: on 2026-10-17 every node of test-canary-graph-tools-20261017a was refused at
+ * submit_result and sent back to the run's commission until the run's deadline, so the graph never
+ * settled and its caller was never woken with it.
+ */
+const graphNodeDeliverable: DeliverableSpec<unknown> = Object.freeze({
+  describe:
+    'the result your task asks for; the graph hands it to the manager that ran the graph, and ' +
+    "the run's own check judges that manager's result",
+  check: () => true,
+})
+
+/**
  * What a `run_graph` subtask settles with once its root manager returned and its subtree closed:
  * the root's result and the graph's edge ledger. A delegates cap that refused work while the root
  * delivered nothing ended the graph, not the task, so that fails loud with the cap named, as
@@ -4296,6 +4310,12 @@ function superviseInternal(
         }
         const ownGraph = subtask === undefined ? undefined : graphOverlayFor(subtask)
         const subtreeGraph = ownGraph ?? graph
+        // A graph node, the graph's root included, settles on its own submission. The graph hands
+        // its result to the manager that called run_graph, and the run's check judges the run's
+        // result, never a node's narrower assignment. A deliverable `resolveDeliverable` chose for
+        // this spawn still applies.
+        const graphNode = subtreeGraph !== undefined && selectedDeliverable === undefined
+        const managerDeliverable = graphNode ? graphNodeDeliverable : childDeliverable
         const nestedDriveHarness = isExternalSupervisor(authorized)
           ? driveHarnessForOwner(
               freezeDetached({
@@ -4451,8 +4471,8 @@ function superviseInternal(
           ...(options.onDriverAttempt ? { onDriverAttempt: options.onDriverAttempt } : {}),
           // A managed child receives its assignment's independent completion check. It can submit
           // work itself, delegate, or do both under the same profile contract.
-          ...(childDeliverable && !seatManagedLeaf ? { deliverable: childDeliverable } : {}),
-          ...(childDeliverable && !seatManagedLeaf
+          ...(managerDeliverable && !seatManagedLeaf ? { deliverable: managerDeliverable } : {}),
+          ...(managerDeliverable && !seatManagedLeaf
             ? {
                 onAcceptedSubmission: () => {
                   acceptedSubmission = true
@@ -4460,8 +4480,10 @@ function superviseInternal(
               }
             : {}),
           // Every external manager with a check in the tree is sent back under the run's one
-          // continuation policy. Its files sit beside the root's, under its own owner id.
-          ...(childDeliverable &&
+          // continuation policy. Its files sit beside the root's, under its own owner id. A graph
+          // node has no part in that policy: it states what the run still owes.
+          ...(managerDeliverable &&
+          !graphNode &&
           !seatManagedLeaf &&
           options.continuation &&
           isExternalSupervisor(authorized)
@@ -4507,7 +4529,7 @@ function superviseInternal(
           () => acceptedSubmission,
           recoveryFactories.get(childFactory),
           () => unassessedOutput,
-          seatManagedLeaf ? childDeliverable : undefined,
+          seatManagedLeaf ? managerDeliverable : undefined,
           ownGraph ? (out) => graphSubtaskOutput(ownGraph, out) : undefined,
         )
       }

@@ -79,7 +79,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { runGraph, supervise } from '../helpers/runtime-with-test-brain'
-import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
+import { type ScriptedTurn, scriptedBrain, wakeEvents } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 // ── Leaf fixtures (the offline execution seam; the graph machinery around them is real) ────────
@@ -2490,6 +2490,94 @@ describe('run_graph — a director runs an agent graph as ONE subtask of its own
         .filter((event) => event.kind === 'settled' && event.status === 'done')
         .map((event) => event.id),
     ).toEqual(['grg:s0:s0', 'grg:s0:s1', 'grg:s0:s2'])
+  })
+
+  it('a graph node settles on its own submission while the run check passes nothing', async () => {
+    // test-canary-graph-tools-20261017a (2026-10-17): the run's check passed no result, as a Lab
+    // run's does until its deadline, and every graph node was held to it. Each submit_result was
+    // refused, the graph never settled, and the director was never woken with its output.
+    const journal = new InMemorySpawnJournal()
+    const leadSaw: Array<Record<string, unknown>> = []
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+    const lead = router([
+      spawnNode('generate', 'write a draft haiku'),
+      { content: 'waiting for the draft' },
+      { toolCalls: [{ name: 'submit_result', arguments: { result: 'the refined haiku' } }] },
+      { content: 'submitted' },
+    ])
+    const submittingGraph = {
+      ...refineGraph,
+      nodes: refineGraph.nodes.map((node) =>
+        node.id === 'lead'
+          ? {
+              ...node,
+              profile: {
+                ...node.profile,
+                tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
+              },
+            }
+          : node,
+      ),
+    }
+    await supervise(
+      testAgentProfile('director', {
+        harness: 'cli-base',
+        tools: runtimeToolDeclarations('run_graph', 'spawn_worker'),
+      }),
+      'write a haiku through a graph',
+      {
+        runId: 'grg-gated',
+        journal,
+        budget: { maxIterations: 100, maxTokens: 200_000 },
+        deliverable: { describe: 'what only the run deadline ends', check: () => false },
+        makeLeafAgent: leafSeam([]),
+        router: {
+          ...lead,
+          complete: async (body: Record<string, unknown>) => {
+            leadSaw.push(body)
+            return lead.complete()
+          },
+        },
+        brain: scriptedBrain(
+          [
+            {
+              toolCalls: [
+                {
+                  name: 'run_graph',
+                  arguments: {
+                    graph: submittingGraph,
+                    deliverable: 'a refined haiku',
+                    budget: { maxIterations: 30, maxTokens: 40_000 },
+                  },
+                },
+              ],
+            },
+            { content: 'waiting for the graph' },
+            { content: 'done' },
+          ],
+          seen,
+        ),
+      },
+    )
+
+    // The lead's own submission was accepted: the run's check is not a node's.
+    const leadResults = leadSaw.flatMap((body) =>
+      ((body.messages ?? []) as Array<Record<string, unknown>>)
+        .filter((message) => message.role === 'tool')
+        .map((message) => String(message.content)),
+    )
+    const submitted = leadResults.filter((content) => content.includes('"accepted"'))
+    expect(submitted.length).toBeGreaterThan(0)
+    expect(JSON.parse(submitted[0]!)).toMatchObject({ accepted: true })
+
+    // The graph settled done and woke the director with it.
+    const subtree = (await journal.loadTree('grg-gated')) ?? []
+    expect(
+      subtree.find((event) => event.kind === 'settled' && event.id === 'grg-gated:s0'),
+    ).toMatchObject({ status: 'done' })
+    expect(wakeEvents(seen[2]!)).toContainEqual(
+      expect.objectContaining({ type: 'settled', status: 'done' }),
+    )
   })
 
   it('refuses a graph before any spend, and spawn_worker cannot smuggle a graph root', async () => {
