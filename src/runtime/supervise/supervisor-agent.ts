@@ -31,6 +31,7 @@ import type {
   CoordinationEvent,
   CoordinationTools,
   EscalateQuestion,
+  GraphSubtasks,
   MakeWorkerAgent,
   ManagerWake,
   PeerAuditAccess,
@@ -531,6 +532,8 @@ export interface SupervisorAgentDeps {
   readonly blobs: ResultBlobStore
   /** Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same for both arms). */
   readonly makeWorkerAgent: MakeWorkerAgent
+  /** Serve `run_graph` (both arms) — see `CoordinationToolsOptions.graphs`. */
+  readonly graphs?: GraphSubtasks
   /** Product authorization for every down-leg continuation to a child. */
   readonly authorizeDownMessage?: AuthorizeDownMessage
   /** Per-child budget reserved from the conserved pool on each spawn. */
@@ -909,6 +912,7 @@ function buildSupervisorAgent(
         ...(deps.onProviderModel ? { onProviderModel: deps.onProviderModel } : {}),
         blobs: deps.blobs,
         makeWorkerAgent: deps.makeWorkerAgent,
+        ...(deps.graphs ? { graphs: deps.graphs } : {}),
         ...(deps.authorizeDownMessage ? { authorizeDownMessage: deps.authorizeDownMessage } : {}),
         perWorker: deps.perWorker,
         ...(deps.preserveOwnerTurns ? { preserveOwnerTurns: true as const } : {}),
@@ -1093,6 +1097,7 @@ function buildSupervisorAgent(
           scope,
           blobs: deps.blobs,
           makeWorkerAgent: deps.makeWorkerAgent,
+          ...(deps.graphs ? { graphs: deps.graphs } : {}),
           ...(deps.authorizeDownMessage ? { authorizeDownMessage: deps.authorizeDownMessage } : {}),
           perWorker: deps.perWorker,
           ...(coordination ?? {}),

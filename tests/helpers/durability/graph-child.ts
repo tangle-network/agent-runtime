@@ -1,7 +1,7 @@
 /**
  * One PHASE of the runGraph kill-and-resume conformance run, as its own OS process — the same
- * pattern as `tests/helpers/supervisor-resume-child.ts`, driven through `runGraph` instead of a
- * hand-built supervisor tree.
+ * pattern as `tests/helpers/supervisor-resume-child.ts`, driven through `superviseGraphPursuit`
+ * (the durable graph entry over `runGraph`) instead of a hand-built supervisor tree.
  *
  * Usage: `node --import tsx graph-child.ts <dir> <phase:1|2> [killAt]`
  *

@@ -22,7 +22,8 @@
 import { appendFileSync, readFileSync } from 'node:fs'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { FileSpawnJournal } from '../../../src/durable/spawn-journal'
-import { type AgentGraph, runGraph } from '../../../src/runtime/supervise/graph'
+import { superviseGraphPursuit } from '../../../src/durable/supervise-pursuit'
+import type { AgentGraph } from '../../../src/runtime/supervise/graph'
 import { promptHandle } from '../../../src/runtime/supervise/prompt-registry'
 import type {
   Agent,
@@ -525,7 +526,10 @@ export async function runGraphPhase(dir: string, phase: string, killAt?: string)
     kill(`driver:turn:${brainCalls}:after`)
     return turn
   }
-  const result = await runGraph(conformanceGraph(), {
+  // The operator entry: it holds the run directory's lock, writes `result.json` at settle, and
+  // resumes the graph from its journal in a new process, as `supervisePursuit` does for a root.
+  const { result } = await superviseGraphPursuit(conformanceGraph(), {
+    pursuitId: 'graph-conformance',
     runId: RUN_ID,
     runDir: dir,
     workerSlots: 3,

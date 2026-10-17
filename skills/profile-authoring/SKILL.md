@@ -40,7 +40,7 @@ A harness's own subagent runs outside Runtime: no journal row, no reservation fr
 Runtime keys (agent-runtime `src/runtime/supervise/provider-visible-profile.ts`; verbs from `coordinationVerbNames` in `src/mcp/tools/coordination.ts`):
 
 - Runtime removes every key that starts with `agent_runtime_coordination_` before the harness sees the profile. Any other spelling reaches the harness and is refused: a bare `knowledge_record`, OpenCode's `agent-runtime-coordination_spawn_worker`, Claude Code's `mcp__agent-runtime-coordination__spawn_worker`, or `agent_runtime_spawn_worker`.
-- Verbs: `spawn_worker`, `cancel_worker`, `observe_agent`, `steer_agent`, `read_journal`, `submit_result`, `report_blocked`, `ask_parent`, `list_questions`, `answer_question`, `read_continuation`, `stop`, `list_analysts`, `run_analyst`, `define_analyst`.
+- Verbs: `spawn_worker`, `cancel_worker`, `observe_agent`, `steer_agent`, `read_journal`, `submit_result`, `report_blocked`, `ask_parent`, `list_questions`, `answer_question`, `read_continuation`, `stop`, `list_analysts`, `run_analyst`, `define_analyst`, `run_graph`.
 - A run's tool provider adds product verbs under the same prefix; Discovery serves `knowledge_read`, `knowledge_search`, `knowledge_resolve` and `knowledge_record`. A declared verb no provider serves fails when the run resolves its tools.
 - `await_event` no longer exists; a profile that grants it is refused.
 

@@ -1,7 +1,9 @@
 /**
- * runGraph kill-and-resume conformance — the file run context (`runDir` → `FileSpawnJournal` +
- * `FileResultBlobStore` + `FileCoordinationLog`), which is the ONLY durable backend a graph run
- * can take today.
+ * runGraph kill-and-resume conformance through the durable graph entry, `superviseGraphPursuit`:
+ * the file run context (`runDir` → `FileSpawnJournal` + `FileResultBlobStore` +
+ * `FileCoordinationLog`) plus the directory's lock and terminal record. A killed process leaves
+ * `supervise.lock` naming a dead pid; the resumed process reclaims it, settles, and writes
+ * `result.json`.
  *
  * Case matrix: every step boundary and mid-step instant a reference run passes through (driver
  * turn edges, each worker's before/mid/after, the side-effect tool's before/after-effect). For
@@ -21,10 +23,13 @@
  */
 
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { RUN_DIRECTORY_LOCK_FILE } from '../../src/durable/run-lock'
+import { readSettleRecord } from '../../src/durable/settle-record'
 import {
   ARTIFACT_KEY,
   auditSpawnJournal,
@@ -203,6 +208,13 @@ describe('runGraph kill-and-resume conformance (file run context)', () => {
 
       // 5. Journal resume-contract clean (the 2026-08-11 signature must stay absent).
       expectJournalClean(final)
+
+      // 6. The durable entry closed the directory: the settle record names this run as the
+      //    winner, and the lock the killed process left was reclaimed and released.
+      const settled = await readSettleRecord(dir)
+      expect(settled?.kind).toBe('winner')
+      expect(settled?.tree.root).toBe(RUN_ID)
+      expect(existsSync(join(dir, RUN_DIRECTORY_LOCK_FILE))).toBe(false)
     },
   )
 })

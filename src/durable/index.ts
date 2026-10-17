@@ -10,8 +10,9 @@
  *   directory for a `supervise()` run. It holds `supervise.lock`
  *   (`acquireRunDirectoryLock`), writes `result.json` or `failure.json`
  *   (`readSettleRecord`, `readFailureRecord`), and gives the run a cross-run
- *   pursuit identity, `fork` lineage and judged `versions`. Products do not use
- *   it for durability; they use Agent App turns.
+ *   pursuit identity, `fork` lineage and judged `versions`.
+ *   `superviseGraphPursuit` owns a directory the same way for a `runGraph`
+ *   run. Products do not use either for durability; they use Agent App turns.
  * - Observation: `FileObserverJournal` is the tamper-evident third-person
  *   history of one execution, and `projectPursuit` is a rebuildable read model
  *   over it. It carries identities, usage, cost provenance, timing and receipts.
@@ -97,8 +98,10 @@ export {
 } from './settle-record'
 export {
   type SupervisedPursuitResult,
+  type SuperviseGraphPursuitOptions,
   SupervisePursuitError,
   type SupervisePursuitOptions,
+  superviseGraphPursuit,
   supervisePursuit,
 } from './supervise-pursuit'
 export {

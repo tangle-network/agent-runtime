@@ -190,6 +190,8 @@ export {
   downMessageRefusalReasons,
   type EscalateQuestion,
   type EventAcknowledgement,
+  type GraphSubtaskPreparation,
+  type GraphSubtasks,
   type LeadMessage,
   type MakeWorkerAgent,
   type ManagerReentryState,
