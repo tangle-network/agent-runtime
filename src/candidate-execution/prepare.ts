@@ -62,6 +62,7 @@ import {
 } from './knowledge'
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
+import { requirePublicCandidateConfigValue } from './public-config'
 import {
   candidateProfileAgentPaths,
   materializeAgentCandidateProfilePlan,
@@ -446,9 +447,11 @@ export async function prepareAgentCandidateExecution(
       materializationReceipt,
       launch: {
         executable: baseLaunch.executable,
-        args: baseLaunch.args.map((value) => value.value),
+        args: baseLaunch.args.map((value, index) =>
+          requirePublicCandidateConfigValue(value, `launch.args[${index}]`)),
         env: unwrapPublicEnvironment(publicEnv),
-        flags: profileApplication.flags.map((value) => value.value),
+        flags: profileApplication.flags.map((value, index) =>
+          requirePublicCandidateConfigValue(value, `profile.flags[${index}]`)),
         cwd: absoluteExecutionCwd(bundle.execution.cwd, task.executionRoots),
       },
       instruction: {
@@ -912,7 +915,8 @@ function mergePublicEnvironment(
   for (const record of records) {
     for (const [name, value] of Object.entries(record)) {
       const previous = output[name]
-      if (previous && previous.value !== value.value) {
+      const publicValue = requirePublicCandidateConfigValue(value, `env.${name}`)
+      if (previous && requirePublicCandidateConfigValue(previous, `env.${name}`) !== publicValue) {
         throw new Error(`candidate and profile environment disagree on ${name}`)
       }
       output[name] = value
@@ -924,7 +928,9 @@ function mergePublicEnvironment(
 function unwrapPublicEnvironment(
   values: Record<string, AgentCandidateConfigValue>,
 ): Record<string, string> {
-  return Object.fromEntries(Object.entries(values).map(([name, value]) => [name, value.value]))
+  return Object.fromEntries(Object.entries(values).map(([name, value]) => [
+    name, requirePublicCandidateConfigValue(value, `env.${name}`),
+  ]))
 }
 
 function modelRoutes(

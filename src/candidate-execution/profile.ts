@@ -1,7 +1,6 @@
 import { posix } from 'node:path'
 
 import type {
-  AgentCandidateConfigValue,
   AgentCandidateLaunch,
   AgentCandidateProfile,
   AgentCandidateProfileActivation,
@@ -603,10 +602,6 @@ function mapCandidatePublicValues(
       candidatePublicValue(value, `${pathPrefix}.${name}`),
     ]),
   )
-}
-
-function publicValue(value: AgentCandidateConfigValue): string {
-  return value.value
 }
 
 function cloneRecord<T>(values: Record<string, T>): Record<string, T> {
