@@ -329,7 +329,8 @@ jobs:
           fi
           # A version string alone is not evidence that the qualified bytes were served.
           # Check npm's archive integrity for both new publication and existing-version retries.
-          for _ in $(seq 1 20); do
+          # npm can take more than 10 minutes to serve a newly published version.
+          for _ in $(seq 1 60); do
             if integrity_json=$(npm view "$name@$version" dist.integrity --json --registry=https://registry.npmjs.org 2>/dev/null); then
               REGISTRY_INTEGRITY_JSON="$integrity_json" EXPECTED_INTEGRITY="$expected_integrity" node <<'NODE'
           const raw = JSON.parse(process.env.REGISTRY_INTEGRITY_JSON)
@@ -343,7 +344,7 @@ jobs:
             fi
             sleep 30
           done
-          echo "::error::$name@$version is not served by the registry after 10 minutes; inspect staging and publication before retrying."
+          echo "::error::$name@$version is not served by the registry after 30 minutes; inspect staging and publication before retrying."
           exit 1
 
   verify-agent-bench:
