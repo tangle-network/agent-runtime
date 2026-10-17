@@ -62,13 +62,13 @@ import {
 } from './knowledge'
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
-import { requirePublicCandidateConfigValue } from './public-config'
 import {
   candidateProfileAgentPaths,
   materializeAgentCandidateProfilePlan,
   PI_CANDIDATE_AGENT_DIR_ENV,
   PI_CANDIDATE_SESSION_DIR_ENV,
 } from './profile'
+import { requirePublicCandidateConfigValue } from './public-config'
 import {
   type AgentCandidateExecutionPorts,
   type AgentCandidateTaskExecution,
@@ -448,10 +448,12 @@ export async function prepareAgentCandidateExecution(
       launch: {
         executable: baseLaunch.executable,
         args: baseLaunch.args.map((value, index) =>
-          requirePublicCandidateConfigValue(value, `launch.args[${index}]`)),
+          requirePublicCandidateConfigValue(value, `launch.args[${index}]`),
+        ),
         env: unwrapPublicEnvironment(publicEnv),
         flags: profileApplication.flags.map((value, index) =>
-          requirePublicCandidateConfigValue(value, `profile.flags[${index}]`)),
+          requirePublicCandidateConfigValue(value, `profile.flags[${index}]`),
+        ),
         cwd: absoluteExecutionCwd(bundle.execution.cwd, task.executionRoots),
       },
       instruction: {
@@ -928,9 +930,12 @@ function mergePublicEnvironment(
 function unwrapPublicEnvironment(
   values: Record<string, AgentCandidateConfigValue>,
 ): Record<string, string> {
-  return Object.fromEntries(Object.entries(values).map(([name, value]) => [
-    name, requirePublicCandidateConfigValue(value, `env.${name}`),
-  ]))
+  return Object.fromEntries(
+    Object.entries(values).map(([name, value]) => [
+      name,
+      requirePublicCandidateConfigValue(value, `env.${name}`),
+    ]),
+  )
 }
 
 function modelRoutes(
