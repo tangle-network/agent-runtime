@@ -125,6 +125,64 @@ it('a pass waiting for a copy in flight stops at its own cancellation', async ()
   expect(await artifacts.offload()).toMatchObject({ durable: 1, pending: [] })
 })
 
+// A store that hangs without failing, and ignores its signal, held every put and pass sharing the
+// digest, and a caller with no signal of its own could never leave. The stall ends the hung copy;
+// the next try lands and both puts return.
+it('a durable copy that hangs is abandoned after its stall and retried, so puts without a signal return', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cas-hung-copy-'))
+  roots.push(root)
+  const objects = new Map<string, Uint8Array>()
+  let copies = 0
+  let hanging!: () => void
+  const hung = new Promise<void>((resolve) => {
+    hanging = resolve
+  })
+  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
+    durableStallMs: 200,
+    durable: {
+      location: 'fixture:hung-copy',
+      async put() {
+        throw new Error('streamed objects use putStream')
+      },
+      get: async ({ digest }) => objects.get(digest),
+      async putStream({ digest, chunks }) {
+        copies++
+        if (copies === 1) {
+          hanging()
+          // Never settles, never pulls a chunk and ignores its signal.
+          return new Promise<void>(() => undefined)
+        }
+        const parts: Uint8Array[] = []
+        for await (const chunk of chunks) parts.push(chunk)
+        objects.set(digest, Buffer.concat(parts))
+      },
+      async getStream({ digest }) {
+        const value = objects.get(digest)
+        return value === undefined
+          ? undefined
+          : (async function* () {
+              yield value
+            })()
+      },
+    },
+  })
+  const bytes = Buffer.from('evidence behind a hung copy')
+  const put = () =>
+    artifacts.putStream!({
+      executionId: 'node',
+      purpose: 'trace',
+      chunks: (async function* () {
+        yield bytes
+      })(),
+    })
+  const first = put()
+  await hung
+  const [ref] = await Promise.all([first, put()])
+  expect(copies).toBe(2)
+  expect(Buffer.from(await artifacts.read(ref))).toEqual(bytes)
+  expect(await artifacts.offload()).toMatchObject({ durable: 1, pending: [] })
+})
+
 it('streams to S3, evicts local copies, and restores the exact archive through remote streams', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cas-stream-offload-'))
   roots.push(root)
