@@ -305,6 +305,35 @@ it('a pass copies host-only objects with several durable copies in flight', asyn
   expect(await artifacts.offload()).toMatchObject({ durable: 32, uploaded: 0, pending: [] })
 })
 
+it('a pass copies one object at a time to a buffered store, which holds each object in memory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cas-pass-buffered-'))
+  roots.push(root)
+  for (let index = 0; index < 8; index++) {
+    const text = `buffered host-only object ${index}`
+    const hex = createHash('sha256').update(text).digest('hex')
+    await mkdir(join(root, 'local', 'sha256', hex.slice(0, 2)), { recursive: true })
+    await writeFile(join(root, 'local', 'sha256', hex.slice(0, 2), hex), text)
+  }
+  const objects = new Map<string, Uint8Array>()
+  let inFlight = 0
+  let most = 0
+  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
+    durable: {
+      location: 'fixture:buffered-one-at-a-time',
+      async put({ digest, bytes }) {
+        most = Math.max(most, ++inFlight)
+        // Yield so that a second copy, if the pass started one, would overlap this one.
+        await new Promise((settle) => setImmediate(settle))
+        objects.set(digest, Uint8Array.from(bytes))
+        inFlight--
+      },
+      get: async ({ digest }) => objects.get(digest),
+    },
+  })
+  expect(await artifacts.offload()).toMatchObject({ durable: 8, uploaded: 8, pending: [] })
+  expect(most).toBe(1)
+})
+
 it('uploads a streamed put by itself after a clean pass, leaving other objects to offload', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cas-put-no-pass-'))
   roots.push(root)
