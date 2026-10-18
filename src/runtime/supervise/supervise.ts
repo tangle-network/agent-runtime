@@ -3239,7 +3239,6 @@ function recordRunCancellationOutcome(
   )
 }
 
-/** A quarter of token and optional dollar capacity per worker; nested managers partition again. */
 /** A per-child budget may not exceed the conserved pool it is reserved from. */
 function assertPerWorkerWithinPool(perWorker: Budget, pool: Budget): void {
   const over = (child: number, total: number, field: string): string | null =>
@@ -3274,6 +3273,55 @@ function assertPerWorkerWithinPool(perWorker: Budget, pool: Budget): void {
       `${problems.join('; ')} — a per-child ceiling cannot exceed the pool it draws from, and ` +
         'accepting it silently leaves the caller believing a knob is in effect when the ' +
         'reservation still clamps the child.',
+    )
+  }
+}
+
+/** A caller's per-child budget must fit the part of the pool children may reserve: the pool less
+ *  the owner's kept share per channel (`reservationPolicy.ownerShare`, the floor scope admission
+ *  keeps). Larger, and not even one child is ever admitted. Without a kept share, a token or
+ *  iteration ceiling equal to the whole pool lets the first child take every unit, so the owner's
+ *  next turn is refused as budget-exhausted while the child still holds the rest. */
+function assertPerWorkerAdmittable(perWorker: Budget, pool: Budget, ownerShare: number): void {
+  const unreservable = (
+    child: number,
+    total: number,
+    kept: number,
+    field: string,
+  ): string | null => {
+    if (ownerShare > 0) {
+      const reservable = total - kept
+      return child > reservable
+        ? `supervise perWorker.${field} (${child}) exceeds the reservable budget.${field} ` +
+            `(${reservable}: ${total} less the owner's kept ${kept} at reservationPolicy.ownerShare ${ownerShare})`
+        : null
+    }
+    return child >= total
+      ? `supervise perWorker.${field} (${child}) equals the whole budget.${field} (${total}), ` +
+          'so the first child takes every unit and the owner has none left for its next turn'
+      : null
+  }
+  const unadmittable = [
+    unreservable(
+      perWorker.maxTokens,
+      pool.maxTokens,
+      Math.ceil(pool.maxTokens * ownerShare),
+      'maxTokens',
+    ),
+    unreservable(
+      perWorker.maxIterations,
+      pool.maxIterations,
+      Math.ceil(pool.maxIterations * ownerShare),
+      'maxIterations',
+    ),
+    perWorker.maxUsd !== undefined && pool.maxUsd !== undefined && ownerShare > 0
+      ? unreservable(perWorker.maxUsd, pool.maxUsd, pool.maxUsd * ownerShare, 'maxUsd')
+      : null,
+  ].filter((x): x is string => x !== null)
+  if (unadmittable.length > 0) {
+    throw new ValidationError(
+      `${unadmittable.join('; ')} — lower perWorker on that channel so a child fits beside the ` +
+        "owner's own turns; otherwise children are refused or starve at spawn hours into the run.",
     )
   }
 }
@@ -3851,6 +3899,11 @@ function superviseInternal(
   // 200_000_000 pool, where children were still clamped at 700_000 and the caller had no way to
   // tell the knob was inert. Refuse at construction, where the caller can still fix it.
   assertPerWorkerWithinPool(perWorker, options.budget)
+  // A pool-sized ceiling can still be one no child is ever admitted under: the owner's kept share
+  // leaves less than it, or nothing remains for the owner's next turn. Five Discovery team runs
+  // died that way hours in. Only a caller-named slice is checked; the default is the runtime's own.
+  if (options.perWorker !== undefined)
+    assertPerWorkerAdmittable(perWorker, options.budget, ownerShare)
   const journal = options.journal ?? ctx.journal
   const runId = options.runId ?? ctx.runId ?? 'supervise'
   const runNamespace = ctx.namespace ?? supervisionRunNamespace(options.runDir, runId)
