@@ -116,15 +116,27 @@ describe('supervise refuses a perWorker no child can be admitted under', () => {
     )
   })
 
-  it('admits and runs a child sized to the reservable pool', async () => {
+  it('accepts the reservable bound and runs a child within it', async () => {
     const reservable: Budget = {
       maxIterations: root.maxIterations - keep.iterations,
       maxTokens: root.maxTokens - keep.tokens,
     }
-    const pool = createBudgetPool(root, 0)
-    expect(pool.reserve(reservable, undefined, { keep }).ok).toBe(true)
+    // A fresh pool admits exactly the reservable amount beside the kept share, so the bound is
+    // the true "never admitted" line. Once the owner has spent a turn, the free balance less the
+    // kept share is smaller, so a run that spawns after its first turn needs a margin below it.
+    const fresh = createBudgetPool(root, 0)
+    expect(fresh.reserve(reservable, undefined, { keep }).ok).toBe(true)
+    const spent = createBudgetPool(root, 0)
+    spent.observe({ ...zeroSpend(), iterations: 1 })
+    expect(spent.reserve(reservable, undefined, { keep }).ok).toBe(false)
+    // supervise accepts the bound itself at start; the run settles rather than throwing.
+    await rootRun(reservable, 0.5).start()
 
-    const run = rootRun(reservable, 0.5)
+    const half: Budget = {
+      maxIterations: Math.floor(reservable.maxIterations / 2),
+      maxTokens: Math.floor(reservable.maxTokens / 2),
+    }
+    const run = rootRun(half, 0.5)
     const result = await run.start()
     expect(run.entered()).toBe(1)
     expect(result.spentTotal.iterations).toBeGreaterThanOrEqual(2)
