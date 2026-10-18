@@ -327,7 +327,13 @@ export function createPrivateCasArtifactPort(
       })()
       try {
         await untilAborted(
-          durable!.putStream!({ namespace, digest, byteLength, chunks: pulled, signal: watch.signal }),
+          durable!.putStream!({
+            namespace,
+            digest,
+            byteLength,
+            chunks: pulled,
+            signal: watch.signal,
+          }),
           watch.signal,
         )
         await writeReceipt(digest, byteLength)
@@ -412,7 +418,11 @@ export function createPrivateCasArtifactPort(
     const durableHex = new Set<string>()
     for (const object of objects) {
       const inflight = uploading.get(object.hex)
-      if (inflight !== undefined) await untilAborted(inflight.catch(() => undefined), signal)
+      if (inflight !== undefined)
+        await untilAborted(
+          inflight.catch(() => undefined),
+          signal,
+        )
       signal?.throwIfAborted()
       if (await hasReceipt(object.hex)) {
         durableHex.add(object.hex)
