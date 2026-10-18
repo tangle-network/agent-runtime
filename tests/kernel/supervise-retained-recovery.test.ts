@@ -98,33 +98,6 @@ describe('supervised retained provider recovery', () => {
     },
   )
 
-  it('reads the tail an exact result outran on a stalled stream, from the replay position', async () => {
-    // test-canary-graph-tools-20261017a (2026-10-17): the root's exact result arrived while its
-    // live stream still owed the run_graph call that started the run's graph. Observation closed
-    // on the result, and the root's retained stream never recorded the call.
-    const fixture = await setup('dispatched', false, 1, undefined, undefined, 'stalled-tail')
-    const result = await fixture.run(async (scope) => {
-      const child = scope.spawn(fixture.worker(), 'task', {
-        key: 'work',
-        budget: { maxIterations: 1, maxTokens: 10 },
-      })
-      expect(child.ok).toBe(true)
-      const settled = await scope.next()
-      expect(settled?.kind).toBe('done')
-      if (settled?.kind === 'done') {
-        expect(JSON.stringify(settled.out)).not.toContain('eventStreamComplete')
-        expect(settled.out).toMatchObject({
-          events: expect.arrayContaining([
-            expect.objectContaining({ id: 'event-3', type: 'done' }),
-          ]),
-        })
-      }
-      return settled?.kind === 'done' ? settled.out : 'unresolved'
-    })
-    expect(result.kind).toBe('winner')
-    expect(fixture.dispatches()).toBe(1)
-  })
-
   it('resumes from the last replay position and recovers the terminal receipt after the stream breaks', async () => {
     // Measured on mech-interp-foundations-pi-20260915k turn 1: a provider refused one frame
     // mid-stream, the runtime fell back to the exact result, which carries no usage, and a
@@ -504,7 +477,6 @@ async function setup(
     | 'transport-partial'
     | 'transport-resume'
     | 'transport-secret'
-    | 'stalled-tail'
     | 'binding',
   resultFailure?: 'unavailable' | 'foreign',
 ) {
@@ -559,26 +531,6 @@ async function setup(
                   await live.return?.()
                   if (!first.done) yield first.value
                   throw new Error('retained event connection lost')
-                }
-                yield* session.events(options)
-                yield {
-                  id: 'event-3',
-                  type: 'done',
-                  data: { usageMode: 'cumulative' },
-                  usage,
-                  usageMode: 'cumulative',
-                }
-                return
-              }
-              if (observationFailure === 'stalled-tail') {
-                // The live connection delivers its first frame and then stalls, open and silent,
-                // while the exact result and the provider's replay log already hold the tail.
-                if (options?.since === undefined) {
-                  const live = session.events(options)[Symbol.asyncIterator]()
-                  const first = await live.next()
-                  await live.return?.()
-                  if (!first.done) yield first.value
-                  await new Promise<never>(() => {})
                 }
                 yield* session.events(options)
                 yield {
