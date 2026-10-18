@@ -503,7 +503,13 @@ describe('provider workspace retention', () => {
     // came together on two connections, the result won, and the root's retained stream lost the
     // run_graph call those frames carried. A burst that straddles the result is read whole.
     const admissions: RetainedRunAdmission[] = []
-    const pause = () => new Promise<void>((resolve) => setTimeout(resolve, 20))
+    // Each tail frame lands a few scheduler turns after the one before: later than the one turn a
+    // quiet stream gets, and well inside the flow window, without waiting on the clock.
+    const pause = async () => {
+      for (let turn = 0; turn < 3; turn += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+    }
     const provider = pendingRetainedProvider({
       events: async function* () {
         yield { id: 'frame-0', type: 'message.part.updated', data: { delta: 'calling run_graph' } }
