@@ -80,7 +80,8 @@ it.each([0, 1024])(
     const [ref] = await Promise.all([streamed, buffered])
     expect(await pass).toMatchObject({ durable: 1, uploaded: 0, pending: [] })
     expect(objects.size).toBe(1)
-    expect(await artifacts.read(ref)).toEqual(bytes)
+    // With a budget of 0 the local copy is evicted, so the read comes back from the store.
+    expect(Buffer.from(await artifacts.read(ref))).toEqual(bytes)
     expect(await artifacts.offload()).toMatchObject({
       durable: 1,
       localObjects: localBudgetBytes === 0 ? 0 : 1,
