@@ -1,3 +1,7 @@
+## 0.325.7
+
+A private CAS put or `offload()` that finds its object already being copied to the durable store waits for that copy instead of reporting it pending, so two captures sharing one store no longer refuse each other with "durable offload is pending after capture" (a regression in 0.325.6).
+
 ## 0.325.6
 
 A private CAS put uploads its own object instead of sweeping the whole store, so capturing into a host that keeps its objects is linear rather than quadratic; an explicit `offload()` still runs the full pass.
