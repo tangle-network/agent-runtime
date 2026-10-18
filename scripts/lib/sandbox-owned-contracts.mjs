@@ -6,7 +6,7 @@ import { join, relative } from 'node:path'
 // Exact published package tuples, qualified at the Runtime/Sandbox adapter boundary.
 // The .41 tuple has byte-identical shared contracts. The .49, .50, .51, .53 and .58 tuples preserve
 // shared execution fields and explicitly refuse unresolved Interface 5.2 knowledge pins. The
-// .58 tuple with Interface 5.3.1 and .78 tuple with Interface 5.7.0 rely on Runtime refusing
+// .58 tuple with Interface 5.3.1 and the .78 and .86 tuples with Interface 5.7.0 rely on Runtime refusing
 // proxySecrets and candidate secret-ref config values, which the SDK's private Interface 4.0.0
 // cannot carry.
 // Qualification is limited to the Linux npm packed-consumer layout used by this gate.
@@ -28,6 +28,7 @@ const qualifiedArtifacts = {
   sandbox0_60_58: ['sandbox', '0.60.58', 'd0c68868c1f07c64a44d84bc9dd8b1e6546579acda2db01b142940f6f2004c29'],
   interface5_3_1: ['agent-interface', '5.3.1', '75aaca3eadc2f4cc9c34eb00fcd88aa11e5ba08fb829af291943468c7b016e4f'],
   sandbox0_60_78: ['sandbox', '0.60.78', 'cb70896cbc503522b16507fa63d9379d5e52d600cdd4dbe6e9a34f4806c523f3'],
+  sandbox0_60_86: ['sandbox', '0.60.86', '05a17e2dd4639131483ac8a1d8988ff6436e635ea4752a3284ec4a2be1ba351d'],
   interface5_7_0: ['agent-interface', '5.7.0', '4f662a47917b3057a4f38b4fbf719e8a97590b9d9213c80dd36a7cafa6ea1e0f'],
 }
 
@@ -43,6 +44,7 @@ const qualifiedCohorts = [
   ['sandbox0_60_58', 'interface5_2_1', 'core0_12_0', 'sdkInterface4_0_0', 'sdkCore0_11_0'],
   ['sandbox0_60_58', 'interface5_3_1', 'core0_12_0', 'sdkInterface4_0_0', 'sdkCore0_11_0'],
   ['sandbox0_60_78', 'interface5_7_0', 'core0_12_0', 'sdkInterface4_0_0', 'sdkCore0_11_0'],
+  ['sandbox0_60_86', 'interface5_7_0', 'core0_12_0', 'sdkInterface4_0_0', 'sdkCore0_11_0'],
 ].map(cohort => cohort.map(artifact => qualifiedArtifacts[artifact]))
 
 function ownFiles(directory) {
