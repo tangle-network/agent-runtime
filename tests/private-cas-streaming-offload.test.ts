@@ -90,6 +90,41 @@ it.each([0, 1024])(
   },
 )
 
+it('a pass waiting for a copy in flight stops at its own cancellation', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cas-wait-abort-'))
+  roots.push(root)
+  const objects = new Map<string, Uint8Array>()
+  let started!: () => void
+  let complete!: () => void
+  const uploading = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const release = new Promise<void>((resolve) => {
+    complete = resolve
+  })
+  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
+    durable: {
+      location: 'fixture:stalled-upload',
+      async put({ digest, bytes }) {
+        started()
+        await release
+        objects.set(digest, Uint8Array.from(bytes))
+      },
+      get: async ({ digest }) => objects.get(digest),
+    },
+  })
+  const bytes = Buffer.from('evidence behind a stalled upload')
+  const buffered = artifacts.put({ executionId: 'stalled', purpose: 'trace', bytes })
+  await uploading
+  const controller = new AbortController()
+  const pass = artifacts.offload(controller.signal)
+  controller.abort('the caller stopped')
+  await expect(pass).rejects.toThrow('the caller stopped')
+  complete()
+  await buffered
+  expect(await artifacts.offload()).toMatchObject({ durable: 1, pending: [] })
+})
+
 it('streams to S3, evicts local copies, and restores the exact archive through remote streams', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cas-stream-offload-'))
   roots.push(root)

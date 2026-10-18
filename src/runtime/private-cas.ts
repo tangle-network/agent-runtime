@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve, sep } from 'node:path'
 import type { AgentCandidateArtifactRef, Sha256Digest } from '@tangle-network/agent-interface'
 import { markPutStreamVerified } from '../candidate-execution/artifact-streams'
 import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
+import { runAbortable } from './supervise/abortable'
 
 const DIGEST = /^sha256:([0-9a-f]{64})$/u
 const HEX = /^[0-9a-f]{64}$/u
@@ -326,14 +327,21 @@ export function createPrivateCasArtifactPort(
   // refused each other (discovery-lab provider-retention, agent-runtime 0.325.6, 2026-10-18).
   // A copy never waits for a pass, so a pass may wait for a copy.
   const uploading = new Map<string, Promise<void>>()
+  // Waiting for another caller's copy ends at this caller's own cancellation: a stalled upload
+  // must not hold every pass in the process, which all wait under one pass lock.
+  const waitFor = (copy: Promise<void>, signal?: AbortSignal): Promise<void> => {
+    const settled = copy.catch(() => undefined)
+    return signal === undefined
+      ? settled
+      : runAbortable(() => settled, signal, 'private CAS wait for a copy in flight was cancelled')
+  }
   const copyOnce = async (
     sha: string,
     copy: () => Promise<void>,
     signal?: AbortSignal,
   ): Promise<boolean> => {
     for (let inflight = uploading.get(sha); inflight !== undefined; inflight = uploading.get(sha)) {
-      await inflight.catch(() => undefined)
-      signal?.throwIfAborted()
+      await waitFor(inflight, signal)
       if (await hasReceipt(sha)) return false
     }
     // Nothing awaits between the last check and the entry, so two callers cannot both copy.
@@ -353,8 +361,8 @@ export function createPrivateCasArtifactPort(
     let refusal: string | undefined
     const durableHex = new Set<string>()
     for (const object of objects) {
-      await uploading.get(object.hex)?.catch(() => undefined)
-      signal?.throwIfAborted()
+      const inflight = uploading.get(object.hex)
+      if (inflight !== undefined) await waitFor(inflight, signal)
       if (await hasReceipt(object.hex)) {
         durableHex.add(object.hex)
         continue
