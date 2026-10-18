@@ -132,6 +132,24 @@ export {
   providerVisibleProfile,
 } from './provider-visible-profile'
 
+/**
+ * The completion check of a managed node inside a `run_graph` subtask: its submission is accepted
+ * and settles it. Under the run's own check, a node's narrower result is refused for as long as
+ * the run's is: on 2026-10-17 every node of test-canary-graph-tools-20261017a was refused at
+ * submit_result and sent back to the run's commission until the run's deadline, so the graph never
+ * settled and its caller was never woken with it.
+ *
+ * It is the one check a harness manager may hold without a continuation policy: it accepts every
+ * submission, so there is nothing to send the node back for. test-canary-graph-tools-20261018c and
+ * -d (2026-10-18) had every harness-run graph lead refused at spawn until this exemption.
+ */
+export const graphNodeDeliverable: DeliverableSpec<unknown> = Object.freeze({
+  describe:
+    'the result your task asks for; the graph hands it to the manager that ran the graph, and ' +
+    "the run's own check judges that manager's result",
+  check: () => true,
+})
+
 const coordinationVerbNameSet = new Set<string>(coordinationVerbNames)
 
 /** Bare Runtime tool names explicitly enabled by one exact profile. */
@@ -866,7 +884,12 @@ function buildSupervisorAgent(
         'is no contract that can be unmet',
     )
   }
-  if (harness !== null && deps.deliverable !== undefined && deps.continuation === undefined) {
+  if (
+    harness !== null &&
+    deps.deliverable !== undefined &&
+    deps.deliverable !== graphNodeDeliverable &&
+    deps.continuation === undefined
+  ) {
     throw new ValidationError(
       'supervisorAgent: a manager with a completion check needs a continuation policy (deadline, ' +
         'maxBarren, the note profile and switches). Runtime supplies no default: how long to send ' +
