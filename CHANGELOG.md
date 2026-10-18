@@ -1,3 +1,7 @@
+## 0.325.6
+
+A private CAS put uploads its own object instead of sweeping the whole store, so capturing into a host that keeps its objects is linear rather than quadratic; an explicit `offload()` still runs the full pass.
+
 ## 0.325.5
 
 0.325.4 was tagged but not published: two retained-provider tests still expected a stream that owes its terminal frame to settle within 500 ms, while 0.325.4 keeps it open for its tail until the observation bound. 0.325.5 carries every 0.325.4 change with those tests matched to that behavior.
