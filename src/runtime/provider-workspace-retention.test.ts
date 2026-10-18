@@ -455,7 +455,7 @@ describe('provider workspace retention', () => {
     expect(results).toBe(1)
   })
 
-  it('reconciles a completed retained execution without waiting for its quiet event stream', async () => {
+  it('reconciles a completed retained execution within the observation bound of its quiet event stream', async () => {
     let dispatches = 0
     const admissions: RetainedRunAdmission[] = []
     const provider = pendingRetainedProvider({
@@ -481,19 +481,19 @@ describe('provider workspace retention', () => {
       { profile: testProfile('quiet-retained-root'), harness: null },
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
-    const startedAt = Date.now()
     const completed = (async () => {
       for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
       }
       return true
     })()
+    // A stream still owing its terminal frame reads its tail after the exact result, so the turn
+    // settles at the observation idle bound (2 s here), never on the quiet stream itself.
     expect(
       await Promise.race([
         completed,
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 30_000)),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 4_000)),
       ]),
     ).toBe(true)
-    console.log('SETTLE_MS', 'reconciles a completed ret', Date.now() - startedAt)
     expect(executor.resultArtifact().out).toMatchObject({ content: 'settled exact turn' })
     expect(dispatches).toBe(1)
   })
@@ -582,7 +582,7 @@ describe('provider workspace retention', () => {
     })
   })
 
-  it('wakes from an exact result without any event frame', async () => {
+  it('wakes from an exact result without any event frame within the observation bound', async () => {
     const admissions: RetainedRunAdmission[] = []
     const provider = pendingRetainedProvider({
       events: async function* () {
@@ -603,19 +603,19 @@ describe('provider workspace retention', () => {
       { profile: testProfile('no-frame-open-subscription'), harness: null },
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
-    const startedAt = Date.now()
     const completed = (async () => {
       for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
       }
       return true
     })()
+    // A stream still owing its terminal frame reads its tail after the exact result, so the turn
+    // settles at the observation idle bound (2 s here), never on the quiet stream itself.
     expect(
       await Promise.race([
         completed,
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 30_000)),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 4_000)),
       ]),
     ).toBe(true)
-    console.log('SETTLE_MS', 'wakes from an exact result', Date.now() - startedAt)
     expect(executor.resultArtifact().out).toMatchObject({
       content: 'finished',
       events: expect.arrayContaining([
