@@ -2711,6 +2711,30 @@ async function providerExecutionSource(
         }
         return exactResult
       }
+      // One reaction on the exact result for the whole drain, not one per event read. Each read adds its
+      // waker here and removes it when the read ends, so a read's event is released with it. A reaction
+      // added per read to this run-long promise kept every drained event reachable through Promise.race:
+      // on 2026-10-18 free-tier supervisors (whole ~225 KB part states per update) grew to node's 4 GB
+      // heap limit within an hour.
+      const exactWakers = new Set<() => void>()
+      let exactWatched = false
+      const onExactResult = (waker: () => void): (() => void) => {
+        if (exactResultSettled) {
+          waker()
+          return () => {}
+        }
+        exactWakers.add(waker)
+        if (!exactWatched) {
+          exactWatched = true
+          const fire = () => {
+            for (const wake of [...exactWakers]) wake()
+          }
+          void readExactResult().then(fire, fire)
+        }
+        return () => {
+          exactWakers.delete(waker)
+        }
+      }
       // The last frame that carried a replay position, and whether any frame ended the turn. The
       // SSE contract lets a frame arrive with no position; such a frame does not move the cursor,
       // so this is where a reconnect resumes from.
@@ -2746,6 +2770,7 @@ async function providerExecutionSource(
             let next: IteratorResult<AgentEnvironmentEvent>
             let wake: ReturnType<typeof setImmediate> | undefined
             let grace: ReturnType<typeof setTimeout> | undefined
+            let unwatch: (() => void) | undefined
             try {
               const remaining = observationIdleMs - (Date.now() - lastObservedAt)
               if (remaining <= 0) {
@@ -2769,7 +2794,7 @@ async function providerExecutionSource(
                     grace = setTimeout(() => resolve({ kind: 'exact-result' }), flowing)
                     if (typeof grace.unref === 'function') grace.unref()
                   }
-                  void readExactResult().then(close, close)
+                  unwatch = onExactResult(close)
                 })
               })
               const observed = await awaitRetainedRead(
@@ -2798,6 +2823,7 @@ async function providerExecutionSource(
             } finally {
               if (wake !== undefined) clearImmediate(wake)
               if (grace !== undefined) clearTimeout(grace)
+              unwatch?.()
             }
             if (next.done) break
             observedFrames += 1
