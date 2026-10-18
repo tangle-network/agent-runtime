@@ -12,6 +12,11 @@ const SHARD = /^[0-9a-f]{2}$/u
 const SAFE_NAMESPACE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u
 const RECEIPT_SCHEMA = 'agent-runtime.private-cas-durable-receipt.v1'
 const DURABLE_ATTEMPTS = 3
+// A durable copy that moves no bytes for this long is abandoned and retried. Every put and pass that
+// shares its digest waits for that copy, so a store that hangs without failing must not hold them all.
+const DURABLE_STALL_MS = 120_000
+// A buffered put reports no progress, so its attempt also gets the time this rate needs for its bytes.
+const BUFFERED_BYTES_PER_MS = 256
 
 /**
  * Off-host storage that holds a private CAS's bytes after the host deletes its local copy.
@@ -61,6 +66,8 @@ export interface PrivateCasOptions {
    * store outage keeps every byte on the host. Requires `durable`.
    */
   readonly localBudgetBytes?: number
+  /** Milliseconds a durable copy may move no bytes before it is abandoned and retried (default 2 min). */
+  readonly durableStallMs?: number
 }
 
 /** One offload pass: what reached the durable store and what the host still holds. */
@@ -157,7 +164,9 @@ export function createPrivateCasArtifactPort(
   if (!isAbsolute(root)) throw new Error('private CAS root must be absolute')
   if (!SAFE_NAMESPACE.test(namespace) || namespace === '.' || namespace === '..')
     throw new Error('private CAS namespace must be one safe identifier')
-  const { durable, localBudgetBytes } = options
+  const { durable, localBudgetBytes, durableStallMs = DURABLE_STALL_MS } = options
+  if (!Number.isSafeInteger(durableStallMs) || durableStallMs <= 0)
+    throw new Error('private CAS durableStallMs must be a positive integer')
   if (
     localBudgetBytes !== undefined &&
     (durable === undefined || !Number.isSafeInteger(localBudgetBytes) || localBudgetBytes < 0)
@@ -205,18 +214,51 @@ export function createPrivateCasArtifactPort(
     await syncDirectory(receipts)
   }
 
+  // Settles with the work, or rejects as soon as the signal aborts: a store or copy that ignores the
+  // signal cannot hold its caller.
+  const untilAborted = <T>(work: Promise<T>, signal?: AbortSignal): Promise<T> => {
+    if (signal === undefined) return work
+    if (signal.aborted) return Promise.reject(signal.reason)
+    return new Promise<T>((settle, fail) => {
+      const abort = () => fail(signal.reason)
+      signal.addEventListener('abort', abort, { once: true })
+      work.then(settle, fail).finally(() => signal.removeEventListener('abort', abort))
+    })
+  }
+
+  // One attempt's signal: the caller's, plus a stall that aborts after `idleMs` without progress.
+  const watchAttempt = (idleMs: number, signal?: AbortSignal) => {
+    const stall = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const touch = () => {
+      clearTimeout(timer)
+      timer = setTimeout(
+        () => stall.abort(new Error(`durable copy moved no bytes for ${idleMs} ms`)),
+        idleMs,
+      )
+    }
+    touch()
+    return {
+      signal: signal === undefined ? stall.signal : AbortSignal.any([signal, stall.signal]),
+      touch,
+      done: () => clearTimeout(timer),
+    }
+  }
+
   // A transient store failure must not leave an object host-only while the next try would succeed.
   const storeDurably = async (digest: Sha256Digest, bytes: Uint8Array, signal?: AbortSignal) => {
     let failure: unknown
     for (let attempt = 1; attempt <= DURABLE_ATTEMPTS; attempt++) {
       signal?.throwIfAborted()
+      const watch = watchAttempt(
+        durableStallMs + Math.ceil(bytes.byteLength / BUFFERED_BYTES_PER_MS),
+        signal,
+      )
       try {
-        await durable!.put({
-          namespace,
-          digest,
-          bytes,
-          ...(signal === undefined ? {} : { signal }),
-        })
+        await untilAborted(
+          durable!.put({ namespace, digest, bytes, signal: watch.signal }),
+          watch.signal,
+        )
         await writeReceipt(digest, bytes.byteLength)
         return
       } catch (error) {
@@ -224,6 +266,8 @@ export function createPrivateCasArtifactPort(
         if (signal?.aborted) throw error
         if (attempt < DURABLE_ATTEMPTS)
           await new Promise((settle) => setTimeout(settle, 1_000 * 4 ** (attempt - 1)))
+      } finally {
+        watch.done()
       }
     }
     throw failure
@@ -272,9 +316,20 @@ export function createPrivateCasArtifactPort(
     let failure: unknown
     for (let attempt = 1; attempt <= DURABLE_ATTEMPTS; attempt++) {
       signal?.throwIfAborted()
-      const chunks = readObject(path, ref, signal)
+      const watch = watchAttempt(durableStallMs, signal)
+      const chunks = readObject(path, ref, watch.signal)
+      // Each chunk the store pulls is progress; a store that stops pulling stalls the attempt.
+      const pulled = (async function* () {
+        for await (const chunk of chunks) {
+          watch.touch()
+          yield chunk
+        }
+      })()
       try {
-        await durable!.putStream!({ namespace, digest, byteLength, chunks, signal })
+        await untilAborted(
+          durable!.putStream!({ namespace, digest, byteLength, chunks: pulled, signal: watch.signal }),
+          watch.signal,
+        )
         await writeReceipt(digest, byteLength)
         return
       } catch (error) {
@@ -283,6 +338,7 @@ export function createPrivateCasArtifactPort(
         if (attempt < DURABLE_ATTEMPTS)
           await new Promise((settle) => setTimeout(settle, 1_000 * 4 ** (attempt - 1)))
       } finally {
+        watch.done()
         await chunks.return(undefined)
       }
     }
@@ -332,8 +388,10 @@ export function createPrivateCasArtifactPort(
     signal?: AbortSignal,
   ): Promise<boolean> => {
     for (let inflight = uploading.get(sha); inflight !== undefined; inflight = uploading.get(sha)) {
-      await inflight.catch(() => undefined)
-      signal?.throwIfAborted()
+      await untilAborted(
+        inflight.catch(() => undefined),
+        signal,
+      )
       if (await hasReceipt(sha)) return false
     }
     // Nothing awaits between the last check and the entry, so two callers cannot both copy.
@@ -353,7 +411,8 @@ export function createPrivateCasArtifactPort(
     let refusal: string | undefined
     const durableHex = new Set<string>()
     for (const object of objects) {
-      await uploading.get(object.hex)?.catch(() => undefined)
+      const inflight = uploading.get(object.hex)
+      if (inflight !== undefined) await untilAborted(inflight.catch(() => undefined), signal)
       signal?.throwIfAborted()
       if (await hasReceipt(object.hex)) {
         durableHex.add(object.hex)
