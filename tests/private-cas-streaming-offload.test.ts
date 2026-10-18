@@ -80,7 +80,7 @@ it.each([0, 1024])(
     const [ref] = await Promise.all([streamed, buffered])
     expect(await pass).toMatchObject({ durable: 1, uploaded: 0, pending: [] })
     expect(objects.size).toBe(1)
-    expect(await artifacts.read(ref)).toEqual(bytes)
+    expect(Buffer.from(await artifacts.read(ref))).toEqual(bytes)
     expect(await artifacts.offload()).toMatchObject({
       durable: 1,
       localObjects: localBudgetBytes === 0 ? 0 : 1,
@@ -151,7 +151,7 @@ it('an aborted waiter and a second put return while a durable copy hangs', async
   expect(Date.now() - aborted).toBeLessThan(150)
   const [ref] = await Promise.all([first, put()])
   expect(copies).toBe(2)
-  expect(await artifacts.read(ref)).toEqual(bytes)
+  expect(Buffer.from(await artifacts.read(ref))).toEqual(bytes)
   expect(await artifacts.offload()).toMatchObject({ durable: 1, pending: [] })
 })
 
