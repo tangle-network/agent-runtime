@@ -132,10 +132,11 @@ it('uploads a streamed put by itself after a clean pass, leaving other objects t
         yield Buffer.from(text)
       })(),
     })
-  await put('first object')
-  expect(durable.counts().uploads).toBe(1)
   // Two puts of one new object upload it once.
   await Promise.all([put('same object'), put('same object')])
+  expect(durable.counts().uploads).toBe(1)
+  // The pair may leave its pass pending; this put's pass then finds nothing else.
+  await put('first object')
   expect(durable.counts().uploads).toBe(2)
   // An object another writer left host-only: a full pass would upload it.
   const foreign = createHash('sha256').update('left by another writer').digest('hex')
