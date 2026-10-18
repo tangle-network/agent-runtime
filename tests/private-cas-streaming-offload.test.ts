@@ -7,8 +7,11 @@ import { scanMaterializedWorkspaceManifest } from '../src/candidate-execution/ar
 import { captureAgentCandidateWorkspaceFiles } from '../src/candidate-execution/workspace-archive'
 import {
   captureAgentCandidateWorkspaceToArtifacts,
+  captureAgentCandidateWorkspaceTreeToArtifacts,
   materializeAgentCandidateWorkspaceFromArtifacts,
+  verifyAgentCandidateWorkspaceTree,
 } from '../src/candidate-execution/workspace-streams'
+import type { PrivateCasDurableStore } from '../src/runtime/private-cas'
 import { createPrivateCasArtifactPort } from '../src/runtime/private-cas'
 import { captureProviderWorkspaceSnapshot } from '../src/runtime/provider-workspace-retention'
 import { diskS3StreamStore } from './fixtures/disk-s3-stream-store'
@@ -212,6 +215,53 @@ it('streams to S3, evicts local copies, and restores the exact archive through r
   expect(await scanMaterializedWorkspaceManifest(join(root, 'restore'))).toEqual(snapshot.material)
   expect(durable.counts().uploads).toBe(2)
   expect(durable.counts().reads).toBeGreaterThanOrEqual(4)
+})
+
+// Each file's put waits for its own durable copy, so a tree captured one file at a time paid a
+// store round trip per file: drew-gtr-pro's retire stored one 2 KB file per 1.8 s (2026-10-18).
+it('captures a workspace tree with several durable copies in flight, each distinct file copied once', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cas-tree-concurrent-'))
+  roots.push(root)
+  const source = join(root, 'source')
+  await mkdir(source)
+  await Promise.all(
+    Array.from({ length: 32 }, (_, index) => writeFile(join(source, `f${index}`), `file ${index}`)),
+  )
+  await writeFile(join(source, 'same-as-f0'), 'file 0')
+  const durable = await diskS3StreamStore(join(root, 'remote'))
+  let inFlight = 0
+  let most = 0
+  let overlapped!: () => void
+  const overlap = new Promise<void>((resolve) => {
+    overlapped = resolve
+  })
+  // A slow store: each upload waits until four overlap. The bound only lets a capture that copies
+  // one file at a time finish, so the assertion below fails instead of the test timing out.
+  const slow: PrivateCasDurableStore = {
+    ...durable.store,
+    async putStream(object) {
+      most = Math.max(most, ++inFlight)
+      if (inFlight >= 4) overlapped()
+      try {
+        await Promise.race([overlap, new Promise((settle) => setTimeout(settle, 100))])
+        await durable.store.putStream!(object)
+      } finally {
+        inFlight--
+      }
+    },
+  }
+  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', { durable: slow })
+  const tree = await captureAgentCandidateWorkspaceTreeToArtifacts(source, {
+    artifactPersistence: { executionId: 'node', outputArtifacts: artifacts },
+  })
+  expect(most).toBeGreaterThanOrEqual(4)
+  expect(tree).toMatchObject({ files: 33, storedBytes: tree.bytes - 'file 0'.length })
+  // 32 distinct files and the manifest; the file with f0's content is f0's object.
+  expect(durable.counts().uploads).toBe(33)
+  const material = await verifyAgentCandidateWorkspaceTree(tree, artifacts)
+  expect(material.files.map((file) => file.path).sort()).toEqual(
+    [...Array.from({ length: 32 }, (_, index) => `f${index}`), 'same-as-f0'].sort(),
+  )
 })
 
 it('uploads a streamed put by itself after a clean pass, leaving other objects to offload', async () => {

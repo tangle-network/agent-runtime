@@ -11,6 +11,7 @@ import type {
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 import { extract, type Pack, pack } from 'tar-stream'
+import { mapWithConcurrency } from '../runtime/util'
 import { persistCandidateOutputArtifactStream, verifiedArtifactChunks } from './artifact-streams'
 import { scanMaterializedWorkspaceManifest, verifyBytes } from './artifacts'
 import { canonicalCandidateBytes, canonicalCandidateDigest, deepFreezeCandidate } from './digest'
@@ -27,6 +28,9 @@ import {
 } from './workspace-archive'
 
 type WorkspaceFile = AgentCandidateWorkspaceManifestMaterial['files'][number]
+
+/** Files a tree capture stores at once; each waits on a durable-store round trip of its own. */
+const CAPTURE_FILES_AT_ONCE = 16
 
 export interface CaptureAgentCandidateWorkspaceToArtifactsOptions {
   limits?: Partial<AgentCandidateWorkspaceArchiveLimits>
@@ -115,16 +119,20 @@ export async function captureAgentCandidateWorkspaceTreeToArtifacts(
   const material = await scanMaterializedWorkspaceManifest(rootInput, { limits, signal })
   validateManifest(material, limits)
   const root = await realpath(resolve(rootInput))
-  let bytes = 0
+  const bytes = material.files.reduce((sum, file) => sum + file.byteLength, 0)
   let storedBytes = 0
-  for (const file of material.files) {
+  // Each file's put waits for its durable copy, so one file at a time costs a store round trip
+  // and its fsyncs per file: drew-gtr-pro's retire stored one 2 KB file per 1.8 s (2026-10-18).
+  // Files with the same content are one object, stored once.
+  const distinct = [...new Map(material.files.map((file) => [file.sha256, file])).values()]
+  const locate = outputArtifacts.locate.bind(outputArtifacts)
+  await mapWithConcurrency(distinct, CAPTURE_FILES_AT_ONCE, async (file) => {
     signal?.throwIfAborted()
-    bytes += file.byteLength
-    const held = await outputArtifacts.locate(
+    const held = await locate(
       { sha256: file.sha256, byteLength: file.byteLength },
       signal === undefined ? undefined : { signal },
     )
-    if (held !== undefined) continue
+    if (held !== undefined) return
     const stored = await persistCandidateOutputArtifactStream(outputArtifacts, {
       executionId,
       purpose: 'candidate-workspace-file',
@@ -135,7 +143,7 @@ export async function captureAgentCandidateWorkspaceTreeToArtifacts(
     if (stored.sha256 !== file.sha256 || stored.byteLength !== file.byteLength)
       throw new Error(`workspace file changed during capture: ${file.path}`)
     storedBytes += file.byteLength
-  }
+  })
   const manifestBytes = canonicalCandidateBytes(material)
   const manifest = await persistCandidateOutputArtifactStream(outputArtifacts, {
     executionId,
