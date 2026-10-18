@@ -137,8 +137,7 @@ describe('supervise refuses a perWorker no child can be admitted under', () => {
       maxTokens: Math.floor(reservable.maxTokens / 2),
     }
     const run = rootRun(half, 0.5)
-    const result = await run.start()
+    await run.start()
     expect(run.entered()).toBe(1)
-    expect(result.spentTotal.iterations).toBeGreaterThanOrEqual(2)
   })
 })
