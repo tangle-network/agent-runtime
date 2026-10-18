@@ -1,3 +1,11 @@
+## 0.325.8
+
+A workspace tree capture stores its files 16 at a time and each distinct file once. Every file's put waits for its own durable copy, so capturing one file at a time cost a store round trip per file (one 2 KB file per 1.8 s in Discovery retire salvage on drew-gtr-pro).
+
+A private CAS pass or put that waits for another caller's copy in flight stops at its own abort signal, so one stalled upload no longer holds every pass in the process.
+
+A durable copy that moves no bytes for `durableStallMs` (a new `PrivateCasOptions` field, default 2 min) is abandoned and retried, so a store that hangs without failing no longer holds every put and pass waiting on that digest (#1830).
+
 ## 0.325.7
 
 A private CAS put or `offload()` that finds its object already being copied to the durable store waits for that copy instead of reporting it pending, so two captures sharing one store no longer refuse each other with "durable offload is pending after capture" (a regression in 0.325.6).
