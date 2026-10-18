@@ -455,7 +455,7 @@ describe('provider workspace retention', () => {
     expect(results).toBe(1)
   })
 
-  it('reconciles a completed retained execution within the observation bound of its quiet event stream', async () => {
+  it('reconciles a completed retained execution without waiting for its quiet event stream', async () => {
     let dispatches = 0
     const admissions: RetainedRunAdmission[] = []
     const provider = pendingRetainedProvider({
@@ -486,16 +486,77 @@ describe('provider workspace retention', () => {
       }
       return true
     })()
-    // A stream still owing its terminal frame reads its tail after the exact result, so the turn
-    // settles at the observation idle bound (2 s here), never on the quiet stream itself.
+    // The exact result wakes the turn at once: a quiet stream that still owes its terminal frame
+    // never holds it.
     expect(
       await Promise.race([
         completed,
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 4_000)),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
       ]),
     ).toBe(true)
     expect(executor.resultArtifact().out).toMatchObject({ content: 'settled exact turn' })
     expect(dispatches).toBe(1)
+  })
+
+  it('reads a tail that keeps flowing after the exact result, then wakes on it', async () => {
+    // test-canary-graph-tools-20261017a (2026-10-17): a turn's last frames and its exact result
+    // came together on two connections, the result won, and the root's retained stream lost the
+    // run_graph call those frames carried. A burst that straddles the result is read whole.
+    const admissions: RetainedRunAdmission[] = []
+    // Each tail frame lands a few scheduler turns after the one before: later than the one turn a
+    // quiet stream gets, and well inside the flow window, without waiting on the clock.
+    const pause = async () => {
+      for (let turn = 0; turn < 3; turn += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+    }
+    const provider = pendingRetainedProvider({
+      events: async function* () {
+        yield { id: 'frame-0', type: 'message.part.updated', data: { delta: 'calling run_graph' } }
+        for (let index = 1; index <= 5; index += 1) {
+          await pause()
+          yield { id: `frame-${index}`, type: 'message.part.updated', data: { delta: `${index}` } }
+        }
+        await pause()
+        yield { id: 'done', type: 'done', data: { finalText: 'graph launched' } }
+        await new Promise<void>(() => {})
+      },
+      result: async () => ({ text: 'graph launched', success: true }),
+    })
+    const retention: RetainedExecutorContext = {
+      executionId: 'flowing-tail',
+      admissions,
+      onAdmission: async (admission) => {
+        admissions.push(admission)
+      },
+      onResult: async () => {},
+    }
+    const signal = new AbortController().signal
+    const executor = providerAsExecutor(provider, { retainedObservationIdleMs: 2_000 })(
+      { profile: testProfile('flowing-tail'), harness: null },
+      { signal, seams: { [retainedExecutorSeamKey]: retention } },
+    )
+    const completed = (async () => {
+      for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+      }
+      return true
+    })()
+    expect(
+      await Promise.race([
+        completed,
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
+      ]),
+    ).toBe(true)
+    // The whole burst is read, its terminal frame included. The subscription that frame leaves
+    // open still closes on the exact result and is recorded as incomplete, as the law for a
+    // terminal frame that leaves its subscription open states.
+    expect(executor.resultArtifact().out).toMatchObject({
+      content: 'graph launched',
+      events: expect.arrayContaining([
+        expect.objectContaining({ id: 'frame-5' }),
+        expect.objectContaining({ id: 'done' }),
+      ]),
+    })
   })
 
   it('drains ready retained evidence and terminal tails before accepting an exact result', async () => {
@@ -582,7 +643,7 @@ describe('provider workspace retention', () => {
     })
   })
 
-  it('wakes from an exact result without any event frame within the observation bound', async () => {
+  it('wakes from an exact result without any event frame', async () => {
     const admissions: RetainedRunAdmission[] = []
     const provider = pendingRetainedProvider({
       events: async function* () {
@@ -608,12 +669,12 @@ describe('provider workspace retention', () => {
       }
       return true
     })()
-    // A stream still owing its terminal frame reads its tail after the exact result, so the turn
-    // settles at the observation idle bound (2 s here), never on the quiet stream itself.
+    // The exact result wakes the turn at once: a quiet stream that still owes its terminal frame
+    // never holds it.
     expect(
       await Promise.race([
         completed,
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 4_000)),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
       ]),
     ).toBe(true)
     expect(executor.resultArtifact().out).toMatchObject({
