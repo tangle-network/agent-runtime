@@ -1,3 +1,7 @@
+## 0.325.13
+
+A retained run's drain registers one reaction on the exact result for the whole drain, not one per event read, so each drained event is released after its read. Per-read reactions on the run-long promise kept every drained event reachable: free-tier Discovery supervisors reached 1962 MB of heap at 61 minutes and aborted at the 4 GB limit.
+
 ## 0.325.12
 
 A `run_graph` lead that runs on a harness starts and settles on its own submission. Since 0.325.3 the node check it holds needed a continuation policy, so every such graph was refused before its lead started.
