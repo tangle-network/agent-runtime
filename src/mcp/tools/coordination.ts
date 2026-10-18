@@ -5000,8 +5000,9 @@ export function createCoordinationToolsForManager(
         "stored in this run's graph registry). `deliverable` is what the graph must deliver; it " +
         "becomes the root node's task. The subtask reserves `budget` (merged over the per-worker " +
         'default, as for spawn_worker) from your conserved pool, and the whole graph spends only ' +
-        'that. Every node runs its own pinned profile; the run keeps its checks and graders, ' +
-        'which are never graph nodes. Returns a workerId as spawn_worker does; end your turn and ' +
+        'that. Every node runs its own pinned profile, and a node settles on its own ' +
+        'submit_result: the run keeps its checks and graders, which judge your result and are ' +
+        'never graph nodes. Returns a workerId as spawn_worker does; end your turn and ' +
         'you are woken when the graph settles. Its output is { deliverable, edges }: the root ' +
         "node's result and the edge ledger (every traversal, also recorded in the run journal).",
       inputSchema: {

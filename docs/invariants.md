@@ -23,6 +23,10 @@ Scenario coverage lives in `tests/kernel/supervise-retained-owner-pending.test.t
 - Every node of a graph runs its canonical profile plus its edge directive. A driver selects a node
   by name and nothing else it authors reaches the node. Checks and graders stay the run's; a graph
   node is never one.
+- A managed graph node, the graph's root included, settles on its own `submit_result`. The run's
+  check judges the result of the manager that called `run_graph`, never a node's narrower one, and
+  the run's continuation never sends a node back; a deliverable `resolveDeliverable` chose for the
+  spawn still applies.
 - Every edge traversal of a subtask is an `edge` event in the run's root journal tree, naming the
   graph's root node in `graph`. The subtask settles with `{ deliverable, edges }`.
 - Only `run_graph` starts a graph: `spawn_worker` refuses a profile carrying
