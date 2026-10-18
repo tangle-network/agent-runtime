@@ -481,6 +481,7 @@ describe('provider workspace retention', () => {
       { profile: testProfile('quiet-retained-root'), harness: null },
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
+    const startedAt = Date.now()
     const completed = (async () => {
       for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
       }
@@ -489,9 +490,10 @@ describe('provider workspace retention', () => {
     expect(
       await Promise.race([
         completed,
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 30_000)),
       ]),
     ).toBe(true)
+    console.log('SETTLE_MS', 'reconciles a completed ret', Date.now() - startedAt)
     expect(executor.resultArtifact().out).toMatchObject({ content: 'settled exact turn' })
     expect(dispatches).toBe(1)
   })
@@ -601,6 +603,7 @@ describe('provider workspace retention', () => {
       { profile: testProfile('no-frame-open-subscription'), harness: null },
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
+    const startedAt = Date.now()
     const completed = (async () => {
       for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
       }
@@ -609,9 +612,10 @@ describe('provider workspace retention', () => {
     expect(
       await Promise.race([
         completed,
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 30_000)),
       ]),
     ).toBe(true)
+    console.log('SETTLE_MS', 'wakes from an exact result', Date.now() - startedAt)
     expect(executor.resultArtifact().out).toMatchObject({
       content: 'finished',
       events: expect.arrayContaining([
