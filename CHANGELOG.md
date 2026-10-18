@@ -1,3 +1,7 @@
+## 0.325.10
+
+Admit Sandbox 0.60.86, whose replay reader rejoins a connection that stays silent for three heartbeats, so an exact result read no longer hangs on a dead stream.
+
 ## 0.325.9
 
 A private CAS pass to a buffered-only durable store (no `putStream`) copies one object at a time, as before 16-at-a-time offload, because a buffered copy holds the whole object in memory.
