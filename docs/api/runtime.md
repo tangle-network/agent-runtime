@@ -8489,6 +8489,12 @@ Copy every object off the host as it is written.
 Local bytes to keep. Only objects with a durable receipt are deleted, oldest first, so a
 store outage keeps every byte on the host. Requires `durable`.
 
+##### durableStallMs?
+
+> `readonly` `optional` **durableStallMs?**: `number`
+
+Milliseconds a durable copy may move no bytes before it is abandoned and retried (default 2 min).
+
 ***
 
 ### PrivateCasOffloadReport
