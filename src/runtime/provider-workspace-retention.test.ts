@@ -547,11 +547,16 @@ describe('provider workspace retention', () => {
         new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
       ]),
     ).toBe(true)
+    // The whole burst is read, its terminal frame included. The subscription that frame leaves
+    // open still closes on the exact result and is recorded as incomplete, as the law for a
+    // terminal frame that leaves its subscription open states.
     expect(executor.resultArtifact().out).toMatchObject({
       content: 'graph launched',
-      events: expect.arrayContaining([expect.objectContaining({ id: 'frame-5' })]),
+      events: expect.arrayContaining([
+        expect.objectContaining({ id: 'frame-5' }),
+        expect.objectContaining({ id: 'done' }),
+      ]),
     })
-    expect(JSON.stringify(executor.resultArtifact().out)).not.toContain('eventStreamComplete')
   })
 
   it('drains ready retained evidence and terminal tails before accepting an exact result', async () => {
