@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -113,6 +114,41 @@ it('streams to S3, evicts local copies, and restores the exact archive through r
   expect(await scanMaterializedWorkspaceManifest(join(root, 'restore'))).toEqual(snapshot.material)
   expect(durable.counts().uploads).toBe(2)
   expect(durable.counts().reads).toBeGreaterThanOrEqual(4)
+})
+
+it('uploads a streamed put by itself after a clean pass, leaving other objects to offload', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cas-put-no-pass-'))
+  roots.push(root)
+  const durable = await diskS3StreamStore(join(root, 'remote'))
+  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
+    durable: durable.store,
+    localBudgetBytes: 1024 * 1024,
+  })
+  const put = (text: string) =>
+    artifacts.putStream!({
+      executionId: 'node',
+      purpose: 'trace',
+      chunks: (async function* () {
+        yield Buffer.from(text)
+      })(),
+    })
+  // Two puts of one new object upload it once.
+  await Promise.all([put('same object'), put('same object')])
+  expect(durable.counts().uploads).toBe(1)
+  // The pair may leave its pass pending; this put's pass then finds nothing else.
+  await put('first object')
+  expect(durable.counts().uploads).toBe(2)
+  // An object another writer left host-only: a full pass would upload it.
+  const foreign = createHash('sha256').update('left by another writer').digest('hex')
+  await mkdir(join(root, 'local', 'sha256', foreign.slice(0, 2)), { recursive: true })
+  await writeFile(
+    join(root, 'local', 'sha256', foreign.slice(0, 2), foreign),
+    'left by another writer',
+  )
+  await put('second object')
+  expect(durable.counts().uploads).toBe(3)
+  expect(await artifacts.offload()).toMatchObject({ durable: 4, localObjects: 4, pending: [] })
+  expect(durable.counts().uploads).toBe(4)
 })
 
 it('refuses streaming capture before source reads with a buffered-only durable store', async () => {
