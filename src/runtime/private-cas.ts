@@ -6,6 +6,7 @@ import type { AgentCandidateArtifactRef, Sha256Digest } from '@tangle-network/ag
 import { markPutStreamVerified } from '../candidate-execution/artifact-streams'
 import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
 import { runAbortable } from './supervise/abortable'
+import { mapWithConcurrency } from './util'
 
 const DIGEST = /^sha256:([0-9a-f]{64})$/u
 const HEX = /^[0-9a-f]{64}$/u
@@ -19,6 +20,9 @@ const DURABLE_ATTEMPTS = 3
 const DURABLE_STALL_MS = 120_000
 // A buffered put reports no progress, so its attempt also gets the time this rate needs for its bytes.
 const BUFFERED_BYTES_PER_MS = 256
+// Objects a pass copies at once. Each copy is a store round trip plus a receipt with two fsyncs, so
+// one at a time ran at 2 objects/s on drew-gtr-pro's USB drive (a 3,563-object run took 30 min).
+const OFFLOAD_COPIES_AT_ONCE = 16
 
 /**
  * Off-host storage that holds a private CAS's bytes after the host deletes its local copy.
@@ -407,52 +411,61 @@ export function createPrivateCasArtifactPort(
   }
   const sweep = async (signal?: AbortSignal): Promise<PrivateCasOffloadReport> => {
     const objects = await localObjects()
+    let refusal: string | undefined
+    type Outcome = { hex: string; durable: boolean; copied?: boolean; error?: string }
+    // Outcomes come back in object order, so the report does not depend on which copy ends first.
+    const outcomes = await mapWithConcurrency(
+      objects,
+      OFFLOAD_COPIES_AT_ONCE,
+      async ({ hex, path, size }): Promise<Outcome> => {
+        const inflight = uploading.get(hex)
+        if (inflight !== undefined) await waitFor(inflight, signal)
+        if (await hasReceipt(hex)) return { hex, durable: true, copied: false }
+        if (durable === undefined) return { hex, durable: false }
+        const digest = `sha256:${hex}` as Sha256Digest
+        // After one refusal the store is likely down; the next pass retries instead of this one
+        // spending its backoff on every remaining object. Copies already in flight finish.
+        if (refusal !== undefined)
+          return {
+            hex,
+            durable: false,
+            error: `not attempted after an earlier refusal: ${refusal}`,
+          }
+        try {
+          if (durable.putStream && durable.getStream) {
+            const copied = await copyOnce(
+              hex,
+              () => streamDurably(digest, path, size, signal),
+              signal,
+            )
+            return { hex, durable: true, copied }
+          }
+          const bytes = await readLocal(path)
+          if (bytes === undefined) return { hex, durable: false }
+          if (sha256(bytes) !== digest)
+            return {
+              hex,
+              durable: false,
+              error: 'local object failed digest verification; it stays on the host',
+            }
+          const copied = await copyOnce(hex, () => storeDurably(digest, bytes, signal), signal)
+          return { hex, durable: true, copied }
+        } catch (error) {
+          if (signal?.aborted) throw error
+          refusal ??= message(error)
+          return { hex, durable: false, error: message(error) }
+        }
+      },
+    )
     const pending: Array<{ digest: Sha256Digest; error: string }> = []
     let uploaded = 0
-    let refusal: string | undefined
     const durableHex = new Set<string>()
-    for (const object of objects) {
-      const inflight = uploading.get(object.hex)
-      if (inflight !== undefined) await waitFor(inflight, signal)
-      if (await hasReceipt(object.hex)) {
-        durableHex.add(object.hex)
-        continue
-      }
-      if (durable === undefined) continue
-      const digest = `sha256:${object.hex}` as Sha256Digest
-      // After one refusal the store is likely down; the next pass retries instead of this one
-      // spending its backoff on every remaining object.
-      if (refusal !== undefined) {
-        pending.push({ digest, error: `not attempted after an earlier refusal: ${refusal}` })
-        continue
-      }
-      try {
-        let copied: boolean
-        if (durable.putStream && durable.getStream) {
-          copied = await copyOnce(
-            object.hex,
-            () => streamDurably(digest, object.path, object.size, signal),
-            signal,
-          )
-        } else {
-          const bytes = await readLocal(object.path)
-          if (bytes === undefined) continue
-          if (sha256(bytes) !== digest) {
-            pending.push({
-              digest,
-              error: 'local object failed digest verification; it stays on the host',
-            })
-            continue
-          }
-          copied = await copyOnce(object.hex, () => storeDurably(digest, bytes, signal), signal)
-        }
-        durableHex.add(object.hex)
-        if (copied) uploaded++
-      } catch (error) {
-        if (signal?.aborted) throw error
-        refusal = message(error)
-        pending.push({ digest, error: refusal })
-      }
+    for (const outcome of outcomes) {
+      if (outcome.durable) {
+        durableHex.add(outcome.hex)
+        if (outcome.copied) uploaded++
+      } else if (outcome.error !== undefined)
+        pending.push({ digest: `sha256:${outcome.hex}` as Sha256Digest, error: outcome.error })
     }
     let localBytes = objects.reduce((total, object) => total + object.size, 0)
     let evicted = 0

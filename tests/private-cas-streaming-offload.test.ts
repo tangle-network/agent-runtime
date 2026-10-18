@@ -264,6 +264,47 @@ it('captures a workspace tree with several durable copies in flight, each distin
   )
 })
 
+// A pass copied one object at a time, each a store round trip plus a receipt with two fsyncs:
+// 2 objects/s on drew-gtr-pro, so one archived run of 3,563 objects held a retire pass 30 min.
+it('a pass copies host-only objects with several durable copies in flight', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cas-pass-concurrent-'))
+  roots.push(root)
+  // Objects another writer left host-only, as an archived run's evidence is.
+  for (let index = 0; index < 32; index++) {
+    const text = `host-only object ${index}`
+    const hex = createHash('sha256').update(text).digest('hex')
+    await mkdir(join(root, 'local', 'sha256', hex.slice(0, 2)), { recursive: true })
+    await writeFile(join(root, 'local', 'sha256', hex.slice(0, 2), hex), text)
+  }
+  const durable = await diskS3StreamStore(join(root, 'remote'))
+  let inFlight = 0
+  let most = 0
+  let overlapped!: () => void
+  const overlap = new Promise<void>((resolve) => {
+    overlapped = resolve
+  })
+  // A slow store: each copy waits until four overlap. The bound only lets a pass that copies one
+  // object at a time finish, so the assertion below fails instead of the test timing out.
+  const slow: PrivateCasDurableStore = {
+    ...durable.store,
+    async putStream(object) {
+      most = Math.max(most, ++inFlight)
+      if (inFlight >= 4) overlapped()
+      try {
+        await Promise.race([overlap, new Promise((settle) => setTimeout(settle, 100))])
+        await durable.store.putStream!(object)
+      } finally {
+        inFlight--
+      }
+    },
+  }
+  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', { durable: slow })
+  expect(await artifacts.offload()).toMatchObject({ durable: 32, uploaded: 32, pending: [] })
+  expect(most).toBeGreaterThanOrEqual(4)
+  expect(durable.counts().uploads).toBe(32)
+  expect(await artifacts.offload()).toMatchObject({ durable: 32, uploaded: 0, pending: [] })
+})
+
 it('uploads a streamed put by itself after a clean pass, leaving other objects to offload', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cas-put-no-pass-'))
   roots.push(root)
