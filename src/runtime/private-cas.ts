@@ -301,7 +301,8 @@ export function createPrivateCasArtifactPort(
     upload: (() => Promise<void>) | undefined,
     signal?: AbortSignal,
   ): Promise<void> => {
-    if (upload !== undefined && !(await hasReceipt(sha))) await upload().catch(() => undefined)
+    if (upload !== undefined && !(await hasReceipt(sha)))
+      await copyOnce(sha, upload, signal).catch(() => undefined)
     const durableNow = await hasReceipt(sha)
     // No await between the budget check and the reservation, so concurrent puts cannot both fit.
     const added = linked ? byteLength : 0
@@ -318,15 +319,32 @@ export function createPrivateCasArtifactPort(
     await offload(signal)
   }
 
-  // Digests a buffered put has linked and is still copying to the durable store with the bytes it
-  // holds. A pass leaves them to that put; copying them again doubles the upload and, for a
-  // buffered store, holds a second copy of the same archive in memory.
-  const uploading = new Map<string, number>()
-  const startUpload = (sha: string) => uploading.set(sha, (uploading.get(sha) ?? 0) + 1)
-  const endUpload = (sha: string) => {
-    const count = (uploading.get(sha) ?? 1) - 1
-    if (count === 0) uploading.delete(sha)
-    else uploading.set(sha, count)
+  // The one copy of each digest to the durable store in flight, from a put or a pass. A put or pass
+  // that finds its digest in flight waits for that copy, then reads the receipt. Copying it again
+  // doubles the upload and, for a buffered store, the archive in memory. Reporting it pending
+  // failed captures: a capture refuses on any pending object, so two captures sharing one store
+  // refused each other (discovery-lab provider-retention, agent-runtime 0.325.6, 2026-10-18).
+  // A copy never waits for a pass, so a pass may wait for a copy.
+  const uploading = new Map<string, Promise<void>>()
+  const copyOnce = async (
+    sha: string,
+    copy: () => Promise<void>,
+    signal?: AbortSignal,
+  ): Promise<boolean> => {
+    for (let inflight = uploading.get(sha); inflight !== undefined; inflight = uploading.get(sha)) {
+      await inflight.catch(() => undefined)
+      signal?.throwIfAborted()
+      if (await hasReceipt(sha)) return false
+    }
+    // Nothing awaits between the last check and the entry, so two callers cannot both copy.
+    const current = copy()
+    uploading.set(sha, current)
+    try {
+      await current
+      return true
+    } finally {
+      if (uploading.get(sha) === current) uploading.delete(sha)
+    }
   }
   const sweep = async (signal?: AbortSignal): Promise<PrivateCasOffloadReport> => {
     const objects = await localObjects()
@@ -335,16 +353,14 @@ export function createPrivateCasArtifactPort(
     let refusal: string | undefined
     const durableHex = new Set<string>()
     for (const object of objects) {
+      await uploading.get(object.hex)?.catch(() => undefined)
+      signal?.throwIfAborted()
       if (await hasReceipt(object.hex)) {
         durableHex.add(object.hex)
         continue
       }
       if (durable === undefined) continue
       const digest = `sha256:${object.hex}` as Sha256Digest
-      if (uploading.has(object.hex)) {
-        pending.push({ digest, error: 'durable upload in progress' })
-        continue
-      }
       // After one refusal the store is likely down; the next pass retries instead of this one
       // spending its backoff on every remaining object.
       if (refusal !== undefined) {
@@ -352,8 +368,13 @@ export function createPrivateCasArtifactPort(
         continue
       }
       try {
+        let copied: boolean
         if (durable.putStream && durable.getStream) {
-          await streamDurably(digest, object.path, object.size, signal)
+          copied = await copyOnce(
+            object.hex,
+            () => streamDurably(digest, object.path, object.size, signal),
+            signal,
+          )
         } else {
           const bytes = await readLocal(object.path)
           if (bytes === undefined) continue
@@ -364,10 +385,10 @@ export function createPrivateCasArtifactPort(
             })
             continue
           }
-          await storeDurably(digest, bytes, signal)
+          copied = await copyOnce(object.hex, () => storeDurably(digest, bytes, signal), signal)
         }
         durableHex.add(object.hex)
-        uploaded++
+        if (copied) uploaded++
       } catch (error) {
         if (signal?.aborted) throw error
         refusal = message(error)
@@ -564,16 +585,7 @@ export function createPrivateCasArtifactPort(
           sha,
           byteLength,
           linked,
-          // Another put of the same digest may already be copying it; the pass reports that.
-          async () => {
-            if (uploading.has(sha)) return
-            startUpload(sha)
-            try {
-              await streamDurably(digest, path, byteLength, signal)
-            } finally {
-              endUpload(sha)
-            }
-          },
+          () => streamDurably(digest, path, byteLength, signal),
           signal,
         )
       return ref
@@ -592,13 +604,7 @@ export function createPrivateCasArtifactPort(
     async put({ bytes, signal }) {
       signal?.throwIfAborted()
       const digest = sha256(bytes)
-      const sha = hexOf(digest)
-      if (durable !== undefined) startUpload(sha)
-      try {
-        return await putBuffered(bytes, digest, sha, signal)
-      } finally {
-        if (durable !== undefined) endUpload(sha)
-      }
+      return putBuffered(bytes, digest, hexOf(digest), signal)
     },
     async read(ref) {
       return readRef(ref)

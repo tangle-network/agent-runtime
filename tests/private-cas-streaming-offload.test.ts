@@ -18,8 +18,10 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
+// A capture refuses when its pass reports anything pending, so a second capture's put and pass
+// that meet the first capture's copy in flight must wait for it, not report it or copy it again.
 it.each([0, 1024])(
-  'reports a buffered upload as pending when a streamed put reuses its digest, local budget=%s',
+  'waits for a buffered upload in flight when a streamed put and a pass reuse its digest, local budget=%s',
   async (localBudgetBytes) => {
     const root = await mkdtemp(join(tmpdir(), 'cas-pending-upload-'))
     roots.push(root)
@@ -57,26 +59,28 @@ it.each([0, 1024])(
       },
     })
     const buffered = artifacts.put({ executionId: 'buffered', purpose: 'trace', bytes })
-    try {
-      await uploading
-      const ref = await artifacts.putStream!({
-        executionId: 'streamed',
-        purpose: 'trace',
-        chunks: (async function* () {
-          yield bytes
-        })(),
-      })
-      expect(objects.size).toBe(0)
-      expect(await artifacts.read(ref)).toEqual(bytes)
-      expect(await artifacts.offload()).toMatchObject({
-        durable: 0,
-        localObjects: 1,
-        pending: [{ digest: ref.sha256, error: 'durable upload in progress' }],
-      })
-    } finally {
-      complete()
-      await buffered
-    }
+    await uploading
+    const streamed = artifacts.putStream!({
+      executionId: 'streamed',
+      purpose: 'trace',
+      chunks: (async function* () {
+        yield bytes
+      })(),
+    })
+    const pass = artifacts.offload()
+    // Before the fix both settled at once, the pass reporting 'durable upload in progress'. The
+    // bound only gives that bug time to show; a correct port waits however long the copy takes.
+    const early = await Promise.race([
+      Promise.any([streamed, pass]).then(() => 'settled'),
+      new Promise((settle) => setTimeout(settle, 500, 'waiting')),
+    ])
+    expect(early).toBe('waiting')
+    expect(objects.size).toBe(0)
+    complete()
+    const [ref] = await Promise.all([streamed, buffered])
+    expect(await pass).toMatchObject({ durable: 1, uploaded: 0, pending: [] })
+    expect(objects.size).toBe(1)
+    expect(await artifacts.read(ref)).toEqual(bytes)
     expect(await artifacts.offload()).toMatchObject({
       durable: 1,
       localObjects: localBudgetBytes === 0 ? 0 : 1,
@@ -132,10 +136,10 @@ it('uploads a streamed put by itself after a clean pass, leaving other objects t
         yield Buffer.from(text)
       })(),
     })
-  // Two puts of one new object upload it once.
+  // Two puts of one new object upload it once: the second waits for the first's copy.
   await Promise.all([put('same object'), put('same object')])
   expect(durable.counts().uploads).toBe(1)
-  // The pair may leave its pass pending; this put's pass then finds nothing else.
+  // The pair's pass left nothing pending, so this put copies only its own object.
   await put('first object')
   expect(durable.counts().uploads).toBe(2)
   // An object another writer left host-only: a full pass would upload it.
