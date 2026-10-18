@@ -1728,13 +1728,13 @@ const RETAINED_RESULT_WAIT_MS = 60_000
 // Bound observation work, not elapsed provider latency. AsyncIterable has no buffered frontier.
 const RETAINED_OBSERVATION_BATCH_EVENTS = 1_024
 /**
- * How long a stream with no terminal frame stays open after its exact result, measured from its last
- * frame. A provider sends a turn's last frames and its result at the same instant on two connections,
- * and the result can arrive first. On 2026-10-17, test-canary-graph-tools-20261017a's root got its
- * exact result while its stream still owed the `run_graph` call that started the graph. Its retained
- * stream (root-stream.jsonl) never recorded the call, and the run's graph check read that as no call.
+ * After its exact result, a stream that still owes its terminal frame keeps reading only while its
+ * frames keep coming: the next frame must arrive within this long of the last one. A quiet stream,
+ * or one with no frame at all, closes on the result at once and never holds the wake. A provider
+ * sends a turn's last frames and its result together on two connections, and a burst that
+ * straddles the result is read whole.
  */
-const RETAINED_TAIL_GRACE_MS = 5_000
+const RETAINED_TAIL_FLOW_MS = 100
 
 class RetainedReadTimeoutError extends Error {
   constructor(label: string, ms: number) {
@@ -2716,9 +2716,9 @@ async function providerExecutionSource(
       // so this is where a reconnect resumes from.
       let lastReplayPosition: string | undefined
       let sawTerminal = false
-      // Whether the exact result, not the stream's own end, closed the last subscription.
-      let closedByResult = false
       let lastObservedAt = Date.now()
+      // When the stream last delivered a new frame; undefined until it delivers one.
+      let lastFrameAt: number | undefined
       const seenEvents = new Map<string, string>()
       const drain = async function* (
         open: () => AsyncIterable<AgentEnvironmentEvent>,
@@ -2752,20 +2752,21 @@ async function providerExecutionSource(
                 throw new RetainedReadTimeoutError('event stream', observationIdleMs)
               }
               // Give this event read one scheduler turn before an exact result closes a quiet
-              // subscription that already ended its turn. A stream still owing its terminal frame
-              // keeps reading for RETAINED_TAIL_GRACE_MS after its last frame. Ready tails are
-              // observed only within the finite work allowance.
+              // subscription. A stream still owing its terminal frame whose last frame came within
+              // RETAINED_TAIL_FLOW_MS keeps reading for the rest of that window; a quiet one closes
+              // at once. Ready tails are observed only within the finite work allowance.
               const exactWake = new Promise<{ kind: 'exact-result' }>((resolve) => {
                 wake = setImmediate(() => {
                   const close = () => {
-                    if (sawTerminal) {
+                    const flowing =
+                      sawTerminal || lastFrameAt === undefined
+                        ? 0
+                        : RETAINED_TAIL_FLOW_MS - (Date.now() - lastFrameAt)
+                    if (flowing <= 0) {
                       resolve({ kind: 'exact-result' })
                       return
                     }
-                    grace = setTimeout(
-                      () => resolve({ kind: 'exact-result' }),
-                      RETAINED_TAIL_GRACE_MS,
-                    )
+                    grace = setTimeout(() => resolve({ kind: 'exact-result' }), flowing)
                     if (typeof grace.unref === 'function') grace.unref()
                   }
                   void readExactResult().then(close, close)
@@ -2783,7 +2784,6 @@ async function providerExecutionSource(
                 'event stream',
               )
               if (observed.kind === 'exact-result') {
-                closedByResult = true
                 observationFailure ??= {
                   error: new Error('retained provider stream remained open after its exact result'),
                 }
@@ -2838,6 +2838,7 @@ async function providerExecutionSource(
             // A replayed frame is not progress. Only new evidence extends the silence bound;
             // otherwise a provider repeating one cursor could keep a finished turn open forever.
             lastObservedAt = Date.now()
+            lastFrameAt = lastObservedAt
             if (identity.cursor !== undefined) lastReplayPosition = identity.cursor
             else if (eventId !== undefined) lastReplayPosition = eventId
             const terminal = isTerminalEnvironmentEvent(next.value)
@@ -2858,7 +2859,7 @@ async function providerExecutionSource(
         session.events({ executionId: handle.controlRef.executionId, signal }),
       )
       if (
-        (!completed || closedByResult) &&
+        !completed &&
         !sawTerminal &&
         lastReplayPosition !== undefined &&
         !(observationFailure?.error instanceof RetainedReadTimeoutError)
@@ -2870,12 +2871,9 @@ async function providerExecutionSource(
         // mech-interp-foundations-pi-20260915k turn 1 (926 s, 0/0) and -20260915l turns 2 and 3
         // (1693 s and 846 s, 0/0), each cut by one frame the provider refused mid-stream. The
         // provider replays from a cursor, so resume once from the last replay position. A second
-        // failure keeps the first as the recorded cause; it is the one that lost the frames. A
-        // stream the exact result closed before its terminal frame resumes the same way: its
-        // connection can stall while the provider's replay log holds the tail.
+        // failure keeps the first as the recorded cause; it is the one that lost the frames.
         const firstFailure = observationFailure
         observationFailure = undefined
-        closedByResult = false
         const resumed = yield* drain(() =>
           session.events({
             executionId: handle.controlRef.executionId,
