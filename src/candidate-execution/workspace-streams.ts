@@ -125,9 +125,10 @@ export async function captureAgentCandidateWorkspaceTreeToArtifacts(
   // and its fsyncs per file: drew-gtr-pro's retire stored one 2 KB file per 1.8 s (2026-10-18).
   // Files with the same content are one object, stored once.
   const distinct = [...new Map(material.files.map((file) => [file.sha256, file])).values()]
+  const locate = outputArtifacts.locate.bind(outputArtifacts)
   await mapWithConcurrency(distinct, CAPTURE_FILES_AT_ONCE, async (file) => {
     signal?.throwIfAborted()
-    const held = await outputArtifacts.locate(
+    const held = await locate(
       { sha256: file.sha256, byteLength: file.byteLength },
       signal === undefined ? undefined : { signal },
     )
