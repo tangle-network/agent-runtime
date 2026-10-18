@@ -137,7 +137,10 @@ it('uploads a streamed put by itself after a clean pass, leaving other objects t
   // An object another writer left host-only: a full pass would upload it.
   const foreign = createHash('sha256').update('left by another writer').digest('hex')
   await mkdir(join(root, 'local', 'sha256', foreign.slice(0, 2)), { recursive: true })
-  await writeFile(join(root, 'local', 'sha256', foreign.slice(0, 2), foreign), 'left by another writer')
+  await writeFile(
+    join(root, 'local', 'sha256', foreign.slice(0, 2), foreign),
+    'left by another writer',
+  )
   await put('second object')
   expect(durable.counts().uploads).toBe(2)
   expect(await artifacts.offload()).toMatchObject({ durable: 3, localObjects: 3, pending: [] })

@@ -659,7 +659,13 @@ export function createPrivateCasArtifactPort(
     if (durable !== undefined) {
       // The bytes are already in memory, so this put copies them itself; a pass that follows
       // skips this digest and only evicts and retries others.
-      await settlePut(sha, bytes.byteLength, linked, () => storeDurably(digest, bytes, signal), signal)
+      await settlePut(
+        sha,
+        bytes.byteLength,
+        linked,
+        () => storeDurably(digest, bytes, signal),
+        signal,
+      )
     }
     return ref
   }
