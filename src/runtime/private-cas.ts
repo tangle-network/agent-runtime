@@ -256,6 +256,65 @@ export function createPrivateCasArtifactPort(
     return objects
   }
 
+  // Streams one local object to the durable store and records its receipt, retrying a transient
+  // store failure like storeDurably.
+  const streamDurably = async (
+    digest: Sha256Digest,
+    path: string,
+    byteLength: number,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    const ref: AgentCandidateArtifactRef = {
+      locator: { kind: 'private-cas', namespace, digest },
+      sha256: digest,
+      byteLength,
+    }
+    let failure: unknown
+    for (let attempt = 1; attempt <= DURABLE_ATTEMPTS; attempt++) {
+      signal?.throwIfAborted()
+      const chunks = readObject(path, ref, signal)
+      try {
+        await durable!.putStream!({ namespace, digest, byteLength, chunks, signal })
+        await writeReceipt(digest, byteLength)
+        return
+      } catch (error) {
+        failure = error
+        if (signal?.aborted) throw error
+        if (attempt < DURABLE_ATTEMPTS)
+          await new Promise((settle) => setTimeout(settle, 1_000 * 4 ** (attempt - 1)))
+      } finally {
+        await chunks.return(undefined)
+      }
+    }
+    throw failure
+  }
+
+  // What the last full pass left on this host. A put that makes its own object durable, after a
+  // pass that left nothing pending, stays inside the budget without another pass: a pass reads
+  // every object and its receipt, so a pass per put made capture quadratic on a host that keeps
+  // its objects (drew-gtr-pro wrote 3 objects a minute into a run holding 1,228, 2026-10-18).
+  let lastPass: { localBytes: number; pending: number } | undefined
+  const settlePut = async (
+    sha: string,
+    byteLength: number,
+    linked: boolean,
+    upload: (() => Promise<void>) | undefined,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    if (upload !== undefined && !(await hasReceipt(sha))) await upload().catch(() => undefined)
+    const known = lastPass
+    if (
+      known !== undefined &&
+      known.pending === 0 &&
+      (localBudgetBytes === undefined || known.localBytes + byteLength <= localBudgetBytes) &&
+      (await hasReceipt(sha))
+    ) {
+      if (linked) known.localBytes += byteLength
+      return
+    }
+    await offload(signal)
+  }
+
   // Digests a buffered put has linked and is still copying to the durable store with the bytes it
   // holds. A pass leaves them to that put; copying them again doubles the upload and, for a
   // buffered store, holds a second copy of the same archive in memory.
@@ -285,36 +344,7 @@ export function createPrivateCasArtifactPort(
       }
       try {
         if (durable.putStream && durable.getStream) {
-          const ref: AgentCandidateArtifactRef = {
-            locator: { kind: 'private-cas', namespace, digest },
-            sha256: digest,
-            byteLength: object.size,
-          }
-          let failure: unknown
-          for (let attempt = 1; attempt <= DURABLE_ATTEMPTS; attempt++) {
-            signal?.throwIfAborted()
-            const chunks = readObject(object.path, ref, signal)
-            try {
-              await durable.putStream({
-                namespace,
-                digest,
-                byteLength: object.size,
-                chunks,
-                signal,
-              })
-              await writeReceipt(digest, object.size)
-              failure = undefined
-              break
-            } catch (error) {
-              failure = error
-              if (signal?.aborted) throw error
-              if (attempt < DURABLE_ATTEMPTS)
-                await new Promise((settle) => setTimeout(settle, 1_000 * 4 ** (attempt - 1)))
-            } finally {
-              await chunks.return(undefined)
-            }
-          }
-          if (failure !== undefined) throw failure
+          await streamDurably(digest, object.path, object.size, signal)
         } else {
           const bytes = await readLocal(object.path)
           if (bytes === undefined) continue
@@ -350,6 +380,7 @@ export function createPrivateCasArtifactPort(
         evicted++
       }
     }
+    lastPass = { localBytes, pending: pending.length }
     let receiptCount = 0
     try {
       receiptCount = (await readdir(receipts)).filter((name) => HEX.test(name)).length
@@ -499,11 +530,13 @@ export function createPrivateCasArtifactPort(
       const directory = join(store, sha.slice(0, 2))
       await checkDirectories(directory, true)
       signal?.throwIfAborted()
+      let linked = true
       try {
         // The link commits publication. Later cancellation must not delete a shared CAS object.
         await link(temporary, path)
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        linked = false
         for await (const _chunk of readStream(ref, { signal })) {
           // An existing object must independently match, even when our staged bytes were valid.
         }
@@ -517,7 +550,15 @@ export function createPrivateCasArtifactPort(
       } finally {
         await dir.close()
       }
-      if (durable !== undefined) await offload(signal)
+      if (durable !== undefined)
+        await settlePut(
+          sha,
+          byteLength,
+          linked,
+          // A buffered put of the same digest is already copying it; the pass reports that.
+          uploading.has(sha) ? undefined : () => streamDurably(digest, path, byteLength, signal),
+          signal,
+        )
       return ref
     } finally {
       await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
@@ -596,12 +637,14 @@ export function createPrivateCasArtifactPort(
     } finally {
       await file.close()
     }
+    let linked = true
     try {
       signal?.throwIfAborted()
       try {
         await link(temporary, path)
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        linked = false
       }
       await syncDirectory(directory)
     } finally {
@@ -614,10 +657,9 @@ export function createPrivateCasArtifactPort(
     }
     await readRef(ref)
     if (durable !== undefined) {
-      // The bytes are already in memory, so this put copies them itself; the pass that follows
+      // The bytes are already in memory, so this put copies them itself; a pass that follows
       // skips this digest and only evicts and retries others.
-      if (!(await hasReceipt(sha))) await storeDurably(digest, bytes, signal).catch(() => undefined)
-      await offload(signal)
+      await settlePut(sha, bytes.byteLength, linked, () => storeDurably(digest, bytes, signal), signal)
     }
     return ref
   }
