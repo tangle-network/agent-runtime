@@ -2762,7 +2762,10 @@ async function providerExecutionSource(
                       resolve({ kind: 'exact-result' })
                       return
                     }
-                    grace = setTimeout(() => resolve({ kind: 'exact-result' }), RETAINED_TAIL_GRACE_MS)
+                    grace = setTimeout(
+                      () => resolve({ kind: 'exact-result' }),
+                      RETAINED_TAIL_GRACE_MS,
+                    )
                     if (typeof grace.unref === 'function') grace.unref()
                   }
                   void readExactResult().then(close, close)

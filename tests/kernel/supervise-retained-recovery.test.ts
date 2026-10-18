@@ -114,7 +114,9 @@ describe('supervised retained provider recovery', () => {
       if (settled?.kind === 'done') {
         expect(JSON.stringify(settled.out)).not.toContain('eventStreamComplete')
         expect(settled.out).toMatchObject({
-          events: expect.arrayContaining([expect.objectContaining({ id: 'event-3', type: 'done' })]),
+          events: expect.arrayContaining([
+            expect.objectContaining({ id: 'event-3', type: 'done' }),
+          ]),
         })
       }
       return settled?.kind === 'done' ? settled.out : 'unresolved'
