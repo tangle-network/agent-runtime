@@ -69,6 +69,7 @@ import {
   kernelPromptRegistry,
   promptHandle,
 } from '../../src/runtime/supervise/prompt-registry'
+import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import { createPushTraceSource } from '../../src/runtime/supervise/trace-source'
 import type {
   Agent,
@@ -2574,6 +2575,83 @@ describe('run_graph — a director runs an agent graph as ONE subtask of its own
     const subtree = (await journal.loadTree('grg-gated')) ?? []
     expect(
       subtree.find((event) => event.kind === 'settled' && event.id === 'grg-gated:s0'),
+    ).toMatchObject({ status: 'done' })
+    expect(wakeEvents(seen[2]!)).toContainEqual(
+      expect.objectContaining({ type: 'settled', status: 'done' }),
+    )
+  })
+
+  it('a harness-run graph lead with spawn rights starts and settles on its own submission', async () => {
+    // test-canary-graph-tools-20261018c and -d (2026-10-18): run_graph refused every graph whose
+    // lead runs on a harness. The lead held the node check and no continuation policy, which
+    // supervisorAgent refuses for any harness manager, so the graph failed before its lead started.
+    const journal = new InMemorySpawnJournal()
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+    const submissions: unknown[] = []
+    const harnessGraph = {
+      ...refineGraph,
+      nodes: refineGraph.nodes.map((node) =>
+        node.id === 'lead'
+          ? {
+              ...node,
+              profile: {
+                ...node.profile,
+                harness: 'opencode',
+                tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
+              },
+            }
+          : node,
+      ),
+    }
+    const driveHarness: DriveHarness = async ({ profile, coordinationMcpUrl }) => {
+      if (profile.name !== 'lead') return
+      const response = await fetch(coordinationMcpUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'submit',
+          method: 'tools/call',
+          params: { name: 'submit_result', arguments: { result: 'the refined haiku' } },
+        }),
+      })
+      submissions.push(await response.json())
+    }
+    await supervise(director, 'write a haiku through a graph', {
+      runId: 'grg-harness-lead',
+      journal,
+      budget: { maxIterations: 100, maxTokens: 200_000 },
+      deliverable: { describe: 'what only the run deadline ends', check: () => false },
+      makeLeafAgent: leafSeam([]),
+      driveHarness,
+      brain: scriptedBrain(
+        [
+          {
+            toolCalls: [
+              {
+                name: 'run_graph',
+                arguments: {
+                  graph: harnessGraph,
+                  deliverable: 'a refined haiku',
+                  budget: { maxIterations: 30, maxTokens: 40_000 },
+                },
+              },
+            ],
+          },
+          { content: 'waiting for the graph' },
+          { content: 'done' },
+        ],
+        seen,
+      ),
+    })
+
+    // The lead ran and its one submission was accepted.
+    expect(submissions).toHaveLength(1)
+    expect(JSON.stringify(submissions)).not.toMatch(/accepted\\?"\s*:\s*false/)
+    // The graph settled done and woke the director with it.
+    const subtree = (await journal.loadTree('grg-harness-lead')) ?? []
+    expect(
+      subtree.find((event) => event.kind === 'settled' && event.id === 'grg-harness-lead:s0'),
     ).toMatchObject({ status: 'done' })
     expect(wakeEvents(seen[2]!)).toContainEqual(
       expect.objectContaining({ type: 'settled', status: 'done' }),

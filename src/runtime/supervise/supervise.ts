@@ -204,6 +204,7 @@ import {
   type DriveHarnessOwnerContext,
   declaredRuntimeToolNames,
   providerVisibleProfile,
+  graphNodeDeliverable,
   type ResolveDriveHarness,
   type ResolveSupervisorTools,
   runtimeToolDeclarationError,
@@ -3506,20 +3507,6 @@ async function storedGraphTopology(
   }
   return parseGraphSubtaskTopology({ nodes: stored.nodes, edges: stored.edges })
 }
-
-/**
- * The completion check of a managed node inside a `run_graph` subtask: its submission is accepted
- * and settles it. Under the run's own check, a node's narrower result is refused for as long as
- * the run's is: on 2026-10-17 every node of test-canary-graph-tools-20261017a was refused at
- * submit_result and sent back to the run's commission until the run's deadline, so the graph never
- * settled and its caller was never woken with it.
- */
-const graphNodeDeliverable: DeliverableSpec<unknown> = Object.freeze({
-  describe:
-    'the result your task asks for; the graph hands it to the manager that ran the graph, and ' +
-    "the run's own check judges that manager's result",
-  check: () => true,
-})
 
 /**
  * What a `run_graph` subtask settles with once its root manager returned and its subtree closed:
