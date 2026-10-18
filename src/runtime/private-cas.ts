@@ -302,14 +302,17 @@ export function createPrivateCasArtifactPort(
     signal?: AbortSignal,
   ): Promise<void> => {
     if (upload !== undefined && !(await hasReceipt(sha))) await upload().catch(() => undefined)
+    const durableNow = await hasReceipt(sha)
+    // No await between the budget check and the reservation, so concurrent puts cannot both fit.
+    const added = linked ? byteLength : 0
     const known = lastPass
     if (
+      durableNow &&
       known !== undefined &&
       known.pending === 0 &&
-      (localBudgetBytes === undefined || known.localBytes + byteLength <= localBudgetBytes) &&
-      (await hasReceipt(sha))
+      (localBudgetBytes === undefined || known.localBytes + added <= localBudgetBytes)
     ) {
-      if (linked) known.localBytes += byteLength
+      known.localBytes += added
       return
     }
     await offload(signal)
@@ -319,6 +322,12 @@ export function createPrivateCasArtifactPort(
   // holds. A pass leaves them to that put; copying them again doubles the upload and, for a
   // buffered store, holds a second copy of the same archive in memory.
   const uploading = new Map<string, number>()
+  const startUpload = (sha: string) => uploading.set(sha, (uploading.get(sha) ?? 0) + 1)
+  const endUpload = (sha: string) => {
+    const count = (uploading.get(sha) ?? 1) - 1
+    if (count === 0) uploading.delete(sha)
+    else uploading.set(sha, count)
+  }
   const sweep = async (signal?: AbortSignal): Promise<PrivateCasOffloadReport> => {
     const objects = await localObjects()
     const pending: Array<{ digest: Sha256Digest; error: string }> = []
@@ -555,8 +564,16 @@ export function createPrivateCasArtifactPort(
           sha,
           byteLength,
           linked,
-          // A buffered put of the same digest is already copying it; the pass reports that.
-          uploading.has(sha) ? undefined : () => streamDurably(digest, path, byteLength, signal),
+          // Another put of the same digest may already be copying it; the pass reports that.
+          async () => {
+            if (uploading.has(sha)) return
+            startUpload(sha)
+            try {
+              await streamDurably(digest, path, byteLength, signal)
+            } finally {
+              endUpload(sha)
+            }
+          },
           signal,
         )
       return ref
@@ -576,15 +593,11 @@ export function createPrivateCasArtifactPort(
       signal?.throwIfAborted()
       const digest = sha256(bytes)
       const sha = hexOf(digest)
-      if (durable !== undefined) uploading.set(sha, (uploading.get(sha) ?? 0) + 1)
+      if (durable !== undefined) startUpload(sha)
       try {
         return await putBuffered(bytes, digest, sha, signal)
       } finally {
-        if (durable !== undefined) {
-          const count = (uploading.get(sha) ?? 1) - 1
-          if (count === 0) uploading.delete(sha)
-          else uploading.set(sha, count)
-        }
+        if (durable !== undefined) endUpload(sha)
       }
     },
     async read(ref) {

@@ -134,6 +134,9 @@ it('uploads a streamed put by itself after a clean pass, leaving other objects t
     })
   await put('first object')
   expect(durable.counts().uploads).toBe(1)
+  // Two puts of one new object upload it once.
+  await Promise.all([put('same object'), put('same object')])
+  expect(durable.counts().uploads).toBe(2)
   // An object another writer left host-only: a full pass would upload it.
   const foreign = createHash('sha256').update('left by another writer').digest('hex')
   await mkdir(join(root, 'local', 'sha256', foreign.slice(0, 2)), { recursive: true })
@@ -142,9 +145,9 @@ it('uploads a streamed put by itself after a clean pass, leaving other objects t
     'left by another writer',
   )
   await put('second object')
-  expect(durable.counts().uploads).toBe(2)
-  expect(await artifacts.offload()).toMatchObject({ durable: 3, localObjects: 3, pending: [] })
   expect(durable.counts().uploads).toBe(3)
+  expect(await artifacts.offload()).toMatchObject({ durable: 4, localObjects: 4, pending: [] })
+  expect(durable.counts().uploads).toBe(4)
 })
 
 it('refuses streaming capture before source reads with a buffered-only durable store', async () => {
