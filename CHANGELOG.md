@@ -1,3 +1,9 @@
+## 0.325.9
+
+A private CAS pass to a buffered-only durable store (no `putStream`) copies one object at a time, as before 16-at-a-time offload, because a buffered copy holds the whole object in memory.
+
+A private CAS `offload()` pass copies host-only objects 16 at a time. One at a time, each object cost a store round trip plus a receipt with two fsyncs: 2 objects/s on a USB drive, so one archived run of 3,563 objects held a Discovery retire pass for 30 minutes.
+
 ## 0.325.8
 
 A workspace tree capture stores its files 16 at a time and each distinct file once. Every file's put waits for its own durable copy, so capturing one file at a time cost a store round trip per file (one 2 KB file per 1.8 s in Discovery retire salvage on drew-gtr-pro).
