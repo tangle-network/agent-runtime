@@ -414,9 +414,11 @@ export function createPrivateCasArtifactPort(
     let refusal: string | undefined
     type Outcome = { hex: string; durable: boolean; copied?: boolean; error?: string }
     // Outcomes come back in object order, so the report does not depend on which copy ends first.
+    // A buffered store reads each object whole into memory, so it keeps copying one at a time.
+    const streams = durable === undefined || (durable.putStream && durable.getStream)
     const outcomes = await mapWithConcurrency(
       objects,
-      OFFLOAD_COPIES_AT_ONCE,
+      streams ? OFFLOAD_COPIES_AT_ONCE : 1,
       async ({ hex, path, size }): Promise<Outcome> => {
         const inflight = uploading.get(hex)
         if (inflight !== undefined) await waitFor(inflight, signal)
