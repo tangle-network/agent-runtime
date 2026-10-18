@@ -1,3 +1,9 @@
+## 0.325.4
+
+`supervise` refuses, when the run starts, a caller's `perWorker` that no child can ever be admitted under. With `reservationPolicy.ownerShare`, each `perWorker` channel must fit the pool less the owner's kept share; without one, a token or iteration ceiling equal to the whole pool is refused because the first child would leave the owner no next turn. The `ValidationError` names the channel and the reservable amount, so a misconfigured run fails in seconds instead of starving its children hours in (#1815).
+
+A retained provider stream that its exact result outran keeps reading for its tail: up to five seconds after its last frame, then once more from its replay position. A root's retained stream now records the turn's last tool calls and text instead of ending early with `eventStreamComplete: false`.
+
 ## 0.325.3
 
 A managed node of a `run_graph` subtask settles on its own `submit_result`: the run's completion check and continuation no longer hold graph nodes, so a graph under a check that only its caller's result can pass settles and wakes its caller with `{ deliverable, edges }`.
