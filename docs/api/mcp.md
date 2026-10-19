@@ -4382,6 +4382,23 @@ Omit and this manager is treated as the TOP of its question chain: `ask_parent` 
 journals the question, and answers `escalated: false, outcome: 'no-parent'` so the manager knows
 it must decide the question itself rather than wait.
 
+##### onChildQuestionInbox?
+
+> `readonly` `optional` **onChildQuestionInbox?**: (`inbox`) => `void`
+
+Receives this manager's [ChildQuestionInbox](runtime.md#childquestioninbox) once its tools exist, so Runtime can route
+ a child manager's `ask_parent` here.
+
+###### Parameters
+
+###### inbox
+
+[`ChildQuestionInbox`](runtime.md#childquestioninbox)
+
+###### Returns
+
+`void`
+
 ##### priorEscalations?
 
 > `readonly` `optional` **priorEscalations?**: readonly [`QuestionEscalationRecord`](runtime.md#questionescalationrecord)[]
@@ -8784,6 +8801,12 @@ Re-exports [AuthorizedDownMessage](runtime.md#authorizeddownmessage)
 ### AwaitWakeInput
 
 Re-exports [AwaitWakeInput](runtime.md#awaitwakeinput)
+
+***
+
+### ChildQuestionInbox
+
+Re-exports [ChildQuestionInbox](runtime.md#childquestioninbox)
 
 ***
 

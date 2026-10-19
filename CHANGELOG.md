@@ -1,3 +1,11 @@
+## 0.330.0
+
+A nested manager's `ask_parent` now reaches the manager that spawned it when the product installs no `escalateQuestion`: the question joins the parent's questions under that worker's id, wakes the parent, and the parent's `answer_question` delivers the answer back down. Before, every nested manager answered `no-parent`; magnetar-rust-20261017c dropped 8 escalations, including "URGENT cross-crate build break on main", with "this manager has no parent inbox". A product `escalateQuestion` still takes precedence, and the root keeps `no-parent` when nothing is above it.
+
+`ChildQuestionInbox`, the type of `CoordinationToolsOptions.onChildQuestionInbox`, is exported from the `mcp` and `runtime` entry points.
+
+`RouterTransportConfig` (and the `router` / `router-tools` executor backends) take an optional `routing: { only?, allowFallbacks?, requireModel? }`. Runtime lowers it into every Router request as `providerOptions.gateway.{only, allowFallbacks}` and `require_model`, merged with any profile `extraBody.providerOptions`. Braid's Z.ai-only release proof (all-costs #10337) sent no routing and was served by fireworks/glm-5p3; it now passes `{ only: ['zai'], allowFallbacks: false, requireModel: true }`.
+
 ## 0.329.0
 
 A manager whose bridge turn ends before the bridge acknowledges it now records `executor-failed-before-receipt`, and its `execution-bound` binding names the session Runtime started (`execution: { kind: 'session', id }`), instead of `root-agent-did-not-report` with no session. The unknown arm of `ExecutionBindingReceipt` gains an optional `execution`. magnetar-rust-20261018b:s2 ran 177 model calls in its bridge session and no record named it.

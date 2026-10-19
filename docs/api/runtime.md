@@ -10871,12 +10871,35 @@ material supply these; behavior is unchanged for runs that had none.
 
 ***
 
+### RouterRouting
+
+Router provider routing, lowered into every request a transport sends as
+`providerOptions.gateway.{only, allowFallbacks}` and `require_model`. Braid's Z.ai-only release
+proof (all-costs #10337) went out without it and was served by fireworks/glm-5p3.
+
+#### Properties
+
+##### only?
+
+> `readonly` `optional` **only?**: readonly `string`[]
+
+Providers the Router may serve the request from, such as `['zai']`.
+
+##### allowFallbacks?
+
+> `readonly` `optional` **allowFallbacks?**: `boolean`
+
+Whether the Router may fall back to a provider outside `only`.
+
+##### requireModel?
+
+> `readonly` `optional` **requireModel?**: `boolean`
+
+Refuse the request rather than serve a model other than the one it names.
+
+***
+
 ### RouterTransportConfig
-
-Connection details for Runtime's Router-backed executors.
-
-This is deliberately transport-only: model, prompt, tools, generation settings, and retry
-policy belong to the exact executable `AgentProfile` consumed by `streamAgentTurn`.
 
 #### Properties
 
@@ -10887,6 +10910,12 @@ policy belong to the exact executable `AgentProfile` consumed by `streamAgentTur
 ##### routerKey
 
 > **routerKey**: `string`
+
+##### routing?
+
+> `optional` **routing?**: [`RouterRouting`](#routerrouting)
+
+Provider routing for every request this transport sends.
 
 ##### complete?
 
@@ -22265,6 +22294,12 @@ Router/inline transport seam. The profile owns model, prompt, and generation beh
 
 > **routerKey**: `string`
 
+##### routing?
+
+> `optional` **routing?**: [`RouterRouting`](#routerrouting)
+
+Provider routing lowered into every request, for example `{ only: ['zai'] }`.
+
 ##### complete?
 
 > `optional` **complete?**: (`body`, `request?`) => `Promise`\<`unknown`\>
@@ -22888,6 +22923,12 @@ surfaces (e.g. a gym keyed by task) can dispatch correctly.
 ##### routerKey
 
 > **routerKey**: `string`
+
+##### routing?
+
+> `optional` **routing?**: [`RouterRouting`](#routerrouting)
+
+Provider routing lowered into every request, for example `{ only: ['zai'] }`.
 
 ##### complete?
 
@@ -26229,6 +26270,22 @@ Analyst lenses available to the driver (both arms). Required for `analyzeOnSettl
 
 Where an `ask_parent` question goes when it leaves this manager. Omit and `ask_parent` reports
  `no-parent` — there is no runtime path that routes a question to a parent by itself.
+
+##### onChildQuestionInbox?
+
+> `readonly` `optional` **onChildQuestionInbox?**: (`inbox`) => `void`
+
+Receives this manager's intake for questions its child managers raise.
+
+###### Parameters
+
+###### inbox
+
+[`ChildQuestionInbox`](#childquestioninbox)
+
+###### Returns
+
+`void`
 
 ##### analyzeOnSettle?
 
@@ -32660,6 +32717,31 @@ broken parent channel reads as an undelivered escalation, never as a delivered o
 #### Returns
 
 `Promise`\<[`QuestionEscalationOutcome`](#questionescalationoutcome)\> \| [`QuestionEscalationOutcome`](#questionescalationoutcome)
+
+***
+
+### ChildQuestionInbox
+
+> **ChildQuestionInbox** = (`assignmentId`, `question`) => `Promise`\<[`QuestionEscalationOutcome`](#questionescalationoutcome)\>
+
+A manager's intake for an `ask_parent` question raised by a worker it spawned that manages work
+of its own. `assignmentId` is the assignment the parent gave that worker. The question joins the
+parent's questions under that worker's id, so the parent's next wake carries it and
+`answer_question` delivers the answer back down to the asker.
+
+#### Parameters
+
+##### assignmentId
+
+`string`
+
+##### question
+
+[`QuestionRecord`](mcp.md#questionrecord)
+
+#### Returns
+
+`Promise`\<[`QuestionEscalationOutcome`](#questionescalationoutcome)\>
 
 ***
 

@@ -117,6 +117,22 @@ The analyst lenses available to the driver. Required for `analyzeOnSettle` (and 
 
 Where an `ask_parent` question goes when it leaves this manager. Omit = `no-parent`.
 
+##### onChildQuestionInbox?
+
+> `readonly` `optional` **onChildQuestionInbox?**: (`inbox`) => `void`
+
+Receives this manager's intake for questions its child managers raise.
+
+###### Parameters
+
+###### inbox
+
+[`ChildQuestionInbox`](runtime.md#childquestioninbox)
+
+###### Returns
+
+`void`
+
 ##### analyzeOnSettle?
 
 > `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](runtime.md#analyzeonsettleroute))[]
@@ -3102,6 +3118,26 @@ Where an `ask_parent` question goes when it leaves this manager. Omit and `ask_p
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`escalateQuestion`](runtime.md#escalatequestion-3)
+
+##### onChildQuestionInbox?
+
+> `readonly` `optional` **onChildQuestionInbox?**: (`inbox`) => `void`
+
+Receives this manager's intake for questions its child managers raise.
+
+###### Parameters
+
+###### inbox
+
+[`ChildQuestionInbox`](runtime.md#childquestioninbox)
+
+###### Returns
+
+`void`
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`onChildQuestionInbox`](runtime.md#onchildquestioninbox)
 
 ##### analyzeOnSettle?
 
