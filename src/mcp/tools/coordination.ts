@@ -1569,11 +1569,14 @@ export const coordinationVerbNames = [
  * `question` on this bus is the manager's own `ask_parent`, already escalated: it never wakes the
  * asker, whose answer arrives as a `lead-message`.
  */
+// A question wakes its manager: one raised by a child manager that is still working would
+// otherwise wait for the heartbeat, or for that child to settle and so never need the answer.
 const wakeEventKinds = [
   'settled',
   'finding',
   'tool-outcome',
   'lead-message',
+  'question',
 ] as const satisfies ReadonlyArray<CoordinationEvent['type']>
 
 const idArg = { type: 'string', description: 'The workerId returned by spawn_worker.' } as const
