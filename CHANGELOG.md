@@ -1,3 +1,21 @@
+## 0.334.0
+
+A worker turn that completes past its budget keeps its committed result. The drive ends at the turn boundary instead of throwing `supervisor budget exhausted`. The node settles with that result and a `budgetViolation` naming each channel with the amount reserved and the amount spent, and the manager's settled event carries `budgetStop` (`tokens 235,857 of 42,000`). A `done` settle that carries `budgetViolation` is budget-stopped work, not finished work, and readers must show it that way: roster lines read `done (budget stop: ...)`. `BudgetOverspend.channel` gains `deadline` (time given and time taken, in ms) for a child that settled past its time box. The pre-turn refusal names the spent channels too. Before, the Lab's limits audit counted 28 such worker turns (26.77 turn-hours) metered and then thrown away.
+
+A capture port may return `stages` beside its snapshot: its own split of the capture time, in its names and units (for example `exportMs`, `archiveStoreMs`, `offloadMs`, `exportBytes`). Runtime copies it verbatim onto the `workspace-capture` journal event, keeping up to 16 finite, non-negative numbers.
+
+A turn's end no longer waits for native session copies before its workspace capture. The periodic copy in flight is cut short, as the live workspace copy already is, and the final session copy runs beside the workspace capture instead of before it. On canary test-acceptance-canary-20261019o (0.332.2), these copies put the capture start 59-66 s after the turn's result.
+
+A driver whose attempts end in the same Sandbox `PartialFailureError` twice in a row with no progress stops with `repeated-failure` and the typed error as the cause, instead of re-entering the same half-provisioned box for the fifteen-minute outage window. Discovery run queens21-h22-capture-root-1-20261019c re-entered four such boxes 154 times in 37 minutes on `mkdir: cannot create directory '/work': Read-only file system`.
+
+A private CAS offload pass after a process's first reads only the objects that process wrote without a durable receipt, instead of listing every object of the store and reading its receipt. The first pass of each process is still full, so objects an earlier process left without a receipt are uploaded, and a pass is full again whenever the host must evict over its local budget. On canary test-acceptance-canary-20261019q two full passes per capture took 60.1-63.2 s on each native copy.
+
+A profile the box cannot be provisioned for no longer burns boxes. On a provider backend, `spawn_worker` asks the provider's `validateProfile` before any box exists, and refuses the spawn with the new `SpawnRefusalCause` `unprovisionable-profile`, naming each error's code and path, so the manager fixes the profile. A Sandbox provisioning refusal that still reaches a box (HTTP 422 with code `PROFILE_FILE_MOUNT_OUTSIDE_ROOTS` or `PROFILE_FILES_MATERIALIZE_FAILED`) settles the spawn as terminal and reads as refused-before-it-ran. Before, both were retried as a lost transport: queens21-h22-capture-root-1-20261019c retried a mount on a read-only root filesystem 154 times across 4 workers.
+
+The Sandbox peer range admits `0.62.14` (`>=0.61.1 <0.61.2 || >=0.62.2 <0.62.3 || >=0.62.14 <0.62.15`), qualified against agent-interface 5.7.0 with the same nested contracts as 0.62.2. 0.62.14 carries the SDK side of native-copy content omission (agent-container #11969), which agent-provider-tangle 4.4.5 needs for its faster native session copies.
+
+The Sandbox peer range admits `0.62.15` (`>=0.61.1 <0.61.2 || >=0.62.2 <0.62.3 || >=0.62.14 <0.62.16`), qualified against agent-interface 5.7.0 with the same nested contracts as 0.62.14. 0.62.15 carries agent-container #11974, the SDK errors for profile files: `PROFILE_FILE_MOUNT_OUTSIDE_ROOTS` and `PROFILE_FILES_MATERIALIZE_FAILED` at 422, which Runtime treats as terminal provisioning refusals, and `PROFILE_FILES_MATERIALIZE_INTERRUPTED` at 502.
+
 ## 0.333.1
 
 A quota refusal whose stated reset is more than 6 hours away is probed once an hour, instead of on the doubling pause that capped near 5 minutes. A reset within 6 hours is still held exactly.
