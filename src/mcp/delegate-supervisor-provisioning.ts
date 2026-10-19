@@ -7,7 +7,7 @@
  * `delegate` is wired into `createMcpServer` via `McpServerOptions.delegateSupervisor`, which needs a
  * router (the supervisor brain's transport) and a backend (WHERE the authored workers run). Inside a
  * sandbox child the natural backend is `sandbox`: authored workers run as sub-sandboxes through the
- * SAME `SandboxClient` the bin already loads from `TANGLE_API_KEY`. Dedicated MCP variables name
+ * SAME `SandboxClient` the bin already loads from its sandbox key. Dedicated MCP variables name
  * the supervisor's router connection and exact model; inherited worker/model aliases are rejected.
  *
  * @experimental
@@ -18,6 +18,7 @@ import { ConfigError } from '../errors'
 import type { SandboxClient } from '../runtime'
 import type { RouterTransportConfig } from '../runtime/router-client'
 import { supervisorInstructions } from '../runtime/supervise/authoring'
+import { coordinationProfileToolPrefix } from '../runtime/supervise/provider-visible-profile'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import type { DelegateHandlerOptions } from './tools/delegate'
 
@@ -37,6 +38,20 @@ function requiredEnv(env: NodeJS.ProcessEnv, name: string): string {
 export function delegateEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.MCP_ENABLE_DELEGATE === '1'
 }
+
+/**
+ * The Runtime verbs the authoring supervisor is granted. A profile gets no coordination tool it does
+ * not declare, so without `spawn_worker` the brain is offered no tools and every delegation settles
+ * `no-children-spawned`. The rest let it inspect, steer, stop, and re-read what it already spawned,
+ * which its authoring instruction tells it to do.
+ */
+const delegateSupervisorVerbs = [
+  'spawn_worker',
+  'observe_agent',
+  'steer_agent',
+  'cancel_worker',
+  'read_journal',
+] as const
 
 /**
  * Resolve the supervisor brain from dedicated MCP configuration. The model is part of the exact
@@ -60,6 +75,9 @@ function resolveRouterSupervisor(env: NodeJS.ProcessEnv): {
       harness: 'cli-base',
       model: { provider: 'tangle-router', default: model },
       prompt: { systemPrompt: supervisorInstructions() },
+      tools: Object.fromEntries(
+        delegateSupervisorVerbs.map((verb) => [`${coordinationProfileToolPrefix}${verb}`, true]),
+      ),
     },
   }
 }
