@@ -176,7 +176,16 @@ describe('supervise coordination-channel pre-flight', () => {
                       harness: 'codex',
                       model: { provider: 'openai', default: 'test' },
                       resources: {
-                        files: [{ path: '/work/queens21_count.c', content: 'int main(void){}\n' }],
+                        files: [
+                          {
+                            path: '/work/queens21_count.c',
+                            resource: {
+                              kind: 'inline',
+                              name: 'queens21_count.c',
+                              content: 'int main(void) { return 0; }\n',
+                            },
+                          },
+                        ],
                       },
                     },
                     task: 'count the queens',
@@ -193,7 +202,6 @@ describe('supervise coordination-channel pre-flight', () => {
         },
       },
     )
-    console.log("TOOLRESULTS", JSON.stringify(toolResults).slice(0, 3000))
     expect(validated).toHaveLength(1)
     expect(creates()).toBe(0)
     expect(events.filter((event) => event.kind === 'spawned' && event.key === 'counter')).toEqual(
