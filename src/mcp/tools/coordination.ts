@@ -1247,6 +1247,8 @@ export interface ManagerWake {
   readonly freeSlots: number | null
   /** How long the manager waited, with no model turn, before this wake. */
   readonly idleMs: number
+  /** Heartbeats that elapsed with every live worker still progressing, and woke no turn. */
+  readonly quietHeartbeats?: number
 }
 
 /** A steer or an answer this manager received from its lead. */
@@ -3700,14 +3702,22 @@ export function createCoordinationToolsForManager(
       flushing > 0
     )
   }
+  // Every live worker reports progress and none is stalled; unknown progress counts as stalled.
+  const liveWorkersProgressing = (): boolean => {
+    const running = openWork().running
+    return (
+      running.length > 0 && running.every((node) => readProgress(node.id)?.stalled === false)
+    )
+  }
   const awaitWake = async (input: AwaitWakeInput): Promise<ManagerWake | undefined> => {
     const startedAt = Date.now()
+    let quietHeartbeats = 0
     await ready()
     await settledWithoutDrain()
     if (!hasOpenWork() || input.signal.aborted) return undefined
-    const heartbeatAt = startedAt + Math.max(0, input.heartbeatMs)
+    let heartbeatAt = startedAt + Math.max(0, input.heartbeatMs)
     const deadlineAt = input.deadlineAt ?? Number.POSITIVE_INFINITY
-    const wakeAt = Math.min(heartbeatAt, deadlineAt)
+    let wakeAt = Math.min(heartbeatAt, deadlineAt)
     let unsubscribe: (() => void) | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
     let onAbort: (() => void) | undefined
@@ -3719,10 +3729,15 @@ export function createCoordinationToolsForManager(
           if ((wakeEventKinds as ReadonlyArray<string>).includes(record.event.type)) resolve()
         })
       })
-      const elapsed = new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, Math.max(0, wakeAt - Date.now()))
-        // Held: a manager waiting for its workers is live work, and must keep its process up.
-      })
+      let elapsed: Promise<void> = Promise.resolve()
+      const armTimer = (): void => {
+        if (timer) clearTimeout(timer)
+        elapsed = new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, Math.max(0, wakeAt - Date.now()))
+          // Held: a manager waiting for its workers is live work, and must keep its process up.
+        })
+      }
+      armTimer()
       const aborted = new Promise<void>((resolve) => {
         onAbort = () => resolve()
         input.signal.addEventListener('abort', onAbort, { once: true })
@@ -3733,6 +3748,7 @@ export function createCoordinationToolsForManager(
       // Set once the cursor reports no child it can wait on, so a node it does not drain cannot
       // turn this loop into a spin.
       let cursorIdle = false
+      for (;;) {
       while (
         bus.pending(wakeEventKinds) === 0 &&
         !outsideWake &&
@@ -3754,6 +3770,27 @@ export function createCoordinationToolsForManager(
           cursorIdle = true
           if (!hasOpenWork()) break
         }
+      }
+      // A heartbeat with nothing new costs no model turn while every live worker is still making
+      // progress: Runtime re-arms it and keeps waiting. magnetar-rust-20261018b spent 58 of its
+      // root's 79 turns, about 37% of root spend, on 15-minute wakes that changed nothing. A
+      // stalled worker, no live worker, or the deadline still wakes the manager.
+      if (
+        input.heartbeatMs > 0 &&
+        bus.pending(wakeEventKinds) === 0 &&
+        !outsideWake &&
+        !input.signal.aborted &&
+        Date.now() >= heartbeatAt &&
+        Date.now() < deadlineAt &&
+        liveWorkersProgressing()
+      ) {
+        quietHeartbeats += 1
+        heartbeatAt = Date.now() + input.heartbeatMs
+        wakeAt = Math.min(heartbeatAt, deadlineAt)
+        armTimer()
+        continue
+      }
+      break
       }
       if (input.signal.aborted) return undefined
       // A settlement queued mid-flush still has its analysis to publish: let that bounded flush
@@ -3803,6 +3840,7 @@ export function createCoordinationToolsForManager(
       live: liveSnapshot(),
       freeSlots: freeWorkerSlots(),
       idleMs: Date.now() - startedAt,
+      ...(quietHeartbeats === 0 ? {} : { quietHeartbeats }),
     })
   }
 
