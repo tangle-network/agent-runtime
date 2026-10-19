@@ -1,3 +1,7 @@
+## 0.325.15
+
+A resumed retained root recovers its accepted workspace with a source lookup bounded by the retention port's `timeoutMs`, not a fixed 30 s, and a lookup that times out says so with its bound. A box idle about 21 minutes took over 30 s to answer; the capture stayed pending and the resumed supervisor exited (test-acceptance-canary-20261018h).
+
 ## 0.325.14
 
 A managed child that no `resolveDeliverable` gave a check of its own settles on its own accepted `submit_result`, as a graph node does. It was held to the run's check, so its submission was refused until the run's own check passed: the child never settled and its waiting manager was only ever woken by the 15-minute heartbeat (test-retained-root-wake-20261018b).
