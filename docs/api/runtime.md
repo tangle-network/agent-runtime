@@ -34497,7 +34497,7 @@ Whether the run's declared completion check has passed. `'none'` means the calle
 
 ### DriverAttemptStop
 
-> **DriverAttemptStop** = `"completed"` \| `"terminal-error"` \| `"retry-disabled"` \| `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"no-progress"` \| `"max-attempts"` \| `"pending-unresolved"`
+> **DriverAttemptStop** = `"completed"` \| `"terminal-error"` \| `"retry-disabled"` \| `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"no-progress"` \| `"max-attempts"` \| `"pending-unresolved"` \| `"repeated-failure"`
 
 Why the retry loop stopped. `completed` is the only non-failure.
 

@@ -969,7 +969,7 @@
       "DriveHarnessOwnerContext": "type d0689ff0eb6e",
       "Driver": "type 4a747076b1a3",
       "DriverAttemptRecord": "type 1aa216673db8",
-      "DriverAttemptStop": "type e3f0bfb31a1a",
+      "DriverAttemptStop": "type 0eca0800a7c4",
       "DriverAttemptsExhaustedError": "value 12c3b4b82c88",
       "DriverBudgetReadout": "type 16f9b013d385",
       "DriverContinuationRecord": "type 83ea0bebe75b",
