@@ -1019,6 +1019,60 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     ])
   })
 
+  it('re-enters the run when a silent root turn runs out its bridge deadline', async () => {
+    // magnetar-rust-20261019b: one silent root turn hit timeoutMs 14,400,000 and the AbortError it
+    // surfaced as settled a 48-hour run at 4 hours.
+    const chats: string[] = []
+    const cancels: string[] = []
+    server = createBridgeServer(async (req, res) => {
+      const cancelled = cancelledRunId(req.url)
+      if (cancelled !== undefined) {
+        cancels.push(cancelled)
+        respondWithTerminalCancellation(res, cancelled)
+        return
+      }
+      if (req.method !== 'POST' || !req.url?.startsWith('/v1/chat/completions')) {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end('{}')
+        return
+      }
+      const body = await readJson(req)
+      chats.push(body.run_id)
+      if (chats.length === 1) {
+        // The turn opens its stream and then says nothing, as the 4-hour root turn did.
+        res.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'x-run-id': body.run_id,
+          'x-run-request-digest': TEST_RUN_DIGEST,
+        })
+        return
+      }
+      respondWithBridgeStream(res, body, successStream('managed after the timed-out turn'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const attempts: DriverAttemptRecord[] = []
+    const result = await supervise(codexTestProfile('bridge-root', 'Lead.'), 'Choose.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+        timeoutMs: 300,
+      },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+      driverRetry: { initialBackoffMs: 1 },
+      onDriverAttempt: (attempt) => void attempts.push(attempt),
+    })
+    expect(attempts.map((attempt) => attempt.stop ?? attempt.classification)).toEqual([
+      'transient',
+      'completed',
+    ])
+    expect(attempts[0]?.error).toContain('ran out its 300 ms deadline')
+    expect(chats).toHaveLength(2)
+    expect(cancels).toEqual([chats[0]])
+    expect(result.kind === 'no-winner' ? result.reason : 'winner').not.toBe('driver-failed')
+  })
+
   it('records the exact served root MCP tools in bridge materialization evidence', async () => {
     const servedToolSets: Array<
       Array<{ name: string; description?: string; inputSchema?: unknown }>
