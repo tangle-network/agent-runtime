@@ -22,7 +22,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
+import { applyRunCancellation } from '../../src/runtime/supervise/run-cancellation'
 import {
+  cancelRun,
+  readRunCancellation,
   readWorkerSteerAcknowledgement,
   writeWorkerSteer,
 } from '../../src/runtime/supervise/run-layout'
@@ -85,11 +88,13 @@ interface Fixture {
   readonly slowSourceLookupMs?: number
   /** The retention port's bound; 5 s unless a slow lookup needs more. */
   readonly retentionTimeoutMs?: number
+  /** Re-enter this earlier fixture directory: the same run directory and provider state. */
+  readonly directory?: string
 }
 
 async function superviseRoot(fixture: Fixture) {
-  const directory = await mkdtemp(join(tmpdir(), 'retained-owner-pending-'))
-  directories.push(directory)
+  const directory = fixture.directory ?? (await mkdtemp(join(tmpdir(), 'retained-owner-pending-')))
+  if (fixture.directory === undefined) directories.push(directory)
   const proxy = await coordinationProxy()
   proxies.push(proxy)
   const stateFile = join(directory, 'provider.json')
@@ -551,6 +556,33 @@ describe('supervised root with a pending retained turn', () => {
       ]),
     )
   }, 150_000)
+
+  it.each([false, true])(
+    'settles a dead run with a queued cancel as cancelled, with no turn or environment (stale acknowledgement=%s)',
+    async (staleAcknowledgement) => {
+      // queens21-h22-tree4-20261018a (2026-10-18): a cancel queued on a dead run made its resume
+      // throw on the aborted recovery, and the next resume re-ran its work to budget exhaustion.
+      await expect(superviseRoot({ captureFailure: 'partial', submitOn: 2 })).rejects.toMatchObject({
+        name: 'RetainedWorkspaceCapturePendingError',
+      })
+      const directory = directories.at(-1)!
+      const runDir = join(directory, 'run')
+      cancelRun(runDir, 'dead-cancel', { reason: 'operator', source: 'test' })
+      // The process that acknowledged the request died before the run settled.
+      if (staleAcknowledgement) {
+        applyRunCancellation(runDir, () => {}, () => new Date().toISOString())
+      }
+      const run = await superviseRoot({ captureFailure: 'partial', submitOn: 2, directory })
+      expect(run.result).toMatchObject({
+        kind: 'no-winner',
+        reason: 'cancelled',
+        operationId: 'dead-cancel',
+      })
+      expect(run.dispatched).toHaveLength(0)
+      expect(run.environments).toHaveLength(0)
+      expect(readRunCancellation(runDir, 'dead-cancel')?.effect).toBe('cancelled')
+    },
+  )
 
   it('keeps an accepted turn with incomplete capture open without sealing a winner', async () => {
     await expect(superviseRoot({ captureFailure: 'partial', submitOn: 2 })).rejects.toMatchObject({

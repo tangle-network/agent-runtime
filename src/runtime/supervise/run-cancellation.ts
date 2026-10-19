@@ -18,6 +18,11 @@ export function applyRunCancellation(
   const request = readRunCancelRequest(dir)
   if (request === undefined) return undefined
   const prior = readRunCancellation(dir, request.operationId)
+  // A request acknowledged only as `cancel_requested` is still owed by this run: the process
+  // that issued the abort died before the run settled. Abort again; the record stands.
+  if (prior?.effect === 'cancel_requested') {
+    abortRun(request.reason ?? 'run cancel requested', request)
+  }
   if (prior !== undefined) return prior
   abortRun(request.reason ?? 'run cancel requested', request)
   const observedAt = now()
