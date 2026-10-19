@@ -13,6 +13,7 @@ import type {
   Executor,
   ExecutorExecutionBinding,
   ExecutorMaterialization,
+  MaterializedExecutionIdentity,
   ProfileMaterializationReceipt,
   ProviderModelAttemptEvidence,
   ProviderModelExecutionEvidence,
@@ -482,6 +483,7 @@ export function unknownExecutionBindingReceipt(
   materialization: ProfileMaterializationReceipt,
   attemptId: string,
   reason: UnknownMaterializationReason,
+  execution?: MaterializedExecutionIdentity,
 ): ExecutionBindingReceipt {
   assertNonEmpty(attemptId, 'binding.attemptId')
   return Object.freeze({
@@ -489,6 +491,7 @@ export function unknownExecutionBindingReceipt(
     attemptId,
     materializationReceiptDigest: canonicalCandidateDigest(materialization),
     reason,
+    ...(execution === undefined ? {} : { execution: Object.freeze({ ...execution }) }),
   })
 }
 

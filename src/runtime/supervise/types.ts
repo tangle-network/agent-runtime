@@ -742,6 +742,10 @@ export type ExecutionBindingReceipt =
       readonly attemptId: string
       readonly materializationReceiptDigest: Sha256Digest
       readonly reason: UnknownMaterializationReason
+      /** The execution Runtime planned and started for this attempt, such as the bridge session
+       *  it minted, when the attempt ended before the executor acknowledged it. It names where
+       *  the attempt ran; the plan it ran under stays unknown. */
+      readonly execution?: MaterializedExecutionIdentity
     }
 
 /** Trusted root composition evidence. Generic `Agent.act` roots omit this and remain unknown. */

@@ -181,6 +181,7 @@ import {
   deriveNodeExecutionIdentity,
   meterRuntimeOwnedAccounting,
   meterRuntimeOwnedProviderAttempt,
+  noteScopeOwnerPlannedExecution,
   recordScopeOwnerMaterialization,
   restoreScopeOwnerAcceptedExecution,
   scopeOwnerExecutorNodeContext,
@@ -1664,6 +1665,7 @@ function driveHarnessFromBackend(
             'driveHarnessFromBackend: pending executor changed the provider-visible AgentProfile before execution',
           )
         }
+        noteScopeOwnerPlannedExecution(scope, pending.declaration.execution)
       } else {
         await publishMaterialization(declaration!, executionBinding!)
         ownerMaterializationPublished = true
