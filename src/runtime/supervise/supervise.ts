@@ -219,7 +219,6 @@ import type {
   Agent,
   AgentExecutionRef,
   AgentSpec,
-  SpawnModelSubstitution,
   Budget,
   Executor,
   ExecutorContext,
@@ -239,6 +238,7 @@ import type {
   RootStreamReceipt,
   Scope,
   SpawnJournal,
+  SpawnModelSubstitution,
   Spend,
   SupervisedResult,
   UsageEvent,
@@ -4326,15 +4326,15 @@ function superviseInternal(
               : withRetry(workerFromBackend(options.backend as ExecutorConfig, childDeliverable))
           return withModelSubstitution(
             makeSelectedLeaf(
-            authorized,
-            Object.freeze({
-              ...authorizedContext,
-              assignmentId: workerAssignmentNamespace(
-                runNamespace,
-                parentOwnerId,
-                spawnContext.assignmentId,
-              ),
-            }),
+              authorized,
+              Object.freeze({
+                ...authorizedContext,
+                assignmentId: workerAssignmentNamespace(
+                  runNamespace,
+                  parentOwnerId,
+                  spawnContext.assignmentId,
+                ),
+              }),
             ),
             modelSubstitution,
           )

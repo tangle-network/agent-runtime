@@ -1537,9 +1537,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       substitution,
     )
     // An authorization that keeps the authored model records nothing.
-    expect(spawned.find((event) => event.key === 'worker')).not.toHaveProperty(
-      'modelSubstitution',
-    )
+    expect(spawned.find((event) => event.key === 'worker')).not.toHaveProperty('modelSubstitution')
     // The bridge ran the authorized route, and the manager was told so in the spawn result.
     expect(requests.find((request) => request.agent_profile.name === 'referee')?.model).toContain(
       'glm-5.3',
@@ -1550,7 +1548,9 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(spawnResult).toBeDefined()
     expect(JSON.parse(spawnResult as string)).toMatchObject({
       modelSubstitution: substitution,
-      modelWarning: expect.stringContaining('attribute its work to opencode/zai-coding-plan/glm-5.3'),
+      modelWarning: expect.stringContaining(
+        'attribute its work to opencode/zai-coding-plan/glm-5.3',
+      ),
     })
     const tree = materializeTreeView((await journal.loadTree('model-substitution')) ?? [])
     expect(tree.nodes.filter((node) => node.modelSubstitution !== undefined)).toEqual([
