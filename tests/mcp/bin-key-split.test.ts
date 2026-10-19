@@ -134,6 +134,14 @@ function rpc(child: ChildProcessWithoutNullStreams) {
   }
 }
 
+async function waitFor(condition: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!condition()) {
+    if (Date.now() > deadline) return
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+}
+
 describe('agent-runtime-mcp bin: one key per product', () => {
   const servers: Server[] = []
   let child: ChildProcessWithoutNullStreams | undefined
@@ -190,16 +198,23 @@ describe('agent-runtime-mcp bin: one key per product', () => {
     )
     expect(toolNames, stderr.join('')).toContain('delegate')
 
-    await call('tools/call', {
+    // The worker box create is the proof; the refused create's retries need not finish.
+    void call('tools/call', {
       name: 'delegate',
       arguments: { intent: 'Reply with DELEGATED-391.' },
     })
+    await waitFor(() => sandboxSeen.length > 0, 30_000)
 
     const chats = routerSeen.filter((req) => req.url.includes('/chat/completions'))
     expect(chats.length, stderr.join('')).toBeGreaterThan(0)
     for (const req of chats) expect(req.authorization).toBe(`Bearer ${ROUTER_KEY}`)
 
     expect(sandboxSeen.length, stderr.join('')).toBeGreaterThan(0)
+    const create = sandboxSeen.find((req) => req.method === 'POST' && req.url === '/v1/sandboxes')
+    expect(create, 'the supervisor created a worker box').toBeDefined()
+    expect(JSON.parse(create?.body ?? '{}')).toMatchObject({
+      backend: { type: 'opencode', profile: { name: 'answer-worker' } },
+    })
     for (const req of sandboxSeen) {
       expect(req.authorization).toBe(`Bearer ${SANDBOX_KEY}`)
       // The worker box is created with the authored profile; neither key rides in its request.
@@ -243,10 +258,11 @@ describe('agent-runtime-mcp bin: one key per product', () => {
       capabilities: {},
       clientInfo: { name: 'bin-key-split-test', version: '0' },
     })
-    await call('tools/call', {
+    void call('tools/call', {
       name: 'delegate',
       arguments: { intent: 'Reply with DELEGATED-391.' },
     })
+    await waitFor(() => sandboxSeen.length > 0, 30_000)
 
     expect(sandboxSeen.length, stderr.join('')).toBeGreaterThan(0)
     for (const req of sandboxSeen) expect(req.authorization).toBe(`Bearer ${SANDBOX_KEY}`)
