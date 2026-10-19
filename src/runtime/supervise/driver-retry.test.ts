@@ -596,6 +596,34 @@ describe('runDriverWithRetry', () => {
     expect(records.at(-1)?.stop).toBe('completed')
   })
 
+  it('probes a seat whose stated reset is beyond six hours once an hour, not every five minutes', async () => {
+    // magnetar-rust-20261019c re-asked a spent seat about 12 times an hour while its reset was
+    // more than six hours out.
+    const now = Date.parse('2026-10-19T08:00:00Z')
+    const refusal = () =>
+      new BackendTransportError(
+        'bridge',
+        // 20 hours ahead in the plan's Beijing time: 2026-10-20 12:00:00 +08:00 is 04:00Z.
+        'Usage limit reached for 5 hour. Your limit will reset at 2026-10-20 12:00:00',
+        { status: 429 },
+      )
+    const script = scriptedDrive([refusal(), refusal(), null])
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => noProgress,
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      now: () => now,
+      sleep: instantSleep,
+      random: () => 0,
+      onAttempt: (record) => void records.push(record),
+    })
+    expect(records.slice(0, 2).map((record) => record.retryInMs)).toEqual([3_600_000, 3_600_000])
+    expect(records[0]?.resumeAt).toBe('2026-10-19T09:00:00.000Z')
+    expect(records.at(-1)?.stop).toBe('completed')
+  })
+
   it('gives up in three attempts when the driver is dead on arrival', async () => {
     // The dotenvx-race shape: the harness dies instantly, spends nothing, settles nothing. Without
     // the no-progress ceiling this would retry against a 6-hour deadline. With no outage window the

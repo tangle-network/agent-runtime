@@ -108,14 +108,20 @@ export function cappedDoublingMs(consecutive: number, first: number, ceiling: nu
 /** The longest hold a refusal's own reset time may ask for: a 5-hour plan window plus a margin. */
 export const MAX_RESET_HOLD_MS = 6 * 60 * 60_000
 
+/** How often a refusal whose reset is beyond {@link MAX_RESET_HOLD_MS} is probed again. */
+export const FAR_RESET_PROBE_MS = 60 * 60_000
+
 /**
  * When a refusal says its quota resets, as epoch ms, or `undefined` when it names no usable time.
  * The Z.ai Coding Plan's opencode refusal names one in Beijing time with no zone:
  * `Usage limit reached for 5 hour. Your limit will reset at 2026-10-18 15:17:33`. On Discovery run
  * magnetar-rust-20261018b, 219 of 324 driver attempts ended on it between 06:04Z and 22:18Z, and
  * the last refusal came at 22:18Z against `reset at 2026-10-19 06:18:14`, which is 22:18:14Z at
- * +08:00. A time with its own zone is read as written. A time in the past, or more than
- * MAX_RESET_HOLD_MS ahead, is no reset time: the caller keeps its doubling pause.
+ * +08:00. A time with its own zone is read as written. A time in the past is no reset time: the
+ * caller keeps its doubling pause. A time more than MAX_RESET_HOLD_MS ahead is held for only
+ * FAR_RESET_PROBE_MS at a time, so a misread zone cannot hold a seat for a day, yet the spent seat
+ * is not asked again every 5 minutes: on magnetar-rust-20261019c a reset beyond 6 h drew about 12
+ * attempts an hour against the refusing seat.
  */
 export function unavailableResumeAt(text: string, nowMs: number): number | undefined {
   const match = text.match(
@@ -127,8 +133,8 @@ export function unavailableResumeAt(text: string, nowMs: number): number | undef
   const at = Date.parse(
     `${match[1]}T${match[2]}${zone.length === 5 ? `${zone.slice(0, 3)}:${zone.slice(3)}` : zone}`,
   )
-  if (!Number.isFinite(at) || at <= nowMs || at - nowMs > MAX_RESET_HOLD_MS) return undefined
-  return at
+  if (!Number.isFinite(at) || at <= nowMs) return undefined
+  return at - nowMs > MAX_RESET_HOLD_MS ? nowMs + FAR_RESET_PROBE_MS : at
 }
 
 /**
