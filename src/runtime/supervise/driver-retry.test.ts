@@ -544,6 +544,58 @@ describe('runDriverWithRetry', () => {
     expect(records[0]?.retryInMs).toBeUndefined()
   })
 
+  it('stops a driver that dies instantly on the same error while the rest of the run progresses', async () => {
+    // magnetar-rust-20261017c: 1,258 of 2,069 root attempts failed with 'connect ECONNREFUSED
+    // 127.0.0.1:32897' while other nodes spent, so every failure read as progress.
+    const refused = () => new Error('connect ECONNREFUSED 127.0.0.1:32897')
+    const script = scriptedDrive([...Array.from({ length: 40 }, refused), null])
+    let clock = 0
+    let spent = 0
+    const records: DriverAttemptRecord[] = []
+    const error = await runDriverWithRetry({
+      drive: script.drive,
+      // Siblings spend between attempts: the run-wide mark rises on every attempt.
+      progress: () => ({ ...noProgress, poolTokensSpent: (spent += 100) }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      now: () => clock,
+      sleep: async () => {
+        clock += 30_000
+      },
+      random: () => 0,
+      onAttempt: (record) => void records.push(record),
+    }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(DriverAttemptsExhaustedError)
+    if (!(error instanceof DriverAttemptsExhaustedError)) return
+    expect(error.stop).toBe('repeated-failure')
+    // Ten in a row over five minutes: the eleventh attempt, at 300 s, ends it.
+    expect(script.attempts).toHaveLength(11)
+    expect(records.at(-1)?.error).toContain('ECONNREFUSED 127.0.0.1:32897')
+  })
+
+  it('keeps retrying an instant failure that clears inside the repeated-failure window', async () => {
+    // A local server restart takes seconds: nine refusals over four minutes, then it answers.
+    const refused = () => new Error('connect ECONNREFUSED 127.0.0.1:32897')
+    const script = scriptedDrive([...Array.from({ length: 9 }, refused), null])
+    let clock = 0
+    let spent = 0
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => ({ ...noProgress, poolTokensSpent: (spent += 100) }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      now: () => clock,
+      sleep: async () => {
+        clock += 30_000
+      },
+      random: () => 0,
+      onAttempt: (record) => void records.push(record),
+    })
+    expect(script.attempts).toHaveLength(10)
+    expect(records.at(-1)?.stop).toBe('completed')
+  })
+
   it('gives up in three attempts when the driver is dead on arrival', async () => {
     // The dotenvx-race shape: the harness dies instantly, spends nothing, settles nothing. Without
     // the no-progress ceiling this would retry against a 6-hour deadline. With no outage window the
