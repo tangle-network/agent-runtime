@@ -211,7 +211,8 @@ describe('supervise delivers parent questions, not just callback configuration',
     expect(asked).toEqual([
       expect.objectContaining({ escalated: true, outcome: 'queued-for-parent' }),
     ])
-    expect(answered).toEqual([expect.objectContaining({ delivered: true })])
+    expect(answered).toHaveLength(1)
+    expect(answered[0]).toMatchObject({ delivered: true })
     // The specialist's next drive carries the root's answer.
     expect(childTasks.slice(1).join('\n')).toContain('Use source B.')
   })

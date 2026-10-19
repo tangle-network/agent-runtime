@@ -362,7 +362,9 @@ describe('nested supervisor coordination durability', () => {
       if (!record.ownerId) throw new Error('nested coordination record has no owner')
       counts.set(record.ownerId, (counts.get(record.ownerId) ?? 0) + 1)
     }
-    expect([...counts.values()].sort()).toEqual([2, 2])
+    // Each manager journals its own two questions, and the root, which spawned both, journals all
+    // four: a nested manager's ask_parent reaches the manager above it.
+    expect([...counts.values()].sort()).toEqual([2, 2, 4])
   })
 
   it('routes concurrent manager steers through distinct owner-scoped harness sessions', async () => {
