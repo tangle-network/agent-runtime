@@ -149,7 +149,8 @@ export async function bridgeModelRouteRefusal(
   if (answer.status === 200) {
     let toolCallSpans = false
     try {
-      toolCallSpans = (JSON.parse(answer.body) as { toolCallSpans?: unknown }).toolCallSpans === true
+      toolCallSpans =
+        (JSON.parse(answer.body) as { toolCallSpans?: unknown }).toolCallSpans === true
     } catch {
       // A route answer that is not JSON still routes; it declares no tool-call spans.
     }
