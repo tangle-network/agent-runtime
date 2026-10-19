@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.8
+
+Use the Runtime cohort with Sandbox `>=0.62.14 <0.62.15`; 0.62.14 carries native-copy content omission.
+Benchmark execution and grading are unchanged.
+
 ## 0.14.7
 
 Use the Runtime cohort with Sandbox `>=0.61.1 <0.61.2 || >=0.62.2 <0.62.3`; 0.62.2 sends a trace id on `exec`.
