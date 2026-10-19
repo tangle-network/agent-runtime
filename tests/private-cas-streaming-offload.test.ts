@@ -128,6 +128,60 @@ it('a pass waiting for a copy in flight stops at its own cancellation', async ()
   expect(await artifacts.offload()).toMatchObject({ durable: 1, pending: [] })
 })
 
+// test-acceptance-canary-20261019j: every put of a checkpoint capture queued its own pass, and a
+// final capture on the same store waited 26.6 minutes behind them. Callers that arrive while a
+// pass waits to start share it.
+it('offload calls made while a pass waits to start share one pass', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cas-shared-pass-'))
+  roots.push(root)
+  const objects = new Map<string, Uint8Array>()
+  let started!: () => void
+  let complete!: () => void
+  const uploading = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const release = new Promise<void>((resolve) => {
+    complete = resolve
+  })
+  let held = true
+  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
+    durable: {
+      location: 'fixture:held-then-free',
+      async put({ digest, bytes }) {
+        if (held) {
+          held = false
+          started()
+          await release
+        }
+        objects.set(digest, Uint8Array.from(bytes))
+      },
+      get: async ({ digest }) => objects.get(digest),
+    },
+  })
+  // A first put holds its copy, so the first pass, which waits for it, stays running.
+  const first = artifacts.put({ executionId: 'first', purpose: 'trace', bytes: Buffer.from('a') })
+  await uploading
+  const running = artifacts.offload()
+  // Objects written while that pass runs, then many offload calls behind it.
+  const later = await Promise.all(
+    ['b', 'c', 'd'].map((text) =>
+      artifacts.put({ executionId: text, purpose: 'trace', bytes: Buffer.from(text) }),
+    ),
+  )
+  const queued = Array.from({ length: 25 }, () => artifacts.offload())
+  const cancelled = new AbortController()
+  const leaving = artifacts.offload(cancelled.signal)
+  cancelled.abort('the caller stopped')
+  await expect(leaving).rejects.toThrow('the caller stopped')
+  complete()
+  await first
+  await running
+  const reports = await Promise.all(queued)
+  expect(new Set(reports).size).toBe(1)
+  expect(reports[0]).toMatchObject({ durable: 4, pending: [] })
+  for (const ref of later) expect(objects.has(ref.sha256)).toBe(true)
+})
+
 // A store that hangs without failing, and ignores its signal, held every put and pass sharing the
 // digest, and a caller with no signal of its own could never leave. The stall ends the hung copy;
 // the next try lands and both puts return.

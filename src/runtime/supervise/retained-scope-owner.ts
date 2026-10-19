@@ -220,7 +220,14 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         now: args.now,
         traceRoots,
       }),
-      ...ownerCaptureWriters(state),
+      onWorkspaceCapture: (capture) => ownerCaptureWriter(state).onWorkspaceCapture(capture),
+      // The turn's own capture goes first: it cuts short the captures a checkpoint rotation runs.
+      onWorkspaceCaptureStarted: (capture) => {
+        state.rotationCaptures?.abort(
+          new Error("the turn's workspace capture started first; checkpoint kept"),
+        )
+        return ownerCaptureWriter(state).onWorkspaceCaptureStarted(capture)
+      },
       onEndOfTurnWork: (work) => {
         const prior = state.turnEnd
         const settled = work.catch(() => undefined)
@@ -770,32 +777,21 @@ async function checkpointOwnerWorkspace(scope: Scope<unknown>, state: OwnerState
 }
 
 /**
- * The owner's workspace-capture journal writers. A turn's workspace capture starting cuts short
- * the checkpoint rotation's captures: on Discovery canary test-acceptance-canary-20261019j
- * (Runtime 0.327.0) a rotation capture of an older checkpoint started 4 s before the root's
- * final capture and held it 31.7 minutes on the same evidence store, until the root's budget
- * deadline aborted the rotation; the final capture then finished 47 s later.
+ * The owner's workspace-capture journal writers. A turn's capture starting cuts short the
+ * checkpoint rotation's captures: on Discovery canary test-acceptance-canary-20261019j (Runtime
+ * 0.327.0) a rotation capture of an older checkpoint started 4 s before the root's final capture,
+ * on the same evidence store, and the final capture spent 26.6 of its 32.6 minutes storing its
+ * archive until the root's budget deadline aborted the rotation.
  */
-function ownerCaptureWriters(
-  state: OwnerState,
-): Pick<RetainedExecutorContext, 'onWorkspaceCapture' | 'onWorkspaceCaptureStarted'> {
+function ownerCaptureWriter(state: OwnerState): ReturnType<typeof workspaceCaptureWriter> {
   const { args } = state
-  const writers = workspaceCaptureWriter({
+  return workspaceCaptureWriter({
     journal: args.journal,
     rootId: args.rootId,
     nodeId: args.nodeId,
     nextSequence: () => state.nextSequence(),
     now: args.now,
   })
-  return {
-    onWorkspaceCapture: writers.onWorkspaceCapture,
-    onWorkspaceCaptureStarted: async (capture) => {
-      state.rotationCaptures?.abort(
-        new Error("the turn's workspace capture started first; checkpoint kept"),
-      )
-      await writers.onWorkspaceCaptureStarted(capture)
-    },
-  }
 }
 
 /** Reconstruct authority for this source only; a replacement cannot own its snapshots. */
