@@ -195,6 +195,45 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     expect(root_tree.some((e) => e.kind === 'settled' && e.status === 'done')).toBe(true)
   })
 
+  it('labels a spawn with its profile name when the driver gives no label', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const script = { out: 'ok', tokens: { input: 1, output: 1 }, iterations: 1, score: 1 }
+    const chat = scriptedBrain(
+      [
+        {
+          toolCalls: [
+            { name: 'spawn_worker', arguments: { profile: { name: 'researcher' }, task: 'a' } },
+            {
+              name: 'spawn_worker',
+              arguments: { profile: { name: 'critic' }, task: 'b', label: 'review-1' },
+            },
+            { name: 'spawn_worker', arguments: { profile: {}, task: 'c' } },
+          ],
+        },
+        { content: 'waiting' },
+        { content: 'done' },
+      ],
+      [],
+    )
+    const root = driverAgent(driverOpts('root', chat, () => workerLeaf('w', script)))
+    await createSupervisor<unknown, unknown>().run(root, 'label them', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'cd-labels',
+      journal,
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      maxDepth: 4,
+    })
+    // magnetar-rust-20261018b: 13 workers all read 'worker', so no view showed a role.
+    const tree = (await journal.loadTree('cd-labels')) as SpawnEvent[]
+    expect(
+      tree
+        .filter((event) => event.kind === 'spawned' && event.parent !== undefined)
+        .map((event) => (event.kind === 'spawned' ? event.label : undefined)),
+    ).toEqual(['researcher', 'review-1', 'worker'])
+  })
+
   it('shows a worker overspend to the driver in its wake and again in a resume brief', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
