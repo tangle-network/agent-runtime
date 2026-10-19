@@ -601,7 +601,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     ])
   })
 
-  it('a heartbeat wakes a driver whose worker has not reported, so it can reconsider', async () => {
+  it('a heartbeat wakes a driver whose worker has stalled, so it can reconsider', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const seen: SeenMessages = []
     const chat = scriptedBrain(
@@ -614,6 +614,8 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     const root = driverAgent({
       ...driverOpts('root', chat, () => hangingWorkerLeaf('hang')),
       wake: { heartbeatMs: 30, debounceMs: 0 },
+      // The worker never reports activity, so it reads stalled once any time has passed.
+      stallAfterMs: 0,
       maxTurns: 3,
     })
     await createSupervisor<unknown, unknown>().run(root, 'wait for it', {
@@ -623,7 +625,6 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
       blobs: SHARED_BLOBS,
       executors: createExecutorRegistry(),
       maxDepth: 2,
-      now: () => 0,
     })
     expect(seen).toHaveLength(3)
     // `seen` holds the loop's one live conversation, so read the wake from its messages.
@@ -633,6 +634,55 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
           message.role === 'user' && String(message.content).includes('Nothing reached your inbox'),
       ),
     ).toBe(true)
+  })
+
+  it('a heartbeat costs no turn while every live worker is still making progress', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const seen: SeenMessages = []
+    const chat = scriptedBrain(
+      [
+        { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go' } }] },
+        { content: 'waiting' },
+        { content: 'done' },
+      ],
+      seen,
+    )
+    const root = driverAgent({
+      ...driverOpts('root', chat, () =>
+        workerLeaf(
+          'slow',
+          { out: 'SLOW=done', iterations: 1, tokens: { input: 1, output: 1 }, score: 1 },
+          undefined,
+          400,
+        ),
+      ),
+      // magnetar-rust-20261018b: 58 of the root's 79 turns were heartbeats that changed nothing.
+      // About 13 heartbeats elapse during this worker's 400 ms; none may cost a model turn.
+      wake: { heartbeatMs: 30, debounceMs: 0 },
+      stallAfterMs: 60_000,
+      maxTurns: 8,
+    })
+    await createSupervisor<unknown, unknown>().run(root, 'wait for it', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'cd-quiet-heartbeat',
+      journal: new InMemorySpawnJournal(),
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+    })
+    const heartbeatTurns = seen.filter((messages) =>
+      messages.some(
+        (message) =>
+          message.role === 'user' && String(message.content).includes('Nothing reached your inbox'),
+      ),
+    )
+    expect(heartbeatTurns).toHaveLength(0)
+    // The spawn call, its tool-result call that ends the turn, then the one wake that delivered
+    // the settlement.
+    expect(seen).toHaveLength(3)
+    expect(wakeEvents(seen[2]!)).toEqual([
+      expect.objectContaining({ type: 'settled', status: 'done' }),
+    ])
   })
 })
 

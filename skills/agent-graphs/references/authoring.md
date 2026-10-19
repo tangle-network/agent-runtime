@@ -33,9 +33,20 @@ Analysis traversal caps limit propagated findings; they do not stop the whole ru
 Use the deliverable check or an appropriate execution limit to terminate work.
 Analyst execution consumes the same shared budget as other workers.
 
+Map edges fan out over a list that exists only at run time.
+When the source node settles, the runtime reads the array at the edge's JSON pointer in its result and runs the item node once per element, with the element as its task, or runs the edge's graph per element the way `run_graph` does.
+The join node then receives `{ results, failures }` in item order.
+The driver spends no turn on items or the join and must not spawn them; item and join nodes are reachable only through their map edge.
+`concurrency` throttles the items and never refuses one.
+A list longer than `maxItems`, a pointer that does not select an array, or a `concurrency` above the run's worker slots is refused before any item runs, with a ledger row and a driver wake.
+`onItemFailure: 'all-or-refuse'` starts no item after a failure and refuses the join with the failures listed; `'settled-subset'` runs every item and joins the delivered results beside the failures.
+Each item reserves `itemBudget` from the shared budget.
+Map state is process-local: a restarted run does not re-expand a map whose source settled before the restart.
+
 ## Check the result
 
-Inspect delivered, stripped, empty, and unpropagated edge records and their byte counts.
+Inspect delivered, stripped, empty, unpropagated, and failed edge records and their byte counts.
+A map edge records one expansion row, one row per item with its index, and one join row.
 Read exhausted edges even when execution ended through completion, budget, or cancellation rather than a thrown error.
 Check journal records when recovery or auditability is part of the task.
 Preserve run, profile, directive, and artifact identity so a resumed or measured run cannot silently change its inputs.

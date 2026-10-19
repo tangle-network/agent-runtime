@@ -384,6 +384,9 @@ describe('a manager with no deadline is still bounded by money', () => {
         backend: { backend: 'router', ...router },
         deliverable: { check: () => true, describe: 'any answer' },
         wake: { heartbeatMs: 5 },
+        // The worker never answers, so it reads stalled at once: every heartbeat then wakes the
+        // manager. A heartbeat over a worker still in progress costs no turn.
+        stallAfterMs: 0,
         journal: new InMemorySpawnJournal(),
         blobs: new InMemoryResultBlobStore(),
         runId: 'overdraw-guard',

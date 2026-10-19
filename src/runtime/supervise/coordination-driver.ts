@@ -45,6 +45,7 @@ import {
   type EscalateQuestion,
   type GraphSubtasks,
   type MakeWorkerAgent,
+  type MapOnSettleRoute,
   normalizeAnalyzeOnSettle,
   type PeerAuditAccess,
   type SettledWorker,
@@ -155,6 +156,8 @@ export interface DriverAgentOptions {
    *  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
    *  loop. Omit/empty = no auto-analysis (status quo). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
+  /** Maps expanded when their source worker settles (`CoordinationToolsOptions.mapOnSettle`). */
+  readonly mapOnSettle?: ReadonlyArray<MapOnSettleRoute>
   /** Trusted source refs for this manager’s existing observe_agent capability. */
   readonly sourceEvidenceRefs?: ReadonlyArray<string>
   readonly peerAudit?: PeerAuditAccess
@@ -1031,6 +1034,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
         ...(opts.analysts ? { analysts: opts.analysts } : {}),
         ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
+        ...(opts.mapOnSettle ? { mapOnSettle: opts.mapOnSettle } : {}),
         ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
         ...(opts.peerAudit ? { peerAudit: opts.peerAudit } : {}),
         ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
@@ -1412,6 +1416,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               wake = await coord.awaitWake({
                 signal: scope.signal,
                 heartbeatMs: wakePolicy.heartbeatMs,
+                quietWhileProgressing: true,
                 debounceMs: wakePolicy.debounceMs,
                 ...(warnAt === undefined ? {} : { deadlineAt: warnAt }),
                 alsoWakeOn: inbox.pending() > 0 ? Promise.resolve() : inbox.nextDelivery(),

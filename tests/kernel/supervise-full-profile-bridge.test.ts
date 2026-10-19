@@ -15,6 +15,7 @@ import {
   FileSpawnJournal,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
+  materializeTreeView,
   replaySpawnTree,
 } from '../../src/durable/spawn-journal'
 import { RuntimeRunStateError } from '../../src/errors'
@@ -1448,6 +1449,115 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     }
   })
 
+  it('reports and journals a spawn that authorization ran on another model than its parent authored', async () => {
+    const requests: BridgeRequest[] = []
+    server = createBridgeServer(async (req, res) => {
+      const body = await readJson(req)
+      requests.push(body)
+      respondWithBridgeStream(res, body, successStream('REVIEW=ok'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const events: SpawnEvent[] = []
+    const journal = recordingJournal(events)
+    const seen: string[] = []
+    let turn = 0
+    await supervise(
+      routerTestProfile('root', 'Get an outside-family review.', ['spawn_worker']),
+      'Get an outside-family review.',
+      {
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+        },
+        budget: { maxIterations: 8, maxTokens: 8_000 },
+        perWorker: { maxIterations: 2, maxTokens: 1_000 },
+        journal,
+        runId: 'model-substitution',
+        continuation: testContinuation({ deadline: 1 }),
+        wake: { debounceMs: 0 },
+        // magnetar-rust-20261017c: the seat policy re-seated a claude-opus referee on GLM.
+        authorizeSpawn: (input) =>
+          input.profile.name === 'referee'
+            ? {
+                profile: {
+                  ...input.profile,
+                  harness: 'opencode',
+                  model: { provider: 'zai-coding-plan', default: 'glm-5.3' },
+                },
+              }
+            : { profile: input.profile },
+        brain: async (messages) => {
+          turn += 1
+          for (const message of messages) {
+            if (typeof message.content === 'string') seen.push(message.content)
+          }
+          if (turn === 1) {
+            return {
+              toolCalls: [
+                {
+                  id: 'referee',
+                  name: 'spawn_worker',
+                  arguments: JSON.stringify({
+                    profile: {
+                      name: 'referee',
+                      harness: 'claude-code',
+                      model: { provider: 'anthropic', default: 'claude-opus-5-5' },
+                    },
+                    task: 'review the release',
+                    key: 'referee',
+                  }),
+                },
+                {
+                  id: 'worker',
+                  name: 'spawn_worker',
+                  arguments: JSON.stringify({
+                    profile: codexTestProfile('worker'),
+                    task: 'build the release',
+                    key: 'worker',
+                  }),
+                },
+              ],
+            }
+          }
+          return { content: 'done', toolCalls: [] }
+        },
+      },
+    )
+
+    const substitution = {
+      requested: 'claude-code/anthropic/claude-opus-5-5',
+      ran: 'opencode/zai-coding-plan/glm-5.3',
+    }
+    const spawned = events.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'spawned' }> => event.kind === 'spawned',
+    )
+    expect(spawned.find((event) => event.key === 'referee')?.modelSubstitution).toEqual(
+      substitution,
+    )
+    // An authorization that keeps the authored model records nothing.
+    expect(spawned.find((event) => event.key === 'worker')).not.toHaveProperty('modelSubstitution')
+    // The bridge ran the authorized route, and the manager was told so in the spawn result.
+    expect(requests.find((request) => request.agent_profile.name === 'referee')?.model).toContain(
+      'glm-5.3',
+    )
+    const spawnResult = seen.find(
+      (text) => text.includes('"workerId"') && text.includes('modelSubstitution'),
+    )
+    expect(spawnResult).toBeDefined()
+    expect(JSON.parse(spawnResult as string)).toMatchObject({
+      modelSubstitution: substitution,
+      modelWarning: expect.stringContaining(
+        'attribute its work to opencode/zai-coding-plan/glm-5.3',
+      ),
+    })
+    const tree = materializeTreeView((await journal.loadTree('model-substitution')) ?? [])
+    expect(tree.nodes.filter((node) => node.modelSubstitution !== undefined)).toEqual([
+      expect.objectContaining({ modelSubstitution: substitution }),
+    ])
+  })
+
   it('refuses an opencode child that replaces the system prompt before spawn, naming dimension and reason', async () => {
     const requests: BridgeRequest[] = []
     server = createBridgeServer(async (req, res) => {
@@ -2233,6 +2343,74 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       candidateDigest: canonicalCandidateDigest({ candidate: 'experiment-worker' }),
       correlation: { pursuitId: 'pursuit-1', experimentId: 'experiment-2' },
     })
+  })
+
+  it('names the bridge session of a manager whose turn ended before the bridge acknowledged it', async () => {
+    // magnetar-rust-20261018b:s2 ran 177 model calls in its bridge session, then its turn was
+    // aborted; its receipts read 'root-agent-did-not-report' and named no session at all.
+    const sessions: string[] = []
+    server = createBridgeServer(async (req, res) => {
+      // Session teardown after the lost stream carries no chat body.
+      if (req.method !== 'POST' || !req.url?.startsWith('/v1/chat/completions')) {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end('{}')
+        return
+      }
+      const body = await readJson(req)
+      sessions.push(body.session_id)
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'working' } }] })}\n\n`)
+      setTimeout(() => res.destroy(), 20)
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const events: SpawnEvent[] = []
+    const journal = recordingJournal(events)
+    await supervise(
+      {
+        name: 'memory-lead',
+        harness: 'codex',
+        prompt: { systemPrompt: 'Lead the memory stage.' },
+        model: { provider: 'openai', default: 'gpt-5.6' },
+      },
+      'Wire the memory stages.',
+      {
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+        },
+        budget: { maxIterations: 4, maxTokens: 10_000 },
+        driverRetry: { enabled: false },
+        journal,
+        runId: 'aborted-manager-session',
+      },
+    ).catch(() => undefined)
+
+    expect(sessions.length).toBeGreaterThan(0)
+    expect(new Set(sessions).size).toBe(1)
+    const own = events.filter(
+      (event) =>
+        (event.kind === 'materialized' || event.kind === 'execution-bound') &&
+        event.id === 'aborted-manager-session',
+    )
+    expect(own).toEqual([
+      expect.objectContaining({
+        kind: 'materialized',
+        receipt: expect.objectContaining({
+          status: 'unknown',
+          reason: 'executor-failed-before-receipt',
+        }),
+      }),
+      expect.objectContaining({
+        kind: 'execution-bound',
+        binding: expect.objectContaining({
+          status: 'unknown',
+          reason: 'executor-failed-before-receipt',
+          execution: { kind: 'session', id: sessions[0] },
+        }),
+      }),
+    ])
   })
 
   it('isolates identical concurrent managers but reuses one durable manager session on restart', async () => {

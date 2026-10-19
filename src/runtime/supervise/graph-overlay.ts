@@ -9,8 +9,9 @@
  * run as a subtask is one subtree of the caller's run, spending from the caller's conserved pool.
  *
  * Nothing here schedules anything. It produces the values a manager's construction takes
- * (`authorizeSpawn`, `resolveSpawnProfile`, `analyzeOnSettle`, `continuityByProfile`) and
- * observes what the kernel reports back (spawn bindings, steers, findings).
+ * (`authorizeSpawn`, `resolveSpawnProfile`, `analyzeOnSettle`, `mapOnSettle`,
+ * `continuityByProfile`) and observes what the kernel reports back (spawn bindings, steers,
+ * findings, map steps).
  */
 
 import {
@@ -25,7 +26,9 @@ import type {
   AuthorizedDownMessage,
   ContinuityMode,
   CoordinationEvent,
+  MapOnSettleRoute,
 } from '../../mcp/tools/coordination'
+import { errMessage } from './error-message'
 import type {
   EdgeDeliveryOutcome,
   EdgeTraversal,
@@ -48,6 +51,8 @@ export const defaultEdgeTraversalCap = 32
 
 type DelegatesEdge = Extract<GraphEdge, { kind: 'delegates' }>
 type AnalyzesEdge = Extract<GraphEdge, { kind: 'analyzes' }>
+type MapsEdge = Extract<GraphEdge, { kind: 'maps' }>
+const mapItemFailurePolicies: ReadonlyArray<string> = ['all-or-refuse', 'settled-subset']
 type SpawnAuthorization = NonNullable<SuperviseOptions['authorizeSpawn']>
 type SpawnAuthorizationInput = Parameters<SpawnAuthorization>[0]
 
@@ -62,13 +67,21 @@ export interface ValidatedGraph {
   /** Nodes referenced as an analyzes edge's ANALYST (the analyst-agent form): reachable through
    *  their analyzes edge (spawned on settle), never through a delegates edge. */
   readonly analystNodes: ReadonlyMap<NodeId, GraphNode>
+  readonly maps: ReadonlyArray<MapsEdge>
+  /** Item and join nodes of maps edges: reachable only through their edge, spawned by the runtime. */
+  readonly mapNodes: ReadonlyMap<NodeId, GraphNode>
+  /** By maps edge id: the name an item runs under — the item node, or a graph item's root node. */
+  readonly mapItemNames: ReadonlyMap<string, NodeId>
 }
 
 export function edgeId(edge: GraphEdge): string {
-  return edge.kind === 'delegates'
-    ? `delegates:${edge.from}->${edge.to}`
-    : `analyzes:${edge.analyst}:${edge.over.join('+')}->${edge.to}`
+  if (edge.kind === 'delegates') return `delegates:${edge.from}->${edge.to}`
+  if (edge.kind === 'maps') return `maps:${edge.from}->${edge.to ?? 'graph'}->${edge.join}`
+  return `analyzes:${edge.analyst}:${edge.over.join('+')}->${edge.to}`
 }
+
+const isPositiveInteger = (value: unknown): boolean =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
 
 /** Validate a topology and resolve every directive BEFORE any compute is spent — an invalid
  *  topology or an unknown directive is a configuration fault, never a mid-run surprise. */
@@ -122,8 +135,19 @@ export function validateGraphTopology(
     if (!node) throw new ValidationError(`runGraph: ${where} references unknown node '${id}'`)
     return node
   }
+  // A graph is plain data that often arrives through JSON: an edge of no known kind would be
+  // silently skipped by every reader below, so it is refused here.
+  for (const edge of edges) {
+    const kind = (edge as { kind?: unknown }).kind
+    if (kind !== 'delegates' && kind !== 'analyzes' && kind !== 'maps') {
+      throw new ValidationError(
+        `runGraph: edge kind ${JSON.stringify(kind)} is not 'delegates', 'analyzes' or 'maps'`,
+      )
+    }
+  }
   const delegates = edges.filter((edge): edge is DelegatesEdge => edge.kind === 'delegates')
   const analyzes = edges.filter((edge): edge is AnalyzesEdge => edge.kind === 'analyzes')
+  const maps = edges.filter((edge): edge is MapsEdge => edge.kind === 'maps')
   if (delegates.length === 0) {
     throw new ValidationError('runGraph: at least one delegates edge is required (who spawns whom)')
   }
@@ -289,16 +313,142 @@ export function validateGraphTopology(
     delegatesByWorker.set(edge.to, edge)
     workers.set(edge.to, requireNode(edge.to, edgeId(edge)))
   }
+  const { mapNodes, mapItemNames } = validateMaps(maps, {
+    byId,
+    root,
+    workers,
+    analystNodes,
+    registry,
+    analysts,
+  })
   // Every non-root node must be reachable by SOME edge, or it can never run. A worker node is
-  // reached by its delegates edge; an analyst node by its analyzes edge (spawned on settle).
+  // reached by its delegates edge; an analyst node by its analyzes edge (spawned on settle); a
+  // map's item and join nodes by their maps edge.
   for (const node of nodes) {
-    if (node.id !== root.id && !workers.has(node.id) && !analystNodes.has(node.id)) {
+    if (
+      node.id !== root.id &&
+      !workers.has(node.id) &&
+      !analystNodes.has(node.id) &&
+      !mapNodes.has(node.id)
+    ) {
       throw new ValidationError(
         `runGraph: node '${node.id}' has no delegates edge to it — an unreachable node never runs`,
       )
     }
   }
-  return { root, workers, delegatesByWorker, analyzes, analystNodes }
+  return { root, workers, delegatesByWorker, analyzes, analystNodes, maps, mapNodes, mapItemNames }
+}
+
+/**
+ * Refuse a maps edge the runtime could not run as authored. A map's item and join nodes are the
+ * runtime's to spawn, so neither may be the root, a delegates target, an analyst, or a node of
+ * another map: a second way to reach the node would make its ledger rows and its pinning ambiguous.
+ * The source must be a node that settles as a worker: a delegates target, or another map's join.
+ */
+function validateMaps(
+  maps: ReadonlyArray<MapsEdge>,
+  graph: {
+    readonly byId: ReadonlyMap<NodeId, GraphNode>
+    readonly root: GraphNode
+    readonly workers: ReadonlyMap<NodeId, GraphNode>
+    readonly analystNodes: ReadonlyMap<NodeId, GraphNode>
+    readonly registry: PromptRegistry
+    readonly analysts: AnalystRegistry | undefined
+  },
+): {
+  readonly mapNodes: ReadonlyMap<NodeId, GraphNode>
+  readonly mapItemNames: ReadonlyMap<string, NodeId>
+} {
+  const mapNodes = new Map<NodeId, GraphNode>()
+  const mapItemNames = new Map<string, NodeId>()
+  const joins = new Set<NodeId>()
+  for (const edge of maps) {
+    const id = edgeId(edge)
+    const refuse = (why: string): never => {
+      throw new ValidationError(`runGraph: ${id} ${why}`)
+    }
+    if ((edge as { continuity?: unknown }).continuity !== undefined) {
+      refuse('carries continuity — every map item is a fresh session over its own element')
+    }
+    if (
+      typeof edge.pointer !== 'string' ||
+      (edge.pointer !== '' && !edge.pointer.startsWith('/'))
+    ) {
+      refuse(
+        `has pointer ${JSON.stringify(edge.pointer)} — a JSON pointer is '' or starts with '/'`,
+      )
+    }
+    if (!isPositiveInteger(edge.maxItems)) refuse('needs maxItems as a positive integer')
+    if (!isPositiveInteger(edge.concurrency)) {
+      refuse(
+        `has concurrency ${JSON.stringify(edge.concurrency)} — it needs a positive integer; ` +
+          'concurrency throttles the items, so a value below 1 could never start one',
+      )
+    }
+    if (!mapItemFailurePolicies.includes(edge.onItemFailure)) {
+      refuse(`needs onItemFailure 'all-or-refuse' or 'settled-subset'`)
+    }
+    if (
+      edge.itemBudget !== undefined &&
+      (typeof edge.itemBudget !== 'object' ||
+        edge.itemBudget === null ||
+        Array.isArray(edge.itemBudget))
+    ) {
+      refuse('has an itemBudget that is not a budget object')
+    }
+    if ((edge.to === undefined) === (edge.graph === undefined)) {
+      refuse('needs exactly one of to (an item node) or graph (a graph run per item)')
+    }
+    if (typeof edge.join !== 'string') refuse('needs a join node')
+    if (edge.to !== undefined && edge.to === edge.join) refuse('joins into its own item node')
+    for (const nodeId of edge.to === undefined ? [edge.join] : [edge.to, edge.join]) {
+      const node = graph.byId.get(nodeId)
+      if (!node) refuse(`references unknown node '${nodeId}'`)
+      if (
+        nodeId === graph.root.id ||
+        graph.workers.has(nodeId) ||
+        graph.analystNodes.has(nodeId) ||
+        mapNodes.has(nodeId)
+      ) {
+        refuse(
+          `names node '${nodeId}', which the graph already reaches another way — a map's item and ` +
+            'join nodes are spawned only by their maps edge, never as the root, a delegates ' +
+            'target, an analyst, or a node of another map',
+        )
+      }
+      mapNodes.set(nodeId, node as GraphNode)
+    }
+    joins.add(edge.join)
+    if (edge.to !== undefined) {
+      mapItemNames.set(id, edge.to)
+    } else {
+      // The same validation `run_graph` applies, before any compute.
+      try {
+        const prepared = prepareGraphSubtask(parseGraphSubtaskTopology(edge.graph), {
+          registry: graph.registry,
+          ...(graph.analysts ? { analysts: graph.analysts } : {}),
+        })
+        mapItemNames.set(id, prepared.root)
+      } catch (error) {
+        refuse(`has a graph item that cannot run: ${errMessage(error)}`)
+      }
+    }
+  }
+  for (const edge of maps) {
+    if (!graph.byId.has(edge.from)) {
+      throw new ValidationError(`runGraph: ${edgeId(edge)} references unknown node '${edge.from}'`)
+    }
+    if (!graph.workers.has(edge.from) && !joins.has(edge.from)) {
+      throw new ValidationError(
+        `runGraph: ${edgeId(edge)} maps over '${edge.from}', which never settles as a worker — ` +
+          "a map's source is a delegates target or another map's join",
+      )
+    }
+    if (edge.from === edge.join) {
+      throw new ValidationError(`runGraph: ${edgeId(edge)} maps over its own join`)
+    }
+  }
+  return { mapNodes, mapItemNames }
 }
 
 // ── The driver brief ───────────────────────────────────────────────────────────
@@ -309,7 +459,7 @@ export function graphRootProfile(
   validated: ValidatedGraph,
   registry: PromptRegistry,
 ): AgentProfile {
-  const { root, workers, delegatesByWorker, analyzes, analystNodes } = validated
+  const { root, workers, delegatesByWorker, analyzes, analystNodes, maps, mapItemNames } = validated
   // Driver-destined analyzes findings are standing knowledge for the ROOT: the findings arrive
   // as bus events. For a lens edge the directive tells the driver what to do with them; for a
   // node edge the directive already went to the analyst agent as its task.
@@ -336,11 +486,22 @@ export function graphRootProfile(
         : ''
     return `- '${node.id}'${description} (delegation cap: ${cap} traversals${continuityNote})`
   })
+  // Maps run without the driver: say so, or a driver would spawn the items a second time.
+  const mapLines = maps.map(
+    (edge) =>
+      `- when '${edge.from}' settles, the runtime runs '${mapItemNames.get(edgeId(edge))}'${edge.to === undefined ? ' (a graph)' : ''} once per ` +
+      `element of ${edge.pointer === '' ? 'its result' : `${JSON.stringify(edge.pointer)} in its result`} ` +
+      `(at most ${edge.maxItems} elements, ${edge.concurrency} at a time), then '${edge.join}' with the ordered ` +
+      `results; '${edge.join}' settles to you like a worker, and a refused map arrives as a map event`,
+  )
   const graphBrief = [
     'AGENT GRAPH: you are the driver node of a fixed topology. You may spawn ONLY these worker',
     "nodes, by EXACT name (spawn_worker with profile: { name: '<node id>' }; the node's full",
     'profile is pinned by the graph — any other profile fields you author are ignored):',
     ...workerLines,
+    ...(mapLines.length > 0
+      ? ['', 'MAPS (the runtime spawns these nodes; never spawn them yourself):', ...mapLines]
+      : []),
     ...(driverAnalyzesBriefs.length > 0 ? ['', ...driverAnalyzesBriefs] : []),
   ].join('\n')
   return {
@@ -365,6 +526,38 @@ function stringifyPayload(payload: unknown): string {
     return JSON.stringify(payload) ?? String(payload)
   } catch {
     return String(payload)
+  }
+}
+
+/** Each graph's pinning, mapped to the product authority it wraps. */
+const productAuthorities = new WeakMap<SpawnAuthorization, SpawnAuthorization | undefined>()
+
+/**
+ * The product authority behind a spawn authority. A graph started inside a run composes its own
+ * pinning with the run's product authority. When that run is itself a graph (`runGraph`), the run's
+ * `authorizeSpawn` is the outer graph's pinning, which would refuse every node of the inner graph,
+ * so the inner graph composes with the authority the outer pinning wraps instead.
+ */
+export function productSpawnAuthority(
+  authorize: SpawnAuthorization | undefined,
+): SpawnAuthorization | undefined {
+  return authorize !== undefined && productAuthorities.has(authorize)
+    ? productAuthorities.get(authorize)
+    : authorize
+}
+
+/** A node profile with an edge directive appended to its standing instructions. */
+function withDirective(profile: AgentProfile, directiveText: string): AgentProfile {
+  if (directiveText.length === 0) return profile
+  return {
+    ...profile,
+    prompt: {
+      ...(profile.prompt ?? {}),
+      instructions: [
+        ...((profile.prompt?.instructions as readonly string[] | undefined) ?? []),
+        directiveText,
+      ],
+    },
   }
 }
 
@@ -401,6 +594,8 @@ export interface GraphLedgerSettlement {
 export interface GraphOverlay {
   /** Analyst-on-settle routes, one per analyzes edge. */
   readonly routes: ReadonlyArray<string | AnalyzeOnSettleRoute>
+  /** Map routes, one per maps edge. */
+  readonly maps: ReadonlyArray<MapOnSettleRoute>
   /** Delegates-edge continuity defaults by node id (= profile name). */
   readonly continuityByProfile: Readonly<Record<string, ContinuityMode>>
   /** Node pinning: the node's canonical profile plus the edge directive, then the product's
@@ -412,7 +607,7 @@ export interface GraphOverlay {
   observeMessages<I extends { readonly instruction: string }>(
     authorize: (input: I) => AuthorizedDownMessage,
   ): (input: I) => AuthorizedDownMessage
-  /** Ledger the steers and findings a manager of this graph publishes. */
+  /** Ledger the steers, findings and map steps a manager of this graph publishes. */
   onCoordinationEvent(event: CoordinationEvent): void
   /** Bind a pending spawn row to the worker the kernel started (the `agent.spawn` hook). */
   bindSpawn(
@@ -433,8 +628,10 @@ export function createGraphOverlay(
   validated: ValidatedGraph,
   opts: GraphOverlayOptions,
 ): GraphOverlay {
-  const { root, workers, delegatesByWorker, analyzes, analystNodes } = validated
+  const { root, workers, delegatesByWorker, analyzes, analystNodes, maps, mapNodes, mapItemNames } =
+    validated
   const { registry, journal, runId, now } = opts
+  const mapsById = new Map(maps.map((edge) => [edgeId(edge), edge]))
 
   // ── Ledger state ──
   const ledger: EdgeTraversal[] = []
@@ -470,6 +667,7 @@ export function createGraphOverlay(
       continuity: entry.continuity,
       bytes: entry.bytes,
       ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
+      ...(entry.map !== undefined ? { map: entry.map } : {}),
       seq: ledgerSeq++,
       at: new Date(now()).toISOString(),
     })
@@ -536,6 +734,10 @@ export function createGraphOverlay(
       }
       return analystNode.profile
     }
+    // A map's item or join: the coordination layer's map route — never the driver; the marker is
+    // authored by the runtime — spawns the node its maps edge names. The item's content is only the
+    // task; what runs is pinned here. Its traversal is ledgered from the map events.
+    if (input.map !== undefined) return pinMapSpawn(input, requested)
     if (input.profile.metadata?.[runtimeGraphMetadataKey] !== undefined) {
       throw new ValidationError(
         'runGraph: a node of a graph cannot start another graph — run_graph inside a graph is ' +
@@ -607,18 +809,38 @@ export function createGraphOverlay(
     // The delegation directive is a STANDING instruction of this traversal: appended to the
     // node's canonical prompt instructions, so the worker runs under node profile + edge
     // directive, and the driver-authored profile contributes ONLY the node selection.
-    return directiveText.length === 0
-      ? node.profile
-      : {
-          ...node.profile,
-          prompt: {
-            ...(node.profile.prompt ?? {}),
-            instructions: [
-              ...((node.profile.prompt?.instructions as readonly string[] | undefined) ?? []),
-              directiveText,
-            ],
-          },
-        }
+    return withDirective(node.profile, directiveText)
+  }
+  const pinMapSpawn = (
+    input: SpawnAuthorizationInput,
+    requested: string | undefined,
+  ): AgentProfile => {
+    const marker = input.map as NonNullable<SpawnAuthorizationInput['map']>
+    const edge = mapsById.get(marker.edge)
+    const refuse = (why: string): never => {
+      throw new ValidationError(`runGraph: map spawn for ${JSON.stringify(marker.edge)} ${why}`)
+    }
+    if (edge === undefined) return refuse('names no maps edge of this graph')
+    if (marker.role === 'join') {
+      if (requested !== edge.join) refuse(`names ${JSON.stringify(requested)}, not its join`)
+      return (mapNodes.get(edge.join) as GraphNode).profile
+    }
+    if (edge.to !== undefined) {
+      if (requested !== edge.to) refuse(`names ${JSON.stringify(requested)}, not its item node`)
+      const node = mapNodes.get(edge.to) as GraphNode
+      return withDirective(node.profile, registry.resolve(edge.directive).text)
+    }
+    // A graph item runs the root profile `run_graph` prepared from this edge's topology. Admit it
+    // only when it carries exactly that topology.
+    const carried = graphSubtaskOf(input.profile)
+    if (
+      carried === undefined ||
+      canonicalCandidateDigest(carried) !==
+        canonicalCandidateDigest(parseGraphSubtaskTopology(edge.graph))
+    ) {
+      refuse("carries a graph other than its maps edge's")
+    }
+    return input.profile
   }
   const composeGuidance = (profile: AgentProfile): AgentProfile =>
     opts.guidance ? opts.guidance(profile) : profile
@@ -629,8 +851,9 @@ export function createGraphOverlay(
   const resolveSpawnProfile = (authored: AgentProfile): AgentProfile => {
     const requested = typeof authored.name === 'string' ? authored.name : undefined
     const node =
-      (requested !== undefined ? workers.get(requested) : undefined) ??
-      (requested !== undefined ? analystNodes.get(requested) : undefined)
+      requested === undefined
+        ? undefined
+        : (workers.get(requested) ?? analystNodes.get(requested) ?? mapNodes.get(requested))
     // Unknown names fall through to authorizeSpawn, which refuses them with the full message and
     // a ledger row; the gate just sees the stub and lets that later refusal speak.
     return node ? composeGuidance(node.profile) : authored
@@ -642,6 +865,7 @@ export function createGraphOverlay(
     if (!opts.authorizeSpawn) return { profile: pinned }
     return opts.authorizeSpawn({ ...input, profile: pinned })
   }
+  productAuthorities.set(authorizeSpawn, opts.authorizeSpawn)
 
   // ── Analyzes edges → analyst-on-settle routes with destinations ──
   // A LENS edge's directive wraps the findings for the recipient (so a driver-destined lens
@@ -667,6 +891,22 @@ export function createGraphOverlay(
           directive: registry.resolve(edge.directive).text,
         }
   })
+
+  // ── Maps edges → map routes the coordination layer expands on the source's settle ──
+  const mapRoutes: MapOnSettleRoute[] = maps.map((edge) => ({
+    edge: edgeId(edge),
+    from: edge.from,
+    pointer: edge.pointer,
+    item:
+      edge.to !== undefined
+        ? { profile: (mapNodes.get(edge.to) as GraphNode).profile }
+        : { graph: edge.graph },
+    join: (mapNodes.get(edge.join) as GraphNode).profile,
+    maxItems: edge.maxItems,
+    concurrency: edge.concurrency,
+    onItemFailure: edge.onItemFailure,
+    ...(edge.itemBudget !== undefined ? { itemBudget: edge.itemBudget } : {}),
+  }))
 
   // ── Edge continuity defaults, threaded to the spawn tool by node id (= profile name) ──
   const continuityByProfile: Record<string, ContinuityMode> = {}
@@ -742,6 +982,38 @@ export function createGraphOverlay(
   }
 
   const onCoordinationEvent = (event: CoordinationEvent): void => {
+    if (event.type === 'map') {
+      const step = event.map
+      const edge = mapsById.get(step.edge)
+      if (!edge) return
+      const itemName = mapItemNames.get(step.edge) as NodeId
+      if (step.workerId !== undefined) {
+        nodeByWorkerId.set(step.workerId, step.phase === 'join' ? edge.join : itemName)
+      }
+      // An item that reached a node received the edge directive beside its element.
+      const directiveBytes =
+        step.phase === 'item' && step.workerId !== undefined && edge.to !== undefined
+          ? byteLength(registry.resolve(edge.directive).text)
+          : 0
+      record(
+        {
+          edge: step.edge,
+          kind: 'maps',
+          from: step.phase === 'join' ? itemName : edge.from,
+          to: step.phase === 'join' ? edge.join : itemName,
+          directive: formatPromptHandle(edge.directive),
+          outcome: step.outcome,
+          // Every map spawn is a new session over its own element or the joined results.
+          continuity: 'fresh',
+          bytes: step.bytes + directiveBytes,
+          ...(step.reason !== undefined ? { reason: step.reason } : {}),
+          workerId: step.phase === 'expand' ? step.sourceWorker : step.workerId,
+          map: { phase: step.phase, ...(step.index !== undefined ? { index: step.index } : {}) },
+        },
+        true,
+      )
+      return
+    }
     if (event.type === 'finding') {
       // A routed edge's traversal is ledgered on its STEER (the delivery); the finding event is
       // its audit copy. A driver-destined edge's traversal IS the finding reaching the bus.
@@ -846,6 +1118,7 @@ export function createGraphOverlay(
 
   return {
     routes,
+    maps: mapRoutes,
     continuityByProfile,
     authorizeSpawn,
     resolveSpawnProfile,
@@ -927,7 +1200,10 @@ export function parseGraphSubtaskTopology(raw: unknown): GraphSubtaskTopology {
     if (edge.kind === 'analyzes') {
       return { ...(edge as unknown as AnalyzesEdge), directive }
     }
-    throw new ValidationError(`run_graph: ${where}.kind must be 'delegates' or 'analyzes'`)
+    if (edge.kind === 'maps') {
+      return { ...(edge as unknown as MapsEdge), directive }
+    }
+    throw new ValidationError(`run_graph: ${where}.kind must be 'delegates', 'analyzes' or 'maps'`)
   })
   return { nodes, edges }
 }

@@ -38,6 +38,7 @@ import {
   type EscalateQuestion,
   type GraphSubtasks,
   type MakeWorkerAgent,
+  type MapOnSettleRoute,
   type PeerAuditAccess,
   type QuestionEscalationRecord,
   type QuestionPolicy,
@@ -265,6 +266,8 @@ export async function serveCoordinationMcp(
     analysts?: AnalystRegistry
     /** Analyst kinds to auto-run when a worker settles `done` — findings flow up the bus. */
     analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
+    /** Maps expanded when their source worker settles. */
+    mapOnSettle?: ReadonlyArray<MapOnSettleRoute>
     /** Trusted source refs for this manager’s existing observe_agent capability. */
     sourceEvidenceRefs?: ReadonlyArray<string>
     peerAudit?: PeerAuditAccess
@@ -497,6 +500,7 @@ export async function serveCoordinationMcpForManager(
       ...(opts.onStop ? { onStop: opts.onStop } : {}),
       ...(opts.analysts ? { analysts: opts.analysts } : {}),
       ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
+      ...(opts.mapOnSettle ? { mapOnSettle: opts.mapOnSettle } : {}),
       ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
       ...(opts.peerAudit ? { peerAudit: opts.peerAudit } : {}),
       ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
