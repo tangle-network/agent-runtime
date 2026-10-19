@@ -108,6 +108,7 @@ describe('nested supervisor coordination durability', () => {
     })
     const evidence: Array<Record<string, unknown>> = []
     let recorded = 0
+    let rootDrives = 0
     const cancellation = new AbortController()
     const harnessErrors: unknown[] = []
     const driveHarness: DriveHarness = async (args) => {
@@ -128,6 +129,10 @@ describe('nested supervisor coordination durability', () => {
     }) => {
       const name = authoredProfile.name!
       if (name === 'root') {
+        // The peers' ask_parent questions reach the root and wake it; those later drives have
+        // nothing to spawn.
+        rootDrives += 1
+        if (rootDrives > 1) return
         for (const name of ['peer-a', 'peer-b']) {
           const started = await callTool(coordinationMcpUrl, 'spawn_worker', {
             profile: manager(name),
