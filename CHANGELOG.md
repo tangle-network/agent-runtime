@@ -1,3 +1,7 @@
+## 0.332.1
+
+The workspace catalog resolves `@tangle-network/sandbox` to 0.62.2 only. With the union range the lockfile kept agent-bench on 0.61.1 beside Runtime's 0.62.2, so the packed-consumer check saw two Sandbox copies and failed `verify-runtime-bench` (`Property '#private' ... refers to a different member`), which blocked the 0.331.2 and 0.332.0 publishes. Runtime's own peer range still admits 0.61.1 and 0.62.2.
+
 ## 0.332.0
 
 A bridge backend can set `modelSilenceMs`: a turn whose model sends nothing for that long, while no tool call is open, fails, its bridge run is cancelled, and the driver re-enters the run. A tool call the bridge reported and has not answered holds the clock, so a long tool is never cut. Off when absent.
