@@ -83,6 +83,15 @@ export interface BridgeSeam {
   /** Caller-owned deadline for each bridge turn. Runtime enforces it locally and sends the
    *  same value in `execution.timeoutMs` so the bridge-owned process follows the same policy. */
   timeoutMs?: number
+  /**
+   * Longest model silence a bridge turn may hold: no stream event while no tool call is open. A
+   * turn that stays silent this long fails, its bridge run is cancelled, and the driver re-enters
+   * the run. A tool call the bridge reported and has not answered holds the clock, so a long tool
+   * is never cut: magnetar-rust-20261018b ran one for 32 minutes. Off when absent. Use it only with
+   * a harness whose bridge stream reports tool calls as they start; on any other, a long tool reads
+   * as silence.
+   */
+  modelSilenceMs?: number
   /** Stable, caller-owned cli-bridge session id for harness-side resume. Defaults
    *  to a freshly minted per-spawn id so each worker is its own resumable session. */
   sessionId?: string

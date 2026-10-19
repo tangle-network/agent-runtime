@@ -1073,6 +1073,150 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(result.kind === 'no-winner' ? result.reason : 'winner').not.toBe('driver-failed')
   })
 
+  it('cuts a silent model call at modelSilenceMs and re-enters the run', async () => {
+    const chats: string[] = []
+    const cancels: string[] = []
+    server = createBridgeServer(async (req, res) => {
+      const cancelled = cancelledRunId(req.url)
+      if (cancelled !== undefined) {
+        cancels.push(cancelled)
+        respondWithTerminalCancellation(res, cancelled)
+        return
+      }
+      if (req.method !== 'POST' || !req.url?.startsWith('/v1/chat/completions')) {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end('{}')
+        return
+      }
+      const body = await readJson(req)
+      chats.push(body.run_id)
+      if (chats.length === 1) {
+        res.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'x-run-id': body.run_id,
+          'x-run-request-digest': TEST_RUN_DIGEST,
+        })
+        return
+      }
+      respondWithBridgeStream(res, body, successStream('managed after the silent call'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const attempts: DriverAttemptRecord[] = []
+    const startedAt = Date.now()
+    await supervise(codexTestProfile('bridge-root', 'Lead.'), 'Choose.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+        modelSilenceMs: 300,
+        timeoutMs: 60_000,
+      },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+      driverRetry: { initialBackoffMs: 1 },
+      onDriverAttempt: (attempt) => void attempts.push(attempt),
+    })
+    // Cut at the silence bound, long before the turn's own 60 s deadline.
+    expect(Date.now() - startedAt).toBeLessThan(10_000)
+    expect(attempts.map((attempt) => attempt.stop ?? attempt.classification)).toEqual([
+      'transient',
+      'completed',
+    ])
+    expect(attempts[0]?.error).toContain('sent nothing for 300 ms with no tool call open')
+    expect(cancels).toEqual([chats[0]])
+  })
+
+  it('keeps a turn whose tool call stays open longer than modelSilenceMs', async () => {
+    // magnetar-rust-20261018b ran one tool for 32 minutes with no output; here the call stays open
+    // for three times the bound.
+    const chats: string[] = []
+    const cancels: string[] = []
+    const toolStream = [
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'running the build' } }] })}`,
+      `data: ${JSON.stringify({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call-1',
+                  type: 'function',
+                  function: { name: 'shell', arguments: JSON.stringify({ cmd: 'make' }) },
+                },
+              ],
+            },
+          },
+        ],
+      })}`,
+      `data: ${JSON.stringify({
+        choices: [
+          {
+            delta: {
+              tool_results: [{ id: 'call-1', name: 'shell', status: 'completed', output: 'ok' }],
+            },
+          },
+        ],
+      })}`,
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'built' } }] })}`,
+      `data: ${JSON.stringify({ usage: { prompt_tokens: 11, completion_tokens: 7, cost: 0.01 } })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n')
+    server = createBridgeServer(async (req, res) => {
+      const cancelled = cancelledRunId(req.url)
+      if (cancelled !== undefined) {
+        cancels.push(cancelled)
+        respondWithTerminalCancellation(res, cancelled)
+        return
+      }
+      if (req.method !== 'POST' || !req.url?.startsWith('/v1/chat/completions')) {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end('{}')
+        return
+      }
+      const body = await readJson(req)
+      chats.push(body.run_id)
+      // Frame the whole stream as the bridge would, then hold everything after the tool call.
+      let framed = ''
+      let headers: Record<string, string> = {}
+      respondWithBridgeStream(
+        {
+          writeHead: (_status: number, sent: Record<string, string>) => {
+            headers = sent
+          },
+          end: (text: string) => {
+            framed = text
+          },
+        } as unknown as ServerResponse,
+        body,
+        toolStream,
+      )
+      const split = framed.indexOf('id: ', framed.indexOf('"tool_calls"'))
+      res.writeHead(200, headers)
+      res.write(framed.slice(0, split))
+      await new Promise((resolve) => setTimeout(resolve, 900))
+      res.end(framed.slice(split))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const attempts: DriverAttemptRecord[] = []
+    await supervise(codexTestProfile('bridge-root', 'Lead.'), 'Choose.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+        modelSilenceMs: 300,
+      },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+      driverRetry: { initialBackoffMs: 1 },
+      onDriverAttempt: (attempt) => void attempts.push(attempt),
+    })
+    expect(attempts.map((attempt) => attempt.stop ?? attempt.classification)).toEqual(['completed'])
+    expect(chats).toHaveLength(1)
+    expect(cancels).toEqual([])
+  })
+
   it('records the exact served root MCP tools in bridge materialization evidence', async () => {
     const servedToolSets: Array<
       Array<{ name: string; description?: string; inputSchema?: unknown }>
