@@ -54,6 +54,7 @@ import { priceUnreceiptedWork } from './cost-estimate'
 import { armDeadlineTimer } from './deadline'
 import { contentRef } from './executor-outcome'
 import { readOptionalAbortSignal, readOptionalMcpAttachments, readSeam } from './executor-seams'
+import { HarnessTurnFailedError } from './driver-retry'
 import { createInbox, type Inbox } from './inbox'
 import {
   attestRuntimeOwnedPendingExecutor,
@@ -909,8 +910,16 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         // A per-turn timeout is owned here, not by the HTTP socket. Request
         // explicit cancellation before surfacing it; external scope teardown
         // performs the same operation under its own grace budget.
-        if (timedOut && !activeRun.terminal) {
-          await requestBridgeRunCancellation(seam, activeRun, 0)
+        if (timedOut) {
+          if (!activeRun.terminal) await requestBridgeRunCancellation(seam, activeRun, 0)
+          // The turn ran out its own deadline: it failed, and the run did not stop. Surfaced as the
+          // transport's AbortError it classified terminal, and one silent 4-hour root turn
+          // (timeoutMs 14,400,000) settled magnetar-rust-20261019b, a 48-hour run. As a failed turn
+          // the driver re-enters the run, counted and bounded like any other failure.
+          throw new HarnessTurnFailedError('bridge', {
+            error: `the turn ran out its ${seam.timeoutMs} ms deadline; cancellation of bridge run ${activeRun.id} requested`,
+            errorCode: 'timeout',
+          })
         }
         throw error
       }
