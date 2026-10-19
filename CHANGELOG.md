@@ -1,3 +1,7 @@
+## 0.332.0
+
+A bridge backend can set `modelSilenceMs`: a turn whose model sends nothing for that long, while no tool call is open, fails, its bridge run is cancelled, and the driver re-enters the run. A tool call the bridge reported and has not answered holds the clock, so a long tool is never cut. Off when absent.
+
 ## 0.331.2
 
 The sandbox peer admits `@tangle-network/sandbox` 0.62.2 (`>=0.62.2 <0.62.3`) beside 0.61.1, qualified against agent-interface 5.7.0. 0.62.2 sends a trace id on `exec` and runs `exec` directly from a Worker; its dependencies and peers match 0.61.1.
