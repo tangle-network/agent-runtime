@@ -58,6 +58,8 @@ import {
   type EscalateQuestion,
   type GraphSubtasks,
   type MakeWorkerAgent,
+  type MapOnSettleRoute,
+  type MapSpawnMarker,
   type PeerAuditAccess,
   type SpawnPreflight,
   type SuperviseProfileEntry,
@@ -105,6 +107,7 @@ import {
   graphSubtaskOf,
   parseGraphSubtaskTopology,
   prepareGraphSubtask,
+  productSpawnAuthority,
   validateGraphTopology,
 } from './graph-overlay'
 import { graphRegistry, loadGraph } from './graph-registry'
@@ -2284,6 +2287,9 @@ export interface SuperviseOptions {
      *  spawn — authored by the runtime, never accepted from a driver's tool arguments. A node-pinning
      *  authority reads it to admit the analyst node it would refuse as a driver-authored spawn. */
     readonly analyst?: string
+    /** Present only when a map route started this spawn — authored by the runtime, never accepted
+     *  from tool arguments. A node-pinning authority reads it to admit the map's item or join. */
+    readonly map?: MapSpawnMarker
     /** The EFFECTIVE continuity of this spawn, resolved by the coordination layer. */
     readonly continuity?: ContinuityMode
   }) => AuthorizedSpawn
@@ -2492,6 +2498,10 @@ export interface SuperviseOptions {
    *  threaded to the driver at this level (propagate to sub-drivers via a recursive `makeWorkerAgent`).
    *  Omit/empty = status quo (no analyst feed). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
+  /** Maps the runtime expands when their source worker settles: fan-out over a list in the
+   *  source's result, then one join. An AgentGraph's `maps` edges set it; see `MapOnSettleRoute`.
+   *  Omit = none. */
+  readonly mapOnSettle?: ReadonlyArray<MapOnSettleRoute>
   /**
    * Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
    * moment one loops or error-storms — so the supervisor learns it mid-run (in its next wake)
@@ -2676,6 +2686,7 @@ const superviseOptionKeys = [
   'allowedModels',
   'analysts',
   'analyzeOnSettle',
+  'mapOnSettle',
   'authorizeMessage',
   'authorizeSpawn',
   'backend',
@@ -4173,6 +4184,7 @@ function superviseInternal(
       : undefined
   // The graph layer for the root of a `run_graph` subtask, rebuilt from the topology its admitted
   // profile carries — on a fresh spawn and on recovery alike.
+  const productAuthority = productSpawnAuthority(options.authorizeSpawn)
   const graphOverlayFor = (topology: GraphSubtaskTopology): GraphOverlay => {
     const registry = kernelPromptRegistry()
     const overlay = createGraphOverlay(
@@ -4183,7 +4195,7 @@ function superviseInternal(
         runId,
         now,
         ...(guidanceComposer ? { guidance: guidanceComposer } : {}),
-        ...(options.authorizeSpawn ? { authorizeSpawn: options.authorizeSpawn } : {}),
+        ...(productAuthority ? { authorizeSpawn: productAuthority } : {}),
         subtask: true,
       },
     )
@@ -4243,6 +4255,7 @@ function superviseInternal(
           ...(spawnContext.key !== undefined ? { key: spawnContext.key } : {}),
           depth,
           ...(spawnContext.analyst !== undefined ? { analyst: spawnContext.analyst } : {}),
+          ...(spawnContext.map !== undefined ? { map: spawnContext.map } : {}),
           ...(spawnContext.continuity !== undefined ? { continuity: spawnContext.continuity } : {}),
         })
         // Recovery reconstructs the admitted authority; authorization cannot replace it. Inside a
@@ -4342,8 +4355,10 @@ function superviseInternal(
         // The root of a `run_graph` subtask carries its graph's topology, and its whole subtree
         // runs under that graph's layer. A node already inside a graph cannot start another: the
         // graph's pinning refuses that spawn before it reaches here, and recovery cannot add one.
+        // A `maps` edge whose item is a graph is the one exception: the graph authored it, and its
+        // pinning admitted exactly that topology for this item.
         const subtask = graphSubtaskOf(authorized)
-        if (subtask !== undefined && graph !== undefined) {
+        if (subtask !== undefined && graph !== undefined && spawnContext.map === undefined) {
           throw new ValidationError(
             'supervise: a node of a graph cannot start another graph; add the work as nodes',
           )
@@ -4424,6 +4439,11 @@ function superviseInternal(
             ? subtreeGraph.routes
             : undefined
           : options.analyzeOnSettle
+        const nestedMapOnSettle = subtreeGraph
+          ? subtreeGraph.maps.length > 0
+            ? subtreeGraph.maps
+            : undefined
+          : options.mapOnSettle
         const nestedContinuity = subtreeGraph
           ? Object.keys(subtreeGraph.continuityByProfile).length > 0
             ? subtreeGraph.continuityByProfile
@@ -4499,6 +4519,7 @@ function superviseInternal(
           ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
           ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
           ...(options.wake !== undefined ? { wake: options.wake } : {}),
+          ...(nestedMapOnSettle ? { mapOnSettle: nestedMapOnSettle } : {}),
           ...(nestedContinuity ? { continuityByProfile: nestedContinuity } : {}),
           ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
           ...(nestedResolveSpawnProfile ? { resolveSpawnProfile: nestedResolveSpawnProfile } : {}),
@@ -4750,6 +4771,7 @@ function superviseInternal(
       ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
       ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
       ...(options.wake !== undefined ? { wake: options.wake } : {}),
+      ...(options.mapOnSettle ? { mapOnSettle: options.mapOnSettle } : {}),
       ...(options.continuityByProfile ? { continuityByProfile: options.continuityByProfile } : {}),
       ...(options.stopRule ? { stopRule: stopRuleOf(options.stopRule) } : {}),
       ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),

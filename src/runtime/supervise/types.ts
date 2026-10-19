@@ -1989,7 +1989,7 @@ export type SpawnEvent =
        *  One run journal can then hold several graphs' ledgers; absent for the run's own graph. */
       graph?: NodeId
       edge: {
-        kind: 'delegates' | 'analyzes' | 'data'
+        kind: 'delegates' | 'analyzes' | 'maps' | 'data'
         from: string
         to: string
         /** The resolved directive reference (`<surface>/v<n>`), never the directive bytes.
@@ -2000,7 +2000,9 @@ export type SpawnEvent =
       }
       /** 1-based traversal ordinal for THIS edge within the run. */
       traversal: number
-      outcome: 'delivered' | 'stripped' | 'empty' | 'unpropagated'
+      outcome: 'delivered' | 'stripped' | 'empty' | 'unpropagated' | 'failed'
+      /** A maps edge's row: the list's expansion, one item by index, or the join. */
+      map?: { phase: 'expand' | 'item' | 'join'; index?: number }
       /** How the hop CONTINUED the node's work: spawn traversals stamp their effective mode
        *  (`'fresh'` = new session, `'resume'` = re-attached to the node's prior settled session),
        *  and every mid-run delivery into an already-live recipient — a driver steer leg and every
