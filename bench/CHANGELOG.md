@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.5
+
+Use the Runtime 0.326 cohort: Sandbox `>=0.60.92 <0.60.93`, which `@tangle-network/agent-provider-tangle` 4.4.1 requires.
+Benchmark execution and grading are unchanged.
+
 ## 0.14.4
 
 Use the Runtime 0.321 cohort: Eval `>=0.214.0 <0.215.0` and Knowledge `^22.0.2`, whose Eval peer admits Eval 0.214.
