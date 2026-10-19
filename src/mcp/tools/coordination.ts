@@ -1225,6 +1225,9 @@ export interface AwaitWakeInput {
   readonly signal: AbortSignal
   /** Wake with no event after this long, so a waiting manager can reconsider. */
   readonly heartbeatMs: number
+  /** The wake starts a model turn: a heartbeat that finds every live worker progressing is
+   *  re-armed instead of returned. A caller that uses the heartbeat as a poll bound omits it. */
+  readonly quietWhileProgressing?: boolean
   /** After the first event, wait this long for more and deliver them together. */
   readonly debounceMs: number
   /** Epoch ms of a deadline warning: wake once then, with or without an event. */
@@ -3776,6 +3779,7 @@ export function createCoordinationToolsForManager(
       // root's 79 turns, about 37% of root spend, on 15-minute wakes that changed nothing. A
       // stalled worker, no live worker, or the deadline still wakes the manager.
       if (
+        input.quietWhileProgressing === true &&
         input.heartbeatMs > 0 &&
         bus.pending(wakeEventKinds) === 0 &&
         !outsideWake &&

@@ -1551,6 +1551,7 @@ function buildSupervisorAgent(
                 try {
                   const wake = await controls.awaitWake({
                     attempt: nextAttempt,
+                    quietWhileProgressing: true,
                     // A stop (accepted result, stop rule, the manager's own stop) ends the wait too.
                     signal: AbortSignal.any([scope.signal, stopController.signal]),
                     heartbeatMs: wakePolicy.heartbeatMs,

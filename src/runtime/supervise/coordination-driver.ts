@@ -1408,6 +1408,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               wake = await coord.awaitWake({
                 signal: scope.signal,
                 heartbeatMs: wakePolicy.heartbeatMs,
+                quietWhileProgressing: true,
                 debounceMs: wakePolicy.debounceMs,
                 ...(warnAt === undefined ? {} : { deadlineAt: warnAt }),
                 alsoWakeOn: inbox.pending() > 0 ? Promise.resolve() : inbox.nextDelivery(),
