@@ -47,7 +47,7 @@ import type {
   RetainedRunEnvironmentAdmission,
 } from '../retained-run-types'
 import type { Iteration } from '../types'
-import { cloneTokenUsage, zeroSpend } from '../util'
+import { chargedTokens, cloneTokenUsage, zeroSpend } from '../util'
 import { abortError, RunCancellationReason } from './abortable'
 import {
   assertValidSpend,
@@ -107,6 +107,7 @@ import { providerVisibleProfile } from './provider-visible-profile'
 import { prepareScopeResume } from './recover-executors'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import {
+  BUDGET_CONTINUATION_TASK,
   executorEvidenceWriter,
   leafContinuationExecutionId,
   type RetainedChildRecovery,
@@ -157,6 +158,8 @@ import type {
   ExecutorResult,
   Handle,
   HeldEnvironment,
+  HeldForContinuation,
+  HeldRelease,
   MaterializedExecutionIdentity,
   NodeExecutionIdentity,
   NodeId,
@@ -234,6 +237,10 @@ export interface ScopeArgs {
   /** What a steerable child's own time box does: a check-in by default (`deadline.ts`
    *  `DeadlineCheckIn`); `false` stops the child at its time box. Nested scopes inherit it. */
   readonly deadlineCheckIn?: DeadlineCheckIn
+  /** How long a keyed leaf whose turn ended over its budget keeps its environment for a same-key
+   *  re-spawn to continue (ms). Default {@link DEFAULT_BUDGET_STOP_HOLD_MS}; `0` keeps none.
+   *  Nested scopes inherit it. */
+  readonly budgetStopHoldMs?: number
   /** Abort signal for this scope; an abort cascades into every live child's executor. */
   readonly signal: AbortSignal
   /** Injected clock — keeps the journal `at` timestamp deterministic in tests. */
@@ -319,6 +326,7 @@ const pauseRecorders = new WeakMap<object, (pause: ScopeOwnerPause) => Promise<v
 const driverAttemptRecorders = new WeakMap<object, (record: DriverAttemptRecord) => Promise<void>>()
 const recoveryStarters = new WeakMap<object, () => Promise<void>>()
 const retainedReleasers = new WeakMap<object, () => Promise<void>>()
+const heldReleasers = new WeakMap<object, () => Promise<void>>()
 const childDrains = new WeakMap<object, () => Promise<void>>()
 const retainedSlotClosers = new WeakMap<object, () => Promise<void>>()
 const teardownRetriers = new WeakMap<object, () => Promise<void>>()
@@ -398,6 +406,19 @@ function unconfirmedTeardownOf(child: LiveChild, releasing: boolean): Unconfirme
     ...(child.teardownAttempts > 0 ? { attempts: child.teardownAttempts } : {}),
     ...(child.teardownDetail === undefined ? {} : { detail: child.teardownDetail }),
   })
+}
+
+/** Ten minutes: a manager that is alive decides within a turn or two; one that crashed, or a host
+ *  that restarted, must not leave a paid environment running until a retire pass finds it. */
+export const DEFAULT_BUDGET_STOP_HOLD_MS = 600_000
+
+/**
+ * @internal Release every environment this scope's settled children still hold after a budget
+ * stop, at the join barrier: no later spawn of this scope can continue them. Each release journals
+ * an `environment-teardown` with `heldRelease: 'scope-join'`. Never rejects.
+ */
+export async function releaseHeldEnvironments(scope: Scope<unknown>): Promise<void> {
+  await heldReleasers.get(scope)?.()
 }
 
 /** @internal Admit original children before the parent acts; do not wait for their results. */
@@ -620,6 +641,11 @@ interface LiveChild {
    *  writes the terminal record, so that record agrees with what the pool committed. */
   retainedViolation?: BudgetViolation
   recoveryReady?: Promise<void>
+  /** The environment a settled budget-stopped turn kept for a same-key continuation, until it is
+   *  released or handed to the successor node. */
+  held?: { readonly continuation: HeldForContinuation; clearCeiling?: () => void }
+  /** The environment admission of this child's current invocation: what a continuation reuses. */
+  readEnvironmentAdmission?: () => RetainedRunEnvironmentAdmission | undefined
   acceptedResult?: ExecutorResult<unknown>
   recoveryPending?: boolean
   outRef?: string
@@ -834,6 +860,7 @@ function makeNestedScopeSeam(
         ? { reservationPolicy: args.reservationPolicy, ownerBudget: nestedBudget }
         : {}),
       ...(args.deadlineCheckIn === undefined ? {} : { deadlineCheckIn: args.deadlineCheckIn }),
+      ...(args.budgetStopHoldMs === undefined ? {} : { budgetStopHoldMs: args.budgetStopHoldMs }),
       signal,
       ...(restored ? { resumeFrom: restored.resumeFrom } : {}),
       ...(args.now ? { now: args.now } : {}),
@@ -1009,6 +1036,14 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     // requested agent far enough to compare its authorized profile/task identity with the journal.
     // No executor is resolved, constructed, reserved, or run on the completed path.
     let prior: SpawnPrior<C> | undefined
+    // Set when this spawn continues a budget-stopped node's held environment and session.
+    let continuing:
+      | {
+          readonly from: LiveChild
+          readonly admission: RetainedRunEnvironmentAdmission
+          readonly held: NonNullable<LiveChild['held']>
+        }
+      | undefined
     let prepared:
       | {
           readonly agent: Agent<unknown, C>
@@ -1045,10 +1080,27 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       }
       if (existing?.state === 'live') return { ok: false, reason: 'duplicate-key' }
       if (existing?.state === 'done') {
-        return {
-          ok: true,
-          handle: existing.settled.handle as Handle<C>,
-          prior: { state: 'completed', settled: existing.settled as Settled<C> & { kind: 'done' } },
+        // A result that ended over its budget, whose environment is still held, continues in a new
+        // node when the caller asks for it; any other committed result is returned as it stands.
+        const from = children.get(existing.id)
+        const admission =
+          opts.continueHeld === true && existing.settled.budgetViolation !== undefined
+            ? from?.held !== undefined
+              ? from.readEnvironmentAdmission?.()
+              : undefined
+            : undefined
+        if (from?.held === undefined || admission === undefined) {
+          return {
+            ok: true,
+            handle: existing.settled.handle as Handle<C>,
+            prior: { state: 'completed', settled: existing.settled as Settled<C> & { kind: 'done' } },
+          }
+        }
+        continuing = { from, admission, held: from.held }
+        prior = {
+          state: 'continued',
+          priorId: existing.id,
+          environmentId: from.held.continuation.environmentId,
         }
       }
       if (existing?.state === 'down') {
@@ -1156,6 +1208,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     try {
       const ordinal = recovery?.spawned.seq ?? spawnOrdinal++
       const id: NodeId = recovery?.spawned.id ?? `${args.parentId}:s${ordinal}`
+      const successorOf = opts.successorOf ?? continuing?.from.id
       args.pool.attribute(reservation.ticket, { childId: id, stage: 'admitted' })
       const attemptId = newExecutionAttemptId(id)
       const startedAt = recovery ? Date.parse(recovery.spawned.at) : now()
@@ -1309,6 +1362,15 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             at: new Date(now()).toISOString(),
           })
         })
+      // Only a keyed leaf can be continued (by re-spawning its key), so only one keeps its
+      // environment after a turn that ended over its budget or past its time box.
+      const holdMs = args.budgetStopHoldMs ?? DEFAULT_BUDGET_STOP_HOLD_MS
+      const holdOnSettle =
+        opts.key !== undefined && holdMs > 0
+          ? (spent: Spend): boolean =>
+              overBudget(opts.budget, spent) ||
+              (childDeadlineAtMs !== undefined && now() > childDeadlineAtMs)
+          : undefined
       const retainedContext = (
         continuing:
           | {
@@ -1326,6 +1388,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               ...(continuing.priorSpent === undefined ? {} : { priorSpent: continuing.priorSpent }),
             }),
         admissions,
+        ...(holdOnSettle === undefined ? {} : { holdOnSettle }),
         ...(markRecoveryReady && continuing === undefined ? { onReady: markRecoveryReady } : {}),
         onAdmission,
         onResult,
@@ -1396,13 +1459,16 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         seams: {
           ...args.seams,
           [retainedExecutorSeamKey]: retainedContext(
-            recovery?.continuation === undefined
-              ? undefined
-              : {
+            recovery?.continuation !== undefined
+              ? {
                   executionId: recovery.continuation.executionId,
                   priorSession: recovery.continuation.priorSession,
                   priorSpent: recovery.continuation.priorSpent,
-                },
+                }
+              : continuing !== undefined
+                ? // The successor's first invocation runs in the held environment and session.
+                  { executionId: id, priorSession: continuing.admission }
+                : undefined,
           ),
           [nestedScopeSeamKey]: makeNestedScopeSeam(
             args,
@@ -1527,6 +1593,10 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           : {}),
         teardownAttempts: 0,
         abortChild: (reason?: unknown): void => controller.abort(reason),
+        readEnvironmentAdmission: () => {
+          const admission = admissions.find((record) => record.phase === 'environment')
+          return admission?.phase === 'environment' ? admission : undefined
+        },
       }
       const recordCancellation = (): void => {
         if (
@@ -1574,7 +1644,15 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
                   label: opts.label,
                   ...(opts.key !== undefined ? { key: opts.key } : {}),
                   ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
-                  ...(opts.successorOf === undefined ? {} : { successorOf: opts.successorOf }),
+                  ...(successorOf === undefined ? {} : { successorOf }),
+                  ...(continuing === undefined
+                    ? {}
+                    : {
+                        continues: {
+                          ofWorker: continuing.from.id,
+                          environmentId: continuing.admission.environmentId,
+                        },
+                      }),
                   budget: opts.budget,
                   runtime: executor.runtime,
                   ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
@@ -1777,7 +1855,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               label: opts.label,
               ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
               ...(opts.key === undefined ? {} : { key: opts.key }),
-              ...(opts.successorOf === undefined ? {} : { successorOf: opts.successorOf }),
+              ...(successorOf === undefined ? {} : { successorOf }),
               runtime: executor.runtime,
               ...(identity ? { identity } : {}),
               // Who acted, for span observers: the authored profile under the digest the
@@ -1792,6 +1870,15 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           { signal: args.signal },
         )
 
+      // Past every refusal: the held environment belongs to this node now, and the node it came
+      // from holds nothing (its settlement and result stand).
+      if (continuing !== undefined) {
+        continuing.held.clearCeiling?.()
+        continuing.held.continuation.handOver()
+        continuing.from.held = undefined
+        continuing.from.cleanupConfirmed = true
+      }
+
       // Drive the executor to settlement off to the side; `next()` awaits the resulting
       // promise. A thrown executor (or a real abort) is TYPED into a `down` record by
       // `runChild` (never re-thrown) so a single failing child never rejects the cursor.
@@ -1799,9 +1886,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         live,
         executor,
         controller,
-        // A recovered continuation replays its own invocation's task; the spawn identity above
-        // stays the node's original task.
-        recovery?.continuation?.task ?? task,
+        // A recovered continuation replays its own invocation's task, and a keyed continuation
+        // tells the held session to go on; the spawn identity above stays the node's original task.
+        recovery?.continuation?.task ?? (continuing === undefined ? task : BUDGET_CONTINUATION_TASK),
         opts,
         args.pool,
         reservation.ticket,
@@ -1888,6 +1975,15 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             }
           }
           live.resolved = resolution
+          if (live.held !== undefined) {
+            if (resolution.kind === 'done') {
+              const timer = setTimeout(() => void releaseHeld(live, 'hold-ceiling'), holdMs)
+              timer.unref?.()
+              live.held.clearCeiling = () => clearTimeout(timer)
+            } else {
+              await releaseHeld(live, 'scope-join')
+            }
+          }
           return resolution
         })
         .finally(() => {
@@ -1925,6 +2021,40 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       args.pool.reconcile(reservation.ticket, withBudgetResources(zeroSpend(), opts.budget, true))
       throw err
     }
+  }
+
+  // In flight, so the join barrier waits for a ceiling or cancel release that already started.
+  const heldReleases = new Set<Promise<boolean>>()
+  /** Release the environment a settled child holds after a budget stop, once, and journal why. */
+  function releaseHeld(child: LiveChild, reason: HeldRelease): Promise<boolean> {
+    const held = child.held
+    if (held === undefined) return Promise.resolve(false)
+    child.held = undefined
+    held.clearCeiling?.()
+    const release = (async () => {
+      const answer = await held.continuation
+        .release()
+        .catch((error: unknown) => ({ destroyed: false, detail: errMessage(error) }))
+      if (answer.destroyed) child.cleanupConfirmed = true
+      else if (answer.detail !== undefined) child.teardownDetail = answer.detail
+      await appendEnvironmentTeardown(
+        args.journal,
+        args.root,
+        child.id,
+        {
+          provider: held.continuation.provider,
+          environmentId: held.continuation.environmentId,
+          destroyed: answer.destroyed,
+          ...(answer.detail === undefined ? {} : { detail: answer.detail }),
+        },
+        new Date(now()).toISOString(),
+        reason,
+      ).catch(() => undefined)
+      return true
+    })()
+    heldReleases.add(release)
+    void release.finally(() => heldReleases.delete(release))
+    return release
   }
 
   async function commitSettlement(
@@ -2199,6 +2329,10 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     next,
     nextResolved,
     send,
+    releaseHeld: (nodeId, reason) => {
+      const child = children.get(nodeId)
+      return child === undefined ? Promise.resolve(false) : releaseHeld(child, reason)
+    },
     progress,
     observeTree: () => {
       const view = makeTreeView(args.parentId, children)
@@ -2272,6 +2406,10 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   })
   admissionSeals.set(scope as Scope<unknown>, () => {
     admissionClosed = true
+  })
+  heldReleasers.set(scope, async () => {
+    await Promise.all([...children.values()].map((child) => releaseHeld(child, 'scope-join')))
+    await Promise.allSettled([...heldReleases])
   })
   subtreeReaders.set(scope as Scope<unknown>, () => summarizeTeam(children.values()))
   liveTeamReaders.set(scope as Scope<unknown>, () =>
@@ -3375,6 +3513,7 @@ async function appendEnvironmentTeardown(
   id: NodeId,
   receipt: EnvironmentTeardownReceipt,
   at: string,
+  heldRelease?: HeldRelease,
 ): Promise<void> {
   const seq = await nextPerNodeSeq(journal, root, 'environment-teardown', id)
   await journal.appendEvent(root, {
@@ -3384,9 +3523,19 @@ async function appendEnvironmentTeardown(
     environmentId: receipt.environmentId,
     destroyed: receipt.destroyed,
     ...(receipt.detail === undefined ? {} : { detail: receipt.detail }),
+    ...(heldRelease === undefined ? {} : { heldRelease }),
     seq,
     at,
   })
+}
+
+/** Whether a settled spend exceeds the budget it was given, by the channels the pool reconciles. */
+function overBudget(budget: Budget, spent: Spend): boolean {
+  return (
+    chargedTokens(spent.tokens) > budget.maxTokens ||
+    spent.iterations > budget.maxIterations ||
+    (budget.maxUsd !== undefined && spent.usdKnown !== false && spent.usd > budget.maxUsd)
+  )
 }
 
 async function nextPerNodeSeq(
@@ -3690,6 +3839,9 @@ async function runChild<C>(
     if (teardownStarted) return
     teardownStarted = true
     try {
+      // An environment kept for a continuation that this settlement will not offer is released
+      // with the rest of the executor.
+      await executor.heldForContinuation?.()?.release()
       await teardownExecutor(executor, grace, deadlineAtMs, now, live.askTeardown)
       live.cleanupConfirmed = true
     } catch (error) {
@@ -3868,7 +4020,11 @@ async function runChild<C>(
         outRef,
       }
     }
-    await teardownOnce(opts.shutdown ?? DEFAULT_SUCCESSFUL_SHUTDOWN_MS)
+    // A turn that ended over its budget keeps its environment for a same-key continuation; the
+    // scope releases it at its hold ceiling, on cancel_worker, or at the join barrier.
+    const held = executor.heldForContinuation?.()
+    if (held !== undefined && live.budgetViolation !== undefined) live.held = { continuation: held }
+    else await teardownOnce(opts.shutdown ?? DEFAULT_SUCCESSFUL_SHUTDOWN_MS)
     return {
       kind: 'done',
       out: artifact.out,

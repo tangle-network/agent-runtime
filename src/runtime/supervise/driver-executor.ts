@@ -57,6 +57,7 @@ import {
   type NestedScopeSeam,
   nestedScopeSeamKey,
   registerNestedTeardownScope,
+  releaseHeldEnvironments,
   releaseManagerEnvironment,
   releaseRetainedEnvironments,
   startScopeRecoveries,
@@ -539,6 +540,8 @@ async function closeNestedScope(
     const settled = await scope.next()
     if (settled === null) break
   }
+  // The join barrier: no later spawn of this scope can continue a budget-stopped worker.
+  await releaseHeldEnvironments(scope)
   const view = scope.view
   if (view.inFlight > 0) {
     throw new ValidationError(`driverExecutor: nested cleanup left ${view.inFlight} running nodes`)

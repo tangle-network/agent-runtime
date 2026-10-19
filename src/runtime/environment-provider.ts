@@ -135,6 +135,7 @@ import type {
   ExecutorNodeContext,
   ExecutorResult,
   HeldEnvironment,
+  HeldForContinuation,
   Runtime,
   Spend,
   UsageEvent,
@@ -673,6 +674,9 @@ function createProviderExecutor(
   // SECOND delete against a resource that is already gone. That second call is what the provider
   // answered 409 to.
   let destroyed = false
+  // Set when the settled turn kept its environment for a keyed continuation; cleared when the
+  // environment is released or handed to the successor node.
+  let holdingForContinuation = false
   let workspaceEnvironmentId: string | undefined
   let workspaceSnapshot: AgentCandidateWorkspaceSnapshotEvidence | undefined
   let workspaceProvenance: ProviderWorkspaceCaptureProvenance | undefined
@@ -1488,6 +1492,9 @@ function createProviderExecutor(
             incompleteReason: workspaceIncompleteReason,
           }),
           destroyEnvironment,
+          onHeld: () => {
+            holdingForContinuation = true
+          },
         })
         const refusal = ended.unavailable
         const continueInvocation = invocation.retention?.continueInvocation
@@ -1571,6 +1578,14 @@ function createProviderExecutor(
     },
     async teardown(_grace): Promise<TeardownAnswer> {
       controller.abort()
+      // Held for a continuation: the scope releases it (hold ceiling, cancel_worker, join barrier)
+      // or hands it to the successor; an ordinary teardown must not destroy it underneath them.
+      if (holdingForContinuation) {
+        return {
+          destroyed: false,
+          detail: 'environment held for a keyed continuation after a budget stop',
+        }
+      }
       // A cancelled execution is not kept for a resume to reconcile, so its harness stops now
       // rather than at root release. Not awaited: teardown acknowledges within a short window,
       // and the release awaits this same stop before it records what it kept.
@@ -1607,9 +1622,32 @@ function createProviderExecutor(
         {
           provider: provider.name,
           environmentId,
-          ...(preserved ? { keptFor: 'evidence' as const } : {}),
+          ...(preserved
+            ? { keptFor: 'evidence' as const }
+            : holdingForContinuation
+              ? { keptFor: 'continuation' as const }
+              : {}),
         },
       ]
+    },
+    heldForContinuation(): HeldForContinuation | undefined {
+      const held = environment
+      if (!holdingForContinuation || held === undefined || destroyed) return undefined
+      return {
+        provider: provider.name,
+        environmentId: held.id,
+        release: async (signal) => {
+          if (!holdingForContinuation) return { destroyed: true }
+          holdingForContinuation = false
+          return await destroyEnvironment(signal)
+        },
+        handOver: () => {
+          // The successor's executor owns the environment now; this one never destroys it.
+          holdingForContinuation = false
+          environment = undefined
+          destroyed = true
+        },
+      }
     },
     releaseRetained: withoutRunningHarness(async (signal) => {
       controller.abort()
@@ -1909,6 +1947,8 @@ interface StreamProviderExecutorArgs {
   /** The transcript is final for this turn: an aborted turn's harness stopped and its session's
    *  final copy is taken. */
   onTranscriptSettled: () => void
+  /** The settled turn's environment is kept for a keyed continuation (`holdOnSettle`). */
+  onHeld: () => void
 }
 
 function providerWorkspaceCaptureReceipt(
@@ -2391,11 +2431,22 @@ async function* streamProviderExecutor(
         failed ? 'failed' : settled !== undefined ? 'settled' : 'interrupted',
       )
     }
+    // A keyed turn that ended over its budget keeps its environment, so a re-spawn of its key
+    // with more budget runs the next turn in this same environment and harness session.
+    const held =
+      source.retained &&
+      settled !== undefined &&
+      !failed &&
+      unavailable === undefined &&
+      args.retention?.preserveEnvironment !== true &&
+      args.retention?.holdOnSettle?.(settled.spent) === true
+    if (held) args.onHeld()
     if (
       (!source.retained || (settled !== undefined && !failed)) &&
       !(source.retained && args.retention?.preserveEnvironment) &&
       // A refused turn keeps its environment: the executor continues in it.
       !(unavailable !== undefined && !failed) &&
+      !held &&
       (args.options.destroyOnSettle ?? true)
     ) {
       const cleanup = await args.destroyEnvironment()

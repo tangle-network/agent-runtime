@@ -75,6 +75,7 @@ import {
   createScope,
   finalizeScopeOwnerMaterialization,
   hasRetriableTeardowns,
+  releaseHeldEnvironments,
   releaseRetainedEnvironments,
   retryUnconfirmedTeardowns,
   settleManagerWork,
@@ -434,6 +435,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       workerSlots,
       reservationPolicy,
       deadlineCheckIn,
+      budgetStopHoldMs,
       maxRestarts,
       withinMs,
       childSettleGraceMs,
@@ -714,6 +716,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           ? { reservationPolicy: opts.reservationPolicy, ownerBudget: opts.budget }
           : {}),
         ...(deadlineCheckIn === undefined ? {} : { deadlineCheckIn }),
+        ...(budgetStopHoldMs === undefined ? {} : { budgetStopHoldMs }),
         signal: controller.signal,
         now,
         hooks: opts.hooks,
@@ -846,7 +849,10 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           ? boundedSettleGrace(opts.childSettleGraceMs, rootDeadlineAtMs, now)
           : 0
         try {
-          teardownUnconfirmed = await drainLiveChildren(openScope, controller, settleGraceMs)
+          await drainLiveChildren(openScope, controller, settleGraceMs)
+          // No later spawn can continue a budget-stopped worker, so what it held is released now.
+          await releaseHeldEnvironments(openScope)
+          teardownUnconfirmed = unconfirmedTeardowns(openScope)
           // A manager that settled may still be capturing the workspace of its last turn, which
           // it took over so that its node could settle first, and may be releasing its
           // environment after it. Both finish before the run settles, under either policy.

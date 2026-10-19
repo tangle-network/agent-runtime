@@ -22,6 +22,7 @@ import type {
   ProviderWorkspaceCaptureResult,
   ProviderWorkspaceRetentionContext,
 } from '../../src/runtime/provider-workspace-retention'
+import { BUDGET_CONTINUATION_TASK } from '../../src/runtime/supervise/retained-executor'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Agent, ExecutorFactory, Scope, SpawnEvent } from '../../src/runtime/supervise/types'
@@ -171,6 +172,7 @@ async function leafFixture(options: {
     act: (scope: Scope<string>) => Promise<string>,
     recoverExecutor?: ExecutorFactory<unknown>,
     journal = context.journal,
+    budgetStopHoldMs?: number,
   ) =>
     createSupervisor<string, string>().run(
       { name: 'root', act: (_task, scope) => act(scope) },
@@ -185,6 +187,7 @@ async function leafFixture(options: {
         },
         journal,
         ...(recoverExecutor ? { recoverExecutor } : {}),
+        ...(budgetStopHoldMs === undefined ? {} : { budgetStopHoldMs }),
       },
     )
   const leafEvents = async (): Promise<SpawnEvent[]> =>
@@ -710,5 +713,102 @@ describe('a leaf whose model provider refuses its turn for capacity', () => {
     expect(fixture.dispatches).toHaveLength(2)
     expect(retained.contexts).toHaveLength(1)
     expect(await fixture.liveEnvironments()).toHaveLength(1)
+  })
+})
+
+describe('a keyed leaf whose turn ends over its budget', () => {
+  const teardowns = async (fixture: Awaited<ReturnType<typeof leafFixture>>) =>
+    ((await fixture.context.journal.loadTree('root')) ?? []).filter(
+      (event): event is Extract<SpawnEvent, { kind: 'environment-teardown' }> =>
+        event.kind === 'environment-teardown',
+    )
+
+  it('keeps its box, and a same-key re-spawn with a budget continues the session in it', async () => {
+    const fixture = await leafFixture({ failure: () => undefined })
+    const result = await fixture.run(async (scope) => {
+      // A served turn meters 3 + 2 tokens, past a 1-token budget.
+      scope.spawn(fixture.worker(), 'Find the anomaly.', {
+        key: 'work',
+        budget: { maxIterations: 1, maxTokens: 1 },
+      })
+      const first = await scope.next()
+      expect(first).toMatchObject({ kind: 'done', budgetViolation: { overspent: [{ channel: 'tokens' }] } })
+      expect(await fixture.liveEnvironments()).toHaveLength(1)
+      // Without a budget the key still returns its committed result and runs nothing.
+      const same = scope.spawn(fixture.worker(), 'Find the anomaly.', {
+        key: 'work',
+        budget: { maxIterations: 1, maxTokens: 1 },
+      })
+      expect(same).toMatchObject({ ok: true, prior: { state: 'completed' } })
+      const more = scope.spawn(fixture.worker(), 'Find the anomaly.', {
+        key: 'work',
+        budget: { maxIterations: 1, maxTokens: 2 },
+        continueHeld: true,
+      })
+      expect(more).toMatchObject({ ok: true, prior: { state: 'continued', priorId: 'root:s0' } })
+      if (!more.ok) return 'refused'
+      expect(more.handle.id).not.toBe('root:s0')
+      // Still over its (larger) budget, so the successor holds the box until the join barrier.
+      expect(await scope.next()).toMatchObject({ kind: 'done', budgetViolation: {} })
+      return 'completed'
+    })
+    expect(result.kind).toBe('winner')
+    expect(fixture.creates()).toBe(1)
+    expect(fixture.dispatches).toHaveLength(2)
+    expect(new Set(fixture.dispatches.map((turn) => turn.environmentId)).size).toBe(1)
+    expect(new Set(fixture.dispatches.map((turn) => turn.sessionId)).size).toBe(1)
+    expect(fixture.dispatches.map((turn) => turn.prompt)).toEqual([
+      'Find the anomaly.',
+      BUDGET_CONTINUATION_TASK,
+    ])
+    const events = (await fixture.context.journal.loadTree('root')) ?? []
+    const successor = events.find(
+      (event): event is Extract<SpawnEvent, { kind: 'spawned' }> =>
+        event.kind === 'spawned' && event.successorOf === 'root:s0',
+    )
+    expect(successor).toMatchObject({
+      key: 'work',
+      continues: { ofWorker: 'root:s0', environmentId: fixture.dispatches[0]?.environmentId },
+    })
+    // Destroyed exactly once, at the join barrier, by the node that held it last.
+    expect(await teardowns(fixture)).toMatchObject([
+      { id: successor?.id, destroyed: true, heldRelease: 'scope-join' },
+    ])
+    expect(await fixture.liveEnvironments()).toEqual([])
+  })
+
+  it('releases the box at its hold ceiling when the manager never decides', async () => {
+    const fixture = await leafFixture({ failure: () => undefined })
+    await fixture.run(
+      async (scope) => {
+        scope.spawn(fixture.worker(), 'task', {
+          key: 'work',
+          budget: { maxIterations: 1, maxTokens: 1 },
+        })
+        expect((await scope.next())?.kind).toBe('done')
+        // The manager is gone: no re-spawn, no join, for longer than the ceiling.
+        for (let wait = 0; wait < 200; wait += 1) {
+          if ((await fixture.liveEnvironments()).length === 0) break
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        expect(await fixture.liveEnvironments()).toEqual([])
+        // Released: the key now returns its committed result even when asked to continue.
+        expect(
+          scope.spawn(fixture.worker(), 'task', {
+            key: 'work',
+            budget: { maxIterations: 1, maxTokens: 50 },
+            continueHeld: true,
+          }),
+        ).toMatchObject({ ok: true, prior: { state: 'completed' } })
+        return 'inspected'
+      },
+      undefined,
+      undefined,
+      30,
+    )
+    expect(await teardowns(fixture)).toMatchObject([
+      { id: 'root:s0', destroyed: true, heldRelease: 'hold-ceiling' },
+    ])
+    expect(fixture.dispatches).toHaveLength(1)
   })
 })

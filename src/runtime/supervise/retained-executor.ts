@@ -37,6 +37,12 @@ export interface RetainedExecutorContext {
   readonly priorSpent?: Spend
   /** Keep the retained provider environment alive across deliberate invocations. */
   readonly preserveEnvironment?: boolean
+  /**
+   * Asked once when a turn settles with a result: `true` keeps the environment for a keyed
+   * continuation instead of destroying it (`Executor.heldForContinuation`). The scope answers
+   * `true` for a keyed leaf whose turn ended over its budget or past its deadline.
+   */
+  readonly holdOnSettle?: (spent: Spend) => boolean
   readonly admissions: readonly RetainedRunAdmission[]
   readonly onReady?: () => void | Promise<void>
   readonly onAdmission: RetainedRunAdmissionHook
@@ -469,6 +475,13 @@ export interface RetainedLeafContinuation {
   readonly priorSession: RetainedRunEnvironmentAdmission
   readonly priorSpent: Spend
 }
+
+/** The instruction a keyed continuation runs in the held session: the node's task is unchanged,
+ *  and its conversation and workspace are where the budget stop left them. */
+export const BUDGET_CONTINUATION_TASK =
+  'Your previous turn reached its budget and stopped. Your manager gave you more budget to ' +
+  'continue the same task in the same session: your conversation so far and the files in your ' +
+  'workspace are where you left them. Continue from where you stopped. Do not start over.'
 
 /** The execution id of a leaf's later invocation, derived from its `execution-input` sequence so
  *  a recovery derives the same one. A first invocation keeps the node id. */
