@@ -561,7 +561,19 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         // and teardown path. Caller cancellation still interrupts reconciliation.
         let restored: Awaited<ReturnType<typeof prepareScopeResume>>
         try {
-          restored = await prepareScopeResume(opts, prior, recoveryController.signal, now)
+          // A run cancelled before this entry settles from its journal and starts nothing:
+          // queens21-h22-tree4-20261018a's resume threw on the aborted recovery, and the next one
+          // re-ran its work to budget exhaustion before the cancel applied.
+          const cancelledAtEntry =
+            opts.signal?.aborted === true && opts.signal.reason instanceof RunCancellationReason
+          restored = await prepareScopeResume(
+            opts,
+            prior,
+            recoveryController.signal,
+            now,
+            opts.runId,
+            cancelledAtEntry,
+          )
         } finally {
           opts.signal?.removeEventListener('abort', abortRecovery)
         }

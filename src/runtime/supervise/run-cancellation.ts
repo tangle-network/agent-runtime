@@ -18,6 +18,11 @@ export function applyRunCancellation(
   const request = readRunCancelRequest(dir)
   if (request === undefined) return undefined
   const prior = readRunCancellation(dir, request.operationId)
+  // A request acknowledged only as `cancel_requested` is still owed by this run: the process
+  // that issued the abort died before the run settled. Abort again; the record stands.
+  if (prior?.effect === 'cancel_requested') {
+    abortRun(request.reason ?? 'run cancel requested', request)
+  }
   if (prior !== undefined) return prior
   abortRun(request.reason ?? 'run cancel requested', request)
   const observedAt = now()
@@ -49,9 +54,17 @@ export function watchRunCancellation(
   mkdirSync(workerCancellationsDir(dir), { recursive: true })
   let active = true
   let failure: unknown
+  // One observer aborts its run once: a request this process already applied, or one a dead
+  // process acknowledged, is not re-issued on every poll.
+  let aborted = false
+  const abortOnce = (reason: string, request?: RunCancelRequest): void => {
+    if (aborted) return
+    aborted = true
+    abortRun(reason, request)
+  }
   const check = (path: 'observer' | 'fallback' = 'observer'): void => {
     if (failure !== undefined) throw failure
-    if (active) applyRunCancellation(dir, abortRun, () => new Date().toISOString(), path)
+    if (active) applyRunCancellation(dir, abortOnce, () => new Date().toISOString(), path)
   }
   const fail = (error: unknown): void => {
     if (!active) return

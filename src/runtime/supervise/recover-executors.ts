@@ -667,15 +667,20 @@ export async function prepareScopeResume(
   signal: AbortSignal,
   now: () => number,
   parentId = opts.runId,
+  /** A run cancelled before it was re-entered settles from its journal: no slot heal, no
+   *  executor recovery, no provider call. */
+  settleOnly = false,
 ): Promise<{ resumeFrom: ScopeResumeState; poolRestore: BudgetPoolRestore }> {
   // The root resume walks the whole forest once; the nested restore, whose `parentId` is the
   // manager node, does not walk again. A healed node is then terminal to everything below:
   // never interrupted, never a recovery, charged its floor as `settled.spent` instead of the
   // reconciled floor (the same object), and replayed at the driver's own seq.
-  if (parentId === opts.runId && (await healReleasedSlots(opts, signal, now)) > 0) {
+  if (!settleOnly && parentId === opts.runId && (await healReleasedSlots(opts, signal, now)) > 0) {
     events = (await opts.journal.loadTree(opts.runId)) ?? events
   }
-  const prepared = await prepareInterruptedExecutors(opts, events, signal, now, parentId)
+  const prepared = settleOnly
+    ? { events, recoveries: [] }
+    : await prepareInterruptedExecutors(opts, events, signal, now, parentId)
   const prior = prepared.events
   const recovering = new Set(prepared.recoveries.map((item) => item.spawned.id))
   // A restored child's full reservation already covers its previous inference and its reconciled
@@ -694,7 +699,7 @@ export async function prepareScopeResume(
       event.kind === 'cancelled',
   )
   const settled = await replaySpawnTree(opts.journal, opts.blobs, opts.runId)
-  signal.throwIfAborted()
+  if (!settleOnly) signal.throwIfAborted()
   return {
     poolRestore: {
       ...(hasCommittedEvidence

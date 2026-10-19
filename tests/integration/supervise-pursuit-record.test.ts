@@ -452,6 +452,20 @@ describe('supervisePursuit durable terminal records', () => {
     expect(replayed.runs[0]?.error).toMatch(/deadlineMs/)
   })
 
+  it('leaves a queued cancel to the live holder: a second entry is refused before it settles anything', async () => {
+    const held = await acquireRunDirectoryLock(runDir, 'run:record:holder')
+    try {
+      cancelRun(runDir, 'held-cancel', { reason: 'operator', source: 'test' })
+      const refused = await run(runDir, 'run:record:holder').catch((error) => error)
+      expect(refused).toBeInstanceOf(RunDirectoryLockedError)
+      // Only the holder applies the cancel: the refused entry wrote no acknowledgement or record.
+      expect(readRunCancellation(runDir, 'held-cancel')).toBeUndefined()
+      expect(await exists(join(runDir, SETTLE_RECORD_FILE))).toBe(false)
+    } finally {
+      await held.release()
+    }
+  })
+
   it('refuses a call while another process holds the directory, naming the holder', async () => {
     const held = await acquireRunDirectoryLock(runDir, 'run:record:holder')
     try {
