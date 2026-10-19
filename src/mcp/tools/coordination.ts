@@ -2508,8 +2508,9 @@ export function createCoordinationToolsForManager(
   // The names an analyst route may know a worker by: its authored profile name (the stable node
   // identity) and its spawn label (the driver's free-text choice).
   // A named profile is the worker's route identity. The label is the driver's free text and
-  // defaults to 'worker', so matching it for a named profile would make a route over a node
-  // named 'worker' cover every unlabelled worker. It names only a worker without a profile name.
+  // defaults to the profile name, or 'worker' for an unnamed profile, so matching it for a named
+  // profile would make a route over a node named 'worker' cover every unlabelled worker. It names
+  // only a worker without a profile name.
   const workerRouteNames = (workerId: string): Set<string> => {
     const profileName = profileNameByWorker.get(workerId)
     if (profileName !== undefined) return new Set([profileName])
@@ -4025,7 +4026,7 @@ export function createCoordinationToolsForManager(
           profile:
             profileTable === undefined ? spawnProfileArg() : spawnProfileArgWithTable(profileTable),
           task: { description: 'The task the worker should perform.' },
-          label: { type: 'string', description: 'Optional trace label.' },
+          label: { type: 'string', description: 'Optional trace label; defaults to the profile name.' },
           key: {
             type: 'string',
             description:
@@ -4171,7 +4172,9 @@ export function createCoordinationToolsForManager(
           preflightProfile: () =>
             opts.resolveSpawnProfile ? detachedFrozen(opts.resolveSpawnProfile(profile)) : profile,
           resourcesFromPath: resourcePaths.resolved,
-          defaultLabel: 'worker',
+          // magnetar-rust-20261018b's 13 workers were all labelled 'worker', so no view showed a role.
+          defaultLabel:
+            typeof profile.name === 'string' && profile.name.length > 0 ? profile.name : 'worker',
         })
       },
     },
