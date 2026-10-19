@@ -57,7 +57,14 @@ export const BRIDGE_ROUTE_PROBE_TIMEOUT_MS = 30_000
  *  exists to remove, refusing a bridge that has since gained the backend until the process
  *  restarted. A positive that goes stale fails at dispatch with the bridge's own retained error,
  *  which is what a child saw before the preflight existed. */
-const routedModels = new Map<string, Set<string>>()
+const routedModels = new Map<string, Map<string, BridgeModelRoute>>()
+
+/** What a bridge's `GET /v1/capabilities?model=` says about the backend that serves a model. */
+interface BridgeModelRoute {
+  /** The backend's stream reports each tool call when it starts and again when it ends, the
+   *  facts `modelSilenceMs` needs to tell model silence from a running tool. */
+  readonly toolCallSpans: boolean
+}
 
 /** One bridge GET over the `node:http(s)` core client — the same transport every other bridge
  *  read uses, so a computed provider endpoint never reaches global `fetch`. Resolves the status
@@ -122,7 +129,8 @@ export async function bridgeModelRouteRefusal(
   signal?: AbortSignal,
 ): Promise<BridgeModelRouteRefusal | undefined> {
   const base = seam.bridgeUrl.replace(/\/$/, '')
-  if (routedModels.get(base)?.has(wireModel)) return undefined
+  const known = routedModels.get(base)?.get(wireModel)
+  if (known !== undefined) return silenceBoundRefusal(seam, base, wireModel, known)
   let answer: { status: number; body: string }
   try {
     answer = await bridgeGet(
@@ -139,13 +147,20 @@ export async function bridgeModelRouteRefusal(
     }
   }
   if (answer.status === 200) {
+    let toolCallSpans = false
+    try {
+      toolCallSpans = (JSON.parse(answer.body) as { toolCallSpans?: unknown }).toolCallSpans === true
+    } catch {
+      // A route answer that is not JSON still routes; it declares no tool-call spans.
+    }
     let routed = routedModels.get(base)
     if (routed === undefined) {
-      routed = new Set<string>()
+      routed = new Map()
       routedModels.set(base, routed)
     }
-    routed.add(wireModel)
-    return undefined
+    const route = { toolCallSpans }
+    routed.set(wireModel, route)
+    return silenceBoundRefusal(seam, base, wireModel, route)
   }
   if (answer.status === 404) {
     return {
@@ -158,6 +173,28 @@ export async function bridgeModelRouteRefusal(
     detail: `bridge ${base} answered ${answer.status} for model ${JSON.stringify(wireModel)}`,
     retryable: answer.status === 408 || answer.status === 429 || answer.status >= 500,
     status: answer.status,
+  }
+}
+
+/**
+ * `modelSilenceMs` reads a running tool as model silence on a backend whose stream does not report
+ * a tool call at its start and its end. cli-bridge's opencode backend reports a call only once it
+ * has finished: magnetar-rust-20261018b's 32-minute prove battery left no event for 32.4 minutes,
+ * which a 15-minute bound would have cut. So the bound runs only where the route declares
+ * `toolCallSpans: true`, and a bridge that declares nothing is refused.
+ */
+function silenceBoundRefusal(
+  seam: BridgeSeam,
+  base: string,
+  wireModel: string,
+  route: BridgeModelRoute,
+): BridgeModelRouteRefusal | undefined {
+  if (seam.modelSilenceMs === undefined || route.toolCallSpans) return undefined
+  return {
+    detail:
+      `bridge ${base} serves model ${JSON.stringify(wireModel)} on a backend that does not declare toolCallSpans, ` +
+      'so modelSilenceMs cannot tell a running tool from a silent model; remove modelSilenceMs for this backend',
+    retryable: false,
   }
 }
 

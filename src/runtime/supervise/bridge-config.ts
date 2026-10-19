@@ -87,9 +87,10 @@ export interface BridgeSeam {
    * Longest model silence a bridge turn may hold: no stream event while no tool call is open. A
    * turn that stays silent this long fails, its bridge run is cancelled, and the driver re-enters
    * the run. A tool call the bridge reported and has not answered holds the clock, so a long tool
-   * is never cut: magnetar-rust-20261018b ran one for 32 minutes. Off when absent. Use it only with
-   * a harness whose bridge stream reports tool calls as they start; on any other, a long tool reads
-   * as silence.
+   * is never cut: magnetar-rust-20261018b ran one for 32 minutes. Off when absent. The bridge must
+   * declare `toolCallSpans: true` on the model's route (`GET /v1/capabilities?model=`): its stream
+   * reports each tool call at start and end. Every turn on a route that does not is refused before
+   * dispatch, since a long tool would read as silence.
    */
   modelSilenceMs?: number
   /** Stable, caller-owned cli-bridge session id for harness-side resume. Defaults
