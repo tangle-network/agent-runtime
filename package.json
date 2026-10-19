@@ -157,7 +157,7 @@
     "@tangle-network/agent-provider-daytona": "0.6.0",
     "@tangle-network/agent-provider-e2b": "0.6.0",
     "@tangle-network/agent-provider-tangle": "4.2.2",
-    "@tangle-network/sandbox": "0.61.1",
+    "@tangle-network/sandbox": "0.62.2",
     "@types/node": "catalog:",
     "@types/tar-stream": "3.1.4",
     "miniflare": "4.20260722.0",
@@ -181,7 +181,7 @@
   "peerDependencies": {
     "@tangle-network/agent-eval": ">=0.215.0 <0.216.0",
     "@tangle-network/agent-interface": ">=5.7.0 <6.0.0",
-    "@tangle-network/sandbox": ">=0.61.1 <0.61.2"
+    "@tangle-network/sandbox": ">=0.61.1 <0.61.2 || >=0.62.2 <0.62.3"
   },
   "dependencies": {
     "@earendil-works/pi-codemode": "1.0.4",

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.7
+
+Use the Runtime cohort with Sandbox `>=0.61.1 <0.61.2 || >=0.62.2 <0.62.3`; 0.62.2 sends a trace id on `exec`.
+Benchmark execution and grading are unchanged.
+
 ## 0.14.6
 
 Use the Runtime cohort with Sandbox `>=0.61.1 <0.61.2`, the first Sandbox whose `onTiming` declaration type-checks under `exactOptionalPropertyTypes`.
