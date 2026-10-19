@@ -167,9 +167,9 @@ describe('supervise delivers parent questions, not just callback configuration',
       if (profile.name === 'root') {
         rootDrives += 1
         if (rootDrives === 1) {
-          expect(await tool('spawn_worker', { profile: child, task: 'specialist work' })).not.toHaveProperty(
-            'error',
-          )
+          expect(
+            await tool('spawn_worker', { profile: child, task: 'specialist work' }),
+          ).not.toHaveProperty('error')
           return
         }
         const { questions } = (await tool('list_questions', {})) as {
@@ -177,7 +177,9 @@ describe('supervise delivers parent questions, not just callback configuration',
         }
         const open = questions.find((q) => q.status === 'open')
         if (open !== undefined) {
-          answered.push(await tool('answer_question', { questionId: open.id, answer: 'Use source B.' }))
+          answered.push(
+            await tool('answer_question', { questionId: open.id, answer: 'Use source B.' }),
+          )
         }
         return
       }
