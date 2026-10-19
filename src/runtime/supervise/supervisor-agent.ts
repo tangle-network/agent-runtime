@@ -43,7 +43,7 @@ import { coordinationVerbNames } from '../../mcp/tools/coordination'
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import { agentHarness } from '../harness-role'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
-import { type RouterTransportConfig, routerBrain } from '../router-client'
+import { type RouterRouting, type RouterTransportConfig, routerBrain } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { linkAbort, runAbortable } from './abortable'
 import type { DeliverableSpec } from './completion-gate'
@@ -730,7 +730,7 @@ export interface SupervisorAgentDeps {
   readonly abortRun?: (reason: string, request?: import('./run-layout').RunCancelRequest) => void
 }
 
-const ROUTER_TRANSPORT_FIELDS = new Set(['routerBaseUrl', 'routerKey', 'complete'])
+const ROUTER_TRANSPORT_FIELDS = new Set(['routerBaseUrl', 'routerKey', 'complete', 'routing'])
 
 /** Capture the transport-only Router seam before any profile lowering. TypeScript excess-property
  * checks are not a runtime boundary: JavaScript and widened objects can otherwise smuggle private
@@ -762,6 +762,36 @@ function snapshotRouterTransportConfig(input: RouterTransportConfig): RouterTran
     routerBaseUrl: input.routerBaseUrl,
     routerKey: input.routerKey,
     ...(input.complete !== undefined ? { complete: input.complete } : {}),
+    ...(input.routing !== undefined ? { routing: snapshotRouterRouting(input.routing) } : {}),
+  })
+}
+
+/** Copy provider routing after checking its shape, so a malformed field fails before any turn. */
+function snapshotRouterRouting(input: RouterRouting): RouterRouting {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw new ValidationError('supervisorAgent: deps.router.routing must be an object')
+  }
+  const { only, allowFallbacks, requireModel } = input
+  if (
+    only !== undefined &&
+    (!Array.isArray(only) || only.some((name) => typeof name !== 'string' || name.length === 0))
+  ) {
+    throw new ValidationError(
+      'supervisorAgent: deps.router.routing.only must be an array of provider names',
+    )
+  }
+  for (const [name, value] of [
+    ['allowFallbacks', allowFallbacks],
+    ['requireModel', requireModel],
+  ] as const) {
+    if (value !== undefined && typeof value !== 'boolean') {
+      throw new ValidationError(`supervisorAgent: deps.router.routing.${name} must be a boolean`)
+    }
+  }
+  return Object.freeze({
+    ...(only !== undefined ? { only: Object.freeze([...only]) } : {}),
+    ...(allowFallbacks !== undefined ? { allowFallbacks } : {}),
+    ...(requireModel !== undefined ? { requireModel } : {}),
   })
 }
 
@@ -1784,6 +1814,7 @@ function routerBrainFromProfile(
       routerBaseUrl: router.routerBaseUrl,
       routerKey: router.routerKey,
       ...(router.complete !== undefined ? { complete: router.complete } : {}),
+      ...(router.routing !== undefined ? { routing: router.routing } : {}),
       model: modelId,
       ...(settings.retry !== undefined ? { retry: settings.retry } : {}),
       ...enforceTokenLimits(settings.tokenLimits, 'router', 'supervisorAgent').applied,

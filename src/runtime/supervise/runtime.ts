@@ -60,6 +60,7 @@ import {
   type RouterChatToolsResult,
   type RouterConfig,
   type RouterResponseReceipt,
+  type RouterRouting,
   routerChatWithTools,
   routerChatWithUsage,
   routerTransportAttemptsFromError,
@@ -158,6 +159,8 @@ const sandboxCaptureOutputSeamKey = 'runtime.sandboxCaptureOutput'
 export interface RouterSeam {
   routerBaseUrl: string
   routerKey: string
+  /** Provider routing lowered into every request, for example `{ only: ['zai'] }`. */
+  routing?: RouterRouting
   /** Injectable transport for offline/local execution; still passes through Runtime metering. */
   complete?: RouterConfig['complete']
   /** When present, return one turn's requested tool calls without executing them. */
@@ -477,6 +480,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
                   {
                     routerBaseUrl: seam.routerBaseUrl,
                     routerKey: seam.routerKey,
+                    ...(seam.routing ? { routing: seam.routing } : {}),
                     model,
                     ...(profileExecution.retry !== undefined
                       ? { retry: profileExecution.retry }
@@ -510,6 +514,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
                   {
                     routerBaseUrl: seam.routerBaseUrl,
                     routerKey: seam.routerKey,
+                    ...(seam.routing ? { routing: seam.routing } : {}),
                     model,
                     ...(profileExecution.retry !== undefined
                       ? { retry: profileExecution.retry }
@@ -687,6 +692,8 @@ function routerCodeModeSettings(
 export interface RouterToolsSeam {
   routerBaseUrl: string
   routerKey: string
+  /** Provider routing lowered into every request, for example `{ only: ['zai'] }`. */
+  routing?: RouterRouting
   complete?: RouterConfig['complete']
   tools: ReadonlyArray<ToolSpec>
   executeToolCall: (
@@ -773,6 +780,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
     {
       routerBaseUrl: seam.routerBaseUrl,
       routerKey: seam.routerKey,
+      ...(seam.routing ? { routing: seam.routing } : {}),
       ...(seam.complete ? { complete: seam.complete } : {}),
       tools: seam.tools,
     },
@@ -928,6 +936,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                 {
                   routerBaseUrl: seam.routerBaseUrl,
                   routerKey: seam.routerKey,
+                  ...(seam.routing ? { routing: seam.routing } : {}),
                   model,
                   ...(profileExecution.retry !== undefined
                     ? { retry: profileExecution.retry }
