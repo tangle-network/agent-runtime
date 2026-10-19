@@ -30,6 +30,7 @@ import type {
   ContinuityMode,
   CoordinationEvent,
   CoordinationTools,
+  ChildQuestionInbox,
   EscalateQuestion,
   GraphSubtasks,
   MakeWorkerAgent,
@@ -629,6 +630,8 @@ export interface SupervisorAgentDeps {
   /** Where an `ask_parent` question goes when it leaves this manager. Omit and `ask_parent` reports
    *  `no-parent` — there is no runtime path that routes a question to a parent by itself. */
   readonly escalateQuestion?: EscalateQuestion
+  /** Receives this manager's intake for questions its child managers raise. */
+  readonly onChildQuestionInbox?: (inbox: ChildQuestionInbox) => void
   /** Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
    *  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
@@ -955,6 +958,7 @@ function buildSupervisorAgent(
         ...(deps.sourceEvidenceRefs ? { sourceEvidenceRefs: deps.sourceEvidenceRefs } : {}),
         ...(deps.peerAudit ? { peerAudit: deps.peerAudit } : {}),
         ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
+        ...(deps.onChildQuestionInbox ? { onChildQuestionInbox: deps.onChildQuestionInbox } : {}),
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
         ...(deps.wake !== undefined ? { wake: deps.wake } : {}),
@@ -1148,6 +1152,7 @@ function buildSupervisorAgent(
           ...(deps.sourceEvidenceRefs ? { sourceEvidenceRefs: deps.sourceEvidenceRefs } : {}),
           ...(deps.peerAudit ? { peerAudit: deps.peerAudit } : {}),
           ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
+          ...(deps.onChildQuestionInbox ? { onChildQuestionInbox: deps.onChildQuestionInbox } : {}),
           ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
           ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
           ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),

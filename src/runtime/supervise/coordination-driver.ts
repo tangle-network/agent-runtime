@@ -41,6 +41,7 @@ import {
   coordinationVerbNames,
   createCoordinationTools,
   type DownMessageEvent,
+  type ChildQuestionInbox,
   type EscalateQuestion,
   type GraphSubtasks,
   type MakeWorkerAgent,
@@ -148,6 +149,8 @@ export interface DriverAgentOptions {
   readonly analysts?: AnalystRegistry
   /** Where an `ask_parent` question goes when it leaves this manager. Omit = `no-parent`. */
   readonly escalateQuestion?: EscalateQuestion
+  /** Receives this manager's intake for questions its child managers raise. */
+  readonly onChildQuestionInbox?: (inbox: ChildQuestionInbox) => void
   /** Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result re-enters as a
    *  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
    *  loop. Omit/empty = no auto-analysis (status quo). Requires `analysts`. */
@@ -1040,6 +1043,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
         ...(ownerReader ? { spawnResourceReader: ownerReader } : {}),
         ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),
+        ...(opts.onChildQuestionInbox ? { onChildQuestionInbox: opts.onChildQuestionInbox } : {}),
         ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
         ...(opts.replaySettlements ? { replaySettlements: true } : {}),
         ...(opts.priorCoordination?.questions.length

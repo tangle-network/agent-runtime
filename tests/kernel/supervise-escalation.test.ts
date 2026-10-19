@@ -145,4 +145,74 @@ describe('supervise delivers parent questions, not just callback configuration',
       ])
     },
   )
+
+  it("routes a nested manager's question to the manager that spawned it and returns the answer", async () => {
+    // magnetar-rust-20261017c dropped 8 such escalations: 'this manager has no parent inbox'.
+    const child = testAgentProfile('specialist', {
+      tools: runtimeToolDeclarations('ask_parent', 'submit_result'),
+    })
+    const asked: Array<Record<string, unknown>> = []
+    const answered: Array<Record<string, unknown>> = []
+    const childTasks: string[] = []
+    let rootDrives = 0
+    let childDrives = 0
+    const driveHarness: DriveHarness = async ({
+      profile,
+      task,
+      coordinationMcpUrl,
+      coordinationMcpHeaders,
+    }) => {
+      const tool = (name: string, args: Record<string, unknown>) =>
+        call(coordinationMcpUrl, coordinationMcpHeaders, name, args)
+      if (profile.name === 'root') {
+        rootDrives += 1
+        if (rootDrives === 1) {
+          expect(await tool('spawn_worker', { profile: child, task: 'specialist work' })).not.toHaveProperty(
+            'error',
+          )
+          return
+        }
+        const { questions } = (await tool('list_questions', {})) as {
+          questions: Array<{ id: string; status: string; question: string }>
+        }
+        const open = questions.find((q) => q.status === 'open')
+        if (open !== undefined) {
+          answered.push(await tool('answer_question', { questionId: open.id, answer: 'Use source B.' }))
+        }
+        return
+      }
+      childDrives += 1
+      childTasks.push(typeof task === 'string' ? task : JSON.stringify(task))
+      if (childDrives === 1) {
+        asked.push(await tool('ask_parent', { ...question('specialist'), urgency: 'blocks-step' }))
+        return
+      }
+      await tool('submit_result', { result: { answer: 'checked with source B' } })
+    }
+    await supervise(
+      testAgentProfile('root', {
+        tools: runtimeToolDeclarations('spawn_worker', 'list_questions', 'answer_question'),
+      }),
+      'research',
+      {
+        budget,
+        perWorker: { maxTokens: 1000, maxIterations: 4 },
+        makeLeafAgent: () => ({ name: 'unused', act: async () => undefined }),
+        driveHarness,
+        coordination: { authentication: true },
+        driverRetry: { enabled: false },
+        wake: { debounceMs: 0 },
+        journal: new InMemorySpawnJournal(),
+        runId: 'question-to-parent-manager',
+        deliverable: { check: () => true },
+        continuation: testContinuation({ deadline: 1 }),
+      },
+    )
+    expect(asked).toEqual([
+      expect.objectContaining({ escalated: true, outcome: 'queued-for-parent' }),
+    ])
+    expect(answered).toEqual([expect.objectContaining({ delivered: true })])
+    // The specialist's next drive carries the root's answer.
+    expect(childTasks.slice(1).join('\n')).toContain('Use source B.')
+  })
 })

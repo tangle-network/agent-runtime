@@ -51,6 +51,7 @@ import {
   type AnalyzeOnSettleRoute,
   type AuthorizeDownMessage,
   type AuthorizedDownMessage,
+  type ChildQuestionInbox,
   type ContinuityMode,
   type CoordinationEvent,
   coordinationVerbNames,
@@ -59,6 +60,8 @@ import {
   type GraphSubtasks,
   type MakeWorkerAgent,
   type PeerAuditAccess,
+  type QuestionEscalationOutcome,
+  type QuestionRecord,
   type SpawnPreflight,
   type SuperviseProfileEntry,
   type WorkerSpawnContext,
@@ -3896,6 +3899,18 @@ function superviseInternal(
   const runNamespace = ctx.namespace ?? supervisionRunNamespace(options.runDir, runId)
   const log = ctx.coordinationLog
   const rootOwnerId = rootCoordinationOwner(rootExecution.identity)
+  // Each manager's intake for questions its child managers raise, by coordination owner id.
+  const childQuestionInboxes = new Map<string, ChildQuestionInbox>()
+  const askParentManager = (
+    parentOwnerId: string,
+    assignmentId: string,
+    question: QuestionRecord,
+  ): Promise<QuestionEscalationOutcome> | QuestionEscalationOutcome => {
+    const inbox = childQuestionInboxes.get(parentOwnerId)
+    return inbox === undefined
+      ? { delivered: false, reason: 'the parent manager has no question intake in this process' }
+      : inbox(assignmentId, question)
+  }
   const rootProviderModels: Array<string | undefined> = []
   // The root's own provider stream is retained only where a run directory can hold it. Nested
   // managers share this harness and are left unretained here; a per-owner file is a later step.
@@ -4489,7 +4504,15 @@ function superviseInternal(
             ? { observeNodeEvent: nestedObserveNodeEvent, replaySettlements: true }
             : {}),
           ...(analysts ? { analysts } : {}),
-          ...(options.escalateQuestion ? { escalateQuestion: options.escalateQuestion } : {}),
+          // A nested manager's question goes to the manager that spawned it, unless the product
+          // installed its own parent channel.
+          escalateQuestion:
+            options.escalateQuestion ??
+            ((question: QuestionRecord) =>
+              askParentManager(parentOwnerId, spawnContext.assignmentId, question)),
+          onChildQuestionInbox: (inbox: ChildQuestionInbox) => {
+            childQuestionInboxes.set(ownerId, inbox)
+          },
           ...(!analystLineage &&
           spawnContext.analyst === undefined &&
           !spawnContext.assignmentId.startsWith('analyst:') &&
@@ -4746,6 +4769,9 @@ function superviseInternal(
       ...(options.executeExtraTool ? { executeExtraTool: options.executeExtraTool } : {}),
       ...(analysts ? { analysts } : {}),
       ...(options.escalateQuestion ? { escalateQuestion: options.escalateQuestion } : {}),
+      onChildQuestionInbox: (inbox: ChildQuestionInbox) => {
+        childQuestionInboxes.set(rootOwnerId, inbox)
+      },
       ...(options.analyzeOnSettle ? { analyzeOnSettle: options.analyzeOnSettle } : {}),
       ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
       ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
