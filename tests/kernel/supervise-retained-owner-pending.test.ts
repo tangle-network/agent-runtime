@@ -562,17 +562,21 @@ describe('supervised root with a pending retained turn', () => {
     async (staleAcknowledgement) => {
       // queens21-h22-tree4-20261018a (2026-10-18): a cancel queued on a dead run made its resume
       // throw on the aborted recovery, and the next resume re-ran its work to budget exhaustion.
-      await expect(
-        superviseRoot({ captureFailure: 'partial', submitOn: 2 }),
-      ).rejects.toMatchObject({
-        name: 'RetainedWorkspaceCapturePendingError',
-      })
+      await expect(superviseRoot({ captureFailure: 'partial', submitOn: 2 })).rejects.toMatchObject(
+        {
+          name: 'RetainedWorkspaceCapturePendingError',
+        },
+      )
       const directory = directories.at(-1)!
       const runDir = join(directory, 'run')
       cancelRun(runDir, 'dead-cancel', { reason: 'operator', source: 'test' })
       // The process that acknowledged the request died before the run settled.
       if (staleAcknowledgement) {
-        applyRunCancellation(runDir, () => {}, () => new Date().toISOString())
+        applyRunCancellation(
+          runDir,
+          () => {},
+          () => new Date().toISOString(),
+        )
       }
       const run = await superviseRoot({ captureFailure: 'partial', submitOn: 2, directory })
       expect(run.result).toMatchObject({
