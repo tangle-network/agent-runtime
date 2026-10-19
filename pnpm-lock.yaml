@@ -25,7 +25,7 @@ catalogs:
       specifier: ^2.1.0
       version: 2.1.0
     '@tangle-network/sandbox':
-      specifier: '>=0.61.1 <0.61.2'
+      specifier: '>=0.61.1 <0.61.2 || >=0.62.2 <0.62.3'
       version: 0.61.1
     '@types/node':
       specifier: 26.4.0
@@ -98,10 +98,10 @@ importers:
         version: 0.6.0
       '@tangle-network/agent-provider-tangle':
         specifier: 4.2.2
-        version: 4.2.2(@tangle-network/sandbox@0.61.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))
+        version: 4.2.2(@tangle-network/sandbox@0.62.2(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))
       '@tangle-network/sandbox':
-        specifier: 0.61.1
-        version: 0.61.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
+        specifier: 0.62.2
+        version: 0.62.2(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
       '@types/node':
         specifier: 'catalog:'
         version: 26.4.0
@@ -1383,6 +1383,26 @@ packages:
 
   '@tangle-network/sandbox@0.61.1':
     resolution: {integrity: sha512-Yo90yx/yxc+CQqw6EXRUeq4r+hLMl1jQBH0EgbKMmycmS8S3oSruBndz6684heH+FBVqe+yTe89GtlJERNkCyw==}
+    peerDependencies:
+      '@mastra/core': ^1.36.0
+      '@modelcontextprotocol/sdk': ^1.30.0
+      ai: ^6.0.175 || ^7.0.107
+      openai: ^6.36.0
+      viem: ^2.0.0
+    peerDependenciesMeta:
+      '@mastra/core':
+        optional: true
+      '@modelcontextprotocol/sdk':
+        optional: true
+      ai:
+        optional: true
+      openai:
+        optional: true
+      viem:
+        optional: true
+
+  '@tangle-network/sandbox@0.62.2':
+    resolution: {integrity: sha512-seuetxce+68TmYgE8J+teKz1+Pkl0neprkBTIWhCKf27jEHJwU1QlTWW8NEP2GDHIiiIcKuZ8DXNVDOWYksSNA==}
     peerDependencies:
       '@mastra/core': ^1.36.0
       '@modelcontextprotocol/sdk': ^1.30.0
@@ -3718,10 +3738,10 @@ snapshots:
     dependencies:
       '@tangle-network/agent-interface': 5.7.0
 
-  '@tangle-network/agent-provider-tangle@4.2.2(@tangle-network/sandbox@0.61.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))':
+  '@tangle-network/agent-provider-tangle@4.2.2(@tangle-network/sandbox@0.62.2(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))':
     dependencies:
       '@tangle-network/agent-interface': 5.7.0
-      '@tangle-network/sandbox': 0.61.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
+      '@tangle-network/sandbox': 0.62.2(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
 
   '@tangle-network/agent-trace-contract@2.1.0': {}
 
@@ -3730,6 +3750,20 @@ snapshots:
       '@tangle-network/agent-trace-contract': 2.1.0
 
   '@tangle-network/sandbox@0.61.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))':
+    dependencies:
+      '@tangle-network/agent-core': 0.11.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
+      '@tangle-network/agent-interface': 4.0.0
+      tar-stream: 3.2.1
+      zod: 4.6.5
+    optionalDependencies:
+      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.6.5)
+      viem: 2.56.9(typescript@6.0.3)(zod@4.6.5)
+    transitivePeerDependencies:
+      - bare-abort-controller
+      - bare-buffer
+      - react-native-b4a
+
+  '@tangle-network/sandbox@0.62.2(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))':
     dependencies:
       '@tangle-network/agent-core': 0.11.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
       '@tangle-network/agent-interface': 4.0.0
