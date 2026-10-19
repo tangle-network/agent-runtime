@@ -511,7 +511,7 @@ describe('checkpoint capture before cleanup', () => {
         kind: 'workspace-checkpoint-cleanup',
         checkpointId: 'checkpoint-1',
         confirmed: false,
-        refused: expect.stringContaining("the turn's workspace capture started first"),
+        refused: expect.stringContaining("the turn's end-of-turn capture goes first"),
       }),
     )
     expect(model.snapshots.has('checkpoint-1')).toBe(true)
@@ -529,6 +529,49 @@ describe('checkpoint capture before cleanup', () => {
       'workspace-checkpoint-fork-teardown',
       'workspace-checkpoint-cleanup',
     ])
+    await assertNothingLost(model)
+  })
+
+  it("cuts a rotation's capture short when the turn hands over its end-of-turn work", async () => {
+    // test-acceptance-canary-20261019m: the final session copy that precedes the workspace capture
+    // ran beside the rotation until its 120 s bound, so the capture started 77.8 s late.
+    let forkStuck = false
+    const model = ownerModel({
+      forkWait: () => (forkStuck ? new Promise<void>(() => {}) : Promise.resolve()),
+    })
+    await model.start()
+    await model.coordinate()
+    await model.coordinate()
+    forkStuck = true
+    const rotation = model.coordinateInBackground()
+    await vi.waitFor(() =>
+      expect(model.events.map((event) => event.kind)).toContain(
+        'workspace-checkpoint-fork-requested',
+      ),
+    )
+    let finishCopy!: () => void
+    const handedOver = new Promise<void>((resolve) => {
+      finishCopy = resolve
+    })
+    const startedAt = Date.now()
+    scopeRetainedOwnerContext(model.scope())!.onEndOfTurnWork!(handedOver)
+    await rotation
+    expect(Date.now() - startedAt).toBeLessThan(1_000)
+    expect(model.events).toContainEqual(
+      expect.objectContaining({
+        kind: 'workspace-checkpoint-cleanup',
+        checkpointId: 'checkpoint-1',
+        confirmed: false,
+        refused: expect.stringContaining("the turn's end-of-turn capture goes first"),
+      }),
+    )
+    // No rotation starts while the handed-over work runs.
+    const forks = model.capture.forks.size
+    await model.coordinateInBackground()
+    expect(model.capture.forks.size).toBe(forks)
+    finishCopy()
+    forkStuck = false
+    expect(await model.release()).toEqual([])
     await assertNothingLost(model)
   })
 
