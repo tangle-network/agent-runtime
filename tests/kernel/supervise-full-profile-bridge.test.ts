@@ -3031,7 +3031,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     })
   })
 
-  it("keeps a worker's turn that ran past its token budget, settles it down, and names the overspend", async () => {
+  it("keeps a worker's turn that ran past its token budget, and names the overspend to its manager", async () => {
     // queens21-h22-capture-root-2-20261019c: workers capped at 42,000 tokens metered 7.3M-13.2M in
     // one turn, then 'supervisor budget exhausted' discarded the turn's result.
     const requests: BridgeRequest[] = []
@@ -3073,11 +3073,8 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       (event): event is Extract<SpawnEvent, { kind: 'settled' }> =>
         event.kind === 'settled' && event.id.endsWith(':s0'),
     )
-    // Budget-stopped work is not finished work: it settles down, keeping the committed result.
-    expect(settled).toMatchObject({
-      status: 'down',
-      reason: expect.stringContaining('budget stop: tokens: 193857 over the cap'),
-    })
+    // The committed result is kept; budgetViolation marks it as budget-stopped work for readers.
+    expect(settled).toMatchObject({ status: 'done' })
     expect(settled?.outRef).toBeDefined()
     expect(settled?.budgetViolation?.overspent).toContainEqual(
       expect.objectContaining({ channel: 'tokens', reserved: 42_000, spent: 235_857 }),
