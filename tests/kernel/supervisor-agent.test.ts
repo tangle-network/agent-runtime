@@ -1789,7 +1789,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     expect(reentry).toContain('an object whose answer is 42')
     expect(reentry).toMatch(/Workers settled: sup:s0 \(done/u)
     expect(reentry).toMatch(
-      /Events delivered to a turn that has not finished.*#\d+ settled from sup:s0/u,
+      /Events delivered to a turn that has not finished, so treat them as unread \(1\):\n- \{"type":"settled".*"sup:s0"/u,
     )
     expect(reentry).toMatch(/Journal: \d+ rows/u)
     expect(loops).toEqual([
@@ -1803,6 +1803,59 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
         continuations: [],
       }),
     ])
+  })
+
+  it('EXTERNAL arm: a steer delivered to a turn that died reaches the re-entry in full', async () => {
+    // magnetar-rust-20261017c: two operator steers arrived during usage-limit storms. Each was
+    // delivered to a turn that the limit ended, the re-entry named it only as '#N lead-message',
+    // and neither steer ever reached a prompt.
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const tasks: string[] = []
+    const steer = 'Operator: cap the run at 8 sessions and finish the open crates first.'
+    let root!: ReturnType<typeof supervisorAgent>
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task }) => {
+      tasks.push(String(task))
+      if (tasks.length === 1) {
+        await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'spawn_worker',
+          arguments: { profile: testAgentProfile('holder'), task: 'return the token' },
+        })
+        expect(root.deliver?.({ steer })).toBe(true)
+        return
+      }
+      // The woken turn carries the steer and dies before the model reads it.
+      if (tasks.length === 2) throw new Error('Sandbox not found')
+      await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'submit_result',
+        arguments: { result: { answer: 42 } },
+      })
+    }
+    root = supervisorAgent(
+      testAgentProfile('sup', {
+        harness: 'pi',
+        tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('holder', { token: 't-1' }),
+        perWorker,
+        driveHarness,
+        driverRetry: { initialBackoffMs: 0 },
+        deliverable: {
+          describe: 'an object whose answer is 42',
+          check: (result) => (result as { answer?: unknown }).answer === 42,
+        },
+        continuation: testContinuation(),
+      },
+    )
+
+    const result = await runSupervisor(root, blobs, journal)
+    expect(result.kind).toBe('winner')
+    expect(tasks).toHaveLength(3)
+    expect(tasks[1]).toContain(steer)
+    expect(tasks[2]).toContain('Events delivered to a turn that has not finished')
+    expect(tasks[2]).toContain(steer)
   })
 
   it('refuses an external manager with a check and no continuation, before any compute', () => {

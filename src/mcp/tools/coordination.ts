@@ -847,6 +847,9 @@ export interface ManagerReentryState {
     readonly type: string
     readonly worker?: string
     readonly attempt?: number
+    /** The event as its wake showed it. A turn that failed may never have read it: a steer named
+     *  only by its sequence number reaches no prompt. */
+    readonly event: Record<string, unknown>
   }>
   /** The last refused `submit_result`, with the refusal the manager was given. */
   readonly lastRejection?: { readonly at: number; readonly reason: string }
@@ -5395,8 +5398,10 @@ export function createCoordinationToolsForManager(
           })),
           ...unqueued.map((node) => ({ type: 'settled', worker: node.id })),
         ],
+        // The current attempt's own deliveries are its wake's events, which its input already
+        // shows; only an earlier attempt's unacknowledged deliveries are unread.
         unacknowledged: deliveries
-          .filter((delivery) => !delivery.acknowledged)
+          .filter((delivery) => !delivery.acknowledged && delivery.attempt !== driverAttempt)
           .map((delivery) => ({
             seq: delivery.record.seq,
             type: delivery.record.event.type,
@@ -5404,6 +5409,7 @@ export function createCoordinationToolsForManager(
               ? {}
               : { worker: eventWorker(delivery.record.event) }),
             ...(delivery.attempt === undefined ? {} : { attempt: delivery.attempt }),
+            event: { ...projectEvent(delivery.record.event), eventSeq: delivery.record.seq },
           })),
         ...(lastRejection === undefined ? {} : { lastRejection }),
       })
