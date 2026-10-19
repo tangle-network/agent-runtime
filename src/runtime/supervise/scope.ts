@@ -157,6 +157,7 @@ import type {
   ExecutorResult,
   Handle,
   HeldEnvironment,
+  MaterializedExecutionIdentity,
   NodeExecutionIdentity,
   NodeId,
   NodeSnapshot,
@@ -2748,8 +2749,29 @@ interface OwnerMaterializationState {
   receipt?: ProfileMaterializationReceipt
   bindingPublished: boolean
   publishedThisProcess: boolean
+  /** The execution the latest attempt started under a pending executor plan, before any
+   *  acknowledgement. Finalization names it when no receipt ever arrived. */
+  plannedExecution?: { readonly attemptId: string; readonly execution: MaterializedExecutionIdentity }
   /** The latest owner materialization write; the next one starts after it settles. */
   writes?: Promise<unknown>
+}
+
+/**
+ * @internal Record the execution a pending executor started for the current attempt. A bridge
+ * manager whose turn ends before the bridge acknowledges it then still names its session:
+ * magnetar-rust-20261018b:s2 ran 177 model calls in supervised-manager-46c412bb9975, and its
+ * receipts read `root-agent-did-not-report` with no session at all.
+ */
+export function noteScopeOwnerPlannedExecution(
+  scope: Scope<unknown>,
+  execution: MaterializedExecutionIdentity,
+): void {
+  const state = ownerMaterializationStates.get(scope)
+  if (state === undefined) return
+  state.plannedExecution = Object.freeze({
+    attemptId: state.attemptId,
+    execution: Object.freeze({ ...execution }),
+  })
 }
 
 const ownerMaterializationStates = new WeakMap<Scope<unknown>, OwnerMaterializationState>()
@@ -3071,17 +3093,23 @@ async function finalizeOwnerMaterialization(state: OwnerMaterializationState): P
     )
   }
   if (state.receipt !== undefined) return
+  // An attempt that started a planned execution and ended before its acknowledgement failed
+  // before its receipt; only an owner that never started one did not report.
+  const planned =
+    state.plannedExecution?.attemptId === state.attemptId ? state.plannedExecution : undefined
+  const reason = planned ? 'executor-failed-before-receipt' : 'root-agent-did-not-report'
   const receipt = unknownMaterializationReceipt({
     ...(state.authoredProfileDigest === undefined
       ? {}
       : { authoredProfileDigest: state.authoredProfileDigest }),
     runtime: state.runtime,
-    reason: 'root-agent-did-not-report',
+    reason,
   })
   const binding = unknownExecutionBindingReceipt(
     receipt,
     state.attemptId,
-    'root-agent-did-not-report',
+    reason,
+    planned?.execution,
   )
   await appendOwnerMaterialization(state, receipt, binding)
   state.onReceipt?.(receipt, binding)

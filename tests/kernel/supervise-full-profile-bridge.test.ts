@@ -2235,6 +2235,67 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     })
   })
 
+  it('names the bridge session of a manager whose turn ended before the bridge acknowledged it', async () => {
+    // magnetar-rust-20261018b:s2 ran 177 model calls in its bridge session, then its turn was
+    // aborted; its receipts read 'root-agent-did-not-report' and named no session at all.
+    const sessions: string[] = []
+    server = createBridgeServer(async (req, res) => {
+      const body = await readJson(req)
+      sessions.push(body.session_id)
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'working' } }] })}\n\n`)
+      setTimeout(() => res.destroy(), 20)
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const events: SpawnEvent[] = []
+    const journal = recordingJournal(events)
+    await supervise(
+      {
+        name: 'memory-lead',
+        harness: 'codex',
+        prompt: { systemPrompt: 'Lead the memory stage.' },
+        model: { provider: 'openai', default: 'gpt-5.6' },
+      },
+      'Wire the memory stages.',
+      {
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+        },
+        budget: { maxIterations: 4, maxTokens: 10_000 },
+        driverRetry: { enabled: false },
+        journal,
+        runId: 'aborted-manager-session',
+      },
+    ).catch(() => undefined)
+
+    expect(sessions).toHaveLength(1)
+    const own = events.filter(
+      (event) =>
+        (event.kind === 'materialized' || event.kind === 'execution-bound') &&
+        event.id === 'aborted-manager-session',
+    )
+    expect(own).toEqual([
+      expect.objectContaining({
+        kind: 'materialized',
+        receipt: expect.objectContaining({
+          status: 'unknown',
+          reason: 'executor-failed-before-receipt',
+        }),
+      }),
+      expect.objectContaining({
+        kind: 'execution-bound',
+        binding: expect.objectContaining({
+          status: 'unknown',
+          reason: 'executor-failed-before-receipt',
+          execution: { kind: 'session', id: sessions[0] },
+        }),
+      }),
+    ])
+  })
+
   it('isolates identical concurrent managers but reuses one durable manager session on restart', async () => {
     const sessions: string[] = []
     const coordinationUrls: string[] = []
