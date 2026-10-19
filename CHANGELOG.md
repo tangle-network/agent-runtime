@@ -1,3 +1,7 @@
+## 0.325.17
+
+A driver refusal that names its quota reset (the Z.ai Coding Plan's opencode `Usage limit reached for 5 hour. Your limit will reset at …`, read as +08:00) holds the node until that reset, never past the run's deadline, instead of probing every 15 s to 300 s, and records `resumeAt` on the paused attempt. magnetar-rust-20261018b spent 219 of 324 driver attempts probing that window (#1849).
+
 ## 0.325.16
 
 A run cancelled before it is re-entered settles `no-winner` / `cancelled` from its journal, with no executor recovery, turn or environment, and its cancellation reads `cancelled`. A resumed run whose request was acknowledged only as `cancel_requested` by a process that died is aborted again. Before, such a resume threw on the aborted recovery, and the next one re-ran its work to budget exhaustion (queens21-h22-tree4-20261018a). Settling such a run releases no environment it left open; the consumer's retire path releases them.

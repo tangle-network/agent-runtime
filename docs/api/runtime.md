@@ -17770,6 +17770,12 @@ How this attempt was entered. Absent on the first attempt.
 For an `unavailable` attempt: the code or HTTP status that classified it, such as
  `provider_quota_exhausted` or `http-429`.
 
+##### resumeAt?
+
+> `readonly` `optional` **resumeAt?**: `string`
+
+For an `unavailable` attempt whose refusal named its reset time: the pause holds until then.
+
 ##### contract?
 
 > `readonly` `optional` **contract?**: [`DriverContractState`](#drivercontractstate)
