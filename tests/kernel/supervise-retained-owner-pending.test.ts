@@ -81,6 +81,10 @@ interface Fixture {
   readonly queuedWakesOnFirstResult?: boolean
   /** The successful dispatch on which the director submits. */
   readonly submitOn: number
+  /** Delay each source lookup between the first failed capture and its recovery. */
+  readonly slowSourceLookupMs?: number
+  /** The retention port's bound; 5 s unless a slow lookup needs more. */
+  readonly retentionTimeoutMs?: number
 }
 
 async function superviseRoot(fixture: Fixture) {
@@ -255,6 +259,9 @@ async function superviseRoot(fixture: Fixture) {
       return wrap(environment)
     },
     get: async (id) => {
+      if (fixture.slowSourceLookupMs !== undefined && captureCalls === 1) {
+        await new Promise((resolve) => setTimeout(resolve, fixture.slowSourceLookupMs))
+      }
       const environment = await base.get!(id)
       return environment ? wrap(environment) : null
     },
@@ -263,7 +270,7 @@ async function superviseRoot(fixture: Fixture) {
   let firstCaptureExecution: string | undefined
   let captureCalls = 0
   const retention: ProviderWorkspaceRetentionPort = {
-    timeoutMs: 5_000,
+    timeoutMs: fixture.retentionTimeoutMs ?? 5_000,
     requireCompleteProvenance: true,
     artifacts,
     async capture(captureContext) {
@@ -378,7 +385,11 @@ async function superviseRoot(fixture: Fixture) {
                   },
           }
         : {}),
-      budget: { maxIterations: 100, maxTokens: 1000, deadlineMs: 60_000 },
+      budget: {
+        maxIterations: 100,
+        maxTokens: 1000,
+        deadlineMs: fixture.slowSourceLookupMs === undefined ? 60_000 : 180_000,
+      },
       // Strict: three barren failures end the run, with no outage window to shelter them.
       driverRetry: {
         transientOutageMs: 0,
@@ -514,6 +525,32 @@ describe('supervised root with a pending retained turn', () => {
       }
     },
   )
+
+  it('recovers an accepted workspace whose source lookup takes longer than 30 s but within the retention bound', async () => {
+    // test-acceptance-canary-20261018h (2026-10-18): a box idle about 21 minutes took over 30 s to
+    // answer the recovery lookup, the fixed 30 s cap aborted it, and the resumed supervisor exited
+    // with its accepted workspace pending.
+    const run = await superviseRoot({
+      firstTurnFailure: { error: 'HTTP 429 rate_limit_error' },
+      captureFailure: 'recover',
+      submitOn: 2,
+      slowSourceLookupMs: 31_000,
+      retentionTimeoutMs: 60_000,
+    })
+    expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
+    // The accepted workspace was recaptured in place: no replacement environment, and its receipt.
+    expect(run.environments).toHaveLength(1)
+    expect(run.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workspaceCapture: expect.objectContaining({
+            executionId: run.firstCaptureExecution,
+            coverageComplete: true,
+          }),
+        }),
+      ]),
+    )
+  }, 150_000)
 
   it('keeps an accepted turn with incomplete capture open without sealing a winner', async () => {
     await expect(superviseRoot({ captureFailure: 'partial', submitOn: 2 })).rejects.toMatchObject({

@@ -1934,11 +1934,21 @@ async function reconcileOwnerWorkspaceBeforeReuse(
             'accepted workspace recovery does not match its original profile or admission',
           )
         }
+        // The lookup shares the retention port's bound. A box idle 21 minutes took over 30 s to
+        // answer in test-acceptance-canary-20261018h, and a fixed 30 s cap left its accepted
+        // workspace pending and the resumed supervisor exited. A timeout says what timed out.
+        const lookupMs = capture.port.timeoutMs
+        const lookupBound = AbortSignal.timeout(lookupMs)
         const environment = await runAbortable(
           () => provider.get!(environmentId),
-          AbortSignal.any([signal, AbortSignal.timeout(Math.min(30_000, capture.port.timeoutMs))]),
-          'accepted workspace source lookup timed out',
-        )
+          AbortSignal.any([signal, lookupBound]),
+          'accepted workspace source lookup aborted',
+        ).catch((error: unknown) => {
+          if (lookupBound.aborted && !signal.aborted) {
+            throw new Error(`accepted workspace source lookup timed out after ${lookupMs} ms`)
+          }
+          throw error
+        })
         if (
           environment === null ||
           environment.id !== environmentId ||
