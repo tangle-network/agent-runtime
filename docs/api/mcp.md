@@ -3825,6 +3825,14 @@ Why a `down` worker failed, as values: branch on `code` and `owner`, never on `r
 Present when the worker's measured spend exceeded its reservation. The pool already charged
  the true spend; a `done` worker's output is still its result.
 
+##### budgetStop?
+
+> `readonly` `optional` **budgetStop?**: `string`
+
+The same overspend for a reader: `tokens 235,857 of 42,000; deadline 3,857 s of 2,400 s`. A
+ `done` worker with it was stopped by its budget at a turn boundary, not finished with its
+ task.
+
 ##### trace
 
 > `readonly` **trace**: [`WorkerTraceEvidence`](runtime.md#workertraceevidence)
