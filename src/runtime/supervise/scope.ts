@@ -2751,7 +2751,10 @@ interface OwnerMaterializationState {
   publishedThisProcess: boolean
   /** The execution the latest attempt started under a pending executor plan, before any
    *  acknowledgement. Finalization names it when no receipt ever arrived. */
-  plannedExecution?: { readonly attemptId: string; readonly execution: MaterializedExecutionIdentity }
+  plannedExecution?: {
+    readonly attemptId: string
+    readonly execution: MaterializedExecutionIdentity
+  }
   /** The latest owner materialization write; the next one starts after it settles. */
   writes?: Promise<unknown>
 }
