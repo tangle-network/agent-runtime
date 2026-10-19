@@ -1070,6 +1070,11 @@ function driveHarnessFromBackend(
     }
   }
   let managerArtifact: ExecutorResult<unknown> | undefined
+  // Why the drive ended at a turn boundary past its budget, if it did. The committed result is
+  // reported as a failed outcome naming it, so the node settles `down` WITH that result: a reader
+  // that splits on `done` must not count budget-stopped work as finished (discovery-lab's readers
+  // all do). The drive itself completes normally, so its own retry loop never re-runs it.
+  let budgetStopped: string | undefined
   const committedTranscriptDigest = (artifact: ExecutorResult<unknown> | undefined): string => {
     if (artifact === undefined)
       return 'Prior committed transcript: no bounded turn content was captured.'
@@ -1610,6 +1615,7 @@ function driveHarnessFromBackend(
       if (effectiveStopSignal?.aborted === true) return
       const spent = exhaustedBudgetChannels(scope.budget, now())
       if (spent === undefined) return
+      budgetStopped = spent
       budgetStop.abort(`supervise: budget exhausted (${spent})`)
     }
 
@@ -1958,7 +1964,17 @@ function driveHarnessFromBackend(
     }
     managerArtifact = terminalArtifact
   }
-  drive.resultArtifact = () => managerArtifact
+  drive.resultArtifact = () =>
+    managerArtifact === undefined || budgetStopped === undefined
+      ? managerArtifact
+      : {
+          ...managerArtifact,
+          outcome: {
+            success: false,
+            error: `budget stop: ${budgetStopped}; the turn's committed result is kept`,
+            errorCode: 'budget_stop',
+          },
+        }
   drive.deliver = (message): boolean => {
     const deliver = activeExecutor?.deliver
     if (!deliver) return false
