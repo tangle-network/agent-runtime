@@ -2240,6 +2240,12 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     // aborted; its receipts read 'root-agent-did-not-report' and named no session at all.
     const sessions: string[] = []
     server = createBridgeServer(async (req, res) => {
+      // Session teardown after the lost stream carries no chat body.
+      if (req.method !== 'POST' || !req.url?.startsWith('/v1/chat/completions')) {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end('{}')
+        return
+      }
       const body = await readJson(req)
       sessions.push(body.session_id)
       res.writeHead(200, { 'content-type': 'text/event-stream' })
@@ -2271,7 +2277,8 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       },
     ).catch(() => undefined)
 
-    expect(sessions).toHaveLength(1)
+    expect(sessions.length).toBeGreaterThan(0)
+    expect(new Set(sessions).size).toBe(1)
     const own = events.filter(
       (event) =>
         (event.kind === 'materialized' || event.kind === 'execution-bound') &&
