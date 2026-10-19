@@ -203,7 +203,7 @@ import {
   type DriveHarness,
   type DriveHarnessOwnerContext,
   declaredRuntimeToolNames,
-  graphNodeDeliverable,
+  ownSubmissionDeliverable,
   providerVisibleProfile,
   type ResolveDriveHarness,
   type ResolveSupervisorTools,
@@ -4350,12 +4350,14 @@ function superviseInternal(
         }
         const ownGraph = subtask === undefined ? undefined : graphOverlayFor(subtask)
         const subtreeGraph = ownGraph ?? graph
-        // A graph node, the graph's root included, settles on its own submission. The graph hands
-        // its result to the manager that called run_graph, and the run's check judges the run's
-        // result, never a node's narrower assignment. A deliverable `resolveDeliverable` chose for
-        // this spawn still applies.
-        const graphNode = subtreeGraph !== undefined && selectedDeliverable === undefined
-        const managerDeliverable = graphNode ? graphNodeDeliverable : childDeliverable
+        // A managed child, a graph node included, settles on its own accepted submission. Its result
+        // goes to the manager that assigned it, and the run's check judges the run's result, never
+        // a child's narrower assignment. A deliverable `resolveDeliverable` chose for this spawn
+        // still applies; a run with no check gives its non-graph children none.
+        const ownSubmission =
+          selectedDeliverable === undefined &&
+          (subtreeGraph !== undefined || deliverable !== undefined)
+        const managerDeliverable = ownSubmission ? ownSubmissionDeliverable : childDeliverable
         const nestedDriveHarness = isExternalSupervisor(authorized)
           ? driveHarnessForOwner(
               freezeDetached({
@@ -4520,10 +4522,11 @@ function superviseInternal(
               }
             : {}),
           // Every external manager with a check in the tree is sent back under the run's one
-          // continuation policy. Its files sit beside the root's, under its own owner id. A graph
-          // node has no part in that policy: it states what the run still owes.
+          // continuation policy. Its files sit beside the root's, under its own owner id. A child
+          // that settles on its own submission has no part in that policy: it states what the run
+          // still owes.
           ...(managerDeliverable &&
-          !graphNode &&
+          !ownSubmission &&
           !seatManagedLeaf &&
           options.continuation &&
           isExternalSupervisor(authorized)
