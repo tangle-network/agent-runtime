@@ -1,3 +1,7 @@
+## 0.331.2
+
+The sandbox peer admits `@tangle-network/sandbox` 0.62.2 (`>=0.62.2 <0.62.3`) beside 0.61.1, qualified against agent-interface 5.7.0. 0.62.2 sends a trace id on `exec` and runs `exec` directly from a Worker; its dependencies and peers match 0.61.1.
+
 ## 0.331.1
 
 A bridge turn that runs out its own `timeoutMs` deadline is a failed turn, and the driver re-enters the run, counted and bounded like any other failure. Before, it surfaced as an `AbortError`, which classified terminal and settled the run.
