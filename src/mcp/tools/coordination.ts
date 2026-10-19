@@ -4293,6 +4293,7 @@ export function createCoordinationToolsForManager(
           input.quietWhileProgressing === true &&
           input.heartbeatMs > 0 &&
           bus.pending(wakeEventKinds) === 0 &&
+          !workerQuestionPending() &&
           !outsideWake &&
           !input.signal.aborted &&
           Date.now() >= heartbeatAt &&
