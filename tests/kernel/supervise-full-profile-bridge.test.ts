@@ -1212,9 +1212,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       driverRetry: { initialBackoffMs: 1 },
       onDriverAttempt: (attempt) => void attempts.push(attempt),
     })
-    expect(attempts.map((attempt) => attempt.stop ?? attempt.classification)).toEqual([
-      'completed',
-    ])
+    expect(attempts.map((attempt) => attempt.stop ?? attempt.classification)).toEqual(['completed'])
     expect(chats).toHaveLength(1)
     expect(cancels).toEqual([])
   })
