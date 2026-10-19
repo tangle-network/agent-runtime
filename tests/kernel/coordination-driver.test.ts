@@ -638,9 +638,10 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
       ),
     )
     expect(heartbeatTurns).toHaveLength(0)
-    // The spawn turn, then the one wake that delivered the settlement.
-    expect(seen).toHaveLength(2)
-    expect(wakeEvents(seen[1]!)).toEqual([
+    // The spawn call, its tool-result call that ends the turn, then the one wake that delivered
+    // the settlement.
+    expect(seen).toHaveLength(3)
+    expect(wakeEvents(seen[2]!)).toEqual([
       expect.objectContaining({ type: 'settled', status: 'done' }),
     ])
   })
