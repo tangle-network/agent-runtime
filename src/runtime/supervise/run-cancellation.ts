@@ -54,9 +54,17 @@ export function watchRunCancellation(
   mkdirSync(workerCancellationsDir(dir), { recursive: true })
   let active = true
   let failure: unknown
+  // One observer aborts its run once: a request this process already applied, or one a dead
+  // process acknowledged, is not re-issued on every poll.
+  let aborted = false
+  const abortOnce = (reason: string, request?: RunCancelRequest): void => {
+    if (aborted) return
+    aborted = true
+    abortRun(reason, request)
+  }
   const check = (path: 'observer' | 'fallback' = 'observer'): void => {
     if (failure !== undefined) throw failure
-    if (active) applyRunCancellation(dir, abortRun, () => new Date().toISOString(), path)
+    if (active) applyRunCancellation(dir, abortOnce, () => new Date().toISOString(), path)
   }
   const fail = (error: unknown): void => {
     if (!active) return
