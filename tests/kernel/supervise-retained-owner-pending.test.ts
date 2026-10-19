@@ -21,8 +21,8 @@ import type {
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
-import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { applyRunCancellation } from '../../src/runtime/supervise/run-cancellation'
+import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import {
   cancelRun,
   readRunCancellation,
@@ -562,7 +562,9 @@ describe('supervised root with a pending retained turn', () => {
     async (staleAcknowledgement) => {
       // queens21-h22-tree4-20261018a (2026-10-18): a cancel queued on a dead run made its resume
       // throw on the aborted recovery, and the next resume re-ran its work to budget exhaustion.
-      await expect(superviseRoot({ captureFailure: 'partial', submitOn: 2 })).rejects.toMatchObject({
+      await expect(
+        superviseRoot({ captureFailure: 'partial', submitOn: 2 }),
+      ).rejects.toMatchObject({
         name: 'RetainedWorkspaceCapturePendingError',
       })
       const directory = directories.at(-1)!

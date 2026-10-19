@@ -675,11 +675,7 @@ export async function prepareScopeResume(
   // manager node, does not walk again. A healed node is then terminal to everything below:
   // never interrupted, never a recovery, charged its floor as `settled.spent` instead of the
   // reconciled floor (the same object), and replayed at the driver's own seq.
-  if (
-    !settleOnly &&
-    parentId === opts.runId &&
-    (await healReleasedSlots(opts, signal, now)) > 0
-  ) {
+  if (!settleOnly && parentId === opts.runId && (await healReleasedSlots(opts, signal, now)) > 0) {
     events = (await opts.journal.loadTree(opts.runId)) ?? events
   }
   const prepared = settleOnly
