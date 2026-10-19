@@ -180,6 +180,65 @@ it('offload calls made while a pass waits to start share one pass', async () => 
   for (const ref of await Promise.all(later)) expect(objects.has(ref.sha256)).toBe(true)
 })
 
+// test-acceptance-canary-20261019q: every offload listed every object of the store and read its
+// receipt, twice per capture, 60.1-63.2 s on each native copy. After a process's first full pass a
+// pass reads only the objects that process wrote without a receipt, so a restart is what finds an
+// earlier process's leftovers, never an in-memory set alone.
+function mapDurable() {
+  const objects = new Map<string, Uint8Array>()
+  const store: PrivateCasDurableStore = {
+    location: 'fixture:map',
+    async put({ digest, bytes }) {
+      objects.set(digest, Uint8Array.from(bytes))
+    },
+    get: async ({ digest }) => objects.get(digest),
+  }
+  return { store, objects }
+}
+
+it('a restarted process uploads the objects an earlier process left on disk without a receipt', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cas-restart-offload-'))
+  roots.push(root)
+  const local = join(root, 'local')
+  // What a process that stopped before its uploads leaves: objects, and no receipts.
+  const digests: string[] = []
+  for (const text of ['first', 'second', 'third']) {
+    const bytes = Buffer.from(text)
+    const hex = createHash('sha256').update(bytes).digest('hex')
+    await mkdir(join(local, 'sha256', hex.slice(0, 2)), { recursive: true, mode: 0o700 })
+    await writeFile(join(local, 'sha256', hex.slice(0, 2), hex), bytes, { mode: 0o600 })
+    digests.push(`sha256:${hex}`)
+  }
+  const durable = mapDurable()
+  const restarted = createPrivateCasArtifactPort(local, 'test', { durable: durable.store })
+  const report = await restarted.offload()
+  expect(report.pending).toEqual([])
+  expect(report.durable).toBe(3)
+  for (const digest of digests) expect(durable.objects.has(digest)).toBe(true)
+})
+
+it('a pass after the first reads only what this process wrote, and a restart finds the rest', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cas-incremental-offload-'))
+  roots.push(root)
+  const local = join(root, 'local')
+  const durable = mapDurable()
+  const cas = createPrivateCasArtifactPort(local, 'test', { durable: durable.store })
+  await cas.put({ executionId: 'a', purpose: 'trace', bytes: Buffer.from('written by a put') })
+  expect((await cas.offload()).pending).toEqual([])
+  // An object placed straight into the store, as an earlier process would have left it.
+  const bytes = Buffer.from('left by an earlier process')
+  const hex = createHash('sha256').update(bytes).digest('hex')
+  await mkdir(join(local, 'sha256', hex.slice(0, 2)), { recursive: true, mode: 0o700 })
+  await writeFile(join(local, 'sha256', hex.slice(0, 2), hex), bytes, { mode: 0o600 })
+  // This process's next pass does not walk the store, so it does not see the object.
+  await cas.offload()
+  expect(durable.objects.has(`sha256:${hex}`)).toBe(false)
+  // A new process's first pass is full, and uploads it.
+  const restarted = createPrivateCasArtifactPort(local, 'test', { durable: durable.store })
+  expect((await restarted.offload()).pending).toEqual([])
+  expect(durable.objects.has(`sha256:${hex}`)).toBe(true)
+})
+
 // A store that hangs without failing, and ignores its signal, held every put and pass sharing the
 // digest, and a caller with no signal of its own could never leave. The stall ends the hung copy;
 // the next try lands and both puts return.
@@ -408,7 +467,8 @@ it('uploads a streamed put by itself after a clean pass, leaving other objects t
   // The pair's pass left nothing pending, so this put copies only its own object.
   await put('first object')
   expect(durable.counts().uploads).toBe(2)
-  // An object another writer left host-only: a full pass would upload it.
+  // An object another writer left host-only. This process's passes read only what it wrote; the
+  // next process's first pass, as at the run's settle-time offload, is full and uploads it.
   const foreign = createHash('sha256').update('left by another writer').digest('hex')
   await mkdir(join(root, 'local', 'sha256', foreign.slice(0, 2)), { recursive: true })
   await writeFile(
@@ -417,7 +477,13 @@ it('uploads a streamed put by itself after a clean pass, leaving other objects t
   )
   await put('second object')
   expect(durable.counts().uploads).toBe(3)
-  expect(await artifacts.offload()).toMatchObject({ durable: 4, localObjects: 4, pending: [] })
+  expect(await artifacts.offload()).toMatchObject({ durable: 3, pending: [] })
+  expect(durable.counts().uploads).toBe(3)
+  const settling = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
+    durable: durable.store,
+    localBudgetBytes: 1024 * 1024,
+  })
+  expect(await settling.offload()).toMatchObject({ durable: 4, localObjects: 4, pending: [] })
   expect(durable.counts().uploads).toBe(4)
 })
 
