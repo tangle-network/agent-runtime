@@ -97,6 +97,19 @@ function modelSubstitutionReport(substitution: SpawnModelSubstitution): {
   }
 }
 
+/** Each channel spent beyond its budget, as spent of budget: `tokens 235,857 of 42,000` or
+ *  `deadline 3,857 s of 2,400 s`. */
+export function budgetOverspendText(violation: BudgetViolation): string {
+  const count = (value: number) => value.toLocaleString('en-US')
+  return violation.overspent
+    .map((entry) =>
+      entry.channel === 'deadline'
+        ? `deadline ${count(Math.round(entry.spent / 1000))} s of ${count(Math.round(entry.reserved / 1000))} s`
+        : `${entry.channel} ${count(entry.spent)} of ${count(entry.reserved)}`,
+    )
+    .join('; ')
+}
+
 /** A worker whose settlement reached the manager's inbox. */
 export interface SettledWorker {
   readonly id: string
@@ -123,6 +136,10 @@ export interface SettledWorker {
   /** Present when the worker's measured spend exceeded its reservation. The pool already charged
    *  the true spend; a `done` worker's output is still its result. */
   readonly budgetViolation?: BudgetViolation
+  /** The same overspend for a reader: `tokens 235,857 of 42,000; deadline 3,857 s of 2,400 s`. A
+   *  `done` worker with it was stopped by its budget at a turn boundary, not finished with its
+   *  task. */
+  readonly budgetStop?: string
   /** Structured tool-call evidence, never the worker's final prose. */
   readonly trace: WorkerTraceEvidence
   /** True when projected from a prior process of the same durable run. */
@@ -2172,7 +2189,10 @@ export function createCoordinationToolsForManager(
       ...(settledAt === undefined ? {} : { settledAt }),
       ...(settled.budgetViolation === undefined
         ? {}
-        : { budgetViolation: settled.budgetViolation }),
+        : {
+            budgetViolation: settled.budgetViolation,
+            budgetStop: budgetOverspendText(settled.budgetViolation),
+          }),
       trace,
       ...(settled.subtree === undefined ? {} : { subtree: settled.subtree }),
       ...(resumed ? { resumed: true as const } : {}),

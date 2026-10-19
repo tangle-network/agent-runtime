@@ -3084,7 +3084,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       .slice(1)
       .flatMap((request) => request.messages.map((message) => message.content))
     expect(wakes.join('\n')).toContain(
-      '"budgetViolation":{"overspent":[{"channel":"tokens","reserved":42000,"spent":235857}]}',
+      '"budgetViolation":{"overspent":[{"channel":"tokens","reserved":42000,"spent":235857}]},"budgetStop":"tokens 235,857 of 42,000"',
     )
   })
 

@@ -296,7 +296,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     const brief = resumedSeen[0]
       ?.map((message) => String(message.content))
       .find((content) => content.startsWith('RESUME:'))
-    expect(brief).toContain('overspent=tokens 1500 > reserved 1000')
+    expect(brief).toContain('done (budget stop: tokens 1,500 of 1,000)')
   })
 
   it('a delivered child the brain never awaited still wins (post-loop drain feeds finalize)', async () => {
