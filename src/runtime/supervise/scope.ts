@@ -3732,7 +3732,11 @@ async function runChild<C>(
         live.budgetViolation = {
           overspent: [
             ...(live.budgetViolation?.overspent ?? []),
-            { channel: 'deadline', reserved: deadlineAtMs - startedAt, spent: settledAt - startedAt },
+            {
+              channel: 'deadline',
+              reserved: deadlineAtMs - startedAt,
+              spent: settledAt - startedAt,
+            },
           ],
         }
       }

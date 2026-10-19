@@ -32,10 +32,10 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { RuntimeRunStateError, ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import {
-  budgetOverspendText,
   type AnalystRegistry,
   type AnalyzeOnSettleRoute,
   type AuthorizeDownMessage,
+  budgetOverspendText,
   type ChildQuestionInbox,
   type ContinuityMode,
   type CoordinationEvent,
