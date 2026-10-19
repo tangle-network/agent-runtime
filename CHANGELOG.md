@@ -1,3 +1,7 @@
+## 0.326.1
+
+Running native-session copies are paced to the retention port's capture slots: each mirror waits at least its last copy's duration times the port's running mirrors divided by `maxConcurrentCaptures`, and a session that received no provider event since its stored copy is not copied again. queens21-h22-swarm16-20261018b copied 9 sessions every 2 minutes through 4 slots at a median 134 s, which kept every slot busy and dropped copies past the 30-minute bound.
+
 ## 0.326.0
 
 The sandbox peer moves to `@tangle-network/sandbox` 0.60.92 (`>=0.60.92 <0.60.93`), with its owned-file fingerprint qualified against agent-interface 5.7.0. `@tangle-network/agent-provider-tangle` 4.4.1, which cuts a native capture from 1.50 GB to 39 MB, requires sandbox 0.60.88 or newer; 0.60.86 could not install beside it.
