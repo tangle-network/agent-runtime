@@ -1,3 +1,7 @@
+## 0.331.1
+
+A bridge turn that runs out its own `timeoutMs` deadline is a failed turn, and the driver re-enters the run, counted and bounded like any other failure. Before, it surfaced as an `AbortError`, which classified terminal and settled the run.
+
 ## 0.331.0
 
 A turn's final workspace capture no longer waits behind checkpoint captures on the same evidence store. Private CAS `offload()` callers that arrive while a pass waits to start share that pass, and each stops waiting at its own signal; before, every put could queue a full pass of its own (Discovery canary test-acceptance-canary-20261019j spent 26.6 minutes storing one 31.7 MB archive). A turn's workspace capture starting cuts short the captures of a checkpoint rotation, which also have their own 2-minute bound (`WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS`); a checkpoint cut short is kept and captured at release. The journal gains `workspace-checkpoint-fork-ready` and `workspace-capture-started`.
