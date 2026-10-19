@@ -76,7 +76,10 @@
  * is being burned. Within that window it consumes neither `maxAttempts` nor the barren streak,
  * exactly like a pause, and only the deadline, the budget, and cancellation bound it. After the
  * window the failure bounds apply again, so a dead-on-arrival driver still stops, in minutes
- * rather than hours. A failure that spent tokens without delivering keeps the bounds above,
+ * rather than hours. The exception is a box that was created and then failed its setup (Sandbox's
+ * `PartialFailureError`): it meets the same failure on every re-entry, so a second identical
+ * attempt with no progress stops with `repeated-failure` (`SAME_PARTIAL_FAILURE_LIMIT`). A failure
+ * that spent tokens without delivering keeps the bounds above,
  * because that is the burn the progress rule exists to stop. Measured 2026-10-04 on Discovery run research-nqs-20261003system2: a Platform
  * restart answered `HTTP 502 ... Platform key verification unavailable` from 03:04:34 to 03:09:41Z,
  * and the coordinator's twelve attempts ran out at 03:07:12Z with no token spent, while a sibling
@@ -104,6 +107,7 @@ import { isCredentialRefusal } from './credential-refusal'
 import { errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
 import {
   DISPATCH_NOT_ADMITTED_CODE,
+  isProvisioningRefusal,
   RetainedExecutionPendingError,
   type RetainedPendingCause,
   RetainedWorkspaceCapturePendingError,
@@ -375,6 +379,43 @@ const REPEATED_FAILURE_WINDOW_MS = 5 * 60_000
 const SAME_PENDING_LIMIT = 2
 
 /**
+ * Consecutive attempts that end in the same Sandbox `PartialFailureError`, with nothing gained
+ * between them, that stop the loop. That error is a box that was created and then failed its
+ * setup (its profile files would not materialize, it did not become ready). The retained
+ * execution is bound durably to the node, so each re-entry meets the same box and the same
+ * failure. Discovery run queens21-h22-capture-root-1-20261019c re-entered four such boxes 154
+ * times in 37 minutes on `mkdir: cannot create directory '/work': Read-only file system`, one
+ * box per root, each inside the transient-outage window that retries a failure which spent
+ * nothing. A second identical attempt proves what a third would repeat; a different failure, or
+ * any progress, starts the count over.
+ */
+const SAME_PARTIAL_FAILURE_LIMIT = 2
+
+/** Longest cause chain read for a `PartialFailureError`; the failing box's error sits one or two wrappers down. */
+const PARTIAL_FAILURE_CAUSE_DEPTH = 6
+
+/**
+ * True when `error` or one of its causes is Sandbox's `PartialFailureError`. Read by name: the
+ * class lives in `@tangle-network/sandbox`, which Runtime does not import, and a failure crosses
+ * packages that may each hold their own copy of it, so `instanceof` would miss it.
+ */
+function causedByPartialFailure(error: unknown): boolean {
+  const seen = new Set<unknown>()
+  let current: unknown = error
+  for (let depth = 0; depth <= PARTIAL_FAILURE_CAUSE_DEPTH; depth += 1) {
+    if (!(current instanceof Error) || seen.has(current)) return false
+    seen.add(current)
+    try {
+      if (errorProperty(current, 'name') === 'PartialFailureError') return true
+      current = current.cause
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
+/**
  * The pending invocation a failure left, when abandoning it is the resolution: the provider
  * answered and could not resolve the execution (`unobservable`), or a nested manager's recovery
  * could not be rebuilt (`nested-recovery`). A lost transport waits for the provider instead, in
@@ -544,6 +585,25 @@ function isUpstreamUnavailable(error: unknown): boolean {
   return upstreamUnavailableSignal(error) !== undefined
 }
 
+/** The error and its causes (`cause`, and `errors` members), bounded and cycle-safe. */
+function causeChain(error: unknown): object[] {
+  const chain: object[] = []
+  const queue: unknown[] = [error]
+  while (queue.length > 0 && chain.length < 12) {
+    const value = queue.shift()
+    if (typeof value !== 'object' || value === null || chain.includes(value)) continue
+    chain.push(value)
+    try {
+      const errors: unknown = Reflect.get(value, 'errors')
+      if (Array.isArray(errors)) queue.push(...errors)
+      queue.push(Reflect.get(value, 'cause'))
+    } catch {
+      // A cause that cannot be read ends this branch of the walk.
+    }
+  }
+  return chain
+}
+
 /**
  * Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal; an
  * upstream capacity refusal is `unavailable`; anything else foreign is an accident and is
@@ -570,6 +630,8 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') return 'terminal'
   if (error instanceof Error && isProviderSchemaRejection(error)) return 'terminal'
   if (isCredentialRefusal(error)) return 'terminal'
+  // A profile the box cannot be provisioned for fails the same way on every attempt and every box.
+  if (causeChain(error).some(isProvisioningRefusal)) return 'terminal'
   if (error instanceof HarnessTurnFailedError) {
     // The same never-retry classes a bridge refusal carries, now arriving as a turn's outcome.
     // Without a code the failure is foreign: an upstream timeout, a cut stream, an expired key.
@@ -923,6 +985,8 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   let sameFailure:
     | { readonly error: string; readonly count: number; readonly since: number }
     | undefined
+  // The current streak of identical `PartialFailureError` attempts that gained nothing.
+  let samePartial: { readonly error: string; readonly count: number } | undefined
   let abandonments = 0
   // Every pause this loop took, for the re-entry it names.
   let pauses = 0
@@ -1101,12 +1165,27 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
         sameFailure !== undefined &&
         sameFailure.count >= REPEATED_FAILURE_LIMIT &&
         failedAt - sameFailure.since >= REPEATED_FAILURE_WINDOW_MS
+      samePartial =
+        classification === 'transient' &&
+        !progressed &&
+        pending === undefined &&
+        causedByPartialFailure(error)
+          ? {
+              error: failure,
+              count: samePartial?.error === failure ? samePartial.count + 1 : 1,
+            }
+          : undefined
       const stop = ((): DriverAttemptStop | undefined => {
         if (classification === 'terminal') return 'terminal-error'
         if (!retryEnabled) return 'retry-disabled'
         if (run.signal.aborted) return 'aborted'
         const byBudget = budgetStop(run.budget(), failedAt)
         if (byBudget) return byBudget
+        // The same failed box twice with nothing gained: the outage window below would retry it
+        // for fifteen minutes, because the attempt spent nothing.
+        if (samePartial !== undefined && samePartial.count >= SAME_PARTIAL_FAILURE_LIMIT) {
+          return 'repeated-failure'
+        }
         if (inOutage) return undefined
         if (chargedFailures >= maxAttempts) return 'max-attempts'
         // Progress resets the barren counter: a driver that is doing real work between crashes
@@ -1207,6 +1286,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     outageSince = undefined
     samePending = undefined
     sameFailure = undefined
+    samePartial = undefined
     abandonments = 0
     const durationMs = now() - startedAt
     const after = run.progress()

@@ -1287,7 +1287,11 @@ export interface CoordinationToolsOptions {
 }
 
 /** Why a pre-flight refused a spawn. Each cause is a distinct, separately countable decision. */
-export type SpawnRefusalCause = 'model-route' | 'bridge-full' | 'unmountable-tool'
+export type SpawnRefusalCause =
+  | 'model-route'
+  | 'bridge-full'
+  | 'unmountable-tool'
+  | 'unprovisionable-profile'
 
 /** A pre-flight's refusal: the cause it decided on, and the operator-facing evidence for it. */
 export interface SpawnRefusal {
@@ -1317,7 +1321,7 @@ export interface CoordinationStats extends BusStats {
 
 /** Every cause at zero — a pre-flight publishes its whole ledger from the first read. */
 function emptyPreflightCounts(): Record<SpawnRefusalCause, number> {
-  return { 'model-route': 0, 'bridge-full': 0, 'unmountable-tool': 0 }
+  return { 'model-route': 0, 'bridge-full': 0, 'unmountable-tool': 0, 'unprovisionable-profile': 0 }
 }
 
 /** Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`). */

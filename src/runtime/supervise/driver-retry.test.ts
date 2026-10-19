@@ -1,4 +1,5 @@
 import { AgentTurnInputSchema } from '@tangle-network/agent-interface'
+import { PartialFailureError } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { BackendTransportError, ConfigError, ValidationError } from '../../errors'
 import { RetainedRunProviderContractError } from '../retained-run-binding'
@@ -243,6 +244,33 @@ describe('classifyDriverFailure', () => {
         new BackendTransportError('bridge', 'pi exit unknown', { upstreamCode: 'upstream' }),
       ),
     ).toBe('transient')
+  })
+
+  it('settles a profile the box cannot be provisioned for, at either phase, but not a 5xx with the same code', () => {
+    // queens21-h22-capture-root-1-20261019c: 154 attempts mounting /work/queens21_count.c on a
+    // read-only root filesystem were retried as a lost transport.
+    const refusal = (status: number, code: string) =>
+      Object.assign(new Error('Sandbox refused the profile file mount /work/queens21_count.c'), {
+        name: 'PartialFailureError',
+        code,
+        status,
+        path: '/work/queens21_count.c',
+      })
+    for (const code of ['PROFILE_FILE_MOUNT_OUTSIDE_ROOTS', 'PROFILE_FILES_MATERIALIZE_FAILED']) {
+      for (const phase of ['admission', 'execution'] as const) {
+        const pending = new RetainedExecutionPendingError(refusal(422, code), phase)
+        expect(pending.pendingCause).toBe('request-rejected')
+        expect(classifyDriverFailure(pending)).toBe('terminal')
+      }
+      expect(classifyDriverFailure(refusal(422, code))).toBe('terminal')
+    }
+    // The client-built 502 the SDK sent before its fix may be transient, and stays retryable.
+    const legacy = new RetainedExecutionPendingError(
+      refusal(502, 'PROFILE_FILES_MATERIALIZE_FAILED'),
+      'execution',
+    )
+    expect(legacy.pendingCause).toBe('transport')
+    expect(classifyDriverFailure(legacy)).not.toBe('terminal')
   })
 
   it('never retries an abort, whichever way it presents', () => {
@@ -571,6 +599,60 @@ describe('runDriverWithRetry', () => {
     // Ten in a row over five minutes: the eleventh attempt, at 300 s, ends it.
     expect(script.attempts).toHaveLength(11)
     expect(records.at(-1)?.error).toContain('ECONNREFUSED 127.0.0.1:32897')
+  })
+
+  it('stops at the second identical PartialFailureError on one box with nothing gained, and starts over on a different one', async () => {
+    // queens21-h22-capture-root-1-20261019c: four roots each re-entered one box whose /work was
+    // read-only, 154 times in 37 minutes. Every attempt read as a transient failure that spent
+    // nothing, so the fifteen-minute outage window kept retrying it.
+    const failed = (box: string) =>
+      new RetainedExecutionPendingError(
+        new PartialFailureError(
+          `Sandbox ${box} is RUNNING but INCOMPLETELY PROVISIONED: materialization of its 8 deferred inline profile file mount(s) failed partway. Cause: mkdir: cannot create directory '/work': Read-only file system`,
+          'PROFILE_FILES_MATERIALIZE_FAILED',
+          502,
+        ),
+        'transport',
+      )
+    const run = async (outcomes: ReadonlyArray<Error | null>) => {
+      const script = scriptedDrive(outcomes)
+      let clock = 0
+      const error = await runDriverWithRetry({
+        drive: script.drive,
+        progress: () => noProgress,
+        budget: () => budget(),
+        signal: new AbortController().signal,
+        now: () => clock,
+        sleep: async (ms) => {
+          clock += ms
+        },
+        random: () => 0,
+      }).catch((caught: unknown) => caught)
+      return { script, error }
+    }
+
+    const same = await run(Array.from({ length: 40 }, () => failed('sandbox-b36061be48e6')))
+    expect(same.error).toBeInstanceOf(DriverAttemptsExhaustedError)
+    if (!(same.error instanceof DriverAttemptsExhaustedError)) return
+    expect(same.error.stop).toBe('repeated-failure')
+    expect(same.script.attempts).toHaveLength(2)
+    expect(same.error.attempts.map((record) => record.classification)).toEqual([
+      'transient',
+      'transient',
+    ])
+    // The typed error survives as the cause the caller reads.
+    expect(same.error.cause).toBeInstanceOf(RetainedExecutionPendingError)
+    expect((same.error.cause as Error).cause).toBeInstanceOf(PartialFailureError)
+
+    // A different box is a different failure: the count starts over at one.
+    const other = await run([
+      failed('sandbox-a'),
+      failed('sandbox-b'),
+      failed('sandbox-b'),
+      failed('sandbox-b'),
+    ])
+    expect(other.error).toBeInstanceOf(DriverAttemptsExhaustedError)
+    expect(other.script.attempts).toHaveLength(3)
   })
 
   it('keeps retrying an instant failure that clears inside the repeated-failure window', async () => {
