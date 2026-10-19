@@ -125,6 +125,7 @@ import {
   assertModelAllowed,
   assertProfileModelsAllowed,
   profileBridgeWireModel,
+  profileProviderModel,
 } from './model-policy'
 import {
   createSupervisorSpanRecorder,
@@ -218,6 +219,7 @@ import type {
   Agent,
   AgentExecutionRef,
   AgentSpec,
+  SpawnModelSubstitution,
   Budget,
   Executor,
   ExecutorContext,
@@ -4260,6 +4262,7 @@ function superviseInternal(
           throw new ValidationError('supervise: authorizeSpawn must return an AuthorizedSpawn')
         }
         const authorized = freezeDetachedProfile(applyTraceTools(decision.profile))
+        const modelSubstitution = spawnModelSubstitution(input, authorized)
         const childExecution = canonicalExecution(
           authorized,
           spawnContext.task,
@@ -4321,7 +4324,8 @@ function superviseInternal(
             childDeliverable === deliverable
               ? makeLeaf
               : withRetry(workerFromBackend(options.backend as ExecutorConfig, childDeliverable))
-          return makeSelectedLeaf(
+          return withModelSubstitution(
+            makeSelectedLeaf(
             authorized,
             Object.freeze({
               ...authorizedContext,
@@ -4331,6 +4335,8 @@ function superviseInternal(
                 spawnContext.assignmentId,
               ),
             }),
+            ),
+            modelSubstitution,
           )
         }
         const ownerId = childCoordinationOwner(
@@ -4564,16 +4570,19 @@ function superviseInternal(
             ? {}
             : { controlScope: 'subtree' as const }),
         })
-        return driverChild(
-          authorized,
-          nested,
-          journal,
-          childExecution.ref,
-          () => acceptedSubmission,
-          recoveryFactories.get(childFactory),
-          () => unassessedOutput,
-          seatManagedLeaf ? managerDeliverable : undefined,
-          ownGraph ? (out) => graphSubtaskOutput(ownGraph, out) : undefined,
+        return withModelSubstitution(
+          driverChild(
+            authorized,
+            nested,
+            journal,
+            childExecution.ref,
+            () => acceptedSubmission,
+            recoveryFactories.get(childFactory),
+            () => unassessedOutput,
+            seatManagedLeaf ? managerDeliverable : undefined,
+            ownGraph ? (out) => graphSubtaskOutput(ownGraph, out) : undefined,
+          ),
+          modelSubstitution,
         )
       }
       if (
@@ -5026,4 +5035,35 @@ function rootProviderModelEvidenceFromExecution(
   evidence: RootProviderModelEvidence | undefined,
 ): RootProviderModelEvidence {
   return evidence ?? rootProviderModelEvidence([])
+}
+
+/**
+ * The route a spawn authorization replaced, when the parent authored part of it. Only a part the
+ * parent named counts: authorization filling an omitted harness or provider is not a substitution.
+ */
+function spawnModelSubstitution(
+  authored: AgentProfile,
+  authorized: AgentProfile,
+): SpawnModelSubstitution | undefined {
+  const harness = agentHarness(authored.harness)
+  const provider = authored.model?.provider?.trim() || undefined
+  const model = profileProviderModel(authored)
+  if (model === undefined) return undefined
+  const changed =
+    (harness !== undefined && harness !== agentHarness(authorized.harness)) ||
+    (provider !== undefined && provider !== authorized.model?.provider?.trim()) ||
+    model !== profileProviderModel(authorized)
+  if (!changed) return undefined
+  return Object.freeze({
+    requested: profileBridgeWireModel(authored) ?? model,
+    ran: profileBridgeWireModel(authorized) ?? 'unspecified',
+  })
+}
+
+/** The worker agent with the substitution on its spec, which Scope journals on `spawned`. */
+function withModelSubstitution<A>(agent: A, substitution: SpawnModelSubstitution | undefined): A {
+  if (substitution === undefined) return agent
+  const spec = (agent as { executorSpec?: AgentSpec }).executorSpec
+  if (spec === undefined) return agent
+  return { ...agent, executorSpec: { ...spec, modelSubstitution: substitution } }
 }

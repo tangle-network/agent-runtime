@@ -171,6 +171,7 @@ import type {
   Scope,
   Settled,
   SpawnEvent,
+  SpawnModelSubstitution,
   SpawnJournal,
   SpawnOpts,
   SpawnPrior,
@@ -605,6 +606,7 @@ interface LiveChild {
   readonly label: string
   readonly assignmentId?: string
   readonly identity?: NodeExecutionIdentity
+  readonly modelSubstitution?: SpawnModelSubstitution
   /** The semantic spawn key, when this child was spawned with one — the settle path folds the
    *  terminal state back into the scope's key registry under it. */
   readonly key?: string
@@ -1433,11 +1435,16 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         )
       }
 
+      // A recovered node keeps the substitution its spawn record journaled.
+      const modelSubstitution = recovery
+        ? recovery.spawned.modelSubstitution
+        : spec.modelSubstitution
       const handle: Handle<C> = {
         id,
         label: opts.label,
         ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
         ...(identity ? { identity } : {}),
+        ...(modelSubstitution === undefined ? {} : { modelSubstitution }),
         get status(): NodeStatus {
           return children.get(id)?.status ?? 'cancelled'
         },
@@ -1463,6 +1470,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         runtime: executor.runtime,
         ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
         ...(identity ? { identity } : {}),
+        ...(modelSubstitution === undefined ? {} : { modelSubstitution }),
         budget: opts.budget,
         label: opts.label,
         ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
@@ -1570,6 +1578,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
                   ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
                   ...(identity ? { identity } : {}),
                   profileRef,
+                  ...(modelSubstitution === undefined ? {} : { modelSubstitution }),
                   seq: ordinal,
                   at: new Date(now()).toISOString(),
                 },
@@ -4181,6 +4190,7 @@ function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView 
     ...(c.ownedTreeRoot === undefined ? {} : { ownedTreeRoot: c.ownedTreeRoot }),
     ...(c.assignmentId === undefined ? {} : { assignmentId: c.assignmentId }),
     ...(c.identity ? { identity: c.identity } : {}),
+    ...(c.modelSubstitution ? { modelSubstitution: c.modelSubstitution } : {}),
     ...(c.materialization ? { materialization: c.materialization } : {}),
     ...(c.executionBindings.length > 0
       ? { executionBindings: Object.freeze([...c.executionBindings]) }
@@ -4215,6 +4225,7 @@ function frozenHandle<C>(child: LiveChild): Handle<C> {
     status: child.status,
     ...(child.assignmentId === undefined ? {} : { assignmentId: child.assignmentId }),
     ...(child.identity ? { identity: child.identity } : {}),
+    ...(child.modelSubstitution ? { modelSubstitution: child.modelSubstitution } : {}),
     ...(child.materialization ? { materialization: child.materialization } : {}),
     ...(child.executionBindings.length > 0
       ? { executionBindings: Object.freeze([...child.executionBindings]) }
