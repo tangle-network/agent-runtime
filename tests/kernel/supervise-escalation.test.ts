@@ -156,6 +156,12 @@ describe('supervise delivers parent questions, not just callback configuration',
     const childTasks: string[] = []
     let rootDrives = 0
     let childDrives = 0
+    // The specialist keeps working while its question is open, as a lead with workers does; a
+    // manager that ended with nothing open would settle before any answer could reach it.
+    let rootAnswered!: () => void
+    const answeredByRoot = new Promise<void>((resolve) => {
+      rootAnswered = resolve
+    })
     const driveHarness: DriveHarness = async ({
       profile,
       task,
@@ -180,6 +186,7 @@ describe('supervise delivers parent questions, not just callback configuration',
           answered.push(
             await tool('answer_question', { questionId: open.id, answer: 'Use source B.' }),
           )
+          rootAnswered()
         }
         return
       }
@@ -187,6 +194,7 @@ describe('supervise delivers parent questions, not just callback configuration',
       childTasks.push(typeof task === 'string' ? task : JSON.stringify(task))
       if (childDrives === 1) {
         asked.push(await tool('ask_parent', { ...question('specialist'), urgency: 'blocks-step' }))
+        await answeredByRoot
         return
       }
       await tool('submit_result', { result: { answer: 'checked with source B' } })
