@@ -23,6 +23,7 @@ import {
 import { executorFailure, executorFailureInfra } from './executor-outcome'
 import { addResourceSpend, withBudgetResources } from './resources'
 import {
+  BUDGET_CONTINUATION_TASK,
   leafContinuationExecutionId,
   prepareRetainedExecutor,
   type RetainedChildRecovery,
@@ -337,7 +338,12 @@ export async function prepareInterruptedExecutors(
     const continuation =
       latestInput !== undefined && inputs.length > 1 && node.ownedTreeRoot === undefined
         ? await leafContinuation(node, owned, latestInput, opts)
-        : undefined
+        : latestInput !== undefined &&
+            node.continues !== undefined &&
+            admissions.length === 0 &&
+            node.ownedTreeRoot === undefined
+          ? heldContinuation(node, events, latestInput)
+          : undefined
     recoveries.push({
       ...detachedSnapshot(
         {
@@ -430,6 +436,40 @@ async function leafContinuation(
     executionId: leafContinuationExecutionId(node.id, latestInput.seq),
     priorSession,
     priorSpent: priorResult.spent,
+  }
+}
+
+/**
+ * A node that continues a budget-stopped node's held environment, recovered before its own first
+ * admission: it runs in the environment and session of its predecessor's last environment
+ * admission, so the recovery neither creates a second environment nor leaves the held one behind.
+ */
+function heldContinuation(
+  node: Spawned,
+  events: ReadonlyArray<SpawnEvent>,
+  latestInput: Extract<SpawnEvent, { kind: 'execution-input' }>,
+): RetainedLeafContinuation {
+  const continues = node.continues!
+  const priorSession = [...events]
+    .reverse()
+    .flatMap((event) =>
+      event.id === continues.ofWorker &&
+      event.kind === 'execution-admitted' &&
+      event.admission.phase === 'environment'
+        ? [event.admission]
+        : [],
+    )[0]
+  if (priorSession === undefined || priorSession.environmentId !== continues.environmentId) {
+    throw new RuntimeRunStateError(
+      `cannot recover '${node.id}': '${continues.ofWorker}' has no admission for the environment it continues`,
+    )
+  }
+  return {
+    task: BUDGET_CONTINUATION_TASK,
+    inputSeq: latestInput.seq,
+    executionId: node.id,
+    priorSession,
+    priorSpent: zeroSpend(),
   }
 }
 

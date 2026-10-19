@@ -2539,6 +2539,10 @@ export interface SuperviseOptions {
    *  makes no progress for 30 min. `false` stops it at the time box. The run's own deadline always
    *  stops every node. See `deadline.ts` `DeadlineCheckIn`. */
   readonly deadlineCheckIn?: DeadlineCheckIn
+  /** How long a keyed worker whose turn ended over its budget keeps its environment for a
+   *  `spawn_worker` of the same key with a larger budget to continue the same session (ms).
+   *  Default 600,000; `0` keeps none. Released earlier by `cancel_worker` or the run's end. */
+  readonly budgetStopHoldMs?: number
   /** Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
    *  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
    *  its budget slice and waits in a queue (deepest first) instead of being refused, and a manager
@@ -2784,6 +2788,7 @@ const superviseOptionKeys = [
   'perWorker',
   'reservationPolicy',
   'deadlineCheckIn',
+  'budgetStopHoldMs',
   'profileGuidance',
   'profileSecurity',
   'registry',
@@ -5011,6 +5016,9 @@ function superviseInternal(
       ...(options.deadlineCheckIn === undefined
         ? {}
         : { deadlineCheckIn: options.deadlineCheckIn }),
+      ...(options.budgetStopHoldMs === undefined
+        ? {}
+        : { budgetStopHoldMs: options.budgetStopHoldMs }),
       ...(ctx.resume === true || (options.runDir === undefined && options.resume === true)
         ? { resume: true }
         : {}),

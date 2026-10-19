@@ -110,6 +110,11 @@ export function budgetOverspendText(violation: BudgetViolation): string {
     .join('; ')
 }
 
+/** What a manager can do with a keyed worker its budget stopped. */
+const BUDGET_STOP_NEXT =
+  'spawn_worker with the same key and a larger budget continues this session where it stopped; ' +
+  'cancel_worker releases it'
+
 /** A worker whose settlement reached the manager's inbox. */
 export interface SettledWorker {
   readonly id: string
@@ -140,6 +145,8 @@ export interface SettledWorker {
    *  `done` worker with it was stopped by its budget at a turn boundary, not finished with its
    *  task. */
   readonly budgetStop?: string
+  /** With `budgetStop` on a keyed worker: how to continue its session or release it. */
+  readonly budgetStopNext?: string
   /** Structured tool-call evidence, never the worker's final prose. */
   readonly trace: WorkerTraceEvidence
   /** True when projected from a prior process of the same durable run. */
@@ -2192,6 +2199,9 @@ export function createCoordinationToolsForManager(
         : {
             budgetViolation: settled.budgetViolation,
             budgetStop: budgetOverspendText(settled.budgetViolation),
+            ...(assignmentId?.startsWith('key:') === true
+              ? { budgetStopNext: BUDGET_STOP_NEXT }
+              : {}),
           }),
       trace,
       ...(settled.subtree === undefined ? {} : { subtree: settled.subtree }),
@@ -4461,6 +4471,9 @@ export function createCoordinationToolsForManager(
       assignmentId,
       ...(key !== undefined ? { key } : {}),
       ...(successorOf !== undefined ? { successorOf } : {}),
+      // A re-spawned key that names a budget asks for more: a result that ended over its budget,
+      // with its environment still held, continues in the same session.
+      ...(key !== undefined && a.budget !== undefined ? { continueHeld: true } : {}),
     })
     // A keyed spawn that resolved to committed work: NOTHING ran — return the finished result
     // (it is already in the settled ledger, seeded from the resumed scope or recorded when the
@@ -4593,7 +4606,10 @@ export function createCoordinationToolsForManager(
         'never frees settles down as budget-exhausted. ' +
         'Pass a `key` naming the assignment to make it run-once ACROSS restarts: a key that ' +
         'already completed returns the finished result (`resumed: "completed"` — no work re-runs, ' +
-        'nothing is spent), a key whose prior attempt failed (`down`) spawns fresh and says so ' +
+        'nothing is spent). A keyed worker that settled with a `budgetStop` keeps its session for ' +
+        'a while: spawn the same key with a larger `budget` and a new worker continues that same ' +
+        'session where it stopped (`resumed: "continued"`, `priorWorkerId`), or cancel_worker the ' +
+        'stopped worker to release it. A key whose prior attempt failed (`down`) spawns fresh and says so ' +
         '(`resumed: "retried"`), and a key the process died with IN FLIGHT retries under the same ' +
         'key when the executor provably died with the process (an inline worker — the same ' +
         '`resumed: "retried"`, naming the interruption). A key with no terminal receipt whose ' +
@@ -4992,6 +5008,8 @@ export function createCoordinationToolsForManager(
         'take back what a stalled or no-longer-needed worker holds (for example when spawn_worker ' +
         'is refused budget-exhausted while workers you no longer need hold the budget). The ' +
         'cancelled worker still settles `down`, delivered in your next wake with what it spent. ' +
+        'For a worker that settled with a `budgetStop` and still holds its session, this releases ' +
+        'that session instead (`released: true`). ' +
         'Refused (`error: "not-live"`) for a worker that already settled or is not yours.',
       inputSchema: {
         type: 'object',
@@ -5013,6 +5031,20 @@ export function createCoordinationToolsForManager(
           (node) => node.id === workerId && isLiveNodeStatus(node.status),
         )
         const cancelled = own ? abortWorker(workerId, why) : undefined
+        if (
+          cancelled === undefined &&
+          opts.scope.view.nodes.some(
+            (node) => node.id === workerId && node.parent === opts.scope.view.root,
+          ) &&
+          (await opts.scope.releaseHeld?.(workerId, 'cancel-worker')) === true
+        ) {
+          return {
+            released: true,
+            workerId,
+            live: liveWorkerCount(),
+            queued: queuedWorkerCount(),
+          }
+        }
         if (cancelled === undefined) {
           return {
             error: 'not-live' as const,

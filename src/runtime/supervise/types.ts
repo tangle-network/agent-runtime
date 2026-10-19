@@ -230,6 +230,13 @@ export interface Executor<Out> {
    */
   heldEnvironments?(): ReadonlyArray<HeldEnvironment>
   /**
+   * The environment a settled turn kept because it ended over its budget, so a keyed re-spawn can
+   * run the next turn in the same environment and harness session. `undefined` once nothing is
+   * held. `release` destroys it; `handOver` gives it to the successor node, after which this
+   * executor never destroys it. The scope asks for it through `RetainedExecutorContext.holdOnSettle`.
+   */
+  heldForContinuation?(): HeldForContinuation | undefined
+  /**
    * The replay source (B1): the content-addressed `outRef` + the materialized output the
    * driver branched on, its verdict, and the conserved spend. Read once, after settle.
    */
@@ -437,8 +444,20 @@ export interface HeldEnvironment {
    * - `resume`: a retained execution kept so a resumed run can reconcile the paid work inside it.
    * - `evidence`: a workspace preserved because the execution has no verified workspace receipt.
    */
-  readonly keptFor?: 'resume' | 'evidence'
+  readonly keptFor?: 'resume' | 'evidence' | 'continuation'
 }
+
+/** A budget-stopped turn's environment, held for a keyed continuation ({@link Executor.heldForContinuation}). */
+export interface HeldForContinuation {
+  readonly provider: string
+  readonly environmentId: string
+  release(signal?: AbortSignal): Promise<{ destroyed: boolean; detail?: string }>
+  handOver(): void
+}
+
+/** Why a held budget-stop environment was released: its hold ceiling ran out, its manager
+ *  cancelled the worker, or the scope reached its join barrier. Journaled on `environment-teardown`. */
+export type HeldRelease = 'hold-ceiling' | 'cancel-worker' | 'scope-join'
 
 /**
  * The receipt for one provider environment an executor held for a RETAINED execution and was
@@ -974,6 +993,12 @@ export interface SpawnOpts {
    *  whose work. The caller asserts the relation; the coordination `spawn_worker` tool admits only
    *  a settled worker of the same manager. Journaled on `spawned` and on the `agent.spawn` hook. */
   readonly successorOf?: NodeId
+  /**
+   * With `key`: when the key's committed result ended over its budget and its environment is still
+   * held, continue that session in a NEW node (`prior.state: 'continued'`) instead of returning the
+   * result. The coordination tool sets it when the manager re-spawns the key with a `budget`.
+   */
+  readonly continueHeld?: boolean
 }
 
 /** Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
@@ -1010,6 +1035,8 @@ export type SpawnRejection =
  */
 export type SpawnPrior<Out = unknown> =
   | { readonly state: 'completed'; readonly settled: Settled<Out> & { kind: 'done' } }
+  /** A NEW node continues the prior node's held environment and session (`SpawnOpts.continueHeld`). */
+  | { readonly state: 'continued'; readonly priorId: NodeId; readonly environmentId: string }
   | { readonly state: 'retried'; readonly priorId: NodeId; readonly reason: string }
 
 /**
@@ -1203,6 +1230,11 @@ export interface Scope<Out> {
    * is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an MCP tool.
    */
   send(nodeId: NodeId, msg: unknown): boolean
+  /**
+   * Release the environment a settled child holds after a budget stop. Resolves `true` when one was
+   * held (and journals its `environment-teardown` with `heldRelease`), `false` otherwise.
+   */
+  releaseHeld?(nodeId: NodeId, reason: HeldRelease): Promise<boolean>
   /**
    * The LIVE read-model of one child, valid WHILE it runs: last-activity timestamp, idle time,
    * a derived `stalled` flag, tokens/turns spent so far, whether a steer can even reach it
@@ -1457,6 +1489,8 @@ export type SpawnEvent =
       assignmentId?: string
       /** The settled sibling node this spawn replaces (`SpawnOpts.successorOf`). */
       successorOf?: NodeId
+      /** The budget-stopped node whose held environment and session this node continues. */
+      continues?: { ofWorker: NodeId; environmentId: string }
       budget: Budget
       runtime: Runtime
       /** Root-only opt-in owner-share contract. A resumed run must use the same policy; absent on
@@ -1857,6 +1891,8 @@ export type SpawnEvent =
       environmentId: string
       destroyed: boolean
       detail?: string
+      /** Present when the environment was held after a budget stop: why the hold ended. */
+      heldRelease?: HeldRelease
       seq: number
       at: string
     }
@@ -2274,6 +2310,11 @@ export interface SupervisorOpts {
    *  submit what it has, and is stopped only once it then makes no progress for 30 min); `false`
    *  stops it at the time box. See `deadline.ts` `DeadlineCheckIn`. */
   readonly deadlineCheckIn?: import('./deadline').DeadlineCheckIn
+  /** How long a keyed worker whose turn ended over its budget keeps its environment, so that
+   *  re-spawning its key with a larger budget continues the same session (ms). After it the
+   *  environment is released and the worker stays settled `done` with its `budgetViolation`.
+   *  Default 600,000 (`DEFAULT_BUDGET_STOP_HOLD_MS`); `0` keeps none. */
+  readonly budgetStopHoldMs?: number
   /**
    * OTP intensity breaker: more than `maxRestarts` child restarts within `withinMs`
    * trips the supervisor to `no-winner` rather than restarting forever.

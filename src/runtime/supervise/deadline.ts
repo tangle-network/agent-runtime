@@ -191,7 +191,10 @@ export async function teardownExecutor<Out>(
  */
 export function teardownSurfaces(
   inner: Executor<unknown>,
-): Pick<Executor<unknown>, 'teardownTimeoutMs' | 'releaseRetained' | 'heldEnvironments'> {
+): Pick<
+  Executor<unknown>,
+  'teardownTimeoutMs' | 'releaseRetained' | 'heldEnvironments' | 'heldForContinuation'
+> {
   return {
     ...(inner.teardownTimeoutMs === undefined
       ? {}
@@ -202,6 +205,9 @@ export function teardownSurfaces(
     ...(inner.heldEnvironments === undefined
       ? {}
       : { heldEnvironments: () => inner.heldEnvironments!() }),
+    ...(inner.heldForContinuation === undefined
+      ? {}
+      : { heldForContinuation: () => inner.heldForContinuation!() }),
   }
 }
 

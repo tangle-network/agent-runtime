@@ -365,6 +365,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'perWorker',
   'reservationPolicy',
   'deadlineCheckIn',
+  'budgetStopHoldMs',
   'workerSlots',
   'watchWorkers',
   'stallAfterMs',
