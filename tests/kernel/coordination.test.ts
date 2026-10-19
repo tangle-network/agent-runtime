@@ -254,6 +254,7 @@ describe('coordination tools', () => {
       'model-route': 0,
       'bridge-full': 0,
       'unmountable-tool': 0,
+      'unprovisionable-profile': 0,
     })
 
     const spawn = tool(tb, 'spawn_worker')

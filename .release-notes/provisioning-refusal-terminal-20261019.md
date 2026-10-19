@@ -1,3 +1,3 @@
-type: patch
+type: minor
 ---
-A Sandbox provisioning refusal for the profile (HTTP 422 with code `PROFILE_FILE_MOUNT_OUTSIDE_ROOTS` or `PROFILE_FILES_MATERIALIZE_FAILED`) settles the spawn as terminal and reads as refused-before-it-ran, at admission or after. Before, it was retried as a lost transport: queens21-h22-capture-root-1-20261019c retried a mount on a read-only root filesystem 154 times across 4 workers.
+A profile the box cannot be provisioned for no longer burns boxes. On a provider backend, `spawn_worker` asks the provider's `validateProfile` before any box exists, and refuses the spawn with the new `SpawnRefusalCause` `unprovisionable-profile`, naming each error's code and path, so the manager fixes the profile. A Sandbox provisioning refusal that still reaches a box (HTTP 422 with code `PROFILE_FILE_MOUNT_OUTSIDE_ROOTS` or `PROFILE_FILES_MATERIALIZE_FAILED`) settles the spawn as terminal and reads as refused-before-it-ran. Before, both were retried as a lost transport: queens21-h22-capture-root-1-20261019c retried a mount on a read-only root filesystem 154 times across 4 workers.

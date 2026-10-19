@@ -125,6 +125,86 @@ describe('supervise coordination-channel pre-flight', () => {
     expect(refusal).toContain('coordination')
   })
 
+  it("returns the provider's validateProfile refusal to spawn_worker, naming the mount, before any box", async () => {
+    // queens21-h22-capture-root-1-20261019c: child profiles mounted /work/queens21_count.c on a
+    // read-only root filesystem, and 154 attempts across 4 workers each provisioned a box.
+    const { provider, creates } = neverCreatingProvider()
+    const validated: AgentProfile[] = []
+    const validating: AgentEnvironmentProvider = {
+      ...provider,
+      validateProfile: (profile) => {
+        validated.push(profile as AgentProfile)
+        const mount = (profile as AgentProfile).resources?.files?.[0]?.path
+        return mount === '/work/queens21_count.c'
+          ? {
+              ok: false,
+              issues: [
+                {
+                  level: 'error',
+                  code: 'PROFILE_FILE_MOUNT_OUTSIDE_ROOTS',
+                  path: mount,
+                  message: 'the mount is outside the writable roots; use a workspace-relative path',
+                },
+              ],
+            }
+          : { ok: true, issues: [] }
+      },
+    }
+    const events: SpawnEvent[] = []
+    const toolResults: string[] = []
+    let turn = 0
+    await supervise(
+      { ...routerRoot, tools: runtimeToolDeclarations('spawn_worker') },
+      'Delegate.',
+      {
+        backend: { backend: 'provider', provider: validating },
+        budget: { maxIterations: 4, maxTokens: 8_000 },
+        perWorker: { maxIterations: 2, maxTokens: 1_000 },
+        journal: recordingJournal(events),
+        runId: 'unprovisionable-profile-preflight',
+        brain: async (messages) => {
+          turn += 1
+          if (turn === 1) {
+            return {
+              toolCalls: [
+                {
+                  id: 'spawn',
+                  name: 'spawn_worker',
+                  arguments: JSON.stringify({
+                    profile: {
+                      name: 'counter',
+                      harness: 'codex',
+                      model: { provider: 'openai', default: 'test' },
+                      resources: {
+                        files: [{ path: '/work/queens21_count.c', content: 'int main(void){}\n' }],
+                      },
+                    },
+                    task: 'count the queens',
+                    key: 'counter',
+                  }),
+                },
+              ],
+            }
+          }
+          for (const message of messages) {
+            if (typeof message.content === 'string') toolResults.push(message.content)
+          }
+          return { content: 'done', toolCalls: [] }
+        },
+      },
+    )
+    expect(validated).toHaveLength(1)
+    expect(creates()).toBe(0)
+    expect(events.filter((event) => event.kind === 'spawned' && event.key === 'counter')).toEqual(
+      [],
+    )
+    const refusal = toolResults.find((text) => text.includes('unprovisionable-profile'))
+    expect(refusal).toBeDefined()
+    expect(refusal).toContain('PROFILE_FILE_MOUNT_OUTSIDE_ROOTS')
+    expect(refusal).toContain('/work/queens21_count.c')
+    expect(refusal).toContain('workspace-relative')
+  })
+
   it('admits the same child once the caller supplies the driveHarness relay', async () => {
     const { provider } = neverCreatingProvider()
     const driveHarness: DriveHarness = async () => {}

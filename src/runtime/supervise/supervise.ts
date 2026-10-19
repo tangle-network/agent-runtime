@@ -71,7 +71,10 @@ import {
 } from '../../mcp/tools/coordination'
 import { COORDINATION_CLIENT_TOOL_TIMEOUT_MS } from '../../mcp/tools/coordination-request-context'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
-import { resolveAgentEnvironmentProvider } from '../environment-provider'
+import {
+  type AgentEnvironmentProvider,
+  resolveAgentEnvironmentProvider,
+} from '../environment-provider'
 import { agentHarness, harnessRunsAgent } from '../harness-role'
 import {
   type HarnessTranscriptCapture,
@@ -773,6 +776,32 @@ function bridgeSpawnPreflight(seam: BridgeSeam): SpawnPreflight {
     const admissionRefusal = await bridgeAdmissionRefusal(seam)
     if (admissionRefusal !== undefined) return { cause: 'bridge-full', detail: admissionRefusal }
     return undefined
+  }
+}
+
+/**
+ * The pre-flight for a provider backend: the provider's own `validateProfile`, before any box
+ * exists. A profile the provider could never provision is refused here, and the refusal reaches
+ * the manager's `spawn_worker` call naming each error's code and path, so the manager fixes the
+ * profile instead of losing the worker. On Discovery run queens21-h22-capture-root-1-20261019c the
+ * root wrote child profiles that mounted `/work/queens21_count.c` on a read-only root filesystem,
+ * and 154 attempts across 4 workers each provisioned a box that could not take the mount.
+ */
+function providerSpawnPreflight(provider: AgentEnvironmentProvider): SpawnPreflight | undefined {
+  const validate = provider.validateProfile?.bind(provider)
+  if (validate === undefined) return undefined
+  return async (profile) => {
+    const result = await validate(profile)
+    const errors = result.issues.filter((issue) => issue.level === 'error')
+    if (result.ok && errors.length === 0) return undefined
+    const named = errors.map(
+      (issue) =>
+        `${issue.code}${issue.path === undefined ? '' : ` at ${issue.path}`}: ${issue.message}`,
+    )
+    return {
+      cause: 'unprovisionable-profile',
+      detail: `provider ${provider.name} cannot provision this profile: ${named.length > 0 ? named.join('; ') : 'validation failed without a named error'}`,
+    }
   }
 }
 
@@ -3972,6 +4001,9 @@ function superviseInternal(
       options.coordination,
     ),
     options.backend?.backend === 'bridge' ? bridgeSpawnPreflight(options.backend) : undefined,
+    options.backend?.backend === 'provider' && typeof options.backend.provider === 'object'
+      ? providerSpawnPreflight(options.backend.provider)
+      : undefined,
   )
   // A custom harness receives the provider-visible profile plus the immutable canonical profile
   // for receipt binding. An undeclared materialization therefore defaults to the full canonical
