@@ -623,10 +623,12 @@ export async function captureProviderWorkspaceSnapshot(
   context: Omit<ProviderWorkspaceRetentionContext, 'signal'>,
   scope: 'environment' | 'native' = 'environment',
   onTiming?: (timing: ProviderWorkspaceCaptureTiming) => void,
+  /** Stops the capture, queued or under way; a native mirror's copy ends with its turn. */
+  parent?: AbortSignal,
 ): Promise<ProviderWorkspaceCaptureResult> {
   assertProviderWorkspaceRetentionPort(port, 'provider workspace retention')
   if (scope === 'native' || onTiming === undefined) {
-    return await captureWithinSlot(port, context, scope)
+    return await captureWithinSlot(port, context, scope, undefined, parent)
   }
   return await trackCapture(port, async (ahead) => {
     const requestedAt = Date.now()
@@ -663,6 +665,7 @@ async function captureWithinSlot(
   context: Omit<ProviderWorkspaceRetentionContext, 'signal'>,
   scope: 'environment' | 'native',
   onGranted?: () => void,
+  parent?: AbortSignal,
 ): Promise<ProviderWorkspaceCaptureResult> {
   const native = scope === 'native'
   if (native && port.captureNative === undefined) {
@@ -691,6 +694,9 @@ async function captureWithinSlot(
       controller.abort(new Error(`provider workspace retention timed out after ${timeoutMs}ms`)),
     true,
   )
+  const stopFromParent = () => controller.abort(parent?.reason)
+  if (parent?.aborted) stopFromParent()
+  else parent?.addEventListener('abort', stopFromParent, { once: true })
   try {
     const snapshot = await runAbortable(
       () =>
@@ -835,6 +841,7 @@ async function captureWithinSlot(
     return snapshot
   } finally {
     clearDeadline()
+    parent?.removeEventListener('abort', stopFromParent)
   }
 }
 
