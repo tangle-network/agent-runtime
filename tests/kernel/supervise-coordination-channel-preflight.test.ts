@@ -193,6 +193,7 @@ describe('supervise coordination-channel pre-flight', () => {
         },
       },
     )
+    console.log("TOOLRESULTS", JSON.stringify(toolResults).slice(0, 3000))
     expect(validated).toHaveLength(1)
     expect(creates()).toBe(0)
     expect(events.filter((event) => event.kind === 'spawned' && event.key === 'counter')).toEqual(
