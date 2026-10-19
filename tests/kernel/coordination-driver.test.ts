@@ -228,9 +228,9 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     // magnetar-rust-20261018b: 13 workers all read 'worker', so no view showed a role.
     const tree = (await journal.loadTree('cd-labels')) as SpawnEvent[]
     expect(
-      tree.filter((event) => event.kind === 'spawned' && event.parent !== undefined).map((event) =>
-        event.kind === 'spawned' ? event.label : undefined,
-      ),
+      tree
+        .filter((event) => event.kind === 'spawned' && event.parent !== undefined)
+        .map((event) => (event.kind === 'spawned' ? event.label : undefined)),
     ).toEqual(['researcher', 'review-1', 'worker'])
   })
 

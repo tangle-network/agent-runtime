@@ -4026,7 +4026,10 @@ export function createCoordinationToolsForManager(
           profile:
             profileTable === undefined ? spawnProfileArg() : spawnProfileArgWithTable(profileTable),
           task: { description: 'The task the worker should perform.' },
-          label: { type: 'string', description: 'Optional trace label; defaults to the profile name.' },
+          label: {
+            type: 'string',
+            description: 'Optional trace label; defaults to the profile name.',
+          },
           key: {
             type: 'string',
             description:
