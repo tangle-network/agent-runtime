@@ -4208,6 +4208,13 @@ Analyst lenses run AUTOMATICALLY when a worker settles `done` (the analyst-on-se
  the driver can still run lenses on demand via `run_analyst`). Lens routes require
  `analysts`; agent routes do not.
 
+##### mapOnSettle?
+
+> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](runtime.md#maponsettleroute)[]
+
+Maps expanded by the runtime when their source settles (see [MapOnSettleRoute](runtime.md#maponsettleroute)). Omit =
+ none.
+
 ##### watchWorkers?
 
 > `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
