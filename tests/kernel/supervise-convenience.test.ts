@@ -377,7 +377,10 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       if (profile.name === 'root') {
         rootTasks.push(task)
         if (rootTasks.length === 1) {
-          await call(coordinationMcpUrl, 'spawn_worker', { profile: child, task: 'submit CHILD: ready' })
+          await call(coordinationMcpUrl, 'spawn_worker', {
+            profile: child,
+            task: 'submit CHILD: ready',
+          })
         }
         return
       }
