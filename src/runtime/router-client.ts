@@ -32,9 +32,25 @@ import { runBrainLoop, type ToolLoopChat } from './tool-loop'
  * This is deliberately transport-only: model, prompt, tools, generation settings, and retry
  * policy belong to the exact executable `AgentProfile` consumed by `streamAgentTurn`.
  */
+/**
+ * Router provider routing, lowered into every request a transport sends as
+ * `providerOptions.gateway.{only, allowFallbacks}` and `require_model`. Braid's Z.ai-only release
+ * proof (all-costs #10337) went out without it and was served by fireworks/glm-5p3.
+ */
+export interface RouterRouting {
+  /** Providers the Router may serve the request from, such as `['zai']`. */
+  readonly only?: ReadonlyArray<string>
+  /** Whether the Router may fall back to a provider outside `only`. */
+  readonly allowFallbacks?: boolean
+  /** Refuse the request rather than serve a model other than the one it names. */
+  readonly requireModel?: boolean
+}
+
 export interface RouterTransportConfig {
   routerBaseUrl: string
   routerKey: string
+  /** Provider routing for every request this transport sends. */
+  routing?: RouterRouting
   /** Injectable OpenAI-compatible transport. Optional usage.resources carries measured turn totals. */
   complete?: (
     body: Record<string, unknown>,
@@ -212,17 +228,20 @@ function chatCompletionBody(
   const maxTokens = opts?.maxTokens ?? cfg.maxTokens
   const maxCompletionTokens = opts?.maxCompletionTokens ?? cfg.maxCompletionTokens
   return {
-    ...providerRequestExtras(opts?.extraBody, [
-      'model',
-      'messages',
-      'temperature',
-      'max_tokens',
-      'max_completion_tokens',
-      'seed',
-      'reasoning_effort',
-      'stream',
-      'stream_options',
-    ]),
+    ...withRouting(
+      providerRequestExtras(opts?.extraBody, [
+        'model',
+        'messages',
+        'temperature',
+        'max_tokens',
+        'max_completion_tokens',
+        'seed',
+        'reasoning_effort',
+        'stream',
+        'stream_options',
+      ]),
+      cfg.routing,
+    ),
     model: cfg.model,
     messages,
     ...(temperature !== undefined ? { temperature } : {}),
@@ -512,19 +531,22 @@ function toolCompletionBody(
 ): Record<string, unknown> {
   const maxCompletionTokens = opts?.maxCompletionTokens ?? cfg.maxCompletionTokens
   return {
-    ...providerRequestExtras(opts?.extraBody, [
-      'model',
-      'messages',
-      'tools',
-      'tool_choice',
-      'temperature',
-      'max_tokens',
-      'max_completion_tokens',
-      'seed',
-      'reasoning_effort',
-      'stream',
-      'stream_options',
-    ]),
+    ...withRouting(
+      providerRequestExtras(opts?.extraBody, [
+        'model',
+        'messages',
+        'tools',
+        'tool_choice',
+        'temperature',
+        'max_tokens',
+        'max_completion_tokens',
+        'seed',
+        'reasoning_effort',
+        'stream',
+        'stream_options',
+      ]),
+      cfg.routing,
+    ),
     model: cfg.model,
     messages,
     ...(tools.length > 0
@@ -542,6 +564,38 @@ function toolCompletionBody(
     ...(opts?.seed !== undefined ? { seed: opts.seed } : {}),
     ...(opts?.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
   }
+}
+
+/** The request extras with the transport's provider routing merged into `providerOptions`. */
+function withRouting(
+  extras: Record<string, unknown>,
+  routing: RouterRouting | undefined,
+): Record<string, unknown> {
+  if (routing === undefined) return extras
+  const gateway = {
+    ...(routing.only !== undefined ? { only: [...routing.only] } : {}),
+    ...(routing.allowFallbacks !== undefined ? { allowFallbacks: routing.allowFallbacks } : {}),
+  }
+  const providerOptions = isRecord(extras.providerOptions) ? extras.providerOptions : {}
+  return {
+    ...extras,
+    ...(Object.keys(gateway).length === 0
+      ? {}
+      : {
+          providerOptions: {
+            ...providerOptions,
+            gateway: {
+              ...(isRecord(providerOptions.gateway) ? providerOptions.gateway : {}),
+              ...gateway,
+            },
+          },
+        }),
+    ...(routing.requireModel !== undefined ? { require_model: routing.requireModel } : {}),
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function providerRequestExtras(
