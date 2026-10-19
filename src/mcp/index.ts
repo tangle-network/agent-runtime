@@ -178,6 +178,7 @@ export {
   type AuthorizedDownMessage,
   type AwaitWakeInput,
   analystToolGroupNames,
+  type ChildQuestionInbox,
   type ContinuationInstruction,
   type CoordinationEvent,
   type CoordinationTools,
