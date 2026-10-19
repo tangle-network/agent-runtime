@@ -2199,7 +2199,9 @@ export function createCoordinationToolsForManager(
         : {
             budgetViolation: settled.budgetViolation,
             budgetStop: budgetOverspendText(settled.budgetViolation),
-            ...(assignmentId?.startsWith('key:') === true ? { budgetStopNext: BUDGET_STOP_NEXT } : {}),
+            ...(assignmentId?.startsWith('key:') === true
+              ? { budgetStopNext: BUDGET_STOP_NEXT }
+              : {}),
           }),
       trace,
       ...(settled.subtree === undefined ? {} : { subtree: settled.subtree }),

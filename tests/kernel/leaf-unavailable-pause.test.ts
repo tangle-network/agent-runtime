@@ -732,7 +732,10 @@ describe('a keyed leaf whose turn ends over its budget', () => {
         budget: { maxIterations: 1, maxTokens: 1 },
       })
       const first = await scope.next()
-      expect(first).toMatchObject({ kind: 'done', budgetViolation: { overspent: [{ channel: 'tokens' }] } })
+      expect(first).toMatchObject({
+        kind: 'done',
+        budgetViolation: { overspent: [{ channel: 'tokens' }] },
+      })
       expect(await fixture.liveEnvironments()).toHaveLength(1)
       // Without a budget the key still returns its committed result and runs nothing.
       const same = scope.spawn(fixture.worker(), 'Find the anomaly.', {

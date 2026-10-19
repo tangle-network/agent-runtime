@@ -1093,7 +1093,10 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           return {
             ok: true,
             handle: existing.settled.handle as Handle<C>,
-            prior: { state: 'completed', settled: existing.settled as Settled<C> & { kind: 'done' } },
+            prior: {
+              state: 'completed',
+              settled: existing.settled as Settled<C> & { kind: 'done' },
+            },
           }
         }
         continuing = { from, admission, held: from.held }
@@ -1888,7 +1891,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         controller,
         // A recovered continuation replays its own invocation's task, and a keyed continuation
         // tells the held session to go on; the spawn identity above stays the node's original task.
-        recovery?.continuation?.task ?? (continuing === undefined ? task : BUDGET_CONTINUATION_TASK),
+        recovery?.continuation?.task ??
+          (continuing === undefined ? task : BUDGET_CONTINUATION_TASK),
         opts,
         args.pool,
         reservation.ticket,
