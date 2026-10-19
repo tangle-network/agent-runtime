@@ -129,6 +129,10 @@ interface HarnessInvocationSpec {
    * approval gate. Absent when the harness has no such gate on its non-interactive path.
    */
   permissionBypassArgs?: () => string[]
+  /** Argv for a run whose caller owns the workspace AND the machine it runs on, when that is
+   *  more than `permissionBypassArgs` grants. Absent means `permissionBypassArgs` already is
+   *  full access for this harness (Claude Code's skip-permissions has no OS sandbox to drop). */
+  fullAccessArgs?: () => string[]
 }
 
 /**
@@ -174,6 +178,10 @@ const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = {
     // entire sandbox for it — writes would escape the worktree to ~/.ssh, ~/.aws, and secrets.
     // The sandbox is what MAKES the blast radius the worktree. Same form as CODEX_REPRODUCIBLE_ARGS.
     permissionBypassArgs: () => ['--sandbox', 'workspace-write', '-c', 'approval_policy="never"'],
+    // workspace-write keeps every `.git` read-only and has no network (codex-cli 0.163.0, measured
+    // 2026-10-19: `git commit` exit 128 even with `--add-dir <git dir>`, and `curl` exit 6), so an
+    // in-place caller that commits and pushes its own tree needs the sandbox off, as Claude has.
+    fullAccessArgs: () => ['--dangerously-bypass-approvals-and-sandbox'],
   },
   opencode: {
     command: 'opencode',
@@ -263,6 +271,10 @@ export interface HarnessInvocationOptions {
    *  the blast radius equal to the worktree, and without it a prompt-injected worker reaches
    *  `~/.ssh`, `~/.aws`, and any secrets on the box. */
   dangerouslySkipPermissions?: boolean
+  /** With `dangerouslySkipPermissions`: the caller owns the workspace and the machine, so the
+   *  harness gets full access, OS sandbox included (each row's `fullAccessArgs`). Only the
+   *  in-place leaf sets it; a worktree candidate keeps its sandbox. */
+  fullAccess?: boolean
   /** Run Codex with benchmark-safe process controls and JSONL usage output.
    *  Valid only for the Codex harness. */
   codexReproducible?: boolean
@@ -305,7 +317,10 @@ function buildHarnessArgs(
   // flag on top would tear that sandbox down and break the exact-argv reproducibility contract,
   // so the reproducible arg set owns approvals whenever it is active.
   if (options.dangerouslySkipPermissions && !options.codexReproducible) {
-    args.push(...(invocation.permissionBypassArgs?.() ?? []))
+    const bypass = options.fullAccess
+      ? (invocation.fullAccessArgs ?? invocation.permissionBypassArgs)
+      : invocation.permissionBypassArgs
+    args.push(...(bypass?.() ?? []))
   }
   if (options.codexReproducible) {
     // KEPT harness-name test: same reason as `runLocalHarness` below — `codexReproducible` is a
