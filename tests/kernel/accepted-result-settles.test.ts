@@ -251,7 +251,11 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
         await gate
       const captured = await completeCapture(captureContext, artifacts)
       note('capture-finished', environmentId)
-      return captured
+      // The port's own stage split, as the Lab reports it; a non-number entry is dropped.
+      return {
+        ...captured,
+        stages: { exportMs: 12, archiveStoreMs: 3, offloadMs: 5, label: 'x' } as never,
+      }
     },
     async captureNative(captureContext) {
       if (
@@ -496,6 +500,7 @@ describe('an accepted submit_result settles its node', () => {
         queuedMs: expect.any(Number),
         captureMs: expect.any(Number),
         archiveBytes: expect.any(Number),
+        stages: { exportMs: 12, archiveStoreMs: 3, offloadMs: 5 },
       }),
     ])
     expect(timings[0]!.archiveBytes).toBeGreaterThan(0)

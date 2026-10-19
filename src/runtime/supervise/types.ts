@@ -2026,6 +2026,8 @@ export type SpawnEvent =
       archiveBytes?: number
       outcome: 'captured' | 'failed'
       error?: string
+      /** The capture port's own split of `captureMs`, in its names and units (ms, bytes). */
+      stages?: Readonly<Record<string, number>>
       seq: number
       at: string
     }

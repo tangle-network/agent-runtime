@@ -227,6 +227,23 @@ export interface ProviderWorkspaceCaptureResult {
   readonly provenance: ProviderWorkspaceCaptureProvenance
   readonly coverageComplete?: boolean
   readonly incompleteReason?: string
+  /** Where the port's own capture spent its time, in the port's names and units (ms, bytes),
+   *  copied verbatim onto the `workspace-capture` journal event. Runtime sees only the call's
+   *  total; on canary test-acceptance-canary-20261019q the split was in the port alone. */
+  readonly stages?: Readonly<Record<string, number>>
+}
+
+/** At most this many stage entries are kept from a port, each a finite, non-negative number. */
+const MAX_CAPTURE_STAGES = 16
+
+function captureStages(value: unknown): Readonly<Record<string, number>> | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const stages: Record<string, number> = {}
+  for (const [name, amount] of Object.entries(value).slice(0, MAX_CAPTURE_STAGES)) {
+    if (/^[A-Za-z][A-Za-z0-9]{0,63}$/u.test(name) && Number.isFinite(amount) && amount >= 0)
+      stages[name] = amount
+  }
+  return Object.keys(stages).length === 0 ? undefined : Object.freeze(stages)
 }
 
 /**
@@ -249,6 +266,8 @@ export interface ProviderWorkspaceCaptureTiming {
   readonly outcome: 'captured' | 'failed'
   /** Why a failed capture failed, bounded. */
   readonly error?: string
+  /** The port's own split of `captureMs` ({@link ProviderWorkspaceCaptureResult.stages}). */
+  readonly stages?: Readonly<Record<string, number>>
 }
 
 /** The exact live execution facts supplied to a retention callback. */
@@ -650,7 +669,11 @@ export async function captureProviderWorkspaceSnapshot(
       const captured = await captureWithinSlot(port, context, scope, () => {
         grantedAt = Date.now()
       })
-      report({ outcome: 'captured', archiveBytes: captured.snapshot.archive.byteLength })
+      report({
+        outcome: 'captured',
+        archiveBytes: captured.snapshot.archive.byteLength,
+        ...(captured.stages === undefined ? {} : { stages: captured.stages }),
+      })
       return captured
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -824,10 +847,12 @@ async function captureWithinSlot(
               ...(port.limits === undefined ? {} : { limits: port.limits }),
             })
           }
+          const stages = 'snapshot' in result ? captureStages(result.stages) : undefined
           return {
             snapshot,
             provenance,
             coverageComplete,
+            ...(stages === undefined ? {} : { stages }),
             ...(coverageComplete
               ? {}
               : {
