@@ -58,6 +58,7 @@ export type {
   AuthorizedDownMessage,
   AwaitWakeInput,
   BlockedToolReport,
+  ChildQuestionInbox,
   ContinuationInstruction,
   ContinuityMode,
   CoordinationEvent,
