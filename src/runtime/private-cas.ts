@@ -450,11 +450,13 @@ export function createPrivateCasArtifactPort(
   const sweep = async (signal?: AbortSignal): Promise<PrivateCasOffloadReport> => {
     // A full pass on the first pass of a process, with no durable store (nothing becomes durable),
     // or when the host is over its budget and must evict.
-    const prior = lastPass
+    // The host's bytes now, including objects puts linked since the last pass.
+    let indexedBytes = 0
+    for (const size of localIndex.values()) indexedBytes += size
     const full =
-      prior === undefined ||
+      lastPass === undefined ||
       durable === undefined ||
-      (localBudgetBytes !== undefined && prior.localBytes > localBudgetBytes)
+      (localBudgetBytes !== undefined && indexedBytes > localBudgetBytes)
     const objects = full ? await localObjects() : await undurableObjects()
     let refusal: string | undefined
     type Outcome = { hex: string; durable: boolean; copied?: boolean; error?: string }

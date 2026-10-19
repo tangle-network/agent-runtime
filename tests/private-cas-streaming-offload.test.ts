@@ -467,7 +467,8 @@ it('uploads a streamed put by itself after a clean pass, leaving other objects t
   // The pair's pass left nothing pending, so this put copies only its own object.
   await put('first object')
   expect(durable.counts().uploads).toBe(2)
-  // An object another writer left host-only: a full pass would upload it.
+  // An object another writer left host-only. This process's passes read only what it wrote; the
+  // next process's first pass, as at the run's settle-time offload, is full and uploads it.
   const foreign = createHash('sha256').update('left by another writer').digest('hex')
   await mkdir(join(root, 'local', 'sha256', foreign.slice(0, 2)), { recursive: true })
   await writeFile(
@@ -476,7 +477,13 @@ it('uploads a streamed put by itself after a clean pass, leaving other objects t
   )
   await put('second object')
   expect(durable.counts().uploads).toBe(3)
-  expect(await artifacts.offload()).toMatchObject({ durable: 4, localObjects: 4, pending: [] })
+  expect(await artifacts.offload()).toMatchObject({ durable: 3, pending: [] })
+  expect(durable.counts().uploads).toBe(3)
+  const settling = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
+    durable: durable.store,
+    localBudgetBytes: 1024 * 1024,
+  })
+  expect(await settling.offload()).toMatchObject({ durable: 4, localObjects: 4, pending: [] })
   expect(durable.counts().uploads).toBe(4)
 })
 
