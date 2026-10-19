@@ -1,3 +1,7 @@
+## 0.325.16
+
+A run cancelled before it is re-entered settles `no-winner` / `cancelled` from its journal, with no executor recovery, turn or environment, and its cancellation reads `cancelled`. A resumed run whose request was acknowledged only as `cancel_requested` by a process that died is aborted again. Before, such a resume threw on the aborted recovery, and the next one re-ran its work to budget exhaustion (queens21-h22-tree4-20261018a). Settling such a run releases no environment it left open; the consumer's retire path releases them.
+
 ## 0.325.15
 
 A resumed retained root recovers its accepted workspace with a source lookup bounded by the retention port's `timeoutMs`, not a fixed 30 s, and a lookup that times out says so with its bound. A box idle about 21 minutes took over 30 s to answer; the capture stayed pending and the resumed supervisor exited (test-acceptance-canary-20261018h).
