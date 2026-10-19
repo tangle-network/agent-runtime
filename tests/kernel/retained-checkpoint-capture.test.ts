@@ -213,9 +213,13 @@ function ownerModel(
     },
     /** A coordination call after the checkpoint interval: one checkpoint, then rotation. */
     async coordinate() {
+      await this.coordinateInBackground()
+    },
+    /** The same call, returning the checkpoint and rotation it starts without waiting for them. */
+    coordinateInBackground(): Promise<void> {
       clock += WORKSPACE_CHECKPOINT_MIN_INTERVAL_MS + 1
       noteScopeRetainedOwnerCoordination(scope)
-      await scopeRetainedOwnerCheckpointing(scope)
+      return scopeRetainedOwnerCheckpointing(scope) ?? Promise.resolve()
     },
     crash() {
       scopeController = new AbortController()
@@ -482,8 +486,7 @@ describe('checkpoint capture before cleanup', () => {
     await model.coordinate()
     await model.coordinate()
     forkStuck = true
-    noteScopeRetainedOwnerCoordination(model.scope())
-    const rotation = scopeRetainedOwnerCheckpointing(model.scope())!
+    const rotation = model.coordinateInBackground()
     await vi.waitFor(() =>
       expect(model.events.map((event) => event.kind)).toContain(
         'workspace-checkpoint-fork-requested',

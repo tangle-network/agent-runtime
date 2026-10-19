@@ -163,10 +163,8 @@ it('offload calls made while a pass waits to start share one pass', async () => 
   await uploading
   const running = artifacts.offload()
   // Objects written while that pass runs, then many offload calls behind it.
-  const later = await Promise.all(
-    ['b', 'c', 'd'].map((text) =>
-      artifacts.put({ executionId: text, purpose: 'trace', bytes: Buffer.from(text) }),
-    ),
+  const later = ['b', 'c', 'd'].map((text) =>
+    artifacts.put({ executionId: text, purpose: 'trace', bytes: Buffer.from(text) }),
   )
   const queued = Array.from({ length: 25 }, () => artifacts.offload())
   const cancelled = new AbortController()
@@ -179,7 +177,7 @@ it('offload calls made while a pass waits to start share one pass', async () => 
   const reports = await Promise.all(queued)
   expect(new Set(reports).size).toBe(1)
   expect(reports[0]).toMatchObject({ durable: 4, pending: [] })
-  for (const ref of later) expect(objects.has(ref.sha256)).toBe(true)
+  for (const ref of await Promise.all(later)) expect(objects.has(ref.sha256)).toBe(true)
 })
 
 // A store that hangs without failing, and ignores its signal, held every put and pass sharing the
