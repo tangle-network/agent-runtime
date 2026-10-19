@@ -124,7 +124,9 @@ export function unavailableResumeAt(text: string, nowMs: number): number | undef
   if (match === null) return undefined
   const zone = match[3] ?? (/Usage limit reached for \d+ hour/u.test(text) ? '+08:00' : undefined)
   if (zone === undefined) return undefined
-  const at = Date.parse(`${match[1]}T${match[2]}${zone.length === 5 ? `${zone.slice(0, 3)}:${zone.slice(3)}` : zone}`)
+  const at = Date.parse(
+    `${match[1]}T${match[2]}${zone.length === 5 ? `${zone.slice(0, 3)}:${zone.slice(3)}` : zone}`,
+  )
   if (!Number.isFinite(at) || at <= nowMs || at - nowMs > MAX_RESET_HOLD_MS) return undefined
   return at
 }
