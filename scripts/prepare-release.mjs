@@ -73,7 +73,7 @@ console.log(
     '',
     `Prepared ${version}. Next:`,
     '  git add -A && git commit -m "chore(release): prepare <version>"',
-    '  open the release PR, merge it, then tag the merged main tip:',
-    `  git tag v${version} <merged-main-sha> && git push origin v${version}`,
+    '  open the release PR, merge it, then tag the main tip that carries it:',
+    `  pnpm run release:tag ${version}`,
   ].join('\n'),
 )
