@@ -1292,7 +1292,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           live.recoveryPending = false
         })
       let captureSeq = 0
-      const onWorkspaceCapture = workspaceCaptureWriter({
+      const { onWorkspaceCapture, onWorkspaceCaptureStarted } = workspaceCaptureWriter({
         journal: args.journal,
         rootId: args.root,
         nodeId: id,
@@ -1340,6 +1340,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         }),
         onPause,
         onWorkspaceCapture,
+        onWorkspaceCaptureStarted,
         continueInvocation: async (nextTask) => {
           controller.signal.throwIfAborted()
           // An input after a committed result starts a new invocation; before one, it would pay

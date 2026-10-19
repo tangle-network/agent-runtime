@@ -213,9 +213,13 @@ function ownerModel(
     },
     /** A coordination call after the checkpoint interval: one checkpoint, then rotation. */
     async coordinate() {
+      await this.coordinateInBackground()
+    },
+    /** The same call, returning the checkpoint and rotation it starts without waiting for them. */
+    coordinateInBackground(): Promise<void> {
       clock += WORKSPACE_CHECKPOINT_MIN_INTERVAL_MS + 1
       noteScopeRetainedOwnerCoordination(scope)
-      await scopeRetainedOwnerCheckpointing(scope)
+      return scopeRetainedOwnerCheckpointing(scope) ?? Promise.resolve()
     },
     crash() {
       scopeController = new AbortController()
@@ -469,6 +473,62 @@ describe('checkpoint capture before cleanup', () => {
     )
     expect(await model.release()).toEqual([])
     expect(model.snapshots.size).toBe(0)
+    await assertNothingLost(model)
+  })
+
+  it("cuts a rotation's capture short when the turn's workspace capture starts, and captures it at release", async () => {
+    // test-acceptance-canary-20261019j: a rotation capture held the root's final capture 31.7 min.
+    let forkStuck = false
+    const model = ownerModel({
+      forkWait: () => (forkStuck ? new Promise<void>(() => {}) : Promise.resolve()),
+    })
+    await model.start()
+    await model.coordinate()
+    await model.coordinate()
+    forkStuck = true
+    const rotation = model.coordinateInBackground()
+    await vi.waitFor(() =>
+      expect(model.events.map((event) => event.kind)).toContain(
+        'workspace-checkpoint-fork-requested',
+      ),
+    )
+    const startedAt = Date.now()
+    await scopeRetainedOwnerContext(model.scope())!.onWorkspaceCaptureStarted!({
+      executionId: 'model-execution',
+      environmentId: 'model-source',
+    })
+    await rotation
+    expect(Date.now() - startedAt).toBeLessThan(1_000)
+    expect(model.events).toContainEqual(
+      expect.objectContaining({
+        kind: 'workspace-capture-started',
+        executionId: 'model-execution',
+        environmentId: 'model-source',
+      }),
+    )
+    expect(model.events).toContainEqual(
+      expect.objectContaining({
+        kind: 'workspace-checkpoint-cleanup',
+        checkpointId: 'checkpoint-1',
+        confirmed: false,
+        refused: expect.stringContaining("the turn's workspace capture started first"),
+      }),
+    )
+    expect(model.snapshots.has('checkpoint-1')).toBe(true)
+    forkStuck = false
+    expect(await model.release()).toEqual([])
+    expect(model.snapshots.size).toBe(0)
+    const kinds = model.events
+      .filter((event) => 'checkpointId' in event && event.checkpointId === 'checkpoint-1')
+      .map((event) => event.kind)
+    // The release's capture: fork asked for, ready, captured, torn down, then the delete.
+    expect(kinds.slice(kinds.lastIndexOf('workspace-checkpoint-fork-requested'))).toEqual([
+      'workspace-checkpoint-fork-requested',
+      'workspace-checkpoint-fork-ready',
+      'workspace-checkpoint-capture',
+      'workspace-checkpoint-fork-teardown',
+      'workspace-checkpoint-cleanup',
+    ])
     await assertNothingLost(model)
   })
 

@@ -60,6 +60,7 @@ import {
   WORKSPACE_CHECKPOINT_FORK_TIMEOUT_MS,
   WORKSPACE_CHECKPOINT_MARKER_PATH,
   WORKSPACE_CHECKPOINT_MIN_INTERVAL_MS,
+  WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS,
   WORKSPACE_CHECKPOINT_TIMEOUT_MS,
   WORKSPACE_CHECKPOINTS_KEPT,
   writeWorkspaceMarker,
@@ -110,6 +111,9 @@ interface OwnerState {
   /** Checkpoints whose capture failed in this process. Rotation keeps them without forking them
    *  again; the release tries each once more. */
   captureRefused?: Set<string>
+  /** Cuts short the captures a checkpoint rotation is running, when a turn's own workspace
+   *  capture starts. */
+  rotationCaptures?: AbortController
   /** The drive in progress: from before its executor exists until its turn has ended. */
   drive?: Promise<void>
   /** End-of-turn work a turn handed over: its workspace capture and the evidence of its receipt. */
@@ -216,13 +220,14 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         now: args.now,
         traceRoots,
       }),
-      onWorkspaceCapture: workspaceCaptureWriter({
-        journal: args.journal,
-        rootId: args.rootId,
-        nodeId: args.nodeId,
-        nextSequence: () => state.nextSequence(),
-        now: args.now,
-      }),
+      onWorkspaceCapture: (capture) => ownerCaptureWriter(state).onWorkspaceCapture(capture),
+      // The turn's own capture goes first: it cuts short the captures a checkpoint rotation runs.
+      onWorkspaceCaptureStarted: (capture) => {
+        state.rotationCaptures?.abort(
+          new Error("the turn's workspace capture started first; checkpoint kept"),
+        )
+        return ownerCaptureWriter(state).onWorkspaceCaptureStarted(capture)
+      },
       onEndOfTurnWork: (work) => {
         const prior = state.turnEnd
         const settled = work.catch(() => undefined)
@@ -743,15 +748,50 @@ async function checkpointOwnerWorkspace(scope: Scope<unknown>, state: OwnerState
       event.environmentId === environment.id &&
       state.captureRefused?.has(event.checkpoint.checkpointId) !== true,
   )
-  // The capture forks a box and reads its whole workspace, so it is bounded by the fork and the
-  // port, never by this checkpoint's own bound.
-  await cleanCheckpoints(
-    state,
-    branching,
-    owned.slice(0, -WORKSPACE_CHECKPOINTS_KEPT),
-    events,
-    scope.signal,
+  // The capture forks a box and reads its whole workspace, so it is bounded by its own budget and
+  // the turn's workspace capture, never by this checkpoint's bound. A capture cut short keeps its
+  // checkpoint, and the release captures it again.
+  const rotation = new AbortController()
+  state.rotationCaptures = rotation
+  const timer = setTimeout(
+    () =>
+      rotation.abort(
+        new Error(
+          `the rotation's ${WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS} ms for checkpoint captures ran out; checkpoint kept`,
+        ),
+      ),
+    WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS,
   )
+  try {
+    await cleanCheckpoints(
+      state,
+      branching,
+      owned.slice(0, -WORKSPACE_CHECKPOINTS_KEPT),
+      events,
+      AbortSignal.any([scope.signal, rotation.signal]),
+    )
+  } finally {
+    clearTimeout(timer)
+    if (state.rotationCaptures === rotation) delete state.rotationCaptures
+  }
+}
+
+/**
+ * The owner's workspace-capture journal writers. A turn's capture starting cuts short the
+ * checkpoint rotation's captures: on Discovery canary test-acceptance-canary-20261019j (Runtime
+ * 0.327.0) a rotation capture of an older checkpoint started 4 s before the root's final capture,
+ * on the same evidence store, and the final capture spent 26.6 of its 32.6 minutes storing its
+ * archive until the root's budget deadline aborted the rotation.
+ */
+function ownerCaptureWriter(state: OwnerState): ReturnType<typeof workspaceCaptureWriter> {
+  const { args } = state
+  return workspaceCaptureWriter({
+    journal: args.journal,
+    rootId: args.rootId,
+    nodeId: args.nodeId,
+    nextSequence: () => state.nextSequence(),
+    now: args.now,
+  })
 }
 
 /** Reconstruct authority for this source only; a replacement cannot own its snapshots. */
@@ -1116,6 +1156,16 @@ async function captureBeforeCleanup(
         )
           throw new Error(`fork ${forkId} could not be reconstructed`)
         parent?.throwIfAborted()
+        await args.journal.appendEvent(args.rootId, {
+          kind: 'workspace-checkpoint-fork-ready',
+          id: args.nodeId,
+          provider: event.provider,
+          environmentId: event.environmentId,
+          checkpointId,
+          fork: { idempotencyKey: request.idempotencyKey, environmentId: forkId },
+          seq: state.nextSequence(),
+          at: new Date(args.now()).toISOString(),
+        })
         return {
           environment,
           checkpoint: event.checkpoint,

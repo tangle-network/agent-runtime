@@ -819,6 +819,15 @@ function createProviderExecutor(
       const reportTiming = retention?.onWorkspaceCapture
       let timing: ProviderWorkspaceCaptureTiming | undefined
       const capturedExecutionId = workspaceExecutionId
+      // Journaled before the capture waits for anything, so a reader sees it in flight; its
+      // timing record is written after this one.
+      const started =
+        retention
+          ?.onWorkspaceCaptureStarted?.({
+            executionId: capturedExecutionId,
+            environmentId: next.id,
+          })
+          .catch(() => undefined) ?? Promise.resolve()
       workspaceCapturePromise = Promise.all([nativeInFlight, liveInFlight])
         .then(() =>
           captureProviderWorkspaceSnapshot(
@@ -833,6 +842,7 @@ function createProviderExecutor(
           ),
         )
         .finally(async () => {
+          await started
           if (timing === undefined || reportTiming === undefined) return
           await reportTiming({
             executionId: capturedExecutionId,

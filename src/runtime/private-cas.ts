@@ -501,12 +501,30 @@ export function createPrivateCasArtifactPort(
     }
   }
 
-  // One pass at a time: a pass never deletes a copy that another pass is still uploading.
+  // One pass at a time: a pass never deletes a copy that another pass is still uploading. Callers
+  // that arrive while a pass waits to start share it: it starts after each of them called, so it
+  // reads every object they wrote. Each put of a capture used to queue a pass of its own, which
+  // reads every object and its receipt, and another capture on the same store waited behind all
+  // of them: on Discovery canary test-acceptance-canary-20261019j a root's final capture spent
+  // 26.6 minutes storing one 31.7 MB archive behind a checkpoint capture's puts. A shared pass
+  // runs on no caller's signal, since its copies end at their stall bound; each caller stops
+  // waiting at its own cancellation.
   let passes: Promise<unknown> = Promise.resolve()
+  let waiting: Promise<PrivateCasOffloadReport> | undefined
   const offload = (signal?: AbortSignal): Promise<PrivateCasOffloadReport> => {
-    const pass = passes.then(() => sweep(signal))
-    passes = pass.catch(() => undefined)
-    return pass
+    let pass = waiting
+    if (pass === undefined) {
+      pass = passes.then(() => {
+        waiting = undefined
+        return sweep()
+      })
+      waiting = pass
+      passes = pass.catch(() => undefined)
+    }
+    const shared = pass
+    return signal === undefined
+      ? shared
+      : runAbortable(() => shared, signal, 'private CAS offload wait was cancelled')
   }
 
   const verified = (bytes: Uint8Array, ref: AgentCandidateArtifactRef): Uint8Array => {
