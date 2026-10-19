@@ -104,6 +104,7 @@ import { isCredentialRefusal } from './credential-refusal'
 import { errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
 import {
   DISPATCH_NOT_ADMITTED_CODE,
+  isProvisioningRefusal,
   RetainedExecutionPendingError,
   type RetainedPendingCause,
   RetainedWorkspaceCapturePendingError,
@@ -544,6 +545,21 @@ function isUpstreamUnavailable(error: unknown): boolean {
   return upstreamUnavailableSignal(error) !== undefined
 }
 
+/** The error and its causes (`cause`, and `errors` members), bounded and cycle-safe. */
+function causeChain(error: unknown): object[] {
+  const chain: object[] = []
+  const queue: unknown[] = [error]
+  while (queue.length > 0 && chain.length < 12) {
+    const value = queue.shift()
+    if (typeof value !== 'object' || value === null || chain.includes(value)) continue
+    chain.push(value)
+    const errors: unknown = Reflect.get(value, 'errors')
+    if (Array.isArray(errors)) queue.push(...errors)
+    queue.push(Reflect.get(value, 'cause'))
+  }
+  return chain
+}
+
 /**
  * Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal; an
  * upstream capacity refusal is `unavailable`; anything else foreign is an accident and is
@@ -570,6 +586,8 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') return 'terminal'
   if (error instanceof Error && isProviderSchemaRejection(error)) return 'terminal'
   if (isCredentialRefusal(error)) return 'terminal'
+  // A profile the box cannot be provisioned for fails the same way on every attempt and every box.
+  if (causeChain(error).some(isProvisioningRefusal)) return 'terminal'
   if (error instanceof HarnessTurnFailedError) {
     // The same never-retry classes a bridge refusal carries, now arriving as a turn's outcome.
     // Without a code the failure is foreign: an upstream timeout, a cut stream, an expired key.

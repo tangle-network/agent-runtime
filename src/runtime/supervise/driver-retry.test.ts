@@ -245,6 +245,33 @@ describe('classifyDriverFailure', () => {
     ).toBe('transient')
   })
 
+  it('settles a profile the box cannot be provisioned for, at either phase, but not a 5xx with the same code', () => {
+    // queens21-h22-capture-root-1-20261019c: 154 attempts mounting /work/queens21_count.c on a
+    // read-only root filesystem were retried as a lost transport.
+    const refusal = (status: number, code: string) =>
+      Object.assign(new Error('Sandbox refused the profile file mount /work/queens21_count.c'), {
+        name: 'PartialFailureError',
+        code,
+        status,
+        path: '/work/queens21_count.c',
+      })
+    for (const code of ['PROFILE_FILE_MOUNT_OUTSIDE_ROOTS', 'PROFILE_FILES_MATERIALIZE_FAILED']) {
+      for (const phase of ['admission', 'execution'] as const) {
+        const pending = new RetainedExecutionPendingError(refusal(422, code), phase)
+        expect(pending.pendingCause).toBe('request-rejected')
+        expect(classifyDriverFailure(pending)).toBe('terminal')
+      }
+      expect(classifyDriverFailure(refusal(422, code))).toBe('terminal')
+    }
+    // The client-built 502 the SDK sent before its fix may be transient, and stays retryable.
+    const legacy = new RetainedExecutionPendingError(
+      refusal(502, 'PROFILE_FILES_MATERIALIZE_FAILED'),
+      'execution',
+    )
+    expect(legacy.pendingCause).toBe('transport')
+    expect(classifyDriverFailure(legacy)).not.toBe('terminal')
+  })
+
   it('never retries an abort, whichever way it presents', () => {
     const aborted = new AbortController()
     aborted.abort('caller cancel')

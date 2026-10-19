@@ -241,6 +241,27 @@ const causeMessages: Record<RetainedPendingCause, string> = {
  */
 export const DISPATCH_NOT_ADMITTED_CODE = 'DISPATCH_NOT_ADMITTED'
 
+/**
+ * The Sandbox SDK's codes for a box that cannot be provisioned for this profile, sent with HTTP
+ * 422 when the failure is deterministic: a profile file mount outside the box's writable roots,
+ * refused before any box exists, and a profile-file materialization that would fail the same way
+ * again. On Discovery run queens21-h22-capture-root-1-20261019c every child profile mounted
+ * `/work/queens21_count.c` on a read-only root filesystem, and 154 attempts across 4 workers were
+ * retried as a lost transport. The same codes at another status may be transient and are not
+ * read here.
+ */
+export const PROVISIONING_REFUSAL_CODES: ReadonlySet<string> = new Set([
+  'PROFILE_FILE_MOUNT_OUTSIDE_ROOTS',
+  'PROFILE_FILES_MATERIALIZE_FAILED',
+])
+
+/** True for an error that is itself a deterministic provisioning refusal (see above). */
+export function isProvisioningRefusal(value: object): boolean {
+  const code = readString(value, 'code')
+  const status = readNumber(value, 'status') ?? readNumber(value, 'statusCode')
+  return code !== undefined && status === 422 && PROVISIONING_REFUSAL_CODES.has(code)
+}
+
 /** The contract-error codes that wrap a failed READ rather than name a broken answer. */
 const readFailureCodes = new Set([
   'RETAINED_RESULT_READ_FAILED',
@@ -340,6 +361,8 @@ function classifyPendingCause(
     // dispatch the provider already confirmed.
     if (code === DISPATCH_NOT_ADMITTED_CODE)
       return at === 'admission' ? 'request-rejected' : 'provider-contract'
+    // The box could not be provisioned for this profile, at either phase: no turn ran in it.
+    if (isProvisioningRefusal(value)) return 'request-rejected'
     // The credential command refused this route before dispatch. After admission, a refusal
     // encountered while observing the run cannot establish whether the admitted execution ran.
     if (isCredentialRefusal(value)) {
