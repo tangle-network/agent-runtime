@@ -1,0 +1,3 @@
+type: minor
+---
+`createInPlaceCliExecutor` takes `env`: variables set or removed for that executor's harness process only (a seat rotation's `CODEX_HOME` or `CLAUDE_CODE_OAUTH_TOKEN`), never written to `process.env` or a receipt. The in-place leaf now runs Codex with `--dangerously-bypass-approvals-and-sandbox`, as it runs Claude Code with `--dangerously-skip-permissions`, because Codex's `workspace-write` sandbox keeps `.git` read-only and has no network, so a caller could not commit or push its own tree; the worktree leaf keeps its sandbox. `subscriptionUsageLimitSignal` is exported from the kernel entry, so callers rotating subscription seats use the same usage-limit rule as the driver.

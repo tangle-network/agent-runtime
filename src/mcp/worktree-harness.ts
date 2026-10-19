@@ -358,6 +358,9 @@ export interface RunInPlaceHarnessOptions {
   signal?: AbortSignal
   /** Resource fetch options. GitHub-backed profile resources resolve before the harness launches. */
   resourceResolution?: ResolveAgentProfileResourcesOptions
+  /** Variables set (a string) or removed (`undefined`) for this harness process only, over
+   *  `process.env`. The profile plan's own variables still win. Never written to a receipt. */
+  env?: Readonly<Record<string, string | undefined>>
   /** Test seam — inject the harness runner so unit tests script a `LocalHarnessResult`. */
   runHarness?: typeof runLocalHarness
 }
@@ -426,10 +429,12 @@ export async function runInPlaceHarness(
       taskPrompt: opts.taskPrompt,
       applied,
       resourceInstructions,
-      // The caller supplied this directory as the author's workspace, so an unattended run may
-      // edit it without an interactive approval gate. The bypass argv grants no OS-level escape:
-      // the blast radius stays the supplied directory.
+      // The caller supplied this directory and runs on its own machine, so the harness gets what
+      // an operator at that terminal has: no approval gate and no OS sandbox. A caller that
+      // commits and pushes its tree needs both (Codex's sandbox keeps `.git` read-only).
       dangerouslySkipPermissions: true,
+      fullAccess: true,
+      ...(opts.env ? { env: opts.env } : {}),
       ...(opts.harnessTimeoutMs !== undefined ? { harnessTimeoutMs: opts.harnessTimeoutMs } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
       runHarness,
@@ -472,6 +477,16 @@ function applyProfilePlan(
   return applied
 }
 
+/** `process.env` with the caller's per-run overrides applied; `undefined` removes a variable. */
+function callerEnv(overrides?: Readonly<Record<string, string | undefined>>): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  for (const [name, value] of Object.entries(overrides ?? {})) {
+    if (value === undefined) delete env[name]
+    else env[name] = value
+  }
+  return env
+}
+
 /**
  * The ONE profile-to-process step both placements share: §1.5 prompt/model delivery through
  * `harnessInvocation`, the materializer's flags and environment, and the `runLocalHarness` spawn
@@ -486,6 +501,8 @@ async function spawnProfiledHarness(args: {
   applied: WorkspacePlanReceipt
   resourceInstructions: string | undefined
   dangerouslySkipPermissions: boolean
+  fullAccess?: boolean
+  env?: Readonly<Record<string, string | undefined>>
   harnessTimeoutMs?: number
   codexReproducible?: boolean
   codexReadDeniedPaths?: ReadonlyArray<string>
@@ -503,6 +520,7 @@ async function spawnProfiledHarness(args: {
     args.taskPrompt,
     {
       dangerouslySkipPermissions: args.dangerouslySkipPermissions,
+      ...(args.fullAccess ? { fullAccess: true } : {}),
       ...(args.codexReproducible ? { codexReproducible: true } : {}),
     },
   )
@@ -514,7 +532,7 @@ async function spawnProfiledHarness(args: {
       command,
       args: [...invocationArgs, ...args.applied.flags.map(publicPlanString)],
     },
-    env: { ...process.env, ...resolvePublicPlanEnv(args.applied.env) },
+    env: { ...callerEnv(args.env), ...resolvePublicPlanEnv(args.applied.env) },
     ...(args.codexReproducible ? { codexReproducible: true } : {}),
     ...(args.codexReadDeniedPaths ? { codexReadDeniedPaths: args.codexReadDeniedPaths } : {}),
     ...(args.harnessTimeoutMs !== undefined ? { timeoutMs: args.harnessTimeoutMs } : {}),

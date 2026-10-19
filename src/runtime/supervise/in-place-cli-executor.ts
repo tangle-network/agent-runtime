@@ -60,6 +60,10 @@ export interface InPlaceCliExecutorOptions {
   taskPrompt?: string
   /** Optional wall-clock cap per harness subprocess (ms). Omit it for no timer. */
   harnessTimeoutMs?: number
+  /** Variables set (a string) or removed (`undefined`) for this executor's harness process only,
+   *  e.g. the account a seat rotation selected (`CODEX_HOME`, `CLAUDE_CODE_OAUTH_TOKEN`).
+   *  `process.env` is never mutated, and no value reaches a receipt or the result. */
+  env?: Readonly<Record<string, string | undefined>>
   /** Test seam — inject the harness runner so unit tests script a `LocalHarnessResult`. */
   runHarness?: typeof runLocalHarness
   /** @internal Kernel-minted attempt identity threaded by the built-in registry. */
@@ -127,6 +131,7 @@ export function createInPlaceCliExecutor(
             ? { harnessTimeoutMs: options.harnessTimeoutMs }
             : {}),
           ...(linked ? { signal: linked } : {}),
+          ...(options.env ? { env: options.env } : {}),
           ...(options.runHarness ? { runHarness: options.runHarness } : {}),
         })
 
