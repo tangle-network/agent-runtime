@@ -257,9 +257,14 @@ export const PROVISIONING_REFUSAL_CODES: ReadonlySet<string> = new Set([
 
 /** True for an error that is itself a deterministic provisioning refusal (see above). */
 export function isProvisioningRefusal(value: object): boolean {
-  const code = readString(value, 'code')
-  const status = readNumber(value, 'status') ?? readNumber(value, 'statusCode')
-  return code !== undefined && status === 422 && PROVISIONING_REFUSAL_CODES.has(code)
+  try {
+    const code = readString(value, 'code')
+    const status = readNumber(value, 'status') ?? readNumber(value, 'statusCode')
+    return code !== undefined && status === 422 && PROVISIONING_REFUSAL_CODES.has(code)
+  } catch {
+    // An error whose fields cannot be read is no refusal this classifier can name.
+    return false
+  }
 }
 
 /** The contract-error codes that wrap a failed READ rather than name a broken answer. */

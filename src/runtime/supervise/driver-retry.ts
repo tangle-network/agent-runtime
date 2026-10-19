@@ -553,9 +553,13 @@ function causeChain(error: unknown): object[] {
     const value = queue.shift()
     if (typeof value !== 'object' || value === null || chain.includes(value)) continue
     chain.push(value)
-    const errors: unknown = Reflect.get(value, 'errors')
-    if (Array.isArray(errors)) queue.push(...errors)
-    queue.push(Reflect.get(value, 'cause'))
+    try {
+      const errors: unknown = Reflect.get(value, 'errors')
+      if (Array.isArray(errors)) queue.push(...errors)
+      queue.push(Reflect.get(value, 'cause'))
+    } catch {
+      // A cause that cannot be read ends this branch of the walk.
+    }
   }
   return chain
 }
