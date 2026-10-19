@@ -18,8 +18,8 @@
  *
  *  1. **Node pinning** — a spawn names a node (`profile.name` = node id) and the node's canonical
  *     profile is what runs; a driver cannot smuggle capabilities into a worker it did not define.
- *  2. **Observable edges** — every delegates/analyzes traversal lands in an EDGE LEDGER
- *     (`delivered | stripped | empty | unpropagated`, with byte counts), in memory on
+ *  2. **Observable edges** — every delegates/analyzes/maps traversal lands in an EDGE LEDGER
+ *     (`delivered | stripped | empty | unpropagated | failed`, with byte counts), in memory on
  *     the result AND as `edge` events in the run journal. The motivating incident: a filter
  *     silently replaced 1,700-char steering with 241 chars of boilerplate for three rounds and
  *     NO artifact said so — an unobservable edge cannot be trusted and its directive cannot be
@@ -34,6 +34,11 @@
  *     ledger truth, and the one conserved pool). Every ledger row states how its hop continued:
  *     `'fresh' | 'resume'` for spawns, `'steer'` for mid-run deliveries — fresh respawns, session
  *     resumes, and live steers are all plain data, each a ledgered fact.
+ *  6. **Fan-out over a run-time list** — a `maps` edge takes the array a JSON pointer selects in a
+ *     node's settled result and runs one item per element, then hands the ordered results to a
+ *     join node. The runtime spawns every item and the join when the source settles, so the
+ *     driver spends no model turn on them; each item is a spawn through the same authorized path,
+ *     reserving from the same conserved pool, and every expansion, item and join is a ledger row.
  *
  * ORACLES ARE ENVIRONMENT, NEVER WORKERS. Graders/verifiers must not be spawnable in the graph —
  * a delegates edge to them leaks the rubric. An `analyzes` edge names its analyst in one of two
@@ -55,7 +60,12 @@ import {
   InMemorySpawnJournal,
 } from '../../durable/spawn-journal'
 import { ConfigError, ValidationError } from '../../errors'
-import type { AnalystRegistry, ContinuityMode, MakeWorkerAgent } from '../../mcp/tools/coordination'
+import type {
+  AnalystRegistry,
+  ContinuityMode,
+  MakeWorkerAgent,
+  MapItemFailurePolicy,
+} from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { harnessRunsAgent } from '../harness-role'
 import type { ToolLoopChat } from '../tool-loop'
@@ -76,6 +86,7 @@ import {
 } from './supervise'
 import type { Budget, NodeId, ResultBlobStore, SpawnJournal, SupervisedResult } from './types'
 
+export type { MapItemFailurePolicy } from '../../mcp/tools/coordination'
 export { defaultEdgeTraversalCap } from './graph-overlay'
 
 // ── The algebra ────────────────────────────────────────────────────────────────
@@ -129,6 +140,60 @@ export type GraphEdge =
        *  Only delegates caps refuse traversal — they are what close the spawn cycle. */
       readonly maxTraversals?: number
     }
+  /**
+   * Fan-out over a list that exists only at run time, then one join. When `from` settles `done`,
+   * the array at `pointer` in its result is expanded: each element becomes the TASK of one item
+   * run, at most `concurrency` at a time, and once every item settled the `join` node runs with
+   * `{ map, source, items, results: [{ index, item, result }], failures: [{ index, item, outcome,
+   * reason }] }`, results in item order. The runtime spawns the items and the join (`from`'s
+   * driver spends no turn on them) through the same authorized spawn path a delegates spawn
+   * takes: each item reserves its budget from the one conserved pool and is pinned to the edge's
+   * profile, so an item's content can never choose what runs.
+   *
+   * An item is either the node `to` (its pinned profile plus this edge's directive) or the nested
+   * `graph`, started per item exactly as `run_graph` starts a graph. Refusals are loud and
+   * ledgered, and the driver is woken with them: a pointer that does not resolve to an array, more
+   * elements than `maxItems`, or a `concurrency` the run's worker-slot bound can never honor.
+   * `concurrency` otherwise THROTTLES (items wait for a free place); it never refuses an item.
+   *
+   * An edge rather than a node-level spec, because every kernel invariant a map must keep already
+   * attaches to edge traversal: pinning admits only the edge's item and join nodes (the spawn
+   * context carries a runtime-authored `map` marker), each item is admitted like a spawn and
+   * reserves from the conserved pool, each item settles under its own deliverable check, and each
+   * expansion, item and join is a ledger row with its journal twin. Topology stays static; only the
+   * traversal count is dynamic, so validation and the one-node-one-profile rule are unchanged.
+   */
+  | {
+      readonly kind: 'maps'
+      /** The source node: a delegates target, or the join of another maps edge. Each of its `done`
+       *  settles expands the map once. */
+      readonly from: NodeId
+      /** RFC 6901 JSON pointer into `from`'s settled result (`''` is the whole result). */
+      readonly pointer: string
+      /** The item node, run once per element with the element as its task. Exactly one of `to`
+       *  and `graph`. Reachable only through this edge: never a delegates target. */
+      readonly to?: NodeId
+      /** A graph run per element as one subtask, through the `run_graph` path. */
+      readonly graph?: GraphTopology
+      /** Receives the ordered results once every item settled. Reachable only through this edge. */
+      readonly join: NodeId
+      /** The item directive, appended to the item node's instructions per traversal. */
+      readonly directive: PromptHandle
+      /** Lists longer than this are refused before any item runs. */
+      readonly maxItems: number
+      /** How many items run at once. */
+      readonly concurrency: number
+      readonly onItemFailure: MapItemFailurePolicy
+      /** Each item's budget, merged over the per-worker default as `spawn_worker`'s `budget` is. */
+      readonly itemBudget?: Partial<Budget>
+    }
+
+/** A topology without the run's own budget and deliverable: the form a `maps` edge runs per item,
+ *  as `run_graph` runs it. */
+export interface GraphTopology {
+  readonly nodes: ReadonlyArray<GraphNode>
+  readonly edges: ReadonlyArray<GraphEdge>
+}
 
 export interface AgentGraph {
   readonly nodes: ReadonlyArray<GraphNode>
@@ -141,7 +206,9 @@ export interface AgentGraph {
 
 // ── The edge ledger ────────────────────────────────────────────────────────────
 
-export type EdgeDeliveryOutcome = 'delivered' | 'stripped' | 'empty' | 'unpropagated'
+/** `failed` is a maps item or join that ran and settled without a usable result (down, or
+ *  rejected by its deliverable check); a traversal that never reached a worker is `unpropagated`. */
+export type EdgeDeliveryOutcome = 'delivered' | 'stripped' | 'empty' | 'unpropagated' | 'failed'
 
 /** How one ledgered hop CONTINUED: a spawn traversal stamps its effective spawn mode
  *  (`'fresh'` | `'resume'`), and every mid-run delivery into an already-live recipient — a
@@ -151,9 +218,10 @@ export type TraversalContinuity = ContinuityMode | 'steer'
 
 /** One recorded edge traversal — the in-memory row; the journal twin is the `edge` SpawnEvent. */
 export interface EdgeTraversal {
-  /** Stable edge id: `delegates:<from>-><to>` or `analyzes:<analyst>:<over…>-><to>`. */
+  /** Stable edge id: `delegates:<from>-><to>`, `analyzes:<analyst>:<over…>-><to>`, or
+   *  `maps:<from>-><to | graph>-><join>`. */
   readonly edge: string
-  readonly kind: 'delegates' | 'analyzes'
+  readonly kind: 'delegates' | 'analyzes' | 'maps'
   readonly from: string
   readonly to: string
   /** The resolved directive reference (`<surface>/v<n>`). */
@@ -166,8 +234,11 @@ export interface EdgeTraversal {
   /** Bytes of directive + payload that actually crossed the edge. */
   readonly bytes: number
   readonly reason?: string
-  /** The concrete worker node id, once known. */
+  /** The concrete worker node id, once known. A maps expansion names the source worker. */
   readonly workerId?: string
+  /** Present on maps rows: the expansion of the source's list, one item by its index, or the
+   *  join. */
+  readonly map?: { readonly phase: 'expand' | 'item' | 'join'; readonly index?: number }
 }
 
 /** A delegates edge exhausted its traversal cap and the run produced no winner: the cap, not the
@@ -220,6 +291,7 @@ const GRAPH_OWNED_SUPERVISE_OPTIONS = [
   'makeWorkerAgent',
   'onCoordinationEvent',
   'analyzeOnSettle',
+  'mapOnSettle',
   'continuityByProfile',
   // A graph pins every node and its delegation edges; a node never gains spawn rights it lacks.
   'inheritSpawnRights',
@@ -699,6 +771,7 @@ export function superviseAgentGraph(
             ...(opts.analysts ? { analysts: opts.analysts } : {}),
           }
         : {}),
+      ...(overlay.maps.length > 0 ? { mapOnSettle: overlay.maps } : {}),
       ...(Object.keys(overlay.continuityByProfile).length > 0
         ? { continuityByProfile: overlay.continuityByProfile }
         : {}),
