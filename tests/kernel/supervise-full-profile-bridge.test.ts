@@ -3083,7 +3083,9 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       .filter((request) => request.agent_profile.name === 'root')
       .slice(1)
       .flatMap((request) => request.messages.map((message) => message.content))
-    expect(wakes.join('\n')).toContain('tokens 235857 > reserved 42000')
+    expect(wakes.join('\n')).toContain(
+      '"budgetViolation":{"overspent":[{"channel":"tokens","reserved":42000,"spent":235857}]}',
+    )
   })
 
   it('retries a mid-stream harness death, which is transport and not a refusal', async () => {

@@ -1,0 +1,3 @@
+type: minor
+---
+A worker turn that completes past its budget keeps its committed result. The drive ends at the turn boundary instead of throwing `supervisor budget exhausted`, and the node settles with a `budgetViolation` that names each channel with the amount reserved and the amount spent; the manager's wake carries it. `BudgetOverspend.channel` gains `deadline` (time given and time taken, in ms) for a child that settled past its time box. The pre-turn refusal names the spent channels too. Before, the Lab's limits audit counted 28 such worker turns (26.77 turn-hours) metered and then thrown away.
