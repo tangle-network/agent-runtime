@@ -1780,6 +1780,155 @@ Restrict which settled workers feed this lens, by profile name or spawn label. O
 
 ***
 
+### MapOnSettleRoute
+
+One map-on-settle ROUTE: the coordination form of an AgentGraph `maps` edge. When a worker whose
+profile name is `from` settles `done`, the runtime resolves `pointer` in its result, refuses
+anything but an array no longer than `maxItems`, and starts one item per element — the element
+is the item's task — at most `concurrency` at a time. Once every item settled it starts `join`
+with the ordered results. Items and the join go through the same admission a `spawn_worker` call
+takes (pre-flight, budget reservation from the conserved pool, `makeWorkerAgent`), carrying the
+runtime-authored [WorkerSpawnContext.map](#map) marker, so no manager turn is spent on them.
+
+Every step publishes a `map` event. Item settlements are recorded but not queued, so the
+manager is woken by the join's settlement, or by a `map` event when the map was refused or its
+join could not run. Map state is process-local, like analyst-run lineage: a restarted manager
+does not re-expand a map whose source settled in a prior process.
+
+#### Properties
+
+##### edge
+
+> `readonly` **edge**: `string`
+
+Stable edge identity carried on every `map` event.
+
+##### from
+
+> `readonly` **from**: `string`
+
+The source, by profile name.
+
+##### pointer
+
+> `readonly` **pointer**: `string`
+
+RFC 6901 JSON pointer into the source's settled result.
+
+##### item
+
+> `readonly` **item**: \{ `profile`: `AgentProfile`; \} \| \{ `graph`: `unknown`; \}
+
+What runs per item: a profile (pinned by the run's authority), or a graph started through the
+ `run_graph` path.
+
+##### join
+
+> `readonly` **join**: `AgentProfile`
+
+The node that receives `{ map, source, items, results, failures }`.
+
+##### maxItems
+
+> `readonly` **maxItems**: `number`
+
+##### concurrency
+
+> `readonly` **concurrency**: `number`
+
+##### onItemFailure
+
+> `readonly` **onItemFailure**: [`MapItemFailurePolicy`](#mapitemfailurepolicy)
+
+`'all-or-refuse'`: after a failed item no further item starts, running items settle, and the
+ join is refused with the failures listed. `'settled-subset'`: every item runs and the join
+ receives the delivered results with the failures beside them. An item fails when it settles
+ down, when its deliverable check rejects it, when it delivers nothing, or when its spawn is
+ refused.
+
+##### itemBudget?
+
+> `readonly` `optional` **itemBudget?**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+Each item's budget, merged over the per-worker default as `spawn_worker`'s `budget` is.
+
+***
+
+### MapSpawnMarker
+
+The runtime marker on a map's item or join spawn.
+
+#### Properties
+
+##### edge
+
+> `readonly` **edge**: `string`
+
+##### role
+
+> `readonly` **role**: `"item"` \| `"join"`
+
+##### index?
+
+> `readonly` `optional` **index?**: `number`
+
+The item's position in the source list. Absent on the join.
+
+***
+
+### MapTraversalEvent
+
+One map step, published as a `map` event: the expansion of the source list, one item, or the
+ join. A step that reached no worker is `unpropagated`, with its reason.
+
+#### Properties
+
+##### edge
+
+> `readonly` **edge**: `string`
+
+##### phase
+
+> `readonly` **phase**: `"item"` \| `"join"` \| `"expand"`
+
+##### outcome
+
+> `readonly` **outcome**: `"failed"` \| `"delivered"` \| `"empty"` \| `"unpropagated"`
+
+##### sourceWorker
+
+> `readonly` **sourceWorker**: `string`
+
+The settled source worker whose list this map expanded.
+
+##### index?
+
+> `readonly` `optional` **index?**: `number`
+
+##### workerId?
+
+> `readonly` `optional` **workerId?**: `string`
+
+The item or join worker, when one was started.
+
+##### bytes
+
+> `readonly` **bytes**: `number`
+
+Bytes of the list (expand), the item (item), or the join task (join).
+
+##### items?
+
+> `readonly` `optional` **items?**: `number`
+
+The list's length, on the expansion.
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+***
+
 ### AnalystAssignmentRecord
 
 Exact analyst assignment recorded before execution. The existing spawn journal retains the
@@ -2235,6 +2384,14 @@ The settled worker this spawn replaces, when the manager named one (`spawn_worke
  relation on the new node, so the run record shows who took over whose work. A seam may read
  it to hand the successor its predecessor's workspace or retained output; Runtime mounts
  nothing on its behalf. Independent of `resume`, which re-attaches the same node's session.
+
+##### map?
+
+> `readonly` `optional` **map?**: [`MapSpawnMarker`](#mapspawnmarker)
+
+Present only when a map route started this spawn ([MapOnSettleRoute](#maponsettleroute)) — authored by
+ the runtime, never accepted from tool arguments. A node-pinning seam reads it to admit the
+ map's item or join node, which no driver may spawn.
 
 ##### peerMailUrl?
 
@@ -3539,7 +3696,7 @@ Excess calls queue; Promise.all does not fail simply because the queue is full.
 
 ###### Inherited from
 
-[`CodeModeOptions`](#codemodeoptions).[`concurrency`](#concurrency)
+[`CodeModeOptions`](#codemodeoptions).[`concurrency`](#concurrency-1)
 
 ##### maxCalls?
 
@@ -3625,7 +3782,7 @@ Excess calls queue; Promise.all does not fail simply because the queue is full.
 
 ###### Inherited from
 
-[`CodeModeOptions`](#codemodeoptions).[`concurrency`](#concurrency)
+[`CodeModeOptions`](#codemodeoptions).[`concurrency`](#concurrency-1)
 
 ##### maxCalls?
 
@@ -6701,7 +6858,7 @@ The scope analyst (selector≠judge firewall) the combinator steers from. Absent
 
 ##### spawnChild()
 
-> **spawnChild**(`name`, `spec`): [`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`D`\>\>
+> **spawnChild**(`name`, `spec`): [`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-3)\<`D`\>\>
 
 Wrap an `AgentSpec` into a leaf `Agent` carrying it as `executorSpec`, so the shape can
 `scope.spawn(spawnChild(spec), task, opts)`. `name` labels the child for traces. The
@@ -6720,7 +6877,7 @@ spec drives the resolved `Executor`; `act` exists only to satisfy the `Agent` sh
 
 ###### Returns
 
-[`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`D`\>\>
+[`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-3)\<`D`\>\>
 
 ##### childSpec()
 
@@ -6928,7 +7085,7 @@ the recorded root.
 
 ##### handle?
 
-> `readonly` `optional` **handle?**: [`RootHandle`](#roothandle-2)\<[`Outcome`](#outcome-2)\<`D`\>\>
+> `readonly` `optional` **handle?**: [`RootHandle`](#roothandle-2)\<[`Outcome`](#outcome-3)\<`D`\>\>
 
 A live root handle to attach (view/signal/abort) before the run starts.
 
@@ -7023,7 +7180,7 @@ Derive this stage's task from the prior stage's deliverable (or the root task fo
 
 ##### collect()
 
-> **collect**(`settled`): [`Outcome`](#outcome-2)\<`StepOut`\>
+> **collect**(`settled`): [`Outcome`](#outcome-3)\<`StepOut`\>
 
 Read this stage's settled child output into the typed `StepOut` the next stage feeds on.
  Fail loud (return a `blocked`) when the child produced nothing usable for the next stage.
@@ -7032,11 +7189,11 @@ Read this stage's settled child output into the typed `StepOut` the next stage f
 
 ###### settled
 
-[`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`StepOut`\>\>
+[`Settled`](#settled-4)\<[`Outcome`](#outcome-3)\<`StepOut`\>\>
 
 ###### Returns
 
-[`Outcome`](#outcome-2)\<`StepOut`\>
+[`Outcome`](#outcome-3)\<`StepOut`\>
 
 ***
 
@@ -7196,7 +7353,7 @@ How a fanout's synthesis child is built + read. `synthesisTask` projects the dra
 
 ###### gathered
 
-readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
+readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-3)\<`D`\>\>[]
 
 ###### ctx
 
@@ -7208,17 +7365,17 @@ readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
 
 ##### collect()
 
-> **collect**(`settled`): [`Outcome`](#outcome-2)\<`D`\>
+> **collect**(`settled`): [`Outcome`](#outcome-3)\<`D`\>
 
 ###### Parameters
 
 ###### settled
 
-[`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>
+[`Settled`](#settled-4)\<[`Outcome`](#outcome-3)\<`D`\>\>
 
 ###### Returns
 
-[`Outcome`](#outcome-2)\<`D`\>
+[`Outcome`](#outcome-3)\<`D`\>
 
 ***
 
@@ -7287,7 +7444,7 @@ Fold one settled step into the accumulated state (the loop's running deliverable
 
 ###### settled
 
-[`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>
+[`Settled`](#settled-4)\<[`Outcome`](#outcome-3)\<`D`\>\>
 
 ###### Returns
 
@@ -7295,7 +7452,7 @@ Fold one settled step into the accumulated state (the loop's running deliverable
 
 ##### until()
 
-> **until**(`state`, `findings`): [`Outcome`](#outcome-2)\<`D`\> \| `null`
+> **until**(`state`, `findings`): [`Outcome`](#outcome-3)\<`D`\> \| `null`
 
 The satisfiability gate: given the accumulated state + the round's trace findings, has the
 goal been reached? Returns the terminal deliverable when satisfied, or `null` to keep going.
@@ -7313,7 +7470,7 @@ readonly `AnalystFinding`[]
 
 ###### Returns
 
-[`Outcome`](#outcome-2)\<`D`\> \| `null`
+[`Outcome`](#outcome-3)\<`D`\> \| `null`
 
 ##### label()?
 
@@ -7415,7 +7572,7 @@ Build one judge child's task from the shared artifact under review + the judge d
 
 ##### merge()
 
-> **merge**(`verdicts`, `artifact`): [`Outcome`](#outcome-2)\<`D`\>
+> **merge**(`verdicts`, `artifact`): [`Outcome`](#outcome-3)\<`D`\>
 
 Write-only merge: fold the M settled judge verdicts into the panel's terminal `Outcome<D>`.
 Pure over the drained settlements — it MUST NOT spawn, re-judge, or feed one verdict into
@@ -7433,7 +7590,7 @@ readonly [`PanelVerdict`](#panelverdict)[]
 
 ###### Returns
 
-[`Outcome`](#outcome-2)\<`D`\>
+[`Outcome`](#outcome-3)\<`D`\>
 
 ***
 
@@ -7555,7 +7712,7 @@ Build the verifier child's task from the implement child's settled candidate.
 
 ###### candidate
 
-[`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`Candidate`\>\>
+[`Settled`](#settled-4)\<[`Outcome`](#outcome-3)\<`Candidate`\>\>
 
 ###### ctx
 
@@ -7567,7 +7724,7 @@ Build the verifier child's task from the implement child's settled candidate.
 
 ##### collect()
 
-> **collect**(`candidate`, `verdict`): [`Outcome`](#outcome-2)\<`D`\>
+> **collect**(`candidate`, `verdict`): [`Outcome`](#outcome-3)\<`D`\>
 
 Project the gated (verifier-`valid`) candidate into the terminal deliverable.
 
@@ -7575,7 +7732,7 @@ Project the gated (verifier-`valid`) candidate into the terminal deliverable.
 
 ###### candidate
 
-[`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`Candidate`\>\>
+[`Settled`](#settled-4)\<[`Outcome`](#outcome-3)\<`Candidate`\>\>
 
 ###### verdict
 
@@ -7583,7 +7740,7 @@ Project the gated (verifier-`valid`) candidate into the terminal deliverable.
 
 ###### Returns
 
-[`Outcome`](#outcome-2)\<`D`\>
+[`Outcome`](#outcome-3)\<`D`\>
 
 ***
 
@@ -7674,7 +7831,7 @@ Build the widened child's task from the lineage the gate chose to extend.
 
 ##### synthesize()
 
-> **synthesize**(`gathered`, `ctx`): [`Outcome`](#outcome-2)\<`D`\>
+> **synthesize**(`gathered`, `ctx`): [`Outcome`](#outcome-3)\<`D`\>
 
 Synthesize the terminal deliverable from every settled lineage (selector≠judge: the
  single-sourced selector over the gathered children, never a re-judge).
@@ -7683,7 +7840,7 @@ Synthesize the terminal deliverable from every settled lineage (selector≠judge
 
 ###### gathered
 
-readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
+readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-3)\<`D`\>\>[]
 
 ###### ctx
 
@@ -7691,7 +7848,7 @@ readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
 
 ###### Returns
 
-[`Outcome`](#outcome-2)\<`D`\>
+[`Outcome`](#outcome-3)\<`D`\>
 
 ***
 
@@ -7727,7 +7884,7 @@ When true, `decide` may read `settled.verdict` directly — collides with the st
 
 ###### settled
 
-[`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>
+[`Settled`](#settled-4)\<[`Outcome`](#outcome-3)\<`D`\>\>
 
 ###### findings
 
@@ -7766,11 +7923,11 @@ A lineage the gate may widen toward — the settled child that looked promising 
 
 ###### handle
 
-> **handle**: [`Handle`](#handle-3)\<[`Outcome`](#outcome-2)\<`D`\>\>
+> **handle**: [`Handle`](#handle-3)\<[`Outcome`](#outcome-3)\<`D`\>\>
 
 ###### out
 
-> **out**: [`Outcome`](#outcome-2)
+> **out**: [`Outcome`](#outcome-3)
 
 ###### outRef
 
@@ -7896,7 +8053,7 @@ Opaque root-task framing (whatever the combinator was invoked with).
 
 ##### settledSoFar
 
-> `readonly` **settledSoFar**: readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
+> `readonly` **settledSoFar**: readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-3)\<`D`\>\>[]
 
 The children this combinator has drained off `scope.next()`, in cursor order.
 
@@ -7931,7 +8088,7 @@ explicitly NOT for steering — reading it to steer is the coupling the architec
 
 ##### settledSoFar
 
-> `readonly` **settledSoFar**: readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
+> `readonly` **settledSoFar**: readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-3)\<`D`\>\>[]
 
 ##### lastValidScore?
 
@@ -13936,7 +14093,7 @@ Observed billed subtotal. `usdKnown:false` means it is incomplete, never a measu
 
 ##### driver()
 
-> **driver**(`surface`, `task`, `opts`, `budget`): [`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
+> **driver**(`surface`, `task`, `opts`, `budget`): [`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-3)\<`unknown`\>\>
 
 ###### Parameters
 
@@ -13958,7 +14115,7 @@ Observed billed subtotal. `usdKnown:false` means it is incomplete, never a measu
 
 ###### Returns
 
-[`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
+[`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-3)\<`unknown`\>\>
 
 ***
 
@@ -14095,7 +14252,7 @@ Open/close artifacts the body manages itself (e.g. one persistent handle for dep
 
 ##### scope
 
-> `readonly` **scope**: [`Scope`](#scope-3)\<[`Outcome`](#outcome-2)\<`unknown`\>\>
+> `readonly` **scope**: [`Scope`](#scope-3)\<[`Outcome`](#outcome-3)\<`unknown`\>\>
 
 #### Methods
 
@@ -16392,7 +16549,7 @@ The failed check items the finding explains, when it names any.
 
 ###### Inherited from
 
-[`PanelFinding`](#panelfinding).[`items`](#items-1)
+[`PanelFinding`](#panelfinding).[`items`](#items-2)
 
 ##### admittedAt
 
@@ -18577,6 +18734,23 @@ A graph node: an id and a canonical `AgentProfile`. The profile is the ONLY way 
 
 ***
 
+### GraphTopology
+
+A topology without the run's own budget and deliverable: the form a `maps` edge runs per item,
+ as `run_graph` runs it.
+
+#### Properties
+
+##### nodes
+
+> `readonly` **nodes**: readonly [`GraphNode`](#graphnode)[]
+
+##### edges
+
+> `readonly` **edges**: readonly [`GraphEdge`](#graphedge)[]
+
+***
+
 ### AgentGraph
 
 #### Properties
@@ -18613,11 +18787,12 @@ One recorded edge traversal — the in-memory row; the journal twin is the `edge
 
 > `readonly` **edge**: `string`
 
-Stable edge id: `delegates:<from>-><to>` or `analyzes:<analyst>:<over…>-><to>`.
+Stable edge id: `delegates:<from>-><to>`, `analyzes:<analyst>:<over…>-><to>`, or
+ `maps:<from>-><to | graph>-><join>`.
 
 ##### kind
 
-> `readonly` **kind**: `"delegates"` \| `"analyzes"`
+> `readonly` **kind**: `"delegates"` \| `"analyzes"` \| `"maps"`
 
 ##### from
 
@@ -18663,7 +18838,22 @@ Bytes of directive + payload that actually crossed the edge.
 
 > `readonly` `optional` **workerId?**: `string`
 
-The concrete worker node id, once known.
+The concrete worker node id, once known. A maps expansion names the source worker.
+
+##### map?
+
+> `readonly` `optional` **map?**: `object`
+
+Present on maps rows: the expansion of the source's list, one item by its index, or the
+ join.
+
+###### phase
+
+> `readonly` **phase**: `"item"` \| `"join"` \| `"expand"`
+
+###### index?
+
+> `readonly` `optional` **index?**: `number`
 
 ***
 
@@ -19021,6 +19211,13 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 Present (as the analyst id) only when the runtime's analyst-on-settle hook initiated this
  spawn — authored by the runtime, never accepted from a driver's tool arguments. A node-pinning
  authority reads it to admit the analyst node it would refuse as a driver-authored spawn.
+
+###### map?
+
+[`MapSpawnMarker`](#mapspawnmarker)
+
+Present only when a map route started this spawn — authored by the runtime, never accepted
+ from tool arguments. A node-pinning authority reads it to admit the map's item or join.
 
 ###### continuity?
 
@@ -24345,6 +24542,13 @@ Present (as the analyst id) only when the runtime's analyst-on-settle hook initi
  spawn — authored by the runtime, never accepted from a driver's tool arguments. A node-pinning
  authority reads it to admit the analyst node it would refuse as a driver-authored spawn.
 
+###### map?
+
+[`MapSpawnMarker`](#mapspawnmarker)
+
+Present only when a map route started this spawn — authored by the runtime, never accepted
+ from tool arguments. A node-pinning authority reads it to admit the map's item or join.
+
 ###### continuity?
 
 [`ContinuityMode`](#continuitymode)
@@ -24717,6 +24921,14 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-ente
  the driver receives in its next wake and composes its next steer from. The self-improving UP-leg,
  threaded to the driver at this level (propagate to sub-drivers via a recursive `makeWorkerAgent`).
  Omit/empty = status quo (no analyst feed). Requires `analysts`.
+
+##### mapOnSettle?
+
+> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](#maponsettleroute)[]
+
+Maps the runtime expands when their source worker settles: fan-out over a list in the
+ source's result, then one join. An AgentGraph's `maps` edges set it; see `MapOnSettleRoute`.
+ Omit = none.
 
 ##### watchWorkers?
 
@@ -26001,6 +26213,12 @@ Where an `ask_parent` question goes when it leaves this manager. Omit and `ask_p
 
 Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`.
+
+##### mapOnSettle?
+
+> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](#maponsettleroute)[]
+
+Maps expanded when their source worker settles (both arms). Omit = none.
 
 ##### sourceEvidenceRefs?
 
@@ -32332,6 +32550,14 @@ unvalidated shape (#630) while the authored lens keeps working.
 
 ***
 
+### MapItemFailurePolicy
+
+> **MapItemFailurePolicy** = `"all-or-refuse"` \| `"settled-subset"`
+
+What a map does when one of its items fails. See [MapOnSettleRoute.onItemFailure](#onitemfailure).
+
+***
+
 ### QuestionEscalationOutcome
 
 > **QuestionEscalationOutcome** = \{ `delivered`: `true`; `to`: `string`; \} \| \{ `delivered`: `false`; `reason`: `string`; \}
@@ -32412,7 +32638,7 @@ Product decision over an exact continuation before it is durably recorded or del
 
 ### CoordinationEvent
 
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"analyst-assignment"`; `assignment`: [`AnalystAssignmentRecord`](#analystassignmentrecord); \} \| \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \} \| \{ `type`: `"tool-outcome"`; `outcome`: [`ToolOutcomeEvent`](#tooloutcomeevent); \} \| \{ `type`: `"lead-message"`; `message`: [`LeadMessage`](#leadmessage); \}
+> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"analyst-assignment"`; `assignment`: [`AnalystAssignmentRecord`](#analystassignmentrecord); \} \| \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \} \| \{ `type`: `"tool-outcome"`; `outcome`: [`ToolOutcomeEvent`](#tooloutcomeevent); \} \| \{ `type`: `"lead-message"`; `message`: [`LeadMessage`](#leadmessage); \} \| \{ `type`: `"map"`; `map`: [`MapTraversalEvent`](#maptraversalevent); \}
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
@@ -32551,6 +32777,15 @@ A tool call that outlived its response fence settled. Queued: the manager's next
 This manager's lead (its parent manager, or the operator for a root) sent it a steer or an
  answer. Queued: a manager's harness has no live inbox between turns, so the message is the
  input of its next wake instead of a refused delivery.
+
+***
+
+##### Type Literal
+
+\{ `type`: `"map"`; `map`: [`MapTraversalEvent`](#maptraversalevent); \}
+
+One step of a map route. Record-only, except an expansion that was refused and a join that
+ could not run: those are queued, because no settlement will wake the manager for them.
 
 ***
 
@@ -33185,7 +33420,7 @@ Builds a frozen `Persona`, failing loud on the executors-supplied invariant (nei
 
 ### LoopShape
 
-> **LoopShape**\<`Task`, `D`\> = (`ctx`) => [`Agent`](#agent-2)\<`Task`, [`Outcome`](#outcome-2)\<`D`\>\>
+> **LoopShape**\<`Task`, `D`\> = (`ctx`) => [`Agent`](#agent-2)\<`Task`, [`Outcome`](#outcome-3)\<`D`\>\>
 
 A reusable act-body factory. Given the persona's content + seams (`ShapeContext`), it
 returns the root `Agent<Task, Outcome<D>>` whose `act` decomposes the task, fans out
@@ -33211,13 +33446,13 @@ synthesizes the terminal `Outcome<D>`. The shape is STRUCTURE; the persona is CO
 
 #### Returns
 
-[`Agent`](#agent-2)\<`Task`, [`Outcome`](#outcome-2)\<`D`\>\>
+[`Agent`](#agent-2)\<`Task`, [`Outcome`](#outcome-3)\<`D`\>\>
 
 ***
 
 ### RunPersonified
 
-> **RunPersonified** = \<`Task`, `D`\>(`options`) => `Promise`\<[`SupervisedResult`](#supervisedresult)\<[`Outcome`](#outcome-2)\<`D`\>\>\>
+> **RunPersonified** = \<`Task`, `D`\>(`options`) => `Promise`\<[`SupervisedResult`](#supervisedresult)\<[`Outcome`](#outcome-3)\<`D`\>\>\>
 
 The composed run signature.
 
@@ -33239,7 +33474,7 @@ The composed run signature.
 
 #### Returns
 
-`Promise`\<[`SupervisedResult`](#supervisedresult)\<[`Outcome`](#outcome-2)\<`D`\>\>\>
+`Promise`\<[`SupervisedResult`](#supervisedresult)\<[`Outcome`](#outcome-3)\<`D`\>\>\>
 
 ***
 
@@ -33297,7 +33532,7 @@ the persona carries the domain.
 
 ### FanoutWinnerSelector
 
-> **FanoutWinnerSelector**\<`D`\> = (`iterations`) => \{ `output?`: [`Outcome`](#outcome-2)\<`D`\>; \} \| `undefined`
+> **FanoutWinnerSelector**\<`D`\> = (`iterations`) => \{ `output?`: [`Outcome`](#outcome-3)\<`D`\>; \} \| `undefined`
 
 A winner-selection strategy: argmax/sort over the gathered child iterations (each output is the
  child's `Outcome<D>`), returning the chosen iteration or `undefined` when none qualifies.
@@ -33312,11 +33547,11 @@ A winner-selection strategy: argmax/sort over the gathered child iterations (eac
 
 ##### iterations
 
-[`Iteration`](#iteration-1)\<`unknown`, [`Outcome`](#outcome-2)\<`D`\>\>[]
+[`Iteration`](#iteration-1)\<`unknown`, [`Outcome`](#outcome-3)\<`D`\>\>[]
 
 #### Returns
 
-\{ `output?`: [`Outcome`](#outcome-2)\<`D`\>; \} \| `undefined`
+\{ `output?`: [`Outcome`](#outcome-3)\<`D`\>; \} \| `undefined`
 
 ***
 
@@ -34269,7 +34504,7 @@ The finalization seam: ledger in, output (or `undefined` = nothing deliverable) 
 
 ### GraphEdge
 
-> **GraphEdge** = \{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-10); `to`: [`NodeId`](#nodeid-10); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; `continuity?`: [`ContinuityMode`](#continuitymode); \} \| \{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-10)\>; `to`: [`NodeId`](#nodeid-10); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
+> **GraphEdge** = \{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-10); `to`: [`NodeId`](#nodeid-10); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; `continuity?`: [`ContinuityMode`](#continuitymode); \} \| \{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-10)\>; `to`: [`NodeId`](#nodeid-10); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \} \| \{ `kind`: `"maps"`; `from`: [`NodeId`](#nodeid-10); `pointer`: `string`; `to?`: [`NodeId`](#nodeid-10); `graph?`: [`GraphTopology`](#graphtopology); `join`: [`NodeId`](#nodeid-10); `directive`: [`PromptHandle`](#prompthandle); `maxItems`: `number`; `concurrency`: `number`; `onItemFailure`: [`MapItemFailurePolicy`](#mapitemfailurepolicy); `itemBudget?`: `Partial`\<[`Budget`](#budget-18)\>; \}
 
 #### Union Members
 
@@ -34363,9 +34598,104 @@ Observability cap: traversals beyond this are LEDGERED as exhausted (`unpropagat
 
 ***
 
+##### Type Literal
+
+\{ `kind`: `"maps"`; `from`: [`NodeId`](#nodeid-10); `pointer`: `string`; `to?`: [`NodeId`](#nodeid-10); `graph?`: [`GraphTopology`](#graphtopology); `join`: [`NodeId`](#nodeid-10); `directive`: [`PromptHandle`](#prompthandle); `maxItems`: `number`; `concurrency`: `number`; `onItemFailure`: [`MapItemFailurePolicy`](#mapitemfailurepolicy); `itemBudget?`: `Partial`\<[`Budget`](#budget-18)\>; \}
+
+Fan-out over a list that exists only at run time, then one join. When `from` settles `done`,
+the array at `pointer` in its result is expanded: each element becomes the TASK of one item
+run, at most `concurrency` at a time, and once every item settled the `join` node runs with
+`{ map, source, items, results: [{ index, item, result }], failures: [{ index, item, outcome,
+reason }] }`, results in item order. The runtime spawns the items and the join (`from`'s
+driver spends no turn on them) through the same authorized spawn path a delegates spawn
+takes: each item reserves its budget from the one conserved pool and is pinned to the edge's
+profile, so an item's content can never choose what runs.
+
+An item is either the node `to` (its pinned profile plus this edge's directive) or the nested
+`graph`, started per item exactly as `run_graph` starts a graph. Refusals are loud and
+ledgered, and the driver is woken with them: a pointer that does not resolve to an array, more
+elements than `maxItems`, or a `concurrency` the run's worker-slot bound can never honor.
+`concurrency` otherwise THROTTLES (items wait for a free place); it never refuses an item.
+
+An edge rather than a node-level spec, because every kernel invariant a map must keep already
+attaches to edge traversal: pinning admits only the edge's item and join nodes (the spawn
+context carries a runtime-authored `map` marker), each item is admitted like a spawn and
+reserves from the conserved pool, each item settles under its own deliverable check, and each
+expansion, item and join is a ledger row with its journal twin. Topology stays static; only the
+traversal count is dynamic, so validation and the one-node-one-profile rule are unchanged.
+
+###### kind
+
+> `readonly` **kind**: `"maps"`
+
+###### from
+
+> `readonly` **from**: [`NodeId`](#nodeid-10)
+
+The source node: a delegates target, or the join of another maps edge. Each of its `done`
+ settles expands the map once.
+
+###### pointer
+
+> `readonly` **pointer**: `string`
+
+RFC 6901 JSON pointer into `from`'s settled result (`''` is the whole result).
+
+###### to?
+
+> `readonly` `optional` **to?**: [`NodeId`](#nodeid-10)
+
+The item node, run once per element with the element as its task. Exactly one of `to`
+ and `graph`. Reachable only through this edge: never a delegates target.
+
+###### graph?
+
+> `readonly` `optional` **graph?**: [`GraphTopology`](#graphtopology)
+
+A graph run per element as one subtask, through the `run_graph` path.
+
+###### join
+
+> `readonly` **join**: [`NodeId`](#nodeid-10)
+
+Receives the ordered results once every item settled. Reachable only through this edge.
+
+###### directive
+
+> `readonly` **directive**: [`PromptHandle`](#prompthandle)
+
+The item directive, appended to the item node's instructions per traversal.
+
+###### maxItems
+
+> `readonly` **maxItems**: `number`
+
+Lists longer than this are refused before any item runs.
+
+###### concurrency
+
+> `readonly` **concurrency**: `number`
+
+How many items run at once.
+
+###### onItemFailure
+
+> `readonly` **onItemFailure**: [`MapItemFailurePolicy`](#mapitemfailurepolicy)
+
+###### itemBudget?
+
+> `readonly` `optional` **itemBudget?**: `Partial`\<[`Budget`](#budget-18)\>
+
+Each item's budget, merged over the per-worker default as `spawn_worker`'s `budget` is.
+
+***
+
 ### EdgeDeliveryOutcome
 
-> **EdgeDeliveryOutcome** = `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`
+> **EdgeDeliveryOutcome** = `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`
+
+`failed` is a maps item or join that ran and settled without a usable result (down, or
+ rejected by its deliverable check); a traversal that never reached a worker is `unpropagated`.
 
 ***
 
@@ -35378,7 +35708,7 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-10); `parent?`: [`NodeId`](#nodeid-10); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-10); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-8); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-10); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-10); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-10); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-10); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-10); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-10); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-10); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-10); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-10); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-10); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-10); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-10); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-10); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-10); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-10); `label`: `string`; `runtime`: [`Runtime`](#runtime-8); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-10); `label`: `string`; `runtime`: [`Runtime`](#runtime-8); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-10); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-10); `graph?`: [`NodeId`](#nodeid-10); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-10); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-10); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-10); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-10); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-10); `resumeAt`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-10); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-10); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-10); `parent?`: [`NodeId`](#nodeid-10); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-10); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-8); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-10); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-10); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-10); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-10); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-10); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-10); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-10); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-10); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-10); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-10); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-10); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-10); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-10); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-10); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-10); `label`: `string`; `runtime`: [`Runtime`](#runtime-8); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-10); `label`: `string`; `runtime`: [`Runtime`](#runtime-8); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-10); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-10); `graph?`: [`NodeId`](#nodeid-10); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-10); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-10); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-10); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-10); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-10); `resumeAt`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-10); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-10); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
 
 #### Union Members
 
@@ -36982,7 +37312,7 @@ Bytes of the verified workspace archive.
 
 ##### Type Literal
 
-\{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-10); `graph?`: [`NodeId`](#nodeid-10); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-10); `graph?`: [`NodeId`](#nodeid-10); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -37013,7 +37343,7 @@ The node that drives this edge's graph, when a manager started the graph with `r
 
 ###### edge.kind
 
-> **kind**: `"delegates"` \| `"analyzes"` \| `"data"`
+> **kind**: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"data"`
 
 ###### edge.from
 
@@ -37044,7 +37374,21 @@ The resolved directive reference (`<surface>/v<n>`), never the directive bytes.
 
 ###### outcome
 
-> **outcome**: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`
+> **outcome**: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`
+
+###### map?
+
+> `optional` **map?**: `object`
+
+A maps edge's row: the list's expansion, one item by index, or the join.
+
+###### map.phase
+
+> **phase**: `"expand"` \| `"item"` \| `"join"`
+
+###### map.index?
+
+> `optional` **index?**: `number`
 
 ###### continuity?
 
@@ -39963,7 +40307,7 @@ Fail loud (no silent empty findings):
 
 ##### scope
 
-[`Scope`](#scope-3)\<[`Outcome`](#outcome-2)\<`D`\>\>
+[`Scope`](#scope-3)\<[`Outcome`](#outcome-3)\<`D`\>\>
 
 ##### options
 
@@ -40040,7 +40384,7 @@ readonly `AnalystFinding`[]
 
 ##### settledSoFar
 
-readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
+readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-3)\<`D`\>\>[]
 
 #### Returns
 
@@ -40409,7 +40753,7 @@ unrunnable — refuse it at definition time, not at the first spawn. Pure; no I/
 
 ### runPersonified()
 
-> **runPersonified**\<`Task`, `D`\>(`options`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<[`Outcome`](#outcome-2)\<`D`\>\>\>
+> **runPersonified**\<`Task`, `D`\>(`options`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<[`Outcome`](#outcome-3)\<`D`\>\>\>
 
 **`Stable`**
 
@@ -40437,7 +40781,7 @@ default-shape fallback.
 
 #### Returns
 
-`Promise`\<[`SupervisedResult`](#supervisedresult)\<[`Outcome`](#outcome-2)\<`D`\>\>\>
+`Promise`\<[`SupervisedResult`](#supervisedresult)\<[`Outcome`](#outcome-3)\<`D`\>\>\>
 
 ***
 
@@ -41784,7 +42128,7 @@ by task and repeat, keyed by strategy name. `names` maps node ids to report name
 
 ### depthStrategy()
 
-> **depthStrategy**(`surface`, `task`, `opts`, `cfg`): [`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
+> **depthStrategy**(`surface`, `task`, `opts`, `cfg`): [`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-3)\<`unknown`\>\>
 
 DEPTH: one persistent artifact, carried across analyst-steered shots.
 
@@ -41810,13 +42154,13 @@ DEPTH: one persistent artifact, carried across analyst-steered shots.
 
 #### Returns
 
-[`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
+[`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-3)\<`unknown`\>\>
 
 ***
 
 ### breadthStrategy()
 
-> **breadthStrategy**(`_surface`, `task`, `opts`, `cfg`): [`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
+> **breadthStrategy**(`_surface`, `task`, `opts`, `cfg`): [`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-3)\<`unknown`\>\>
 
 BREADTH: K independent rollouts (each own artifact), verifier picks the best.
 
@@ -41842,7 +42186,7 @@ BREADTH: K independent rollouts (each own artifact), verifier picks the best.
 
 #### Returns
 
-[`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
+[`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-3)\<`unknown`\>\>
 
 ***
 

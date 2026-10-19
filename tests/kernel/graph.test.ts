@@ -57,6 +57,7 @@ import type { MakeWorkerAgent, WorkerSpawnContext } from '../../src/mcp/tools/co
 import {
   type AgentGraph,
   type EdgeTraversal,
+  type GraphEdge,
   GraphEdgeCapError,
   runGraph as productionRunGraph,
   type RunGraphOptions,
@@ -111,6 +112,16 @@ interface LeafOptions {
   fail?: boolean
   /** Settle `done` with an INVALID verdict — a completed worker that delivered nothing usable. */
   invalid?: boolean
+  /** The result, computed from the spawn's task. Default `{ built: <name> }`. */
+  output?: (task: unknown) => unknown
+  /** Settle by throwing for these tasks only. */
+  failOn?: (task: unknown) => boolean
+  /** Hold the execution this long, per task, so concurrent executions overlap. */
+  delayMs?: (task: unknown) => number
+  /** Counts this node's concurrent executions. */
+  running?: { now: number; max: number }
+  /** Each task, in the order its execution finished. */
+  completed?: unknown[]
 }
 
 /** A leaf agent whose PROFILE (what the graph pinned + the directive) is captured for assertion.
@@ -173,14 +184,29 @@ function leafSeam(
           })
         }
         if (gate) await gate
-        if (opts.fail) throw new Error(`${name}: deliberate failure`)
-        artifact = {
-          outRef: `w:${name}`,
-          out: { built: name },
-          verdict: opts.invalid ? { valid: false, score: 0 } : { valid: true, score: 1 },
-          spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
+        const task = context?.task
+        const running = opts.running
+        if (running) {
+          running.now += 1
+          running.max = Math.max(running.max, running.now)
         }
-        return artifact
+        try {
+          const delay = opts.delayMs?.(task) ?? 0
+          if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+          if (opts.fail || opts.failOn?.(task) === true) {
+            throw new Error(`${name}: deliberate failure`)
+          }
+          artifact = {
+            outRef: `w:${name}`,
+            out: opts.output ? opts.output(task) : { built: name },
+            verdict: opts.invalid ? { valid: false, score: 0 } : { valid: true, score: 1 },
+            spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
+          }
+          opts.completed?.push(task)
+          return artifact
+        } finally {
+          if (running) running.now -= 1
+        }
       },
       teardown: () => Promise.resolve({ destroyed: true }),
       resultArtifact: () => {
@@ -2713,6 +2739,489 @@ describe('run_graph — a director runs an agent graph as ONE subtask of its own
     expect(String(smuggled!.reason)).toContain('call run_graph to run a graph')
     const events = (await journal.loadTree('grg-refused')) ?? []
     expect(events.filter((event) => event.kind === 'spawned' && event.parent)).toEqual([])
+  })
+})
+
+describe('runGraph — maps edges (fan-out over a run-time list, then one join)', () => {
+  // The decide loop's shape: one node lists ideas, the runtime delivers each idea on a pinned node,
+  // and a join ranks the deliveries. The list's length is known only when 'ideas' settles.
+  type MapsEdge = Extract<GraphEdge, { kind: 'maps' }>
+  const edgeName = 'maps:ideas->deliver->rank'
+  const ideas = (count: number): string[] => Array.from({ length: count }, (_, i) => `idea-${i}`)
+  const mapGraph = (edge: Partial<MapsEdge> = {}, nodes: AgentGraph['nodes'] = []): AgentGraph => ({
+    nodes: [
+      {
+        id: 'driver',
+        profile: testAgentProfile('driver', {
+          harness: 'cli-base',
+          tools: graphDriverTools,
+          prompt: { systemPrompt: 'Drive.' },
+        }),
+      },
+      {
+        id: 'ideas',
+        profile: testAgentProfile('ideas', { prompt: { systemPrompt: 'List ideas.' } }),
+      },
+      {
+        id: 'deliver',
+        profile: testAgentProfile('deliver', { prompt: { systemPrompt: 'Deliver one idea.' } }),
+      },
+      {
+        id: 'rank',
+        profile: testAgentProfile('rank', { prompt: { systemPrompt: 'Rank the deliveries.' } }),
+      },
+      ...nodes,
+    ],
+    edges: [
+      {
+        kind: 'delegates',
+        from: 'driver',
+        to: 'ideas',
+        directive: promptHandle('delegates/worker-brief/v1'),
+      },
+      {
+        kind: 'maps',
+        from: 'ideas',
+        pointer: '/ideas',
+        to: 'deliver',
+        join: 'rank',
+        directive: promptHandle('delegates/worker-brief/v1'),
+        maxItems: 10,
+        concurrency: 3,
+        onItemFailure: 'all-or-refuse',
+        itemBudget: { maxIterations: 2, maxTokens: 1_000 },
+        ...edge,
+      } as MapsEdge,
+    ],
+    deliverable: { describe: 'the ranked deliveries', check: (out) => out !== undefined },
+    budget: { maxIterations: 100, maxTokens: 100_000 },
+  })
+  // The driver spawns the source and then only waits: every item and the join are the runtime's.
+  const driverTurns: ScriptedTurn[] = [
+    {
+      toolCalls: [
+        { name: 'spawn_worker', arguments: { profile: { name: 'ideas' }, task: 'list ideas' } },
+      ],
+    },
+    { content: 'waiting for the ideas' },
+    { content: 'waiting for the ranking' },
+    { content: 'done' },
+  ]
+  // The brain is handed one growing transcript, so each turn's input is copied as it arrives.
+  const recordingBrain = (
+    turns: ScriptedTurn[],
+    inputs: Array<ReadonlyArray<Record<string, unknown>>>,
+  ): ToolLoopChat => {
+    const brain = scriptedBrain(turns)
+    return (...args) => {
+      inputs.push([...args[0]])
+      return brain(...args)
+    }
+  }
+  const mapRows = (ledger: ReadonlyArray<EdgeTraversal>) =>
+    ledger.filter((row) => row.kind === 'maps')
+  const joinTask = (contexts: ReadonlyArray<WorkerSpawnContext | undefined>) =>
+    contexts.find((context) => context?.map?.role === 'join')?.task as {
+      map: string
+      source: string
+      items: number
+      results: Array<{ index: number; item: unknown; result: unknown }>
+      failures: Array<{ index: number; item: unknown; outcome: string; reason: string }>
+    }
+
+  it('fans a 10-item list out to 10 pinned item runs and joins once, in order, with no driver turn and one pool', async () => {
+    const received: AgentProfile[] = []
+    const contexts: Array<WorkerSpawnContext | undefined> = []
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+    const running = { now: 0, max: 0 }
+    const completed: unknown[] = []
+    const journal = new InMemorySpawnJournal()
+    const res = await runGraph(mapGraph(), {
+      runId: 'gm',
+      journal,
+      wake: { debounceMs: 0 },
+      makeLeafAgent: leafSeam(
+        received,
+        {
+          ideas: { output: () => ({ ideas: ideas(10) }) },
+          // Later items finish first, so completion order is not item order.
+          deliver: {
+            output: (task) => ({ delivered: task }),
+            delayMs: (task) => (10 - Number(String(task).slice('idea-'.length))) * 4,
+            running,
+            completed,
+          },
+          rank: { output: (task) => ({ ranked: (task as { results: unknown[] }).results.length }) },
+        },
+        contexts,
+      ),
+      brain: recordingBrain(driverTurns, seen),
+    })
+    expect(res.result.kind).toBe('winner')
+
+    // (1) Ten item runs of the pinned node, each with its element as the task, then one join.
+    expect(received.map((profile) => profile.name)).toEqual([
+      'ideas',
+      ...Array<string>(10).fill('deliver'),
+      'rank',
+    ])
+    expect(received[1]!.prompt?.systemPrompt).toBe('Deliver one idea.')
+    expect(received[1]!.prompt?.instructions).toContain(delegatesWorkerBriefPrompt.text)
+    const itemContexts = contexts.filter((context) => context?.map?.role === 'item')
+    expect(itemContexts.map((context) => context?.task)).toEqual(ideas(10))
+    expect(itemContexts.map((context) => context?.map)).toEqual(
+      ideas(10).map((_, index) => ({ edge: edgeName, role: 'item', index })),
+    )
+    expect(itemContexts[3]?.label).toBe('deliver#3')
+    // Results arrive in item order although the items finished in another order.
+    expect(completed).not.toEqual(ideas(10))
+    const joined = joinTask(contexts)
+    expect(joined.items).toBe(10)
+    expect(joined.results.map((row) => row.index)).toEqual([...Array(10).keys()])
+    expect(joined.results.map((row) => row.result)).toEqual(
+      ideas(10).map((idea) => ({ delivered: idea })),
+    )
+    expect(joined.failures).toEqual([])
+    // Concurrency throttles: three at a time, never more.
+    expect(running.max).toBe(3)
+
+    // (2) The driver spent four turns, the same as one worker plus one join wake; its only spawn
+    // was the source. It was woken by the source's settlement and then by the join's, never by an
+    // item.
+    expect(seen).toHaveLength(4)
+    expect(wakeEvents(seen[2]!).map((event) => [event.type, event.settled])).toEqual([
+      ['settled', 'gm:s0'],
+    ])
+    expect(wakeEvents(seen[3]!).map((event) => [event.type, event.settled])).toEqual([
+      ['settled', 'gm:s11'],
+    ])
+
+    // The ledger: one expansion, one row per item, one join, each ordinal in sequence.
+    const rows = mapRows(res.ledger)
+    expect(rows.map((row) => [row.map?.phase, row.map?.index, row.outcome])).toEqual([
+      ['expand', undefined, 'delivered'],
+      ...[...completed].map((task) => [
+        'item',
+        Number(String(task).slice('idea-'.length)),
+        'delivered',
+      ]),
+      ['join', undefined, 'delivered'],
+    ])
+    expect(rows.map((row) => row.traversal)).toEqual([...Array(12).keys()].map((i) => i + 1))
+    expect(rows[0]).toMatchObject({
+      edge: edgeName,
+      from: 'ideas',
+      to: 'deliver',
+      workerId: 'gm:s0',
+    })
+    expect(rows.at(-1)).toMatchObject({ from: 'deliver', to: 'rank', workerId: 'gm:s11' })
+    // An item row counts the directive and the element that crossed to the item worker.
+    const itemRow = rows.find((row) => row.map?.index === 0)!
+    expect(itemRow.bytes).toBe(
+      Buffer.byteLength(delegatesWorkerBriefPrompt.text, 'utf8') +
+        Buffer.byteLength('idea-0', 'utf8'),
+    )
+    // The journal twin: the same twelve rows ride the run journal as `edge` events.
+    const events = (await journal.loadTree('gm')) ?? []
+    const edgeEvents = events.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'edge' }> =>
+        event.kind === 'edge' && event.edge.kind === 'maps',
+    )
+    expect(edgeEvents.map((event) => [event.map?.phase, event.map?.index, event.outcome])).toEqual(
+      rows.map((row) => [row.map?.phase, row.map?.index, row.outcome]),
+    )
+
+    // (3) One conserved pool: each item reserved the edge's item budget from it, and every
+    // settled node's spend, the items' included, is the run's spend.
+    const itemSpawns = events.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'spawned' }> =>
+        event.kind === 'spawned' && event.label.startsWith('deliver#'),
+    )
+    expect(itemSpawns).toHaveLength(10)
+    for (const spawn of itemSpawns) {
+      expect(spawn.budget).toMatchObject({ maxIterations: 2, maxTokens: 1_000 })
+    }
+    const settled = events.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'settled' }> => event.kind === 'settled',
+    )
+    const settledInput = settled.reduce((sum, event) => sum + event.spent.tokens.input, 0)
+    if (res.result.kind === 'winner') {
+      expect(res.result.fleetYield).toMatchObject({ spawned: 12, done: 12, down: 0 })
+      expect(res.result.spentTotal.tokens.input).toBe(12 * 5)
+      expect(res.result.spentTotal.tokens.input).toBe(settledInput)
+    }
+  })
+
+  it('settled-subset: a failing item is listed, the join still runs with the delivered results in order', async () => {
+    const contexts: Array<WorkerSpawnContext | undefined> = []
+    const received: AgentProfile[] = []
+    const res = await runGraph(mapGraph({ onItemFailure: 'settled-subset', concurrency: 2 }), {
+      wake: { debounceMs: 0 },
+      makeLeafAgent: leafSeam(
+        received,
+        {
+          ideas: { output: () => ({ ideas: ideas(4) }) },
+          deliver: { output: (task) => ({ delivered: task }), failOn: (task) => task === 'idea-2' },
+          rank: {},
+        },
+        contexts,
+      ),
+      brain: scriptedBrain(driverTurns),
+    })
+    expect(res.result.kind).toBe('winner')
+    const joined = joinTask(contexts)
+    expect(joined.results.map((row) => row.index)).toEqual([0, 1, 3])
+    expect(joined.failures).toEqual([
+      {
+        index: 2,
+        item: 'idea-2',
+        outcome: 'failed',
+        reason: expect.stringContaining('deliberate'),
+      },
+    ])
+    const rows = mapRows(res.ledger)
+    const items = rows
+      .filter((row) => row.map?.phase === 'item')
+      .sort((a, b) => (a.map?.index ?? 0) - (b.map?.index ?? 0))
+    expect(items.map((row) => row.outcome)).toEqual([
+      'delivered',
+      'delivered',
+      'failed',
+      'delivered',
+    ])
+    expect(rows.at(-1)).toMatchObject({ map: { phase: 'join' }, outcome: 'delivered' })
+  })
+
+  it('all-or-refuse: a failing item stops the map, the join is refused with the failures, and the driver is woken with it', async () => {
+    const received: AgentProfile[] = []
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+    const res = await runGraph(mapGraph({ onItemFailure: 'all-or-refuse', concurrency: 1 }), {
+      wake: { debounceMs: 0 },
+      makeLeafAgent: leafSeam(received, {
+        ideas: { output: () => ({ ideas: ideas(4) }) },
+        deliver: { output: (task) => ({ delivered: task }), failOn: (task) => task === 'idea-2' },
+        rank: {},
+      }),
+      brain: recordingBrain(driverTurns, seen),
+    })
+    // One at a time: idea-3 never starts once idea-2 failed, and the join never runs.
+    expect(received.map((profile) => profile.name)).toEqual([
+      'ideas',
+      'deliver',
+      'deliver',
+      'deliver',
+    ])
+    const rows = mapRows(res.ledger)
+    expect(rows.map((row) => [row.map?.phase, row.map?.index, row.outcome])).toEqual([
+      ['expand', undefined, 'delivered'],
+      ['item', 0, 'delivered'],
+      ['item', 1, 'delivered'],
+      ['item', 2, 'failed'],
+      ['item', 3, 'unpropagated'],
+      ['join', undefined, 'unpropagated'],
+    ])
+    expect(rows[4]!.reason).toMatch(/not started: all-or-refuse/)
+    expect(rows[5]!.reason).toMatch(/all-or-refuse: 2 of 4 items did not deliver/)
+    expect(rows[5]!.reason).toMatch(/#2 failed/)
+    // No settlement follows a refused join, so the refusal itself wakes the driver.
+    expect(wakeEvents(seen[3]!)).toEqual([
+      expect.objectContaining({ type: 'map', phase: 'join', outcome: 'unpropagated' }),
+    ])
+  })
+
+  it('refuses a list over maxItems before any item runs, with a ledger row and a driver wake', async () => {
+    const received: AgentProfile[] = []
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+    const journal = new InMemorySpawnJournal()
+    const res = await runGraph(mapGraph({ maxItems: 5 }), {
+      runId: 'gmx',
+      journal,
+      wake: { debounceMs: 0 },
+      makeLeafAgent: leafSeam(received, { ideas: { output: () => ({ ideas: ideas(10) }) } }),
+      brain: recordingBrain(
+        [driverTurns[0]!, driverTurns[1]!, { content: 'the map was refused' }],
+        seen,
+      ),
+    })
+    expect(received.map((profile) => profile.name)).toEqual(['ideas'])
+    const rows = mapRows(res.ledger)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      map: { phase: 'expand' },
+      outcome: 'unpropagated',
+      workerId: 'gmx:s0',
+      reason: expect.stringMatching(/max-items-exceeded: the list holds 10 items .* at most 5/),
+    })
+    expect(wakeEvents(seen[2]!).map((event) => event.type)).toEqual(['settled', 'map'])
+    const edgeEvents = ((await journal.loadTree('gmx')) ?? []).filter(
+      (event) => event.kind === 'edge' && event.edge.kind === 'maps',
+    )
+    expect(edgeEvents).toEqual([
+      expect.objectContaining({ outcome: 'unpropagated', map: { phase: 'expand' } }),
+    ])
+  })
+
+  it('refuses a concurrency the run can never honor, with a ledger row; a non-array list is refused too', async () => {
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+    const res = await runGraph(mapGraph({ concurrency: 3 }), {
+      wake: { debounceMs: 0 },
+      workerSlots: 2,
+      makeLeafAgent: leafSeam([], { ideas: { output: () => ({ ideas: ideas(3) }) } }),
+      brain: recordingBrain(
+        [driverTurns[0]!, driverTurns[1]!, { content: 'the map was refused' }],
+        seen,
+      ),
+    })
+    expect(mapRows(res.ledger)).toEqual([
+      expect.objectContaining({
+        outcome: 'unpropagated',
+        reason: expect.stringMatching(
+          /concurrency-unsatisfiable: concurrency 3 exceeds this run's 2 worker slots/,
+        ),
+      }),
+    ])
+    expect(wakeEvents(seen[2]!).map((event) => event.type)).toEqual(['settled', 'map'])
+
+    const notAList = await runGraph(mapGraph(), {
+      wake: { debounceMs: 0 },
+      makeLeafAgent: leafSeam([], { ideas: { output: () => ({ ideas: 'one idea' }) } }),
+      brain: scriptedBrain([driverTurns[0]!, driverTurns[1]!, { content: 'refused' }]),
+    })
+    expect(mapRows(notAList.ledger)).toEqual([
+      expect.objectContaining({
+        outcome: 'unpropagated',
+        reason: expect.stringMatching(/resolves to string, not an array/),
+      }),
+    ])
+  })
+
+  it('runs a nested-graph item through the run_graph path, as one subtree of the same pool', async () => {
+    const received: AgentProfile[] = []
+    const contexts: Array<WorkerSpawnContext | undefined> = []
+    const journal = new InMemorySpawnJournal()
+    // The item graph as a model writes it: plain data, directives as `<surface>/v<n>` strings.
+    const itemGraph = {
+      nodes: [
+        {
+          id: 'lead',
+          profile: testAgentProfile('lead', {
+            harness: 'cli-base',
+            tools: runtimeToolDeclarations('spawn_worker'),
+            prompt: { systemPrompt: 'Solve the idea through your solver.' },
+          }),
+        },
+        {
+          id: 'solver',
+          profile: testAgentProfile('solver', { prompt: { systemPrompt: 'Solve.' } }),
+        },
+      ],
+      edges: [
+        { kind: 'delegates', from: 'lead', to: 'solver', directive: 'delegates/worker-brief/v1' },
+      ],
+    } as unknown as MapsEdge['graph']
+    const graph = mapGraph({ to: undefined, graph: itemGraph })
+    const res = await runGraph(
+      { ...graph, nodes: graph.nodes.filter((node) => node.id !== 'deliver') },
+      {
+        runId: 'gmg',
+        journal,
+        wake: { debounceMs: 0 },
+        makeLeafAgent: leafSeam(
+          received,
+          { ideas: { output: () => ({ ideas: ideas(1) }) }, solver: {}, rank: {} },
+          contexts,
+        ),
+        // The item graph's root is a nested manager on the router transport.
+        router: {
+          routerBaseUrl: 'http://injected.invalid/v1',
+          routerKey: 'injected-transport',
+          complete: (() => {
+            const turns: ScriptedTurn[] = [
+              {
+                toolCalls: [
+                  {
+                    name: 'spawn_worker',
+                    arguments: { profile: { name: 'solver' }, task: 'solve it' },
+                  },
+                ],
+              },
+              { content: 'waiting for the solver' },
+              { content: 'done' },
+            ]
+            let turn = 0
+            return async (): Promise<unknown> => {
+              const decision = turns[Math.min(turn, turns.length - 1)]!
+              turn += 1
+              return {
+                model: 'offline-test-model',
+                choices: [
+                  {
+                    message: {
+                      ...(decision.content !== undefined ? { content: decision.content } : {}),
+                      ...(decision.toolCalls
+                        ? {
+                            tool_calls: decision.toolCalls.map((tc, j) => ({
+                              id: `lead-${turn}-${j}`,
+                              function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+                            })),
+                          }
+                        : {}),
+                    },
+                  },
+                ],
+                usage: { prompt_tokens: 7, completion_tokens: 3 },
+              }
+            }
+          })(),
+        },
+        brain: scriptedBrain(driverTurns),
+      },
+    )
+    expect(res.result.kind).toBe('winner')
+    // The item's root ran as a nested manager; the leaf seam saw only its solver.
+    expect(received.map((profile) => profile.name)).toEqual(['ideas', 'solver', 'rank'])
+    const rows = mapRows(res.ledger)
+    expect(rows.map((row) => [row.map?.phase, row.outcome, row.to])).toEqual([
+      ['expand', 'delivered', 'lead'],
+      ['item', 'delivered', 'lead'],
+      ['join', 'delivered', 'rank'],
+    ])
+    const itemWorker = rows[1]!.workerId!
+    // The item's result is a run_graph subtask's: the item graph's deliverable and its ledger.
+    const joined = joinTask(contexts)
+    expect(joined.results).toEqual([
+      {
+        index: 0,
+        item: 'idea-0',
+        result: {
+          deliverable: { built: 'solver' },
+          edges: [
+            expect.objectContaining({ edge: 'delegates:lead->solver', outcome: 'delivered' }),
+          ],
+        },
+      },
+    ])
+    // Its edge events land in the run journal naming the item worker as their graph.
+    const events = (await journal.loadTree('gmg')) ?? []
+    const inner = events.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'edge' }> =>
+        event.kind === 'edge' && event.edge.kind === 'delegates' && event.edge.to === 'solver',
+    )
+    expect(inner).toEqual([expect.objectContaining({ graph: itemWorker, outcome: 'delivered' })])
+  })
+
+  it('refuses a malformed maps edge before any compute', () => {
+    const brain = scriptedBrain([])
+    const seam = leafSeam([])
+    const refused = (edge: Partial<MapsEdge>, nodes?: AgentGraph['nodes']) => () =>
+      runGraph(mapGraph(edge, nodes), { makeLeafAgent: seam, brain })
+    expect(refused({ concurrency: 0 })).toThrow(/concurrency 0 — it needs a positive integer/)
+    expect(refused({ maxItems: 1.5 })).toThrow(/maxItems as a positive integer/)
+    expect(refused({ pointer: 'ideas' })).toThrow(/a JSON pointer is '' or starts with '\//)
+    expect(refused({ to: undefined })).toThrow(/exactly one of to .* or graph/)
+    expect(refused({ from: 'driver' })).toThrow(/never settles as a worker/)
+    expect(refused({ to: 'ideas' })).toThrow(/names node 'ideas', which the graph already reaches/)
+    expect(refused({ onItemFailure: 'best-effort' as never })).toThrow(/onItemFailure/)
   })
 })
 

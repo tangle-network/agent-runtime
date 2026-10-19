@@ -34,6 +34,7 @@ import type {
   GraphSubtasks,
   MakeWorkerAgent,
   ManagerWake,
+  MapOnSettleRoute,
   PeerAuditAccess,
   SpawnPreflight,
   SuperviseProfileEntry,
@@ -632,6 +633,8 @@ export interface SupervisorAgentDeps {
   /** Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
    *  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
+  /** Maps expanded when their source worker settles (both arms). Omit = none. */
+  readonly mapOnSettle?: ReadonlyArray<MapOnSettleRoute>
   /** Trusted source refs for this manager’s existing observe_agent capability. */
   readonly sourceEvidenceRefs?: ReadonlyArray<string>
   readonly peerAudit?: PeerAuditAccess
@@ -982,6 +985,7 @@ function buildSupervisorAgent(
         ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
         ...(deps.analysts ? { analysts: deps.analysts } : {}),
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
+        ...(deps.mapOnSettle ? { mapOnSettle: deps.mapOnSettle } : {}),
         ...(deps.sourceEvidenceRefs ? { sourceEvidenceRefs: deps.sourceEvidenceRefs } : {}),
         ...(deps.peerAudit ? { peerAudit: deps.peerAudit } : {}),
         ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
@@ -1175,6 +1179,7 @@ function buildSupervisorAgent(
           },
           ...(deps.analysts ? { analysts: deps.analysts } : {}),
           ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
+          ...(deps.mapOnSettle ? { mapOnSettle: deps.mapOnSettle } : {}),
           ...(deps.sourceEvidenceRefs ? { sourceEvidenceRefs: deps.sourceEvidenceRefs } : {}),
           ...(deps.peerAudit ? { peerAudit: deps.peerAudit } : {}),
           ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
@@ -1581,6 +1586,7 @@ function buildSupervisorAgent(
                 try {
                   const wake = await controls.awaitWake({
                     attempt: nextAttempt,
+                    quietWhileProgressing: true,
                     // A stop (accepted result, stop rule, the manager's own stop) ends the wait too.
                     signal: AbortSignal.any([scope.signal, stopController.signal]),
                     heartbeatMs: wakePolicy.heartbeatMs,
