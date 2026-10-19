@@ -3017,7 +3017,8 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     if (result.kind === 'no-winner') {
       expect(result.reason).toBe('budget-exhausted')
     }
-    expect(attempts.at(-1)?.error).toContain('supervisor budget exhausted')
+    // The over-budget turn ends the drive at its boundary instead of being thrown away.
+    expect(attempts.at(-1)?.error).toBeUndefined()
     const events = (await journal.loadTree(runId)) ?? []
     expect(events.find((event) => event.kind === 'materialized')).toMatchObject({
       id: runId,
@@ -3028,6 +3029,64 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         model: { status: 'known', id: 'codex/openai/test' },
       },
     })
+  })
+
+  it("keeps a worker's turn that ran past its token budget, and names the overspend to its manager", async () => {
+    // queens21-h22-capture-root-2-20261019c: workers capped at 42,000 tokens metered 7.3M-13.2M in
+    // one turn, then 'supervisor budget exhausted' discarded the turn's result.
+    const requests: BridgeRequest[] = []
+    const events: SpawnEvent[] = []
+    const firstTurn = firstTurnOf()
+    server = createBridgeServer(async (req, res) => {
+      const body = await readJson(req)
+      requests.push(body)
+      const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
+      if (body.agent_profile.name === 'root' && coordination?.url && firstTurn('root')) {
+        await callCoordination(coordination.url, 'spawn_worker', {
+          profile: codexTestProfile('capped', 'Count.', ['submit_result']),
+          task: 'Count the solutions.',
+          key: 'count',
+          budget: { maxTokens: 42_000 },
+        })
+        respondWithBridgeStream(res, body, successStream('spawned the counter'))
+        return
+      }
+      if (body.agent_profile.name === 'capped') {
+        respondWithBridgeStream(res, body, overBudgetSubmissionStream())
+        return
+      }
+      respondWithBridgeStream(res, body, successStream('read the counter'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    await supervise(codexTestProfile('root', 'Lead.', ['spawn_worker', 'submit_result']), 'Lead.', {
+      backend: { backend: 'bridge', bridgeUrl: `http://127.0.0.1:${port}`, bridgeBearer: 'test' },
+      budget: { maxIterations: 10, maxTokens: 2_000_000 },
+      perWorker: { maxIterations: 4, maxTokens: 42_000 },
+      deliverable: { describe: 'never met', check: () => false },
+      continuation: testContinuation({ deadline: 1 }),
+      driverRetry: { enabled: false },
+      journal: recordingJournal(events),
+      runId: 'over-budget-worker-keeps-turn',
+    })
+    const settled = events.find(
+      (event): event is Extract<SpawnEvent, { kind: 'settled' }> =>
+        event.kind === 'settled' && event.id.endsWith(':s0'),
+    )
+    // The committed result is kept; budgetViolation marks it as budget-stopped work for readers.
+    expect(settled).toMatchObject({ status: 'done' })
+    expect(settled?.outRef).toBeDefined()
+    expect(settled?.budgetViolation?.overspent).toContainEqual(
+      expect.objectContaining({ channel: 'tokens', reserved: 42_000, spent: 235_857 }),
+    )
+    // The manager's wake names the channel and both numbers.
+    const wakes = requests
+      .filter((request) => request.agent_profile.name === 'root')
+      .slice(1)
+      .flatMap((request) => request.messages.map((message) => message.content))
+    expect(wakes.join('\n')).toContain(
+      '"budgetViolation":{"overspent":[{"channel":"tokens","reserved":42000,"spent":235857}]},"budgetStop":"tokens 235,857 of 42,000"',
+    )
   })
 
   it('retries a mid-stream harness death, which is transport and not a refusal', async () => {

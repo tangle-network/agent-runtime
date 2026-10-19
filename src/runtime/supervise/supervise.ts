@@ -749,6 +749,29 @@ const routerSupervisorProfileMaterialization = defineProfileMaterializationContr
 })
 
 /**
+ * Which of a driver's budget channels are spent, with their numbers, or `undefined` while none is.
+ * The bare 'supervisor budget exhausted' named no channel: on queens21-h22-capture-root-2-20261019c
+ * workers capped at 42,000 tokens metered 7,324,356 to 13,190,478 in one turn, and nothing said so.
+ */
+function exhaustedBudgetChannels(
+  budget: Scope<unknown>['budget'],
+  nowMs: number,
+): string | undefined {
+  const spent: string[] = []
+  if (budget.tokensLeft <= 0) spent.push(`tokens: ${-budget.tokensLeft} over the cap`)
+  if (budget.usdCapped && budget.usdLeft <= 0)
+    spent.push(`usd: ${(-budget.usdLeft).toFixed(4)} over the cap`)
+  for (const [name, resource] of Object.entries(budget.resources ?? {})) {
+    if (!resource.known) spent.push(`resource ${name}: unmetered`)
+    else if (resource.remaining <= 0)
+      spent.push(`resource ${name}: ${-resource.remaining} ${resource.unit} over the cap`)
+  }
+  if (budget.deadlineMs > 0 && nowMs >= budget.deadlineMs)
+    spent.push(`deadline: passed ${Math.round((nowMs - budget.deadlineMs) / 1000)} s ago`)
+  return spent.length === 0 ? undefined : spent.join('; ')
+}
+
+/**
  * The pre-flight `supervise` installs for a bridge backend. No new knob: the backend already says
  * where the bridge is, and these are the questions only the bridge can answer.
  *
@@ -1274,17 +1297,15 @@ function driveHarnessFromBackend(
     }
     const initialBudget = scope.budget
     const hasLiveCoordination = scope.view.inFlight > 0
-    if (
-      !hasLiveCoordination &&
-      (initialBudget.tokensLeft <= 0 ||
-        initialBudget.iterationsLeft <= 0 ||
-        (initialBudget.usdCapped && initialBudget.usdLeft <= 0) ||
-        Object.values(initialBudget.resources ?? {}).some(
-          (resource) => !resource.known || resource.remaining <= 0,
-        ) ||
-        (initialBudget.deadlineMs > 0 && now() >= initialBudget.deadlineMs))
-    ) {
-      throw new ValidationError('driveHarnessFromBackend: supervisor budget exhausted')
+    if (!hasLiveCoordination) {
+      const spent = [
+        exhaustedBudgetChannels(initialBudget, now()),
+        initialBudget.iterationsLeft <= 0 ? 'iterations: none left' : undefined,
+      ]
+        .filter((channel) => channel !== undefined)
+        .join('; ')
+      if (spent !== '')
+        throw new ValidationError(`driveHarnessFromBackend: supervisor budget exhausted (${spent})`)
     }
     // `supervise` passes a canonical profile plus its provider projection. Parse both at this
     // boundary and prove the projection still matches the exact descriptors mounted for this turn.
@@ -1327,12 +1348,14 @@ function driveHarnessFromBackend(
     // loop, so the only honest bound is "stop at the next turn boundary". Composing the two
     // signals keeps one lever rather than a second stop path.
     const turnStop = turnCap > 0 ? new AbortController() : undefined
-    const effectiveStopSignal =
-      turnStop === undefined
-        ? stopSignal
-        : stopSignal === undefined
-          ? turnStop.signal
-          : AbortSignal.any([stopSignal, turnStop.signal])
+    // A metered turn found past its budget ends the drive at the turn boundary, on the same lever,
+    // and the turn's committed result stands.
+    const budgetStop = new AbortController()
+    const effectiveStopSignal = AbortSignal.any(
+      [stopSignal, turnStop?.signal, budgetStop.signal].filter(
+        (signal): signal is AbortSignal => signal !== undefined,
+      ),
+    )
     // The harness is asked for a 300 s tool-call timeout so a fenced tool can hold its response
     // longer than the 60 s harness default; a sidecar that applies it says so on each request.
     const peerMailAttachment = peerMailRuntimeAttachment(authoredProfile, boundBackend, {
@@ -1539,6 +1562,11 @@ function driveHarnessFromBackend(
       teardownStarted = true
       await teardownExecutor(executor, grace, deadlineAtMs, now)
     }
+    // A turn that completed and is found past its budget ends the drive at the turn boundary
+    // (`budgetStop`); its committed result stands, and the scope records the overspend on the
+    // node, which the manager's wake names. Throwing here discarded a turn that had already run and
+    // been paid for: the Lab's limits audit counted 28 worker turns (26.77 turn-hours) metered,
+    // found over their cap or deadline, and thrown away, e.g. on queens21-h22-capture-root-2-20261019c.
     const meterPending = async (forceUnknown = false) => {
       if (pendingUsage.length === 0) return
       // A forceful steer can finish one preflight attempt before the resumed turn produces usage.
@@ -1580,17 +1608,9 @@ function driveHarnessFromBackend(
       // The check stops a driver that would run on past its budget or deadline. A stopped manager
       // is already ending this turn, and throwing here would discard the result it committed.
       if (effectiveStopSignal?.aborted === true) return
-      const budget = scope.budget
-      if (
-        budget.tokensLeft <= 0 ||
-        (budget.usdCapped && budget.usdLeft <= 0) ||
-        Object.values(budget.resources ?? {}).some(
-          (resource) => !resource.known || resource.remaining <= 0,
-        ) ||
-        (budget.deadlineMs > 0 && now() >= budget.deadlineMs)
-      ) {
-        throw new ValidationError('driveHarnessFromBackend: supervisor budget exhausted')
-      }
+      const spent = exhaustedBudgetChannels(scope.budget, now())
+      if (spent === undefined) return
+      budgetStop.abort(`supervise: budget exhausted (${spent})`)
     }
 
     const pending = runtimeOwnedPendingExecutorMaterialization(executor)

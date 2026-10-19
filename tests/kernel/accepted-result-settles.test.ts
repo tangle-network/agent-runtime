@@ -251,7 +251,11 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
         await gate
       const captured = await completeCapture(captureContext, artifacts)
       note('capture-finished', environmentId)
-      return captured
+      // The port's own stage split, as the Lab reports it; a non-number entry is dropped.
+      return {
+        ...captured,
+        stages: { exportMs: 12, archiveStoreMs: 3, offloadMs: 5, label: 'x' } as never,
+      }
     },
     async captureNative(captureContext) {
       if (
@@ -365,7 +369,7 @@ function lastMomentOf(moments: readonly Moment[], what: Moment['what'], role: Ro
 }
 
 describe('an accepted submit_result settles its node', () => {
-  it('settles a retained director before its slow final native copy, then captures before release', async () => {
+  it('settles a retained director before its slow final native copy, and captures beside it', async () => {
     const tree = await acceptedTree('accepted-before-native', { gateDirectorNative: true })
     try {
       await expect
@@ -391,12 +395,23 @@ describe('an accepted submit_result settles its node', () => {
           (moment) => moment.role === 'director' && moment.what === 'native-finished',
         ),
       ).toBe(false)
+      // The workspace capture does not wait for the final copy: on canary
+      // test-acceptance-canary-20261019o it started 59-66 s after the turn's result, behind it.
+      await expect
+        .poll(
+          () =>
+            tree.moments.some(
+              (moment) => moment.role === 'director' && moment.what === 'capture-started',
+            ),
+          { timeout: 5_000, interval: 50 },
+        )
+        .toBe(true)
     } finally {
       tree.openGate()
       await tree.settling
     }
-    expect(momentOf(tree.moments, 'native-finished', 'director')).toBeLessThanOrEqual(
-      momentOf(tree.moments, 'capture-started', 'director'),
+    expect(momentOf(tree.moments, 'capture-started', 'director')).toBeLessThan(
+      momentOf(tree.moments, 'native-finished', 'director'),
     )
     expect(momentOf(tree.moments, 'capture-finished', 'director')).toBeLessThanOrEqual(
       momentOf(tree.moments, 'destroyed', 'director'),
@@ -485,6 +500,7 @@ describe('an accepted submit_result settles its node', () => {
         queuedMs: expect.any(Number),
         captureMs: expect.any(Number),
         archiveBytes: expect.any(Number),
+        stages: { exportMs: 12, archiveStoreMs: 3, offloadMs: 5 },
       }),
     ])
     expect(timings[0]!.archiveBytes).toBeGreaterThan(0)

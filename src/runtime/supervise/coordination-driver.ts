@@ -35,6 +35,7 @@ import {
   type AnalystRegistry,
   type AnalyzeOnSettleRoute,
   type AuthorizeDownMessage,
+  budgetOverspendText,
   type ChildQuestionInbox,
   type ContinuityMode,
   type CoordinationEvent,
@@ -351,17 +352,21 @@ function formatRosterNode(node: NodeSnapshot, settled?: SettledWorker): string {
         : node.outRef
           ? `, outRef=${node.outRef}`
           : ''
-  const overspend = formatOverspend(settled?.budgetViolation ?? node.budgetViolation)
-  return `- ${node.id}: ${node.status}, label=${node.label}, runtime=${node.runtime}${result}${overspend}`
+  const violation = settled?.budgetViolation ?? node.budgetViolation
+  // A worker that settled done past its budget is stopped work, not finished work: say so where
+  // the status is read.
+  const status =
+    node.status === 'done' && violation !== undefined
+      ? `done (${budgetStopClause(violation)})`
+      : node.status
+  const overspend =
+    node.status === 'done' || violation === undefined ? '' : `, ${budgetStopClause(violation)}`
+  return `- ${node.id}: ${status}, label=${node.label}, runtime=${node.runtime}${result}${overspend}`
 }
 
-/** One roster clause naming each channel a settled worker spent beyond its reservation. */
-function formatOverspend(violation: BudgetViolation | undefined): string {
-  if (violation === undefined) return ''
-  const channels = violation.overspent.map(
-    (entry) => `${entry.channel} ${entry.spent} > reserved ${entry.reserved}`,
-  )
-  return `, overspent=${channels.join('; ')}`
+/** `budget stop: tokens 235,857 of 42,000`: the roster's name for a budget overspend. */
+function budgetStopClause(violation: BudgetViolation): string {
+  return `budget stop: ${budgetOverspendText(violation)}`
 }
 
 /** Spawn-progress is impossible: the pool can't afford another worker AND nothing is in flight to
@@ -1522,12 +1527,15 @@ function resumeBrief(
   if (resume.settled.length === 0) lines.push('- none')
   for (const s of resume.settled) {
     lines.push(
-      (s.kind === 'done'
-        ? `- ${s.handle.id} (${s.handle.label}): done, score=${s.verdict?.score ?? 0}, valid=${
-            s.verdict?.valid ?? false
-          }, outRef=${s.outRef}`
-        : `- ${s.handle.id} (${s.handle.label}): down, reason=${s.reason}`) +
-        formatOverspend(s.budgetViolation),
+      s.kind === 'done'
+        ? `- ${s.handle.id} (${s.handle.label}): ${
+            s.budgetViolation === undefined
+              ? 'done'
+              : `done (${budgetStopClause(s.budgetViolation)})`
+          }, score=${s.verdict?.score ?? 0}, valid=${s.verdict?.valid ?? false}, outRef=${s.outRef}`
+        : `- ${s.handle.id} (${s.handle.label}): down, reason=${s.reason}${
+            s.budgetViolation === undefined ? '' : `, ${budgetStopClause(s.budgetViolation)}`
+          }`,
     )
   }
   const byState = (state: 'completed' | 'in-doubt' | 'down') =>

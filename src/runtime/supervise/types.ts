@@ -2026,6 +2026,8 @@ export type SpawnEvent =
       archiveBytes?: number
       outcome: 'captured' | 'failed'
       error?: string
+      /** The capture port's own split of `captureMs`, in its names and units (ms, bytes). */
+      stages?: Readonly<Record<string, number>>
       seq: number
       at: string
     }
@@ -2527,7 +2529,9 @@ export interface FleetYield {
  * `resource:<name>` entry is in the unit that resource's budget declares.
  */
 export interface BudgetOverspend {
-  readonly channel: SpendChannel | 'iterations'
+  /** `deadline` is a child that settled after its time box: `reserved` is the time it was given
+   *  and `spent` the time it took, both in ms. */
+  readonly channel: SpendChannel | 'iterations' | 'deadline'
   readonly reserved: number
   readonly spent: number
 }

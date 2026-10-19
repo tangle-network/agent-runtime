@@ -518,13 +518,13 @@ describe('retained workspace capture across a real process kill', () => {
       })
     },
   )
-  it('recovers after death in the deferred final native copy before workspace capture even starts', {
+  // The final native copy runs beside the workspace capture, so death in the copy can
+  // land before or after capture-started; either way nothing was settled.
+  it('recovers after death in the final native copy that runs beside workspace capture', {
     timeout: 60_000,
   }, async () => {
     const directory = await killedRun('kill-native')
-    expect((await moments(directory)).some((moment) => moment.what === 'capture-started')).toBe(
-      false,
-    )
+    expect((await moments(directory)).some((moment) => moment.what === 'native-started')).toBe(true)
     expect(
       (await eventsIn(directory)).filter((event) => event.kind === 'execution-evidence'),
     ).toHaveLength(0)

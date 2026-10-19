@@ -828,7 +828,8 @@ function createProviderExecutor(
             environmentId: next.id,
           })
           .catch(() => undefined) ?? Promise.resolve()
-      workspaceCapturePromise = Promise.all([nativeInFlight, liveInFlight])
+      // A turn's final session copy runs beside this capture, which holds the session too.
+      workspaceCapturePromise = Promise.all([nativeRunningInFlight, liveInFlight])
         .then(() =>
           captureProviderWorkspaceSnapshot(
             workspaceRetention,
@@ -926,6 +927,11 @@ function createProviderExecutor(
   const nativePort =
     options.workspaceRetention?.captureNative === undefined ? undefined : options.workspaceRetention
   let nativeInFlight: Promise<void> | undefined
+  // The periodic ('running') copy in flight and its stop. A turn's end cuts it short, as the live
+  // mirror's: on Discovery canary test-acceptance-canary-20261019o (Runtime 0.332.2) the copy in
+  // flight at a turn's end ran on for 47 s, and the workspace capture waited for it.
+  let nativeRunningInFlight: Promise<void> | undefined
+  let nativeRunningStop: AbortController | undefined
   let nativeTimer: ReturnType<typeof setTimeout> | undefined
   // Provider events seen, and the count the last stored copy saw: a running copy of a session that
   // received nothing since is skipped. The last copy's duration paces the next one.
@@ -1012,6 +1018,8 @@ function createProviderExecutor(
     nativeTimer = undefined
     closeNativeMirror?.()
     closeNativeMirror = undefined
+    nativeRunningStop?.abort(new Error('native session copy stopped: its turn ended'))
+    nativeRunningStop = undefined
     await nativeInFlight
   }
   const captureNative = (
@@ -1023,7 +1031,10 @@ function createProviderExecutor(
   ): Promise<void> => {
     if (nativePort === undefined || createProfile.harness === undefined) return Promise.resolve()
     const harness = createProfile.harness
+    const stop = phase === 'running' ? new AbortController() : undefined
+    if (stop !== undefined) nativeRunningStop = stop
     const run = (nativeInFlight ?? Promise.resolve()).then(async () => {
+      stop?.signal.throwIfAborted()
       // Without an admitted reference or a session id the provider attributes the copy by this
       // execution's id, which it records as the stream starts; a one-shot turn has neither.
       const controlRef = workspaceControlRef ?? admitted
@@ -1048,6 +1059,8 @@ function createProviderExecutor(
               phase,
             },
             'native',
+            undefined,
+            stop?.signal,
           )
         let captured = await takeCopy()
         // A provider confirms a stop as soon as the process is gone and records how the execution
@@ -1091,6 +1104,8 @@ function createProviderExecutor(
         nativeHoldsTranscript = true
         nativeEventsAtCopy = eventsAtStart
       } catch (error) {
+        // A copy its turn's end cut short failed nothing: the final copy follows it.
+        if (stop?.signal.aborted) return
         // A failed copy keeps the previous one. The final copy at the end of the turn, or the
         // settled workspace capture, is the next chance; the transcript names what was kept.
         noteCaptureFailure(error)
@@ -1098,10 +1113,15 @@ function createProviderExecutor(
         lastNativeCopyMs = Date.now() - copyStartedAt
       }
     })
-    const tracked = run.finally(() => {
-      if (nativeInFlight === tracked) nativeInFlight = undefined
-    })
+    const tracked = run
+      .catch(() => undefined)
+      .finally(() => {
+        if (nativeInFlight === tracked) nativeInFlight = undefined
+        if (nativeRunningInFlight === tracked) nativeRunningInFlight = undefined
+        if (nativeRunningStop === stop) nativeRunningStop = undefined
+      })
     nativeInFlight = tracked
+    if (stop !== undefined) nativeRunningInFlight = tracked
     return tracked
   }
   const startNativeMirror = (next: AgentEnvironment): void => {
@@ -2032,16 +2052,25 @@ async function* streamProviderExecutor(
   ): void => {
     args.retention?.onEndOfTurnWork?.(
       (async () => {
-        // The final native copy must precede the workspace capture, but neither copy holds the
-        // completed turn open. The retained owner waits for this work before reuse or release.
-        // A native copy is best-effort evidence; its failure must still leave the workspace
-        // capture a chance to retain the session before the owner reuses or releases it.
+        // The final native copy runs beside the workspace capture, which holds the session too and
+        // replaces the copy as the transcript when it settles. Neither holds the completed turn
+        // open; the retained owner waits for this work before reuse or release. On canary
+        // test-acceptance-canary-20261019o (Runtime 0.332.2) the copy ran first, for 17.8 s, and the
+        // workspace capture started 59-66 s after the turn's result. A native copy is best-effort
+        // evidence: its failure leaves the workspace capture as the owner's retention boundary.
+        const finalCopy = (async () => {
+          try {
+            await beforeCapture?.()
+          } catch {
+            // The workspace receipt remains the owner's retention boundary.
+          }
+        })()
+        let snapshot: Awaited<ReturnType<typeof args.captureWorkspace>>
         try {
-          await beforeCapture?.()
-        } catch {
-          // The workspace receipt remains the owner's retention boundary.
+          snapshot = await args.captureWorkspace(environment, captureOutcome)
+        } finally {
+          await finalCopy
         }
-        const snapshot = await args.captureWorkspace(environment, captureOutcome)
         if (publish) args.onPublishedSnapshot(snapshot)
         if (snapshot === undefined) return
         await args.retention?.onEvidence?.({

@@ -1821,6 +1821,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         budgetGranted,
         permit.ready,
         recovery?.continuation?.priorSpent,
+        startedAt,
       )
       // `runChild` owns the ticket from here: only the child's settlement closes it, so a leak
       // found at the join barrier points at a child that never settled rather than at admission.
@@ -3639,6 +3640,7 @@ async function runChild<C>(
   budgetReady: Promise<void> | undefined = undefined,
   slotReady: Promise<void> = Promise.resolve(),
   priorSpent?: Spend,
+  startedAt?: number,
 ): Promise<PreSeqSettled> {
   if (priorSpent !== undefined) live.spent = detachedSnapshot(priorSpent, 'prior committed usage')
   let reconciled = false
@@ -3724,6 +3726,20 @@ async function runChild<C>(
       // An overspend is recorded, not thrown: the pool has committed the true spend, and a
       // child that completed keeps its artifact. A fault still throws, carrying any overspend.
       live.budgetViolation = pool.reconcile(ticket, spend)
+      // A child that settled past its time box names it the same way, as time given and taken.
+      const settledAt = now()
+      if (deadlineAtMs !== undefined && startedAt !== undefined && settledAt > deadlineAtMs) {
+        live.budgetViolation = {
+          overspent: [
+            ...(live.budgetViolation?.overspent ?? []),
+            {
+              channel: 'deadline',
+              reserved: deadlineAtMs - startedAt,
+              spent: settledAt - startedAt,
+            },
+          ],
+        }
+      }
       return undefined
     } catch (error) {
       if (error instanceof BudgetReconcileFault) live.budgetViolation = error.budgetViolation
