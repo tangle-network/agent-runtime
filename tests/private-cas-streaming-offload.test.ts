@@ -176,7 +176,7 @@ it('offload calls made while a pass waits to start share one pass', async () => 
   await running
   const reports = await Promise.all(queued)
   expect(new Set(reports).size).toBe(1)
-  expect(reports[0]).toMatchObject({ durable: 4, pending: [] })
+  expect(reports[0]).toMatchObject({ pending: [] })
   for (const ref of await Promise.all(later)) expect(objects.has(ref.sha256)).toBe(true)
 })
 

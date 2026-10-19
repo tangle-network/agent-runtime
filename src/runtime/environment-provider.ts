@@ -822,10 +822,12 @@ function createProviderExecutor(
       // Journaled before the capture waits for anything, so a reader sees it in flight; its
       // timing record is written after this one.
       const started =
-        retention?.onWorkspaceCaptureStarted?.({
-          executionId: capturedExecutionId,
-          environmentId: next.id,
-        }).catch(() => undefined) ?? Promise.resolve()
+        retention
+          ?.onWorkspaceCaptureStarted?.({
+            executionId: capturedExecutionId,
+            environmentId: next.id,
+          })
+          .catch(() => undefined) ?? Promise.resolve()
       workspaceCapturePromise = Promise.all([nativeInFlight, liveInFlight])
         .then(() =>
           captureProviderWorkspaceSnapshot(
