@@ -223,12 +223,15 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
       onWorkspaceCapture: (capture) => ownerCaptureWriter(state).onWorkspaceCapture(capture),
       // The turn's own capture goes first: it cuts short the captures a checkpoint rotation runs.
       onWorkspaceCaptureStarted: (capture) => {
-        state.rotationCaptures?.abort(
-          new Error("the turn's workspace capture started first; checkpoint kept"),
-        )
+        preemptRotationCaptures(state)
         return ownerCaptureWriter(state).onWorkspaceCaptureStarted(capture)
       },
       onEndOfTurnWork: (work) => {
+        // The handed-over work starts with the turn's final session copy, before its workspace
+        // capture: on test-acceptance-canary-20261019m (Runtime 0.331.0) that copy ran 77 s beside
+        // a rotation capture, which ran to its 120 s bound, so the capture started 77.8 s after the
+        // turn ended. The rotation yields when the turn ends, not when its capture starts.
+        preemptRotationCaptures(state)
         const prior = state.turnEnd
         const settled = work.catch(() => undefined)
         state.turnEnd = prior === undefined ? settled : Promise.all([prior, settled]).then(() => {})
@@ -514,7 +517,9 @@ type CheckpointRequestEvent = Extract<SpawnEvent, { kind: 'workspace-checkpoint-
 export function noteScopeRetainedOwnerCoordination(scope: Scope<unknown>): void {
   const state = owners.get(scope)
   if (state?.provider === undefined || state.checkpointsUnavailable !== undefined) return
-  if (state.checkpointing !== undefined || scope.signal.aborted) return
+  // No rotation starts while a turn's handed-over capture is still running.
+  if (state.checkpointing !== undefined || state.turnEnd !== undefined || scope.signal.aborted)
+    return
   const now = state.args.now()
   if (
     state.lastCheckpointAt !== undefined &&
@@ -783,6 +788,13 @@ async function checkpointOwnerWorkspace(scope: Scope<unknown>, state: OwnerState
  * on the same evidence store, and the final capture spent 26.6 of its 32.6 minutes storing its
  * archive until the root's budget deadline aborted the rotation.
  */
+/** Cut short the captures a checkpoint rotation is running; each keeps its checkpoint. */
+function preemptRotationCaptures(state: OwnerState): void {
+  state.rotationCaptures?.abort(
+    new Error("the turn's end-of-turn capture goes first; checkpoint kept"),
+  )
+}
+
 function ownerCaptureWriter(state: OwnerState): ReturnType<typeof workspaceCaptureWriter> {
   const { args } = state
   return workspaceCaptureWriter({
