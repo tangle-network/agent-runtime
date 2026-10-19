@@ -3708,9 +3708,7 @@ export function createCoordinationToolsForManager(
   // Every live worker reports progress and none is stalled; unknown progress counts as stalled.
   const liveWorkersProgressing = (): boolean => {
     const running = openWork().running
-    return (
-      running.length > 0 && running.every((node) => readProgress(node.id)?.stalled === false)
-    )
+    return running.length > 0 && running.every((node) => readProgress(node.id)?.stalled === false)
   }
   const awaitWake = async (input: AwaitWakeInput): Promise<ManagerWake | undefined> => {
     const startedAt = Date.now()
@@ -3752,49 +3750,49 @@ export function createCoordinationToolsForManager(
       // turn this loop into a spin.
       let cursorIdle = false
       for (;;) {
-      while (
-        bus.pending(wakeEventKinds) === 0 &&
-        !outsideWake &&
-        !input.signal.aborted &&
-        Date.now() < wakeAt
-      ) {
-        const running = !cursorIdle && openWork().running.length > 0
-        // A live worker can only reach the bus through the blocking drain. With none live, the
-        // open work is a question or a tool outcome, which publishes itself.
-        const drained = running ? ensureDrain() : new Promise<boolean>(() => undefined)
-        const done = await Promise.race([
-          drained.then((value) => (value ? 'drained' : 'idle')),
-          queuedEvent.then(() => 'queued' as const),
-          elapsed.then(() => 'elapsed' as const),
-          aborted.then(() => 'aborted' as const),
-          outside.then(() => 'outside' as const),
-        ])
-        if (done === 'idle') {
-          cursorIdle = true
-          if (!hasOpenWork()) break
+        while (
+          bus.pending(wakeEventKinds) === 0 &&
+          !outsideWake &&
+          !input.signal.aborted &&
+          Date.now() < wakeAt
+        ) {
+          const running = !cursorIdle && openWork().running.length > 0
+          // A live worker can only reach the bus through the blocking drain. With none live, the
+          // open work is a question or a tool outcome, which publishes itself.
+          const drained = running ? ensureDrain() : new Promise<boolean>(() => undefined)
+          const done = await Promise.race([
+            drained.then((value) => (value ? 'drained' : 'idle')),
+            queuedEvent.then(() => 'queued' as const),
+            elapsed.then(() => 'elapsed' as const),
+            aborted.then(() => 'aborted' as const),
+            outside.then(() => 'outside' as const),
+          ])
+          if (done === 'idle') {
+            cursorIdle = true
+            if (!hasOpenWork()) break
+          }
         }
-      }
-      // A heartbeat with nothing new costs no model turn while every live worker is still making
-      // progress: Runtime re-arms it and keeps waiting. magnetar-rust-20261018b spent 58 of its
-      // root's 79 turns, about 37% of root spend, on 15-minute wakes that changed nothing. A
-      // stalled worker, no live worker, or the deadline still wakes the manager.
-      if (
-        input.quietWhileProgressing === true &&
-        input.heartbeatMs > 0 &&
-        bus.pending(wakeEventKinds) === 0 &&
-        !outsideWake &&
-        !input.signal.aborted &&
-        Date.now() >= heartbeatAt &&
-        Date.now() < deadlineAt &&
-        liveWorkersProgressing()
-      ) {
-        quietHeartbeats += 1
-        heartbeatAt = Date.now() + input.heartbeatMs
-        wakeAt = Math.min(heartbeatAt, deadlineAt)
-        armTimer()
-        continue
-      }
-      break
+        // A heartbeat with nothing new costs no model turn while every live worker is still making
+        // progress: Runtime re-arms it and keeps waiting. magnetar-rust-20261018b spent 58 of its
+        // root's 79 turns, about 37% of root spend, on 15-minute wakes that changed nothing. A
+        // stalled worker, no live worker, or the deadline still wakes the manager.
+        if (
+          input.quietWhileProgressing === true &&
+          input.heartbeatMs > 0 &&
+          bus.pending(wakeEventKinds) === 0 &&
+          !outsideWake &&
+          !input.signal.aborted &&
+          Date.now() >= heartbeatAt &&
+          Date.now() < deadlineAt &&
+          liveWorkersProgressing()
+        ) {
+          quietHeartbeats += 1
+          heartbeatAt = Date.now() + input.heartbeatMs
+          wakeAt = Math.min(heartbeatAt, deadlineAt)
+          armTimer()
+          continue
+        }
+        break
       }
       if (input.signal.aborted) return undefined
       // A settlement queued mid-flush still has its analysis to publish: let that bounded flush
