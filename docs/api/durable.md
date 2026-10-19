@@ -2238,6 +2238,13 @@ Present (as the analyst id) only when the runtime's analyst-on-settle hook initi
  spawn — authored by the runtime, never accepted from a driver's tool arguments. A node-pinning
  authority reads it to admit the analyst node it would refuse as a driver-authored spawn.
 
+###### map?
+
+[`MapSpawnMarker`](runtime.md#mapspawnmarker)
+
+Present only when a map route started this spawn — authored by the runtime, never accepted
+ from tool arguments. A node-pinning authority reads it to admit the map's item or join.
+
 ###### continuity?
 
 [`ContinuityMode`](runtime.md#continuitymode)
@@ -2715,6 +2722,18 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-ente
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`analyzeOnSettle`](runtime.md#analyzeonsettle)
+
+##### mapOnSettle?
+
+> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](runtime.md#maponsettleroute)[]
+
+Maps the runtime expands when their source worker settles: fan-out over a list in the
+ source's result, then one join. An AgentGraph's `maps` edges set it; see `MapOnSettleRoute`.
+ Omit = none.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`mapOnSettle`](runtime.md#maponsettle)
 
 ##### watchWorkers?
 
@@ -3496,6 +3515,13 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 Present (as the analyst id) only when the runtime's analyst-on-settle hook initiated this
  spawn — authored by the runtime, never accepted from a driver's tool arguments. A node-pinning
  authority reads it to admit the analyst node it would refuse as a driver-authored spawn.
+
+###### map?
+
+[`MapSpawnMarker`](runtime.md#mapspawnmarker)
+
+Present only when a map route started this spawn — authored by the runtime, never accepted
+ from tool arguments. A node-pinning authority reads it to admit the map's item or join.
 
 ###### continuity?
 
