@@ -1,3 +1,7 @@
+## 0.333.0
+
+A driver whose attempts fail instantly (under 30 s) with the same error, 10 or more in a row over at least 5 minutes, stops with the new `DriverAttemptStop` `repeated-failure`, even while the rest of the run spends or settles. Before, the run-wide progress mark read each such failure as progress, and the barren bound never fired: magnetar-rust-20261017c retried `connect ECONNREFUSED 127.0.0.1:32897` 1,258 times.
+
 ## 0.332.3
 
 `modelSilenceMs` runs only on a bridge route that declares `toolCallSpans: true` in `GET /v1/capabilities?model=`, meaning its stream reports each tool call at start and end. A turn on any other route is refused before dispatch. cli-bridge's opencode backend reports a tool call only once it has finished, so the bound would cut a long tool.
