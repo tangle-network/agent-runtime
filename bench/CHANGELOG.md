@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.9
+
+Use the Runtime cohort with Sandbox `>=0.62.15 <0.62.16`; 0.62.15 carries the profile-file mount errors.
+Benchmark execution and grading are unchanged.
+
 ## 0.14.8
 
 Use the Runtime cohort with Sandbox `>=0.62.14 <0.62.15`; 0.62.14 carries native-copy content omission.
