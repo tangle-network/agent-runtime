@@ -7,7 +7,7 @@
  * `delegate` is wired into `createMcpServer` via `McpServerOptions.delegateSupervisor`, which needs a
  * router (the supervisor brain's transport) and a backend (WHERE the authored workers run). Inside a
  * sandbox child the natural backend is `sandbox`: authored workers run as sub-sandboxes through the
- * SAME `SandboxClient` the bin already loads from `TANGLE_API_KEY`. Dedicated MCP variables name
+ * SAME `SandboxClient` the bin already loads from its sandbox key. Dedicated MCP variables name
  * the supervisor's router connection and exact model; inherited worker/model aliases are rejected.
  *
  * @experimental

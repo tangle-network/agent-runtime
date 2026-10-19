@@ -65,8 +65,17 @@ The generic `delegate` verb is absent here on purpose — it needs a live sandbo
 
 ## Wiring it into your own product
 
-Set `MCP_ENABLE_DELEGATE=1` and a real `TANGLE_API_KEY` in the mounted entry's `env`, then pass your
-profile to `sandboxClient.create({ backend: { profile } })`. The agent then sees the delegation tools
+Set these in the mounted entry's `env`, then pass your profile to
+`sandboxClient.create({ backend: { profile } })`:
+
+| Variable | Reaches |
+|---|---|
+| `MCP_ENABLE_DELEGATE=1` | Serves the `delegate` verb |
+| `TANGLE_SANDBOX_API_KEY` | Only `new Sandbox({ apiKey })`, which creates the worker boxes. Falls back to `TANGLE_API_KEY` when unset |
+| `MCP_SUPERVISOR_ROUTER_KEY`, `MCP_SUPERVISOR_ROUTER_BASE_URL`, `MCP_SUPERVISOR_MODEL` | Only the supervisor brain's router calls |
+
+A platform key serves one product, so a caller with a Router key and a separate Sandbox key passes
+each under its own name. Neither key is forwarded into a worker box. The agent then sees the delegation tools
 mid-turn and can fan work out without blocking the chat. Omit `MCP_ENABLE_DELEGATE` and only the
 always-on trio is exposed. For the multi-machine variant where delegations dispatch into a shared
 workspace, see `../fleet-delegation/`.

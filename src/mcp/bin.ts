@@ -7,15 +7,23 @@
  * Serves the ONE generic `delegate` verb (opt-in via `MCP_ENABLE_DELEGATE=1`): one intent → a
  * supervisor that authors + drives its own worker over `supervise()`, returning the delivered output
  * with its cost. The supervisor brain runs on the router; authored workers run as sub-sandboxes
- * through the same `SandboxClient` the bin loads from `TANGLE_API_KEY`. The queue-bound tools
+ * through the `SandboxClient` the bin loads from the sandbox key. The queue-bound tools
  * (`delegate_feedback`, `delegation_status`, `delegation_history`) are always served.
  *
+ * A platform key serves one product, so the Sandbox API key and the router key are separate
+ * variables: the sandbox key only constructs the Sandbox client, and the router key only reaches
+ * the supervisor brain. Neither is forwarded into a worker box; each worker's model access comes
+ * from the box its profile provisions.
+ *
  * Environment variables:
- *   TANGLE_API_KEY                   required — passed to `new Sandbox({ apiKey })`
+ *   TANGLE_SANDBOX_API_KEY           Sandbox API key passed to `new Sandbox({ apiKey })`. Falls back
+ *                                    to TANGLE_API_KEY when unset, so one key that serves the Sandbox
+ *                                    API keeps working.
+ *   TANGLE_API_KEY                   Sandbox API key when TANGLE_SANDBOX_API_KEY is unset
  *   SANDBOX_BASE_URL                 optional — sandbox-SDK base URL override
  *   MCP_ENABLE_DELEGATE              set to `1` to serve the generic `delegate` verb. Its authoring
  *                                    supervisor runs the brain on the router and spawns authored
- *                                    workers as sub-sandboxes via the same client; needs TANGLE_API_KEY.
+ *                                    workers as sub-sandboxes via the same client; needs a sandbox key.
  *   MCP_SUPERVISOR_MODEL             required exact supervisor brain model id
  *   MCP_SUPERVISOR_ROUTER_KEY        required router key for the supervisor brain
  *   MCP_SUPERVISOR_ROUTER_BASE_URL   required router base, normalized to `/v1`
@@ -54,10 +62,10 @@ async function main(): Promise<void> {
   // (feedback + status + history) with no sandbox.
   let sandboxClient: SandboxClient | undefined
   if (wantDelegate) {
-    const apiKey = process.env.TANGLE_API_KEY
+    const apiKey = sandboxApiKey(process.env)
     if (!apiKey && !process.env.AGENT_RUNTIME_MCP_ALLOW_NO_KEY) {
       process.stderr.write(
-        'agent-runtime-mcp: TANGLE_API_KEY is required to serve `delegate`. Set AGENT_RUNTIME_MCP_ALLOW_NO_KEY=1 to run without it for diagnostics, or unset MCP_ENABLE_DELEGATE to run the queue-only subset.\n',
+        'agent-runtime-mcp: a Sandbox API key is required to serve `delegate`: set TANGLE_SANDBOX_API_KEY (or TANGLE_API_KEY when that key serves the Sandbox API). Set AGENT_RUNTIME_MCP_ALLOW_NO_KEY=1 to run without it for diagnostics, or unset MCP_ENABLE_DELEGATE to run the queue-only subset.\n',
       )
       process.exit(2)
     }
@@ -161,6 +169,12 @@ function parseRetention(raw: string | undefined): number | undefined {
   return n
 }
 
+/** The Sandbox API key: the dedicated variable when set, else the legacy single key. The router key
+ *  (`MCP_SUPERVISOR_ROUTER_KEY`) is read only by the supervisor provisioning. */
+function sandboxApiKey(env: NodeJS.ProcessEnv): string | undefined {
+  return env.TANGLE_SANDBOX_API_KEY?.trim() || env.TANGLE_API_KEY?.trim() || undefined
+}
+
 async function loadSandboxClient(apiKey: string | undefined): Promise<SandboxClient> {
   // Diagnostic mode: AGENT_RUNTIME_MCP_ALLOW_NO_KEY=1 enables tools/list + the
   // queue-bound tools (status / history / feedback) without sandbox creds.
@@ -170,7 +184,7 @@ async function loadSandboxClient(apiKey: string | undefined): Promise<SandboxCli
     return {
       async create() {
         throw new Error(
-          'agent-runtime-mcp: TANGLE_API_KEY is unset; `delegate` is disabled in diagnostic mode. Set TANGLE_API_KEY or unset MCP_ENABLE_DELEGATE to remove the unsupported tool from the tool list.',
+          'agent-runtime-mcp: no Sandbox API key is set; `delegate` is disabled in diagnostic mode. Set TANGLE_SANDBOX_API_KEY (or TANGLE_API_KEY) or unset MCP_ENABLE_DELEGATE to remove the unsupported tool from the tool list.',
         )
       },
     } satisfies SandboxClient
