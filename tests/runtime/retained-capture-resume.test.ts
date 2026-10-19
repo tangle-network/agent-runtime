@@ -524,9 +524,7 @@ describe('retained workspace capture across a real process kill', () => {
     timeout: 60_000,
   }, async () => {
     const directory = await killedRun('kill-native')
-    expect((await moments(directory)).some((moment) => moment.what === 'native-started')).toBe(
-      true,
-    )
+    expect((await moments(directory)).some((moment) => moment.what === 'native-started')).toBe(true)
     expect(
       (await eventsIn(directory)).filter((event) => event.kind === 'execution-evidence'),
     ).toHaveLength(0)
