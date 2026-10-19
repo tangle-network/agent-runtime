@@ -5395,8 +5395,10 @@ export function createCoordinationToolsForManager(
           })),
           ...unqueued.map((node) => ({ type: 'settled', worker: node.id })),
         ],
+        // The current attempt's own deliveries are its wake's events, which its input already
+        // shows; only an earlier attempt's unacknowledged deliveries are unread.
         unacknowledged: deliveries
-          .filter((delivery) => !delivery.acknowledged)
+          .filter((delivery) => !delivery.acknowledged && delivery.attempt !== driverAttempt)
           .map((delivery) => ({
             seq: delivery.record.seq,
             type: delivery.record.event.type,
