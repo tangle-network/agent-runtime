@@ -1569,14 +1569,11 @@ export const coordinationVerbNames = [
  * `question` on this bus is the manager's own `ask_parent`, already escalated: it never wakes the
  * asker, whose answer arrives as a `lead-message`.
  */
-// A question wakes its manager: one raised by a child manager that is still working would
-// otherwise wait for the heartbeat, or for that child to settle and so never need the answer.
 const wakeEventKinds = [
   'settled',
   'finding',
   'tool-outcome',
   'lead-message',
-  'question',
 ] as const satisfies ReadonlyArray<CoordinationEvent['type']>
 
 const idArg = { type: 'string', description: 'The workerId returned by spawn_worker.' } as const
@@ -3748,6 +3745,13 @@ export function createCoordinationToolsForManager(
       flushing > 0
     )
   }
+  // A question one of this manager's workers raised wakes it: a child manager still working would
+  // otherwise wait for the heartbeat, or for that child to settle and so never need the answer.
+  // The manager's own ask_parent is recorded on the same bus and wakes nothing.
+  const isWorkerQuestion = (event: CoordinationEvent): boolean =>
+    event.type === 'question' && nodeForWorker(event.question.from) !== undefined
+  const workerQuestionPending = (): boolean =>
+    bus.queued(['question']).some((record) => isWorkerQuestion(record.event))
   const awaitWake = async (input: AwaitWakeInput): Promise<ManagerWake | undefined> => {
     const startedAt = Date.now()
     await ready()
@@ -3764,7 +3768,11 @@ export function createCoordinationToolsForManager(
       const queuedEvent = new Promise<void>((resolve) => {
         // Once the record is pull-visible: a subscriber runs before the record is queued.
         unsubscribe = bus.onQueued((record) => {
-          if ((wakeEventKinds as ReadonlyArray<string>).includes(record.event.type)) resolve()
+          if (
+            (wakeEventKinds as ReadonlyArray<string>).includes(record.event.type) ||
+            isWorkerQuestion(record.event)
+          )
+            resolve()
         })
       })
       const elapsed = new Promise<void>((resolve) => {
@@ -3783,6 +3791,7 @@ export function createCoordinationToolsForManager(
       let cursorIdle = false
       while (
         bus.pending(wakeEventKinds) === 0 &&
+        !workerQuestionPending() &&
         !outsideWake &&
         !input.signal.aborted &&
         Date.now() < wakeAt
@@ -3829,7 +3838,10 @@ export function createCoordinationToolsForManager(
       if (onAbort) input.signal.removeEventListener('abort', onAbort)
     }
     const events: Array<Record<string, unknown> & { readonly eventSeq: number }> = []
-    for (let next = bus.pullRecord(wakeEventKinds); next; next = bus.pullRecord(wakeEventKinds)) {
+    const pulledKinds: ReadonlyArray<CoordinationEvent['type']> = workerQuestionPending()
+      ? [...wakeEventKinds, 'question']
+      : wakeEventKinds
+    for (let next = bus.pullRecord(pulledKinds); next; next = bus.pullRecord(pulledKinds)) {
       deliveries.push({
         record: next,
         attempt: input.attempt ?? driverAttempt,
