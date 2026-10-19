@@ -52,9 +52,9 @@ import {
 } from './bridge-transport'
 import { priceUnreceiptedWork } from './cost-estimate'
 import { armDeadlineTimer } from './deadline'
+import { HarnessTurnFailedError } from './driver-retry'
 import { contentRef } from './executor-outcome'
 import { readOptionalAbortSignal, readOptionalMcpAttachments, readSeam } from './executor-seams'
-import { HarnessTurnFailedError } from './driver-retry'
 import { createInbox, type Inbox } from './inbox'
 import {
   attestRuntimeOwnedPendingExecutor,
