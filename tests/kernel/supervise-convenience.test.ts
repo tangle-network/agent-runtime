@@ -349,6 +349,81 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     expect(result.kind).toBe('no-winner')
   })
 
+  it('a managed child with no check of its own settles on its accepted submission and wakes its manager', async () => {
+    // test-retained-root-wake-20261018b (2026-10-18): the child's submit_result was refused with the
+    // run's check ("Expected: the canary runs to its deadline"), so it never settled and its waiting
+    // manager was only ever woken by the heartbeat.
+    const journal = new InMemorySpawnJournal()
+    const child = testAgentProfile('delay', {
+      harness: 'opencode',
+      tools: runtimeToolDeclarations('submit_result'),
+    })
+    const call = async (url: string, name: string, args: Record<string, unknown>) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: name,
+          method: 'tools/call',
+          params: { name, arguments: args },
+        }),
+      })
+      return response.json()
+    }
+    const rootTasks: unknown[] = []
+    let childReply: unknown
+    const driveHarness: DriveHarness = async ({ profile, task, coordinationMcpUrl }) => {
+      if (profile.name === 'root') {
+        rootTasks.push(task)
+        if (rootTasks.length === 1) {
+          await call(coordinationMcpUrl, 'spawn_worker', {
+            profile: child,
+            task: 'submit CHILD: ready',
+          })
+        }
+        return
+      }
+      childReply = await call(coordinationMcpUrl, 'submit_result', { result: 'CHILD: ready' })
+    }
+
+    await supervise(
+      testAgentProfile('root', {
+        harness: 'opencode',
+        tools: runtimeToolDeclarations('spawn_worker'),
+      }),
+      'delegate',
+      {
+        budget,
+        perWorker: { maxIterations: 4, maxTokens: 10_000 },
+        makeLeafAgent: () => deliveringLeaf('unused', {}),
+        driveHarness,
+        journal,
+        runId: 'own-submission',
+        // The run's check passes nothing, as a Lab run's does until its deadline.
+        deliverable: {
+          describe: 'what only the run deadline ends',
+          check: () => ({ pass: false, failures: ['FAIL run: incomplete'] }),
+        },
+        continuation: testContinuation({ deadline: 1 }),
+      },
+    )
+
+    // The child's submission is accepted against no check but its own, and settles it done.
+    expect(JSON.stringify(childReply)).toMatch(/accepted\\?"\s*:\s*true/)
+    expect(JSON.stringify(childReply)).not.toContain('FAIL run')
+    expect(await journal.loadTree('own-submission')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'settled', id: 'own-submission:s0', status: 'done' }),
+      ]),
+    )
+    // The settle, not the heartbeat, starts the manager's next turn.
+    expect(rootTasks.length).toBeGreaterThanOrEqual(2)
+    expect(String(rootTasks[1])).toContain('own-submission:s0')
+    expect(String(rootTasks[1])).toContain('"settled"')
+    expect(String(rootTasks[1])).not.toContain('Nothing reached your inbox')
+  })
+
   it('runDir makes the run durable and resumable; unset stays in-memory', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'supervise-rundir-'))
     try {

@@ -133,20 +133,22 @@ export {
 } from './provider-visible-profile'
 
 /**
- * The completion check of a managed node inside a `run_graph` subtask: its submission is accepted
- * and settles it. Under the run's own check, a node's narrower result is refused for as long as
- * the run's is: on 2026-10-17 every node of test-canary-graph-tools-20261017a was refused at
- * submit_result and sent back to the run's commission until the run's deadline, so the graph never
- * settled and its caller was never woken with it.
+ * The completion check of a managed child that no `resolveDeliverable` gave a check of its own, a
+ * `run_graph` node included: its accepted submission settles it, and the result goes to the manager
+ * that assigned the task. The run's own check judges the run's result, never a child's narrower
+ * assignment. Held to the run's check, a child's submission is refused for as long as the run's
+ * is: every node of test-canary-graph-tools-20261017a, and the `delay` child of
+ * test-retained-root-wake-20261018b (2026-10-18: "Expected: the canary runs to its deadline"), was
+ * refused at submit_result, never settled, and its manager was never woken with it.
  *
  * It is the one check a harness manager may hold without a continuation policy: it accepts every
- * submission, so there is nothing to send the node back for. test-canary-graph-tools-20261018c and
+ * submission, so there is nothing to send the child back for. test-canary-graph-tools-20261018c and
  * -d (2026-10-18) had every harness-run graph lead refused at spawn until this exemption.
  */
-export const graphNodeDeliverable: DeliverableSpec<unknown> = Object.freeze({
+export const ownSubmissionDeliverable: DeliverableSpec<unknown> = Object.freeze({
   describe:
-    'the result your task asks for; the graph hands it to the manager that ran the graph, and ' +
-    "the run's own check judges that manager's result",
+    'the result your task asks for; it goes to the manager that assigned the task, and the ' +
+    "run's own check judges that manager's result",
   check: () => true,
 })
 
@@ -887,7 +889,7 @@ function buildSupervisorAgent(
   if (
     harness !== null &&
     deps.deliverable !== undefined &&
-    deps.deliverable !== graphNodeDeliverable &&
+    deps.deliverable !== ownSubmissionDeliverable &&
     deps.continuation === undefined
   ) {
     throw new ValidationError(
