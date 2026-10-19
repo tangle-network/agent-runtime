@@ -168,6 +168,7 @@ export type DriverAttemptStop =
   | 'no-progress'
   | 'max-attempts'
   | 'pending-unresolved'
+  | 'repeated-failure'
 
 /** One attempt's record — the legible failure the issue's third ask names. Emitted per attempt so
  *  an operator sees `driver failed after N attempts` instead of one opaque `pi exit unknown`. */
@@ -356,6 +357,20 @@ const DEFAULT_MAX_ATTEMPTS = Number.POSITIVE_INFINITY
 const DEFAULT_INITIAL_BACKOFF_MS = 2_000
 const DEFAULT_MAX_BACKOFF_MS = 30_000
 const DEFAULT_TRANSIENT_OUTAGE_MS = 900_000
+
+/**
+ * The repeated-failure bound: attempts that each fail within {@link INSTANT_FAILURE_MS} with the
+ * same error, {@link REPEATED_FAILURE_LIMIT} or more in a row over at least
+ * {@link REPEATED_FAILURE_WINDOW_MS}, stop the run with `repeated-failure` whatever the rest of the
+ * run is doing. The progress mark is run-wide, so while other nodes spend or settle, a driver that
+ * dies on arrival reads as progressing and the barren bound never fires: on Discovery run
+ * magnetar-rust-20261017c, 1,258 of 2,069 root attempts failed with 'connect ECONNREFUSED
+ * 127.0.0.1:32897' between 13:20Z and 16:05Z. The window keeps a local server's restart, which
+ * takes seconds, from ending a run.
+ */
+const INSTANT_FAILURE_MS = 30_000
+const REPEATED_FAILURE_LIMIT = 10
+const REPEATED_FAILURE_WINDOW_MS = 5 * 60_000
 /** Consecutive identical reconciliation failures of one pending invocation that resolve it. */
 const SAME_PENDING_LIMIT = 2
 
@@ -904,6 +919,10 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   // Consecutive failures that left the same unfinished retained invocation pending for the same
   // reason, and the abandonments since the last progress or completed drive.
   let samePending: { readonly cause: RetainedPendingCause; readonly count: number } | undefined
+  // The current streak of instant failures with one error, and when its first one failed.
+  let sameFailure:
+    | { readonly error: string; readonly count: number; readonly since: number }
+    | undefined
   let abandonments = 0
   // Every pause this loop took, for the re-entry it names.
   let pauses = 0
@@ -1071,6 +1090,17 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       // a pause, and the failure bounds apply only once it outlasts `transientOutageMs`.
       const inOutage = idle && failedAt - (outageSince ?? failedAt) < transientOutage
       if (!inOutage) chargedFailures += 1
+      const failure = errMessage(error)
+      sameFailure =
+        durationMs >= INSTANT_FAILURE_MS
+          ? undefined
+          : sameFailure?.error === failure
+            ? { error: failure, count: sameFailure.count + 1, since: sameFailure.since }
+            : { error: failure, count: 1, since: failedAt }
+      const repeated =
+        sameFailure !== undefined &&
+        sameFailure.count >= REPEATED_FAILURE_LIMIT &&
+        failedAt - sameFailure.since >= REPEATED_FAILURE_WINDOW_MS
       const stop = ((): DriverAttemptStop | undefined => {
         if (classification === 'terminal') return 'terminal-error'
         if (!retryEnabled) return 'retry-disabled'
@@ -1080,8 +1110,9 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
         if (inOutage) return undefined
         if (chargedFailures >= maxAttempts) return 'max-attempts'
         // Progress resets the barren counter: a driver that is doing real work between crashes
-        // has earned another attempt, and the budget remains the bound on how many.
-        if (progressed) return undefined
+        // has earned another attempt, and the budget remains the bound on how many. Progress is
+        // read run-wide, so an attempt that dies on arrival with the same error is bounded here.
+        if (progressed) return repeated ? 'repeated-failure' : undefined
         return consecutiveBarren + 1 >= maxConsecutive ? 'no-progress' : undefined
       })()
       // A pending invocation that failed reconciliation the same way twice, or that would now
@@ -1175,6 +1206,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     consecutivePauses = 0
     outageSince = undefined
     samePending = undefined
+    sameFailure = undefined
     abandonments = 0
     const durationMs = now() - startedAt
     const after = run.progress()
