@@ -193,7 +193,9 @@ describe('supervise delivers parent questions, not just callback configuration',
       childDrives += 1
       childTasks.push(typeof task === 'string' ? task : JSON.stringify(task))
       if (childDrives === 1) {
-        asked.push(await tool('ask_parent', { ...question('specialist'), urgency: 'blocks-step' }))
+        // A blocking question's answer interrupts the asker's turn; this turn waits for the answer
+        // itself, so it asks without blocking and the answer is queued for its next wake.
+        asked.push(await tool('ask_parent', question('specialist')))
         await answeredByRoot
         return
       }
