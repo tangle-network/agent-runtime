@@ -349,7 +349,10 @@ export function createPrivateCasArtifactPort(
   // pass that left nothing pending, stays inside the budget without another pass: a pass reads
   // every object and its receipt, so a pass per put made capture quadratic on a host that keeps
   // its objects (drew-gtr-pro wrote 3 objects a minute into a run holding 1,228, 2026-10-18).
-  let lastPass: { localBytes: number; pending: number; localObjects: number } | undefined
+  let lastPass: { localBytes: number; pending: number } | undefined
+  // Every object on this host and its size, as the last full pass found them plus what puts linked
+  // since, so a pass that reads only the undurable objects still reports exact totals.
+  const localIndex = new Map<string, number>()
   // Objects this process wrote that have no durable receipt yet. After the process's first full
   // pass, a pass reads only these: a full pass lists every object of the store and reads its
   // receipt, and on canary test-acceptance-canary-20261019q two of them per capture (the Lab
@@ -367,6 +370,7 @@ export function createPrivateCasArtifactPort(
     if (upload !== undefined && !(await hasReceipt(sha)))
       await copyOnce(sha, upload, signal).catch(() => undefined)
     const durableNow = await hasReceipt(sha)
+    if (linked) localIndex.set(sha, byteLength)
     if (durableNow) undurable.delete(sha)
     else undurable.add(sha)
     // No await between the budget check and the reservation, so concurrent puts cannot both fit.
@@ -379,7 +383,6 @@ export function createPrivateCasArtifactPort(
       (localBudgetBytes === undefined || known.localBytes + added <= localBudgetBytes)
     ) {
       known.localBytes += added
-      if (linked) known.localObjects += 1
       return
     }
     await offload(signal)
@@ -428,8 +431,7 @@ export function createPrivateCasArtifactPort(
       const path = join(store, hex.slice(0, 2), hex)
       try {
         const entry = await lstat(path)
-        if (entry.isFile())
-          objects.push({ hex, path, size: entry.size, modifiedMs: entry.mtimeMs })
+        if (entry.isFile()) objects.push({ hex, path, size: entry.size, modifiedMs: entry.mtimeMs })
       } catch (error) {
         if (!missing(error)) throw error
         undurable.delete(hex)
@@ -517,19 +519,20 @@ export function createPrivateCasArtifactPort(
       else if (durable !== undefined) undurable.add(outcome.hex)
     }
     if (!full) {
-      // The host's totals are the last full pass's plus what puts added since.
-      const localBytes = prior!.localBytes
-      const localObjectCount = prior!.localObjects
-      lastPass = { localBytes, pending: pending.length, localObjects: localObjectCount }
+      let localBytes = 0
+      for (const size of localIndex.values()) localBytes += size
+      lastPass = { localBytes, pending: pending.length }
       return {
         durable: await receiptCount(),
         uploaded,
         pending,
         evicted: 0,
-        localObjects: localObjectCount,
+        localObjects: localIndex.size,
         localBytes,
       }
     }
+    localIndex.clear()
+    for (const object of objects) localIndex.set(object.hex, object.size)
     let localBytes = objects.reduce((total, object) => total + object.size, 0)
     let evicted = 0
     if (localBudgetBytes !== undefined) {
@@ -542,10 +545,11 @@ export function createPrivateCasArtifactPort(
           if (!missing(error)) throw error
         }
         localBytes -= object.size
+        localIndex.delete(object.hex)
         evicted++
       }
     }
-    lastPass = { localBytes, pending: pending.length, localObjects: objects.length - evicted }
+    lastPass = { localBytes, pending: pending.length }
     return {
       durable: await receiptCount(),
       uploaded,

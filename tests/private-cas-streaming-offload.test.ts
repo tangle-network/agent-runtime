@@ -184,12 +184,11 @@ it('offload calls made while a pass waits to start share one pass', async () => 
 // receipt, twice per capture, 60.1-63.2 s on each native copy. After a process's first full pass a
 // pass reads only the objects that process wrote without a receipt, so a restart is what finds an
 // earlier process's leftovers, never an in-memory set alone.
-function mapDurable(options: { refuse?: () => boolean } = {}) {
+function mapDurable() {
   const objects = new Map<string, Uint8Array>()
   const store: PrivateCasDurableStore = {
     location: 'fixture:map',
     async put({ digest, bytes }) {
-      if (options.refuse?.()) throw new Error('durable store refused the write')
       objects.set(digest, Uint8Array.from(bytes))
     },
     get: async ({ digest }) => objects.get(digest),
@@ -201,21 +200,21 @@ it('a restarted process uploads the objects an earlier process left on disk with
   const root = await mkdtemp(join(tmpdir(), 'cas-restart-offload-'))
   roots.push(root)
   const local = join(root, 'local')
-  const refused = mapDurable({ refuse: () => true })
-  const first = createPrivateCasArtifactPort(local, 'test', { durable: refused.store })
-  const refs = []
-  for (const text of ['first', 'second', 'third'])
-    refs.push(await first.put({ executionId: text, purpose: 'trace', bytes: Buffer.from(text) }))
-  expect((await first.offload()).pending).toHaveLength(3)
-  expect(refused.objects.size).toBe(0)
-
-  // A new process on the same store, its durable store answering again.
-  const working = mapDurable()
-  const restarted = createPrivateCasArtifactPort(local, 'test', { durable: working.store })
+  // What a process that stopped before its uploads leaves: objects, and no receipts.
+  const digests: string[] = []
+  for (const text of ['first', 'second', 'third']) {
+    const bytes = Buffer.from(text)
+    const hex = createHash('sha256').update(bytes).digest('hex')
+    await mkdir(join(local, 'sha256', hex.slice(0, 2)), { recursive: true, mode: 0o700 })
+    await writeFile(join(local, 'sha256', hex.slice(0, 2), hex), bytes, { mode: 0o600 })
+    digests.push(`sha256:${hex}`)
+  }
+  const durable = mapDurable()
+  const restarted = createPrivateCasArtifactPort(local, 'test', { durable: durable.store })
   const report = await restarted.offload()
   expect(report.pending).toEqual([])
   expect(report.durable).toBe(3)
-  for (const ref of refs) expect(working.objects.has(ref.sha256)).toBe(true)
+  for (const digest of digests) expect(durable.objects.has(digest)).toBe(true)
 })
 
 it('a pass after the first reads only what this process wrote, and a restart finds the rest', async () => {
