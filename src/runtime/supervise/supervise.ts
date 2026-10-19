@@ -1348,12 +1348,14 @@ function driveHarnessFromBackend(
     // loop, so the only honest bound is "stop at the next turn boundary". Composing the two
     // signals keeps one lever rather than a second stop path.
     const turnStop = turnCap > 0 ? new AbortController() : undefined
-    const effectiveStopSignal =
-      turnStop === undefined
-        ? stopSignal
-        : stopSignal === undefined
-          ? turnStop.signal
-          : AbortSignal.any([stopSignal, turnStop.signal])
+    // A metered turn found past its budget ends the drive at the turn boundary, on the same lever,
+    // and the turn's committed result stands.
+    const budgetStop = new AbortController()
+    const effectiveStopSignal = AbortSignal.any(
+      [stopSignal, turnStop?.signal, budgetStop.signal].filter(
+        (signal): signal is AbortSignal => signal !== undefined,
+      ),
+    )
     // The harness is asked for a 300 s tool-call timeout so a fenced tool can hold its response
     // longer than the 60 s harness default; a sidecar that applies it says so on each request.
     const peerMailAttachment = peerMailRuntimeAttachment(authoredProfile, boundBackend, {
@@ -1560,12 +1562,12 @@ function driveHarnessFromBackend(
       teardownStarted = true
       await teardownExecutor(executor, grace, deadlineAtMs, now)
     }
-    // Set when a turn that completed is found past its budget: its committed result stands, and
-    // the drive ends instead of starting another turn. Throwing here discarded a turn that had
-    // already run and been paid for: on queens21-h22-capture-root-2-20261019c, 28 worker turns
-    // (26.77 turn-hours) were metered, found over their cap or deadline, and thrown away.
-    let budgetStoppedAfterTurn: string | undefined
-    const meterPending = async (forceUnknown = false, duringTurn = false) => {
+    // A turn that completed and is found past its budget ends the drive at the turn boundary
+    // (`budgetStop`); its committed result stands, and the scope records the overspend on the
+    // node, which the manager's wake names. Throwing here discarded a turn that had already run and
+    // been paid for: the Lab's limits audit counted 28 worker turns (26.77 turn-hours) metered,
+    // found over their cap or deadline, and thrown away, e.g. on queens21-h22-capture-root-2-20261019c.
+    const meterPending = async (forceUnknown = false) => {
       if (pendingUsage.length === 0) return
       // A forceful steer can finish one preflight attempt before the resumed turn produces usage.
       // Consume those explicit no-dispatch attempts first, so the paid batch keeps its own served
@@ -1608,10 +1610,7 @@ function driveHarnessFromBackend(
       if (effectiveStopSignal?.aborted === true) return
       const spent = exhaustedBudgetChannels(scope.budget, now())
       if (spent === undefined) return
-      // Mid-turn, the check stops further spend before anything was committed.
-      if (duringTurn)
-        throw new ValidationError(`driveHarnessFromBackend: supervisor budget exhausted (${spent})`)
-      budgetStoppedAfterTurn = spent
+      budgetStop.abort(`supervise: budget exhausted (${spent})`)
     }
 
     const pending = runtimeOwnedPendingExecutorMaterialization(executor)
@@ -1747,7 +1746,7 @@ function driveHarnessFromBackend(
         let turns = 0
         for await (const event of run) {
           if (event.kind === 'iteration') {
-            await meterPending(false, true)
+            await meterPending()
             turns += 1
             driveTurns += 1
             if (turnStop !== undefined && turns >= turnCap && !turnStop.signal.aborted) {
