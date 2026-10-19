@@ -920,7 +920,9 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   // reason, and the abandonments since the last progress or completed drive.
   let samePending: { readonly cause: RetainedPendingCause; readonly count: number } | undefined
   // The current streak of instant failures with one error, and when its first one failed.
-  let sameFailure: { readonly error: string; readonly count: number; readonly since: number } | undefined
+  let sameFailure:
+    | { readonly error: string; readonly count: number; readonly since: number }
+    | undefined
   let abandonments = 0
   // Every pause this loop took, for the re-entry it names.
   let pauses = 0
@@ -1107,10 +1109,10 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
         if (byBudget) return byBudget
         if (inOutage) return undefined
         if (chargedFailures >= maxAttempts) return 'max-attempts'
-        if (repeated) return 'repeated-failure'
         // Progress resets the barren counter: a driver that is doing real work between crashes
-        // has earned another attempt, and the budget remains the bound on how many.
-        if (progressed) return undefined
+        // has earned another attempt, and the budget remains the bound on how many. Progress is
+        // read run-wide, so an attempt that dies on arrival with the same error is bounded here.
+        if (progressed) return repeated ? 'repeated-failure' : undefined
         return consecutiveBarren + 1 >= maxConsecutive ? 'no-progress' : undefined
       })()
       // A pending invocation that failed reconciliation the same way twice, or that would now
