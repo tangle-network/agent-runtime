@@ -154,6 +154,16 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     )
   }
   if (
+    seam.modelSilenceMs !== undefined &&
+    (!Number.isSafeInteger(seam.modelSilenceMs) ||
+      seam.modelSilenceMs < 1 ||
+      seam.modelSilenceMs > maxBridgeTimeoutMs)
+  ) {
+    throw new ValidationError(
+      `bridgeExecutor: modelSilenceMs must be an integer from 1 to ${maxBridgeTimeoutMs}`,
+    )
+  }
+  if (
     seam.maxReconnects !== undefined &&
     (!Number.isSafeInteger(seam.maxReconnects) || seam.maxReconnects < 0)
   ) {
@@ -594,10 +604,27 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
             true,
           )
         : undefined
+    // Model silence: no stream event while no tool call is open. A call the bridge reported and
+    // has not answered holds the clock, so a long tool is never cut.
+    let silent = false
+    let openToolCalls = 0
+    let silenceTimer: ReturnType<typeof setTimeout> | undefined
+    const listenForModel = () => {
+      if (silenceTimer !== undefined) clearTimeout(silenceTimer)
+      silenceTimer = undefined
+      if (seam.modelSilenceMs === undefined || openToolCalls > 0) return
+      silenceTimer = setTimeout(() => {
+        silent = true
+        abortTurn()
+      }, seam.modelSilenceMs)
+      silenceTimer.unref?.()
+    }
+    listenForModel()
     const cleanup = () => {
       external.removeEventListener('abort', abortTurn)
       interruptSig.removeEventListener('abort', abortTurn)
       clearTimer?.()
+      if (silenceTimer !== undefined) clearTimeout(silenceTimer)
     }
 
     // Prove this bridge can accept the turn before allocating a remote run id. A refusal still
@@ -715,6 +742,11 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         maxReconnects: args.maxReconnects,
         traceHeaders: args.traceHeaders,
       })) {
+        openToolCalls = Math.max(
+          0,
+          openToolCalls + (chunk.toolCalls?.length ?? 0) - (chunk.toolResults?.length ?? 0),
+        )
+        listenForModel()
         if (chunk.model !== undefined) {
           try {
             if (!observedModelMatchesDeclared(chunk.model, seam.providerModel)) {
@@ -910,6 +942,14 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         // A per-turn timeout is owned here, not by the HTTP socket. Request
         // explicit cancellation before surfacing it; external scope teardown
         // performs the same operation under its own grace budget.
+        if (silent && !timedOut) {
+          if (!activeRun.terminal) await requestBridgeRunCancellation(seam, activeRun, 0)
+          // Silence is the same accident as a deadline, found sooner: the turn failed, the run goes on.
+          throw new HarnessTurnFailedError('bridge', {
+            error: `the model sent nothing for ${seam.modelSilenceMs} ms with no tool call open; cancellation of bridge run ${activeRun.id} requested`,
+            errorCode: 'timeout',
+          })
+        }
         if (timedOut) {
           if (!activeRun.terminal) await requestBridgeRunCancellation(seam, activeRun, 0)
           // The turn ran out its own deadline: it failed, and the run did not stop. Surfaced as the
