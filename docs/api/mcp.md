@@ -3768,6 +3768,16 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 Exact profile/task/candidate identity authorized for this node.
 
+##### modelSubstitution?
+
+> `readonly` `optional` **modelSubstitution?**: [`SpawnModelSubstitution`](runtime.md#spawnmodelsubstitution)
+
+The model this worker ran when authorization replaced the one its manager authored.
+
+##### modelWarning?
+
+> `readonly` `optional` **modelWarning?**: `string`
+
 ##### materialization?
 
 > `readonly` `optional` **materialization?**: [`ProfileMaterializationReceipt`](runtime.md#profilematerializationreceipt)
