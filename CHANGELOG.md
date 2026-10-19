@@ -1,3 +1,7 @@
+## 0.332.2
+
+A retained owner cuts short its checkpoint rotation's captures when a turn hands over its end-of-turn work, before that turn's final session copy, and starts no rotation until that work is done. Before, the rotation yielded only when the workspace capture itself started, after the session copy.
+
 ## 0.332.1
 
 The workspace catalog resolves `@tangle-network/sandbox` to 0.62.2 only. With the union range the lockfile kept agent-bench on 0.61.1 beside Runtime's 0.62.2, so the packed-consumer check saw two Sandbox copies and failed `verify-runtime-bench` (`Property '#private' ... refers to a different member`), which blocked the 0.331.2 and 0.332.0 publishes. Runtime's own peer range still admits 0.61.1 and 0.62.2.
