@@ -59,6 +59,8 @@ import {
   captureProviderLiveWorkspace,
   captureProviderWorkspaceSnapshot,
   DEFAULT_NATIVE_CAPTURE_INTERVAL_MS,
+  nativeCopyDelayMs,
+  openNativeMirror,
   type ProviderNativeCapturePhase,
   type ProviderWorkspaceCaptureProvenance,
   type ProviderWorkspaceCaptureReceipt,
@@ -915,6 +917,12 @@ function createProviderExecutor(
     options.workspaceRetention?.captureNative === undefined ? undefined : options.workspaceRetention
   let nativeInFlight: Promise<void> | undefined
   let nativeTimer: ReturnType<typeof setTimeout> | undefined
+  // Provider events seen, and the count the last stored copy saw: a running copy of a session that
+  // received nothing since is skipped. The last copy's duration paces the next one.
+  let nativeEvents = 0
+  let nativeEventsAtCopy: number | undefined
+  let lastNativeCopyMs = 0
+  let closeNativeMirror: (() => void) | undefined
   const livePort =
     options.workspaceRetention?.captureLive === undefined ? undefined : options.workspaceRetention
   let liveInFlight: Promise<void> | undefined
@@ -992,6 +1000,8 @@ function createProviderExecutor(
   const stopNativeMirror = async (): Promise<void> => {
     if (nativeTimer !== undefined) clearTimeout(nativeTimer)
     nativeTimer = undefined
+    closeNativeMirror?.()
+    closeNativeMirror = undefined
     await nativeInFlight
   }
   const captureNative = (
@@ -1011,6 +1021,8 @@ function createProviderExecutor(
       // A settled workspace capture of this execution already holds the session.
       if (workspaceSnapshot !== undefined && !nativeHoldsTranscript) return
       const invocationId = workspaceExecutionId
+      const eventsAtStart = nativeEvents
+      const copyStartedAt = Date.now()
       try {
         const takeCopy = () =>
           captureProviderWorkspaceSnapshot(
@@ -1067,10 +1079,13 @@ function createProviderExecutor(
         if (nativeHoldsTranscript && !(copy.status === 'retained' && copy.fileCount > 0)) return
         harnessTranscript = copy
         nativeHoldsTranscript = true
+        nativeEventsAtCopy = eventsAtStart
       } catch (error) {
         // A failed copy keeps the previous one. The final copy at the end of the turn, or the
         // settled workspace capture, is the next chance; the transcript names what was kept.
         noteCaptureFailure(error)
+      } finally {
+        lastNativeCopyMs = Date.now() - copyStartedAt
       }
     })
     const tracked = run.finally(() => {
@@ -1083,13 +1098,21 @@ function createProviderExecutor(
     startLiveMirror(next)
     if (nativePort === undefined) return
     if (nativeTimer !== undefined) clearTimeout(nativeTimer)
+    closeNativeMirror?.()
+    closeNativeMirror = openNativeMirror(nativePort)
+    const port = nativePort
     const interval = nativePort.nativeIntervalMs ?? DEFAULT_NATIVE_CAPTURE_INTERVAL_MS
     const schedule = (): void => {
-      nativeTimer = setTimeout(() => {
-        // A copy still running when the next falls due is not doubled; the schedule continues.
-        if (nativeInFlight === undefined) void captureNative(next, 'running')
-        schedule()
-      }, interval)
+      nativeTimer = setTimeout(
+        () => {
+          // A copy still running when the next falls due is not doubled, and a stored copy of a
+          // session that received no event since is not taken again; the schedule continues.
+          const unchanged = nativeHoldsTranscript && nativeEventsAtCopy === nativeEvents
+          if (nativeInFlight === undefined && !unchanged) void captureNative(next, 'running')
+          schedule()
+        },
+        nativeCopyDelayMs(port, interval, lastNativeCopyMs),
+      )
       nativeTimer.unref?.()
     }
     schedule()
@@ -1423,6 +1446,9 @@ function createProviderExecutor(
           },
           captureWorkspace,
           startNativeMirror,
+          noteProviderEvent: () => {
+            nativeEvents += 1
+          },
           stopEndedHarness,
           finishNativeMirror,
           workspaceControlRef: () => workspaceControlRef,
@@ -1833,6 +1859,8 @@ interface StreamProviderExecutorArgs {
   ) => Promise<AgentCandidateWorkspaceSnapshotEvidence | undefined>
   /** Start copying the harness session to durable artifacts on an interval. */
   startNativeMirror: (environment: AgentEnvironment) => void
+  /** Count one provider event, so the native mirror can skip a copy of an unchanged session. */
+  noteProviderEvent: () => void
   /** Stop the harness of a turn its deadline or a cancellation ended, before its final copy.
    *  Bounded; never throws. */
   stopEndedHarness: (signal: AbortSignal) => Promise<void>
@@ -2030,6 +2058,7 @@ async function* streamProviderExecutor(
   try {
     const toolParts = createSandboxToolPartState()
     for await (const event of source.events) {
+      args.noteProviderEvent()
       archive.append(event)
       text += textFromEnvironmentEvent(event)
       const sandboxEvent = sandboxEventFromEnvironmentEvent(event)

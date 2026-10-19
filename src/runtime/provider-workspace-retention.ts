@@ -547,6 +547,36 @@ function nativeSlots(port: ProviderWorkspaceRetentionPort): CaptureSlots {
   return key
 }
 
+// Native mirrors running on one port, read to pace each running copy against the port's slots.
+const nativeMirrors = new WeakMap<ProviderWorkspaceRetentionPort, number>()
+
+/** Count one running native mirror on `port`; the returned close is idempotent. @internal */
+export function openNativeMirror(port: ProviderWorkspaceRetentionPort): () => void {
+  nativeMirrors.set(port, (nativeMirrors.get(port) ?? 0) + 1)
+  let open = true
+  return () => {
+    if (!open) return
+    open = false
+    nativeMirrors.set(port, Math.max(0, (nativeMirrors.get(port) ?? 1) - 1))
+  }
+}
+
+/**
+ * The delay before a mirror's next running copy: its interval, or longer when the port's mirrors
+ * need more copy time than its slots hold in that interval. queens21-h22-swarm16-20261018b copied
+ * 9 sessions every 2 minutes through 4 slots at a median 134 s each, so all 4 slots stayed busy,
+ * each copy waited behind the others, and copies past the 30-minute bound were dropped. @internal
+ */
+export function nativeCopyDelayMs(
+  port: ProviderWorkspaceRetentionPort,
+  intervalMs: number,
+  lastCopyMs: number,
+): number {
+  const mirrors = Math.max(1, nativeMirrors.get(port) ?? 1)
+  const slots = port.maxConcurrentCaptures ?? mirrors
+  return Math.max(intervalMs, Math.ceil((lastCopyMs * mirrors) / slots))
+}
+
 // Captures of one port that hold or wait for a slot, read as `ahead` by the next request.
 const capturesInFlight = new WeakMap<CaptureSlots, number>()
 

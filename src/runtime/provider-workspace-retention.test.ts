@@ -2103,6 +2103,115 @@ describe('provider workspace retention', () => {
     ])
   })
 
+  it('does not copy a running session again until it receives another event', async () => {
+    const artifacts = artifactStore()
+    const { provider } = providerFor(async function* () {
+      yield {
+        type: 'usage',
+        data: { usageMode: 'delta' },
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }
+      await new Promise<never>(() => {})
+    })
+    const phases: string[] = []
+    const executor = providerAsExecutor(provider, {
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        artifacts,
+        async capture() {
+          throw new Error('final capture unavailable')
+        },
+        nativeIntervalMs: 5,
+        async captureNative(context) {
+          phases.push(context.phase ?? 'none')
+          return nativeSnapshot(artifacts, context)
+        },
+      },
+    })(
+      { profile: testProfile('native-unchanged'), harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    const iterator = (
+      executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>
+    )[Symbol.asyncIterator]()
+    await iterator.next()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    // About 60 intervals passed with one event: one copy holds it, and a second only when the first
+    // started before the event was counted.
+    const running = phases.filter((phase) => phase === 'running').length
+    expect(running).toBeGreaterThanOrEqual(1)
+    expect(running).toBeLessThanOrEqual(2)
+    await iterator.return?.(undefined)
+    expect(phases.at(-1)).toBe('interrupted')
+  })
+
+  it('paces the running copies of many sessions so they do not hold every capture slot', async () => {
+    const artifacts = artifactStore()
+    const copyMs = 60
+    const slots = 4
+    let active = 0
+    let busyMs = 0
+    let windowEnd = Number.POSITIVE_INFINITY
+    // One port for every executor, as one coordinator shares its retention port across nodes.
+    const port: ProviderWorkspaceRetentionPort = {
+      timeoutMs: 5_000,
+      artifacts,
+      maxConcurrentCaptures: slots,
+      async capture() {
+        throw new Error('final capture unavailable')
+      },
+      nativeIntervalMs: 5,
+      async captureNative(context) {
+        const started = Date.now()
+        active += 1
+        try {
+          await new Promise((resolve) => setTimeout(resolve, copyMs))
+          return await nativeSnapshot(artifacts, context)
+        } finally {
+          active -= 1
+          if (context.phase === 'running') busyMs += Math.min(Date.now(), windowEnd) - started
+        }
+      },
+    }
+    const iterators = Array.from({ length: 9 }, (_, index) => {
+      const { provider } = providerFor(async function* () {
+        // Each session keeps receiving events, so no running copy is skipped as unchanged.
+        for (;;) {
+          yield {
+            type: 'usage',
+            data: { usageMode: 'delta' },
+            usage: { inputTokens: 1, outputTokens: 1 },
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+      })
+      const executor = providerAsExecutor(provider, { workspaceRetention: port })(
+        { profile: testProfile(`native-paced-${index}`), harness: null },
+        { signal: new AbortController().signal, seams: {} },
+      )
+      return (
+        executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>
+      )[Symbol.asyncIterator]()
+    })
+    // Drain every stream so its events are counted while the mirrors run.
+    let draining = true
+    const drains = iterators.map(async (iterator) => {
+      while (draining && !(await iterator.next()).done) {}
+    })
+    const windowStart = Date.now()
+    await new Promise((resolve) => setTimeout(resolve, 1_200))
+    windowEnd = Date.now()
+    draining = false
+    await Promise.all(iterators.map((iterator) => iterator.return?.(undefined)))
+    await Promise.allSettled(drains)
+    expect(active).toBe(0)
+    // Unpaced, 9 mirrors due every 5 ms keep all 4 slots busy (utilization about 1). Paced at
+    // 60 ms × 9 / 4 between copies, each mirror copies about every 195 ms: about 0.7.
+    const utilization = busyMs / ((windowEnd - windowStart) * slots)
+    expect(utilization).toBeGreaterThan(0.3)
+    expect(utilization).toBeLessThan(0.85)
+  })
+
   it('retains a running workspace before a failed final capture', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'runtime-live-workspace-'))
     try {
