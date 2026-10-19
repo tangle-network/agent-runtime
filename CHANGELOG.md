@@ -1,3 +1,15 @@
+## 0.327.0
+
+A manager re-entered after a turn that did not finish now receives every event that turn was given, in full, instead of only its sequence number and type: `ManagerReentryState.unacknowledged[].event` carries the event as its wake showed it. magnetar-rust-20261017c's 09:59Z and 20:41Z operator steers were delivered to turns that usage limits ended, and the re-entry named them only as `#N lead-message`, so neither reached a prompt.
+
+The sandbox peer moves to `@tangle-network/sandbox` 0.61.1 (`>=0.61.1 <0.61.2`), qualified against agent-interface 5.7.0. It is the first Sandbox whose `onTiming` declaration type-checks for strict consumers (`exactOptionalPropertyTypes`); its dependencies and peers match 0.60.92, and it adds the `./public-templates` export.
+
+A `spawn_worker` call without a `label` now labels the worker with its profile name, and only an unnamed profile falls back to `worker`. magnetar-rust-20261018b's 13 workers were all labelled `worker`, so no tree or run view showed a role.
+
+## 0.326.1
+
+Running native-session copies are paced to the retention port's capture slots: each mirror waits at least its last copy's duration times the port's running mirrors divided by `maxConcurrentCaptures`, and a session that received no provider event since its stored copy is not copied again. queens21-h22-swarm16-20261018b copied 9 sessions every 2 minutes through 4 slots at a median 134 s, which kept every slot busy and dropped copies past the 30-minute bound.
+
 ## 0.326.0
 
 The sandbox peer moves to `@tangle-network/sandbox` 0.60.92 (`>=0.60.92 <0.60.93`), with its owned-file fingerprint qualified against agent-interface 5.7.0. `@tangle-network/agent-provider-tangle` 4.4.1, which cuts a native capture from 1.50 GB to 39 MB, requires sandbox 0.60.88 or newer; 0.60.86 could not install beside it.

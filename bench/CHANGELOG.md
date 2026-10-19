@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.6
+
+Use the Runtime cohort with Sandbox `>=0.61.1 <0.61.2`, the first Sandbox whose `onTiming` declaration type-checks under `exactOptionalPropertyTypes`.
+Benchmark execution and grading are unchanged.
+
 ## 0.14.5
 
 Use the Runtime 0.326 cohort: Sandbox `>=0.60.92 <0.60.93`, which `@tangle-network/agent-provider-tangle` 4.4.1 requires.

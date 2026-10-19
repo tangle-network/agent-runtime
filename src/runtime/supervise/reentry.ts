@@ -200,13 +200,12 @@ function stateLines(
     lines.push('Events waiting for you: none.')
   }
   if (state.unacknowledged.length > 0) {
+    // In full: magnetar-rust-20261017c's 09:59Z and 20:41Z operator steers were delivered to turns
+    // that a usage limit ended, and the re-entry named them only by sequence number, so neither
+    // steer ever reached a prompt.
     lines.push(
-      `Events delivered to a turn that has not finished, so treat them as unread: ${state.unacknowledged
-        .map(
-          (event) =>
-            `#${event.seq} ${event.type}${event.worker === undefined ? '' : ` from ${event.worker}`}`,
-        )
-        .join('; ')}.`,
+      `Events delivered to a turn that has not finished, so treat them as unread (${state.unacknowledged.length}):`,
+      ...state.unacknowledged.map((event) => `- ${JSON.stringify(event.event)}`),
     )
   }
   if (state.lastRejection !== undefined) {

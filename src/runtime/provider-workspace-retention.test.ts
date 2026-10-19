@@ -2189,9 +2189,9 @@ describe('provider workspace retention', () => {
         { profile: testProfile(`native-paced-${index}`), harness: null },
         { signal: new AbortController().signal, seams: {} },
       )
-      return (
-        executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>
-      )[Symbol.asyncIterator]()
+      return (executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>)[
+        Symbol.asyncIterator
+      ]()
     })
     // Drain every stream so its events are counted while the mirrors run.
     let draining = true
