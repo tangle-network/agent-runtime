@@ -1336,6 +1336,7 @@ export type {
   Settled,
   SpawnEvent,
   SpawnJournal,
+  SpawnModelSubstitution,
   SpawnOpts,
   SpawnPrior,
   SpawnRejection,

@@ -35,6 +35,7 @@ import type {
   ResultBlobStore,
   Scope,
   Settled,
+  SpawnModelSubstitution,
   SpawnRejection,
   Spend,
   SubtreeSummary,
@@ -82,6 +83,20 @@ import {
   workerOutputReadOptions,
 } from './worker-output'
 
+/**
+ * The substitution and the sentence a manager reads beside it. A manager that reports which model
+ * did the work must read `modelSubstitution.ran`, never the model it asked for.
+ */
+function modelSubstitutionReport(substitution: SpawnModelSubstitution): {
+  readonly modelSubstitution: SpawnModelSubstitution
+  readonly modelWarning: string
+} {
+  return {
+    modelSubstitution: substitution,
+    modelWarning: `spawn authorization ran this worker on ${substitution.ran}, not the ${substitution.requested} you authored; attribute its work to ${substitution.ran}`,
+  }
+}
+
 /** A worker whose settlement reached the manager's inbox. */
 export interface SettledWorker {
   readonly id: string
@@ -90,6 +105,9 @@ export interface SettledWorker {
   readonly assignmentId?: string
   /** Exact profile/task/candidate identity authorized for this node. */
   readonly identity?: NodeExecutionIdentity
+  /** The model this worker ran when authorization replaced the one its manager authored. */
+  readonly modelSubstitution?: SpawnModelSubstitution
+  readonly modelWarning?: string
   /** Stable effective execution plan, or an explicit unknown receipt. */
   readonly materialization?: ProfileMaterializationReceipt
   /** Backend bindings for each attempt, in durable oldest-first order. */
@@ -2108,6 +2126,7 @@ export function createCoordinationToolsForManager(
     const node = nodeForWorker(settled.handle.id)
     const assignmentId = settled.handle.assignmentId ?? node?.assignmentId
     const identity = settled.handle.identity ?? node?.identity
+    const modelSubstitution = settled.handle.modelSubstitution ?? node?.modelSubstitution
     const materialization = settled.handle.materialization ?? node?.materialization
     const executionBindings = settled.handle.executionBindings ?? node?.executionBindings
     const settledAt = settled.settledAt ?? node?.settledAt
@@ -2122,6 +2141,7 @@ export function createCoordinationToolsForManager(
       id: settled.handle.id,
       ...(assignmentId === undefined ? {} : { assignmentId }),
       ...(identity === undefined ? {} : { identity }),
+      ...(modelSubstitution === undefined ? {} : modelSubstitutionReport(modelSubstitution)),
       ...(materialization === undefined ? {} : { materialization }),
       ...(executionBindings === undefined ? {} : { executionBindings }),
       ...(settledAt === undefined ? {} : { settledAt }),
@@ -3884,6 +3904,9 @@ export function createCoordinationToolsForManager(
     status: node.status,
     ...(node.assignmentId === undefined ? {} : { assignmentId: node.assignmentId }),
     ...(node.identity === undefined ? {} : { identity: node.identity }),
+    ...(node.modelSubstitution === undefined
+      ? {}
+      : modelSubstitutionReport(node.modelSubstitution)),
     ...(node.materialization === undefined ? {} : { materialization: node.materialization }),
     ...(node.executionBindings === undefined ? {} : { executionBindings: node.executionBindings }),
     spent: node.spent,
@@ -4368,6 +4391,9 @@ export function createCoordinationToolsForManager(
             workerId: res.handle.id,
             assignmentId: res.handle.assignmentId ?? assignmentId,
             ...(res.handle.identity === undefined ? {} : { identity: res.handle.identity }),
+            ...(res.handle.modelSubstitution === undefined
+              ? {}
+              : modelSubstitutionReport(res.handle.modelSubstitution)),
             ...(res.handle.materialization === undefined
               ? {}
               : { materialization: res.handle.materialization }),

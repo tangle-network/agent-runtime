@@ -1399,6 +1399,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       ...(ev.ownedTreeRoot === undefined ? {} : { ownedTreeRoot: ev.ownedTreeRoot }),
       ...(ev.assignmentId === undefined ? {} : { assignmentId: ev.assignmentId }),
       ...(ev.identity ? { identity: ev.identity } : {}),
+      ...(ev.modelSubstitution ? { modelSubstitution: ev.modelSubstitution } : {}),
       ...(Number.isFinite(Date.parse(ev.at)) ? { spawnedAt: Date.parse(ev.at) } : {}),
       spent: zeroSpend(),
     })
@@ -1480,6 +1481,7 @@ interface MutableSnapshot {
   ownedTreeRoot?: NodeSnapshot['ownedTreeRoot']
   assignmentId?: string
   identity?: NodeSnapshot['identity']
+  modelSubstitution?: NodeSnapshot['modelSubstitution']
   materialization?: NodeSnapshot['materialization']
   executionBindings?: NonNullable<NodeSnapshot['executionBindings']>[number][]
   spent: Spend
@@ -1552,6 +1554,7 @@ function freezeSnapshot(node: MutableSnapshot): NodeSnapshot {
     ownedTreeRoot: node.ownedTreeRoot,
     assignmentId: node.assignmentId,
     identity: node.identity,
+    modelSubstitution: node.modelSubstitution,
     materialization: node.materialization,
     executionBindings:
       node.executionBindings === undefined ? undefined : Object.freeze([...node.executionBindings]),

@@ -634,6 +634,22 @@ export interface AgentSpec {
   readonly executorFactory?: ExecutorFactory<unknown>
   /** Bring-your-own executor: highest routing precedence after exact-profile intake validation. */
   readonly executor?: Executor<unknown>
+  /** Set by spawn authorization when the child runs on another model than its parent authored.
+   *  Scope journals it on the `spawned` record; it is not part of the node's identity. */
+  readonly modelSubstitution?: SpawnModelSubstitution
+}
+
+/**
+ * A spawn whose authorized profile names another harness/provider/model route than the parent
+ * authored. magnetar-rust-20261017c's root spawned a "cross-family referee" as
+ * `claude-code/anthropic/claude-opus-5-5`; authorization ran it as
+ * `opencode/zai-coding-plan/glm-5.3`, and the root reported a cross-family review that never ran.
+ */
+export interface SpawnModelSubstitution {
+  /** The route the spawning parent authored, `harness/provider/model`. */
+  readonly requested: string
+  /** The route the child was authorized to run, `harness/provider/model`. */
+  readonly ran: string
 }
 
 /** Caller-owned identity beyond the exact profile/task bytes Scope can compute itself. */
@@ -1013,6 +1029,8 @@ export interface Handle<Out> {
   readonly materialization?: ProfileMaterializationReceipt
   /** Immutable per-attempt backend bindings committed so far, oldest first. */
   readonly executionBindings?: ReadonlyArray<ExecutionBindingReceipt>
+  /** Present when authorization ran this child on another model than its parent authored. */
+  readonly modelSubstitution?: SpawnModelSubstitution
   abort(reason?: string): void
   /** Phantom: binds the handle to the child's output type so `spawn<C>` returns a
    *  `Handle<C>` distinct from a `Handle<other>`. Type-only — never present at runtime. */
@@ -1351,6 +1369,8 @@ export interface NodeSnapshot {
   /** Manager-scoped assignment identity, including deterministic ids for unkeyed siblings. */
   readonly assignmentId?: string
   readonly identity?: NodeExecutionIdentity
+  /** Present when authorization ran this node on another model than its parent authored. */
+  readonly modelSubstitution?: SpawnModelSubstitution
   /** Kernel-owned execution evidence. `unknown` is distinct from a known zero/empty plan. */
   readonly materialization?: ProfileMaterializationReceipt
   /** Immutable attempt bindings, oldest first. A retried/resumed node may have more than one. */
@@ -1455,6 +1475,8 @@ export type SpawnEvent =
        *  names the agent, while this is the blob store's own content address, which retrieves its
        *  bytes. Absent on records written before the body was persisted. */
       profileRef?: string
+      /** Present when authorization ran this node on another model than its parent authored. */
+      modelSubstitution?: SpawnModelSubstitution
       seq: number
       at: string
     }
