@@ -101,6 +101,8 @@ const bridgeRequestBodies = new WeakMap<object, BridgeRequest>()
 interface FakeBridgeRoutes {
   /** Wire ids this bridge routes. Any other id 404s. Omit = route everything. */
   routedModels?: ReadonlySet<string>
+  /** Whether each route declares `toolCallSpans`: its stream reports tool calls at start and end. */
+  toolCallSpans?: boolean
   /** Admission counters `/health` reports. Omit = report no admission snapshot at all. */
   admission?: {
     active: number
@@ -131,7 +133,13 @@ function createBridgeServer(
         return
       }
       res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ model, backend: 'fake' }))
+      res.end(
+        JSON.stringify({
+          model,
+          backend: 'fake',
+          ...(routes.toolCallSpans === undefined ? {} : { toolCallSpans: routes.toolCallSpans }),
+        }),
+      )
       return
     }
     if (req.method === 'GET' && req.url === '/health') {
@@ -1076,30 +1084,33 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
   it('cuts a silent model call at modelSilenceMs and re-enters the run', async () => {
     const chats: string[] = []
     const cancels: string[] = []
-    server = createBridgeServer(async (req, res) => {
-      const cancelled = cancelledRunId(req.url)
-      if (cancelled !== undefined) {
-        cancels.push(cancelled)
-        respondWithTerminalCancellation(res, cancelled)
-        return
-      }
-      if (req.method !== 'POST' || !req.url?.startsWith('/v1/chat/completions')) {
-        res.writeHead(200, { 'content-type': 'application/json' })
-        res.end('{}')
-        return
-      }
-      const body = await readJson(req)
-      chats.push(body.run_id)
-      if (chats.length === 1) {
-        res.writeHead(200, {
-          'content-type': 'text/event-stream',
-          'x-run-id': body.run_id,
-          'x-run-request-digest': TEST_RUN_DIGEST,
-        })
-        return
-      }
-      respondWithBridgeStream(res, body, successStream('managed after the silent call'))
-    })
+    server = createBridgeServer(
+      async (req, res) => {
+        const cancelled = cancelledRunId(req.url)
+        if (cancelled !== undefined) {
+          cancels.push(cancelled)
+          respondWithTerminalCancellation(res, cancelled)
+          return
+        }
+        if (req.method !== 'POST' || !req.url?.startsWith('/v1/chat/completions')) {
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end('{}')
+          return
+        }
+        const body = await readJson(req)
+        chats.push(body.run_id)
+        if (chats.length === 1) {
+          res.writeHead(200, {
+            'content-type': 'text/event-stream',
+            'x-run-id': body.run_id,
+            'x-run-request-digest': TEST_RUN_DIGEST,
+          })
+          return
+        }
+        respondWithBridgeStream(res, body, successStream('managed after the silent call'))
+      },
+      { toolCallSpans: true },
+    )
     await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
     const { port } = server.address() as AddressInfo
     const attempts: DriverAttemptRecord[] = []
@@ -1163,41 +1174,44 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       'data: [DONE]',
       '',
     ].join('\n\n')
-    server = createBridgeServer(async (req, res) => {
-      const cancelled = cancelledRunId(req.url)
-      if (cancelled !== undefined) {
-        cancels.push(cancelled)
-        respondWithTerminalCancellation(res, cancelled)
-        return
-      }
-      if (req.method !== 'POST' || !req.url?.startsWith('/v1/chat/completions')) {
-        res.writeHead(200, { 'content-type': 'application/json' })
-        res.end('{}')
-        return
-      }
-      const body = await readJson(req)
-      chats.push(body.run_id)
-      // Frame the whole stream as the bridge would, then hold everything after the tool call.
-      let framed = ''
-      let headers: Record<string, string> = {}
-      respondWithBridgeStream(
-        {
-          writeHead: (_status: number, sent: Record<string, string>) => {
-            headers = sent
-          },
-          end: (text: string) => {
-            framed = text
-          },
-        } as unknown as ServerResponse,
-        body,
-        toolStream,
-      )
-      const split = framed.indexOf('id: ', framed.indexOf('"tool_calls"'))
-      res.writeHead(200, headers)
-      res.write(framed.slice(0, split))
-      await new Promise((resolve) => setTimeout(resolve, 900))
-      res.end(framed.slice(split))
-    })
+    server = createBridgeServer(
+      async (req, res) => {
+        const cancelled = cancelledRunId(req.url)
+        if (cancelled !== undefined) {
+          cancels.push(cancelled)
+          respondWithTerminalCancellation(res, cancelled)
+          return
+        }
+        if (req.method !== 'POST' || !req.url?.startsWith('/v1/chat/completions')) {
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end('{}')
+          return
+        }
+        const body = await readJson(req)
+        chats.push(body.run_id)
+        // Frame the whole stream as the bridge would, then hold everything after the tool call.
+        let framed = ''
+        let headers: Record<string, string> = {}
+        respondWithBridgeStream(
+          {
+            writeHead: (_status: number, sent: Record<string, string>) => {
+              headers = sent
+            },
+            end: (text: string) => {
+              framed = text
+            },
+          } as unknown as ServerResponse,
+          body,
+          toolStream,
+        )
+        const split = framed.indexOf('id: ', framed.indexOf('"tool_calls"'))
+        res.writeHead(200, headers)
+        res.write(framed.slice(0, split))
+        await new Promise((resolve) => setTimeout(resolve, 900))
+        res.end(framed.slice(split))
+      },
+      { toolCallSpans: true },
+    )
     await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
     const { port } = server.address() as AddressInfo
     const attempts: DriverAttemptRecord[] = []
@@ -1215,6 +1229,47 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(attempts.map((attempt) => attempt.stop ?? attempt.classification)).toEqual(['completed'])
     expect(chats).toHaveLength(1)
     expect(cancels).toEqual([])
+  })
+
+  it('refuses modelSilenceMs on an opencode route that does not declare toolCallSpans', async () => {
+    // cli-bridge's opencode backend reports a tool call only once it has finished: on
+    // magnetar-rust-20261018b a 32-minute tool left no event for 32.4 minutes.
+    const chats: string[] = []
+    server = createBridgeServer(async (req, res) => {
+      if (req.method !== 'POST' || !req.url?.startsWith('/v1/chat/completions')) {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end('{}')
+        return
+      }
+      const body = await readJson(req)
+      chats.push(body.run_id)
+      respondWithBridgeStream(res, body, successStream('should not run'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const attempts: DriverAttemptRecord[] = []
+    const opencodeRoot: AgentProfile = {
+      name: 'bridge-root',
+      harness: 'opencode',
+      model: { provider: 'zai', default: 'glm-5.3' },
+      prompt: { systemPrompt: 'Lead.' },
+    }
+    const result = await supervise(opencodeRoot, 'Choose.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+        modelSilenceMs: 900_000,
+      },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+      driverRetry: { initialBackoffMs: 1 },
+      onDriverAttempt: (attempt) => void attempts.push(attempt),
+    })
+    expect(chats).toEqual([])
+    expect(attempts).toHaveLength(1)
+    expect(attempts[0]?.classification).toBe('terminal')
+    expect(attempts[0]?.error).toContain('does not declare toolCallSpans')
+    expect(result.kind).toBe('no-winner')
   })
 
   it('records the exact served root MCP tools in bridge materialization evidence', async () => {
