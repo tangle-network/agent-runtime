@@ -1907,6 +1907,21 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /** The fork a checkpoint's capture reads exists and was reconstructed; the capture of its
+       *  files starts now. It ends in `workspace-checkpoint-capture`, or in a
+       *  `workspace-checkpoint-cleanup` that says why the checkpoint was kept. Informational,
+       *  like `workspace-checkpoint`. */
+      kind: 'workspace-checkpoint-fork-ready'
+      id: NodeId
+      provider: string
+      /** The environment the checkpoint was taken from. */
+      environmentId: string
+      checkpointId: string
+      fork: { idempotencyKey: string; environmentId: string }
+      seq: number
+      at: string
+    }
+  | {
       /** Whether the provider confirmed destroying a checkpoint capture's fork. A fork without a
        *  `destroyed` record is asked for again at the owner's release. Informational, like
        *  `workspace-checkpoint`. */
@@ -1977,6 +1992,18 @@ export type SpawnEvent =
       sourceEnvironmentId: string
       verified: boolean
       detail?: string
+      seq: number
+      at: string
+    }
+  | {
+      /** An end-of-turn workspace capture of this node's environment was requested; its
+       *  `workspace-capture` record follows when it settles, so a capture in flight is one
+       *  without that record. Informational, like `workspace-checkpoint`. */
+      kind: 'workspace-capture-started'
+      id: NodeId
+      /** The Runtime invocation the capture belongs to. */
+      executionId: string
+      environmentId: string
       seq: number
       at: string
     }

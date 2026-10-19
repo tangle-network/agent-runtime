@@ -36,6 +36,12 @@ export const WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS = 10 * WORKSPACE_CHECKPOINT_TI
  *  and only after their files are captured. */
 export const WORKSPACE_CHECKPOINTS_KEPT = 2
 
+/** Bound on the captures one checkpoint rotation runs, all of them together, forks included.
+ *  A turn's own workspace capture also cuts them short when it starts. A capture cut short keeps
+ *  its checkpoint, and the owner's release, bounded by `RELEASE_CHECKPOINT_CAPTURES_MS`, captures
+ *  it again. */
+export const WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS = 2 * 60_000
+
 /** Bound on creating and reconstructing the fork a checkpoint's capture reads: a Sandbox box
  *  created from a snapshot (measured 2026-09-24: 19 s). The capture itself is bounded by its port. */
 export const WORKSPACE_CHECKPOINT_FORK_TIMEOUT_MS = 10 * 60_000
