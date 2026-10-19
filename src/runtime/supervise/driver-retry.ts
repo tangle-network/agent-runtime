@@ -117,6 +117,7 @@ import {
   UNAVAILABLE_STATUSES,
   type UnavailablePausePolicy,
   unavailablePauseMs,
+  unavailableResumeAt,
   unavailableSignalInText,
   unavailableSignalOfFailure,
 } from './upstream-unavailable'
@@ -194,6 +195,8 @@ export interface DriverAttemptRecord {
   /** For an `unavailable` attempt: the code or HTTP status that classified it, such as
    *  `provider_quota_exhausted` or `http-429`. */
   readonly unavailableSignal?: string
+  /** For an `unavailable` attempt whose refusal named its reset time: the pause holds until then. */
+  readonly resumeAt?: string
   /** The completion check's verdict after this attempt. Absent when the caller declares none. */
   readonly contract?: DriverContractState
   /** True when this COMPLETED attempt's unmet contract sent the loop back with a continuation. */
@@ -1017,7 +1020,15 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
         }
         pauses += 1
         consecutivePauses = progressed ? 1 : consecutivePauses + 1
-        const pause = jitteredMs(unavailablePauseMs(consecutivePauses, policy), random)
+        // A refusal that names its reset holds until then, never past the run's deadline: probing a
+        // 5-hour plan window every 300 s spent 219 of magnetar-rust-20261018b's 324 attempts.
+        const pausedAt = now()
+        const resetAt = unavailableResumeAt(errMessage(error), pausedAt)
+        const deadlineMs = run.budget().deadlineMs
+        const pause =
+          resetAt === undefined
+            ? jitteredMs(unavailablePauseMs(consecutivePauses, policy), random)
+            : Math.max(1_000, Math.min(resetAt, deadlineMs > 0 ? deadlineMs : resetAt) - pausedAt)
         await emit({
           attempt,
           durationMs,
@@ -1026,6 +1037,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
           madeProgress: progressed,
           unavailableSignal,
           retryInMs: pause,
+          ...(resetAt === undefined ? {} : { resumeAt: new Date(resetAt).toISOString() }),
         })
         // The same rule as a failure retry: re-enter with the ORIGINAL task and the run's state,
         // because the refused turn may have ended before it read a re-prompt.

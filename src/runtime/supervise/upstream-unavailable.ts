@@ -105,6 +105,32 @@ export function cappedDoublingMs(consecutive: number, first: number, ceiling: nu
   return Math.min(Math.max(start, ceiling), start * 2 ** Math.max(0, consecutive - 1))
 }
 
+/** The longest hold a refusal's own reset time may ask for: a 5-hour plan window plus a margin. */
+export const MAX_RESET_HOLD_MS = 6 * 60 * 60_000
+
+/**
+ * When a refusal says its quota resets, as epoch ms, or `undefined` when it names no usable time.
+ * The Z.ai Coding Plan's opencode refusal names one in Beijing time with no zone:
+ * `Usage limit reached for 5 hour. Your limit will reset at 2026-10-18 15:17:33`. On Discovery run
+ * magnetar-rust-20261018b, 219 of 324 driver attempts ended on it between 06:04Z and 22:18Z, and
+ * the last refusal came at 22:18Z against `reset at 2026-10-19 06:18:14`, which is 22:18:14Z at
+ * +08:00. A time with its own zone is read as written. A time in the past, or more than
+ * MAX_RESET_HOLD_MS ahead, is no reset time: the caller keeps its doubling pause.
+ */
+export function unavailableResumeAt(text: string, nowMs: number): number | undefined {
+  const match = text.match(
+    /\breset at (\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?/u,
+  )
+  if (match === null) return undefined
+  const zone = match[3] ?? (/Usage limit reached for \d+ hour/u.test(text) ? '+08:00' : undefined)
+  if (zone === undefined) return undefined
+  const at = Date.parse(
+    `${match[1]}T${match[2]}${zone.length === 5 ? `${zone.slice(0, 3)}:${zone.slice(3)}` : zone}`,
+  )
+  if (!Number.isFinite(at) || at <= nowMs || at - nowMs > MAX_RESET_HOLD_MS) return undefined
+  return at
+}
+
 /**
  * Spread a wait over `[ms / 2, ms]`. Every driver a Platform restart cut off fails within the same
  * seconds; without jitter their doubling schedules stay aligned and they all re-enter together
