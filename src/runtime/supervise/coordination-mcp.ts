@@ -29,6 +29,7 @@ import {
   type AnalystRegistry,
   type AnalyzeOnSettleRoute,
   type AuthorizeDownMessage,
+  type ChildQuestionInbox,
   type ContinuityMode,
   type CoordinationEvent,
   type CoordinationTools,
@@ -288,6 +289,8 @@ export async function serveCoordinationMcp(
     questionPolicy?: QuestionPolicy
     /** Where an `ask_parent` question goes when it leaves this manager. Omit = `no-parent`. */
     escalateQuestion?: EscalateQuestion
+    /** Receives this manager's intake for questions its child managers raise. */
+    onChildQuestionInbox?: (inbox: ChildQuestionInbox) => void
     /** Escalations replayed from a prior process — seeds what `stop` knows went unheard. */
     priorEscalations?: ReadonlyArray<QuestionEscalationRecord>
     /** Questions replayed from a prior process of this run — seeds the question ledger. */
@@ -507,6 +510,7 @@ export async function serveCoordinationMcpForManager(
       ...(opts.replaySettlements ? { replaySettlements: true } : {}),
       ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
       ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),
+      ...(opts.onChildQuestionInbox ? { onChildQuestionInbox: opts.onChildQuestionInbox } : {}),
       ...(opts.priorEscalations?.length ? { priorEscalations: opts.priorEscalations } : {}),
       ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
       ...(opts.priorJournal?.length ? { priorJournal: opts.priorJournal } : {}),

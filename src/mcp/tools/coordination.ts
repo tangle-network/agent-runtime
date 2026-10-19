@@ -742,6 +742,17 @@ export type EscalateQuestion = (
   question: QuestionRecord,
 ) => Promise<QuestionEscalationOutcome> | QuestionEscalationOutcome
 
+/**
+ * A manager's intake for an `ask_parent` question raised by a worker it spawned that manages work
+ * of its own. `assignmentId` is the assignment the parent gave that worker. The question joins the
+ * parent's questions under that worker's id, so the parent's next wake carries it and
+ * `answer_question` delivers the answer back down to the asker.
+ */
+export type ChildQuestionInbox = (
+  assignmentId: string,
+  question: QuestionRecord,
+) => Promise<QuestionEscalationOutcome>
+
 /** The operator-facing artifact written for every `ask_parent`: which question left, whether
  *  anything received it, and — when nothing did — that the manager itself is now the last decider.
  *  Journaled record-only, so the run's durable coordination log holds every question that was
@@ -1223,6 +1234,9 @@ export interface CoordinationToolsOptions {
    * it must decide the question itself rather than wait.
    */
   readonly escalateQuestion?: EscalateQuestion
+  /** Receives this manager's {@link ChildQuestionInbox} once its tools exist, so Runtime can route
+   *  a child manager's `ask_parent` here. */
+  readonly onChildQuestionInbox?: (inbox: ChildQuestionInbox) => void
   /**
    * Escalations this manager made in a PRIOR process of the same durable run
    * (`PriorCoordination.escalations`). Seeded verbatim, so after a restart `stop` still knows which
@@ -2108,6 +2122,8 @@ export function createCoordinationToolsForManager(
   // the profile name is what a graph pins a node by. Recorded at spawn, dropped never (a settled
   // source can still be matched by `over` after it is gone).
   const profileNameByWorker = new Map<string, string>()
+  // Assignment id → the worker spawned under it, which a child manager's question names.
+  const workerByAssignment = new Map<string, string>()
   // Worker id → the live child Handle from its spawn. `Handle.abort` is the ONLY per-child abort
   // (its controller cascades to that child's subtree and no sibling), and the scope does not
   // re-expose it, so `abortWorker` must keep the handle from the spawn that minted it. Entries
@@ -3627,6 +3643,31 @@ export function createCoordinationToolsForManager(
   // is stated, every time: `queued-for-parent` when something took the question, `no-parent` when
   // nothing did, and in the second case the manager is told it is the last decider.
   const escalations: QuestionEscalationRecord[] = [...(opts.priorEscalations ?? [])]
+  // magnetar-rust-20261017c dropped 8 escalations from nested leads with 'no parent inbox': no path
+  // carried a child manager's question to the manager that spawned it.
+  opts.onChildQuestionInbox?.(async (assignmentId, asked) => {
+    const workerId = workerByAssignment.get(assignmentId)
+    if (workerId === undefined || nodeForWorker(workerId) === undefined) {
+      return {
+        delivered: false,
+        reason: `the parent manager has no worker for assignment ${JSON.stringify(assignmentId)}`,
+      }
+    }
+    const record = await emitNewQuestion(
+      addQuestion(
+        {
+          from: workerId,
+          level: asked.level,
+          question: asked.question,
+          reason: asked.reason,
+          ...(asked.options ? { options: asked.options } : {}),
+          urgency: asked.urgency,
+        },
+        workerId,
+      ),
+    )
+    return { delivered: true, to: `parent manager question ${record.id}` }
+  })
   const escalate = async (question: QuestionRecord): Promise<QuestionEscalationRecord> => {
     let outcome: QuestionEscalationOutcome
     if (opts.escalateQuestion === undefined) {
@@ -4170,6 +4211,13 @@ export function createCoordinationToolsForManager(
     const running = openWork().running
     return running.length > 0 && running.every((node) => readProgress(node.id)?.stalled === false)
   }
+  // A question one of this manager's workers raised wakes it: a child manager still working would
+  // otherwise wait for the heartbeat, or for that child to settle and so never need the answer.
+  // The manager's own ask_parent is recorded on the same bus and wakes nothing.
+  const isWorkerQuestion = (event: CoordinationEvent): boolean =>
+    event.type === 'question' && nodeForWorker(event.question.from) !== undefined
+  const workerQuestionPending = (): boolean =>
+    bus.queued(['question']).some((record) => isWorkerQuestion(record.event))
   const awaitWake = async (input: AwaitWakeInput): Promise<ManagerWake | undefined> => {
     const startedAt = Date.now()
     let quietHeartbeats = 0
@@ -4187,7 +4235,11 @@ export function createCoordinationToolsForManager(
       const queuedEvent = new Promise<void>((resolve) => {
         // Once the record is pull-visible: a subscriber runs before the record is queued.
         unsubscribe = bus.onQueued((record) => {
-          if ((wakeEventKinds as ReadonlyArray<string>).includes(record.event.type)) resolve()
+          if (
+            (wakeEventKinds as ReadonlyArray<string>).includes(record.event.type) ||
+            isWorkerQuestion(record.event)
+          )
+            resolve()
         })
       })
       let elapsed: Promise<void> = Promise.resolve()
@@ -4212,6 +4264,7 @@ export function createCoordinationToolsForManager(
       for (;;) {
         while (
           bus.pending(wakeEventKinds) === 0 &&
+          !workerQuestionPending() &&
           !outsideWake &&
           !input.signal.aborted &&
           Date.now() < wakeAt
@@ -4240,6 +4293,7 @@ export function createCoordinationToolsForManager(
           input.quietWhileProgressing === true &&
           input.heartbeatMs > 0 &&
           bus.pending(wakeEventKinds) === 0 &&
+          !workerQuestionPending() &&
           !outsideWake &&
           !input.signal.aborted &&
           Date.now() >= heartbeatAt &&
@@ -4280,7 +4334,10 @@ export function createCoordinationToolsForManager(
       if (onAbort) input.signal.removeEventListener('abort', onAbort)
     }
     const events: Array<Record<string, unknown> & { readonly eventSeq: number }> = []
-    for (let next = bus.pullRecord(wakeEventKinds); next; next = bus.pullRecord(wakeEventKinds)) {
+    const pulledKinds: ReadonlyArray<CoordinationEvent['type']> = workerQuestionPending()
+      ? [...wakeEventKinds, 'question']
+      : wakeEventKinds
+    for (let next = bus.pullRecord(pulledKinds); next; next = bus.pullRecord(pulledKinds)) {
       deliveries.push({
         record: next,
         attempt: input.attempt ?? driverAttempt,
@@ -4409,6 +4466,7 @@ export function createCoordinationToolsForManager(
       if (typeof profile.name === 'string' && profile.name.length > 0) {
         profileNameByWorker.set(res.handle.id, profile.name)
       }
+      workerByAssignment.set(assignmentId, res.handle.id)
     }
     // A `completed` key returned above, so any prior still attached here is a real re-run:
     // `retried` means the prior attempt reached a terminal down receipt.

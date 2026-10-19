@@ -145,4 +145,87 @@ describe('supervise delivers parent questions, not just callback configuration',
       ])
     },
   )
+
+  it("routes a nested manager's question to the manager that spawned it and returns the answer", async () => {
+    // magnetar-rust-20261017c dropped 8 such escalations: 'this manager has no parent inbox'.
+    const child = testAgentProfile('specialist', {
+      tools: runtimeToolDeclarations('ask_parent', 'submit_result'),
+    })
+    const asked: Array<Record<string, unknown>> = []
+    const answered: Array<Record<string, unknown>> = []
+    const childTasks: string[] = []
+    let rootDrives = 0
+    let childDrives = 0
+    // The specialist keeps working while its question is open, as a lead with workers does; a
+    // manager that ended with nothing open would settle before any answer could reach it.
+    let rootAnswered!: () => void
+    const answeredByRoot = new Promise<void>((resolve) => {
+      rootAnswered = resolve
+    })
+    const driveHarness: DriveHarness = async ({
+      profile,
+      task,
+      coordinationMcpUrl,
+      coordinationMcpHeaders,
+    }) => {
+      const tool = (name: string, args: Record<string, unknown>) =>
+        call(coordinationMcpUrl, coordinationMcpHeaders, name, args)
+      if (profile.name === 'root') {
+        rootDrives += 1
+        if (rootDrives === 1) {
+          expect(
+            await tool('spawn_worker', { profile: child, task: 'specialist work' }),
+          ).not.toHaveProperty('error')
+          return
+        }
+        const { questions } = (await tool('list_questions', {})) as {
+          questions: Array<{ id: string; status: string; question: string }>
+        }
+        const open = questions.find((q) => q.status === 'open')
+        if (open !== undefined) {
+          answered.push(
+            await tool('answer_question', { questionId: open.id, answer: 'Use source B.' }),
+          )
+          rootAnswered()
+        }
+        return
+      }
+      childDrives += 1
+      childTasks.push(typeof task === 'string' ? task : JSON.stringify(task))
+      if (childDrives === 1) {
+        // A blocking question's answer interrupts the asker's turn; this turn waits for the answer
+        // itself, so it asks without blocking and the answer is queued for its next wake.
+        asked.push(await tool('ask_parent', question('specialist')))
+        await answeredByRoot
+        return
+      }
+      await tool('submit_result', { result: { answer: 'checked with source B' } })
+    }
+    await supervise(
+      testAgentProfile('root', {
+        tools: runtimeToolDeclarations('spawn_worker', 'list_questions', 'answer_question'),
+      }),
+      'research',
+      {
+        budget,
+        perWorker: { maxTokens: 1000, maxIterations: 4 },
+        makeLeafAgent: () => ({ name: 'unused', act: async () => undefined }),
+        driveHarness,
+        coordination: { authentication: true },
+        driverRetry: { enabled: false },
+        wake: { debounceMs: 0 },
+        journal: new InMemorySpawnJournal(),
+        runId: 'question-to-parent-manager',
+        deliverable: { check: () => true },
+        continuation: testContinuation({ deadline: 1 }),
+      },
+    )
+    expect(asked).toEqual([
+      expect.objectContaining({ escalated: true, outcome: 'queued-for-parent' }),
+    ])
+    expect(answered).toHaveLength(1)
+    expect(answered[0], JSON.stringify(answered[0])).toMatchObject({ delivered: true })
+    // The specialist's next drive carries the root's answer.
+    expect(childTasks.slice(1).join('\n')).toContain('Use source B.')
+  })
 })
