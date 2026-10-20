@@ -78,3 +78,22 @@ export function errMessage(error: unknown): string {
   }
   return parts.join(': caused by ').slice(0, maxMessageLength)
 }
+
+/** The error and its causes (`cause`, and `errors` members), bounded and cycle-safe. */
+export function causeChain(error: unknown): object[] {
+  const chain: object[] = []
+  const queue: unknown[] = [error]
+  while (queue.length > 0 && chain.length < 12) {
+    const value = queue.shift()
+    if (typeof value !== 'object' || value === null || chain.includes(value)) continue
+    chain.push(value)
+    try {
+      const errors: unknown = Reflect.get(value, 'errors')
+      if (Array.isArray(errors)) queue.push(...errors)
+      queue.push(Reflect.get(value, 'cause'))
+    } catch {
+      // A cause that cannot be read ends this branch of the walk.
+    }
+  }
+  return chain
+}

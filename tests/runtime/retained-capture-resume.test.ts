@@ -86,25 +86,55 @@ async function killedRun(phase = 'kill') {
   return directory
 }
 
-async function expectReenterable(directory: string, phase: string) {
+/**
+ * A failed evidence recovery is debt on the node, never a process exit: the run continues in
+ * another environment, the uncaptured source is neither dispatched into nor destroyed, the paid
+ * invocation is not repeated, and one `evidence-pending` row names the source and the failure.
+ */
+async function expectEvidenceDebt(
+  directory: string,
+  phase: string,
+  failure = 'retained workspace capture pending',
+) {
+  const beforeEvents = await eventsIn(directory)
   const result = await runPhase(directory, phase)
-  expect(result.code, result.stderr + result.stdout).toBe(1)
-  expect(result.stdout).toContain('retained workspace capture pending')
-  await expect(readFile(join(directory, 'run', 'result.json'))).rejects.toMatchObject({
-    code: 'ENOENT',
-  })
-  expect(await readFile(join(directory, 'run', 'failure.json'), 'utf8')).toContain(
-    'retained workspace capture pending',
-  )
+  expect(result.code, result.stderr + result.stdout).toBe(0)
   const history = await moments(directory)
+  const original = history.find((moment) => moment.what === 'dispatch')!
+  const source = original.environmentId
   expect(
-    history.filter((moment) => moment.phase === phase && moment.what === 'dispatch'),
-  ).toHaveLength(0)
-  expect(history.filter((moment) => moment.what === 'destroy')).toHaveLength(0)
+    history.filter(
+      (moment) =>
+        moment.phase === phase && moment.what === 'dispatch' && moment.environmentId === source,
+    ),
+  ).toHaveLength(phase === original.phase ? 1 : 0)
+  expect(
+    history.filter(
+      (moment) => moment.what === 'dispatch' && moment.executionId === original.executionId,
+    ),
+  ).toHaveLength(1)
   const events = await eventsIn(directory)
-  expect(resultsIn(events)).toHaveLength(1)
-  expect(events.filter((event) => event.kind === 'execution-input')).toHaveLength(1)
+  const before = resultsIn(beforeEvents)
+  expect(resultsIn(events).slice(0, before.length)).toEqual(before)
   expect(events.filter((event) => event.kind === 'execution-abandoned')).toHaveLength(0)
+  // Later sources may carry their own debt when every capture in this process fails.
+  expect(
+    events.filter((event) => event.kind === 'evidence-pending' && event.environmentId === source),
+  ).toEqual([expect.objectContaining({ error: expect.stringContaining(failure) })])
+  // The release tries the capture once more. Only a receipt that landed frees the source.
+  const interrupted = history.find((moment) => moment.what === 'capture-started')!
+  const cleared = history.some(
+    (moment) =>
+      moment.phase === phase &&
+      moment.what === 'capture-finished' &&
+      moment.executionId === interrupted.executionId &&
+      moment.environmentId === source,
+  )
+  const destroyed = history.some(
+    (moment) => moment.what === 'destroy' && moment.environmentId === source,
+  )
+  if (destroyed) expect(cleared).toBe(true)
+  return history
 }
 
 async function expectRecovered(directory: string, phase = 'resume') {
@@ -223,12 +253,11 @@ describe('retained workspace capture across a real process kill', () => {
   })
 
   it.each(['reject', 'partial', 'foreign', 'no-retention', 'lookup-hang'])(
-    'keeps failed %s recovery re-enterable and later captures without repeating inference',
+    'keeps failed %s recovery as evidence debt and continues without repeating inference',
     { timeout: 60_000 },
     async (phase) => {
       const directory = await killedRun()
-      await expectReenterable(directory, phase)
-      await expectRecovered(directory)
+      await expectEvidenceDebt(directory, phase)
     },
   )
 
@@ -237,14 +266,7 @@ describe('retained workspace capture across a real process kill', () => {
   }, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'retained-capture-live-'))
     directories.push(directory)
-    const first = await runPhase(directory, 'live-reject')
-    expect(first.code, first.stderr + first.stdout).toBe(1)
-    expect(first.stdout).toContain('retained workspace capture pending')
-    expect((await moments(directory)).filter((moment) => moment.what === 'dispatch')).toHaveLength(
-      1,
-    )
-    expect((await moments(directory)).filter((moment) => moment.what === 'destroy')).toHaveLength(0)
-    await expectRecovered(directory)
+    await expectEvidenceDebt(directory, 'live-reject', 'capture storage unavailable')
   })
 
   it('reuses a durable valid receipt after another process dies, without recapturing the accepted turn', {
@@ -360,41 +382,36 @@ describe('retained workspace capture across a real process kill', () => {
         seq: Math.max(...events.map((event) => event.seq)) + 1,
         at: new Date().toISOString(),
       })
-      await expectReenterable(directory, 'reject')
-      await expectRecovered(directory)
+      await expectEvidenceDebt(directory, 'reject')
     },
   )
-  it('checks the original profile digest before evidence recovery and can resume once corrected', {
+  it('checks the original profile digest before evidence recovery', {
     timeout: 60_000,
   }, async () => {
     const directory = await killedRun()
-    let original = ''
     await rewriteEvents(directory, (event) => {
       if (event.kind !== 'execution-admitted' || event.admission.phase !== 'intent') return event
-      original = event.admission.requestedProfileDigest
       return {
         ...event,
         admission: { ...event.admission, requestedProfileDigest: `sha256:${'f'.repeat(64)}` },
       }
     })
-    await expectReenterable(directory, 'resume')
+    const interrupted = (await moments(directory)).find(
+      (moment) => moment.what === 'capture-started',
+    )!
+    const history = await expectEvidenceDebt(
+      directory,
+      'resume',
+      'does not match its original profile or admission',
+    )
     expect(
-      (await moments(directory)).filter(
-        (moment) => moment.phase === 'resume' && moment.what === 'capture-started',
+      history.filter(
+        (moment) =>
+          moment.phase === 'resume' &&
+          moment.what === 'capture-started' &&
+          moment.executionId === interrupted.executionId,
       ),
     ).toHaveLength(0)
-    await rewriteEvents(directory, (event) =>
-      event.kind === 'execution-admitted' && event.admission.phase === 'intent'
-        ? {
-            ...event,
-            admission: {
-              ...event.admission,
-              requestedProfileDigest: original as `sha256:${string}`,
-            },
-          }
-        : event,
-    )
-    await expectRecovered(directory, 'corrected')
   })
 
   it('does not infer a legacy capture obligation from the current retention configuration', {
@@ -446,22 +463,22 @@ describe('retained workspace capture across a real process kill', () => {
         ? { ...event, workspaceRetention: true }
         : event,
     )
-    const resumed = await runPhase(directory, 'resume')
-    expect(resumed.code, resumed.stderr + resumed.stdout).toBe(1)
-    expect(resumed.stdout).toContain('historical workspace cannot be recaptured')
-    const history = await moments(directory)
+    const historical = (await moments(directory)).find(
+      (moment) => moment.what === 'capture-started',
+    )!
+    const history = await expectEvidenceDebt(
+      directory,
+      'resume',
+      'historical workspace cannot be recaptured',
+    )
     expect(
       history.filter(
         (moment) =>
           moment.phase === 'resume' &&
-          (moment.what === 'capture-started' || moment.what === 'dispatch'),
+          moment.what === 'capture-started' &&
+          moment.executionId === historical.executionId,
       ),
     ).toHaveLength(0)
-    expect(history.filter((moment) => moment.what === 'destroy')).toHaveLength(0)
-    expect(resultsIn(await eventsIn(directory))).toHaveLength(2)
-    await expect(readFile(join(directory, 'run', 'result.json'))).rejects.toMatchObject({
-      code: 'ENOENT',
-    })
   })
   it('recovers the exact selected-seat profile rather than the authored fallback profile', {
     timeout: 60_000,
@@ -478,7 +495,7 @@ describe('retained workspace capture across a real process kill', () => {
   })
 
   it.each(['kill-before-input', 'kill-before-dispatch'])(
-    'blocks historical uncaptured work even when the latest input is unfinished at %s',
+    'never runs an unfinished input over uncaptured historical work at %s',
     { timeout: 60_000 },
     async (phase) => {
       const directory = await killedRun()
@@ -501,21 +518,39 @@ describe('retained workspace capture across a real process kill', () => {
       expect(before.filter((event) => event.kind === 'execution-input')).toHaveLength(2)
       expect(resultsIn(before)).toHaveLength(1)
       const resumed = await runPhase(directory, 'resume')
-      expect(resumed.code, resumed.stderr + resumed.stdout).toBe(1)
-      expect(resumed.stdout).toContain('historical workspace cannot be recaptured')
+      expect(resumed.code, resumed.stderr + resumed.stdout).toBe(0)
       const history = await moments(directory)
-      expect(
-        history.filter(
+      const source = history.find((moment) => moment.what === 'dispatch')!.environmentId
+      const historical = history.find((moment) => moment.what === 'capture-started')!
+      const intoSource = history.findIndex(
+        (moment) =>
+          moment.phase === 'resume' &&
+          moment.what === 'dispatch' &&
+          moment.environmentId === source,
+      )
+      if (phase === 'kill-before-input') {
+        // The unfinished input never admitted the source, so the source still holds exactly the
+        // accepted turn's workspace: it is captured there before anything runs in it again.
+        const captured = history.findIndex(
           (moment) =>
             moment.phase === 'resume' &&
-            (moment.what === 'capture-started' || moment.what === 'dispatch'),
-        ),
-      ).toHaveLength(0)
-      expect(history.filter((moment) => moment.what === 'destroy')).toHaveLength(0)
-      expect(resultsIn(await eventsIn(directory))).toHaveLength(1)
-      await expect(readFile(join(directory, 'run', 'result.json'))).rejects.toMatchObject({
-        code: 'ENOENT',
-      })
+            moment.what === 'capture-finished' &&
+            moment.executionId === historical.executionId,
+        )
+        expect(captured).toBeGreaterThan(-1)
+        if (intoSource >= 0) expect(captured).toBeLessThan(intoSource)
+      } else {
+        // The unfinished input was admitted into the uncaptured source and never dispatched: it
+        // is abandoned, and its replacement runs elsewhere. The source is kept as evidence.
+        expect(intoSource).toBe(-1)
+        expect(
+          history.filter((moment) => moment.what === 'destroy' && moment.environmentId === source),
+        ).toHaveLength(0)
+        expect(
+          (await eventsIn(directory)).filter((event) => event.kind === 'execution-abandoned'),
+        ).toMatchObject([{ outcome: 'uncertain' }])
+      }
+      expect(resultsIn(await eventsIn(directory))[0]).toEqual(resultsIn(before)[0])
     },
   )
   // The final native copy runs beside the workspace capture, so death in the copy can
