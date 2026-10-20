@@ -1,0 +1,3 @@
+type: patch
+---
+A sandbox turn no longer holds every streamed frame of a text or reasoning part. opencode sends one `message.part.updated` per token, each carrying the part's whole text so far, so a long single turn held O(L²) bytes, and concurrent audit workflows took the platform API to an out-of-memory crash. `openSandboxRun` now keeps the newest snapshot of each part at its newest position and drops that frame's `delta`, which already sits in its text. Delta-only frames and all other events are kept as they arrived, and `collectAgentResponseText` and `collectAgentFinalMessageText` return the same text as from the full stream.

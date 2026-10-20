@@ -1,4 +1,9 @@
-import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import {
+  collectAgentFinalMessageText,
+  collectAgentResponseText,
+  type SandboxEvent,
+  type SandboxInstance,
+} from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentRunSpec,
@@ -234,6 +239,47 @@ describe('openSandboxRun — live sandbox event observer', () => {
       { type: 'token', turnIndex: 1, turnKind: 'resume', agentRunName: 'researcher' },
       { type: 'result', turnIndex: 1, turnKind: 'resume', agentRunName: 'researcher' },
     ])
+  })
+
+  it('keeps one snapshot per streamed part and the text the SDK collects from the raw stream', async () => {
+    // opencode sends one frame per token, each with the part's whole text so far.
+    const frames = (id: string, words: string[]) =>
+      words.map(
+        (_, i) =>
+          ({
+            type: 'message.part.updated',
+            data: {
+              part: { id, type: 'text', text: words.slice(0, i + 1).join(' ') },
+              delta: (i === 0 ? '' : ' ') + words[i],
+            },
+          }) as SandboxEvent,
+      )
+    const before = frames('p1', Array.from({ length: 400 }, (_, i) => `narration${i}`))
+    const tool = {
+      type: 'message.part.updated',
+      data: { part: { id: 't1', type: 'tool', tool: 'bash', state: { status: 'completed' } } },
+    } as SandboxEvent
+    const after = frames('p2', Array.from({ length: 400 }, (_, i) => `answer${i}`))
+    const streamed = [...before, tool, ...after, doneEvent()]
+    const { client } = createFakeClient({ events: streamed })
+    const run = await openSandboxRun(
+      client,
+      { agentRun: spec(), signal: new AbortController().signal },
+      eventsDeliverable,
+    )
+
+    const turn = await run.start('go')
+
+    expect(turn.events).toHaveLength(4)
+    expect(turn.events.map((event) => (event.data as { part?: { id?: string } }).part?.id)).toEqual(
+      ['p1', 't1', 'p2', undefined],
+    )
+    expect(turn.events[2]?.data).toEqual({ part: after.at(-1)!.data.part })
+    expect(collectAgentResponseText(turn.events)).toBe(collectAgentResponseText(streamed))
+    expect(collectAgentFinalMessageText(turn.events)).toBe(collectAgentFinalMessageText(streamed))
+    expect(collectAgentFinalMessageText(turn.events)).toMatch(/^answer0 .* answer399$/)
+    const bytes = (events: SandboxEvent[]) => JSON.stringify(events).length
+    expect(bytes(turn.events) * 100).toBeLessThan(bytes(streamed))
   })
 
   it('protects collected events from observer mutation', async () => {
