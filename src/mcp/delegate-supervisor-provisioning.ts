@@ -54,6 +54,19 @@ const delegateSupervisorVerbs = [
 ] as const
 
 /**
+ * The `delegate` caller asked for a worker to do the task, and only a worker's settled result is
+ * delivered. A capable brain otherwise answers a small intent itself (gemini-3.7-flash and kimi-k3
+ * both replied to "Reply with exactly DELEGATED-391" directly), which settles `no-children-spawned`
+ * and discards the answer.
+ */
+const delegateContract = [
+  '',
+  'This task came through `delegate`: the caller wants a worker to do it. However small the task,',
+  'call spawn_worker at least once before you end your turn. Your own reply is never delivered;',
+  "only a worker's settled result is.",
+].join('\n')
+
+/**
  * Resolve the supervisor brain from dedicated MCP configuration. The model is part of the exact
  * profile; the URL and key are transport-only. No generic worker/model/key variable may silently
  * select this paid execution path.
@@ -68,13 +81,23 @@ function resolveRouterSupervisor(env: NodeJS.ProcessEnv): {
     ? base.replace(/\/$/, '')
     : `${base.replace(/\/$/, '')}/v1`
   const model = requiredEnv(env, 'MCP_SUPERVISOR_MODEL')
+  // The consumer's own policy for the workers this supervisor authors, such as the only harness and
+  // model its worker boxes can run. Without it the brain picks instruments from memory, and on
+  // 2026-10-19 every one it picked (claude-code on Anthropic, nanoclaw, cli-base) died in the box.
+  const consumerInstructions = trimmed(env.MCP_SUPERVISOR_INSTRUCTIONS)
   return {
     router: { routerBaseUrl, routerKey },
     profile: {
       name: 'delegate-supervisor',
       harness: 'cli-base',
       model: { provider: 'tangle-router', default: model },
-      prompt: { systemPrompt: supervisorInstructions() },
+      prompt: {
+        systemPrompt: [
+          supervisorInstructions(),
+          delegateContract,
+          ...(consumerInstructions ? ['', consumerInstructions] : []),
+        ].join('\n'),
+      },
       tools: Object.fromEntries(
         delegateSupervisorVerbs.map((verb) => [`${coordinationProfileToolPrefix}${verb}`, true]),
       ),
