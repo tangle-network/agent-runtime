@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve, sep } from 'node:path'
 import type { AgentCandidateArtifactRef, Sha256Digest } from '@tangle-network/agent-interface'
 import { markPutStreamVerified } from '../candidate-execution/artifact-streams'
 import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
+import { syncDirectory, syncHandle } from './durable-sync'
 import { runAbortable } from './supervise/abortable'
 import { mapWithConcurrency } from './util'
 
@@ -23,6 +24,10 @@ const BUFFERED_BYTES_PER_MS = 256
 // Objects a pass copies at once. Each copy is a store round trip plus a receipt with two fsyncs, so
 // one at a time ran at 2 objects/s on drew-gtr-pro's USB drive (a 3,563-object run took 30 min).
 const OFFLOAD_COPIES_AT_ONCE = 16
+// Shards a full pass lists at once. Listed one object at a time, the first pass of a retire pass's
+// owner export over a run of 13,240 objects on drew-gtr-pro's USB disk took 56 s from a cold cache
+// (2026-10-20), and every put of that export waited for it.
+const LIST_SHARDS_AT_ONCE = 16
 
 /**
  * Off-host storage that holds a private CAS's bytes after the host deletes its local copy.
@@ -127,18 +132,6 @@ const message = (error: unknown): string => (error instanceof Error ? error.mess
 const sha256 = (bytes: Uint8Array): Sha256Digest =>
   `sha256:${createHash('sha256').update(bytes).digest('hex')}` as Sha256Digest
 
-async function syncDirectory(directory: string): Promise<void> {
-  const handle = await open(
-    directory,
-    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-  )
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
 /** Read one local object, or undefined when the host no longer holds it. */
 async function readLocal(path: string): Promise<Uint8Array | undefined> {
   let file: Awaited<ReturnType<typeof open>>
@@ -212,7 +205,7 @@ export function createPrivateCasArtifactPort(
       await file.writeFile(
         `${JSON.stringify({ schema: RECEIPT_SCHEMA, location: durable!.location, namespace, digest, byteLength, storedAt: new Date().toISOString() })}\n`,
       )
-      await file.sync()
+      await syncHandle(file)
     } finally {
       await file.close()
     }
@@ -278,21 +271,27 @@ export function createPrivateCasArtifactPort(
       if (missing(error)) return []
       throw error
     }
-    const objects: Array<{ hex: string; path: string; size: number; modifiedMs: number }> = []
-    for (const shard of shards.filter((name) => SHARD.test(name))) {
-      for (const hex of await readdir(join(store, shard))) {
-        if (!HEX.test(hex) || hex.slice(0, 2) !== shard) continue
-        const path = join(store, shard, hex)
-        try {
-          const entry = await lstat(path)
-          if (entry.isFile())
-            objects.push({ hex, path, size: entry.size, modifiedMs: entry.mtimeMs })
-        } catch (error) {
-          if (!missing(error)) throw error
+    // Shards come back in listing order, so the pass is the same whichever shard ends first.
+    const listed = await mapWithConcurrency(
+      shards.filter((name) => SHARD.test(name)),
+      LIST_SHARDS_AT_ONCE,
+      async (shard) => {
+        const objects: Array<{ hex: string; path: string; size: number; modifiedMs: number }> = []
+        for (const hex of await readdir(join(store, shard))) {
+          if (!HEX.test(hex) || hex.slice(0, 2) !== shard) continue
+          const path = join(store, shard, hex)
+          try {
+            const entry = await lstat(path)
+            if (entry.isFile())
+              objects.push({ hex, path, size: entry.size, modifiedMs: entry.mtimeMs })
+          } catch (error) {
+            if (!missing(error)) throw error
+          }
         }
-      }
-    }
-    return objects
+        return objects
+      },
+    )
+    return listed.flat()
   }
 
   // Streams one local object to the durable store and records its receipt, retrying a transient
@@ -695,7 +694,7 @@ export function createPrivateCasArtifactPort(
           await file.writeFile(chunk)
         }
         signal?.throwIfAborted()
-        await file.sync()
+        await syncHandle(file)
       } finally {
         await file.close()
       }
@@ -724,15 +723,7 @@ export function createPrivateCasArtifactPort(
           // An existing object must independently match, even when our staged bytes were valid.
         }
       }
-      const dir = await open(
-        directory,
-        constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-      )
-      try {
-        await dir.sync()
-      } finally {
-        await dir.close()
-      }
+      await syncDirectory(directory)
       if (durable !== undefined)
         await settlePut(
           sha,
@@ -805,7 +796,7 @@ export function createPrivateCasArtifactPort(
     )
     try {
       await file.writeFile(bytes)
-      await file.sync()
+      await syncHandle(file)
     } finally {
       await file.close()
     }

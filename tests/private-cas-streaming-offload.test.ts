@@ -375,6 +375,130 @@ it('captures a workspace tree with several durable copies in flight, each distin
   )
 })
 
+// The shape of a retire pass's owner-export workspace (drew-gtr-pro, 2026-10-20: 9,448 files):
+// hundreds of small files in nested directories, some with equal content, stored with many puts,
+// fsyncs and durable copies in flight. Each object is checked against its sha256 and is durable
+// before the capture returns, so the pass a caller runs before indexing has nothing left to copy.
+it('captures a many-file tree with fsyncs in flight, every file verified and durable before it returns', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cas-tree-many-'))
+  roots.push(root)
+  const source = join(root, 'source')
+  const files = new Map<string, Buffer>()
+  // Files 280 to 299 repeat the content of files 0 to 19.
+  for (let index = 0; index < 300; index++) {
+    const kind = index % 280
+    files.set(
+      `d${index % 7}/e${index % 13}/f${index}`,
+      Buffer.from(`file ${kind} `.repeat(1 + (kind % 50))),
+    )
+  }
+  for (const [path, bytes] of files) {
+    await mkdir(join(source, path, '..'), { recursive: true })
+    await writeFile(join(source, path), bytes)
+  }
+  const distinct = new Set([...files.values()].map((bytes) => bytes.toString('base64'))).size
+  const durable = await diskS3StreamStore(join(root, 'remote'))
+  let inFlight = 0
+  let most = 0
+  let overlapped!: () => void
+  const overlap = new Promise<void>((resolve) => {
+    overlapped = resolve
+  })
+  // Each upload waits until sixteen overlap, or 100 ms for a capture that keeps fewer in flight.
+  const slow: PrivateCasDurableStore = {
+    ...durable.store,
+    async putStream(object) {
+      most = Math.max(most, ++inFlight)
+      if (inFlight >= 16) overlapped()
+      try {
+        await Promise.race([overlap, new Promise((settle) => setTimeout(settle, 100))])
+        await durable.store.putStream!(object)
+      } finally {
+        inFlight--
+      }
+    },
+  }
+  // A host that keeps its objects after upload, as drew-gtr-pro's archive disk does.
+  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
+    durable: slow,
+    localBudgetBytes: 1024 * 1024 * 1024,
+  })
+  const tree = await captureAgentCandidateWorkspaceTreeToArtifacts(source, {
+    artifactPersistence: { executionId: 'node', outputArtifacts: artifacts },
+  })
+  expect(most).toBeGreaterThanOrEqual(16)
+  const bytes = [...files.values()].reduce((sum, each) => sum + each.byteLength, 0)
+  expect(tree).toMatchObject({ files: 300, bytes })
+  // Every distinct file and the manifest reached the store before the capture returned.
+  expect(durable.counts().uploads).toBe(distinct + 1)
+  expect(await artifacts.offload()).toMatchObject({
+    durable: distinct + 1,
+    uploaded: 0,
+    pending: [],
+    localObjects: distinct + 1,
+  })
+  // The stored tree names exactly the source's paths, sizes and sha256 values, and each object
+  // read back through the port has the source file's bytes.
+  const material = await verifyAgentCandidateWorkspaceTree(tree, artifacts)
+  expect(material.files.map((file) => file.path).sort()).toEqual([...files.keys()].sort())
+  for (const file of material.files) {
+    const expected = files.get(file.path)!
+    expect(file.sha256).toBe(`sha256:${createHash('sha256').update(expected).digest('hex')}`)
+    const ref = await artifacts.locate!({ sha256: file.sha256, byteLength: file.byteLength })
+    const chunks: Uint8Array[] = []
+    for await (const chunk of artifacts.readStream!(ref!)) chunks.push(chunk)
+    expect(Buffer.concat(chunks).equals(expected)).toBe(true)
+  }
+})
+
+it('leaves named paths out of a tree capture, so a recapture stores only changed work', async () => {
+  // The shape of Discovery canary 20b: a provider's retained native session tree, its final
+  // session record and provenance (kept: no native capture holds their last versions), and a
+  // virtualenv, beside the work.
+  const root = await mkdtemp(join(tmpdir(), 'cas-tree-excluded-'))
+  roots.push(root)
+  const source = join(root, 'source')
+  const sessionTree = join(source, '__retention__', 'sessions', 's1')
+  await mkdir(sessionTree, { recursive: true })
+  await mkdir(join(source, '.venv', 'lib'), { recursive: true })
+  await mkdir(join(source, 'work', '.venv'), { recursive: true })
+  await writeFile(join(sessionTree, 'raw-manifest.json'), 'x'.repeat(4096))
+  await writeFile(join(source, '__retention__', 'sessions', 's1.json'), 'record 1')
+  await writeFile(join(source, '__retention__', 'provenance.json'), 'provenance 1')
+  await writeFile(join(source, '.venv', 'lib', 'numpy.so'), 'y'.repeat(4096))
+  await writeFile(join(source, 'work', '.venv', 'kept.md'), 'only the named path is left out')
+  await writeFile(join(source, 'work', 'result.md'), 'first')
+  const durable = await diskS3StreamStore(join(root, 'remote'))
+  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
+    durable: durable.store,
+  })
+  const capture = () =>
+    captureAgentCandidateWorkspaceTreeToArtifacts(source, {
+      excludedPaths: ['__retention__/sessions/s1', '.venv'],
+      artifactPersistence: { executionId: 'node', outputArtifacts: artifacts },
+    })
+
+  const first = await capture()
+  const material = await verifyAgentCandidateWorkspaceTree(first, artifacts)
+  expect(material.files.map((file) => file.path).sort()).toEqual([
+    '__retention__/provenance.json',
+    '__retention__/sessions/s1.json',
+    'work/.venv/kept.md',
+    'work/result.md',
+  ])
+  await writeFile(join(sessionTree, 'raw-manifest.json'), 'z'.repeat(8192))
+  await writeFile(join(source, 'work', 'result.md'), 'second')
+  const second = await capture()
+  expect(second).toMatchObject({ files: 4, storedBytes: 'second'.length })
+
+  await expect(
+    captureAgentCandidateWorkspaceTreeToArtifacts(source, {
+      excludedPaths: ['work/../.venv'],
+      artifactPersistence: { executionId: 'node', outputArtifacts: artifacts },
+    }),
+  ).rejects.toThrow(/safe relative path/)
+})
+
 // A pass copied one object at a time, each a store round trip plus a receipt with two fsyncs:
 // 2 objects/s on drew-gtr-pro, so one archived run of 3,563 objects held a retire pass 30 min.
 it('a pass copies host-only objects with several durable copies in flight', async () => {

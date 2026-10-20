@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.336.0` and `@tangle-network/agent-eval@0.215.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.337.1` and `@tangle-network/agent-eval@0.215.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -484,7 +484,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1121 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1106,6 +1106,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1121 exports.
 | `RecoverRetainedRunIntentOptions` | interface | Recover a headless start after its pre-create intent was persisted. |
 | `RecoverRetainedRunOptions` | interface | Pre-dispatch admission coordinates for one recovery attempt. |
 | `RecursiveReservationPolicy` | interface | Optional recursive admission policy. `ownerShare` is the fraction of every manager's budget |
+| `ReenteredWorkers` | interface | The workers a resumed scope found open; see {@link ResumedWork.reentered}. |
 | `ReentryContinuity` | interface | What the next drive continues, as the drive harness can prove it before the turn starts. |
 | `RegisteredPrompt` | interface | One registry entry: the handle plus the text it pins. |
 | `RegistryAnalyzeProjection` | interface | Project a `ScopeAnalyzeInput` into the `AnalystRegistry.run` arguments. The registry runs over a |

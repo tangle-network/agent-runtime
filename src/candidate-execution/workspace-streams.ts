@@ -29,11 +29,23 @@ import {
 
 type WorkspaceFile = AgentCandidateWorkspaceManifestMaterial['files'][number]
 
-/** Files a tree capture stores at once; each waits on a durable-store round trip of its own. */
-const CAPTURE_FILES_AT_ONCE = 16
+/**
+ * Files a tree capture stores at once; each waits on a durable-store round trip of its own and on
+ * four fsyncs. On drew-gtr-pro (2026-10-20), with three 180 ms store requests per file, 64 at once
+ * stored a 473-file workspace in 83 s and 110 s against 128 s and 139 s for 16 at once, in
+ * alternating runs, holding the same 16 sync threads.
+ */
+const CAPTURE_FILES_AT_ONCE = 64
 
 export interface CaptureAgentCandidateWorkspaceToArtifactsOptions {
   limits?: Partial<AgentCandidateWorkspaceArchiveLimits>
+  /**
+   * Root-relative files or directories to leave out of the capture, each by its exact path. A
+   * caller whose root holds data another capture already keeps, such as a provider's retained
+   * native session trees, or an environment it can rebuild, such as a virtualenv, names them here
+   * instead of storing them on every capture. The manifest then describes only what was kept.
+   */
+  excludedPaths?: readonly string[]
   artifactPersistence: NonNullable<CaptureAgentCandidateWorkspaceOptions['artifactPersistence']>
 }
 
@@ -50,7 +62,11 @@ export async function captureAgentCandidateWorkspaceToArtifacts(
     throw new Error('candidate workspace artifact persistence requires an executionId')
   signal?.throwIfAborted()
   const limits = workspaceLimits(options.limits)
-  const material = await scanMaterializedWorkspaceManifest(rootInput, { limits, signal })
+  const material = await scanMaterializedWorkspaceManifest(rootInput, {
+    limits,
+    signal,
+    excludedPaths: options.excludedPaths,
+  })
   validateManifest(material, limits)
   const root = await realpath(resolve(rootInput))
   const manifest = canonicalCandidateBytes(material)
@@ -116,7 +132,11 @@ export async function captureAgentCandidateWorkspaceTreeToArtifacts(
     throw new Error('candidate workspace artifact persistence requires an executionId')
   signal?.throwIfAborted()
   const limits = workspaceLimits(options.limits)
-  const material = await scanMaterializedWorkspaceManifest(rootInput, { limits, signal })
+  const material = await scanMaterializedWorkspaceManifest(rootInput, {
+    limits,
+    signal,
+    excludedPaths: options.excludedPaths,
+  })
   validateManifest(material, limits)
   const root = await realpath(resolve(rootInput))
   const bytes = material.files.reduce((sum, file) => sum + file.byteLength, 0)

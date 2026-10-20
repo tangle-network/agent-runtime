@@ -37,7 +37,7 @@ import type { RuntimeHooks, RuntimeHookTarget } from '../runtime-hooks'
 import { notifyRuntimeHookEvent } from '../runtime-hooks'
 import { boxReadErrorMessage, readBoxPathWithRetry } from './box-read-retry'
 import { readPromptOptions } from './prompt-options'
-import { notifySandboxEventObserver } from './sandbox-events'
+import { createSandboxTurnEventCollector, notifySandboxEventObserver } from './sandbox-events'
 import { createSandboxLineage, type SandboxLineageHandle } from './sandbox-lineage'
 import type { AgentRunSpec, SandboxClient } from './types'
 import { errorMessage, isAbortError, randomSuffix } from './util'
@@ -256,13 +256,13 @@ export async function openSandboxRun<Out>(
     turnIndex: number,
     turnKind: 'start' | 'resume',
   ): Promise<TurnResult<Out>> {
-    const collected: SandboxEvent[] = []
+    const collector = createSandboxTurnEventCollector()
     const outcomeTracker = createAgentRunOutcomeTracker()
     // The stream itself can throw an AbortError when the run is cancelled mid-drain;
     // re-throw it carrying the events drained so far so the partial trace is not lost.
     try {
       for await (const ev of events) {
-        collected.push(ev)
+        collector.push(ev)
         outcomeTracker.observe(ev)
         notifySandboxEventObserver(ev, options.onSandboxEvent, {
           turnIndex,
@@ -271,9 +271,10 @@ export async function openSandboxRun<Out>(
         })
       }
     } catch (err) {
-      if (isAbortError(err)) throw new SandboxRunAbortError(collected)
+      if (isAbortError(err)) throw new SandboxRunAbortError(collector.events())
       throw err
     }
+    const collected = collector.events()
     const outcome = outcomeTracker.finish()
     if (deliverable.kind === 'events') {
       return { out: deliverable.fromEvents(collected), events: collected, outcome }

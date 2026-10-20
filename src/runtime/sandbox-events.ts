@@ -1267,3 +1267,68 @@ export {
   parseCanonicalTransportEvent,
   type TransportEventIdentity,
 } from './sandbox-transport-events'
+
+/**
+ * Collect one turn's events, keeping only the newest snapshot of each streamed text or
+ * reasoning part.
+ *
+ * opencode sends `message.part.updated` once per token, and every frame carries the part's
+ * whole cumulative text, so keeping every frame holds O(L²) bytes per turn: two concurrent
+ * audit workflows took the platform API from 459 MB to an OOM at 1.95 GB in 11 minutes.
+ * A snapshot (a frame whose part carries `text`) whose text extends the previous snapshot
+ * of the same part replaces it and moves to the newest position, which is the rule the
+ * Sandbox SDK's text collectors already apply, so the collected text is unchanged. The kept
+ * frame drops its `delta`, because its text already holds every earlier increment and a
+ * reader that joins `delta ?? part.text` across frames would otherwise read only the last
+ * one. Delta-only frames and every other event are kept as they arrived.
+ */
+export function createSandboxTurnEventCollector() {
+  const slots: (SandboxEvent | undefined)[] = []
+  const snapshots = new Map<string, { at: number; text: string }>()
+  return {
+    push(event: SandboxEvent) {
+      const snapshot = partSnapshot(event)
+      if (!snapshot) {
+        slots.push(event)
+        return
+      }
+      const previous = snapshots.get(snapshot.key)
+      const extends_ = previous !== undefined && snapshot.text.startsWith(previous.text)
+      if (extends_) slots[previous.at] = undefined
+      snapshots.set(snapshot.key, { at: slots.length, text: snapshot.text })
+      slots.push(extends_ ? withoutDelta(event) : event)
+    },
+    events(): SandboxEvent[] {
+      return slots.filter((event): event is SandboxEvent => event !== undefined)
+    },
+  }
+}
+
+function partSnapshot(event: SandboxEvent): { key: string; text: string } | undefined {
+  if (event?.type !== 'message.part.updated') return undefined
+  const data = asRecord(event.data)
+  const part = asRecord(data?.part) ?? asRecord(asRecord(data?.properties)?.part)
+  if (!part || typeof part.id !== 'string') return undefined
+  if (part.type !== 'text' && part.type !== 'reasoning' && part.type !== 'thinking')
+    return undefined
+  const text =
+    typeof part.text === 'string'
+      ? part.text
+      : typeof part.content === 'string'
+        ? part.content
+        : undefined
+  return text === undefined ? undefined : { key: `${part.type}:${part.id}`, text }
+}
+
+function withoutDelta(event: SandboxEvent): SandboxEvent {
+  const data = asRecord(event.data)
+  if (!data || !('delta' in data)) return event
+  const { delta: _delta, ...rest } = data
+  return { ...event, data: rest }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : undefined
+}

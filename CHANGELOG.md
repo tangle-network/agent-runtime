@@ -1,3 +1,17 @@
+## 0.337.1
+
+The private CAS runs its fsyncs on up to 16 threads of their own instead of libuv's four-thread pool, a tree capture stores 64 files at a time instead of 16, and a full offload pass lists 16 shards at a time (https://github.com/tangle-network/agent-runtime/pull/1913). On drew-gtr-pro's busy USB archive disk, a 9,448-file workspace capture stored 6.5 objects/s against 1.3 objects/s before. Every fsync, hash check and durable receipt is unchanged.
+
+## 0.337.0
+
+`captureAgentCandidateWorkspaceToArtifacts` and `captureAgentCandidateWorkspaceTreeToArtifacts` take `excludedPaths`: root-relative files or directories left out of the capture, each by its exact path, such as a provider's retained native session tree (`__retention__/sessions/<id>`) that the native capture already keeps, or a rebuildable virtualenv (`.venv`). On Discovery canary 20b these were most of each 25 to 27 MB workspace capture; the agent's own files were under 0.2 MB.
+
+## 0.336.1
+
+`@tangle-network/agent-runtime/runtime` exports `ReenteredWorkers`, the type of `ResumedWork.reentered`.
+
+A sandbox turn no longer holds every streamed frame of a text or reasoning part. opencode sends one `message.part.updated` per token, each carrying the part's whole text so far, so a long single turn held O(L²) bytes, and concurrent audit workflows took the platform API to an out-of-memory crash. `openSandboxRun` now keeps the newest snapshot of each part at its newest position and drops that frame's `delta`, which already sits in its text. Delta-only frames and all other events are kept as they arrived, and `collectAgentResponseText` and `collectAgentFinalMessageText` return the same text as from the full stream.
+
 ## 0.336.0
 
 The `agent-runtime-mcp` `delegate` supervisor is told that only a worker's result is delivered and that it must spawn at least one worker; router brains answered small intents themselves, which settled `no-children-spawned` with the answer discarded. `MCP_SUPERVISOR_INSTRUCTIONS` appends the caller's policy for the workers the supervisor authors, such as the only harness and model its worker boxes can run.
