@@ -904,28 +904,28 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     }
     const outcomeTracker = createAgentRunOutcomeTracker()
     try {
-    for await (const event of stream) {
-      collector.push(event)
-      if (box !== undefined)
-        args.evidenceTracker?.observe(
-          box,
-          event,
-          source ? args.lineageState?.handles.get(args.item.index)?.sessionId : undefined,
-        )
-      outcomeTracker.observe(event)
-      // Tee each raw event to an optional host observer so a caller can stream
-      // the agent's live output. Best-effort + isolated: the observer gets a
-      // defensive copy (mutating it cannot corrupt the event the run itself
-      // consumes for cost accounting + output parsing below), and a sync throw
-      // or a rejected async result is swallowed — it can never break the run.
-      notifySandboxEventObserver(event, args.ctx.onSandboxEvent, {
-        iterationIndex: args.item.index,
-        agentRunName: slot.agentRunName,
-      })
-      const llmCall = usageLedger.observe(event, slot.agentRunName)
-      if (llmCall) creditLlmCall(llmCall)
-      assertSandboxServedModel(event, requested)
-    }
+      for await (const event of stream) {
+        collector.push(event)
+        if (box !== undefined)
+          args.evidenceTracker?.observe(
+            box,
+            event,
+            source ? args.lineageState?.handles.get(args.item.index)?.sessionId : undefined,
+          )
+        outcomeTracker.observe(event)
+        // Tee each raw event to an optional host observer so a caller can stream
+        // the agent's live output. Best-effort + isolated: the observer gets a
+        // defensive copy (mutating it cannot corrupt the event the run itself
+        // consumes for cost accounting + output parsing below), and a sync throw
+        // or a rejected async result is swallowed — it can never break the run.
+        notifySandboxEventObserver(event, args.ctx.onSandboxEvent, {
+          iterationIndex: args.item.index,
+          agentRunName: slot.agentRunName,
+        })
+        const llmCall = usageLedger.observe(event, slot.agentRunName)
+        if (llmCall) creditLlmCall(llmCall)
+        assertSandboxServedModel(event, requested)
+      }
     } finally {
       slot.events = collector.events()
     }
