@@ -2,7 +2,7 @@
  *
  * The worker-side receive end of the down-leg: a per-worker inbox an executor exposes as
  * `Executor.deliver`. The driver's `steer_agent` / `answer_question` land here,
- * and the worker's agent loop leases them at two points (Drew's two delivery modes):
+ * and the worker's agent loop takes them at two points (Drew's two delivery modes):
  *
  *   - QUEUED (default): the message accumulates and is FLUSHED at the next step boundary — folded
  *     into the conversation before the next think. A worker is also forced to flush BEFORE it may
@@ -15,13 +15,19 @@
  * the live turn's interrupt signal as if it had been sent forceful. Without it a steer waits for a
  * turn boundary, and Discovery run 18b measured a median of 52.5 minutes before one reached a worker.
  *
- * Reading is a LEASE, never a removal. `lease()` hands the loop every unconsumed message and keeps
- * them here; `commit(attemptId)` removes them once the folded text is part of a model input the
- * provider accepted, and reports `consumed` to each sender. An uncommitted lease is released by the
- * next `lease()`, so a turn that fails, aborts or re-enters folds the same messages again, in their
- * original order and ahead of anything newer. A caller therefore cannot lose a message by
- * forgetting a release: 18b core-4's director ruling vanished with the failed turn that had
- * drained it, and its next two prompts said "Events waiting for you: none".
+ * Reading is a LEASE, never a removal. `take()` hands the loop every unconsumed message, each
+ * with its id, and keeps them here. `commit(attemptId, messageId)` removes a message once the folded
+ * text is part of a model input the provider accepted, and reports `consumed` to its sender.
+ * `release()` returns every uncommitted message to the head of the queue, in its original order
+ * and ahead of anything newer; callers run it in a `finally`, so it covers any turn failure, abort
+ * or re-entry. `take()` also releases an earlier take nobody released, so one message is held by at
+ * most one turn and a forgotten release still loses nothing. 18b core-4's director ruling vanished
+ * with the failed turn that had drained it, and its next two prompts said "Events waiting for you:
+ * none".
+ *
+ * A message released by {@link STEER_MAX_FAILED_TURNS} turns is removed and reported `failed` to
+ * its sender, so a recipient whose turns keep failing cannot hold a steer forever, and the sender
+ * learns it was never read instead of assuming it was.
  *
  * A THIRD kind arrives here too: peer mail from a sibling worker (`./peer-mail`). It is carried on
  * its own wire property, and this file keeps it strictly apart from the two authority kinds:
@@ -32,14 +38,15 @@
  *     total pending, because a peer that keeps mail arriving would otherwise deny a FINISHED worker
  *     its settlement.
  *   - It renders in its own block, fenced with a per-fold nonce and attributed to its sender. The
- *     `[SUPERVISOR]` header is emitted for authority messages ONLY, so a mixed lease cannot present
+ *     `[SUPERVISOR]` header is emitted for authority messages ONLY, so a mixed take cannot present
  *     a peer's message as an instruction from the parent.
  *
  * `deliver` never throws — a malformed message is ignored and returns `false`, so no caller can
  * report delivery for bytes this inbox discarded. A sender that wants to hear back puts an
  * in-process `onReceipt` callback (and its `receiptId`) on the message; this inbox calls it with
- * `queued` on acceptance and `consumed` on commit. Reporting a message that never got consumed is
- * the sender's job, because only the sender sees the recipient settle or the run end.
+ * `queued` on acceptance, `consumed` on commit and `failed` at the release cap. A message still
+ * queued when its recipient settles or the run ends is reported by the sender, because only the
+ * sender sees that happen.
  *
  * @experimental
  */
@@ -72,18 +79,29 @@ export type InboxMessage = AuthorityInboxMessage | PeerInboxMessage
 /** A queued authority message unread for this long interrupts the live turn. */
 export const STEER_PROMOTION_MS = 15 * 60_000
 
+/** A message released by this many turns without a commit is removed and reported `failed`. */
+export const STEER_MAX_FAILED_TURNS = 3
+
 /** What this inbox tells a sender about one message: accepted into the queue, then consumed by
- *  the model attempt that read it. */
+ *  the model attempt that read it, or failed after {@link STEER_MAX_FAILED_TURNS} failed turns. */
 export type InboxReceipt =
   | { readonly outcome: 'queued'; readonly messageId: string }
   | { readonly outcome: 'consumed'; readonly messageId: string; readonly attemptId: string }
+  | { readonly outcome: 'failed'; readonly messageId: string; readonly reason: string }
 
-/** The messages one turn folds. They stay in the inbox until {@link InboxLease.commit}. */
-export interface InboxLease {
-  readonly messages: ReadonlyArray<InboxMessage>
-  /** Call once the folded text is part of a model input the provider accepted. Removes the leased
-   *  messages and reports `consumed` with `attemptId`. A no-op on an empty or superseded lease. */
-  commit(attemptId: string): void
+/** A taken message and the id its commit names. */
+export type TakenInboxMessage = InboxMessage & { readonly id: string }
+
+/** The messages one turn folds. They stay in the inbox until {@link InboxTake.commit}. */
+export interface InboxTake {
+  readonly messages: ReadonlyArray<TakenInboxMessage>
+  /** Call once the folded text is part of a model input the provider accepted. Removes the message
+   *  `messageId` names, or every taken message when it is omitted, and reports `consumed` with
+   *  `attemptId`. Idempotent; a no-op once this take is released. */
+  commit(attemptId: string, messageId?: string): void
+  /** Return every uncommitted message to the head of the queue. Run it on any turn failure, abort
+   *  or re-entry; after a full commit it does nothing. Idempotent. */
+  release(): void
 }
 
 export interface Inbox {
@@ -92,9 +110,9 @@ export interface Inbox {
   deliver(msg: unknown): boolean
   /** Resolves at the next accepted delivery, so a manager waiting between turns wakes for it. */
   nextDelivery(): Promise<void>
-  /** Lease every unconsumed message for this turn, releasing any earlier uncommitted lease. */
-  lease(): InboxLease
-  /** Unconsumed messages, leased or not. */
+  /** Take every unconsumed message for this turn, releasing any earlier take first. */
+  take(): InboxTake
+  /** Unconsumed messages, taken or not. */
   pending(): number
   /** Unconsumed messages from the run's AUTHORITY only. This is what the pre-settle fence counts:
    *  a worker may not finish while a steer or answer it never read is queued, but peer mail must
@@ -103,7 +121,7 @@ export interface Inbox {
   /** Open a fresh per-turn interrupt signal; a later forceful `deliver` aborts it. The loop links
    *  this into the signal it passes to its inference call, then re-plans when it fires. */
   freshInterrupt(): AbortSignal
-  /** Render leased messages as ONE operator turn to fold into the worker's conversation. */
+  /** Render taken messages as ONE operator turn to fold into the worker's conversation. */
   fold(messages: ReadonlyArray<InboxMessage>): string
 }
 
@@ -112,6 +130,8 @@ interface Entry {
   readonly message: InboxMessage
   readonly onReceipt?: (receipt: InboxReceipt) => void
   promotion?: ReturnType<typeof setTimeout>
+  /** Takes released without committing this message. */
+  failedTurns: number
 }
 
 function parseDown(msg: unknown): InboxMessage | undefined {
@@ -167,17 +187,39 @@ function report(entry: Entry, receipt: InboxReceipt): void {
   }
 }
 
-/** Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages and a sibling's peer mail queue here, and the worker's loop leases them at step boundaries and before settle. */
+/** Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages and a sibling's peer mail queue here, and the worker's loop takes them at step boundaries and before settle. */
 export function createInbox(): Inbox {
   const entries: Entry[] = []
   let live: AbortController | null = null
   let waiters: Array<() => void> = []
-  // The one lease that may commit. A newer `lease()` replaces it, which is the release.
-  let leased: { readonly ids: ReadonlySet<string> } | undefined
+  // The entries the current take holds; empty once it commits or releases them.
+  let held = new Set<Entry>()
+  const remove = (entry: Entry): boolean => {
+    const at = entries.indexOf(entry)
+    if (at < 0) return false
+    entries.splice(at, 1)
+    held.delete(entry)
+    if (entry.promotion !== undefined) clearTimeout(entry.promotion)
+    return true
+  }
+  // Entries never move while held, so dropping the hold restores their original order.
+  const releaseHeld = (): void => {
+    const returned = held
+    held = new Set()
+    for (const entry of returned) {
+      entry.failedTurns += 1
+      if (entry.failedTurns < STEER_MAX_FAILED_TURNS || !remove(entry)) continue
+      report(entry, {
+        outcome: 'failed',
+        messageId: entry.id,
+        reason: `${entry.failedTurns} turns that carried it failed before the provider accepted them`,
+      })
+    }
+  }
   const promote = (entry: Entry): void => {
     entry.promotion = undefined
     // Already folded into the turn in flight: aborting it would only re-send the same prompt.
-    if (!entries.includes(entry) || leased?.ids.has(entry.id)) return
+    if (!entries.includes(entry) || held.has(entry)) return
     if (live && !live.signal.aborted) live.abort()
   }
   return {
@@ -196,6 +238,7 @@ export function createInbox(): Inbox {
         ...(typeof wire.onReceipt === 'function'
           ? { onReceipt: wire.onReceipt as (receipt: InboxReceipt) => void }
           : {}),
+        failedTurns: 0,
       }
       entries.push(entry)
       if (m.kind !== 'mail' && !m.interrupt) {
@@ -210,22 +253,23 @@ export function createInbox(): Inbox {
       if (m.interrupt && live && !live.signal.aborted) live.abort()
       return true
     },
-    lease() {
-      const held = entries.slice()
-      const lease = { ids: new Set(held.map((entry) => entry.id)) }
-      leased = lease
+    take() {
+      releaseHeld()
+      const taken = entries.slice()
+      held = new Set(taken)
+      const mine = held
       return {
-        messages: held.map((entry) => entry.message),
-        commit(attemptId) {
-          if (leased !== lease) return
-          leased = undefined
-          for (const entry of held) {
-            const at = entries.indexOf(entry)
-            if (at < 0) continue
-            entries.splice(at, 1)
-            if (entry.promotion !== undefined) clearTimeout(entry.promotion)
+        messages: taken.map((entry) => ({ ...entry.message, id: entry.id })),
+        commit(attemptId, messageId) {
+          if (held !== mine) return
+          for (const entry of taken) {
+            if (messageId !== undefined && entry.id !== messageId) continue
+            if (!mine.has(entry) || !remove(entry)) continue
             report(entry, { outcome: 'consumed', messageId: entry.id, attemptId })
           }
+        },
+        release() {
+          if (held === mine) releaseHeld()
         },
       }
     },
@@ -236,7 +280,7 @@ export function createInbox(): Inbox {
       return live.signal
     },
     fold(messages) {
-      // Partition by authority class before rendering. One header per BATCH over a mixed lease
+      // Partition by authority class before rendering. One header per BATCH over a mixed take
       // would attribute a sibling's message to the supervisor on ordinary timing alone.
       const authority = messages.filter(
         (m): m is AuthorityInboxMessage => m.kind === 'steer' || m.kind === 'answer',

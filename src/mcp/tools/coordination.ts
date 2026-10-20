@@ -1410,8 +1410,8 @@ export interface LeadMessage {
   readonly interrupt: boolean
 }
 
-/** How a delivered steer or answer ended for its recipient. `failed` means it settled, or its run
- *  ended, before any model input carried the message. */
+/** How a delivered steer or answer ended for its recipient. `failed` means it settled, its run
+ *  ended, or `STEER_MAX_FAILED_TURNS` of its turns failed, before any model input carried it. */
 export type DownMessageConsumption =
   | { readonly outcome: 'consumed'; readonly attemptId: string }
   | { readonly outcome: 'failed'; readonly reason: string }
@@ -3533,8 +3533,9 @@ export function createCoordinationToolsForManager(
     return attempt
   }
 
-  /** The consumption half of a down-message receipt. The recipient's inbox reports `queued` and
-   *  `consumed`; this manager reports `failed` when the recipient settles first. `consumed` lands
+  /** The consumption half of a down-message receipt. The recipient's inbox reports `queued`,
+   *  `consumed`, and `failed` once every turn that carried it failed; this manager reports `failed`
+   *  when the recipient settles first. `consumed` lands
    *  in the coordination log as an acknowledgement; `failed` reaches this manager's next wake as
    *  the tool's outcome, so the sender learns its message was never read. */
   const trackDownReceipt = (
@@ -3551,7 +3552,9 @@ export function createCoordinationToolsForManager(
       recorded: Promise.resolve(undefined),
       onReceipt: (receipt) => {
         if (receipt.outcome === 'queued') tracked.queued = true
-        else settleDownReceipt(tracked, { outcome: 'consumed', attemptId: receipt.attemptId })
+        else if (receipt.outcome === 'consumed')
+          settleDownReceipt(tracked, { outcome: 'consumed', attemptId: receipt.attemptId })
+        else settleDownReceipt(tracked, { outcome: 'failed', reason: receipt.reason })
       },
       ...(onConsumption === undefined ? {} : { onConsumption }),
     }

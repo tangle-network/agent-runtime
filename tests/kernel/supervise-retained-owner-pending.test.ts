@@ -33,7 +33,11 @@ import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
-import { type InboxReceipt, STEER_PROMOTION_MS } from '../../src/runtime/supervise/inbox'
+import {
+  type InboxReceipt,
+  STEER_MAX_FAILED_TURNS,
+  STEER_PROMOTION_MS,
+} from '../../src/runtime/supervise/inbox'
 import { applyRunCancellation } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import {
@@ -697,11 +701,15 @@ describe('supervised root with a pending retained turn', () => {
     expect(continuedTurns).toContain(run.methodReceipt!)
     expect(continuedTurns.split('use the corrected evidence')).toHaveLength(2)
     expect(continuedTurns.split('knowledge store is locked by this process')).toHaveLength(2)
-    // The steer's receipt ends at the root attempt that read it, never at queue admission.
+    // The steer's receipt ends at the root attempt that read it, never at queue admission. The steer
+    // lands while the first result is read, so a later attempt reads it: which one depends on when
+    // that wake is queued, as `dispatched.length` above already allows.
     expect(readWorkerSteerAcknowledgement(run.runDir, 'retained-root-correction')).toMatchObject({
       effect: 'consumed',
       operationId: 'retained-root-correction',
-      detail: 'the root consumed the steer in model attempt pending-root:attempt-2',
+      detail: expect.stringMatching(
+        /^the root consumed the steer in model attempt pending-root:attempt-([2-9]|\d{2,})$/,
+      ),
     })
   })
 
@@ -983,7 +991,7 @@ describe('a steer reaches a model input or stays pending, never lost with a fail
     const receipts: InboxReceipt[] = []
     let worker!: Executor<unknown>
     const bridge = await fakeCliBridge((_post, res, index) => {
-      // Mid-turn: the steer lands after turn 0 leased the inbox.
+      // Mid-turn: the steer lands after turn 0 took from the inbox.
       if (index === 0) worker.deliver?.(steerWithReceipt(receipts))
       answerBridgeTurn(res, `turn ${index}`)
     })
@@ -1000,7 +1008,7 @@ describe('a steer reaches a model input or stays pending, never lost with a fail
     expect(worker.progress?.()?.pendingMessages).toBe(0)
   })
 
-  it('a steer leased into a bridge turn that fails reaches the next prompt (18b core-4)', async () => {
+  it('a steer taken into a bridge turn that fails reaches the next prompt (18b core-4)', async () => {
     const receipts: InboxReceipt[] = []
     let worker!: Executor<unknown>
     const bridge = await fakeCliBridge((_post, res, index) => {
@@ -1018,7 +1026,7 @@ describe('a steer reaches a model input or stays pending, never lost with a fail
       runToEnd(worker.execute('ship rc15', new AbortController().signal)),
     ).rejects.toThrow('bridge 502')
     expect(bridge.posts[1]?.prompt).toContain(STEER)
-    // The failed turn read nothing: the steer is still held, and no receipt claims otherwise.
+    // The failed turn read nothing: its take was released, and no receipt claims otherwise.
     expect(worker.progress?.()?.pendingMessages).toBe(1)
     expect(receipts.map((r) => r.outcome)).toEqual(['queued'])
 
@@ -1032,6 +1040,36 @@ describe('a steer reaches a model input or stays pending, never lost with a fail
       messageId: 'director-ruling',
       attemptId: bridge.posts[2]?.runId,
     })
+    expect(worker.progress?.()?.pendingMessages).toBe(0)
+  })
+
+  it('a steer whose every carrying bridge turn fails is reported failed to its sender', async () => {
+    const receipts: InboxReceipt[] = []
+    let worker!: Executor<unknown>
+    const bridge = await fakeCliBridge((_post, res, index) => {
+      if (index === 0) {
+        worker.deliver?.(steerWithReceipt(receipts))
+        answerBridgeTurn(res, 'turn 0')
+        return
+      }
+      res.writeHead(502, { 'content-type': 'text/plain' })
+      res.end('harness exited')
+    })
+    worker = bridgeWorker(bridge.url)
+    for (let attempt = 0; attempt < STEER_MAX_FAILED_TURNS; attempt += 1) {
+      await expect(
+        runToEnd(worker.execute('ship rc15', new AbortController().signal)),
+      ).rejects.toThrow('bridge 502')
+    }
+    expect(bridge.posts.slice(1).every((post) => post.prompt.includes(STEER))).toBe(true)
+    expect(receipts).toEqual([
+      { outcome: 'queued', messageId: 'director-ruling' },
+      {
+        outcome: 'failed',
+        messageId: 'director-ruling',
+        reason: `${STEER_MAX_FAILED_TURNS} turns that carried it failed before the provider accepted them`,
+      },
+    ])
     expect(worker.progress?.()?.pendingMessages).toBe(0)
   })
 
@@ -1070,7 +1108,7 @@ describe('a steer reaches a model input or stays pending, never lost with a fail
     })
   })
 
-  it('a steer leased into a sandbox turn that fails reaches the next prompt', async () => {
+  it('a steer taken into a sandbox turn that fails reaches the next prompt', async () => {
     const receipts: InboxReceipt[] = []
     const prompts: string[] = []
     let worker!: Executor<unknown>

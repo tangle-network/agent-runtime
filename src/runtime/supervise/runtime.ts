@@ -101,7 +101,7 @@ import { executableAgentProfileSnapshot, executableAgentSpecSnapshot } from './e
 import { contentRef } from './executor-outcome'
 import { assertExactConfigKeys, readSeam } from './executor-seams'
 import { createInPlaceCliExecutor } from './in-place-cli-executor'
-import { createInbox } from './inbox'
+import { createInbox, type InboxTake } from './inbox'
 import {
   attestRuntimeOwnedExecutor,
   attestRuntimeOwnedPendingExecutor,
@@ -839,13 +839,15 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         // terminal artifact publishes.
         const executedToolCalls: ExecutorToolCall[] = []
         // Fold any queued down-messages into the conversation as one operator turn (the boundary
-        // flush). The lease commits when this turn's inference returns; an interrupted turn takes
-        // its folded message back out, so the re-plan leases and folds it once, with the newer one.
-        const flush = () => {
-          const lease = inbox.lease()
-          if (lease.messages.length === 0) return { lease, at: -1 }
-          messages.push({ role: 'user', content: inbox.fold(lease.messages) })
-          return { lease, at: messages.length - 1 }
+        // flush). The take commits when this turn's inference returns; an interrupted turn takes
+        // its folded message back out, so the re-plan takes and folds it once, with the newer one.
+        // A failed turn releases it in the loop's `finally`.
+        let taken: InboxTake | undefined
+        const flush = (): number => {
+          taken = inbox.take()
+          if (taken.messages.length === 0) return -1
+          messages.push({ role: 'user', content: inbox.fold(taken.messages) })
+          return messages.length - 1
         }
 
         // The external abort sources (caller signal + executor teardown), merged ONCE — so we don't
@@ -919,7 +921,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         try {
           for (let t = 0; maxTurns === 0 || t < maxTurns; t += 1) {
             // QUEUED messages flush at the step boundary, before this turn's inference.
-            const flushed = flush()
+            const folded = flush()
             // A forceful (interrupt) message aborts THIS turn so the worker re-plans immediately. The
             // per-turn controller fires on `external` OR a fresh interrupt; its listener on `external` is
             // removed after the turn (`cleanup`) so nothing accumulates across turns.
@@ -985,7 +987,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                 !signal.aborted &&
                 !controller.signal.aborted
               if (interruptAbort) {
-                if (flushed.at >= 0) messages.splice(flushed.at, 1)
+                if (folded >= 0) messages.splice(folded, 1)
                 turns += 1
                 resources = addResourceSpend(
                   Object.fromEntries(
@@ -1004,7 +1006,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
               throwRouterTransportFailure('routerToolsInlineExecutor', e)
             }
             cleanup()
-            flushed.lease.commit(providerResponses.at(-1)?.callId ?? `router-turn-${t + 1}`)
+            taken?.commit(providerResponses.at(-1)?.callId ?? `router-turn-${t + 1}`)
             // The inference completed — count the turn and merge its terminal receipt.
             turns += 1
             transcript.reply({ content: res.content, toolCalls: res.toolCalls })
@@ -1145,6 +1147,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
               })
           }
         } finally {
+          taken?.release()
           const saved = structuredClone(messages) as ReadonlyArray<
             Readonly<Record<string, unknown>>
           >

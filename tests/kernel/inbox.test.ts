@@ -9,22 +9,51 @@ describe('worker inbox (down-leg receive end)', () => {
     expect(inbox.deliver({ answer: 'use v2', questionId: 'q1' })).toBe(true)
     expect(inbox.deliver({ junk: true })).toBe(false)
     expect(inbox.deliver(null)).toBe(false)
-    const lease = inbox.lease()
-    expect(lease.messages).toEqual([
-      { kind: 'steer', text: 'do X', interrupt: false },
-      { kind: 'answer', text: 'use v2', interrupt: false, questionId: 'q1' },
+    const taken = inbox.take()
+    expect(taken.messages).toEqual([
+      { kind: 'steer', text: 'do X', interrupt: false, id: expect.any(String) },
+      {
+        kind: 'answer',
+        text: 'use v2',
+        interrupt: false,
+        questionId: 'q1',
+        id: expect.any(String),
+      },
     ])
-    // A lease reads; only its commit consumes.
+    // A take reads; only its commit consumes.
     expect(inbox.pending()).toBe(2)
-    lease.commit('attempt-1')
+    taken.commit('attempt-1', taken.messages[0]!.id)
+    expect(inbox.pending()).toBe(1)
+    taken.commit('attempt-1')
     expect(inbox.pending()).toBe(0)
+  })
+
+  it('release returns messages ahead of newer ones and fails a message after three failed turns', () => {
+    const inbox = createInbox()
+    const receipts: unknown[] = []
+    inbox.deliver({ steer: 'ruling', receiptId: 'r1', onReceipt: (r: unknown) => receipts.push(r) })
+    const first = inbox.take()
+    inbox.deliver({ steer: 'newer' })
+    first.release()
+    // A late commit from the released turn cannot consume what it no longer holds.
+    first.commit('stale-attempt')
+    const second = inbox.take()
+    expect(second.messages.map((m) => m.text)).toEqual(['ruling', 'newer'])
+    second.release()
+    // A take nobody released is released by the next one: the ruling's third failed turn.
+    inbox.take()
+    expect(inbox.take().messages.map((m) => m.text)).toEqual(['newer'])
+    expect(receipts).toEqual([
+      { outcome: 'queued', messageId: 'r1' },
+      { outcome: 'failed', messageId: 'r1', reason: expect.stringContaining('3 turns') },
+    ])
   })
 
   it('folds queued messages into one operator turn', () => {
     const inbox = createInbox()
     inbox.deliver({ steer: 'switch to recursion' })
     inbox.deliver({ answer: 'v2', questionId: 'q7' })
-    const folded = inbox.fold(inbox.lease().messages)
+    const folded = inbox.fold(inbox.take().messages)
     expect(folded).toContain('[SUPERVISOR]')
     expect(folded).toContain('New instruction from your supervisor: switch to recursion')
     // Every line names its sender, the supervisor's own answer included: once peer mail can also

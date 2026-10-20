@@ -34,7 +34,7 @@ import type { RetainedInteractiveAdmission } from '../retained-run-types'
 import { sleep } from '../util'
 import { abortError, linkAbort } from './abortable'
 import { executableAgentProfileSnapshot } from './executable-spec'
-import { createInbox } from './inbox'
+import { createInbox, type InboxTake } from './inbox'
 import {
   type InteractiveAdmissionWriter,
   interactiveAdmissionSeamKey,
@@ -542,13 +542,14 @@ function interactiveExecutor(input: InteractiveExecutorInput): Executor<Interact
 
   async function flushInbox(): Promise<void> {
     flushChain = flushChain.then(async () => {
+      let taken: InboxTake | undefined
       try {
         if (!handle) return
-        // Committed only once the session accepted the prompt; a refused send keeps the messages
-        // for the next flush.
-        const lease = inbox.lease()
-        if (lease.messages.length === 0) return
-        const prompt = inbox.fold(lease.messages)
+        // Committed only once the session accepted the prompt; a refused send releases the
+        // messages for the next flush.
+        taken = inbox.take()
+        if (taken.messages.length === 0) return
+        const prompt = inbox.fold(taken.messages)
         const operationId = `interactive-prompt-${canonicalCandidateDigest({
           ref: handle.ref,
           prompt,
@@ -568,9 +569,11 @@ function interactiveExecutor(input: InteractiveExecutorInput): Executor<Interact
           requestDigest: agentInteractiveSessionPromptRequestDigest(material),
         }
         await handle.sendPrompt(command)
-        lease.commit(operationId)
+        taken.commit(operationId)
       } catch (error) {
         controlError ??= error
+      } finally {
+        taken?.release()
       }
     })
     await flushChain

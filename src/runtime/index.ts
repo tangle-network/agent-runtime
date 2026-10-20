@@ -953,11 +953,13 @@ export {
   type AuthorityInboxMessage,
   createInbox,
   type Inbox,
-  type InboxLease,
   type InboxMessage,
   type InboxReceipt,
+  type InboxTake,
   type PeerInboxMessage,
+  STEER_MAX_FAILED_TURNS,
   STEER_PROMOTION_MS,
+  type TakenInboxMessage,
 } from './supervise/inbox'
 export type { WorkerInteractiveAdmission } from './supervise/interactive-admission'
 /** Provider-backed native interactive workers. Runtime owns admission and control identity; the

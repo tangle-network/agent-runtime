@@ -50,7 +50,7 @@ import { projectSandboxOutcome } from '../sandbox-outcome'
 import type { AgentRunSpec, ExecCtx, SandboxClient } from '../types'
 import { addTokenUsage, promptCacheTokenClasses, zeroTokenUsage } from '../util'
 import { armDeadlineTimer } from './deadline'
-import type { Inbox } from './inbox'
+import type { Inbox, InboxTake } from './inbox'
 import { concreteProfileModel } from './model-policy'
 import {
   type ActivityLog,
@@ -307,14 +307,17 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       }
     }
 
+    // The take of the turn in flight; released when the session ends, however it ends.
+    let taken: InboxTake | undefined
     try {
       for (let turn = 0; maxTurns === 0 || turn < maxTurns; turn += 1) {
-        // Lease the down-leg FIRST. On turn 0 a steer that landed during box acquisition is
+        // Take the down-leg FIRST. On turn 0 a steer that landed during box acquisition is
         // appended to the task; on later turns the steer IS the whole prompt, because the
-        // worker's prior context lives server-side in the session. The lease commits on the
-        // box's first event for this turn; a turn that fails before then folds it again.
-        const lease = args.inbox.lease()
-        const pending = lease.messages
+        // worker's prior context lives server-side in the session. The take commits on the
+        // box's first event for this turn; a turn that fails before then releases it, and the
+        // next turn or the next session folds it again.
+        taken = args.inbox.take()
+        const pending = taken.messages
         if (pending.length > 0) {
           const folded = args.inbox.fold(pending)
           nextPrompt = turn === 0 && nextPrompt ? `${nextPrompt}\n\n${folded}` : folded
@@ -368,7 +371,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
           }
           const attemptId = `${sessionRunId}:turn-${turn}`
           for await (const event of events) {
-            lease.commit(attemptId)
+            taken.commit(attemptId)
             outcomeTracker.observe(event)
             for (const progress of recordEvent(event)) yield { kind: 'progress', progress }
             const call = usageLedger.observe(event, spec.name ?? String(args.harness))
@@ -378,7 +381,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
             }
             assertSandboxServedModel(event, requested)
           }
-          lease.commit(attemptId)
+          taken.commit(attemptId)
           const harnessCall = usageLedger.settleTurn(spec.name ?? String(args.harness))
           if (harnessCall) {
             sawLlmCall = true
@@ -420,6 +423,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       executionFailure = error
       throw error
     } finally {
+      taken?.release()
       state.note = 'settled'
       if (args.failOnDestroyError) {
         try {

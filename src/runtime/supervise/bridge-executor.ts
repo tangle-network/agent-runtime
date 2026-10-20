@@ -55,7 +55,7 @@ import { armDeadlineTimer } from './deadline'
 import { HarnessTurnFailedError } from './driver-retry'
 import { contentRef } from './executor-outcome'
 import { readOptionalAbortSignal, readOptionalMcpAttachments, readSeam } from './executor-seams'
-import { createInbox, type Inbox } from './inbox'
+import { createInbox, type Inbox, type InboxTake } from './inbox'
 import {
   attestRuntimeOwnedPendingExecutor,
   finalizeRuntimeOwnedPendingExecutor,
@@ -555,558 +555,566 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   // Turn 0 is the task; later turns carry the folded steer/answer as the next prompt
   // on the SAME session. `nextPrompt` is undefined once there's nothing pending.
   let nextPrompt: string | undefined = taskToPrompt(args.task)
-  for (let t = 0; args.maxTurns === 0 || t < args.maxTurns; ) {
-    if (args.stopSignal?.aborted) {
-      observation.note = 'settled after completion request'
-      break
-    }
-    // Lease queued down-messages; on turns > 0 they ARE the prompt (resume content). The lease
-    // commits once the bridge streams this turn back, so a turn that fails before that, or a
-    // re-entry after it, folds the same messages again.
-    const lease = inbox.lease()
-    const pending = lease.messages
-    if (pending.length) {
-      const folded = inbox.fold(pending)
-      nextPrompt = t === 0 && nextPrompt ? `${nextPrompt}\n\n${folded}` : folded
-      for (const m of pending) {
-        observation.activity.push({
-          at: Date.now(),
-          kind: 'note',
-          // A peer message must not read as a supervisor steer in `observe_agent`'s activity.
-          label: m.kind === 'mail' ? 'peer-mail' : m.interrupt ? 'steer' : 'follow-up',
-          detail: m.text.length > 80 ? `${m.text.slice(0, 77)}...` : m.text,
-        })
-      }
-    }
-    if (nextPrompt === undefined) break
-    observation.note = `turn ${t}`
-
-    // Each turn sends ONLY the new task/steer. The full canonical profile carries the standing
-    // prompt, and cli-bridge materializes it once; duplicating it as a system message changes the
-    // instructions and makes profile-vs-message precedence backend-dependent.
-    const messages: Array<{ role: string; content: string }> = []
-    messages.push({ role: 'user', content: nextPrompt })
-    nextPrompt = undefined
-
-    // Per-turn signal: external teardown/abort OR a forceful interrupt steer.
-    const interruptSig = inbox.freshInterrupt()
-    const turnController = new AbortController()
-    const abortTurn = () => turnController.abort()
-    if (external.aborted) turnController.abort()
-    else external.addEventListener('abort', abortTurn)
-    interruptSig.addEventListener('abort', abortTurn, { once: true })
-    let timedOut = false
-    const clearTimer =
-      seam.timeoutMs !== undefined
-        ? armDeadlineTimer(
-            seam.timeoutMs,
-            () => {
-              timedOut = true
-              abortTurn()
-            },
-            true,
-          )
-        : undefined
-    // Model silence: no stream event while no tool call is open. A call the bridge reported and
-    // has not answered holds the clock, so a long tool is never cut.
-    let silent = false
-    let openToolCalls = 0
-    let silenceTimer: ReturnType<typeof setTimeout> | undefined
-    const listenForModel = () => {
-      if (silenceTimer !== undefined) clearTimeout(silenceTimer)
-      silenceTimer = undefined
-      if (seam.modelSilenceMs === undefined || openToolCalls > 0) return
-      silenceTimer = setTimeout(() => {
-        silent = true
-        abortTurn()
-      }, seam.modelSilenceMs)
-      silenceTimer.unref?.()
-    }
-    listenForModel()
-    const cleanup = () => {
-      external.removeEventListener('abort', abortTurn)
-      interruptSig.removeEventListener('abort', abortTurn)
-      clearTimer?.()
-      if (silenceTimer !== undefined) clearTimeout(silenceTimer)
-    }
-
-    // Prove this bridge can accept the turn before allocating a remote run id. A refusal still
-    // becomes an attempt with explicit no-dispatch evidence. Keeping the active-run map empty is
-    // what prevents teardown from cancelling work the bridge never accepted.
-    let initialModelCredential: ResolvedBridgeModelCredential | undefined
-    const preflightSignal =
-      args.stopSignal === undefined
-        ? turnController.signal
-        : AbortSignal.any([turnController.signal, args.stopSignal])
-    try {
-      await assertBridgeExecutionCapabilities(
-        seam,
-        preflightSignal,
-        args.runtimeAttachments !== undefined,
-      )
-      if (preflightSignal.aborted) {
-        throw new DOMException('bridgeExecutor: aborted before bridge dispatch', 'AbortError')
-      }
-      initialModelCredential = await runAbortable(
-        () => resolveBridgeModelCredential(seam.modelCredential, 'bridgeExecutor'),
-        preflightSignal,
-        'bridgeExecutor: credential preflight aborted',
-      )
-      if (preflightSignal.aborted) {
-        throw new DOMException('bridgeExecutor: aborted before bridge dispatch', 'AbortError')
-      }
-    } catch (error) {
+  // The take of the turn in flight; released however the session ends.
+  let taken: InboxTake | undefined
+  try {
+    for (let t = 0; args.maxTurns === 0 || t < args.maxTurns; ) {
       if (args.stopSignal?.aborted) {
-        cleanup()
         observation.note = 'settled after completion request'
         break
       }
-      const interruptedBeforeDispatch =
-        interruptSig.aborted && !args.signal.aborted && !args.controller.signal.aborted
+      // Take queued down-messages; on turns > 0 they ARE the prompt (resume content). The take
+      // commits once the bridge streams this turn back; a turn that fails before that releases it
+      // (the `finally` below), and a re-entry's take releases it first, so either folds it again.
+      taken = inbox.take()
+      const pending = taken.messages
+      if (pending.length) {
+        const folded = inbox.fold(pending)
+        nextPrompt = t === 0 && nextPrompt ? `${nextPrompt}\n\n${folded}` : folded
+        for (const m of pending) {
+          observation.activity.push({
+            at: Date.now(),
+            kind: 'note',
+            // A peer message must not read as a supervisor steer in `observe_agent`'s activity.
+            label: m.kind === 'mail' ? 'peer-mail' : m.interrupt ? 'steer' : 'follow-up',
+            detail: m.text.length > 80 ? `${m.text.slice(0, 77)}...` : m.text,
+          })
+        }
+      }
+      if (nextPrompt === undefined) break
+      observation.note = `turn ${t}`
+
+      // Each turn sends ONLY the new task/steer. The full canonical profile carries the standing
+      // prompt, and cli-bridge materializes it once; duplicating it as a system message changes the
+      // instructions and makes profile-vs-message precedence backend-dependent.
+      const messages: Array<{ role: string; content: string }> = []
+      messages.push({ role: 'user', content: nextPrompt })
+      nextPrompt = undefined
+
+      // Per-turn signal: external teardown/abort OR a forceful interrupt steer.
+      const interruptSig = inbox.freshInterrupt()
+      const turnController = new AbortController()
+      const abortTurn = () => turnController.abort()
+      if (external.aborted) turnController.abort()
+      else external.addEventListener('abort', abortTurn)
+      interruptSig.addEventListener('abort', abortTurn, { once: true })
+      let timedOut = false
+      const clearTimer =
+        seam.timeoutMs !== undefined
+          ? armDeadlineTimer(
+              seam.timeoutMs,
+              () => {
+                timedOut = true
+                abortTurn()
+              },
+              true,
+            )
+          : undefined
+      // Model silence: no stream event while no tool call is open. A call the bridge reported and
+      // has not answered holds the clock, so a long tool is never cut.
+      let silent = false
+      let openToolCalls = 0
+      let silenceTimer: ReturnType<typeof setTimeout> | undefined
+      const listenForModel = () => {
+        if (silenceTimer !== undefined) clearTimeout(silenceTimer)
+        silenceTimer = undefined
+        if (seam.modelSilenceMs === undefined || openToolCalls > 0) return
+        silenceTimer = setTimeout(() => {
+          silent = true
+          abortTurn()
+        }, seam.modelSilenceMs)
+        silenceTimer.unref?.()
+      }
+      listenForModel()
+      const cleanup = () => {
+        external.removeEventListener('abort', abortTurn)
+        interruptSig.removeEventListener('abort', abortTurn)
+        clearTimer?.()
+        if (silenceTimer !== undefined) clearTimeout(silenceTimer)
+      }
+
+      // Prove this bridge can accept the turn before allocating a remote run id. A refusal still
+      // becomes an attempt with explicit no-dispatch evidence. Keeping the active-run map empty is
+      // what prevents teardown from cancelling work the bridge never accepted.
+      let initialModelCredential: ResolvedBridgeModelCredential | undefined
+      const preflightSignal =
+        args.stopSignal === undefined
+          ? turnController.signal
+          : AbortSignal.any([turnController.signal, args.stopSignal])
       try {
-        args.onProviderAttemptStart()
-        args.onProviderDispatchNotStarted()
-      } finally {
-        cleanup()
-      }
-      if (interruptedBeforeDispatch) {
-        observation.note = `turn ${turns + 1} interrupted before dispatch, resuming`
-        continue
-      }
-      throw error
-    }
-    if (args.stopSignal?.aborted) {
-      observation.note = 'settled after completion request'
-      cleanup()
-      break
-    }
-    args.onProviderAttemptStart()
-
-    const activeRun: ActiveBridgeRun = {
-      id: `bridge-run-${randomUUID()}`,
-      transportAttempts: 0,
-      lastEventId: 0,
-      terminal: false,
-    }
-    args.activeRuns.set(activeRun.id, activeRun)
-    const requestBody = {
-      model: seam.model,
-      stream: true,
-      run_id: activeRun.id,
-      session_id: args.sessionId,
-      ...(seam.cwd ? { cwd: seam.cwd } : {}),
-      ...(seam.maxTokens !== undefined ? { max_tokens: seam.maxTokens } : {}),
-      execution: {
-        kind: 'host' as const,
-        ...(seam.timeoutMs !== undefined ? { timeoutMs: seam.timeoutMs } : {}),
-      },
-      agent_profile: args.profile,
-      ...(args.runtimeAttachments === undefined
-        ? {}
-        : { runtime_attachments: { mcp: args.runtimeAttachments } }),
-      messages,
-    }
-
-    let turnText = ''
-    let sawTurnTokenUsage = false
-    let turnTokensKnown = true
-    let sawTurnCostStatus = false
-    let turnUsdKnown = true
-    let turnKnownCostSubtotal = 0
-    let turnCostProvenance: 'provider-receipt' | 'billing-receipt' | undefined
-    let turnEstimatedCostSubtotal = 0
-    // This turn's own token totals, kept apart from the run-wide `tokens` so an unreceipted turn
-    // is priced on what IT presented rather than on the running sum of every turn before it.
-    let turnInputTokens = 0
-    let turnOutputTokens = 0
-    let interrupted = false
-    let profileMaterializationPublished = false
-    const publishProfileMaterialization = (): void => {
-      // A receipt is terminal evidence only after the durable bridge run reached [DONE].
-      // A provider error may follow that acknowledgement, so publish it before rethrowing.
-      if (
-        !profileMaterializationPublished &&
-        activeRun.terminal &&
-        activeRun.profileMaterialization !== undefined
-      ) {
-        args.onProfileMaterialization(activeRun.profileMaterialization)
-        profileMaterializationPublished = true
-      }
-    }
-    try {
-      for await (const chunk of streamDurableBridgeRun({
-        seam,
-        initialModelCredential,
-        profile: args.profile,
-        sessionId: args.sessionId,
-        body: requestBody,
-        signal: turnController.signal,
-        run: activeRun,
-        maxReconnects: args.maxReconnects,
-        traceHeaders: args.traceHeaders,
-      })) {
-        // The first frame is the bridge's proof that the session holds this turn's prompt.
-        lease.commit(activeRun.id)
-        openToolCalls = Math.max(
-          0,
-          openToolCalls + (chunk.toolCalls?.length ?? 0) - (chunk.toolResults?.length ?? 0),
+        await assertBridgeExecutionCapabilities(
+          seam,
+          preflightSignal,
+          args.runtimeAttachments !== undefined,
         )
-        listenForModel()
-        if (chunk.model !== undefined) {
-          try {
-            if (!observedModelMatchesDeclared(chunk.model, seam.providerModel)) {
-              args.onProviderIdentityConflict()
-              throw new ValidationError(
-                `bridgeExecutor: bridge reported model ${JSON.stringify(chunk.model)} but the profile requires ${JSON.stringify(seam.providerModel)}`,
-              )
-            }
-            const isWireModel = chunk.model === seam.model
-            // The exact request id is transport metadata, even when it carries a snapshot.
-            // Never let it seed served identity or block a later provider snapshot.
-            if (!isWireModel && observedModelHasSnapshot(chunk.model)) {
-              // Record each validated served snapshot before merging. A later conflicting
-              // snapshot must remain visible in evidence so the attempt stays fail-closed.
-              args.onProviderModel(chunk.model)
-            }
-            if (!isWireModel) {
-              observedModel = mergeBridgeObservedModel(observedModel, chunk.model)
-            }
-          } catch (error) {
-            args.onProviderIdentityConflict()
-            throw error
-          }
+        if (preflightSignal.aborted) {
+          throw new DOMException('bridgeExecutor: aborted before bridge dispatch', 'AbortError')
         }
-        if (chunk.systemFingerprint !== undefined) {
-          if (
-            observedSystemFingerprint !== undefined &&
-            observedSystemFingerprint !== chunk.systemFingerprint
-          ) {
-            args.onProviderIdentityConflict()
-            throw new ValidationError(
-              `bridgeExecutor: bridge changed system fingerprint from ${JSON.stringify(observedSystemFingerprint)} to ${JSON.stringify(chunk.systemFingerprint)}`,
-            )
-          }
-          observedSystemFingerprint = chunk.systemFingerprint
+        initialModelCredential = await runAbortable(
+          () => resolveBridgeModelCredential(seam.modelCredential, 'bridgeExecutor'),
+          preflightSignal,
+          'bridgeExecutor: credential preflight aborted',
+        )
+        if (preflightSignal.aborted) {
+          throw new DOMException('bridgeExecutor: aborted before bridge dispatch', 'AbortError')
         }
-        if (chunk.content) {
-          turnText += chunk.content
-          yield { kind: 'progress', progress: { kind: 'text_delta', text: chunk.content } }
+      } catch (error) {
+        if (args.stopSignal?.aborted) {
+          cleanup()
+          observation.note = 'settled after completion request'
+          break
         }
-        // Reasoning is the model's own record of why; it is never part of the turn's text.
-        if (chunk.reasoning) {
-          yield { kind: 'progress', progress: { kind: 'reasoning_delta', text: chunk.reasoning } }
+        const interruptedBeforeDispatch =
+          interruptSig.aborted && !args.signal.aborted && !args.controller.signal.aborted
+        try {
+          args.onProviderAttemptStart()
+          args.onProviderDispatchNotStarted()
+        } finally {
+          cleanup()
         }
-        for (const step of chunk.toolCalls ?? []) {
-          toolCalls.push({
-            ...(step.callId === undefined ? {} : { id: step.callId }),
-            name: step.toolName,
-            arguments: step.args,
-          })
-          observation.activity.push({
-            at: Date.now(),
-            kind: 'tool',
-            label: step.toolName,
-            // No `status`: the bridge reported the DECISION to call this tool, and nothing on
-            // this wire ever reports the call finishing. An 'ok' here would be invented.
-            ...(describeToolArgs(step.args) ? { detail: describeToolArgs(step.args) } : {}),
-          })
-          args.record(step)
-          // Published after the local mirrors are updated, so a consumer that reads `progress()`
-          // when this event arrives sees the same call in the activity window.
-          yield {
-            kind: 'progress',
-            progress: {
-              kind: 'tool_call',
-              toolName: step.toolName,
-              ...(step.callId === undefined ? {} : { toolCallId: step.callId }),
-              args: step.args,
-            },
-          }
-        }
-        for (const result of chunk.toolResults ?? []) {
-          // A finished call is a second fact beside the decision above: it carries the status the
-          // decision honestly lacked, so it gets its own note rather than rewriting that one.
-          observation.activity.push({
-            at: Date.now(),
-            kind: 'tool',
-            label: result.name,
-            status: result.status === 'completed' ? 'ok' : 'error',
-            ...(result.status === 'error' && result.error !== undefined
-              ? { detail: result.error }
-              : {}),
-          })
-          yield {
-            kind: 'progress',
-            progress: {
-              kind: 'tool_result',
-              toolName: result.name,
-              ...(result.id === undefined ? {} : { toolCallId: result.id }),
-              result: result.status === 'completed' ? result.output : { error: result.error },
-            },
-          }
-        }
-        if (chunk.usage) {
-          sawTurnTokenUsage = true
-          creditProvenance('stream-receipt')
-          if (!chunk.usage.known) turnTokensKnown = false
-          turnInputTokens += chunk.usage.input
-          turnOutputTokens += chunk.usage.output
-          const usageEvent: Extract<UsageEvent, { kind: 'tokens' }> = {
-            kind: 'tokens',
-            input: chunk.usage.input,
-            output: chunk.usage.output,
-            ...(chunk.usage.known ? {} : { tokensKnown: false }),
-            ...(chunk.usage.promptCache?.freshInput !== undefined
-              ? { freshInput: chunk.usage.promptCache.freshInput }
-              : {}),
-            ...(chunk.usage.promptCache?.readInput !== undefined
-              ? { cacheRead: chunk.usage.promptCache.readInput }
-              : {}),
-            ...(chunk.usage.promptCache?.writeInput !== undefined
-              ? { cacheWrite: chunk.usage.promptCache.writeInput }
-              : {}),
-          }
-          addTokenUsage(tokens, usageEvent)
-          yield usageEvent
-          if (chunk.usage.promptCache) {
-            if (chunk.usage.promptCache.freshInput !== undefined) {
-              promptCache.freshInput =
-                (promptCache.freshInput ?? 0) + chunk.usage.promptCache.freshInput
-            }
-            if (chunk.usage.promptCache.readInput !== undefined) {
-              promptCache.readTokens =
-                (promptCache.readTokens ?? 0) + chunk.usage.promptCache.readInput
-            }
-            if (chunk.usage.promptCache.writeInput !== undefined) {
-              promptCache.writeTokens =
-                (promptCache.writeTokens ?? 0) + chunk.usage.promptCache.writeInput
-            }
-          }
-        }
-        if (chunk.costProvenance !== undefined) turnCostProvenance = chunk.costProvenance
-        if (chunk.costKnown !== undefined) {
-          sawTurnCostStatus = true
-          if (!chunk.costKnown) turnUsdKnown = false
-          // A trusted total is the complete charge for the turn. It supersedes earlier
-          // incremental chunks that correctly reported that their subtotal was incomplete.
-          if (chunk.costKnown && chunk.costScope === 'total') turnUsdKnown = true
-        }
-        if (typeof chunk.cost === 'number') {
-          const increment =
-            chunk.costScope === 'total' ? chunk.cost - turnKnownCostSubtotal : chunk.cost
-          if (increment < 0) {
-            throw new ValidationError('bridgeExecutor: total billed cost decreased within a turn')
-          }
-          turnKnownCostSubtotal += increment
-          if (increment > 0) {
-            usd += increment
-            yield {
-              kind: 'cost',
-              usdKnown: true,
-              usd: increment,
-              provenance: turnCostProvenance ?? 'provider-receipt',
-            }
-          }
-        }
-        if (typeof chunk.estimatedCost === 'number') {
-          const increment =
-            chunk.costScope === 'total'
-              ? chunk.estimatedCost - turnEstimatedCostSubtotal
-              : chunk.estimatedCost
-          if (increment < 0) {
-            throw new ValidationError(
-              'bridgeExecutor: total estimated cost decreased within a turn',
-            )
-          }
-          turnEstimatedCostSubtotal += increment
-          estimatedUsd += increment
-          sawEstimatedUsd = true
-        }
-      }
-      lease.commit(activeRun.id)
-      publishProfileMaterialization()
-    } catch (error) {
-      publishProfileMaterialization()
-      if (isTrustedPreProviderRejection(error)) {
-        args.onProviderDispatchNotStarted()
-      }
-      // A forceful steer first detaches this HTTP reader, then explicitly cancels
-      // the durable run and waits for terminal proof. Starting the resume turn
-      // before that acknowledgement would race two harness processes against one
-      // resumable session.
-      const interruptAbort =
-        interruptSig.aborted && !args.signal.aborted && !args.controller.signal.aborted
-      if (interruptAbort) {
-        const terminal = await cancelBridgeRunToTerminal(seam, activeRun, 'infinity', external)
-        if (!terminal) {
-          throw new ValidationError(
-            `bridgeExecutor: interrupted run ${activeRun.id} did not reach terminal state`,
-          )
-        }
-        interrupted = true
-      } else {
-        // A per-turn timeout is owned here, not by the HTTP socket. Request
-        // explicit cancellation before surfacing it; external scope teardown
-        // performs the same operation under its own grace budget.
-        if (silent && !timedOut) {
-          if (!activeRun.terminal) await requestBridgeRunCancellation(seam, activeRun, 0)
-          // Silence is the same accident as a deadline, found sooner: the turn failed, the run goes on.
-          throw new HarnessTurnFailedError('bridge', {
-            error: `the model sent nothing for ${seam.modelSilenceMs} ms with no tool call open; cancellation of bridge run ${activeRun.id} requested`,
-            errorCode: 'timeout',
-          })
-        }
-        if (timedOut) {
-          if (!activeRun.terminal) await requestBridgeRunCancellation(seam, activeRun, 0)
-          // The turn ran out its own deadline: it failed, and the run did not stop. Surfaced as the
-          // transport's AbortError it classified terminal, and one silent 4-hour root turn
-          // (timeoutMs 14,400,000) settled magnetar-rust-20261019b, a 48-hour run. As a failed turn
-          // the driver re-enters the run, counted and bounded like any other failure.
-          throw new HarnessTurnFailedError('bridge', {
-            error: `the turn ran out its ${seam.timeoutMs} ms deadline; cancellation of bridge run ${activeRun.id} requested`,
-            errorCode: 'timeout',
-          })
+        if (interruptedBeforeDispatch) {
+          observation.note = `turn ${turns + 1} interrupted before dispatch, resuming`
+          continue
         }
         throw error
       }
-    } finally {
-      transportAttempts += activeRun.transportAttempts
-      cleanup()
-    }
-    // Some transports can finish a buffered body normally after their signal fires. The forceful
-    // steer still wins and must become a new turn rather than letting this response settle.
-    if (interruptSig.aborted && !args.signal.aborted && !args.controller.signal.aborted) {
-      interrupted = true
-    }
-    turns += 1
-    t += 1
-    observation.turns = turns
-    observation.activity.push({ at: Date.now(), kind: 'turn', label: `turn ${turns}` })
-    // A turn whose stream carried no usage frame is not a free turn: cli-bridge's own
-    // scoped-loopback accounting FOR THIS TURN rides the turn's materialization receipt. It is
-    // read here, after the stream, so the canonical usage frames always win and a turn that
-    // reported both is charged once — the same precedence `SandboxUsageLedger` holds for sandbox
-    // streams (`sandbox-events.ts`).
-    if (!sawTurnTokenUsage) {
-      const receipt = readBridgeReceiptTokens(
-        activeRun.profileMaterialization?.inference?.observation?.usage,
-      )
-      if ('event' in receipt) {
-        sawTurnTokenUsage = true
-        creditProvenance('stream-receipt')
-        turnInputTokens += receipt.event.input
-        turnOutputTokens += receipt.event.output
-        addTokenUsage(tokens, receipt.event)
-        yield receipt.event
-        if (receipt.event.freshInput !== undefined) {
-          promptCache.freshInput = (promptCache.freshInput ?? 0) + receipt.event.freshInput
-        }
-        if (receipt.event.cacheRead !== undefined) {
-          promptCache.readTokens = (promptCache.readTokens ?? 0) + receipt.event.cacheRead
-        }
-        if (receipt.event.cacheWrite !== undefined) {
-          promptCache.writeTokens = (promptCache.writeTokens ?? 0) + receipt.event.cacheWrite
-        }
-      } else {
-        // The FIRST reason is kept: it names the receipt this session could not read, and a later
-        // turn failing the same way does not make the answer any more unknown.
-        tokensUnknownReason ??= receipt.reason
+      if (args.stopSignal?.aborted) {
+        observation.note = 'settled after completion request'
+        cleanup()
+        break
       }
-    }
-    // The harness's own store closes what the transport did not carry. It is read on EVERY turn,
-    // not only an unmetered one, because the two sources cover different work: a stream receipt
-    // reports the seat's turn, and a harness-native child spends in its own rollout with its own
-    // counter that the parent's receipt never includes. So a turn with a receipt still credits the
-    // native children, and a turn without one credits both — never the same tokens twice.
-    if (harnessStore) {
-      const delta = await readHarnessStoreDelta(harnessStore, observation)
-      if (delta) {
-        const charged = sawTurnTokenUsage ? delta.native : addHarnessUsage(delta.seat, delta.native)
-        if (!harnessUsageIsEmpty(charged)) {
-          const event: Extract<UsageEvent, { kind: 'tokens' }> = {
-            kind: 'tokens',
-            input: charged.input,
-            output: charged.output,
-            ...promptCacheTokenClasses(charged.input, {
-              ...(charged.cachedInput === undefined ? {} : { readTokens: charged.cachedInput }),
-              ...(charged.cacheWriteInput === undefined
-                ? {}
-                : { writeTokens: charged.cacheWriteInput }),
-            }),
-            provenance: 'harness-store',
-          }
-          sawTurnTokenUsage = true
-          creditProvenance('harness-store')
-          turnInputTokens += event.input
-          turnOutputTokens += event.output
-          addTokenUsage(tokens, event)
-          if (event.freshInput !== undefined) {
-            promptCache.freshInput = (promptCache.freshInput ?? 0) + event.freshInput
-          }
-          if (event.cacheRead !== undefined) {
-            promptCache.readTokens = (promptCache.readTokens ?? 0) + event.cacheRead
-          }
-          if (event.cacheWrite !== undefined) {
-            promptCache.writeTokens = (promptCache.writeTokens ?? 0) + event.cacheWrite
-          }
-          yield event
-        }
-        // A fork this reader cannot attribute is named, never charged and never silently zero.
-        if (delta.unresolved.length > 0) {
-          turnTokensKnown = false
-          tokensUnknownReason ??= `harness-store: ${delta.unresolved.length} forked rollout(s) could not be attributed to a turn; ${delta.unresolved[0]?.reason ?? 'no reason recorded'}`
+      args.onProviderAttemptStart()
+
+      const activeRun: ActiveBridgeRun = {
+        id: `bridge-run-${randomUUID()}`,
+        transportAttempts: 0,
+        lastEventId: 0,
+        terminal: false,
+      }
+      args.activeRuns.set(activeRun.id, activeRun)
+      const requestBody = {
+        model: seam.model,
+        stream: true,
+        run_id: activeRun.id,
+        session_id: args.sessionId,
+        ...(seam.cwd ? { cwd: seam.cwd } : {}),
+        ...(seam.maxTokens !== undefined ? { max_tokens: seam.maxTokens } : {}),
+        execution: {
+          kind: 'host' as const,
+          ...(seam.timeoutMs !== undefined ? { timeoutMs: seam.timeoutMs } : {}),
+        },
+        agent_profile: args.profile,
+        ...(args.runtimeAttachments === undefined
+          ? {}
+          : { runtime_attachments: { mcp: args.runtimeAttachments } }),
+        messages,
+      }
+
+      let turnText = ''
+      let sawTurnTokenUsage = false
+      let turnTokensKnown = true
+      let sawTurnCostStatus = false
+      let turnUsdKnown = true
+      let turnKnownCostSubtotal = 0
+      let turnCostProvenance: 'provider-receipt' | 'billing-receipt' | undefined
+      let turnEstimatedCostSubtotal = 0
+      // This turn's own token totals, kept apart from the run-wide `tokens` so an unreceipted turn
+      // is priced on what IT presented rather than on the running sum of every turn before it.
+      let turnInputTokens = 0
+      let turnOutputTokens = 0
+      let interrupted = false
+      let profileMaterializationPublished = false
+      const publishProfileMaterialization = (): void => {
+        // A receipt is terminal evidence only after the durable bridge run reached [DONE].
+        // A provider error may follow that acknowledgement, so publish it before rethrowing.
+        if (
+          !profileMaterializationPublished &&
+          activeRun.terminal &&
+          activeRun.profileMaterialization !== undefined
+        ) {
+          args.onProfileMaterialization(activeRun.profileMaterialization)
+          profileMaterializationPublished = true
         }
       }
-    }
-    if (!sawTurnTokenUsage || !turnTokensKnown) tokensKnown = false
-    if (!sawTurnCostStatus || !turnUsdKnown) usdKnown = false
-    if (!sawTurnCostStatus || !turnUsdKnown) {
-      // Missing billing proof is not a free turn. Price what the turn presented, so the dollar
-      // channel carries a number instead of a zero that reads as a measured free turn. The event
-      // is always `usdKnown: false`, and the priced part rides `usdEstimated`.
-      //
-      // Only a turn that billed NOTHING is priced. A turn holding a partial receipt already put
-      // real dollars on the channel, and a whole-turn catalog price on top would charge the same
-      // tokens twice.
-      const priced =
-        turnKnownCostSubtotal === 0
-          ? priceUnreceiptedWork({
-              inputTokens: turnInputTokens,
-              outputTokens: turnOutputTokens,
-              model: observedModel ?? seam.providerModel,
-            })
-          : {
-              kind: 'cost' as const,
-              usd: 0,
-              usdKnown: false as const,
-              provenance: 'uncaptured' as const,
+      try {
+        for await (const chunk of streamDurableBridgeRun({
+          seam,
+          initialModelCredential,
+          profile: args.profile,
+          sessionId: args.sessionId,
+          body: requestBody,
+          signal: turnController.signal,
+          run: activeRun,
+          maxReconnects: args.maxReconnects,
+          traceHeaders: args.traceHeaders,
+        })) {
+          // The first frame is the bridge's proof that the session holds this turn's prompt.
+          taken.commit(activeRun.id)
+          openToolCalls = Math.max(
+            0,
+            openToolCalls + (chunk.toolCalls?.length ?? 0) - (chunk.toolResults?.length ?? 0),
+          )
+          listenForModel()
+          if (chunk.model !== undefined) {
+            try {
+              if (!observedModelMatchesDeclared(chunk.model, seam.providerModel)) {
+                args.onProviderIdentityConflict()
+                throw new ValidationError(
+                  `bridgeExecutor: bridge reported model ${JSON.stringify(chunk.model)} but the profile requires ${JSON.stringify(seam.providerModel)}`,
+                )
+              }
+              const isWireModel = chunk.model === seam.model
+              // The exact request id is transport metadata, even when it carries a snapshot.
+              // Never let it seed served identity or block a later provider snapshot.
+              if (!isWireModel && observedModelHasSnapshot(chunk.model)) {
+                // Record each validated served snapshot before merging. A later conflicting
+                // snapshot must remain visible in evidence so the attempt stays fail-closed.
+                args.onProviderModel(chunk.model)
+              }
+              if (!isWireModel) {
+                observedModel = mergeBridgeObservedModel(observedModel, chunk.model)
+              }
+            } catch (error) {
+              args.onProviderIdentityConflict()
+              throw error
             }
-      if (priced.usdKnown === false && priced.usdEstimated !== undefined) {
-        estimatedUsdCharged += priced.usdEstimated
+          }
+          if (chunk.systemFingerprint !== undefined) {
+            if (
+              observedSystemFingerprint !== undefined &&
+              observedSystemFingerprint !== chunk.systemFingerprint
+            ) {
+              args.onProviderIdentityConflict()
+              throw new ValidationError(
+                `bridgeExecutor: bridge changed system fingerprint from ${JSON.stringify(observedSystemFingerprint)} to ${JSON.stringify(chunk.systemFingerprint)}`,
+              )
+            }
+            observedSystemFingerprint = chunk.systemFingerprint
+          }
+          if (chunk.content) {
+            turnText += chunk.content
+            yield { kind: 'progress', progress: { kind: 'text_delta', text: chunk.content } }
+          }
+          // Reasoning is the model's own record of why; it is never part of the turn's text.
+          if (chunk.reasoning) {
+            yield { kind: 'progress', progress: { kind: 'reasoning_delta', text: chunk.reasoning } }
+          }
+          for (const step of chunk.toolCalls ?? []) {
+            toolCalls.push({
+              ...(step.callId === undefined ? {} : { id: step.callId }),
+              name: step.toolName,
+              arguments: step.args,
+            })
+            observation.activity.push({
+              at: Date.now(),
+              kind: 'tool',
+              label: step.toolName,
+              // No `status`: the bridge reported the DECISION to call this tool, and nothing on
+              // this wire ever reports the call finishing. An 'ok' here would be invented.
+              ...(describeToolArgs(step.args) ? { detail: describeToolArgs(step.args) } : {}),
+            })
+            args.record(step)
+            // Published after the local mirrors are updated, so a consumer that reads `progress()`
+            // when this event arrives sees the same call in the activity window.
+            yield {
+              kind: 'progress',
+              progress: {
+                kind: 'tool_call',
+                toolName: step.toolName,
+                ...(step.callId === undefined ? {} : { toolCallId: step.callId }),
+                args: step.args,
+              },
+            }
+          }
+          for (const result of chunk.toolResults ?? []) {
+            // A finished call is a second fact beside the decision above: it carries the status the
+            // decision honestly lacked, so it gets its own note rather than rewriting that one.
+            observation.activity.push({
+              at: Date.now(),
+              kind: 'tool',
+              label: result.name,
+              status: result.status === 'completed' ? 'ok' : 'error',
+              ...(result.status === 'error' && result.error !== undefined
+                ? { detail: result.error }
+                : {}),
+            })
+            yield {
+              kind: 'progress',
+              progress: {
+                kind: 'tool_result',
+                toolName: result.name,
+                ...(result.id === undefined ? {} : { toolCallId: result.id }),
+                result: result.status === 'completed' ? result.output : { error: result.error },
+              },
+            }
+          }
+          if (chunk.usage) {
+            sawTurnTokenUsage = true
+            creditProvenance('stream-receipt')
+            if (!chunk.usage.known) turnTokensKnown = false
+            turnInputTokens += chunk.usage.input
+            turnOutputTokens += chunk.usage.output
+            const usageEvent: Extract<UsageEvent, { kind: 'tokens' }> = {
+              kind: 'tokens',
+              input: chunk.usage.input,
+              output: chunk.usage.output,
+              ...(chunk.usage.known ? {} : { tokensKnown: false }),
+              ...(chunk.usage.promptCache?.freshInput !== undefined
+                ? { freshInput: chunk.usage.promptCache.freshInput }
+                : {}),
+              ...(chunk.usage.promptCache?.readInput !== undefined
+                ? { cacheRead: chunk.usage.promptCache.readInput }
+                : {}),
+              ...(chunk.usage.promptCache?.writeInput !== undefined
+                ? { cacheWrite: chunk.usage.promptCache.writeInput }
+                : {}),
+            }
+            addTokenUsage(tokens, usageEvent)
+            yield usageEvent
+            if (chunk.usage.promptCache) {
+              if (chunk.usage.promptCache.freshInput !== undefined) {
+                promptCache.freshInput =
+                  (promptCache.freshInput ?? 0) + chunk.usage.promptCache.freshInput
+              }
+              if (chunk.usage.promptCache.readInput !== undefined) {
+                promptCache.readTokens =
+                  (promptCache.readTokens ?? 0) + chunk.usage.promptCache.readInput
+              }
+              if (chunk.usage.promptCache.writeInput !== undefined) {
+                promptCache.writeTokens =
+                  (promptCache.writeTokens ?? 0) + chunk.usage.promptCache.writeInput
+              }
+            }
+          }
+          if (chunk.costProvenance !== undefined) turnCostProvenance = chunk.costProvenance
+          if (chunk.costKnown !== undefined) {
+            sawTurnCostStatus = true
+            if (!chunk.costKnown) turnUsdKnown = false
+            // A trusted total is the complete charge for the turn. It supersedes earlier
+            // incremental chunks that correctly reported that their subtotal was incomplete.
+            if (chunk.costKnown && chunk.costScope === 'total') turnUsdKnown = true
+          }
+          if (typeof chunk.cost === 'number') {
+            const increment =
+              chunk.costScope === 'total' ? chunk.cost - turnKnownCostSubtotal : chunk.cost
+            if (increment < 0) {
+              throw new ValidationError('bridgeExecutor: total billed cost decreased within a turn')
+            }
+            turnKnownCostSubtotal += increment
+            if (increment > 0) {
+              usd += increment
+              yield {
+                kind: 'cost',
+                usdKnown: true,
+                usd: increment,
+                provenance: turnCostProvenance ?? 'provider-receipt',
+              }
+            }
+          }
+          if (typeof chunk.estimatedCost === 'number') {
+            const increment =
+              chunk.costScope === 'total'
+                ? chunk.estimatedCost - turnEstimatedCostSubtotal
+                : chunk.estimatedCost
+            if (increment < 0) {
+              throw new ValidationError(
+                'bridgeExecutor: total estimated cost decreased within a turn',
+              )
+            }
+            turnEstimatedCostSubtotal += increment
+            estimatedUsd += increment
+            sawEstimatedUsd = true
+          }
+        }
+        taken.commit(activeRun.id)
+        publishProfileMaterialization()
+      } catch (error) {
+        publishProfileMaterialization()
+        if (isTrustedPreProviderRejection(error)) {
+          args.onProviderDispatchNotStarted()
+        }
+        // A forceful steer first detaches this HTTP reader, then explicitly cancels
+        // the durable run and waits for terminal proof. Starting the resume turn
+        // before that acknowledgement would race two harness processes against one
+        // resumable session.
+        const interruptAbort =
+          interruptSig.aborted && !args.signal.aborted && !args.controller.signal.aborted
+        if (interruptAbort) {
+          const terminal = await cancelBridgeRunToTerminal(seam, activeRun, 'infinity', external)
+          if (!terminal) {
+            throw new ValidationError(
+              `bridgeExecutor: interrupted run ${activeRun.id} did not reach terminal state`,
+            )
+          }
+          interrupted = true
+        } else {
+          // A per-turn timeout is owned here, not by the HTTP socket. Request
+          // explicit cancellation before surfacing it; external scope teardown
+          // performs the same operation under its own grace budget.
+          if (silent && !timedOut) {
+            if (!activeRun.terminal) await requestBridgeRunCancellation(seam, activeRun, 0)
+            // Silence is the same accident as a deadline, found sooner: the turn failed, the run goes on.
+            throw new HarnessTurnFailedError('bridge', {
+              error: `the model sent nothing for ${seam.modelSilenceMs} ms with no tool call open; cancellation of bridge run ${activeRun.id} requested`,
+              errorCode: 'timeout',
+            })
+          }
+          if (timedOut) {
+            if (!activeRun.terminal) await requestBridgeRunCancellation(seam, activeRun, 0)
+            // The turn ran out its own deadline: it failed, and the run did not stop. Surfaced as the
+            // transport's AbortError it classified terminal, and one silent 4-hour root turn
+            // (timeoutMs 14,400,000) settled magnetar-rust-20261019b, a 48-hour run. As a failed turn
+            // the driver re-enters the run, counted and bounded like any other failure.
+            throw new HarnessTurnFailedError('bridge', {
+              error: `the turn ran out its ${seam.timeoutMs} ms deadline; cancellation of bridge run ${activeRun.id} requested`,
+              errorCode: 'timeout',
+            })
+          }
+          throw error
+        }
+      } finally {
+        transportAttempts += activeRun.transportAttempts
+        cleanup()
       }
-      usd += priced.usd
-      yield priced
-    }
-    yield { kind: 'iteration' }
-    if (!interrupted && turnText) lastText = turnText
+      // Some transports can finish a buffered body normally after their signal fires. The forceful
+      // steer still wins and must become a new turn rather than letting this response settle.
+      if (interruptSig.aborted && !args.signal.aborted && !args.controller.signal.aborted) {
+        interrupted = true
+      }
+      turns += 1
+      t += 1
+      observation.turns = turns
+      observation.activity.push({ at: Date.now(), kind: 'turn', label: `turn ${turns}` })
+      // A turn whose stream carried no usage frame is not a free turn: cli-bridge's own
+      // scoped-loopback accounting FOR THIS TURN rides the turn's materialization receipt. It is
+      // read here, after the stream, so the canonical usage frames always win and a turn that
+      // reported both is charged once — the same precedence `SandboxUsageLedger` holds for sandbox
+      // streams (`sandbox-events.ts`).
+      if (!sawTurnTokenUsage) {
+        const receipt = readBridgeReceiptTokens(
+          activeRun.profileMaterialization?.inference?.observation?.usage,
+        )
+        if ('event' in receipt) {
+          sawTurnTokenUsage = true
+          creditProvenance('stream-receipt')
+          turnInputTokens += receipt.event.input
+          turnOutputTokens += receipt.event.output
+          addTokenUsage(tokens, receipt.event)
+          yield receipt.event
+          if (receipt.event.freshInput !== undefined) {
+            promptCache.freshInput = (promptCache.freshInput ?? 0) + receipt.event.freshInput
+          }
+          if (receipt.event.cacheRead !== undefined) {
+            promptCache.readTokens = (promptCache.readTokens ?? 0) + receipt.event.cacheRead
+          }
+          if (receipt.event.cacheWrite !== undefined) {
+            promptCache.writeTokens = (promptCache.writeTokens ?? 0) + receipt.event.cacheWrite
+          }
+        } else {
+          // The FIRST reason is kept: it names the receipt this session could not read, and a later
+          // turn failing the same way does not make the answer any more unknown.
+          tokensUnknownReason ??= receipt.reason
+        }
+      }
+      // The harness's own store closes what the transport did not carry. It is read on EVERY turn,
+      // not only an unmetered one, because the two sources cover different work: a stream receipt
+      // reports the seat's turn, and a harness-native child spends in its own rollout with its own
+      // counter that the parent's receipt never includes. So a turn with a receipt still credits the
+      // native children, and a turn without one credits both — never the same tokens twice.
+      if (harnessStore) {
+        const delta = await readHarnessStoreDelta(harnessStore, observation)
+        if (delta) {
+          const charged = sawTurnTokenUsage
+            ? delta.native
+            : addHarnessUsage(delta.seat, delta.native)
+          if (!harnessUsageIsEmpty(charged)) {
+            const event: Extract<UsageEvent, { kind: 'tokens' }> = {
+              kind: 'tokens',
+              input: charged.input,
+              output: charged.output,
+              ...promptCacheTokenClasses(charged.input, {
+                ...(charged.cachedInput === undefined ? {} : { readTokens: charged.cachedInput }),
+                ...(charged.cacheWriteInput === undefined
+                  ? {}
+                  : { writeTokens: charged.cacheWriteInput }),
+              }),
+              provenance: 'harness-store',
+            }
+            sawTurnTokenUsage = true
+            creditProvenance('harness-store')
+            turnInputTokens += event.input
+            turnOutputTokens += event.output
+            addTokenUsage(tokens, event)
+            if (event.freshInput !== undefined) {
+              promptCache.freshInput = (promptCache.freshInput ?? 0) + event.freshInput
+            }
+            if (event.cacheRead !== undefined) {
+              promptCache.readTokens = (promptCache.readTokens ?? 0) + event.cacheRead
+            }
+            if (event.cacheWrite !== undefined) {
+              promptCache.writeTokens = (promptCache.writeTokens ?? 0) + event.cacheWrite
+            }
+            yield event
+          }
+          // A fork this reader cannot attribute is named, never charged and never silently zero.
+          if (delta.unresolved.length > 0) {
+            turnTokensKnown = false
+            tokensUnknownReason ??= `harness-store: ${delta.unresolved.length} forked rollout(s) could not be attributed to a turn; ${delta.unresolved[0]?.reason ?? 'no reason recorded'}`
+          }
+        }
+      }
+      if (!sawTurnTokenUsage || !turnTokensKnown) tokensKnown = false
+      if (!sawTurnCostStatus || !turnUsdKnown) usdKnown = false
+      if (!sawTurnCostStatus || !turnUsdKnown) {
+        // Missing billing proof is not a free turn. Price what the turn presented, so the dollar
+        // channel carries a number instead of a zero that reads as a measured free turn. The event
+        // is always `usdKnown: false`, and the priced part rides `usdEstimated`.
+        //
+        // Only a turn that billed NOTHING is priced. A turn holding a partial receipt already put
+        // real dollars on the channel, and a whole-turn catalog price on top would charge the same
+        // tokens twice.
+        const priced =
+          turnKnownCostSubtotal === 0
+            ? priceUnreceiptedWork({
+                inputTokens: turnInputTokens,
+                outputTokens: turnOutputTokens,
+                model: observedModel ?? seam.providerModel,
+              })
+            : {
+                kind: 'cost' as const,
+                usd: 0,
+                usdKnown: false as const,
+                provenance: 'uncaptured' as const,
+              }
+        if (priced.usdKnown === false && priced.usdEstimated !== undefined) {
+          estimatedUsdCharged += priced.usdEstimated
+        }
+        usd += priced.usd
+        yield priced
+      }
+      yield { kind: 'iteration' }
+      if (!interrupted && turnText) lastText = turnText
 
-    if (interrupted) {
-      observation.note = `turn ${turns} interrupted, resuming`
-      continue
-    }
+      if (interrupted) {
+        observation.note = `turn ${turns} interrupted, resuming`
+        continue
+      }
 
-    if (args.stopSignal?.aborted) {
-      observation.note = 'settled after completion request'
-      break
-    }
+      if (args.stopSignal?.aborted) {
+        observation.note = 'settled after completion request'
+        break
+      }
 
-    // Before settling, check the inbox once more — the worker can't finish while a steer it
-    // never read is pending (the sandbox/router settle contract). A pending steer
-    // becomes the next resume turn, leased and committed like any other; otherwise the session is
-    // truly done. A turn that fails throws out of this loop, so the fence cannot spin.
-    // AUTHORITY messages only: a sibling that kept sending mail could otherwise hold a finished
-    // worker open indefinitely, which is denial of settlement, not a delivery guarantee.
-    if (inbox.pendingAuthority() === 0) break
+      // Before settling, check the inbox once more — the worker can't finish while a steer it
+      // never read is pending (the sandbox/router settle contract). A pending steer
+      // becomes the next resume turn, taken and committed like any other; otherwise the session is
+      // truly done. A turn that fails throws out of this loop, so the fence cannot spin.
+      // AUTHORITY messages only: a sibling that kept sending mail could otherwise hold a finished
+      // worker open indefinitely, which is denial of settlement, not a delivery guarantee.
+      if (inbox.pendingAuthority() === 0) break
+    }
+  } finally {
+    taken?.release()
   }
 
   observation.note = 'settled'

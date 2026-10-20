@@ -77,7 +77,7 @@ import {
   runTree,
   type SupervisorFinalizer,
 } from './finalizer'
-import { createInbox, type Inbox, type InboxLease, type InboxReceipt } from './inbox'
+import { createInbox, type Inbox, type InboxReceipt, type InboxTake } from './inbox'
 import { providerAttemptEvidence } from './materialization'
 import { isTerminalNodeStatus } from './node-status'
 import { addResourceSpend, withBudgetResources } from './resources'
@@ -643,6 +643,8 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
               onReceipt: (receipt) => {
                 if (receipt.outcome === 'consumed') {
                   onConsumption({ outcome: 'consumed', attemptId: receipt.attemptId })
+                } else if (receipt.outcome === 'failed') {
+                  onConsumption({ outcome: 'failed', reason: receipt.reason })
                 }
               },
             })
@@ -1240,7 +1242,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       // scripted/mock turn takes this path too, so offline equal-k still debits exactly zero tokens.
       let driverTurn = 0
       let driverCall = 0
-      let turnLease: InboxLease | undefined
+      let turnTake: InboxTake | undefined
       const meteredBrain = async (
         messages: ReadonlyArray<Record<string, unknown>>,
         tools: ReadonlyArray<ToolSpec>,
@@ -1287,7 +1289,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           throw error
         }
         // A compaction's summary may drop the folded text, so only a conversation turn reads it.
-        if (conversationTurn) turnLease?.commit(callContext.callId)
+        if (conversationTurn) turnTake?.commit(callContext.callId)
         let evidenceError: ValidationError | undefined
         opts.onProviderModel?.(res.model)
         if (opts.expectedModel !== undefined) {
@@ -1456,10 +1458,10 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             await steerAcknowledger?.pass('turn')
             acknowledger?.pass('turn')
             // Committed by the conversation turn that sends it (`meteredBrain`). A turn that fails
-            // first ends this attempt, and the next attempt's conversation leases it again.
-            turnLease = inbox.lease()
-            if (turnLease.messages.length > 0) {
-              messages.push({ role: 'user', content: inbox.fold(turnLease.messages) })
+            // first ends this attempt, which releases the take, and the next attempt folds it again.
+            turnTake = inbox.take()
+            if (turnTake.messages.length > 0) {
+              messages.push({ role: 'user', content: inbox.fold(turnTake.messages) })
             }
             // Before a compaction can fold them away: the previous turn's tool results and this inbox.
             transcript.observe(messages)
@@ -1544,7 +1546,9 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             return true
           },
         },
-      }).catch(analysisFailed)
+      })
+        .catch(analysisFailed)
+        .finally(() => turnTake?.release())
       // Drain every already-settled child the brain never pulled — a gate-verified delivery must
       // never be lost to the driver's pull discipline (e.g. a brain that spawned and stopped
       // without awaiting). Non-blocking: live children are the supervisor's to tear down.

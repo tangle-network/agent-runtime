@@ -1523,10 +1523,10 @@ function buildSupervisorAgent(
                         attempt,
                       })
               // Committed once the harness reports a model event or completes; a turn that fails
-              // first leaves the mail for the next attempt's lease.
-              const peerLease = peerInbox.lease()
+              // first releases the mail for the next attempt.
+              const peerTake = peerInbox.take()
               const peerText =
-                peerLease.messages.length === 0 ? undefined : peerInbox.fold(peerLease.messages)
+                peerTake.messages.length === 0 ? undefined : peerInbox.fold(peerTake.messages)
               const peerAttemptId = `${scope.view.root}:attempt-${attempt}`
               const withPeerMail = (input: unknown): string | unknown =>
                 peerText === undefined
@@ -1564,11 +1564,11 @@ function buildSupervisorAgent(
                   coordinationTools,
                   onModelEvent: () => {
                     modelEvents += 1
-                    peerLease.commit(peerAttemptId)
+                    peerTake.commit(peerAttemptId)
                   },
                 })
                 completed = true
-                peerLease.commit(peerAttemptId)
+                peerTake.commit(peerAttemptId)
               } catch (error) {
                 // Once the injected check has accepted a result, a later backend shutdown/timeout
                 // cannot erase that completed work — and there is nothing left to retry FOR. Without
@@ -1576,6 +1576,7 @@ function buildSupervisorAgent(
                 if (!mcp.submittedResult() && !mcp.isStopped()) throw error
                 completed = true
               } finally {
+                peerTake.release()
                 harnessInvocationActive = false
                 // A completed turn processed what it received; a failed one leaves it for the next
                 // re-entry to name. Recorded before the retry decision reads the run.
