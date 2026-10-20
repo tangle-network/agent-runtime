@@ -6,6 +6,7 @@ import type {
   AgentEnvironmentEvent,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
+import { createCommandModelCredentialResolver } from '@tangle-network/agent-provider-tangle/node'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/environment-provider'
@@ -79,7 +80,7 @@ async function harnessFailureFixture(options: {
   /** Explicit caller cancellation arrives after capture recovery failed, during source cleanup. */
   readonly cancelDuringTeardown?: boolean
   /** Thrown by environment creation, before any dispatch: a provider command that failed. */
-  readonly createFailure?: () => Error | undefined
+  readonly createFailure?: () => Error | undefined | Promise<Error | undefined>
   /** Awaited by a dispatched turn before it submits the deliverable. */
   readonly beforeSubmit?: (dispatch: number) => Promise<void>
   readonly deadlineMs?: number
@@ -174,7 +175,7 @@ async function harnessFailureFixture(options: {
     }),
     create: async (input) => {
       creates += 1
-      const refused = options.createFailure?.()
+      const refused = await options.createFailure?.()
       if (refused !== undefined) throw refused
       token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
       return wrap(await base.create(input))
@@ -679,9 +680,9 @@ describe('a root harness turn that ends with a failed outcome', () => {
       expect(fixture.creates()).toBe(EVIDENCE_DEBT_SOURCES_MAX + 1)
       expect(fixture.environmentIds[4]).toBe(fixture.environmentIds[3])
       const events = await fixture.events()
-      expect(ofKind(events, 'evidence-pending').map((row) => row.environmentId)).toEqual(
-        [...new Set(fixture.environmentIds)],
-      )
+      expect(ofKind(events, 'evidence-pending').map((row) => row.environmentId)).toEqual([
+        ...new Set(fixture.environmentIds),
+      ])
       // Every debt was paid during the pause, so the release keeps nothing.
       expect(result.teardownUnconfirmed).toBeUndefined()
     } finally {
@@ -702,16 +703,15 @@ describe('a root harness turn that ends with a failed outcome', () => {
         runId: 'harness-credential-unavailable',
         failures: () => undefined,
         deadlineMs: 60 * 60_000,
-        createFailure: () => {
+        createFailure: async () => {
           if (Date.now() - startedAt >= 10 * 60_000) return undefined
           refusals += 1
-          // The provider process: agent-provider-tangle's credential command exiting 1, which
-          // the next attempt meets one fake minute later.
+          // The provider process: agent-provider-tangle's own credential resolver running a
+          // command that exits 1, which the next attempt meets one fake minute later. The real
+          // resolver pins the failure's shape, so a reworded message fails this test instead of
+          // silently counting toward pending-unresolved again.
           vi.setSystemTime(Date.now() + 60_000)
-          return Object.assign(new Error('Tangle credential command failed (exit 1)'), {
-            exitCode: 1,
-            terminationSignal: null,
-          })
+          return credentialCommandExit1()
         },
       })
       const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 2, maxAttempts: 3 })
@@ -855,3 +855,23 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(fixture.destroys()).toBe(1)
   })
 })
+
+/** The rejection agent-provider-tangle's credential command resolver raises when its command exits 1. */
+async function credentialCommandExit1(): Promise<Error> {
+  const resolve = createCommandModelCredentialResolver({
+    command: [process.execPath, '-e', 'process.exit(1)'],
+  })
+  const profile = testAgentProfile('credential-unavailable', {
+    model: {
+      provider: 'offline',
+      default: 'offline-test-model',
+      metadata: { credentialSource: 'subscription' },
+    },
+  })
+  try {
+    await resolve({ profile, idempotencyKey: 'credential-unavailable' })
+  } catch (error) {
+    if (error instanceof Error) return error
+  }
+  throw new Error('the credential command resolver did not reject its failing command')
+}

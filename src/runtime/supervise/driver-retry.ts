@@ -741,7 +741,11 @@ function undispatchedCredentialExit(error: unknown): number | undefined {
   return undefined
 }
 
-/** The message prefix of agent-provider-tangle's generic credential command failure. */
+/**
+ * The message prefix of agent-provider-tangle's generic credential command failure. The provider
+ * exports no type or constant for it, so the kernel credential test raises it through the
+ * provider's own command resolver and fails when the message drifts.
+ */
 const CREDENTIAL_COMMAND_FAILURE = 'Tangle credential command failed ('
 
 /** Admission refusals keep the original HTTP rules without interpreting failures after execution starts. */
