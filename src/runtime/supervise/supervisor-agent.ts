@@ -519,6 +519,11 @@ export interface DriveHarness {
        *  turn's workspace capture, so the turn names what settled during that wait. */
       readonly refresh?: () => Promise<void>
     }
+    /** Call once per model event the harness streams: text, reasoning, or a tool call or result.
+     *  On a run this process took over after a restart, the driver counts no drive toward its
+     *  no-progress bound until the first call, so a harness that never calls it leaves that run
+     *  bounded only by the continuation deadline, the run's deadline and its budget. */
+    readonly onModelEvent?: () => void
   }): Promise<void>
   /** Optional live inbox for the manager session this adapter currently drives. Return `false`
    * when no executor inbox is active instead of claiming a message was delivered. */
@@ -1447,9 +1452,33 @@ function buildSupervisorAgent(
             continuations: keeper?.entries() ?? [],
           })
         }
+        // A run this process took over after the process driving it stopped: its first drive
+        // names the workers that were open, and which of them this process re-placed.
+        let modelEvents = 0
+        const resumedView = scope.resume?.view
+        const reentered =
+          resumedView === undefined
+            ? undefined
+            : (() => {
+                const live = resumedView.nodes
+                  .filter(
+                    (node) => node.parent === scope.view.root && isLiveNodeStatus(node.status),
+                  )
+                  .map((node) => node.id)
+                const placed = new Set(scope.view.nodes.map((node) => node.id))
+                return {
+                  first: {
+                    reason: 'run-reentered' as const,
+                    live,
+                    replaced: live.filter((id) => placed.has(id)),
+                  },
+                  modelEvents: () => modelEvents,
+                }
+              })()
         let driverFailed = true
         try {
           await runDriverWithRetry({
+            ...(reentered === undefined ? {} : { reentered }),
             drive: async (attempt, reentry) => {
               candidate = undefined
               if (deps.controlDir !== undefined && deps.abortRun !== undefined) {
@@ -1542,6 +1571,9 @@ function buildSupervisorAgent(
                   ...(deps.peerMailUrl ? { peerMailUrl: deps.peerMailUrl } : {}),
                   stopSignal: stopController.signal,
                   coordinationTools,
+                  onModelEvent: () => {
+                    modelEvents += 1
+                  },
                 })
                 completed = true
               } catch (error) {

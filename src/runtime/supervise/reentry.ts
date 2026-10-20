@@ -127,11 +127,29 @@ function whyLine(reentry: DriverReentry): string {
   if (reentry.reason === 'wake') {
     return 'Your previous turn ended while your workers ran, and Runtime woke you with what happened.'
   }
+  if (reentry.reason === 'run-reentered') return restartLine(reentry)
   // A pause names no provider and no code: the operator owns the upstream, and the driver's
   // budget belongs to the objective.
   return reentry.reason === 'upstream-unavailable'
     ? 'Your previous turn was interrupted before it finished; the run itself is intact.'
     : `Your previous turn ended before it finished (retry ${reentry.retry}); the run itself is intact.`
+}
+
+function restartLine(reentry: Extract<DriverReentry, { reason: 'run-reentered' }>): string {
+  const replaced = new Set(reentry.replaced)
+  const gone = reentry.live.filter((id) => !replaced.has(id))
+  return [
+    'The process supervising this run stopped before the run ended, and a new process took it over; the run itself is intact.',
+    reentry.live.length === 0
+      ? 'None of your workers was running when it stopped.'
+      : `Workers that were running when it stopped: ${reentry.live.join(', ')}.`,
+    ...(reentry.replaced.length === 0 ? [] : [`Running again: ${reentry.replaced.join(', ')}.`]),
+    ...(gone.length === 0
+      ? []
+      : [
+          `Gone, and they will not report: ${gone.join(', ')}. Their unfinished work is lost; spawn a replacement for any you still need.`,
+        ]),
+  ].join(' ')
 }
 
 function environmentLine(continuity: ReentryContinuity): string {

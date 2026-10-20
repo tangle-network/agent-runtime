@@ -122,6 +122,7 @@ A product keeps a store only for what the platform cannot know: when to send, wh
 | `supervise` resume (`ResumedWork.keys`) | `completed`, `down` | Settled. The journal replays the settlement |
 | | `in-doubt` | Uncertain. A keyed replacement is refused until the original execution is recovered |
 | `supervise` resume with `segment` | same run, new root segment | The recorded identity, coordination owner and settled children carry over; the root runs on the segment's provider, model, reasoning effort and harness, and the journal gains one `root-segment` record with the time, reason and caller stack whenever the segment differs from the last one. A harness change starts a new native session. A different task or any other profile change is refused |
+| `supervise` resume of a run an earlier process drove | re-entered | The journal gains one `root-reentered` record with the workers that were open (`live`) and those this process re-placed (`replaced`); the root's first drive names both, and no drive counts toward `maxBarren` until the root streams a model event in this process |
 | Keyed `Scope.spawn` after resume (`SpawnPrior.state`) | `completed` | Settled. Nothing new is spawned |
 | | `retried` | The prior attempt settled `down`, was proven never dispatched, or died with the process for inline executors. It re-runs under the same key |
 | `recoverExecutor` on resume | adopts the executor | Reattached. The interrupted child continues in its original session |

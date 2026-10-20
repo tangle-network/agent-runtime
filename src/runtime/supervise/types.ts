@@ -2185,6 +2185,21 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /** A supervisor resumed a run that an earlier process drove, typically one that stopped
+       *  without settling it after a host reboot, a crash, or a killed process. `live` names every
+       *  worker the journal held open at that moment; `replaced` names those this process
+       *  re-placed, so the rest are gone. The root is re-driven with both, and no re-entered drive
+       *  counts toward its no-progress bound until the root has streamed a model event in this
+       *  process. Infrastructure evidence: replay and cost readers skip it; `seq` counts this run's
+       *  re-entries. */
+      kind: 'root-reentered'
+      id: NodeId
+      live: ReadonlyArray<NodeId>
+      replaced: ReadonlyArray<NodeId>
+      seq: number
+      at: string
+    }
+  | {
       /** A manager's driver turn was refused by an unavailable upstream (an exhausted quota, a
        *  rate limit, an overload), and the driver paused before re-entering instead of failing.
        *  Both durations are infrastructure time: `attemptMs` is the refused turn, `pauseMs` the

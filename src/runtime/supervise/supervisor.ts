@@ -60,6 +60,7 @@ import {
   unknownExecutionBindingReceipt,
   unknownMaterializationReceipt,
 } from './materialization'
+import { isLiveNodeStatus } from './node-status'
 import { prepareScopeResume, type ScopeResumeState, sumSpendFromEvents } from './recover-executors'
 
 export { maxSeqOf, sumMeasuredSpendFromEvents, uncertainSpawnBudgets } from './recover-executors'
@@ -259,6 +260,30 @@ async function recordRootSegment(
     to: entry.current,
     reason: entry.reason,
     seq: records.length,
+    at,
+  })
+}
+
+/**
+ * Append one `root-reentered` record: this process is supervising a run an earlier process drove. Measured 2026-10-19 on magnetar-rust-20261019f: after a host reboot the
+ * re-entered root ran two barren continuations and the run settled `no-result-selected`, with
+ * three workers still open in the journal and no record that a restart had happened.
+ */
+async function recordRootReentered(
+  opts: SupervisorOpts,
+  resumeFrom: ScopeResumeState,
+  at: string,
+): Promise<void> {
+  const live = resumeFrom.view.nodes
+    .filter((node) => node.id !== opts.runId && isLiveNodeStatus(node.status))
+    .map((node) => node.id)
+  const recovering = new Set(resumeFrom.recoveries.map((recovery) => recovery.spawned.id))
+  await opts.journal.appendEvent(opts.runId, {
+    kind: 'root-reentered',
+    id: opts.runId,
+    live,
+    replaced: live.filter((id) => recovering.has(id)),
+    seq: resumeFrom.events.filter((event) => event.kind === 'root-reentered').length,
     at,
   })
 }
@@ -583,6 +608,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         prior = [...resumeFrom.events]
         pool = createBudgetPool(opts.budget, runEpochMs, restored.poolRestore)
         await recordRootSegment(opts, prior, runStartedAt, false)
+        await recordRootReentered(opts, resumeFrom, runStartedAt)
       } else {
         if (opts.rootSegment !== undefined && changesRootProfile(opts.rootSegment)) {
           throw new RuntimeRunStateError(
