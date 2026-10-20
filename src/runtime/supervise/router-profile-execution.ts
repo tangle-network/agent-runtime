@@ -19,7 +19,6 @@ import {
   profileProviderModel,
   type TokenLimitDecision,
 } from './model-policy'
-import { routerInlineExecutor } from './router-inline-executor'
 import type { RouterSeam } from './runtime-seams'
 import { taskToPrompt } from './task-prompt'
 import type { AgentSpec } from './types'

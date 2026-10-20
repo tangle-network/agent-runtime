@@ -1,4 +1,3 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import { observedModelMatchesDeclared } from '../model-identity'
 import type { ExecutorContext } from './types'

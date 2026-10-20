@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import { priceTokens } from '../../pricing/router-prices'
 import {
