@@ -485,8 +485,14 @@ describe('nested supervisor coordination durability', () => {
     }
     expect(delivered).toEqual(
       new Map([
-        ['key:manager-a', { steer: 'instruction for manager A', interrupt: false }],
-        ['key:manager-b', { steer: 'instruction for manager B', interrupt: false }],
+        [
+          'key:manager-a',
+          expect.objectContaining({ steer: 'instruction for manager A', interrupt: false }),
+        ],
+        [
+          'key:manager-b',
+          expect.objectContaining({ steer: 'instruction for manager B', interrupt: false }),
+        ],
       ]),
     )
   })

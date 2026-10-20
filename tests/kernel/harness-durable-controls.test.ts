@@ -206,10 +206,12 @@ describe('durable worker controls during a native harness invocation', () => {
       await expect
         .poll(() => readWorkerSteerAcknowledgement(dir, 'external-steer'), { timeout: 2000 })
         .toMatchObject({ worker: spawned.workerId, effect: 'delivered' })
-      expect(worker.delivered).toHaveBeenCalledExactlyOnceWith({
-        steer: 'inspect the evidence',
-        interrupt: true,
-      })
+      expect(worker.delivered).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          steer: 'inspect the evidence',
+          interrupt: true,
+        }),
+      )
       worker.completed.resolve()
     })
     const woken: string[] = []
@@ -405,10 +407,12 @@ describe('durable worker controls during a native harness invocation', () => {
         await expect
           .poll(() => readWorkerSteerAcknowledgement(dir, 'nested-steer'), { timeout: 2000 })
           .toMatchObject({ effect: 'delivered', worker: nestedId })
-        expect(nestedWorker.delivered).toHaveBeenCalledExactlyOnceWith({
-          steer: 'check the result',
-          interrupt: false,
-        })
+        expect(nestedWorker.delivered).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            steer: 'check the result',
+            interrupt: false,
+          }),
+        )
         cancelWorker(dir, nestedId, 'nested-cancel')
         await expect
           .poll(() => readWorkerCancellation(dir, 'nested-cancel'), { timeout: 2000 })

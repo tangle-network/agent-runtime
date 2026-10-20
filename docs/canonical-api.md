@@ -315,8 +315,13 @@ A thrown parent check reports a validation error through the existing driver fai
 With `controlDir`, router managers check durable worker controls between turns.
 Native harness managers check throughout each invocation, including nested managers, on a 100 ms interval.
 Slow steer persistence does not block cancellation checks, and steer passes never overlap.
-A delivered steer proves inbox acceptance.
-It does not prove that the worker read or followed the instruction.
+Every steer and answer ends in one receipt to its sender.
+`consumed` names the attempt whose model input carried it, once that recipient's provider accepted the input; it does not prove the worker followed the instruction.
+`failed` names why the recipient stopped without reading it.
+A turn that fails or is interrupted before its provider accepts the input returns its messages to the head of the inbox for the next prompt, and a native manager's next drive carries any message its ended executor still held.
+An authority message still unconsumed after 15 minutes (`AUTHORITY_PROMOTION_MS`) becomes an interrupt of the turn in flight; if that one promoted attempt also fails before acceptance, the message fails.
+A worker message's receipt is an `acknowledgement` row in `coordination-log.jsonl` with `by: 'consumed'` or `'failed'` and the steer's `receiptId` as `messageId`.
+A root steer's acknowledgement stays `unknown` while queued, then becomes `delivered` with the consuming attempt in `detail`, or `not_live` with the reason.
 Manager shutdown interrupts pending event capture before delivery and records an uncertain steer outcome as `unknown`.
 The final pass reconciles existing cancellations and expires unseen requests without issuing another abort.
 To steer the root, pass its run ID as the target: `writeWorkerSteer(root, runId, runId, { operationId, message, interrupt: true })`.

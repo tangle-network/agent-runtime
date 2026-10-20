@@ -101,7 +101,7 @@ import { executableAgentProfileSnapshot, executableAgentSpecSnapshot } from './e
 import { contentRef } from './executor-outcome'
 import { assertExactConfigKeys, readSeam } from './executor-seams'
 import { createInPlaceCliExecutor } from './in-place-cli-executor'
-import { createInbox } from './inbox'
+import { createInbox, failPendingAfter, type InboxLease } from './inbox'
 import {
   attestRuntimeOwnedExecutor,
   attestRuntimeOwnedPendingExecutor,
@@ -838,10 +838,15 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         // `executedToolCalls.length`; the entries themselves keep the per-call detail the
         // terminal artifact publishes.
         const executedToolCalls: ExecutorToolCall[] = []
-        // Fold any queued down-messages into the conversation as one operator turn (the boundary flush).
+        // Fold any queued down-messages into the conversation as one operator turn (the boundary
+        // flush). The folded turn stays in `messages`, so an interrupted request re-sends it; the
+        // leases commit once a request carrying them returns.
+        const leases: InboxLease[] = []
         const flush = () => {
-          const pending = inbox.drain()
-          if (pending.length) messages.push({ role: 'user', content: inbox.fold(pending) })
+          const lease = inbox.take()
+          if (lease.messages.length === 0) return
+          messages.push({ role: 'user', content: inbox.fold(lease.messages) })
+          leases.push(lease)
         }
 
         // The external abort sources (caller signal + executor teardown), merged ONCE — so we don't
@@ -999,6 +1004,10 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
               throwRouterTransportFailure('routerToolsInlineExecutor', e)
             }
             cleanup()
+            for (const lease of leases.splice(0)) {
+              for (const message of lease.messages)
+                lease.commit(`${attemptId}#turn-${t}`, message.id)
+            }
             // The inference completed — count the turn and merge its terminal receipt.
             turns += 1
             transcript.reply({ content: res.content, toolCalls: res.toolCalls })
@@ -1139,6 +1148,8 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
               })
           }
         } finally {
+          // This execution never sends `messages` again: report what it still holds as failed.
+          inbox.failPending('the worker execution ended before a model turn read the message')
           const saved = structuredClone(messages) as ReadonlyArray<
             Readonly<Record<string, unknown>>
           >
@@ -1409,7 +1420,7 @@ function sandboxExecutorForPath(
         cancel: (request): Promise<ExecutorCancellation> => session.cancel(request),
         traceSource: (): TraceSource => session.traceSource(),
         execute(task, signal): AsyncIterable<UsageEvent> {
-          return session.stream(task, signal)
+          return failPendingAfter(inbox, session.stream(task, signal))
         },
         async teardown(_grace): Promise<{ destroyed: boolean }> {
           controller.abort()

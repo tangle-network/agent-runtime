@@ -279,7 +279,7 @@ export async function resolveBridgeModelCredential(
  *    harness's internal conversation id (SQLite `SessionStore`), so a steer delivered
  *    via `deliver` re-calls the SAME session id — opencode `-s <id>`, claude
  *    `--resume`, … — continuing the SAME harness session, not a fresh one.
- *  - STEERABLE: the down-leg `inbox` is drained at each turn boundary; a queued
+ *  - STEERABLE: the down-leg `inbox` is taken at each turn boundary; a queued
  *    steer becomes the next turn's prompt on the same session, and the worker can't
  *    settle while a steer it never read is pending (the sandbox/router contract).
  *  - ABORT: reader abort only detaches HTTP. Interrupt/teardown then call the

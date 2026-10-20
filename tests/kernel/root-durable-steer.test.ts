@@ -39,14 +39,20 @@ function fixture() {
     })
   return { root, runId, runDir, options, write }
 }
-async function acknowledged(dir: string, id: string) {
+/** The root accepted the steer: it is queued for a root turn, or already answered. */
+async function accepted(dir: string, id: string) {
   const until = Date.now() + 5000
   while (Date.now() < until) {
     const ack = readWorkerSteerAcknowledgement(dir, id)
-    if (ack && ack.effect !== 'unknown') return ack
+    if (ack && (ack.effect !== 'unknown' || ack.detail.startsWith('queued'))) return ack
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
-  throw new Error('root steer was not acknowledged')
+  throw new Error('root steer was not accepted')
+}
+/** The steer ended consumed by a root turn, named in the acknowledgement. */
+const consumed = {
+  effect: 'delivered',
+  detail: expect.stringMatching(/^the root consumed the steer in /),
 }
 
 describe('durable root steering through the existing operation protocol', () => {
@@ -59,7 +65,7 @@ describe('durable root steering through the existing operation protocol', () => 
       brain: scriptedBrain([{ content: 'done' }], seen),
     })
     expect(JSON.stringify(seen[0])).toContain('use the corrected evidence')
-    expect(readWorkerSteerAcknowledgement(runDir, 'before-first-turn')?.effect).toBe('delivered')
+    expect(readWorkerSteerAcknowledgement(runDir, 'before-first-turn')).toMatchObject(consumed)
   })
 
   it('delivers an external-process retry once during one native invocation', async () => {
@@ -84,11 +90,17 @@ describe('durable root steering through the existing operation protocol', () => 
           ],
           { cwd: process.cwd() },
         )
-        await acknowledged(runDir, 'native-root')
+        await accepted(runDir, 'native-root')
       },
       {
+        // The harness inbox answers the sender once its provider accepted the steer.
         deliver: (message: unknown) => {
           received.push(message)
+          const { messageId, receipt } = message as {
+            messageId: string
+            receipt: (receipt: unknown) => void
+          }
+          receipt({ status: 'consumed', messageId, attemptId: 'harness-turn-1' })
           return true
         },
       },
@@ -99,8 +111,13 @@ describe('durable root steering through the existing operation protocol', () => 
       { ...options, driveHarness },
     )
     expect(turns).toBe(1)
-    expect(received).toEqual([{ steer: 'use the corrected evidence', interrupt: true }])
-    expect(readWorkerSteerAcknowledgement(runDir, 'native-root')?.effect).toBe('delivered')
+    expect(received).toEqual([
+      expect.objectContaining({ steer: 'use the corrected evidence', interrupt: true }),
+    ])
+    expect(readWorkerSteerAcknowledgement(runDir, 'native-root')).toMatchObject({
+      effect: 'delivered',
+      detail: 'the root consumed the steer in harness-turn-1',
+    })
   })
 
   it('queues a root steer for the next wake while the native inbox is not ready', async () => {
@@ -110,7 +127,7 @@ describe('durable root steering through the existing operation protocol', () => 
     const driveHarness: DriveHarness = Object.assign(
       async ({ task }: { task: unknown }) => {
         tasks.push(String(task))
-        if (tasks.length === 1) await acknowledged(runDir, 'delayed-root')
+        if (tasks.length === 1) await accepted(runDir, 'delayed-root')
       },
       {
         deliver: (message: unknown) => {
@@ -129,7 +146,7 @@ describe('durable root steering through the existing operation protocol', () => 
     )
     // The steer is accepted at once and read by the manager's next turn, not the inbox.
     expect(received).toEqual([])
-    expect(readWorkerSteerAcknowledgement(runDir, 'delayed-root')?.effect).toBe('delivered')
+    expect(readWorkerSteerAcknowledgement(runDir, 'delayed-root')).toMatchObject(consumed)
     expect(tasks).toHaveLength(2)
     expect(tasks[1]).toContain('"type":"lead-message"')
     expect(tasks[1]).toContain('use the corrected evidence')
@@ -180,13 +197,12 @@ describe('durable root steering through the existing operation protocol', () => 
     await gap
     try {
       // No invocation is live in the gap, and the steer is accepted without waiting for one.
-      await expect
-        .poll(() => readWorkerSteerAcknowledgement(runDir, 'retry-gap-root')?.effect)
-        .toBe('delivered')
+      await accepted(runDir, 'retry-gap-root')
     } finally {
       releaseAttemptGap()
       await run
     }
+    expect(readWorkerSteerAcknowledgement(runDir, 'retry-gap-root')).toMatchObject(consumed)
     expect(received).toEqual([])
     expect(tasks).toHaveLength(3)
     expect(tasks[2]).toContain('use the corrected evidence')
@@ -204,11 +220,11 @@ describe('durable root steering through the existing operation protocol', () => 
           tasks.push(String(task))
           if (tasks.length > 1) return
           write('queued-root')
-          await acknowledged(runDir, 'queued-root')
+          await accepted(runDir, 'queued-root')
         },
       },
     )
-    expect(readWorkerSteerAcknowledgement(runDir, 'queued-root')?.effect).toBe('delivered')
+    expect(readWorkerSteerAcknowledgement(runDir, 'queued-root')).toMatchObject(consumed)
     expect(tasks).toHaveLength(2)
     expect(tasks[1]).toContain('use the corrected evidence')
   })

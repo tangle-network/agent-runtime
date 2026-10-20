@@ -89,7 +89,7 @@ Compose existing execution, control, storage, and evaluation boundaries.
 | Boundary | Existing behavior | Limit |
 | --- | --- | --- |
 | Before a local model request | `ToolLoopHooks.beforeTurn` is awaited and can update messages | This applies to requests executed by the local tool loop |
-| During execution | Steering queues instructions; supported interruption can stop the current request | Acceptance does not prove model consumption or changed behavior |
+| During execution | Steering queues instructions; supported interruption can stop the current request | A `consumed` receipt proves the provider accepted an input carrying the instruction, not changed behavior |
 | After tools or child results | Later requests can use results to revise decisions | Interruption does not undo completed effects |
 | Before a sandbox prompt | Session continuation supplies another whole harness prompt | One prompt can contain multiple native model requests |
 | On session resume | The selected backend restores supported session state | Session reuse does not establish profile, tool, or model reload |

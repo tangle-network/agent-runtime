@@ -58,7 +58,7 @@ import {
   checkVerdictOf,
   createContinuationKeeper,
 } from './continuation'
-import { driverAgent } from './coordination-driver'
+import { driverAgent, type RootSteer } from './coordination-driver'
 import type { PriorCoordination } from './coordination-log'
 import {
   assertCoordinationTransport,
@@ -76,7 +76,7 @@ import {
 } from './driver-retry'
 import type { BusRecord } from './event-bus'
 import { bestDelivered, runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
-import { createInbox } from './inbox'
+import { createInbox, INBOX_RECEIPT_KEY, type InboxReceipt } from './inbox'
 import { attestRuntimeOwnedScopeOwner, runtimeOwnedScopeOwnerRuntime } from './materialization'
 import {
   assertExecutableAgentProfile,
@@ -1113,7 +1113,9 @@ function buildSupervisorAgent(
       // Filled by `serveCoordinationMcp` right after it builds this manager's coordination tools
       // and before it listens, so a product tool can compose from its first invocation.
       const slot = createVerbSlot()
-      const peerInbox = createInbox()
+      // What the manager's next harness invocation must read: sibling peer mail, and any steer or
+      // answer an ended invocation's executor still held. Folded into the next drive's task.
+      const nextTurnInbox = createInbox()
       const nodeTools =
         resolveTools && context
           ? await bindSupervisorTools(resolveTools, context, scope.signal, slot)
@@ -1236,12 +1238,31 @@ function buildSupervisorAgent(
       })
       ledger = mcp
       liveCoordinator = mcp
+      // A harness invocation's executor ends with its attempt, and its inbox with it. A message
+      // that executor still held moves to `nextTurnInbox`, which the next drive's prompt carries
+      // whether it is a wake or a failure re-entry, instead of failing with the executor. Run
+      // 18b's core-4 lost a director ruling and a failed-check notice this way, and its next two
+      // prompts said "Events waiting for you: none".
+      const withNextTurnFallback = (message: unknown): unknown => {
+        if (message === null || typeof message !== 'object') return message
+        const original = (message as Record<string, unknown>)[INBOX_RECEIPT_KEY]
+        return {
+          ...message,
+          [INBOX_RECEIPT_KEY]: (receipt: InboxReceipt) => {
+            const queued =
+              receipt.status === 'failed' &&
+              receipt.cause === 'closed' &&
+              nextTurnInbox.deliver(message)
+            if (!queued && typeof original === 'function') original(receipt)
+          },
+        }
+      }
       managerInbox = (message) => {
         if (
           deliver !== undefined &&
           harnessInvocationActive &&
           (deliverReady === undefined || deliverReady()) &&
-          deliver(message)
+          deliver(withNextTurnFallback(message))
         ) {
           return true
         }
@@ -1250,7 +1271,7 @@ function buildSupervisorAgent(
             ? (message as Record<string, unknown>)[PEER_MAIL_WIRE_KEY]
             : undefined
         if (deps.peerMailUrl && isPeerMailEnvelope(envelope)) {
-          return peerInbox.deliver({ [PEER_MAIL_WIRE_KEY]: envelope })
+          return nextTurnInbox.deliver({ [PEER_MAIL_WIRE_KEY]: envelope })
         }
         return controls.receiveLeadMessage(message)
       }
@@ -1272,8 +1293,7 @@ function buildSupervisorAgent(
             ...(deps.controlScope === 'subtree'
               ? {}
               : {
-                  deliverRoot: (message: { steer: string; interrupt: boolean }) =>
-                    managerInbox?.(message) ?? false,
+                  deliverRoot: (message: RootSteer) => managerInbox?.(message) ?? false,
                   // Between turns a root steer is the input of the next wake, so it is always
                   // deliverable once the coordinator exists.
                   deliverRootReady: () => true,
@@ -1523,12 +1543,13 @@ function buildSupervisorAgent(
                         state: controls.reentryState(),
                         attempt,
                       })
-              const peerMessages = peerInbox.drain()
-              const peerText = peerMessages.length === 0 ? undefined : peerInbox.fold(peerMessages)
-              const withPeerMail = (input: unknown): string | unknown =>
-                peerText === undefined
+              const carried = nextTurnInbox.take()
+              const carriedText =
+                carried.messages.length === 0 ? undefined : nextTurnInbox.fold(carried.messages)
+              const withCarried = (input: unknown): string | unknown =>
+                carriedText === undefined
                   ? input
-                  : `${typeof input === 'string' ? input : (JSON.stringify(input) ?? String(input))}\n\n${peerText}`
+                  : `${typeof input === 'string' ? input : (JSON.stringify(input) ?? String(input))}\n\n${carriedText}`
               harnessInvocationActive = true
               let completed = false
               try {
@@ -1538,14 +1559,14 @@ function buildSupervisorAgent(
                   ...(registeredProfile === stableProfile ? {} : { registeredProfile }),
                   ...(profilePrompt !== undefined ? { systemPrompt: profilePrompt } : {}),
                   ...(session === undefined ? {} : { session }),
-                  task: withPeerMail(compose === undefined ? task : compose(UNPROVEN_CONTINUITY)),
+                  task: withCarried(compose === undefined ? task : compose(UNPROVEN_CONTINUITY)),
                   ...(compose === undefined
                     ? {}
                     : {
                         reentry: {
                           reason: reentry!,
                           compose: (continuity: ReentryContinuity) =>
-                            withPeerMail(compose(continuity)) as string,
+                            withCarried(compose(continuity)) as string,
                           ...(refresh === undefined ? {} : { refresh }),
                           onContinuity: (continuity: ReentryContinuity) => {
                             if (continuity.environment === 'replaced') environmentReplacements += 1
@@ -1571,6 +1592,12 @@ function buildSupervisorAgent(
                 if (!mcp.submittedResult() && !mcp.isStopped()) throw error
                 completed = true
               } finally {
+                // A completed invocation read what it carried; a failed one hands it to the next.
+                if (completed) {
+                  for (const message of carried.messages) {
+                    carried.commit(`${scope.view.root}#attempt-${attempt}`, message.id)
+                  }
+                } else carried.release()
                 harnessInvocationActive = false
                 // A completed turn processed what it received; a failed one leaves it for the next
                 // re-entry to name. Recorded before the retry decision reads the run.
@@ -1596,7 +1623,8 @@ function buildSupervisorAgent(
                 !mcp.submittedResult() &&
                 !mcp.isStopped() &&
                 progressStopReason === undefined &&
-                controls.hasOpenWork(),
+                // A steer an ended invocation never read is open work: one more turn folds it.
+                (controls.hasOpenWork() || nextTurnInbox.pendingAuthority() > 0),
               wake: async (nextAttempt) => {
                 const deadlineMs = scope.budget.deadlineMs
                 const warnAt = deadlineWarningAt(
@@ -1615,12 +1643,10 @@ function buildSupervisorAgent(
                     // A stop (accepted result, stop rule, the manager's own stop) ends the wait too.
                     signal: AbortSignal.any([scope.signal, stopController.signal]),
                     heartbeatMs: wakePolicy.heartbeatMs,
-                    ...(deps.peerMailUrl
-                      ? {
-                          alsoWakeOn:
-                            peerInbox.pending() > 0 ? Promise.resolve() : peerInbox.nextDelivery(),
-                        }
-                      : {}),
+                    alsoWakeOn:
+                      nextTurnInbox.pending() > 0
+                        ? Promise.resolve()
+                        : nextTurnInbox.nextDelivery(),
                     debounceMs: wakePolicy.debounceMs,
                     ...(warnAt === undefined ? {} : { deadlineAt: warnAt }),
                   })
@@ -1721,6 +1747,7 @@ function buildSupervisorAgent(
         throw error
       } finally {
         managerInbox = undefined
+        nextTurnInbox.failPending('the manager finished before a turn read the message')
         coordinationLifetime.abort(new Error('supervisor manager stopped'))
         try {
           await controlObserver?.close()

@@ -140,7 +140,9 @@ describe('durable external worker steer', () => {
       maxDepth: 2,
     })
 
-    expect(delivered).toEqual([{ steer: 'inspect the failing test first', interrupt: true }])
+    expect(delivered).toEqual([
+      expect.objectContaining({ steer: 'inspect the failing test first', interrupt: true }),
+    ])
     expect(readWorkerSteerAcknowledgement(controlDir, 'external-steer-1')).toMatchObject({
       worker: `${runId}:s0`,
       effect: 'delivered',
