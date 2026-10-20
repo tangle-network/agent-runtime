@@ -34,6 +34,7 @@ const qualifiedArtifacts = {
   sandbox0_62_2: ['sandbox', '0.62.2', '0cb9efb38e5fac4a2247865603cda9dbeca538f4f13bc1dcba4540a83facde54'],
   sandbox0_62_14: ['sandbox', '0.62.14', '6ed6617560e63e0f68590239d1b0f867cf1b1011c18ba8a101398aae9184e8c0'],
   sandbox0_62_15: ['sandbox', '0.62.15', 'faa660ccf640e1f0520e157b3e689cc0d52332bf335a4b8743e1fdeacec67a14'],
+  sandbox0_63_10: ['sandbox', '0.63.10', '0b97ec83c12476a3b4b107970943a25a96c5b85ace361ef0cca9e7639fc4c5da'],
   interface5_7_0: ['agent-interface', '5.7.0', '4f662a47917b3057a4f38b4fbf719e8a97590b9d9213c80dd36a7cafa6ea1e0f'],
 }
 
@@ -55,6 +56,7 @@ const qualifiedCohorts = [
   ['sandbox0_62_2', 'interface5_7_0', 'core0_12_0', 'sdkInterface4_0_0', 'sdkCore0_11_0'],
   ['sandbox0_62_14', 'interface5_7_0', 'core0_12_0', 'sdkInterface4_0_0', 'sdkCore0_11_0'],
   ['sandbox0_62_15', 'interface5_7_0', 'core0_12_0', 'sdkInterface4_0_0', 'sdkCore0_11_0'],
+  ['sandbox0_63_10', 'interface5_7_0', 'core0_12_0', 'sdkInterface4_0_0', 'sdkCore0_11_0'],
 ].map(cohort => cohort.map(artifact => qualifiedArtifacts[artifact]))
 
 function ownFiles(directory) {
