@@ -1081,6 +1081,27 @@ describe('environment provider adapters', () => {
     ).rejects.toThrow('Workspace cwd must be relative')
   })
 
+  it('passes named secrets and refuses a Sandbox 0.63 secret binding without a mapper', async () => {
+    const created: unknown[] = []
+    const provider: AgentEnvironmentProvider = {
+      name: 'fake-provider',
+      capabilities: () => fakeCapabilities(),
+      async create(input) {
+        created.push(input)
+        return fakeEnvironment({ stream: async function* () {} })
+      },
+    }
+    const client = providerAsSandboxClient(provider)
+
+    await client.create({ secrets: ['HF_TOKEN'] })
+    expect(created).toEqual([expect.objectContaining({ secrets: ['HF_TOKEN'] })])
+    // A binding scopes a secret to one host, which a neutral environment input cannot express.
+    await expect(
+      client.create({ secrets: ['HF_TOKEN', { name: 'GH_TOKEN', host: 'github.com' }] }),
+    ).rejects.toThrow('require mapCreateOptions: secrets bindings')
+    expect(created).toHaveLength(1)
+  })
+
   it('round-trips exact dispatch identity through both adapter directions', async () => {
     const controlRef: AgentExactRunControlRef = {
       runId: 'round-trip-run',
