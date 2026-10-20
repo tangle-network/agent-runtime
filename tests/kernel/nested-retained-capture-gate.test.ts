@@ -249,21 +249,11 @@ describe('nested retained owner capture gate', () => {
         return
       }
       // The failed capture is evidence debt on the nested node, one row naming its source.
-      const debt = (
-        await Promise.all(
-          events.flatMap((event) =>
-            event.kind === 'execution-evidence' ? [context.blobs.get(event.outRef)] : [],
-          ),
-        )
-      ).filter(
-        (out) =>
-          (out as { workspaceCaptureFailure?: string }).workspaceCaptureFailure !== undefined,
-      )
-      expect(debt).toEqual([
+      expect(events.filter((event) => event.kind === 'evidence-pending')).toEqual([
         expect.objectContaining({
           environmentId: nestedId,
           executionId: firstNestedCaptureExecution,
-          workspaceCaptureFailure: expect.stringContaining('nested capture storage unavailable'),
+          error: expect.stringContaining('nested capture storage unavailable'),
         }),
       ])
     },

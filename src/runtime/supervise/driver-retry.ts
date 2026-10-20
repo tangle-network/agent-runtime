@@ -563,7 +563,7 @@ function isDispatchNotAdmitted(error: Error): boolean {
  * no structured field decided, because a harness CLI reports the router's refusal as text.
  */
 export function upstreamUnavailableSignal(error: unknown): string | undefined {
-  if (undispatchedCommandExit(error) !== undefined) return 'credential-unavailable'
+  if (undispatchedCredentialExit(error) !== undefined) return 'credential-unavailable'
   const admission = retainedAdmissionCause(error)
   if (admission !== undefined) return upstreamUnavailableSignal(admission)
   if (!(error instanceof Error)) return undefined
@@ -662,7 +662,7 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   )
     return 'terminal'
   // Nothing was dispatched, so nothing is pending: a pause, never a reconciliation to count.
-  if (undispatchedCommandExit(error) !== undefined) return 'unavailable'
+  if (undispatchedCredentialExit(error) !== undefined) return 'unavailable'
   const admission = retainedAdmissionCause(error)
   // A dispatch that Sandbox did not admit gets the same refusal while the owning execution holds
   // the session. A run never starts a turn beside an execution that owns its session, so it stops
@@ -707,17 +707,19 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
 }
 
 /**
- * The exit code of a command that failed before the provider confirmed a dispatch, or undefined.
+ * The exit code of agent-provider-tangle's credential command (`acct sandbox resolve`) when it
+ * failed before the provider confirmed a dispatch, or undefined.
  *
  * A retained execution's `admission` phase means Runtime journaled no dispatched admission, so no
- * provider execution id exists. A cause that carries a process exit code is the provider's own
- * command, such as agent-provider-tangle's credential command (`acct sandbox resolve`), refusing
- * before the dispatch was sent. Counting it as an unresolved pending invocation stopped 10 nodes
- * and lost 7 runs between 2026-10-12 and 2026-10-19 (test-acceptance-canary-20261015c met 26
- * such failures in 2.2 minutes); nothing ran, so it pauses like a capacity refusal and is retried
- * at the deadline, budget and cancellation bounds every pause has.
+ * provider execution id exists and nothing ran. The provider reports the command's generic
+ * failure as `Tangle credential command failed (exit N)` with the process's `exitCode` and
+ * `terminationSignal` as own fields; a refusal it can parse (exit 75 or 78) arrives typed instead
+ * and is classified on its code. Counting this failure as an unresolved pending invocation
+ * stopped 10 nodes and lost 7 runs between 2026-10-12 and 2026-10-19 (test-acceptance-canary-
+ * 20261015c met 26 in 2.2 minutes). It pauses like a capacity refusal, bounded by the deadline,
+ * the budget and cancellation as every pause is.
  */
-function undispatchedCommandExit(error: unknown): number | undefined {
+function undispatchedCredentialExit(error: unknown): number | undefined {
   if (
     !(error instanceof RetainedExecutionPendingError) ||
     error.phase !== 'admission' ||
@@ -725,16 +727,25 @@ function undispatchedCommandExit(error: unknown): number | undefined {
   )
     return undefined
   for (const link of causeChain(error.cause)) {
-    let exitCode: unknown
     try {
-      exitCode = Reflect.get(link, 'exitCode')
+      if (
+        !(link instanceof Error) ||
+        !link.message.startsWith(CREDENTIAL_COMMAND_FAILURE) ||
+        !Object.hasOwn(link, 'terminationSignal')
+      )
+        continue
+      const exitCode: unknown = Reflect.get(link, 'exitCode')
+      if (typeof exitCode === 'number' && Number.isInteger(exitCode) && exitCode > 0)
+        return exitCode
     } catch {
-      continue
+      // A cause whose fields cannot be read is not the credential command's failure.
     }
-    if (typeof exitCode === 'number' && Number.isInteger(exitCode) && exitCode > 0) return exitCode
   }
   return undefined
 }
+
+/** The message prefix of agent-provider-tangle's generic credential command failure. */
+const CREDENTIAL_COMMAND_FAILURE = 'Tangle credential command failed ('
 
 /** Admission refusals keep the original HTTP rules without interpreting failures after execution starts. */
 function retainedAdmissionCause(error: unknown): Error | undefined {
@@ -1190,7 +1201,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
           resetAt === undefined
             ? jitteredMs(unavailablePauseMs(consecutivePauses, policy), random)
             : Math.max(1_000, Math.min(resetAt, deadlineMs > 0 ? deadlineMs : resetAt) - pausedAt)
-        const exitCode = undispatchedCommandExit(error)
+        const exitCode = undispatchedCredentialExit(error)
         const resumeAt = resetAt ?? (exitCode === undefined ? undefined : pausedAt + pause)
         await emit({
           attempt,

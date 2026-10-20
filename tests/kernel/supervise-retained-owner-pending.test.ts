@@ -612,16 +612,11 @@ describe('supervised root with a pending retained turn', () => {
     expect(await run.base.get!(run.environments[0]!)).not.toBeNull()
     expect(count(run.events, 'execution-input')).toBe(2)
     expect(count(run.events, 'execution-result')).toBe(2)
-    const debt = run.evidence.filter(
-      (output) =>
-        typeof (output as { workspaceCaptureFailure?: unknown }).workspaceCaptureFailure ===
-        'string',
-    )
-    expect(debt).toEqual([
+    expect(run.events.filter((event) => event.kind === 'evidence-pending')).toEqual([
       expect.objectContaining({
         executionId: run.firstCaptureExecution,
         environmentId: run.environments[0],
-        workspaceCaptureFailure: expect.stringContaining('retained workspace capture pending'),
+        error: expect.stringContaining('retained workspace capture pending'),
       }),
     ])
     expect(run.result.teardownUnconfirmed).toEqual([

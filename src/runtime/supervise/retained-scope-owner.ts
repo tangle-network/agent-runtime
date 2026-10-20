@@ -27,7 +27,7 @@ import {
 import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../retained-native-stop'
 import { sameControlCoordinates } from '../retained-run-binding'
 import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
-import { addSpend, zeroSpend } from '../util'
+import { addSpend, sleep, zeroSpend } from '../util'
 import { abortError, runAbortable } from './abortable'
 import { assertValidSpend } from './budget'
 import { errMessage, errorText } from './error-message'
@@ -119,6 +119,8 @@ interface OwnerState {
   turnEnd?: Promise<void>
   /** The release in progress, so a second caller joins it instead of destroying twice. */
   releasing?: Promise<readonly UnconfirmedTeardown[]>
+  /** Capture retries of the evidence this node owes, while any is owed; the release stops them. */
+  evidenceRetry?: { readonly stop: AbortController; done: Promise<void> }
 }
 interface OwnerRegistration {
   readonly rootId: NodeId
@@ -1454,13 +1456,15 @@ export async function scopeRetainedOwnerTurnEnded(scope: Scope<unknown>): Promis
 }
 
 /** @internal Wait for everything this owner still has in flight: the drive ending its turn, the
- *  work that turn handed over, and a release. */
+ *  work that turn handed over, and a release. The run is settling, so its capture retries stop;
+ *  a release retries once itself, and a resumed process starts them again. */
 export async function scopeRetainedOwnerSettled(scope: Scope<unknown>): Promise<void> {
   const state = owners.get(scope)
   if (state === undefined) return
   await ownerDriveEnded(state)
   await scopeRetainedOwnerTurnEnded(scope)
   await state.releasing?.catch(() => undefined)
+  await stopOwnerEvidenceRetry(state)
 }
 
 /**
@@ -1512,6 +1516,7 @@ async function releaseOwnerEnvironment(
   await state.checkpointing?.catch(() => undefined)
   // One budget bounds every capture this release runs: the evidence it retries, then checkpoints.
   const capturesDeadline = Date.now() + capturesMs
+  await stopOwnerEvidenceRetry(state)
   await recaptureOwnerSources(state, AbortSignal.timeout(capturesMs))
   const events = [...((await args.journal.loadTree(args.rootId)) ?? [])]
   const requestFailures = await reconcileCheckpointRequests(state, events)
@@ -1940,11 +1945,10 @@ function ownerCaptureIdentity(attempt: OwnerAttempt, owner: OwnerRegistration) {
 }
 
 /**
- * Recover evidence before reuse. A source without a complete receipt is never mutated: the turn's
- * capture failure is journaled once as evidence debt, the source is preserved, and the next
- * invocation starts in another environment. The owner's release tries the capture once more.
- * An accepted turn stands either way; a missing capture never stops the node or its supervisor.
- * Returns the sources whose capture failed here.
+ * Recover evidence before reuse. A source without a complete receipt is never mutated. A failed
+ * turn's capture failure is journaled as its evidence and the next invocation starts in another
+ * environment. An accepted turn's failure is evidence debt ({@link owePendingEvidence}): the turn
+ * stands, and neither the node nor its supervisor stops. Returns the sources whose capture failed.
  */
 async function reconcileOwnerWorkspaceBeforeReuse(
   state: OwnerState,
@@ -1971,16 +1975,21 @@ async function reconcileOwnerWorkspaceBeforeReuse(
       try {
         await captureOwnerSource(state, attempts, index, environmentId, signal)
       } catch (cause) {
-        // Reuse the evidence journal, retaining the original attempt's coordinates. Neither a
-        // missing nor a partial receipt permits mutation or deletion of this source. This row is
-        // the evidence debt: it names the source, the failure and, by its time, since when.
-        await state.context.onEvidence!({
-          executionId: attempt.executionId,
-          environmentId,
-          controlRef: attempt.controlByEnvironment.get(environmentId),
-          ...ownerCaptureIdentity(attempt, args),
-          workspaceCaptureFailure: capturePendingMessage(attempt.executionId ?? args.nodeId, cause),
-        })
+        const failure = capturePendingMessage(attempt.executionId ?? args.nodeId, cause)
+        if (executorFailureReason(attempt.result) === undefined) {
+          if (await owePendingEvidence(state, events, attempt, environmentId, failure, signal))
+            continue
+        } else {
+          // Reuse the evidence journal, retaining the original attempt's coordinates. Neither a
+          // missing nor a partial receipt permits mutation or deletion of this source.
+          await state.context.onEvidence!({
+            executionId: attempt.executionId,
+            environmentId,
+            controlRef: attempt.controlByEnvironment.get(environmentId),
+            ...ownerCaptureIdentity(attempt, args),
+            workspaceCaptureFailure: failure,
+          })
+        }
         indebted.add(environmentId)
         state.forceNewSession = true
       }
@@ -1991,6 +2000,148 @@ async function reconcileOwnerWorkspaceBeforeReuse(
 
 function capturePendingMessage(executionId: string, cause: unknown): string {
   return `retained workspace capture pending for ${executionId}; source environment preserved: ${cause instanceof Error ? cause.message : String(cause)}`
+}
+
+/**
+ * How many sources one node may leave behind as evidence debt. Each holds a live environment
+ * until a capture pays it or the release keeps it, so a capture service that stays down cannot
+ * make every later turn open another one. At the bound the node pauses instead.
+ */
+export const EVIDENCE_DEBT_SOURCES_MAX = 3
+
+/**
+ * Record an accepted turn's failed capture as evidence debt, once per source, and start the
+ * owner's capture retries. Below {@link EVIDENCE_DEBT_SOURCES_MAX} the node continues in another
+ * environment and this returns false. At the bound the node pauses until its debt is paid and
+ * then reuses this source, returning true; a release that stops the retries first ends the pause
+ * with an error, so the turn is never dispatched over an uncaptured workspace.
+ *
+ * Throwing here instead leaves nothing driving any agent of the run, and every restart meets the
+ * same failure: 66 supervisor starts in 17 Discovery runs, 76.7 wall-hours dead, between
+ * 2026-10-12 and 2026-10-19 (magnetar-rust-20261016b, 24 starts on "This Platform key has
+ * expired").
+ */
+async function owePendingEvidence(
+  state: OwnerState,
+  events: readonly SpawnEvent[],
+  attempt: OwnerAttempt,
+  environmentId: string,
+  failure: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const { args } = state
+  const rows = events.filter(
+    (event): event is Extract<SpawnEvent, { kind: 'evidence-pending' }> =>
+      event.kind === 'evidence-pending' && event.id === args.nodeId,
+  )
+  if (!rows.some((row) => row.environmentId === environmentId)) {
+    const at = new Date(args.now()).toISOString()
+    await args.journal.appendEvent(args.rootId, {
+      kind: 'evidence-pending',
+      id: args.nodeId,
+      environmentId,
+      ...(attempt.executionId === undefined ? {} : { executionId: attempt.executionId }),
+      error: failure,
+      since: at,
+      seq: state.nextSequence(),
+      at,
+    })
+  }
+  const sources = new Set([...rows.map((row) => row.environmentId), environmentId]).size
+  const retries = retryOwnerEvidence(state)
+  if (sources <= EVIDENCE_DEBT_SOURCES_MAX) return false
+  await runAbortable(() => retries, signal, 'evidence debt pause aborted')
+  const attempts = ownerWorkspaceAttempts(
+    (await args.journal.loadTree(args.rootId)) ?? [],
+    args.nodeId,
+  )
+  const index = attempts.findIndex((candidate) => candidate.executionId === attempt.executionId)
+  if (
+    index < 0 ||
+    !(await ownerAttemptHasCapture(
+      withLaterEvidence(attempts, index),
+      environmentId,
+      args.blobs,
+      args,
+      true,
+    ))
+  )
+    throw new Error(`evidence debt unpaid when its capture retries stopped: ${failure}`)
+  return true
+}
+
+/** How capture retries of owed evidence back off, measured on the run's clock. */
+export const EVIDENCE_RETRY_BACKOFF_MS = { initial: 30_000, max: 5 * 60_000 } as const
+/** How often the retry loop reads the run's clock. Reading it costs no provider call. */
+const EVIDENCE_RETRY_TICK_MS = 1_000
+
+/**
+ * Retry the captures this node owes while the supervisor lives, backing off from
+ * {@link EVIDENCE_RETRY_BACKOFF_MS}'s `initial` to its `max`. One loop per owner; it ends when
+ * nothing is owed or the release stops it, and the release tries once more itself. Returns the
+ * loop, which never rejects.
+ */
+function retryOwnerEvidence(state: OwnerState): Promise<void> {
+  if (state.evidenceRetry !== undefined) return state.evidenceRetry.done
+  if (state.releasing !== undefined) return Promise.resolve()
+  const stop = new AbortController()
+  const retry: { stop: AbortController; done: Promise<void> } = { stop, done: Promise.resolve() }
+  retry.done = (async () => {
+    let backoff: number = EVIDENCE_RETRY_BACKOFF_MS.initial
+    let dueAt = state.args.now() + backoff
+    while (!stop.signal.aborted) {
+      await sleep(EVIDENCE_RETRY_TICK_MS, stop.signal, false)
+      if (stop.signal.aborted || state.args.now() < dueAt) continue
+      if ((await payOwedEvidence(state, stop.signal)) === 0) return
+      backoff = Math.min(backoff * 2, EVIDENCE_RETRY_BACKOFF_MS.max)
+      dueAt = state.args.now() + backoff
+    }
+  })()
+    .catch(() => undefined)
+    .finally(() => {
+      if (state.evidenceRetry === retry) delete state.evidenceRetry
+    })
+  state.evidenceRetry = retry
+  return retry.done
+}
+
+/** Stop the owner's capture retries and wait for the one in flight. */
+async function stopOwnerEvidenceRetry(state: OwnerState): Promise<void> {
+  const retry = state.evidenceRetry
+  if (retry === undefined) return
+  retry.stop.abort(new Error('the owner settled'))
+  await retry.done
+}
+
+/**
+ * Capture each source this node still owes evidence for, from its `evidence-pending` rows. A
+ * receipt journaled by the capture pays the debt. A source no capture can pay any more (gone,
+ * without an exact execution, or admitted by a later invocation) is left to the release, which
+ * keeps it. Returns how many sources are still owed and payable.
+ */
+async function payOwedEvidence(state: OwnerState, signal: AbortSignal): Promise<number> {
+  const { args } = state
+  const events = (await args.journal.loadTree(args.rootId)) ?? []
+  const attempts = ownerWorkspaceAttempts(events, args.nodeId)
+  const unusable = unusableEnvironmentIds(events.filter((event) => event.id === args.nodeId))
+  let owed = 0
+  for (const row of events) {
+    if (row.kind !== 'evidence-pending' || row.id !== args.nodeId) continue
+    if (unusable.has(row.environmentId)) continue
+    const index = attempts.findIndex((attempt) => attempt.executionId === row.executionId)
+    if (index < 0 || row.executionId === undefined) continue
+    if (attempts.slice(index + 1).some((later) => later.environmentIds.has(row.environmentId)))
+      continue
+    const attempt = withLaterEvidence(attempts, index)
+    if (await ownerAttemptHasCapture(attempt, row.environmentId, args.blobs, args, true)) continue
+    if (signal.aborted) return owed + 1
+    try {
+      await captureOwnerSource(state, attempts, index, row.environmentId, signal)
+    } catch {
+      owed += 1
+    }
+  }
+  return owed
 }
 
 /**
@@ -2106,7 +2257,7 @@ async function captureOwnerSource(
 /**
  * Before a release, try once more to capture each source preserved for a missing receipt of an
  * accepted turn, so a capture fault that has cleared settles the evidence debt and frees its
- * source. A capture that fails again leaves the source kept for evidence, as before.
+ * source. A source whose capture fails again is kept for evidence.
  */
 async function recaptureOwnerSources(state: OwnerState, signal: AbortSignal): Promise<void> {
   const { args } = state
@@ -2383,6 +2534,8 @@ export async function prepareScopeRetainedOwnerTask(
   scope.signal.throwIfAborted()
   const journal = (await args.journal.loadTree(args.rootId)) ?? []
   const owned = journal.filter((event) => event.id === args.nodeId)
+  // A restarted supervisor resumes the capture retries of evidence this node may still owe.
+  if (owned.some((event) => event.kind === 'evidence-pending')) void retryOwnerEvidence(state)
   const latestInput = [...owned].reverse().find((event) => event.kind === 'execution-input')
   if (latestInput?.kind === 'execution-input') {
     const attempt = owned.slice(owned.indexOf(latestInput))

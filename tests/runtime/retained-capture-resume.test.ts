@@ -89,7 +89,7 @@ async function killedRun(phase = 'kill') {
 /**
  * A failed evidence recovery is debt on the node, never a process exit: the run continues in
  * another environment, the uncaptured source is neither dispatched into nor destroyed, the paid
- * invocation is not repeated, and one evidence row names the source and the failure.
+ * invocation is not repeated, and one `evidence-pending` row names the source and the failure.
  */
 async function expectEvidenceDebt(
   directory: string,
@@ -117,17 +117,12 @@ async function expectEvidenceDebt(
   const before = resultsIn(beforeEvents)
   expect(resultsIn(events).slice(0, before.length)).toEqual(before)
   expect(events.filter((event) => event.kind === 'execution-abandoned')).toHaveLength(0)
-  const context = contextFor(directory)
-  const debt: Array<Record<string, unknown>> = []
-  for (const event of events) {
-    if (event.kind !== 'execution-evidence') continue
-    const output = (await context.blobs.get(event.outRef)) as Record<string, unknown>
-    if (output.workspaceCaptureFailure !== undefined) debt.push(output)
-  }
   // Later sources may carry their own debt when every capture in this process fails.
-  expect(debt.filter((output) => output.environmentId === source)).toEqual([
-    expect.objectContaining({ workspaceCaptureFailure: expect.stringContaining(failure) }),
-  ])
+  expect(
+    events.filter(
+      (event) => event.kind === 'evidence-pending' && event.environmentId === source,
+    ),
+  ).toEqual([expect.objectContaining({ error: expect.stringContaining(failure) })])
   // The release tries the capture once more. Only a receipt that landed frees the source.
   const interrupted = history.find((moment) => moment.what === 'capture-started')!
   const cleared = history.some(
