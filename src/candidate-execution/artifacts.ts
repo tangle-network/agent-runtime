@@ -78,6 +78,8 @@ export class WorkspaceScanLimitError extends Error {}
 export interface WorkspaceScanOptions {
   readonly signal?: AbortSignal
   readonly ignoredProtectedRootEntries?: readonly ('.git' | '.sidecar')[]
+  /** Top-level entries skipped by name; a verify of the same root must name the same entries. */
+  readonly excludedRootEntries?: readonly string[]
   readonly limits?: WorkspaceScanLimits
   /** Scan only these root-relative files, pruning every unrelated directory. */
   readonly selectedPaths?: readonly string[]
@@ -288,7 +290,15 @@ async function walkWorkspace(
   options: WorkspaceCaptureOptions,
   keepBytes: boolean,
 ): Promise<ScannedWorkspaceEntry[]> {
-  const ignoredProtectedRootEntries = new Set<string>(options.ignoredProtectedRootEntries ?? [])
+  for (const name of options.excludedRootEntries ?? []) {
+    if (!name || name === '.' || name === '..' || /[/\\\0]/.test(name)) {
+      throw new Error('workspace excluded root entry must be a single path segment')
+    }
+  }
+  const ignoredProtectedRootEntries = new Set<string>([
+    ...(options.ignoredProtectedRootEntries ?? []),
+    ...(options.excludedRootEntries ?? []),
+  ])
   const limits = options.limits
   const selected = options.selectedPaths ? new Set(options.selectedPaths) : undefined
   const selectedDirectories = new Set<string>()

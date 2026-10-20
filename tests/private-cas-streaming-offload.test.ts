@@ -375,6 +375,47 @@ it('captures a workspace tree with several durable copies in flight, each distin
   )
 })
 
+it('leaves named root entries out of a tree capture, so a recapture stores only changed work', async () => {
+  // The shape of Discovery canary 20b: retained native sessions and a virtualenv beside the work.
+  const root = await mkdtemp(join(tmpdir(), 'cas-tree-excluded-'))
+  roots.push(root)
+  const source = join(root, 'source')
+  await mkdir(join(source, '__retention__', 'sessions'), { recursive: true })
+  await mkdir(join(source, '.venv', 'lib'), { recursive: true })
+  await mkdir(join(source, 'work', '__retention__'), { recursive: true })
+  await writeFile(join(source, '__retention__', 'sessions', 'raw.json'), 'x'.repeat(4096))
+  await writeFile(join(source, '.venv', 'lib', 'numpy.so'), 'y'.repeat(4096))
+  await writeFile(join(source, 'work', '__retention__', 'kept.md'), 'nested names are kept')
+  await writeFile(join(source, 'work', 'result.md'), 'first')
+  const durable = await diskS3StreamStore(join(root, 'remote'))
+  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
+    durable: durable.store,
+  })
+  const capture = () =>
+    captureAgentCandidateWorkspaceTreeToArtifacts(source, {
+      excludedRootEntries: ['__retention__', '.venv'],
+      artifactPersistence: { executionId: 'node', outputArtifacts: artifacts },
+    })
+
+  const first = await capture()
+  const material = await verifyAgentCandidateWorkspaceTree(first, artifacts)
+  expect(material.files.map((file) => file.path).sort()).toEqual([
+    'work/__retention__/kept.md',
+    'work/result.md',
+  ])
+  await writeFile(join(source, '__retention__', 'sessions', 'raw.json'), 'z'.repeat(8192))
+  await writeFile(join(source, 'work', 'result.md'), 'second')
+  const second = await capture()
+  expect(second).toMatchObject({ files: 2, storedBytes: 'second'.length })
+
+  await expect(
+    captureAgentCandidateWorkspaceTreeToArtifacts(source, {
+      excludedRootEntries: ['work/result.md'],
+      artifactPersistence: { executionId: 'node', outputArtifacts: artifacts },
+    }),
+  ).rejects.toThrow(/single path segment/)
+})
+
 // A pass copied one object at a time, each a store round trip plus a receipt with two fsyncs:
 // 2 objects/s on drew-gtr-pro, so one archived run of 3,563 objects held a retire pass 30 min.
 it('a pass copies host-only objects with several durable copies in flight', async () => {
