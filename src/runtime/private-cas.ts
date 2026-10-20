@@ -24,6 +24,10 @@ const BUFFERED_BYTES_PER_MS = 256
 // Objects a pass copies at once. Each copy is a store round trip plus a receipt with two fsyncs, so
 // one at a time ran at 2 objects/s on drew-gtr-pro's USB drive (a 3,563-object run took 30 min).
 const OFFLOAD_COPIES_AT_ONCE = 16
+// Shards a full pass lists at once. Listed one object at a time, the first pass of a retire pass's
+// owner export over a run of 13,240 objects on drew-gtr-pro's USB disk took 56 s from a cold cache
+// (2026-10-20), and every put of that export waited for it.
+const LIST_SHARDS_AT_ONCE = 16
 
 /**
  * Off-host storage that holds a private CAS's bytes after the host deletes its local copy.
@@ -267,21 +271,28 @@ export function createPrivateCasArtifactPort(
       if (missing(error)) return []
       throw error
     }
-    const objects: Array<{ hex: string; path: string; size: number; modifiedMs: number }> = []
-    for (const shard of shards.filter((name) => SHARD.test(name))) {
-      for (const hex of await readdir(join(store, shard))) {
-        if (!HEX.test(hex) || hex.slice(0, 2) !== shard) continue
-        const path = join(store, shard, hex)
-        try {
-          const entry = await lstat(path)
-          if (entry.isFile())
-            objects.push({ hex, path, size: entry.size, modifiedMs: entry.mtimeMs })
-        } catch (error) {
-          if (!missing(error)) throw error
+    // Shards come back in listing order, so the pass is the same whichever shard ends first.
+    const listed = await mapWithConcurrency(
+      shards.filter((name) => SHARD.test(name)),
+      LIST_SHARDS_AT_ONCE,
+      async (shard) => {
+        const objects: Array<{ hex: string; path: string; size: number; modifiedMs: number }> =
+          []
+        for (const hex of await readdir(join(store, shard))) {
+          if (!HEX.test(hex) || hex.slice(0, 2) !== shard) continue
+          const path = join(store, shard, hex)
+          try {
+            const entry = await lstat(path)
+            if (entry.isFile())
+              objects.push({ hex, path, size: entry.size, modifiedMs: entry.mtimeMs })
+          } catch (error) {
+            if (!missing(error)) throw error
+          }
         }
-      }
-    }
-    return objects
+        return objects
+      },
+    )
+    return listed.flat()
   }
 
   // Streams one local object to the durable store and records its receipt, retrying a transient
