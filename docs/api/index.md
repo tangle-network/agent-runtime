@@ -8510,7 +8510,7 @@ Who must act before the same work can succeed.
 
 ### RuntimeFailureCode
 
-> **RuntimeFailureCode** = `"aborted"` \| `"deadline-exceeded"` \| `"budget-exhausted"` \| `"credential-refused"` \| `"request-rejected"` \| `"upstream-unavailable"` \| `"transport"` \| `"provider-contract"` \| `"terminal-event-lost"` \| `"retained-unobservable"` \| `"nested-recovery"` \| `"platform"` \| `"work-failed"` \| `"unknown"`
+> **RuntimeFailureCode** = `"aborted"` \| `"deadline-exceeded"` \| `"budget-exhausted"` \| `"credential-refused"` \| `"request-rejected"` \| `"upstream-unavailable"` \| `"transport"` \| `"provider-contract"` \| `"retained-unobservable"` \| `"nested-recovery"` \| `"platform"` \| `"work-failed"` \| `"unknown"`
 
 **`Stable`**
 

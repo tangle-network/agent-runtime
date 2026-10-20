@@ -1033,6 +1033,9 @@ async function* driveExecutorTurn(
   if (isAsyncIterable<UsageEvent>(run)) {
     for await (const usage of abortableValues(run, signal)) {
       if (usage.kind === 'progress') {
+        // A wait on the exact result is node state for the journal and the keeper; the public
+        // turn vocabulary has no event for it, so the turn's stream carries nothing.
+        if (usage.progress.kind === 'awaiting-result') continue
         const projected = executorProgressStreamEvent(usage.progress, task, session)
         foldEvent(projected, acc)
         yield projected
@@ -1246,7 +1249,7 @@ function executorResultToolCalls(
 
 /** Project one executor progress event onto the public turn vocabulary. */
 function executorProgressStreamEvent(
-  progress: ExecutorProgressEvent,
+  progress: Exclude<ExecutorProgressEvent, { kind: 'awaiting-result' }>,
   task: AgentTaskSpec,
   session: RuntimeSession,
 ): RuntimeStreamEvent {

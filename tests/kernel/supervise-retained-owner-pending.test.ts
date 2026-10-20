@@ -78,8 +78,6 @@ interface Fixture {
   readonly beforeDispatch?: (call: number) => void
   /** Executions whose result the provider can never return. */
   readonly unresolvable?: (dispatched: number) => boolean
-  /** A terminal-less provider stream whose exact result read never settles. */
-  readonly resultNeverOn?: (dispatched: number) => boolean
   /** Queue a root steer and a failed asynchronous method at the first exact result. */
   readonly queuedWakesOnFirstResult?: boolean
   /** The successful dispatch on which the director submits. */
@@ -105,7 +103,6 @@ async function superviseRoot(fixture: Fixture) {
   let calls = 0
   const dispatched: AgentTurnInput[] = []
   const lost = new Set<string>()
-  const neverReturns = new Set<string>()
   const stopped: string[] = []
   const destroyed: string[] = []
   const environments: string[] = []
@@ -157,8 +154,6 @@ async function superviseRoot(fixture: Fixture) {
       const session = await environment.dispatch!(turn)
       if (!dispatched.some((prior) => prior.executionId === turn.executionId)) dispatched.push(turn)
       if (fixture.unresolvable?.(dispatched.length) && turn.executionId) lost.add(turn.executionId)
-      if (fixture.resultNeverOn?.(dispatched.length) && turn.executionId)
-        neverReturns.add(turn.executionId)
       if (fixture.queuedWakesOnFirstResult && dispatched.length === 1) {
         const response = await fetch(`http://127.0.0.1:${port}/manager`, {
           method: 'POST',
@@ -199,8 +194,6 @@ async function superviseRoot(fixture: Fixture) {
       return {
         ...session,
         result: async () => {
-          if (executionId !== undefined && neverReturns.has(executionId))
-            return await new Promise<Awaited<ReturnType<typeof session.result>>>(() => {})
           if (executionId !== undefined && lost.has(executionId))
             throw Object.assign(new Error('retained run not found'), { status: 404 })
           const result = await session.result()
@@ -370,7 +363,6 @@ async function superviseRoot(fixture: Fixture) {
         backend: 'provider',
         provider,
         ...(fixture.captureFailure === undefined ? {} : { workspaceRetention: retention }),
-        ...(fixture.resultNeverOn === undefined ? {} : { retainedResultWaitMs: 20 }),
       },
       ...(fixture.seatSwitch
         ? {
@@ -684,20 +676,6 @@ describe('supervised root with a pending retained turn', () => {
       operationId: 'retained-root-correction',
       detail: 'the root inbox accepted the steer; consumption is not confirmed',
     })
-  })
-
-  it('reports a bounded lost-terminal root instead of waiting forever for its exact result', async () => {
-    const run = await superviseRoot({
-      resultNeverOn: (dispatched) => dispatched === 1,
-      submitOn: Number.POSITIVE_INFINITY,
-    })
-    expect(run.result.kind).toBe('no-winner')
-    expect(run.attempts.at(-1)).toMatchObject({
-      classification: 'terminal',
-      pendingCause: 'terminal-event-lost',
-    })
-    expect(count(run.events, 'execution-result')).toBe(0)
-    expect(run.dispatched).toHaveLength(1)
   })
 
   it('waits out a credential capacity refusal before dispatch instead of ending the run', async () => {

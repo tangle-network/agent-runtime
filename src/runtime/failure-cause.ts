@@ -42,7 +42,6 @@ export type RuntimeFailureCode =
   | 'upstream-unavailable'
   | 'transport'
   | 'provider-contract'
-  | 'terminal-event-lost'
   | 'retained-unobservable'
   | 'nested-recovery'
   | 'platform'
@@ -74,7 +73,6 @@ const retainedFailures: Record<
   { code: RuntimeFailureCode; owner: RuntimeFailureOwner }
 > = {
   unobservable: { code: 'retained-unobservable', owner: 'provider' },
-  'terminal-event-lost': { code: 'terminal-event-lost', owner: 'provider' },
   'provider-contract': { code: 'provider-contract', owner: 'provider' },
   'request-rejected': { code: 'request-rejected', owner: 'caller' },
   transport: { code: 'transport', owner: 'platform' },

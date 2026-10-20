@@ -652,10 +652,7 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   if (signal?.aborted) return 'terminal'
   // A failed retained read does not settle or replace its execution. A contract violation
   // requires a repaired reader/provider; repeating that read unchanged cannot recover it.
-  if (
-    error instanceof RetainedExecutionPendingError &&
-    (error.pendingCause === 'provider-contract' || error.pendingCause === 'terminal-event-lost')
-  )
+  if (error instanceof RetainedExecutionPendingError && error.pendingCause === 'provider-contract')
     return 'terminal'
   const admission = retainedAdmissionCause(error)
   // A dispatch that Sandbox did not admit gets the same refusal while the owning execution holds
