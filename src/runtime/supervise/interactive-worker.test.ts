@@ -372,7 +372,7 @@ describe('provisionSupervisor', () => {
       expect(firstSteer.replayed).toBe(false)
       expect(retrySteer.replayed).toBe(true)
       await waitForAsync(
-        () => readWorkerSteerAcknowledgement(eventDir, 'provision-steer-1')?.effect === 'delivered',
+        () => readWorkerSteerAcknowledgement(eventDir, 'provision-steer-1')?.effect === 'consumed',
         'steer acknowledgement',
       )
       expect(fixture.stats.prompts).toHaveLength(1)

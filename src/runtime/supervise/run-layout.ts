@@ -75,13 +75,22 @@ export interface WorkerSteerRequest {
   readonly interrupt: boolean
 }
 
-/** Runtime acknowledgement for one exact steer operation. @stable */
+/** Runtime acknowledgement for one exact steer operation. `delivered` is not final: it becomes
+ * `consumed` once a model input the recipient's provider accepted carries the steer, or `failed`
+ * when the recipient settles or the run ends first. @stable */
 export interface WorkerSteerAcknowledgement {
   readonly schemaVersion: 1
   readonly operationId: string
   readonly requestDigest: Sha256Digest
   readonly worker: string
-  readonly effect: 'unknown' | 'delivered' | 'not_live' | 'unsupported' | 'refused'
+  readonly effect:
+    | 'unknown'
+    | 'delivered'
+    | 'consumed'
+    | 'failed'
+    | 'not_live'
+    | 'unsupported'
+    | 'refused'
   readonly requestedAt: string
   readonly observedAt: string
   readonly detail: string
@@ -473,7 +482,8 @@ export function claimWorkerSteerDelivery(
   return false
 }
 
-/** Atomically replace the runtime acknowledgement for one steer operation. @internal */
+/** Atomically replace the runtime acknowledgement for one steer operation. Only `unknown` and
+ * `delivered` may be replaced; every other effect is terminal. @internal */
 export function writeWorkerSteerAcknowledgement(
   eventDir: string,
   record: WorkerSteerAcknowledgement,
@@ -492,6 +502,7 @@ export function writeWorkerSteerAcknowledgement(
   if (
     prior !== undefined &&
     prior.effect !== 'unknown' &&
+    prior.effect !== 'delivered' &&
     canonicalCandidateDigest(prior) !== canonicalCandidateDigest(exact)
   ) {
     throw new Error(`steer operation '${exact.operationId}' already has a terminal acknowledgement`)
@@ -1110,6 +1121,8 @@ function parseWorkerSteerAcknowledgement(value: unknown): WorkerSteerAcknowledge
     record.worker.length === 0 ||
     (record.effect !== 'unknown' &&
       record.effect !== 'delivered' &&
+      record.effect !== 'consumed' &&
+      record.effect !== 'failed' &&
       record.effect !== 'not_live' &&
       record.effect !== 'unsupported' &&
       record.effect !== 'refused') ||

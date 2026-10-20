@@ -131,7 +131,8 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     )
   }
   const activity: ActivityLog = createActivityLog(args.options?.activityWindow ?? 12)
-  const trace = createPushTraceSource({ runId: `sandbox-${args.harness}-${now()}`, now })
+  const sessionRunId = `sandbox-${args.harness}-${now()}`
+  const trace = createPushTraceSource({ runId: sessionRunId, now })
 
   const state = {
     turns: 0,
@@ -308,10 +309,12 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
 
     try {
       for (let turn = 0; maxTurns === 0 || turn < maxTurns; turn += 1) {
-        // Drain the down-leg FIRST. On turn 0 a steer that landed during box acquisition is
+        // Lease the down-leg FIRST. On turn 0 a steer that landed during box acquisition is
         // appended to the task; on later turns the steer IS the whole prompt, because the
-        // worker's prior context lives server-side in the session.
-        const pending = args.inbox.drain()
+        // worker's prior context lives server-side in the session. The lease commits on the
+        // box's first event for this turn; a turn that fails before then folds it again.
+        const lease = args.inbox.lease()
+        const pending = lease.messages
         if (pending.length > 0) {
           const folded = args.inbox.fold(pending)
           nextPrompt = turn === 0 && nextPrompt ? `${nextPrompt}\n\n${folded}` : folded
@@ -363,7 +366,9 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
           } else {
             events = await lineage.continue(handle, prompt, turnController.signal, promptOptions)
           }
+          const attemptId = `${sessionRunId}:turn-${turn}`
           for await (const event of events) {
+            lease.commit(attemptId)
             outcomeTracker.observe(event)
             for (const progress of recordEvent(event)) yield { kind: 'progress', progress }
             const call = usageLedger.observe(event, spec.name ?? String(args.harness))
@@ -373,6 +378,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
             }
             assertSandboxServedModel(event, requested)
           }
+          lease.commit(attemptId)
           const harnessCall = usageLedger.settleTurn(spec.name ?? String(args.harness))
           if (harnessCall) {
             sawLlmCall = true

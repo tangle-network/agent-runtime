@@ -838,10 +838,14 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         // `executedToolCalls.length`; the entries themselves keep the per-call detail the
         // terminal artifact publishes.
         const executedToolCalls: ExecutorToolCall[] = []
-        // Fold any queued down-messages into the conversation as one operator turn (the boundary flush).
+        // Fold any queued down-messages into the conversation as one operator turn (the boundary
+        // flush). The lease commits when this turn's inference returns; an interrupted turn takes
+        // its folded message back out, so the re-plan leases and folds it once, with the newer one.
         const flush = () => {
-          const pending = inbox.drain()
-          if (pending.length) messages.push({ role: 'user', content: inbox.fold(pending) })
+          const lease = inbox.lease()
+          if (lease.messages.length === 0) return { lease, at: -1 }
+          messages.push({ role: 'user', content: inbox.fold(lease.messages) })
+          return { lease, at: messages.length - 1 }
         }
 
         // The external abort sources (caller signal + executor teardown), merged ONCE — so we don't
@@ -915,7 +919,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         try {
           for (let t = 0; maxTurns === 0 || t < maxTurns; t += 1) {
             // QUEUED messages flush at the step boundary, before this turn's inference.
-            flush()
+            const flushed = flush()
             // A forceful (interrupt) message aborts THIS turn so the worker re-plans immediately. The
             // per-turn controller fires on `external` OR a fresh interrupt; its listener on `external` is
             // removed after the turn (`cleanup`) so nothing accumulates across turns.
@@ -981,6 +985,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                 !signal.aborted &&
                 !controller.signal.aborted
               if (interruptAbort) {
+                if (flushed.at >= 0) messages.splice(flushed.at, 1)
                 turns += 1
                 resources = addResourceSpend(
                   Object.fromEntries(
@@ -999,6 +1004,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
               throwRouterTransportFailure('routerToolsInlineExecutor', e)
             }
             cleanup()
+            flushed.lease.commit(providerResponses.at(-1)?.callId ?? `router-turn-${t + 1}`)
             // The inference completed — count the turn and merge its terminal receipt.
             turns += 1
             transcript.reply({ content: res.content, toolCalls: res.toolCalls })

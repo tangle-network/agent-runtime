@@ -140,11 +140,20 @@ describe('durable external worker steer', () => {
       maxDepth: 2,
     })
 
-    expect(delivered).toEqual([{ steer: 'inspect the failing test first', interrupt: true }])
+    expect(delivered).toEqual([
+      {
+        steer: 'inspect the failing test first',
+        interrupt: true,
+        receiptId: expect.any(String),
+        onReceipt: expect.any(Function),
+      },
+    ])
     expect(readWorkerSteerAcknowledgement(controlDir, 'external-steer-1')).toMatchObject({
       worker: `${runId}:s0`,
-      effect: 'delivered',
-      detail: 'the owning manager delivered the steer to the exact live worker',
+      // This worker's inbox reports no consumption, so the run's end records the steer unread.
+      effect: 'failed',
+      detail:
+        'the steer was not consumed: the run ended with no record that a model input carried it',
     })
   })
 })

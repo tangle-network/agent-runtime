@@ -56,6 +56,7 @@ import {
 import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
 import { errMessage } from '../../runtime/supervise/error-message'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
+import type { InboxReceipt } from '../../runtime/supervise/inbox'
 import { isLiveNodeStatus } from '../../runtime/supervise/node-status'
 import {
   createPeerMailbox,
@@ -935,10 +936,16 @@ export interface EventAcknowledgement {
   readonly seqs: ReadonlyArray<number>
   /** `manager`: legacy rows from a manager that named them. `turn-completed`: the
    *  driver turn that received them ended normally. `result-accepted`: a submission passed the
-   *  completion check after they were delivered. */
-  readonly by: 'manager' | 'turn-completed' | 'result-accepted'
+   *  completion check after they were delivered. `consumed`: this manager's steer or answer
+   *  (`seqs` holds its down-leg record) is part of a model input its recipient's provider
+   *  accepted, in the attempt `attemptId` names. */
+  readonly by: 'manager' | 'turn-completed' | 'result-accepted' | 'consumed'
   /** The 1-based driver attempt that received them, when the manager has driver attempts. */
   readonly attempt?: number
+  /** `consumed` only: the down-leg receipt id of the steer or answer. */
+  readonly receiptId?: string
+  /** `consumed` only: the recipient's model attempt that read it. */
+  readonly attemptId?: string
 }
 
 /** What a manager's coordinator knows about its run, read when the manager is entered again.
@@ -1403,6 +1410,19 @@ export interface LeadMessage {
   readonly interrupt: boolean
 }
 
+/** How a delivered steer or answer ended for its recipient. `failed` means it settled, or its run
+ *  ended, before any model input carried the message. */
+export type DownMessageConsumption =
+  | { readonly outcome: 'consumed'; readonly attemptId: string }
+  | { readonly outcome: 'failed'; readonly reason: string }
+
+/** Options for {@link CoordinationTools.steerWorker}. */
+export interface SteerWorkerOptions {
+  readonly interrupt?: boolean
+  /** Called once, when a delivered steer is consumed or fails to be. Never for a refused one. */
+  readonly onConsumption?: (consumption: DownMessageConsumption) => void
+}
+
 /** A tool call that outlived its response fence, and its outcome once it settled. */
 export interface ToolOutcomeEvent {
   /** The receipt the caller was given when the fence elapsed. */
@@ -1572,7 +1592,7 @@ export interface CoordinationTools {
   steerWorker(
     workerId: string,
     instruction: string,
-    options?: { readonly interrupt?: boolean },
+    options?: SteerWorkerOptions,
   ): Promise<DownMessageEvent>
   /**
    * Abort ONE live worker this manager spawned, through the worker's own per-child abort chain
@@ -1759,6 +1779,21 @@ const stripKeyCodecArtifacts = (node: unknown): unknown => {
       .filter(([key]) => key !== 'propertyNames')
       .map(([key, value]) => [key, stripKeyCodecArtifacts(value)]),
   )
+}
+
+/** One delivered steer or answer awaiting its recipient's consumption receipt. */
+interface TrackedDownReceipt {
+  readonly receiptId: string
+  readonly kind: 'steer' | 'answer'
+  readonly toWorker: string
+  readonly instruction: string
+  readonly sentAt: number
+  /** The recipient's inbox accepted it. Only then can its settlement prove it was never read. */
+  queued: boolean
+  /** The bus seq of its down-leg record, once published. */
+  recorded: Promise<number | undefined>
+  readonly onReceipt: (receipt: InboxReceipt) => void
+  readonly onConsumption?: (consumption: DownMessageConsumption) => void
 }
 
 /** One field of the published child-profile shape: the canonical field it mirrors, the one-line
@@ -2371,6 +2406,11 @@ export function createCoordinationToolsForManager(
   // Lead messages accepted and still being published. The sender is told `delivered` the moment the
   // message is accepted, so a manager that ends its turn then must still count it as open work.
   let leadPublishing = 0
+  // A lead message's sender receipt, by the bus seq of its queued `lead-message`. The turn that
+  // acknowledges the delivery is the one that read it.
+  const leadReceipts = new Map<number, (receipt: InboxReceipt) => void>()
+  // This manager's delivered steers and answers whose consumption is not yet known, by receipt id.
+  const downReceipts = new Map<string, TrackedDownReceipt>()
   // Set once a wake has told this manager the deadline is near. From then on open work does not
   // refuse its `submit_result` or `stop`: the notice asks for the best result now, and the workers
   // still running are torn down when the manager settles.
@@ -2423,7 +2463,17 @@ export function createCoordinationToolsForManager(
       },
       { queue: false },
     )
-    for (const delivery of fresh) delivery.acknowledged = true
+    for (const delivery of fresh) {
+      delivery.acknowledged = true
+      const receipt = leadReceipts.get(delivery.record.seq)
+      if (receipt === undefined) continue
+      leadReceipts.delete(delivery.record.seq)
+      receipt({
+        outcome: 'consumed',
+        messageId: String(delivery.record.seq),
+        attemptId: `${opts.scope.view.root}:attempt-${delivery.attempt ?? driverAttempt ?? 1}`,
+      })
+    }
     return seqs
   }
 
@@ -2499,6 +2549,15 @@ export function createCoordinationToolsForManager(
     ledger.push(w)
     // A settled worker's trace source is finished; drop the online subscription with it.
     unwatchWorker(w.id)
+    // A settled worker reads nothing more, so a message it never consumed has failed.
+    for (const tracked of downReceipts.values()) {
+      if (tracked.toWorker === w.id && tracked.queued) {
+        settleDownReceipt(tracked, {
+          outcome: 'failed',
+          reason: `worker ${w.id} settled ${w.status} before any model input carried it`,
+        })
+      }
+    }
   }
 
   // `Scope.next()` is once-only, while an awaited observer may commit and lose its acknowledgement.
@@ -3383,14 +3442,14 @@ export function createCoordinationToolsForManager(
   // The down-leg: record a parent→child message on the bus for the audit trail (history +
   // subscribers) WITHOUT enqueuing it — the parent must never pull its own outbound message back.
   // Overloaded so the `answer` kind REQUIRES a questionId (no silent `?? ''` fallback to mask a bug).
-  function sendDown(type: 'steer', down: DownMessageEvent, analyst?: string): Promise<void>
-  function sendDown(type: 'answer', down: DownMessageEvent, questionId: string): Promise<void>
+  function sendDown(type: 'steer', down: DownMessageEvent, analyst?: string): Promise<number>
+  function sendDown(type: 'answer', down: DownMessageEvent, questionId: string): Promise<number>
   async function sendDown(
     type: 'steer' | 'answer',
     down: DownMessageEvent,
     questionIdOrAnalyst?: string,
-  ): Promise<void> {
-    await bus.publish(
+  ): Promise<number> {
+    const record = await bus.publish(
       type === 'answer'
         ? { type, down, questionId: str(questionIdOrAnalyst, 'questionId') }
         : questionIdOrAnalyst !== undefined
@@ -3398,6 +3457,7 @@ export function createCoordinationToolsForManager(
           : { type, down },
       { queue: false },
     )
+    return record.seq
   }
 
   const authorizeInstruction = (
@@ -3473,6 +3533,84 @@ export function createCoordinationToolsForManager(
     return attempt
   }
 
+  /** The consumption half of a down-message receipt. The recipient's inbox reports `queued` and
+   *  `consumed`; this manager reports `failed` when the recipient settles first. `consumed` lands
+   *  in the coordination log as an acknowledgement; `failed` reaches this manager's next wake as
+   *  the tool's outcome, so the sender learns its message was never read. */
+  const trackDownReceipt = (
+    instruction: ContinuationInstruction,
+    onConsumption?: (consumption: DownMessageConsumption) => void,
+  ): TrackedDownReceipt => {
+    const tracked: TrackedDownReceipt = {
+      receiptId: instruction.receiptId,
+      kind: instruction.kind,
+      toWorker: instruction.toWorker,
+      instruction: instruction.instruction,
+      sentAt: Date.now(),
+      queued: false,
+      recorded: Promise.resolve(undefined),
+      onReceipt: (receipt) => {
+        if (receipt.outcome === 'queued') tracked.queued = true
+        else settleDownReceipt(tracked, { outcome: 'consumed', attemptId: receipt.attemptId })
+      },
+      ...(onConsumption === undefined ? {} : { onConsumption }),
+    }
+    downReceipts.set(instruction.receiptId, tracked)
+    return tracked
+  }
+
+  const settleDownReceipt = (
+    tracked: TrackedDownReceipt,
+    consumption: DownMessageConsumption,
+  ): void => {
+    if (!downReceipts.delete(tracked.receiptId)) return
+    try {
+      tracked.onConsumption?.(consumption)
+    } catch (error) {
+      console.error('Runtime could not report a steer consumption to its caller', {
+        receiptId: tracked.receiptId,
+        error: errMessage(error),
+      })
+    }
+    void (async () => {
+      if (consumption.outcome === 'consumed') {
+        const seq = await tracked.recorded
+        await bus.publish(
+          {
+            type: 'acknowledgement',
+            acknowledgement: detachedFrozen<EventAcknowledgement>({
+              seqs: seq === undefined ? [] : [seq],
+              by: 'consumed',
+              receiptId: tracked.receiptId,
+              attemptId: consumption.attemptId,
+            }),
+          },
+          { queue: false },
+        )
+        return
+      }
+      const head =
+        tracked.instruction.length > 80
+          ? `${tracked.instruction.slice(0, 77)}...`
+          : tracked.instruction
+      await bus.publish({
+        type: 'tool-outcome',
+        outcome: detachedFrozen<ToolOutcomeEvent>({
+          receipt: tracked.receiptId,
+          tool: tracked.kind === 'answer' ? 'answer_question' : 'steer_agent',
+          ok: false,
+          error: `${tracked.kind} ${JSON.stringify(head)} was not consumed: ${consumption.reason}`,
+          elapsedMs: Date.now() - tracked.sentAt,
+        }),
+      })
+    })().catch((error: unknown) => {
+      console.error('Runtime could not record a steer consumption', {
+        receiptId: tracked.receiptId,
+        error: errMessage(error),
+      })
+    })
+  }
+
   const deliveryOutcome = (workerId: string, delivered: boolean): DownMessageDeliveryOutcome => {
     if (delivered) return 'delivered'
     if (opts.scope.signal.aborted) return 'scope-stopped'
@@ -3484,24 +3622,31 @@ export function createCoordinationToolsForManager(
 
   const attemptDelivery = async (
     instruction: ContinuationInstruction,
-    message: unknown,
+    message: Record<string, unknown>,
     origin?: { readonly analyst?: string },
+    onConsumption?: (consumption: DownMessageConsumption) => void,
   ): Promise<DownMessageEvent> => {
     await recordDeliveryAttempt(instruction)
     let delivered = false
     let outcome: DownMessageDeliveryOutcome
     let error: string | undefined
+    const tracked = trackDownReceipt(instruction, onConsumption)
     try {
       if (lifetime?.aborted) {
         outcome = 'scope-stopped'
       } else {
-        delivered = opts.scope.send(instruction.toWorker, message)
+        delivered = opts.scope.send(instruction.toWorker, {
+          ...message,
+          receiptId: instruction.receiptId,
+          onReceipt: tracked.onReceipt,
+        })
         outcome = deliveryOutcome(instruction.toWorker, delivered)
       }
     } catch (cause) {
       outcome = 'runtime-error'
       error = cause instanceof Error ? cause.message : String(cause)
     }
+    if (!delivered) downReceipts.delete(instruction.receiptId)
     const down = detachedFrozen({
       receiptId: instruction.receiptId,
       toWorker: instruction.toWorker,
@@ -3511,11 +3656,12 @@ export function createCoordinationToolsForManager(
       outcome,
       ...(error !== undefined ? { error } : {}),
     })
-    if (instruction.kind === 'answer') {
-      await sendDown('answer', down, str(instruction.questionId, 'questionId'))
-    } else {
-      await sendDown('steer', down, origin?.analyst)
-    }
+    const recorded =
+      instruction.kind === 'answer'
+        ? sendDown('answer', down, str(instruction.questionId, 'questionId'))
+        : sendDown('steer', down, origin?.analyst)
+    tracked.recorded = recorded.catch(() => undefined)
+    await recorded
     if (error !== undefined) throw new Error(`coordination tools: delivery failed: ${error}`)
     return down
   }
@@ -3523,15 +3669,17 @@ export function createCoordinationToolsForManager(
   const steerWorker = async (
     workerId: string,
     instruction: string,
-    options: { readonly interrupt?: boolean } = {},
+    options: SteerWorkerOptions = {},
   ): Promise<DownMessageEvent> => {
     const interrupt = options.interrupt === true
     const authorized = authorizeInstruction('steer', workerId, instruction, interrupt)
     await recordInstruction(authorized)
-    return await attemptDelivery(authorized, {
-      steer: authorized.instruction,
-      interrupt,
-    })
+    return await attemptDelivery(
+      authorized,
+      { steer: authorized.instruction, interrupt },
+      undefined,
+      options.onConsumption,
+    )
   }
 
   // Consumer projection: the wire shape the driver sees for a pulled bus event.
@@ -5940,9 +6088,19 @@ export function createCoordinationToolsForManager(
     receiveLeadMessage: (message) => {
       const parsed = leadMessageOf(message)
       if (parsed === undefined) return false
+      const wire = message as Record<string, unknown>
+      const onReceipt =
+        typeof wire.onReceipt === 'function'
+          ? (wire.onReceipt as (receipt: InboxReceipt) => void)
+          : undefined
       leadPublishing += 1
       bus
         .publish({ type: 'lead-message', message: parsed })
+        .then((record) => {
+          if (onReceipt === undefined) return
+          leadReceipts.set(record.seq, onReceipt)
+          onReceipt({ outcome: 'queued', messageId: String(record.seq) })
+        })
         .catch((error: unknown) => {
           console.error('Runtime could not queue a lead message for its manager', {
             manager: opts.scope.view.root,

@@ -59,7 +59,7 @@ describe('durable root steering through the existing operation protocol', () => 
       brain: scriptedBrain([{ content: 'done' }], seen),
     })
     expect(JSON.stringify(seen[0])).toContain('use the corrected evidence')
-    expect(readWorkerSteerAcknowledgement(runDir, 'before-first-turn')?.effect).toBe('delivered')
+    expect(readWorkerSteerAcknowledgement(runDir, 'before-first-turn')?.effect).toBe('consumed')
   })
 
   it('delivers an external-process retry once during one native invocation', async () => {
@@ -99,8 +99,20 @@ describe('durable root steering through the existing operation protocol', () => 
       { ...options, driveHarness },
     )
     expect(turns).toBe(1)
-    expect(received).toEqual([{ steer: 'use the corrected evidence', interrupt: true }])
-    expect(readWorkerSteerAcknowledgement(runDir, 'native-root')?.effect).toBe('delivered')
+    expect(received).toEqual([
+      {
+        steer: 'use the corrected evidence',
+        interrupt: true,
+        receiptId: 'native-root',
+        onReceipt: expect.any(Function),
+      },
+    ])
+    // This harness's inbox reports no consumption, so the run's end records the steer unread.
+    expect(readWorkerSteerAcknowledgement(runDir, 'native-root')).toMatchObject({
+      effect: 'failed',
+      detail:
+        'the steer was not consumed: the run ended with no record that a model input carried it',
+    })
   })
 
   it('queues a root steer for the next wake while the native inbox is not ready', async () => {
@@ -129,7 +141,7 @@ describe('durable root steering through the existing operation protocol', () => 
     )
     // The steer is accepted at once and read by the manager's next turn, not the inbox.
     expect(received).toEqual([])
-    expect(readWorkerSteerAcknowledgement(runDir, 'delayed-root')?.effect).toBe('delivered')
+    expect(readWorkerSteerAcknowledgement(runDir, 'delayed-root')?.effect).toBe('consumed')
     expect(tasks).toHaveLength(2)
     expect(tasks[1]).toContain('"type":"lead-message"')
     expect(tasks[1]).toContain('use the corrected evidence')
@@ -208,7 +220,7 @@ describe('durable root steering through the existing operation protocol', () => 
         },
       },
     )
-    expect(readWorkerSteerAcknowledgement(runDir, 'queued-root')?.effect).toBe('delivered')
+    expect(readWorkerSteerAcknowledgement(runDir, 'queued-root')?.effect).toBe('consumed')
     expect(tasks).toHaveLength(2)
     expect(tasks[1]).toContain('use the corrected evidence')
   })

@@ -164,6 +164,8 @@ function createFakeHarness(): FakeHarness {
 interface BrainRecord {
   observedProgress?: Record<string, unknown>
   steerResult?: Record<string, unknown>
+  /** Every message the brain was shown, in order. */
+  seen?: string[]
 }
 
 /**
@@ -181,6 +183,7 @@ function steeringBrain(harness: FakeHarness, record: BrainRecord): ToolLoopChat 
       .find((m) => (m as { role?: string }).role === 'tool') as { content?: string } | undefined
     const parsed = lastTool?.content ? safeJson(lastTool.content) : undefined
     turn += 1
+    record.seen = messages.map((m) => JSON.stringify(m))
 
     if (turn === 1) {
       return call('spawn_worker', { profile: coderProfile, task: 'make the change' })
@@ -270,12 +273,12 @@ function safeJson(text: string): Record<string, unknown> | undefined {
   }
 }
 
-function backend(harness: FakeHarness, steerable: boolean): ExecutorConfig {
+function backend(harness: FakeHarness, steerable: boolean, maxTurns = 6): ExecutorConfig {
   return {
     backend: 'sandbox',
     sandboxClient: harness.client,
     // The ONLY difference between the proof and its falsification.
-    ...(steerable ? { steering: { maxTurns: 6 } } : {}),
+    ...(steerable ? { steering: { maxTurns } } : {}),
   }
 }
 
@@ -284,14 +287,19 @@ interface AuthorityRecord {
   messages: Array<{ instruction: string; frozen: boolean; hasIdentity: boolean }>
 }
 
-async function runSupervisedSteer(steerable: boolean, authority?: AuthorityRecord) {
+async function runSupervisedSteer(
+  steerable: boolean,
+  authority?: AuthorityRecord,
+  options: { readonly runDir?: string; readonly workerTurns?: number } = {},
+) {
   const harness = createFakeHarness()
   const record: BrainRecord = {}
   const result = await supervise(rootProfile, 'change the right module', {
     budget,
-    backend: backend(harness, steerable),
+    backend: backend(harness, steerable, options.workerTurns),
     brain: steeringBrain(harness, record),
     maxTurns: 8,
+    ...(options.runDir === undefined ? {} : { runDir: options.runDir, runId: 'steer-receipt' }),
     ...(authority
       ? {
           authorizeSpawn(input) {
@@ -396,6 +404,59 @@ describe('mid-flight steering — a supervisor observes a live worker and change
     expect(after.length, 'the worker did nothing after the steer').toBeGreaterThan(0)
     expect(new Set(after.map((a) => a.file))).toEqual(new Set([RIGHT]))
     expect(after.some((a) => a.file === WRONG)).toBe(false)
+  })
+
+  it('logs the steer as consumed by the worker attempt whose prompt carried it', {
+    timeout: 30_000,
+  }, async () => {
+    const runDir = await mkdtemp(join(tmpdir(), 'supervise-steer-consumed-'))
+    try {
+      const { harness, record } = await runSupervisedSteer(true, undefined, { runDir })
+      expect(record.steerResult?.delivered).toBe(true)
+      expect(harness.prompts[1]).toContain(STEER)
+      const rows = (await readFile(join(runDir, 'coordination-log.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => (JSON.parse(line) as { event: Record<string, unknown> }).event)
+      const steer = rows.find(
+        (event) =>
+          event.type === 'steer' &&
+          (event.down as { instruction?: string } | undefined)?.instruction === STEER,
+      ) as { down: { receiptId: string } } | undefined
+      expect(steer).toBeDefined()
+      const consumed = rows.filter(
+        (event) =>
+          event.type === 'acknowledgement' &&
+          (event.acknowledgement as { by?: string }).by === 'consumed',
+      )
+      // The worker's second sandbox turn is the first whose prompt carried the steer.
+      expect(consumed).toEqual([
+        {
+          type: 'acknowledgement',
+          acknowledgement: {
+            seqs: [expect.any(Number)],
+            by: 'consumed',
+            receiptId: steer!.down.receiptId,
+            attemptId: expect.stringMatching(/^sandbox-opencode-\d+:turn-1$/),
+          },
+        },
+      ])
+    } finally {
+      await rm(runDir, { recursive: true, force: true })
+    }
+  })
+
+  it('tells the sender when its worker settles without a turn that read the steer', {
+    timeout: 30_000,
+  }, async () => {
+    // One sandbox turn: the worker settles with the steer still queued.
+    const { harness, record } = await runSupervisedSteer(true, undefined, { workerTurns: 1 })
+    expect(record.steerResult?.delivered).toBe(true)
+    expect(harness.prompts.some((prompt) => prompt.includes(STEER))).toBe(false)
+    const failure = record.seen?.find((message) => message.includes('was not consumed'))
+    expect(failure, 'the root never heard its steer went unread').toBeDefined()
+    expect(failure).toContain('steer_agent')
+    expect(failure).toContain('before any model input carried it')
   })
 
   it('FALSIFICATION: with delivery disabled the same run cannot steer and the worker never changes', {

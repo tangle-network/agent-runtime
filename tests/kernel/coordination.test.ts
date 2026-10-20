@@ -835,7 +835,17 @@ describe('coordination tools', () => {
     expect(
       await tool(tb, 'steer_agent').handler({ workerId: 'w0', instruction: 'do X next' }),
     ).toEqual({ delivered: true, progress: null })
-    expect(sent).toEqual([{ id: 'w0', msg: { steer: 'do X next', interrupt: false } }])
+    expect(sent).toEqual([
+      {
+        id: 'w0',
+        msg: {
+          steer: 'do X next',
+          interrupt: false,
+          receiptId: expect.any(String),
+          onReceipt: expect.any(Function),
+        },
+      },
+    ])
     // A failed delivery now says WHY, so the driver can tell "already finished" from
     // "this runtime has no inbox at all" instead of seeing a bare false.
     expect(await tool(tb, 'steer_agent').handler({ workerId: 'gone', instruction: 'x' })).toEqual({
@@ -1236,7 +1246,17 @@ describe('coordination tools', () => {
       progress: null,
     })
     // The forceful steer reached the child inbox (down delivery)...
-    expect(sent).toEqual([{ id: 'w0', msg: { steer: 'do X', interrupt: true } }])
+    expect(sent).toEqual([
+      {
+        id: 'w0',
+        msg: {
+          steer: 'do X',
+          interrupt: true,
+          receiptId: expect.any(String),
+          onReceipt: expect.any(Function),
+        },
+      },
+    ])
     // ...and both attempts were recorded for observability (pass-through + history)...
     expect(emitted.map((e) => e.type)).toEqual([
       'instruction',
@@ -1326,7 +1346,9 @@ describe('coordination tools', () => {
       'authorize:authored text',
       'commit:AUTHORIZED CONTINUATION',
       'attempt:steer',
-      'send:{"steer":"AUTHORIZED CONTINUATION","interrupt":false}',
+      expect.stringMatching(
+        /^send:\{"steer":"AUTHORIZED CONTINUATION","interrupt":false,"receiptId":"[0-9a-f-]{36}"\}$/,
+      ),
       'outcome:delivered',
     ])
     expect(tb.history()[0]?.event).toMatchObject({
@@ -1370,7 +1392,16 @@ describe('coordination tools', () => {
     // The answer reached w0's inbox shaped { answer, questionId }...
     // The question was blocks-step, so the answer is delivered FORCEFULLY to unpark the worker now.
     expect(sent).toEqual([
-      { id: 'w0', msg: { answer: 'path B', questionId: r.question.id, interrupt: true } },
+      {
+        id: 'w0',
+        msg: {
+          answer: 'path B',
+          questionId: r.question.id,
+          interrupt: true,
+          receiptId: expect.any(String),
+          onReceipt: expect.any(Function),
+        },
+      },
     ])
     // ...and the committed exact instruction sits between question-up and answer-down.
     expect(emitted.map((e) => e.type)).toEqual([

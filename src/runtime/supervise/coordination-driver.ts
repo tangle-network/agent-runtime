@@ -42,6 +42,7 @@ import {
   type CoordinationTools,
   coordinationVerbNames,
   createCoordinationTools,
+  type DownMessageConsumption,
   type DownMessageEvent,
   type EscalateQuestion,
   type GraphSubtasks,
@@ -51,6 +52,7 @@ import {
   type PeerAuditAccess,
   type SettledWorker,
   type SpawnPreflight,
+  type SteerWorkerOptions,
   type SuperviseProfileEntry,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
@@ -75,7 +77,7 @@ import {
   runTree,
   type SupervisorFinalizer,
 } from './finalizer'
-import { createInbox, type Inbox } from './inbox'
+import { createInbox, type Inbox, type InboxLease, type InboxReceipt } from './inbox'
 import { providerAttemptEvidence } from './materialization'
 import { isTerminalNodeStatus } from './node-status'
 import { addResourceSpend, withBudgetResources } from './resources'
@@ -506,9 +508,18 @@ interface CancelAcknowledgerDeps {
   readonly abortRun?: (reason: string, request?: import('./run-layout').RunCancelRequest) => void
 }
 
+/** A durable steer addressed to the run root, as its inbox receives it. `onReceipt` reports when
+ *  the root's model consumed it, under the steer's operation id. */
+export interface RootSteerMessage {
+  readonly steer: string
+  readonly interrupt: boolean
+  readonly receiptId: string
+  readonly onReceipt: (receipt: InboxReceipt) => void
+}
+
 interface SteerAcknowledgerDeps {
   /** Present only on the run root; nested managers must not claim their parent's child steer. */
-  readonly deliverRoot?: (message: { steer: string; interrupt: boolean }) => boolean
+  readonly deliverRoot?: (message: RootSteerMessage) => boolean
   /** Root delivery is not claimable until the current harness invocation exposes its inbox. */
   readonly deliverRootReady?: () => boolean
   readonly dir: string
@@ -516,7 +527,7 @@ interface SteerAcknowledgerDeps {
     steerWorker(
       workerId: string,
       instruction: string,
-      options?: { readonly interrupt?: boolean },
+      options?: SteerWorkerOptions,
     ): Promise<DownMessageEvent>
   }
   readonly now: () => number
@@ -532,6 +543,10 @@ interface SteerAcknowledgerDeps {
  * can lose this steer, but a restarted manager never delivers it again. This is the same
  * at-most-once crash boundary as coordination instruction receipts: no duplicate instruction is
  * safer than replaying a mutation whose first delivery may already have succeeded.
+ *
+ * `delivered` is replaced once the recipient's receipt arrives: `consumed` names the model attempt
+ * that read the steer, and `failed` says why none did. The final pass fails every steer still
+ * `delivered`, so no acknowledgement this manager wrote ends at queue admission.
  */
 export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
   pass(phase: 'turn' | 'final'): Promise<void>
@@ -550,13 +565,53 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
     requestedAt: request.at,
   })
 
+  // A receipt that arrived before its `delivered` record was written, applied right after it.
+  const early = new Map<string, DownMessageConsumption>()
+  const recordConsumption = (
+    request: WorkerSteerRequest,
+    consumption: DownMessageConsumption,
+  ): void => {
+    try {
+      const current = readWorkerSteerAcknowledgement(deps.dir, request.operationId)
+      if (current?.effect === 'unknown') {
+        early.set(request.operationId, consumption)
+        return
+      }
+      if (current?.effect !== 'delivered') return
+      const reader = request.worker === deps.ownerId ? 'the root' : `worker ${request.worker}`
+      writeWorkerSteerAcknowledgement(deps.dir, {
+        ...base(request),
+        effect: consumption.outcome,
+        observedAt: iso(),
+        detail:
+          consumption.outcome === 'consumed'
+            ? `${reader} consumed the steer in model attempt ${consumption.attemptId}`
+            : `the steer was not consumed: ${consumption.reason}`,
+      })
+    } catch (error) {
+      console.error('Runtime could not record a steer consumption', {
+        operationId: request.operationId,
+        error: errMessage(error),
+      })
+    }
+  }
+
   return {
     async pass(phase): Promise<void> {
       for (const request of readWorkerSteerRequests(deps.dir)) {
         if (phase === 'turn' && deps.signal?.aborted) return
         const rootRequest = request.worker === deps.ownerId && deps.deliverRoot !== undefined
         if (!rootRequest && !directChildId(request.worker)) continue
-        if (readWorkerSteerAcknowledgement(deps.dir, request.operationId) !== undefined) continue
+        const prior = readWorkerSteerAcknowledgement(deps.dir, request.operationId)
+        if (prior !== undefined) {
+          if (phase === 'final' && prior.effect === 'delivered') {
+            recordConsumption(request, {
+              outcome: 'failed',
+              reason: 'the run ended with no record that a model input carried it',
+            })
+          }
+          continue
+        }
         if (phase === 'final') {
           writeWorkerSteerAcknowledgement(deps.dir, {
             ...base(request),
@@ -578,15 +633,24 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
         if (!claimed) continue
         try {
           let outcome: Pick<DownMessageEvent, 'delivered' | 'outcome'>
+          const onConsumption = (consumption: DownMessageConsumption) =>
+            recordConsumption(request, consumption)
           if (rootRequest) {
             const delivered = deps.deliverRoot!({
               steer: request.message,
               interrupt: request.interrupt,
+              receiptId: request.operationId,
+              onReceipt: (receipt) => {
+                if (receipt.outcome === 'consumed') {
+                  onConsumption({ outcome: 'consumed', attemptId: receipt.attemptId })
+                }
+              },
             })
             outcome = { delivered, outcome: delivered ? 'delivered' : 'runtime-has-no-inbox' }
           } else {
             outcome = await deps.coord.steerWorker(request.worker, request.message, {
               interrupt: request.interrupt,
+              onConsumption,
             })
           }
           const effect: WorkerSteerAcknowledgement['effect'] = outcome.delivered
@@ -604,10 +668,15 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
             observedAt: iso(),
             detail: rootRequest
               ? outcome.delivered
-                ? 'the root inbox accepted the steer; consumption is not confirmed'
+                ? 'the root inbox queued the steer for its next model input'
                 : 'the root exposes no accepting inbox at delivery time'
               : steerAcknowledgementDetail(outcome),
           })
+          const arrived = early.get(request.operationId)
+          if (arrived !== undefined) {
+            early.delete(request.operationId)
+            recordConsumption(request, arrived)
+          }
         } catch (error) {
           void error
           writeWorkerSteerAcknowledgement(deps.dir, {
@@ -1171,6 +1240,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       // scripted/mock turn takes this path too, so offline equal-k still debits exactly zero tokens.
       let driverTurn = 0
       let driverCall = 0
+      let turnLease: InboxLease | undefined
       const meteredBrain = async (
         messages: ReadonlyArray<Record<string, unknown>>,
         tools: ReadonlyArray<ToolSpec>,
@@ -1216,6 +1286,8 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           }
           throw error
         }
+        // A compaction's summary may drop the folded text, so only a conversation turn reads it.
+        if (conversationTurn) turnLease?.commit(callContext.callId)
         let evidenceError: ValidationError | undefined
         opts.onProviderModel?.(res.model)
         if (opts.expectedModel !== undefined) {
@@ -1383,9 +1455,11 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             driverTurns += 1
             await steerAcknowledger?.pass('turn')
             acknowledger?.pass('turn')
-            const pending = inbox.drain()
-            if (pending.length > 0) {
-              messages.push({ role: 'user', content: inbox.fold(pending) })
+            // Committed by the conversation turn that sends it (`meteredBrain`). A turn that fails
+            // first ends this attempt, and the next attempt's conversation leases it again.
+            turnLease = inbox.lease()
+            if (turnLease.messages.length > 0) {
+              messages.push({ role: 'user', content: inbox.fold(turnLease.messages) })
             }
             // Before a compaction can fold them away: the previous turn's tool results and this inbox.
             transcript.observe(messages)

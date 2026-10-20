@@ -58,7 +58,7 @@ import {
   checkVerdictOf,
   createContinuationKeeper,
 } from './continuation'
-import { driverAgent } from './coordination-driver'
+import { driverAgent, type RootSteerMessage } from './coordination-driver'
 import type { PriorCoordination } from './coordination-log'
 import {
   assertCoordinationTransport,
@@ -1272,8 +1272,7 @@ function buildSupervisorAgent(
             ...(deps.controlScope === 'subtree'
               ? {}
               : {
-                  deliverRoot: (message: { steer: string; interrupt: boolean }) =>
-                    managerInbox?.(message) ?? false,
+                  deliverRoot: (message: RootSteerMessage) => managerInbox?.(message) ?? false,
                   // Between turns a root steer is the input of the next wake, so it is always
                   // deliverable once the coordinator exists.
                   deliverRootReady: () => true,
@@ -1523,8 +1522,12 @@ function buildSupervisorAgent(
                         state: controls.reentryState(),
                         attempt,
                       })
-              const peerMessages = peerInbox.drain()
-              const peerText = peerMessages.length === 0 ? undefined : peerInbox.fold(peerMessages)
+              // Committed once the harness reports a model event or completes; a turn that fails
+              // first leaves the mail for the next attempt's lease.
+              const peerLease = peerInbox.lease()
+              const peerText =
+                peerLease.messages.length === 0 ? undefined : peerInbox.fold(peerLease.messages)
+              const peerAttemptId = `${scope.view.root}:attempt-${attempt}`
               const withPeerMail = (input: unknown): string | unknown =>
                 peerText === undefined
                   ? input
@@ -1561,9 +1564,11 @@ function buildSupervisorAgent(
                   coordinationTools,
                   onModelEvent: () => {
                     modelEvents += 1
+                    peerLease.commit(peerAttemptId)
                   },
                 })
                 completed = true
+                peerLease.commit(peerAttemptId)
               } catch (error) {
                 // Once the injected check has accepted a result, a later backend shutdown/timeout
                 // cannot erase that completed work — and there is nothing left to retry FOR. Without

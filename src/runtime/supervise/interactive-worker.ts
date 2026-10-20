@@ -544,9 +544,11 @@ function interactiveExecutor(input: InteractiveExecutorInput): Executor<Interact
     flushChain = flushChain.then(async () => {
       try {
         if (!handle) return
-        const messages = inbox.drain()
-        if (messages.length === 0) return
-        const prompt = inbox.fold(messages)
+        // Committed only once the session accepted the prompt; a refused send keeps the messages
+        // for the next flush.
+        const lease = inbox.lease()
+        if (lease.messages.length === 0) return
+        const prompt = inbox.fold(lease.messages)
         const operationId = `interactive-prompt-${canonicalCandidateDigest({
           ref: handle.ref,
           prompt,
@@ -566,6 +568,7 @@ function interactiveExecutor(input: InteractiveExecutorInput): Executor<Interact
           requestDigest: agentInteractiveSessionPromptRequestDigest(material),
         }
         await handle.sendPrompt(command)
+        lease.commit(operationId)
       } catch (error) {
         controlError ??= error
       }

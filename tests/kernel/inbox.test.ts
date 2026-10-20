@@ -9,12 +9,14 @@ describe('worker inbox (down-leg receive end)', () => {
     expect(inbox.deliver({ answer: 'use v2', questionId: 'q1' })).toBe(true)
     expect(inbox.deliver({ junk: true })).toBe(false)
     expect(inbox.deliver(null)).toBe(false)
-    const drained = inbox.drain()
-    expect(drained).toEqual([
+    const lease = inbox.lease()
+    expect(lease.messages).toEqual([
       { kind: 'steer', text: 'do X', interrupt: false },
       { kind: 'answer', text: 'use v2', interrupt: false, questionId: 'q1' },
     ])
-    // drain is destructive
+    // A lease reads; only its commit consumes.
+    expect(inbox.pending()).toBe(2)
+    lease.commit('attempt-1')
     expect(inbox.pending()).toBe(0)
   })
 
@@ -22,7 +24,7 @@ describe('worker inbox (down-leg receive end)', () => {
     const inbox = createInbox()
     inbox.deliver({ steer: 'switch to recursion' })
     inbox.deliver({ answer: 'v2', questionId: 'q7' })
-    const folded = inbox.fold(inbox.drain())
+    const folded = inbox.fold(inbox.lease().messages)
     expect(folded).toContain('[SUPERVISOR]')
     expect(folded).toContain('New instruction from your supervisor: switch to recursion')
     // Every line names its sender, the supervisor's own answer included: once peer mail can also
@@ -51,7 +53,7 @@ describe('worker inbox (down-leg receive end)', () => {
   })
 })
 
-describe('router-tools executor drains the inbox', () => {
+describe('router-tools executor leases the inbox', () => {
   afterEach(() => vi.unstubAllGlobals())
 
   const noToolReply = () =>

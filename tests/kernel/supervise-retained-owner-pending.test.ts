@@ -8,19 +8,32 @@
  * a retained provider through the same two situations under strict retry bounds, where three
  * barren failures end a run: a capacity refusal before dispatch, which the driver must wait out,
  * and an admitted execution the provider can no longer resolve, which Runtime must abandon.
+ *
+ * The same pending-turn boundary decides whether a steer survives. Discovery run 18b's core-4 lost
+ * a director ruling to a turn that drained it and then failed. The last block drives a real HTTP
+ * cli-bridge peer and a sandbox provider stream through that failure, the 15-minute promotion, and
+ * the settle fence, and reads each steer's receipt.
  */
 import { mkdtemp, rm } from 'node:fs/promises'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentRunCancellationAcknowledgement } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  type AgentRunCancellationAcknowledgement,
+  canonicalAgentProfileDigest,
+} from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
   AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
-import { afterEach, describe, expect, it } from 'vitest'
+import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
+import { type InboxReceipt, STEER_PROMOTION_MS } from '../../src/runtime/supervise/inbox'
 import { applyRunCancellation } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import {
@@ -29,8 +42,10 @@ import {
   readWorkerSteerAcknowledgement,
   writeWorkerSteer,
 } from '../../src/runtime/supervise/run-layout'
+import { bridgeExecutor, createExecutor } from '../../src/runtime/supervise/runtime'
 import { supervise } from '../../src/runtime/supervise/supervise'
-import type { SpawnEvent } from '../../src/runtime/supervise/types'
+import type { Executor, SpawnEvent, UsageEvent } from '../../src/runtime/supervise/types'
+import type { SandboxClient } from '../../src/runtime/types'
 import { completeCapture, fileWorkspaceArtifacts } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
@@ -39,7 +54,10 @@ import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
 const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
+const servers: Array<() => Promise<void>> = []
 afterEach(async () => {
+  vi.useRealTimers()
+  await Promise.all(servers.splice(0).map((close) => close()))
   await Promise.all(proxies.splice(0).map((proxy) => proxy.close()))
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
@@ -679,10 +697,11 @@ describe('supervised root with a pending retained turn', () => {
     expect(continuedTurns).toContain(run.methodReceipt!)
     expect(continuedTurns.split('use the corrected evidence')).toHaveLength(2)
     expect(continuedTurns.split('knowledge store is locked by this process')).toHaveLength(2)
+    // The steer's receipt ends at the root attempt that read it, never at queue admission.
     expect(readWorkerSteerAcknowledgement(run.runDir, 'retained-root-correction')).toMatchObject({
-      effect: 'delivered',
+      effect: 'consumed',
       operationId: 'retained-root-correction',
-      detail: 'the root inbox accepted the steer; consumption is not confirmed',
+      detail: 'the root consumed the steer in model attempt pending-root:attempt-2',
     })
   })
 
@@ -790,5 +809,311 @@ describe('supervised root with a pending retained turn', () => {
     // One committed first turn, then four invocations: three abandoned, one left unresolved.
     expect(count(run.events, 'execution-input')).toBe(5)
     expect(count(run.events, 'execution-result')).toBe(1)
+  })
+})
+
+const RUN_DIGEST = `sha256:${'b'.repeat(64)}`
+const STEER = 'the director ruled: do not tag rc15 until the check passes'
+
+/** One turn the fake cli-bridge received: its durable run id and the prompt it carried. */
+interface BridgePost {
+  readonly runId: string
+  readonly prompt: string
+}
+
+type BridgeTurn = (post: BridgePost, res: ServerResponse, index: number) => void | Promise<void>
+
+/** A cli-bridge peer on a real socket: capability reads, run cancels, and one scripted answer per
+ *  turn. Everything Runtime sends crosses HTTP, as it does to the bridge on a host. */
+async function fakeCliBridge(turn: BridgeTurn): Promise<{ url: string; posts: BridgePost[] }> {
+  const posts: BridgePost[] = []
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(
+        JSON.stringify(
+          req.url === '/'
+            ? {
+                capabilities: {
+                  profileMaterialization: 'cli-bridge.profile-materialization.v2',
+                  usageCostProvenance: 'cli-bridge.usage-cost.v1',
+                },
+              }
+            : { available: true, admission: { active: 0, maxActive: 4 } },
+        ),
+      )
+      return
+    }
+    const chunks: Buffer[] = []
+    for await (const chunk of req) chunks.push(Buffer.from(chunk))
+    const cancelled = req.url?.match(/^\/v1\/runs\/([^/]+)\/cancel/u)?.[1]
+    if (cancelled !== undefined) {
+      const runId = decodeURIComponent(cancelled)
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'x-run-id': runId,
+        'x-run-request-digest': RUN_DIGEST,
+      })
+      res.end(
+        JSON.stringify({
+          cancelled: true,
+          cancel_requested: true,
+          terminal: true,
+          run: {
+            id: runId,
+            requestDigest: RUN_DIGEST,
+            terminal: true,
+            status: 'cancelled',
+            state: 'terminal',
+          },
+        }),
+      )
+      return
+    }
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as {
+      run_id: string
+      model: string
+      agent_profile: AgentProfile
+      messages: Array<{ content: string }>
+    }
+    const post = { runId: body.run_id, prompt: body.messages.map((m) => m.content).join('\n') }
+    posts.push(post)
+    // Every answer carries the request's own materialization receipt, so a test turn is one the
+    // executor accepts as exact.
+    res.setHeader('x-run-id', body.run_id)
+    res.setHeader('x-run-request-digest', RUN_DIGEST)
+    ;(res as ServerResponse & { bridgeBody?: typeof body }).bridgeBody = body
+    await turn(post, res, posts.length - 1)
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  servers.push(
+    () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections()
+        server.close(() => resolve())
+      }),
+  )
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, posts }
+}
+
+function sseFrame(id: number, data: unknown): string {
+  return `id: ${id}\ndata: ${JSON.stringify(data)}\n\n`
+}
+
+/** The first frame of a turn: text and its billed usage. */
+function bridgeTextFrame(text: string): string {
+  return sseFrame(1, {
+    choices: [{ delta: { content: text } }],
+    usage: {
+      prompt_tokens: 3,
+      completion_tokens: 2,
+      cost: 0.001,
+      cost_known: true,
+      cost_provenance: 'provider-receipt',
+    },
+  })
+}
+
+/** End a turn the way cli-bridge does: the profile receipt, then `[DONE]`. */
+function endBridgeTurn(res: ServerResponse): void {
+  const body = (
+    res as ServerResponse & {
+      bridgeBody?: { model: string; agent_profile: AgentProfile }
+    }
+  ).bridgeBody!
+  const parts = body.model.split('/')
+  res.end(
+    `${sseFrame(2, {
+      profile_materialization: {
+        schema: 'cli-bridge.profile-materialization.v2',
+        effectiveProfileDigest: canonicalAgentProfileDigest(body.agent_profile),
+        harness: parts[0],
+        provider: parts.length >= 3 ? parts[1] : (body.agent_profile.model?.provider ?? null),
+        model: body.model,
+        reasoningEffort: { requested: null, applied: null },
+        workspacePlanDigest: `sha256:${'a'.repeat(64)}`,
+        files: [],
+        unsupported: [],
+      },
+    })}data: [DONE]\n\n`,
+  )
+}
+
+function answerBridgeTurn(res: ServerResponse, text: string): void {
+  res.writeHead(200, { 'content-type': 'text/event-stream' })
+  res.write(bridgeTextFrame(text))
+  endBridgeTurn(res)
+}
+
+function bridgeWorker(url: string): Executor<unknown> {
+  return bridgeExecutor(
+    {
+      profile: {
+        name: 'core-4',
+        harness: 'pi',
+        model: { provider: 'tangle-router', default: 'glm-5.2' },
+      },
+      harness: null,
+    },
+    {
+      signal: new AbortController().signal,
+      seams: { bridge: { bridgeUrl: url, bridgeBearer: 'test-bearer' } },
+    },
+  )
+}
+
+async function runToEnd(stream: AsyncIterable<UsageEvent>): Promise<void> {
+  for await (const _event of stream) {
+    // Settlement is read from the executor and the peer, not from the usage stream.
+  }
+}
+
+/** A steer as the coordination down-leg sends it: its receipt id and the sender's callback. */
+function steerWithReceipt(receipts: InboxReceipt[], text = STEER) {
+  return {
+    steer: text,
+    interrupt: false,
+    receiptId: 'director-ruling',
+    onReceipt: (r: InboxReceipt) => receipts.push(r),
+  }
+}
+
+describe('a steer reaches a model input or stays pending, never lost with a failed turn', () => {
+  it('a settle with an unconsumed steer is refused, and one more bridge turn folds and commits it', async () => {
+    const receipts: InboxReceipt[] = []
+    let worker!: Executor<unknown>
+    const bridge = await fakeCliBridge((_post, res, index) => {
+      // Mid-turn: the steer lands after turn 0 leased the inbox.
+      if (index === 0) worker.deliver?.(steerWithReceipt(receipts))
+      answerBridgeTurn(res, `turn ${index}`)
+    })
+    worker = bridgeWorker(bridge.url)
+    await runToEnd(worker.execute('ship rc15', new AbortController().signal))
+
+    expect(bridge.posts).toHaveLength(2)
+    expect(bridge.posts[0]?.prompt).not.toContain(STEER)
+    expect(bridge.posts[1]?.prompt).toContain(STEER)
+    expect(receipts).toEqual([
+      { outcome: 'queued', messageId: 'director-ruling' },
+      { outcome: 'consumed', messageId: 'director-ruling', attemptId: bridge.posts[1]?.runId },
+    ])
+    expect(worker.progress?.()?.pendingMessages).toBe(0)
+  })
+
+  it('a steer leased into a bridge turn that fails reaches the next prompt (18b core-4)', async () => {
+    const receipts: InboxReceipt[] = []
+    let worker!: Executor<unknown>
+    const bridge = await fakeCliBridge((_post, res, index) => {
+      if (index === 0) worker.deliver?.(steerWithReceipt(receipts))
+      // The turn that carries the steer dies before the bridge streams a frame.
+      if (index === 1) {
+        res.writeHead(502, { 'content-type': 'text/plain' })
+        res.end('harness exited')
+        return
+      }
+      answerBridgeTurn(res, `turn ${index}`)
+    })
+    worker = bridgeWorker(bridge.url)
+    await expect(
+      runToEnd(worker.execute('ship rc15', new AbortController().signal)),
+    ).rejects.toThrow('bridge 502')
+    expect(bridge.posts[1]?.prompt).toContain(STEER)
+    // The failed turn read nothing: the steer is still held, and no receipt claims otherwise.
+    expect(worker.progress?.()?.pendingMessages).toBe(1)
+    expect(receipts.map((r) => r.outcome)).toEqual(['queued'])
+
+    // The re-entry's first prompt carries the task and the ruling.
+    await runToEnd(worker.execute('ship rc15', new AbortController().signal))
+    expect(bridge.posts).toHaveLength(3)
+    expect(bridge.posts[2]?.prompt).toContain('ship rc15')
+    expect(bridge.posts[2]?.prompt).toContain(STEER)
+    expect(receipts.at(-1)).toEqual({
+      outcome: 'consumed',
+      messageId: 'director-ruling',
+      attemptId: bridge.posts[2]?.runId,
+    })
+    expect(worker.progress?.()?.pendingMessages).toBe(0)
+  })
+
+  it('a steer still unread after 15 minutes interrupts the bridge turn and is folded at once', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+    const receipts: InboxReceipt[] = []
+    let held!: () => void
+    const turnHeld = new Promise<void>((resolve) => {
+      held = resolve
+    })
+    const bridge = await fakeCliBridge((_post, res, index) => {
+      if (index === 0) {
+        // A long turn: one frame, then nothing until Runtime cancels it.
+        res.writeHead(200, { 'content-type': 'text/event-stream' })
+        res.write(bridgeTextFrame('working'))
+        held()
+        return
+      }
+      answerBridgeTurn(res, `turn ${index}`)
+    })
+    const worker = bridgeWorker(bridge.url)
+    const run = runToEnd(worker.execute('ship rc15', new AbortController().signal))
+    await turnHeld
+    worker.deliver?.(steerWithReceipt(receipts))
+    await vi.advanceTimersByTimeAsync(STEER_PROMOTION_MS - 1_000)
+    expect(bridge.posts).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await run
+
+    expect(bridge.posts).toHaveLength(2)
+    expect(bridge.posts[1]?.prompt).toContain(STEER)
+    expect(receipts.at(-1)).toEqual({
+      outcome: 'consumed',
+      messageId: 'director-ruling',
+      attemptId: bridge.posts[1]?.runId,
+    })
+  })
+
+  it('a steer leased into a sandbox turn that fails reaches the next prompt', async () => {
+    const receipts: InboxReceipt[] = []
+    const prompts: string[] = []
+    let worker!: Executor<unknown>
+    const event = (text: string): SandboxEvent =>
+      ({
+        type: 'result',
+        data: { finalText: text, usage: { inputTokens: 3, outputTokens: 2 } },
+      }) as unknown as SandboxEvent
+    const box = {
+      id: 'fake-box',
+      async *streamPrompt(message: string): AsyncGenerator<SandboxEvent> {
+        prompts.push(message)
+        const index = prompts.length - 1
+        if (index === 0) worker.deliver?.(steerWithReceipt(receipts))
+        // The provider stream fails before its first event.
+        if (index === 1) throw new Error('sandbox stream reset')
+        yield event(`turn ${index}`)
+      },
+      async delete() {},
+    } as unknown as SandboxInstance
+    const client: SandboxClient = { create: () => Promise.resolve(box) }
+    worker = createExecutor({
+      backend: 'sandbox',
+      sandboxClient: client,
+      steering: { maxTurns: 6 },
+    })(
+      { profile: testAgentProfile('core-4'), harness: 'opencode' },
+      { signal: new AbortController().signal, seams: {} },
+    )
+
+    await expect(
+      runToEnd(worker.execute('ship rc15', new AbortController().signal)),
+    ).rejects.toThrow('sandbox stream reset')
+    expect(prompts[1]).toContain(STEER)
+    expect(receipts.map((r) => r.outcome)).toEqual(['queued'])
+
+    await runToEnd(worker.execute('ship rc15', new AbortController().signal))
+    expect(prompts[2]).toContain('ship rc15')
+    expect(prompts[2]).toContain(STEER)
+    expect(receipts.at(-1)).toMatchObject({
+      outcome: 'consumed',
+      messageId: 'director-ruling',
+      attemptId: expect.stringMatching(/^sandbox-opencode-\d+:turn-0$/),
+    })
   })
 })

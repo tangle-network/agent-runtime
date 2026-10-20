@@ -209,6 +209,8 @@ describe('durable worker controls during a native harness invocation', () => {
       expect(worker.delivered).toHaveBeenCalledExactlyOnceWith({
         steer: 'inspect the evidence',
         interrupt: true,
+        receiptId: expect.any(String),
+        onReceipt: expect.any(Function),
       })
       worker.completed.resolve()
     })
@@ -408,6 +410,8 @@ describe('durable worker controls during a native harness invocation', () => {
         expect(nestedWorker.delivered).toHaveBeenCalledExactlyOnceWith({
           steer: 'check the result',
           interrupt: false,
+          receiptId: expect.any(String),
+          onReceipt: expect.any(Function),
         })
         cancelWorker(dir, nestedId, 'nested-cancel')
         await expect
