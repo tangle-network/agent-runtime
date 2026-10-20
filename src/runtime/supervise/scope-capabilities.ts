@@ -1,9 +1,20 @@
 import { ValidationError } from '../../errors'
-import { type DriverAttemptRecord } from './driver-retry'
-import { type TeamProgress } from './progress'
-import { releaseScopeRetainedOwnerEnvironment, scopeRetainedOwnerSettled } from './retained-scope-owner'
-import { type LiveChild } from './scope-contract'
-import { type HeldEnvironment, type ProviderModelExecutionEvidence, type Scope, type SpawnEvent, type Spend, type SubtreeSummary, type UnconfirmedTeardown } from './types'
+import type { DriverAttemptRecord } from './driver-retry'
+import type { TeamProgress } from './progress'
+import {
+  releaseScopeRetainedOwnerEnvironment,
+  scopeRetainedOwnerSettled,
+} from './retained-scope-owner'
+import type { LiveChild } from './scope-contract'
+import type {
+  HeldEnvironment,
+  ProviderModelExecutionEvidence,
+  Scope,
+  SpawnEvent,
+  Spend,
+  SubtreeSummary,
+  UnconfirmedTeardown,
+} from './types'
 
 type RuntimeOwnedProviderMeter = (
   spend: Spend,
@@ -21,7 +32,10 @@ export type ScopeOwnerPause = Omit<
   'kind' | 'id' | 'seq' | 'at'
 >
 export const pauseRecorders = new WeakMap<object, (pause: ScopeOwnerPause) => Promise<void>>()
-export const driverAttemptRecorders = new WeakMap<object, (record: DriverAttemptRecord) => Promise<void>>()
+export const driverAttemptRecorders = new WeakMap<
+  object,
+  (record: DriverAttemptRecord) => Promise<void>
+>()
 export const recoveryStarters = new WeakMap<object, () => Promise<void>>()
 export const retainedReleasers = new WeakMap<object, () => Promise<void>>()
 export const heldReleasers = new WeakMap<object, () => Promise<void>>()

@@ -1,25 +1,71 @@
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { RunCancellationReason } from './abortable'
-import { CHILD_DEADLINE_REASON, DEADLINE_CHECK_IN_MESSAGE, checkInIdleMs } from './deadline'
+import { CHILD_DEADLINE_REASON, checkInIdleMs, DEADLINE_CHECK_IN_MESSAGE } from './deadline'
 import { freeSlots } from './dispatch'
 import { errorText } from './error-message'
 import { isTerminalNodeStatus } from './node-status'
-import { DEFAULT_STALL_AFTER_MS, type ExecutorProgress, type WorkerProgress, readWorkerProgress } from './progress'
+import {
+  DEFAULT_STALL_AFTER_MS,
+  type ExecutorProgress,
+  readWorkerProgress,
+  type WorkerProgress,
+} from './progress'
 import { addResourceSpend, withBudgetResources } from './resources'
-import { bindScopeRetainedOwnerWorkspaceRetention, registerScopeRetainedOwner, retainedOwnerWorkspaceRetentionSeamKey } from './retained-scope-owner'
-import { admissionSeals, childDrains, driverAttemptRecorders, heldReleasers, liveTeamReaders, pauseRecorders, recoveryStarters, releasingScopes, runtimeOwnedProviderMeters, subtreeReaders, unconfirmedTeardownOf, waitForScopeChildren } from './scope-capabilities'
-import { type LiveChild, type PreSeqSettled, type ScopeArgs } from './scope-contract'
+import {
+  bindScopeRetainedOwnerWorkspaceRetention,
+  registerScopeRetainedOwner,
+  retainedOwnerWorkspaceRetentionSeamKey,
+} from './retained-scope-owner'
+import {
+  admissionSeals,
+  childDrains,
+  driverAttemptRecorders,
+  heldReleasers,
+  liveTeamReaders,
+  pauseRecorders,
+  recoveryStarters,
+  releasingScopes,
+  runtimeOwnedProviderMeters,
+  subtreeReaders,
+  unconfirmedTeardownOf,
+  waitForScopeChildren,
+} from './scope-capabilities'
+import type { LiveChild, PreSeqSettled, ScopeArgs } from './scope-contract'
 import { assertRecursiveReservationPolicy } from './scope-identity'
-import { liveTeamOf, makeTreeView, noInteractiveSession, readInteractiveSession, readLiveTeam, reenteredWorkers, summarizeTeam, teamProgress } from './scope-observation'
-import { bindScopeOwnerMaterialization, ownerMaterializationStates } from './scope-owner-materialization'
+import {
+  liveTeamOf,
+  makeTreeView,
+  noInteractiveSession,
+  readInteractiveSession,
+  readLiveTeam,
+  reenteredWorkers,
+  summarizeTeam,
+  teamProgress,
+} from './scope-observation'
+import {
+  bindScopeOwnerMaterialization,
+  ownerMaterializationStates,
+} from './scope-owner-materialization'
 import { finalizeSettlement, raceFirstSettled } from './scope-settlement'
 import { createScopeSpawner } from './scope-spawn'
 import { bindChildTeardown, createHeldChildRelease } from './scope-teardown'
 import { detachedSnapshot } from './snapshot'
-import { type TraceSource } from './trace-source'
-import { type ExecutorCancellation, type ExecutorCancellationRequest, type NodeId, type ProviderModelExecutionEvidence, type ResumedKeyState, type ResumedWork, type Scope, type Settled, type Spend, type TreeView, type WorkerInteractiveSession } from './types'
-import { type WorkerEventCursor, type WorkerEventPage } from './worker-events'
+import type { TraceSource } from './trace-source'
+import type {
+  ExecutorCancellation,
+  ExecutorCancellationRequest,
+  NodeId,
+  ProviderModelExecutionEvidence,
+  ResumedKeyState,
+  ResumedWork,
+  Scope,
+  Settled,
+  Spend,
+  TreeView,
+  WorkerInteractiveSession,
+} from './types'
+import type { WorkerEventCursor, WorkerEventPage } from './worker-events'
 import { writeWorkerInteractiveBinding } from './worker-interactive'
 import { createWorkerSlots, openSlotGroup } from './worker-slots'
 
@@ -66,9 +112,16 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   let ownerLastTurnAt = 0
   const now = args.now ?? Date.now
   const { releaseHeld, heldReleases } = createHeldChildRelease(args, now)
-  const { spawn, recordKeyedSettlement } = createScopeSpawner<Out>({ args, children,
-    slotGroup, workerSlots, ownerFloor, now,
-    isAdmissionClosed: () => admissionClosed, checkInAtTimeBox, releaseHeld,
+  const { spawn, recordKeyedSettlement } = createScopeSpawner<Out>({
+    args,
+    children,
+    slotGroup,
+    workerSlots,
+    ownerFloor,
+    now,
+    isAdmissionClosed: () => admissionClosed,
+    checkInAtTimeBox,
+    releaseHeld,
   })
 
   async function commitSettlement(

@@ -25,38 +25,38 @@
  * @stable
  */
 
-export type { ScopeArgs } from './scope-contract'
-export { reenteredWorkers } from './scope-observation'
 export type { ScopeOwnerPause } from './scope-capabilities'
-export { SUBTREE_RESULT_LIMIT } from './scope-capabilities'
-export { subtreeSummaryOf } from './scope-capabilities'
-export { DEFAULT_BUDGET_STOP_HOLD_MS } from './scope-capabilities'
-export { releaseHeldEnvironments } from './scope-capabilities'
-export { startScopeRecoveries } from './scope-capabilities'
-export { releaseRetainedEnvironments } from './scope-capabilities'
-export { releaseManagerEnvironment } from './scope-capabilities'
-export { settleManagerWork } from './scope-capabilities'
-export { closeRetainedSlots } from './scope-capabilities'
-export { unconfirmedTeardowns } from './scope-capabilities'
-export { registerNestedTeardownScope } from './scope-capabilities'
-export { retryUnconfirmedTeardowns } from './scope-capabilities'
-export { hasRetriableTeardowns } from './scope-capabilities'
-export { closeScopeAdmission } from './scope-capabilities'
-export { waitForScopeChildren } from './scope-capabilities'
-export { assertRecursiveReservationPolicy } from './scope-identity'
-export type { PreSeqSettled } from './scope-contract'
-export { nestedScopeSeamKey } from './scope-contract'
-export type { NestedScopeSeam } from './scope-contract'
+export {
+  closeRetainedSlots,
+  closeScopeAdmission,
+  DEFAULT_BUDGET_STOP_HOLD_MS,
+  hasRetriableTeardowns,
+  meterRuntimeOwnedAccounting,
+  meterRuntimeOwnedProviderAttempt,
+  recordScopeOwnerDriverAttempt,
+  recordScopeOwnerPause,
+  registerNestedTeardownScope,
+  releaseHeldEnvironments,
+  releaseManagerEnvironment,
+  releaseRetainedEnvironments,
+  retryUnconfirmedTeardowns,
+  SUBTREE_RESULT_LIMIT,
+  settleManagerWork,
+  startScopeRecoveries,
+  subtreeSummaryOf,
+  unconfirmedTeardowns,
+  waitForScopeChildren,
+} from './scope-capabilities'
 export { createScope } from './scope-construction'
-export { meterRuntimeOwnedProviderAttempt } from './scope-capabilities'
-export { recordScopeOwnerPause } from './scope-capabilities'
-export { recordScopeOwnerDriverAttempt } from './scope-capabilities'
-export { meterRuntimeOwnedAccounting } from './scope-capabilities'
-export { noteScopeOwnerPlannedExecution } from './scope-owner-materialization'
-export { recordScopeOwnerMaterialization } from './scope-owner-materialization'
-export { beginScopeOwnerAttempt } from './scope-owner-materialization'
-export { scopeOwnerExecutorNodeContext } from './scope-owner-materialization'
-export { restoreScopeOwnerAcceptedExecution } from './scope-owner-materialization'
-export { finalizeScopeOwnerMaterialization } from './scope-owner-materialization'
-export { settledToIteration } from './scope-observation'
-export { deriveNodeExecutionIdentity } from './scope-identity'
+export type { NestedScopeSeam, PreSeqSettled, ScopeArgs } from './scope-contract'
+export { nestedScopeSeamKey } from './scope-contract'
+export { assertRecursiveReservationPolicy, deriveNodeExecutionIdentity } from './scope-identity'
+export { reenteredWorkers, settledToIteration } from './scope-observation'
+export {
+  beginScopeOwnerAttempt,
+  finalizeScopeOwnerMaterialization,
+  noteScopeOwnerPlannedExecution,
+  recordScopeOwnerMaterialization,
+  restoreScopeOwnerAcceptedExecution,
+  scopeOwnerExecutorNodeContext,
+} from './scope-owner-materialization'

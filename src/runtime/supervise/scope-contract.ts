@@ -1,18 +1,51 @@
-import { type RuntimeHooks } from '../../runtime-hooks'
-import { type RuntimeFailureCause } from '../failure-cause'
-import { type HarnessTranscriptEvidence } from '../harness-transcript'
-import { type RetainedRunEnvironmentAdmission } from '../retained-run-types'
-import { RunCancellationReason } from './abortable'
-import { type BudgetPool } from './budget'
-import { type DeadlineCheckIn, type TeardownAnswer } from './deadline'
-import { type ExecutorProgress } from './progress'
-import { type RetainedChildRecovery, type RetainedPendingCause } from './retained-executor'
-import { type TraceRootWriter } from './trace-root'
-import { type TraceSource } from './trace-source'
-import { type Budget, type BudgetViolation, type DefaultVerdict, type EnvironmentTeardownReceipt, type ExecutionBindingReceipt, type ExecutorCancellation, type ExecutorCancellationRequest, type ExecutorFactory, type ExecutorRegistry, type ExecutorResult, type HeldEnvironment, type HeldForContinuation, type NodeExecutionIdentity, type NodeId, type NodeSnapshot, type NodeStatus, type ProfileMaterializationReceipt, type ProviderModelExecutionEvidence, type RecursiveReservationPolicy, type ResultBlobStore, type ResumedKeyState, type RetainedExecutionState, type Scope, type Settled, type SpawnEvent, type SpawnJournal, type SpawnModelSubstitution, type Spend, type SubtreeSummary, type TraceRootReceipt, type TreeView, type WorkerInteractiveSession, type WorkerTraceEvidence } from './types'
-import { WorkerEvents } from './worker-events'
-import { type SlotPermit, type WorkerSlots } from './worker-slots'
-import { type WorkerTraceResolver } from './worker-trace'
+import type { RuntimeHooks } from '../../runtime-hooks'
+import type { RuntimeFailureCause } from '../failure-cause'
+import type { HarnessTranscriptEvidence } from '../harness-transcript'
+import type { RetainedRunEnvironmentAdmission } from '../retained-run-types'
+import type { RunCancellationReason } from './abortable'
+import type { BudgetPool } from './budget'
+import type { DeadlineCheckIn, TeardownAnswer } from './deadline'
+import type { ExecutorProgress } from './progress'
+import type { RetainedChildRecovery, RetainedPendingCause } from './retained-executor'
+import type { TraceRootWriter } from './trace-root'
+import type { TraceSource } from './trace-source'
+import type {
+  Budget,
+  BudgetViolation,
+  DefaultVerdict,
+  EnvironmentTeardownReceipt,
+  ExecutionBindingReceipt,
+  ExecutorCancellation,
+  ExecutorCancellationRequest,
+  ExecutorFactory,
+  ExecutorRegistry,
+  ExecutorResult,
+  HeldEnvironment,
+  HeldForContinuation,
+  NodeExecutionIdentity,
+  NodeId,
+  NodeSnapshot,
+  NodeStatus,
+  ProfileMaterializationReceipt,
+  RecursiveReservationPolicy,
+  ResultBlobStore,
+  ResumedKeyState,
+  RetainedExecutionState,
+  Scope,
+  Settled,
+  SpawnEvent,
+  SpawnJournal,
+  SpawnModelSubstitution,
+  Spend,
+  SubtreeSummary,
+  TraceRootReceipt,
+  TreeView,
+  WorkerInteractiveSession,
+  WorkerTraceEvidence,
+} from './types'
+import type { WorkerEvents } from './worker-events'
+import type { SlotPermit, WorkerSlots } from './worker-slots'
+import type { WorkerTraceResolver } from './worker-trace'
 
 /** Construction args for `createScope`. The supervisor threads the shared pool, journal,
  *  blob store, and executor registry through; `depth`/`maxDepth` pair the runtime

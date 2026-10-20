@@ -1,20 +1,42 @@
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { runtimeFailureCause } from '../failure-cause'
-import { type HarnessTranscriptEvidence, persistHarnessTranscript, readHarnessTranscript, settleHarnessTranscript } from '../harness-transcript'
+import {
+  type HarnessTranscriptEvidence,
+  persistHarnessTranscript,
+  readHarnessTranscript,
+  settleHarnessTranscript,
+} from '../harness-transcript'
 import { cloneTokenUsage } from '../util'
 import { abortError } from './abortable'
-import { type BudgetPool, BudgetReconcileFault, type ReservationTicket, meterUsageEvent, newUsageTotals, spendFromUsageTotals } from './budget'
+import {
+  type BudgetPool,
+  BudgetReconcileFault,
+  meterUsageEvent,
+  newUsageTotals,
+  type ReservationTicket,
+  spendFromUsageTotals,
+} from './budget'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { errMessage } from './error-message'
 import { executorFailure, executorFailureInfra } from './executor-outcome'
 import { runtimeOwnedExecutorProviderEvidence } from './materialization'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import { RetainedExecutionPendingError } from './retained-executor'
-import { type LiveChild, type PreSeqSettled } from './scope-contract'
+import type { LiveChild, PreSeqSettled } from './scope-contract'
 import { detachedSnapshot } from './snapshot'
 import { captureWorkerTraceEvidence } from './trace-evidence'
-import { type Executor, type ExecutorResult, type NodeId, type ProviderModelExecutionEvidence, type ResultBlobStore, type SpawnJournal, type SpawnOpts, type Spend, type UsageEvent, type WorkerTraceEvidence } from './types'
+import type {
+  Executor,
+  ExecutorResult,
+  NodeId,
+  ResultBlobStore,
+  SpawnJournal,
+  SpawnOpts,
+  Spend,
+  UsageEvent,
+  WorkerTraceEvidence,
+} from './types'
 
 export async function runChild<C>(
   live: LiveChild,

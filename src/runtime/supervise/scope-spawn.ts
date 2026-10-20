@@ -2,43 +2,98 @@ import { appendSpawnEvents, contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { persistHarnessTranscript, readHarnessTranscript } from '../harness-transcript'
-import { type RetainedInteractiveAdmission, type RetainedRunEnvironmentAdmission } from '../retained-run-types'
+import type {
+  RetainedInteractiveAdmission,
+  RetainedRunEnvironmentAdmission,
+} from '../retained-run-types'
 import { zeroSpend } from '../util'
 import { RunCancellationReason } from './abortable'
-import { type BudgetPool, type ReservationShortfall } from './budget'
-import { CHILD_DEADLINE_REASON, armDeadlineTimer, boundedChildDeadlineAt, singleFlightTeardown, teardownExecutor } from './deadline'
+import type { BudgetPool, ReservationShortfall } from './budget'
+import {
+  armDeadlineTimer,
+  boundedChildDeadlineAt,
+  CHILD_DEADLINE_REASON,
+  singleFlightTeardown,
+  teardownExecutor,
+} from './deadline'
 import { executableAgentSpecSnapshot } from './executable-spec'
-import { interactiveAdmissionSeamKey, writeWorkerInteractiveAdmission } from './interactive-admission'
+import {
+  interactiveAdmissionSeamKey,
+  writeWorkerInteractiveAdmission,
+} from './interactive-admission'
 import { authoredAgentIdentity, newExecutionAttemptId } from './materialization'
 import { withBudgetResources } from './resources'
-import { BUDGET_CONTINUATION_TASK, type RetainedChildRecovery, retainedExecutorSeamKey } from './retained-executor'
+import {
+  BUDGET_CONTINUATION_TASK,
+  type RetainedChildRecovery,
+  retainedExecutorSeamKey,
+} from './retained-executor'
 import { nestedTeardownScopes } from './scope-capabilities'
 import { createChildMaterialization } from './scope-child-materialization'
 import { createChildRetention } from './scope-child-retention'
-import { type DeferredOwnerSlot, type LiveChild, type PreSeqSettled, type ScopeArgs, nestedScopeSeamKey } from './scope-contract'
+import {
+  type DeferredOwnerSlot,
+  type LiveChild,
+  nestedScopeSeamKey,
+  type PreSeqSettled,
+  type ScopeArgs,
+} from './scope-contract'
 import { downRecord, runChild } from './scope-execution'
-import { deriveNodeExecutionIdentity, isAgentSpec, isCompleteIdentity, sameNodeExecutionIdentity } from './scope-identity'
+import {
+  deriveNodeExecutionIdentity,
+  isAgentSpec,
+  isCompleteIdentity,
+  sameNodeExecutionIdentity,
+} from './scope-identity'
 import { makeNestedScopeSeam } from './scope-nesting'
 import { readInteractiveReadyUntilWorkerEnds, readInteractiveSession } from './scope-observation'
 import { detachedSnapshot } from './snapshot'
 import { traceRootWriter } from './trace-root'
 import { runtimeOwnedNestedDriverTreeRoot } from './tree-key'
-import { type Agent, type AgentSpec, type ExecutionBindingReceipt, type Executor, type ExecutorContext, type Handle, type HeldRelease, type NodeExecutionIdentity, type NodeId, type NodeStatus, type ProfileMaterializationReceipt, type Settled, type SpawnEvent, type SpawnOpts, type SpawnPrior, type SpawnRejection } from './types'
+import type {
+  Agent,
+  AgentSpec,
+  ExecutionBindingReceipt,
+  Executor,
+  ExecutorContext,
+  Handle,
+  HeldRelease,
+  NodeExecutionIdentity,
+  NodeId,
+  NodeStatus,
+  ProfileMaterializationReceipt,
+  Settled,
+  SpawnEvent,
+  SpawnOpts,
+  SpawnPrior,
+  SpawnRejection,
+} from './types'
 import { WorkerEvents } from './worker-events'
 import { writeWorkerInteractiveBinding } from './worker-interactive'
-import { type WorkerSlots, deferSlot, openSlotGroup } from './worker-slots'
+import { deferSlot, type openSlotGroup, type WorkerSlots } from './worker-slots'
 import { workerTraceSeamKey } from './worker-trace'
 
 /** Own child admission, keyed identity and executor startup. */
-export function createScopeSpawner<Out>({ args, children, slotGroup, workerSlots,
-  ownerFloor, now, isAdmissionClosed, checkInAtTimeBox, releaseHeld,
+export function createScopeSpawner<Out>({
+  args,
+  children,
+  slotGroup,
+  workerSlots,
+  ownerFloor,
+  now,
+  isAdmissionClosed,
+  checkInAtTimeBox,
+  releaseHeld,
 }: {
-  args: ScopeArgs; children: Map<NodeId, LiveChild>;
-  slotGroup: ReturnType<typeof openSlotGroup>; workerSlots: WorkerSlots;
-  ownerFloor: { tokens: number; iterations: number; usd?: number } | undefined;
-  now: () => number; isAdmissionClosed: () => boolean;
-  checkInAtTimeBox: (id: NodeId, controller: AbortController) => (() => void) | undefined;
-  releaseHeld: (child: LiveChild, reason: HeldRelease) => Promise<boolean>;
+  args: ScopeArgs
+  children: Map<NodeId, LiveChild>
+  slotGroup: ReturnType<typeof openSlotGroup>
+  workerSlots: WorkerSlots
+  ownerFloor: { tokens: number; iterations: number; usd?: number } | undefined
+  now: () => number
+  isAdmissionClosed: () => boolean
+  checkInAtTimeBox: (id: NodeId, controller: AbortController) => (() => void) | undefined
+  releaseHeld: (child: LiveChild, reason: HeldRelease) => Promise<boolean>
 }) {
   const interactiveBindingDir = args.interactiveBindingDir
   let spawnOrdinal = args.resumeFrom ? args.resumeFrom.maxSpawnOrdinal + 1 : 0
@@ -365,9 +420,20 @@ export function createScopeSpawner<Out>({ args, children, slotGroup, workerSlots
             })
       // Built before the retained seam, which cites it before the live child exists.
       const traceRoots = traceRootWriter(args.blobs, id)
-      const retention = createChildRetention({ args, controller, id, ordinal, identity,
-        recovery, now, traceRoots, markRecoveryReady, childDeadlineAtMs,
-        readLive: () => live, completeEvidence: async () => materialization.complete(),
+      const retention = createChildRetention({
+        args,
+        controller,
+        id,
+        ordinal,
+        identity,
+        recovery,
+        opts,
+        now,
+        traceRoots,
+        markRecoveryReady,
+        childDeadlineAtMs,
+        readLive: () => live,
+        completeEvidence: async () => materialization.complete(),
       })
       const { retainedContext, closeRetainedWrites, holdMs } = retention
       const ctx: ExecutorContext = {
@@ -611,8 +677,19 @@ export function createScopeSpawner<Out>({ args, children, slotGroup, workerSlots
                 at: new Date(now()).toISOString(),
               })
             })
-      const materialization = createChildMaterialization({ args, spawnCommitted, identity,
-        spec, executor, deferredOwner, attemptId, id, recovery, live, ordinal, now,
+      const materialization = createChildMaterialization({
+        args,
+        spawnCommitted,
+        identity,
+        spec,
+        executor,
+        deferredOwner,
+        attemptId,
+        id,
+        recovery,
+        live,
+        ordinal,
+        now,
       })
 
       if (!recovery)

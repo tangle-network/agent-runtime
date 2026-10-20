@@ -4,11 +4,29 @@ import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { errMessage } from './error-message'
 import { isTerminalNodeStatus } from './node-status'
 import { retainedOwnerReleaseRetriable } from './retained-scope-owner'
-import { RETAINED_RELEASE_TIMEOUT_MS, closeRetainedSlots, hasRetriableTeardowns, nestedManagerScopeReaders, retainedReleasers, retainedSlotClosers, retryUnconfirmedTeardowns, teardownRetriable, teardownRetriers, unconfirmedTeardowns } from './scope-capabilities'
-import { type LiveChild, type ScopeArgs } from './scope-contract'
+import {
+  closeRetainedSlots,
+  hasRetriableTeardowns,
+  nestedManagerScopeReaders,
+  RETAINED_RELEASE_TIMEOUT_MS,
+  retainedReleasers,
+  retainedSlotClosers,
+  retryUnconfirmedTeardowns,
+  teardownRetriable,
+  teardownRetriers,
+  unconfirmedTeardowns,
+} from './scope-capabilities'
+import type { LiveChild, ScopeArgs } from './scope-contract'
 import { appendEnvironmentTeardown } from './scope-settlement'
 import { releasedChildPayload, terminalDownEvent } from './terminal-record'
-import { type EnvironmentTeardownReceipt, type HeldRelease, type NodeId, type RetainedExecutionState, type Scope, type SpawnEvent } from './types'
+import type {
+  EnvironmentTeardownReceipt,
+  HeldRelease,
+  NodeId,
+  RetainedExecutionState,
+  Scope,
+  SpawnEvent,
+} from './types'
 
 /** Release settled child environments and close their retained journal slots. */
 export function createHeldChildRelease(args: ScopeArgs, now: () => number) {
@@ -49,8 +67,12 @@ export function createHeldChildRelease(args: ScopeArgs, now: () => number) {
   return { releaseHeld, heldReleases }
 }
 
-export function bindChildTeardown<Out>(scope: Scope<Out>, args: ScopeArgs,
-  children: Map<NodeId, LiveChild>, now: () => number): void {
+export function bindChildTeardown<Out>(
+  scope: Scope<Out>,
+  args: ScopeArgs,
+  children: Map<NodeId, LiveChild>,
+  now: () => number,
+): void {
   // Settled children whose cleanup is unconfirmed because they hold a retained execution
   // themselves, or because a nested manager's descendants do: what a retained release reaches.
   const retainedHeld = (): LiveChild[] =>

@@ -1,13 +1,37 @@
+import {
+  agentProfileSchema,
+  canonicalAgentProfileDigest,
+  canonicalCandidateDigest,
+  type Sha256Digest,
+} from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { assertValidSpend } from './budget'
-import { authoredProfileDigest, knownExecutionBindingReceipt, knownMaterializationReceipt, newExecutionAttemptId, unknownExecutionBindingReceipt, unknownMaterializationReceipt } from './materialization'
+import {
+  authoredProfileDigest,
+  knownExecutionBindingReceipt,
+  knownMaterializationReceipt,
+  newExecutionAttemptId,
+  unknownExecutionBindingReceipt,
+  unknownMaterializationReceipt,
+} from './materialization'
 import { providerVisibleProfile } from './provider-visible-profile'
-import { type ScopeArgs } from './scope-contract'
+import type { ScopeArgs } from './scope-contract'
 import { authoredSeatStages, seatExecutionProfile } from './seat-chain'
 import { detachedSnapshot } from './snapshot'
-import { type ExecutionBindingReceipt, type ExecutorExecutionBinding, type ExecutorNodeContext, type MaterializedExecutionIdentity, type NodeId, type NodeSnapshot, type ProfileMaterializationReceipt, type ResultBlobStore, type Scope, type SpawnEvent, type SpawnJournal } from './types'
-import { type Sha256Digest, agentProfileSchema, canonicalAgentProfileDigest, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import type {
+  ExecutionBindingReceipt,
+  ExecutorExecutionBinding,
+  ExecutorNodeContext,
+  MaterializedExecutionIdentity,
+  NodeId,
+  NodeSnapshot,
+  ProfileMaterializationReceipt,
+  ResultBlobStore,
+  Scope,
+  SpawnEvent,
+  SpawnJournal,
+} from './types'
 
 interface OwnerMaterializationState {
   readonly retainedRoot: NodeId
@@ -566,9 +590,11 @@ async function appendUnknownOwnerBinding(
   state.onReceipt?.(receipt, binding)
 }
 
-
-export function bindScopeOwnerMaterialization(scope: Scope<unknown>, args: ScopeArgs,
-  now: () => number): void {
+export function bindScopeOwnerMaterialization(
+  scope: Scope<unknown>,
+  args: ScopeArgs,
+  now: () => number,
+): void {
   if (args.ownerMaterialization !== undefined) {
     const authoredProfile =
       args.ownerMaterialization.authoredProfile === undefined

@@ -1,10 +1,24 @@
 import { contentAddress } from '../../durable/spawn-journal'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { subtreeSummaryOf } from './scope-capabilities'
-import { type LiveChild, type PreSeqSettled, type ScopeArgs } from './scope-contract'
+import type { LiveChild, PreSeqSettled, ScopeArgs } from './scope-contract'
 import { frozenHandle } from './scope-observation'
-import { type DownSettlement, type TerminalDownSubject, settledNodeEvidence, settlementFields, terminalDownEvent } from './terminal-record'
-import { type EnvironmentTeardownReceipt, type HeldRelease, type NodeId, type Settled, type SpawnEvent, type SpawnJournal, type Spend } from './types'
+import {
+  type DownSettlement,
+  settledNodeEvidence,
+  settlementFields,
+  type TerminalDownSubject,
+  terminalDownEvent,
+} from './terminal-record'
+import type {
+  EnvironmentTeardownReceipt,
+  HeldRelease,
+  NodeId,
+  Settled,
+  SpawnEvent,
+  SpawnJournal,
+  Spend,
+} from './types'
 
 /** Await whichever pending child settles first, returning the child (its `resolved` is set
  *  by the time this resolves because `runChild`'s `.then` sets it before the promise

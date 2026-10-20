@@ -1,18 +1,54 @@
 import { ValidationError } from '../../errors'
-import { authoredProfileDigest, knownExecutionBindingReceipt, knownMaterializationReceipt, runtimeOwnedDeferredExecutorRuntime, runtimeOwnedExecutorExecutionBinding, runtimeOwnedExecutorMaterialization, runtimeOwnedPendingExecutorMaterialization, unknownExecutionBindingReceipt, unknownMaterializationReceipt } from './materialization'
-import { type RetainedChildRecovery } from './retained-executor'
-import { type DeferredOwnerSlot, type LiveChild, type ScopeArgs } from './scope-contract'
+import {
+  authoredProfileDigest,
+  knownExecutionBindingReceipt,
+  knownMaterializationReceipt,
+  runtimeOwnedDeferredExecutorRuntime,
+  runtimeOwnedExecutorExecutionBinding,
+  runtimeOwnedExecutorMaterialization,
+  runtimeOwnedPendingExecutorMaterialization,
+  unknownExecutionBindingReceipt,
+  unknownMaterializationReceipt,
+} from './materialization'
+import type { RetainedChildRecovery } from './retained-executor'
+import type { DeferredOwnerSlot, LiveChild, ScopeArgs } from './scope-contract'
 import { appendExactMaterializationEvent } from './scope-owner-materialization'
-import { type AgentSpec, type ExecutionBindingReceipt, type Executor, type NodeExecutionIdentity, type NodeId, type ProfileMaterializationReceipt } from './types'
+import type {
+  AgentSpec,
+  ExecutionBindingReceipt,
+  Executor,
+  NodeExecutionIdentity,
+  NodeId,
+  ProfileMaterializationReceipt,
+} from './types'
 
 /** Publish the execution receipt only after the child spawn is durable. */
-export function createChildMaterialization({ args, spawnCommitted, identity, spec, executor,
-  deferredOwner, attemptId, id, recovery, live, ordinal, now,
+export function createChildMaterialization({
+  args,
+  spawnCommitted,
+  identity,
+  spec,
+  executor,
+  deferredOwner,
+  attemptId,
+  id,
+  recovery,
+  live,
+  ordinal,
+  now,
 }: {
-  args: ScopeArgs; spawnCommitted: Promise<void>; identity: NodeExecutionIdentity | undefined;
-  spec: AgentSpec; executor: Executor<unknown>; deferredOwner: DeferredOwnerSlot;
-  attemptId: string; id: NodeId; recovery: RetainedChildRecovery | undefined;
-  live: LiveChild; ordinal: number; now: () => number;
+  args: ScopeArgs
+  spawnCommitted: Promise<void>
+  identity: NodeExecutionIdentity | undefined
+  spec: AgentSpec
+  executor: Executor<unknown>
+  deferredOwner: DeferredOwnerSlot
+  attemptId: string
+  id: NodeId
+  recovery: RetainedChildRecovery | undefined
+  live: LiveChild
+  ordinal: number
+  now: () => number
 }) {
   let pendingEvidence: { complete: () => Promise<void>; fail: () => Promise<void> } | undefined
   const ready = spawnCommitted.then(async () => {
@@ -162,7 +198,8 @@ export function createChildMaterialization({ args, spawnCommitted, identity, spe
     live.materialization = receipt
     live.executionBindings.push(binding)
   })
-  return { ready,
+  return {
+    ready,
     complete: async () => pendingEvidence?.complete(),
     fail: async () => pendingEvidence?.fail(),
   }

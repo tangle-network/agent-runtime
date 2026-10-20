@@ -1,11 +1,23 @@
 import { ValidationError } from '../../errors'
-import { type Iteration } from '../types'
+import type { Iteration } from '../types'
 import { cloneTokenUsage } from '../util'
 import { isLiveNodeStatus, isTerminalNodeStatus } from './node-status'
-import { type TeamProgress } from './progress'
-import { type LiveTeam, SUBTREE_RESULT_LIMIT, liveTeamReaders } from './scope-capabilities'
-import { type LiveChild, type ScopeArgs } from './scope-contract'
-import { type Handle, type NodeId, type NodeSnapshot, type ReenteredWorkers, type Scope, type Settled, type SubtreeResult, type SubtreeSummary, type TreeView, type WorkerInteractiveSession, type WorkerInteractiveUnavailableReason } from './types'
+import type { TeamProgress } from './progress'
+import { type LiveTeam, liveTeamReaders, SUBTREE_RESULT_LIMIT } from './scope-capabilities'
+import type { LiveChild, ScopeArgs } from './scope-contract'
+import type {
+  Handle,
+  NodeId,
+  NodeSnapshot,
+  ReenteredWorkers,
+  Scope,
+  Settled,
+  SubtreeResult,
+  SubtreeSummary,
+  TreeView,
+  WorkerInteractiveSession,
+  WorkerInteractiveUnavailableReason,
+} from './types'
 
 /**
  * The direct workers of `parentId` that a resumed journal holds open, and which of them this
@@ -53,7 +65,6 @@ export function settledToIteration<Out>(settled: Settled<Out>): Iteration<unknow
     tokenUsage: cloneTokenUsage(settled.spent.tokens),
   }
 }
-
 
 /** The live team a child manager leads, read through the nested scope it owns. */
 export function liveTeamOf(child: LiveChild): LiveTeam | undefined {

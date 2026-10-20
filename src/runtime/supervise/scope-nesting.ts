@@ -1,9 +1,9 @@
 import { createBudgetPool } from './budget'
 import { prepareScopeResume } from './recover-executors'
 import { createScope } from './scope-construction'
-import { type DeferredOwnerSlot, type NestedScopeSeam, type ScopeArgs } from './scope-contract'
-import { type Budget, type NodeId, type Scope } from './types'
-import { type SlotPermit, type WorkerSlots } from './worker-slots'
+import type { DeferredOwnerSlot, NestedScopeSeam, ScopeArgs } from './scope-contract'
+import type { Budget, NodeId, Scope } from './types'
+import type { SlotPermit, WorkerSlots } from './worker-slots'
 
 export function makeNestedScopeSeam(
   args: ScopeArgs,

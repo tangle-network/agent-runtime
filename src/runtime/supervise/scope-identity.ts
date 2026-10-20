@@ -1,7 +1,7 @@
+import { canonicalCandidateDigest, sha256DigestSchema } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import { authoredProfileDigest } from './materialization'
-import { type AgentSpec, type NodeExecutionIdentity, type RecursiveReservationPolicy } from './types'
-import { canonicalCandidateDigest, sha256DigestSchema } from '@tangle-network/agent-interface'
+import type { AgentSpec, NodeExecutionIdentity, RecursiveReservationPolicy } from './types'
 
 /** Fail before execution when a reservation policy is malformed. */
 export function assertRecursiveReservationPolicy(
@@ -56,7 +56,10 @@ export function isCompleteIdentity(
   return identity?.profileDigest !== undefined && identity.taskDigest !== undefined
 }
 
-export function sameNodeExecutionIdentity(a: NodeExecutionIdentity, b: NodeExecutionIdentity): boolean {
+export function sameNodeExecutionIdentity(
+  a: NodeExecutionIdentity,
+  b: NodeExecutionIdentity,
+): boolean {
   return canonicalCandidateDigest(a) === canonicalCandidateDigest(b)
 }
 

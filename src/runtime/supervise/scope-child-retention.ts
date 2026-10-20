@@ -1,25 +1,51 @@
-import { chargedTokens } from '../util'
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
-import { type RetainedRunEnvironmentAdmission } from '../retained-run-types'
+import type { RetainedRunEnvironmentAdmission } from '../retained-run-types'
+import { chargedTokens } from '../util'
 import { assertValidSpend } from './budget'
 import { executorFailureReason } from './executor-outcome'
-import { type RetainedChildRecovery, type RetainedExecutorContext, executorEvidenceWriter, leafContinuationExecutionId, workspaceCaptureWriter } from './retained-executor'
+import {
+  executorEvidenceWriter,
+  leafContinuationExecutionId,
+  type RetainedChildRecovery,
+  type RetainedExecutorContext,
+  workspaceCaptureWriter,
+} from './retained-executor'
 import { DEFAULT_BUDGET_STOP_HOLD_MS } from './scope-capabilities'
-import { type LiveChild, type ScopeArgs } from './scope-contract'
+import type { LiveChild, ScopeArgs } from './scope-contract'
 import { detachedSnapshot } from './snapshot'
-import { type TraceRootWriter } from './trace-root'
-import { type Budget, type NodeExecutionIdentity, type NodeId, type Spend } from './types'
+import type { TraceRootWriter } from './trace-root'
+import type { Budget, NodeExecutionIdentity, NodeId, SpawnOpts, Spend } from './types'
 
 /** Own the retained child invocation and its durable writes. */
-export function createChildRetention({ args, controller, id, ordinal, identity, recovery,
-  now, traceRoots, markRecoveryReady, childDeadlineAtMs, readLive, completeEvidence,
+export function createChildRetention({
+  args,
+  controller,
+  id,
+  ordinal,
+  identity,
+  recovery,
+  opts,
+  now,
+  traceRoots,
+  markRecoveryReady,
+  childDeadlineAtMs,
+  readLive,
+  completeEvidence,
 }: {
-  args: ScopeArgs; controller: AbortController; id: NodeId; ordinal: number;
-  identity: NodeExecutionIdentity | undefined; recovery: RetainedChildRecovery | undefined;
-  now: () => number; traceRoots: TraceRootWriter; markRecoveryReady: (() => void) | undefined;
-  childDeadlineAtMs: number | undefined; readLive: () => LiveChild;
-  completeEvidence: () => Promise<void>;
+  args: ScopeArgs
+  controller: AbortController
+  id: NodeId
+  ordinal: number
+  identity: NodeExecutionIdentity | undefined
+  recovery: RetainedChildRecovery | undefined
+  opts: SpawnOpts
+  now: () => number
+  traceRoots: TraceRootWriter
+  markRecoveryReady: (() => void) | undefined
+  childDeadlineAtMs: number | undefined
+  readLive: () => LiveChild
+  completeEvidence: () => Promise<void>
 }) {
   const retainedWrites = new Set<Promise<void>>()
   let retainedWritesClosed = false
@@ -52,9 +78,7 @@ export function createChildRetention({ args, controller, id, ordinal, identity, 
       const existing = admissions.find((record) => record.phase === admission.phase)
       if (existing) {
         if (contentAddress(existing) !== contentAddress(admission)) {
-          throw new ValidationError(
-            'scope retained admission conflicts with its committed phase',
-          )
+          throw new ValidationError('scope retained admission conflicts with its committed phase')
         }
         return
       }
@@ -161,9 +185,10 @@ export function createChildRetention({ args, controller, id, ordinal, identity, 
     onWorkspaceCaptureStarted,
     continueInvocation: async (nextTask) => {
       controller.signal.throwIfAborted()
+      const live = readLive()
       // An input after a committed result starts a new invocation; before one, it would pay
       // for the unfinished turn twice (the journal refuses it too).
-      if (readLive().acceptedResult === undefined) {
+      if (live.acceptedResult === undefined) {
         throw new ValidationError(
           'scope: a retained child continues only after its invocation committed a result',
         )
@@ -192,8 +217,8 @@ export function createChildRetention({ args, controller, id, ordinal, identity, 
       admissions = []
       // The committed result belongs to the invocation this one continues. A cancellation
       // from here on leaves this invocation pending, not that result accepted.
-      const priorSpent = readLive().acceptedResult.spent
-      readLive().acceptedResult = undefined
+      const priorSpent = live.acceptedResult.spent
+      live.acceptedResult = undefined
       return retainedContext({
         executionId: leafContinuationExecutionId(id, nextSeq),
         priorSession: environment,
@@ -201,7 +226,10 @@ export function createChildRetention({ args, controller, id, ordinal, identity, 
       })
     },
   })
-  return { retainedContext, closeRetainedWrites, holdMs,
+  return {
+    retainedContext,
+    closeRetainedWrites,
+    holdMs,
     readEnvironmentAdmission: () => {
       const admission = admissions.find((record) => record.phase === 'environment')
       return admission?.phase === 'environment' ? admission : undefined
@@ -217,4 +245,3 @@ function overBudget(budget: Budget, spent: Spend): boolean {
     (budget.maxUsd !== undefined && spent.usdKnown !== false && spent.usd > budget.maxUsd)
   )
 }
-
