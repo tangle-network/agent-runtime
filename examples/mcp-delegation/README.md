@@ -73,6 +73,7 @@ Set these in the mounted entry's `env`, then pass your profile to
 | `MCP_ENABLE_DELEGATE=1` | Serves the `delegate` verb |
 | `TANGLE_SANDBOX_API_KEY` | Only `new Sandbox({ apiKey })`, which creates the worker boxes. Falls back to `TANGLE_API_KEY` when unset |
 | `MCP_SUPERVISOR_ROUTER_KEY`, `MCP_SUPERVISOR_ROUTER_BASE_URL`, `MCP_SUPERVISOR_MODEL` | Only the supervisor brain's router calls |
+| `MCP_SUPERVISOR_INSTRUCTIONS` | Optional. Appended to the supervisor's prompt: your policy for the workers it authors, such as the harness and model your worker boxes can run |
 
 A platform key serves one product, so a caller with a Router key and a separate Sandbox key passes
 each under its own name. Neither key is forwarded into a worker box. The agent then sees the delegation tools

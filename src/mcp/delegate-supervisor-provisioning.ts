@@ -81,13 +81,19 @@ function resolveRouterSupervisor(env: NodeJS.ProcessEnv): {
     ? base.replace(/\/$/, '')
     : `${base.replace(/\/$/, '')}/v1`
   const model = requiredEnv(env, 'MCP_SUPERVISOR_MODEL')
+  // The consumer's own policy for the workers this supervisor authors, such as the only harness and
+  // model its worker boxes can run. Without it the brain picks instruments from memory, and on
+  // 2026-10-19 every one it picked (claude-code on Anthropic, nanoclaw, cli-base) died in the box.
+  const consumerInstructions = trimmed(env.MCP_SUPERVISOR_INSTRUCTIONS)
   return {
     router: { routerBaseUrl, routerKey },
     profile: {
       name: 'delegate-supervisor',
       harness: 'cli-base',
       model: { provider: 'tangle-router', default: model },
-      prompt: { systemPrompt: `${supervisorInstructions()}\n${delegateContract}` },
+      prompt: {
+        systemPrompt: [supervisorInstructions(), delegateContract, ...(consumerInstructions ? ['', consumerInstructions] : [])].join('\n'),
+      },
       tools: Object.fromEntries(
         delegateSupervisorVerbs.map((verb) => [`${coordinationProfileToolPrefix}${verb}`, true]),
       ),

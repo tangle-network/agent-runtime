@@ -27,6 +27,9 @@
  *   MCP_SUPERVISOR_MODEL             required exact supervisor brain model id
  *   MCP_SUPERVISOR_ROUTER_KEY        required router key for the supervisor brain
  *   MCP_SUPERVISOR_ROUTER_BASE_URL   required router base, normalized to `/v1`
+ *   MCP_SUPERVISOR_INSTRUCTIONS      optional text appended to the supervisor's system prompt: the
+ *                                    caller's policy for the workers it authors, such as the harness
+ *                                    and model its worker boxes can run
  *   AGENT_RUNTIME_DELEGATION_STATE_FILE
  *                                    optional — absolute path of a JSON state
  *                                    file. When set, delegation records persist

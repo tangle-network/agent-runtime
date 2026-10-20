@@ -182,6 +182,7 @@ describe('agent-runtime-mcp bin: one key per product', () => {
         MCP_SUPERVISOR_ROUTER_KEY: ROUTER_KEY,
         MCP_SUPERVISOR_ROUTER_BASE_URL: router.url,
         MCP_SUPERVISOR_MODEL: 'test-brain',
+        MCP_SUPERVISOR_INSTRUCTIONS: 'Every worker uses harness=opencode.',
       },
     })
     child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk.toString('utf8')))
@@ -208,6 +209,11 @@ describe('agent-runtime-mcp bin: one key per product', () => {
     const chats = routerSeen.filter((req) => req.url.includes('/chat/completions'))
     expect(chats.length, stderr.join('')).toBeGreaterThan(0)
     for (const req of chats) expect(req.authorization).toBe(`Bearer ${ROUTER_KEY}`)
+    // The supervisor is told to spawn, and carries the caller's worker policy.
+    const system = (JSON.parse(chats[0]?.body ?? '{}') as { messages?: Array<{ role: string; content: string }> })
+      .messages?.find((message) => message.role === 'system')?.content
+    expect(system).toContain('call spawn_worker at least once')
+    expect(system).toContain('Every worker uses harness=opencode.')
 
     expect(sandboxSeen.length, stderr.join('')).toBeGreaterThan(0)
     const create = sandboxSeen.find((req) => req.method === 'POST' && req.url === '/v1/sandboxes')
