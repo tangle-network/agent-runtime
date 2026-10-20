@@ -151,8 +151,11 @@ A retained provider run reattaches through `reconnectRetainedRun`. A chat turn r
 
 A supervised manager's turn that stays pending is resolved, not retried until the run ends:
 - A capacity refusal before dispatch, such as a subscription credential owner with no account room, was refused before it ran. The driver pauses as for any capacity refusal, bounded only by the deadline, the budget and cancellation, and time paused does not count toward `driverRetry.transientOutageMs`.
+- A provider command that exits non-zero before any dispatch, such as the credential command, ran nothing. The driver pauses the same way with `unavailableSignal: 'credential-unavailable'`, the command's `exitCode` and `resumeAt`, and the attempt never counts toward `pending-unresolved`.
 - A turn the provider answered but could not resolve, twice the same way or once when the failure would end the run, is abandoned. Runtime stops it at the provider, journals `execution-abandoned` with the outcome the provider confirmed (`stopped` or `uncertain`), and the next drive starts a new invocation. The journal refuses every later admission or result of the abandoned turn, so its replacement is the only one that can commit.
 - A lost transport waits for the provider inside the outage window, because the original may still be running.
+
+An accepted manager turn whose workspace capture fails is evidence debt, not a failure. The node journals one `execution-evidence` row with `workspaceCaptureFailure`, keeps the source environment unmutated, and continues in a new environment; the supervisor never exits for it. The owner's release tries the capture once more: a receipt that lands releases the source, and a source still without one is kept and named in the settled result's `teardownUnconfirmed[].kept` with `keptFor: 'evidence'`.
 
 **What survives a host crash?** Sandbox owns this:
 - Project identity survives, through the durable project store.

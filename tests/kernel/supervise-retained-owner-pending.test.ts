@@ -90,6 +90,8 @@ interface Fixture {
   readonly retentionTimeoutMs?: number
   /** Re-enter this earlier fixture directory: the same run directory and provider state. */
   readonly directory?: string
+  /** The process dies when it journals the Nth `execution-input`, before the run settles. */
+  readonly crashOnInput?: number
 }
 
 async function superviseRoot(fixture: Fixture) {
@@ -103,6 +105,7 @@ async function superviseRoot(fixture: Fixture) {
   let port = 0
   let token = ''
   let calls = 0
+  let inputs = 0
   const dispatched: AgentTurnInput[] = []
   const lost = new Set<string>()
   const neverReturns = new Set<string>()
@@ -362,7 +365,18 @@ async function superviseRoot(fixture: Fixture) {
     'Produce the answer.',
     {
       runDir,
-      journal: context.journal,
+      journal:
+        fixture.crashOnInput === undefined
+          ? context.journal
+          : {
+              beginTree: context.journal.beginTree.bind(context.journal),
+              loadTree: context.journal.loadTree.bind(context.journal),
+              async appendEvent(root, event) {
+                if (event.kind === 'execution-input' && ++inputs === fixture.crashOnInput)
+                  throw new Error('supervisor process died')
+                await context.journal.appendEvent(root, event)
+              },
+            },
       blobs: context.blobs,
       runId: 'pending-root',
       backend: { backend: 'provider', provider },
@@ -562,11 +576,9 @@ describe('supervised root with a pending retained turn', () => {
     async (staleAcknowledgement) => {
       // queens21-h22-tree4-20261018a (2026-10-18): a cancel queued on a dead run made its resume
       // throw on the aborted recovery, and the next resume re-ran its work to budget exhaustion.
-      await expect(superviseRoot({ captureFailure: 'partial', submitOn: 2 })).rejects.toMatchObject(
-        {
-          name: 'RetainedWorkspaceCapturePendingError',
-        },
-      )
+      await expect(
+        superviseRoot({ captureFailure: 'partial', submitOn: 2, crashOnInput: 2 }),
+      ).rejects.toThrow('supervisor process died')
       const directory = directories.at(-1)!
       const runDir = join(directory, 'run')
       cancelRun(runDir, 'dead-cancel', { reason: 'operator', source: 'test' })
@@ -590,17 +602,35 @@ describe('supervised root with a pending retained turn', () => {
     },
   )
 
-  it('keeps an accepted turn with incomplete capture open without sealing a winner', async () => {
-    await expect(superviseRoot({ captureFailure: 'partial', submitOn: 2 })).rejects.toMatchObject({
-      name: 'RetainedWorkspaceCapturePendingError',
-    })
-    const runDir = join(directories.at(-1)!, 'run')
-    const events = (await createFileRunContext(runDir).journal.loadTree('pending-root')) ?? []
-    expect(count(events, 'execution-input')).toBe(1)
-    expect(count(events, 'execution-result')).toBe(1)
-    expect(events.some((event) => event.kind === 'environment-teardown' && event.destroyed)).toBe(
-      false,
+  it('continues past an accepted turn with incomplete capture and keeps its source as evidence', async () => {
+    const run = await superviseRoot({ captureFailure: 'partial', submitOn: 2 })
+    expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
+    expect(run.dispatched).toHaveLength(2)
+    // The uncaptured source is never mutated: the next turn ran in another environment.
+    expect(run.environments).toHaveLength(2)
+    expect(run.destroyed).not.toContain(run.environments[0])
+    expect(await run.base.get!(run.environments[0]!)).not.toBeNull()
+    expect(count(run.events, 'execution-input')).toBe(2)
+    expect(count(run.events, 'execution-result')).toBe(2)
+    const debt = run.evidence.filter(
+      (output) =>
+        typeof (output as { workspaceCaptureFailure?: unknown }).workspaceCaptureFailure ===
+        'string',
     )
+    expect(debt).toEqual([
+      expect.objectContaining({
+        executionId: run.firstCaptureExecution,
+        environmentId: run.environments[0],
+        workspaceCaptureFailure: expect.stringContaining('retained workspace capture pending'),
+      }),
+    ])
+    expect(run.result.teardownUnconfirmed).toEqual([
+      expect.objectContaining({
+        kept: [
+          expect.objectContaining({ environmentId: run.environments[0], keptFor: 'evidence' }),
+        ],
+      }),
+    ])
   })
 
   it('preserves a raw-partial source through a checkpointed seat switch', async () => {
