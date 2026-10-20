@@ -276,8 +276,7 @@ export function createPrivateCasArtifactPort(
       shards.filter((name) => SHARD.test(name)),
       LIST_SHARDS_AT_ONCE,
       async (shard) => {
-        const objects: Array<{ hex: string; path: string; size: number; modifiedMs: number }> =
-          []
+        const objects: Array<{ hex: string; path: string; size: number; modifiedMs: number }> = []
         for (const hex of await readdir(join(store, shard))) {
           if (!HEX.test(hex) || hex.slice(0, 2) !== shard) continue
           const path = join(store, shard, hex)
