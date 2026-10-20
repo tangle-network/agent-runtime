@@ -54,6 +54,19 @@ const delegateSupervisorVerbs = [
 ] as const
 
 /**
+ * The `delegate` caller asked for a worker to do the task, and only a worker's settled result is
+ * delivered. A capable brain otherwise answers a small intent itself (gemini-3.7-flash and kimi-k3
+ * both replied to "Reply with exactly DELEGATED-391" directly), which settles `no-children-spawned`
+ * and discards the answer.
+ */
+const delegateContract = [
+  '',
+  'This task came through `delegate`: the caller wants a worker to do it. However small the task,',
+  'call spawn_worker at least once before you end your turn. Your own reply is never delivered;',
+  "only a worker's settled result is.",
+].join('\n')
+
+/**
  * Resolve the supervisor brain from dedicated MCP configuration. The model is part of the exact
  * profile; the URL and key are transport-only. No generic worker/model/key variable may silently
  * select this paid execution path.
@@ -74,7 +87,7 @@ function resolveRouterSupervisor(env: NodeJS.ProcessEnv): {
       name: 'delegate-supervisor',
       harness: 'cli-base',
       model: { provider: 'tangle-router', default: model },
-      prompt: { systemPrompt: supervisorInstructions() },
+      prompt: { systemPrompt: `${supervisorInstructions()}\n${delegateContract}` },
       tools: Object.fromEntries(
         delegateSupervisorVerbs.map((verb) => [`${coordinationProfileToolPrefix}${verb}`, true]),
       ),
