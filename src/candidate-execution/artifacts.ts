@@ -78,8 +78,11 @@ export class WorkspaceScanLimitError extends Error {}
 export interface WorkspaceScanOptions {
   readonly signal?: AbortSignal
   readonly ignoredProtectedRootEntries?: readonly ('.git' | '.sidecar')[]
-  /** Top-level entries skipped by name; a verify of the same root must name the same entries. */
-  readonly excludedRootEntries?: readonly string[]
+  /**
+   * Root-relative files or directories left out, each by its exact path (`__retention__` or
+   * `__retention__/sessions/<id>`). A verify of the same root must name the same paths.
+   */
+  readonly excludedPaths?: readonly string[]
   readonly limits?: WorkspaceScanLimits
   /** Scan only these root-relative files, pruning every unrelated directory. */
   readonly selectedPaths?: readonly string[]
@@ -290,15 +293,19 @@ async function walkWorkspace(
   options: WorkspaceCaptureOptions,
   keepBytes: boolean,
 ): Promise<ScannedWorkspaceEntry[]> {
-  for (const name of options.excludedRootEntries ?? []) {
-    if (!name || name === '.' || name === '..' || /[/\\\0]/.test(name)) {
-      throw new Error('workspace excluded root entry must be a single path segment')
+  const ignoredProtectedRootEntries = new Set<string>(options.ignoredProtectedRootEntries ?? [])
+  const excluded = new Set(options.excludedPaths ?? [])
+  for (const path of excluded) {
+    if (
+      !path ||
+      path.includes('\\') ||
+      path.includes('\0') ||
+      isAbsolute(path) ||
+      path.split('/').some((part) => !part || part === '.' || part === '..')
+    ) {
+      throw new Error('workspace excluded path must be a safe relative path')
     }
   }
-  const ignoredProtectedRootEntries = new Set<string>([
-    ...(options.ignoredProtectedRootEntries ?? []),
-    ...(options.excludedRootEntries ?? []),
-  ])
   const limits = options.limits
   const selected = options.selectedPaths ? new Set(options.selectedPaths) : undefined
   const selectedDirectories = new Set<string>()
@@ -357,6 +364,7 @@ async function walkWorkspace(
       if (!relPath || relPath.startsWith('../') || relPath.includes('/../')) {
         throw new Error(`workspace entry escapes root: ${relPath}`)
       }
+      if (excluded.has(relPath)) continue
       if (selected && !selected.has(relPath) && !selectedDirectories.has(relPath)) continue
       const stats = await lstat(absolute)
       if (stats.isSymbolicLink()) {

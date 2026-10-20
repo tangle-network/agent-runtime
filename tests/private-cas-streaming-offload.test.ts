@@ -375,17 +375,22 @@ it('captures a workspace tree with several durable copies in flight, each distin
   )
 })
 
-it('leaves named root entries out of a tree capture, so a recapture stores only changed work', async () => {
-  // The shape of Discovery canary 20b: retained native sessions and a virtualenv beside the work.
+it('leaves named paths out of a tree capture, so a recapture stores only changed work', async () => {
+  // The shape of Discovery canary 20b: a provider's retained native session tree, its final
+  // session record and provenance (kept: no native capture holds their last versions), and a
+  // virtualenv, beside the work.
   const root = await mkdtemp(join(tmpdir(), 'cas-tree-excluded-'))
   roots.push(root)
   const source = join(root, 'source')
-  await mkdir(join(source, '__retention__', 'sessions'), { recursive: true })
+  const sessionTree = join(source, '__retention__', 'sessions', 's1')
+  await mkdir(sessionTree, { recursive: true })
   await mkdir(join(source, '.venv', 'lib'), { recursive: true })
-  await mkdir(join(source, 'work', '__retention__'), { recursive: true })
-  await writeFile(join(source, '__retention__', 'sessions', 'raw.json'), 'x'.repeat(4096))
+  await mkdir(join(source, 'work', '.venv'), { recursive: true })
+  await writeFile(join(sessionTree, 'raw-manifest.json'), 'x'.repeat(4096))
+  await writeFile(join(source, '__retention__', 'sessions', 's1.json'), 'record 1')
+  await writeFile(join(source, '__retention__', 'provenance.json'), 'provenance 1')
   await writeFile(join(source, '.venv', 'lib', 'numpy.so'), 'y'.repeat(4096))
-  await writeFile(join(source, 'work', '__retention__', 'kept.md'), 'nested names are kept')
+  await writeFile(join(source, 'work', '.venv', 'kept.md'), 'only the named path is left out')
   await writeFile(join(source, 'work', 'result.md'), 'first')
   const durable = await diskS3StreamStore(join(root, 'remote'))
   const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
@@ -393,27 +398,29 @@ it('leaves named root entries out of a tree capture, so a recapture stores only 
   })
   const capture = () =>
     captureAgentCandidateWorkspaceTreeToArtifacts(source, {
-      excludedRootEntries: ['__retention__', '.venv'],
+      excludedPaths: ['__retention__/sessions/s1', '.venv'],
       artifactPersistence: { executionId: 'node', outputArtifacts: artifacts },
     })
 
   const first = await capture()
   const material = await verifyAgentCandidateWorkspaceTree(first, artifacts)
   expect(material.files.map((file) => file.path).sort()).toEqual([
-    'work/__retention__/kept.md',
+    '__retention__/provenance.json',
+    '__retention__/sessions/s1.json',
+    'work/.venv/kept.md',
     'work/result.md',
   ])
-  await writeFile(join(source, '__retention__', 'sessions', 'raw.json'), 'z'.repeat(8192))
+  await writeFile(join(sessionTree, 'raw-manifest.json'), 'z'.repeat(8192))
   await writeFile(join(source, 'work', 'result.md'), 'second')
   const second = await capture()
-  expect(second).toMatchObject({ files: 2, storedBytes: 'second'.length })
+  expect(second).toMatchObject({ files: 4, storedBytes: 'second'.length })
 
   await expect(
     captureAgentCandidateWorkspaceTreeToArtifacts(source, {
-      excludedRootEntries: ['work/result.md'],
+      excludedPaths: ['work/../.venv'],
       artifactPersistence: { executionId: 'node', outputArtifacts: artifacts },
     }),
-  ).rejects.toThrow(/single path segment/)
+  ).rejects.toThrow(/safe relative path/)
 })
 
 // A pass copied one object at a time, each a store round trip plus a receipt with two fsyncs:
