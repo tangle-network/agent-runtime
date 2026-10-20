@@ -31040,7 +31040,8 @@ Public Sandbox outcome settled after the complete event stream.
 
 > **events**: `SandboxEvent`[]
 
-Raw sandbox event stream collected for this iteration. Present on a failed iteration too,
+Sandbox events collected for this iteration, keeping the newest snapshot of each streamed text
+ or reasoning part rather than every cumulative frame. Present on a failed iteration too,
  holding the events received before the failure — including the one that reported it.
 
 ##### startedAt

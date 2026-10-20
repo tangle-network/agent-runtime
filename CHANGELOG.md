@@ -1,3 +1,7 @@
+## 0.325.17-1
+
+`runAgentRounds` iterations keep one snapshot per streamed text or reasoning part, as `openSandboxRun` turns do since 0.336.1. Each iteration had held every opencode `message.part.updated` frame, each carrying the part's whole text so far, for the whole run: O(L²) bytes per long turn, which still crashed the platform API (heap 423 MB to 2 GB in 18 min) after the `openSandboxRun` fix.
+
 ## 0.325.17-0
 
 A sandbox turn no longer holds every streamed frame of a text or reasoning part. opencode sends one `message.part.updated` per token, each carrying the part's whole text so far, so a long single turn held O(L²) bytes, and concurrent audit workflows took the platform API to an out-of-memory crash. `openSandboxRun` now keeps the newest snapshot of each part at its newest position and drops that frame's `delta`, which already sits in its text. Delta-only frames and all other events are kept as they arrived, and `collectAgentResponseText` and `collectAgentFinalMessageText` return the same text as from the full stream.
