@@ -1,3 +1,9 @@
+## 0.337.2
+
+`runAgentRounds` iterations keep one snapshot per streamed text or reasoning part, as `openSandboxRun` turns do since 0.336.1. Each iteration had held every opencode `message.part.updated` frame, each carrying the part's whole text so far, for the whole run: O(L²) bytes per long turn, which still crashed the platform API (heap 423 MB to 2 GB in 18 min) after the `openSandboxRun` fix.
+
+Runtime admits `@tangle-network/sandbox` 0.63.10 (`>=0.63.10 <0.63.11`) beside the existing windows and develops against it. Sandbox 0.63 lets `CreateSandboxOptions.secrets` carry host-scoped `SecretBinding` objects; `providerAsSandboxClient` without `mapCreateOptions` passes secret names and refuses a binding, which a neutral environment input cannot express.
+
 ## 0.337.1
 
 The private CAS runs its fsyncs on up to 16 threads of their own instead of libuv's four-thread pool, a tree capture stores 64 files at a time instead of 16, and a full offload pass lists 16 shards at a time (https://github.com/tangle-network/agent-runtime/pull/1913). On drew-gtr-pro's busy USB archive disk, a 9,448-file workspace capture stored 6.5 objects/s against 1.3 objects/s before. Every fsync, hash check and durable receipt is unchanged.
