@@ -3178,9 +3178,7 @@ function createInputFromSandboxOptions(
     // Neutral inputs name secrets; a custom mapper owns any provider-specific selector or binding.
     ...(Array.isArray(options?.secrets)
       ? {
-          secrets: options.secrets.filter(
-            (secret): secret is string => typeof secret === 'string',
-          ),
+          secrets: options.secrets.filter((secret): secret is string => typeof secret === 'string'),
         }
       : {}),
     ...(options?.metadata ? { metadata: options.metadata } : {}),
