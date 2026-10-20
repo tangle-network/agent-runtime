@@ -3146,7 +3146,10 @@ function createInputFromSandboxOptions(
     if (options?.secrets === 'all') unsupported.push('secrets=all')
     // Sandbox 0.63 accepts structured secret bindings beside names; a neutral input names secrets
     // only, so a binding needs the caller's mapper.
-    if (Array.isArray(options?.secrets) && options.secrets.some((secret) => typeof secret !== 'string'))
+    if (
+      Array.isArray(options?.secrets) &&
+      options.secrets.some((secret) => typeof secret !== 'string')
+    )
       unsupported.push('secrets bindings')
     if (unsupported.length > 0) {
       throw new ValidationError(
@@ -3174,7 +3177,11 @@ function createInputFromSandboxOptions(
     ...(options?.env ? { env: options.env } : {}),
     // Neutral inputs name secrets; a custom mapper owns any provider-specific selector or binding.
     ...(Array.isArray(options?.secrets)
-      ? { secrets: options.secrets.filter((secret): secret is string => typeof secret === 'string') }
+      ? {
+          secrets: options.secrets.filter(
+            (secret): secret is string => typeof secret === 'string',
+          ),
+        }
       : {}),
     ...(options?.metadata ? { metadata: options.metadata } : {}),
     ...(options?.name ? { name: options.name } : {}),

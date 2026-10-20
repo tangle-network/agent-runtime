@@ -1093,11 +1093,15 @@ describe('environment provider adapters', () => {
     }
     const client = providerAsSandboxClient(provider)
 
-    await client.create({ secrets: ['HF_TOKEN'] })
+    const backend = { type: 'codex' as BackendType, profile: { name: 'worker' } }
+    await client.create({ backend, secrets: ['HF_TOKEN'] })
     expect(created).toEqual([expect.objectContaining({ secrets: ['HF_TOKEN'] })])
     // A binding scopes a secret to one host, which a neutral environment input cannot express.
     await expect(
-      client.create({ secrets: ['HF_TOKEN', { name: 'GH_TOKEN', host: 'github.com' }] }),
+      client.create({
+        backend,
+        secrets: ['HF_TOKEN', { name: 'GH_TOKEN', host: 'github.com' }],
+      }),
     ).rejects.toThrow('require mapCreateOptions: secrets bindings')
     expect(created).toHaveLength(1)
   })
