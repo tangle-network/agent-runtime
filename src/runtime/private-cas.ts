@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve, sep } from 'node:path'
 import type { AgentCandidateArtifactRef, Sha256Digest } from '@tangle-network/agent-interface'
 import { markPutStreamVerified } from '../candidate-execution/artifact-streams'
 import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
+import { syncDirectory, syncHandle } from './durable-sync'
 import { runAbortable } from './supervise/abortable'
 import { mapWithConcurrency } from './util'
 
@@ -127,18 +128,6 @@ const message = (error: unknown): string => (error instanceof Error ? error.mess
 const sha256 = (bytes: Uint8Array): Sha256Digest =>
   `sha256:${createHash('sha256').update(bytes).digest('hex')}` as Sha256Digest
 
-async function syncDirectory(directory: string): Promise<void> {
-  const handle = await open(
-    directory,
-    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-  )
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
 /** Read one local object, or undefined when the host no longer holds it. */
 async function readLocal(path: string): Promise<Uint8Array | undefined> {
   let file: Awaited<ReturnType<typeof open>>
@@ -212,7 +201,7 @@ export function createPrivateCasArtifactPort(
       await file.writeFile(
         `${JSON.stringify({ schema: RECEIPT_SCHEMA, location: durable!.location, namespace, digest, byteLength, storedAt: new Date().toISOString() })}\n`,
       )
-      await file.sync()
+      await syncHandle(file)
     } finally {
       await file.close()
     }
@@ -695,7 +684,7 @@ export function createPrivateCasArtifactPort(
           await file.writeFile(chunk)
         }
         signal?.throwIfAborted()
-        await file.sync()
+        await syncHandle(file)
       } finally {
         await file.close()
       }
@@ -724,15 +713,7 @@ export function createPrivateCasArtifactPort(
           // An existing object must independently match, even when our staged bytes were valid.
         }
       }
-      const dir = await open(
-        directory,
-        constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-      )
-      try {
-        await dir.sync()
-      } finally {
-        await dir.close()
-      }
+      await syncDirectory(directory)
       if (durable !== undefined)
         await settlePut(
           sha,
@@ -805,7 +786,7 @@ export function createPrivateCasArtifactPort(
     )
     try {
       await file.writeFile(bytes)
-      await file.sync()
+      await syncHandle(file)
     } finally {
       await file.close()
     }
