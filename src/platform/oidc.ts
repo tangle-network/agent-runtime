@@ -3,6 +3,8 @@
  * are not platform API keys. Resource scopes and audiences must be registered
  * by the provider before a consumer can use these tokens at a paid API.
  */
+
+import { isRecord } from '../record-value'
 import { PlatformAuthError } from './auth.js'
 
 export interface PlatformOidcClientOptions {
@@ -62,10 +64,6 @@ export interface OidcDeviceAuthorization {
 
 const DEFAULT_SCOPE = 'openid profile email offline_access'
 const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
 
 function isNonemptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { type FileHandle, open, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { isRecord } from '../../record-value'
 
 /**
  * Inline resources a manager hands a child by PATH instead of by content.
@@ -148,10 +149,6 @@ interface PathInlineRef {
   readonly kind: 'inline'
   readonly name: string
   readonly path: string
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /** An inline ref that names a path and carries no content. Anything else is left untouched so the

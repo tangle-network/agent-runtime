@@ -19,6 +19,7 @@ import type {
   AgentSessionStatus,
   AgentTurnResult,
 } from '@tangle-network/agent-interface/environment-provider'
+import { isRecord } from '../record-value'
 import { armDeadlineTimer } from './supervise/deadline'
 
 export function exactSession(
@@ -316,10 +317,6 @@ export function assertCanonicalEventBinding(
   ) {
     throw new Error('provider returned an interaction for another retained execution')
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 export function assertStableText(value: string, label: string): void {

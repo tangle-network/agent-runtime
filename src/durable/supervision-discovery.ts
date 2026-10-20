@@ -1,4 +1,5 @@
 import { resolve } from 'node:path'
+import { isRecord } from '../record-value'
 import type { NodeId } from '../runtime/supervise/types'
 import { readCommittedJsonLines } from './jsonl-file'
 
@@ -130,10 +131,6 @@ export async function discoverDurableSupervisionRun(
     rootsBegunAt: Object.freeze(roots.map((root) => rootsBegunAt.get(root) ?? null)),
     coordinationStreams: Object.freeze(coordinationStreams),
   })
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function compareText(left: string, right: string): number {

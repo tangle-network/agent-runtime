@@ -1,4 +1,5 @@
 import { ValidationError } from '../errors'
+import { isRecord } from '../record-value'
 
 /**
  * Interface 5.3 admits proxy secrets and private config values, but the current Sandbox SDK
@@ -47,8 +48,4 @@ export function refuseSandboxProfileField(field: string, context = 'candidate pr
   throw new ValidationError(
     `${context} field ${field} is refused: Sandbox's Interface 4.0.0 cannot carry it yet, and Runtime does not drop it`,
   )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }

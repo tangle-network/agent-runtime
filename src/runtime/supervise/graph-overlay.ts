@@ -28,6 +28,7 @@ import type {
   CoordinationEvent,
   MapOnSettleRoute,
 } from '../../mcp/tools/coordination'
+import { isRecord } from '../../record-value'
 import { errMessage } from './error-message'
 import type {
   EdgeDeliveryOutcome,
@@ -1146,10 +1147,6 @@ export interface PreparedGraphSubtask {
   readonly profile: AgentProfile
   readonly root: NodeId
   readonly nodes: ReadonlyArray<NodeId>
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function parseDirective(raw: unknown, where: string): PromptHandle {

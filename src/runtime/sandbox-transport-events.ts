@@ -1,4 +1,5 @@
 import { CanonicalStreamEventSchema, type StreamEvent } from '@tangle-network/agent-interface'
+import { isRecord } from '../record-value'
 import { assertRuntimeTimestamp } from './timestamps'
 
 /**
@@ -146,8 +147,4 @@ function optionalTimestamp(value: unknown): string | undefined {
   if (value === undefined) return undefined
   assertRuntimeTimestamp(value, 'occurredAt')
   return value
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

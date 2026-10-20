@@ -37,6 +37,7 @@ import {
 import { contentAddress } from '../../durable/spawn-journal'
 import type { OtelExportConfig, OtelExporter, OtelExportStats, OtelSpan } from '../../otel-export'
 import { createOtelExporter, generateSpanId, toOtelAttributes } from '../../otel-export'
+import { isRecord } from '../../record-value'
 import type { RuntimeHookEvent, RuntimeHooks } from '../../runtime-hooks'
 import type { Budget, Spend, SupervisedResult } from './types'
 import type { TraceContext, WorkerTraceResolver } from './worker-trace'
@@ -579,10 +580,6 @@ function normalizeTraceId(
 function msToNano(ms: number): string {
   const safe = Number.isFinite(ms) ? Math.floor(ms) : 0
   return (BigInt(safe) * 1_000_000n).toString()
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function record(value: unknown): Record<string, unknown> {
