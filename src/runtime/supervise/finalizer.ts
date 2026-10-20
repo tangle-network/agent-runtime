@@ -183,3 +183,20 @@ export async function runFinalizer(
   })
   return (await accepted(candidate)) ? candidate : undefined
 }
+
+/** Keep-best finalize under the completion-oracle: return the highest-scoring DELIVERED child's
+ *  output (settled `done` AND `valid` — its deliverable check passed). Returns undefined when no
+ *  child delivered — an honest "the driver produced nothing", never a high-scoring result that
+ *  ran without passing its check (Foreman's 0/18 lesson). `valid` is the single delivery signal,
+ *  matching `defaultSelectWinner`'s valid-first rule; the oracle just doesn't fall back to an
+ *  unchecked best-effort. The same argmax as the `bestDelivered` finalizer (`pickBestDelivered`);
+ *  this direct form serves callers that hold a bare ledger + blob store. */
+export async function finalizeBestDelivered(
+  settled: ReadonlyArray<{ status: string; score?: number; valid?: boolean; outRef?: string }>,
+  blobs: ResultBlobStore,
+): Promise<unknown> {
+  const delivered = settled.filter((w) => w.status === 'done' && w.valid === true)
+  const best = pickBestDelivered(delivered)
+  if (best === undefined) return undefined
+  return best.outRef ? await blobs.get(best.outRef) : undefined
+}
