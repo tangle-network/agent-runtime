@@ -12,6 +12,9 @@ import { Worker } from 'node:worker_threads'
  * for the rest.
  */
 const SYNC_THREADS = 16
+// Each thread is a V8 isolate of about 12 MB (measured on Node 24), so one idle this long exits:
+// a burst of puts holds its threads, a process between bursts holds none.
+const IDLE_THREAD_MS = 30_000
 
 // Each message is a file descriptor this process holds open; the reply is null or the failure.
 const SYNCER = `
@@ -34,15 +37,30 @@ interface SyncJob {
 
 const jobs: SyncJob[] = []
 const idle: Worker[] = []
+const idleSince = new Map<Worker, ReturnType<typeof setTimeout>>()
 let threads = 0
 // Set when a thread cannot start or dies: every later fsync runs on libuv's pool, as before.
 let threadsUnavailable = false
+
+// Take an idle thread out of service; true when it was idle.
+function retire(worker: Worker): boolean {
+  const at = idle.indexOf(worker)
+  if (at === -1) return false
+  idle.splice(at, 1)
+  clearTimeout(idleSince.get(worker))
+  idleSince.delete(worker)
+  threads--
+  return true
+}
 
 function spawn(): Worker | undefined {
   try {
     const worker = new Worker(SYNCER, { eval: true })
     worker.unref()
     threads++
+    // A thread that fails while it holds a job is handled by run(); one that fails idle leaves.
+    worker.on('error', () => undefined)
+    worker.on('exit', () => retire(worker))
     return worker
   } catch {
     threadsUnavailable = true
@@ -58,7 +76,19 @@ function onPool(job: SyncJob): void {
   )
 }
 
+function rest(worker: Worker): void {
+  worker.unref()
+  idle.push(worker)
+  const timer = setTimeout(() => {
+    if (retire(worker)) void worker.terminate().catch(() => undefined)
+  }, IDLE_THREAD_MS)
+  timer.unref()
+  idleSince.set(worker, timer)
+}
+
 function run(worker: Worker, job: SyncJob): void {
+  clearTimeout(idleSince.get(worker))
+  idleSince.delete(worker)
   worker.ref()
   const detach = () => {
     worker.off('message', replied)
@@ -67,8 +97,7 @@ function run(worker: Worker, job: SyncJob): void {
   }
   const replied = (failure: { message: string; code?: string } | null) => {
     detach()
-    worker.unref()
-    idle.push(worker)
+    rest(worker)
     if (failure === null) job.settle()
     else job.settle(Object.assign(new Error(failure.message), { code: failure.code }))
     dispatch()
