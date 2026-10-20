@@ -29,8 +29,13 @@ import {
 
 type WorkspaceFile = AgentCandidateWorkspaceManifestMaterial['files'][number]
 
-/** Files a tree capture stores at once; each waits on a durable-store round trip of its own. */
-const CAPTURE_FILES_AT_ONCE = 16
+/**
+ * Files a tree capture stores at once; each waits on a durable-store round trip of its own and on
+ * four fsyncs. On drew-gtr-pro (2026-10-20), with three 180 ms store requests per file, 64 at once
+ * stored a 473-file workspace in 83 s and 110 s against 128 s and 139 s for 16 at once, in
+ * alternating runs, holding the same 16 sync threads.
+ */
+const CAPTURE_FILES_AT_ONCE = 64
 
 export interface CaptureAgentCandidateWorkspaceToArtifactsOptions {
   limits?: Partial<AgentCandidateWorkspaceArchiveLimits>
