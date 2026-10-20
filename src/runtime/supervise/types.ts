@@ -1370,6 +1370,19 @@ export interface ResumedWork<Out> {
    * "already paid" — the run's final `spentTotal` includes it because the journal spans processes.
    */
   readonly priorSpend: { readonly childWork: Spend; readonly driverInference: Spend }
+  /**
+   * This scope's direct workers the journal held open when the prior process stopped, and those
+   * this process re-places (`replaced`, a subset of `live`). The rest are gone: they will not
+   * report. The root's `root-reentered` journal record and its first re-entered drive both read
+   * this one value.
+   */
+  readonly reentered: ReenteredWorkers
+}
+
+/** The workers a resumed scope found open; see {@link ResumedWork.reentered}. */
+export interface ReenteredWorkers {
+  readonly live: ReadonlyArray<NodeId>
+  readonly replaced: ReadonlyArray<NodeId>
 }
 
 /** What the journal proves about one keyed assignment at resume time. */
@@ -2181,6 +2194,21 @@ export type SpawnEvent =
       from?: RootSegment
       to: RootSegment
       reason: string
+      seq: number
+      at: string
+    }
+  | {
+      /** A supervisor resumed a run that an earlier process drove, typically one that stopped
+       *  without settling it after a host reboot, a crash, or a killed process. `live` names every
+       *  worker the journal held open at that moment; `replaced` names those this process
+       *  re-placed, so the rest are gone. The root is re-driven with both, and no re-entered drive
+       *  counts toward its no-progress bound until the root has streamed a model event in this
+       *  process. Infrastructure evidence: replay and cost readers skip it; `seq` counts this run's
+       *  re-entries. */
+      kind: 'root-reentered'
+      id: NodeId
+      live: ReadonlyArray<NodeId>
+      replaced: ReadonlyArray<NodeId>
       seq: number
       at: string
     }

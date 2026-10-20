@@ -1586,9 +1586,16 @@ describe('a crash between the receipt and the released record heals on the next 
     })
     expect(resumed.kind, JSON.stringify(resumed)).toBe('winner')
     const healedEvents = (await restarted.journal.loadTree('same')) ?? []
-    // The resumed process adds only its own root binding; every child record is the control's.
+    // The resumed process adds only its own root records, its binding and its re-entry; every
+    // child record is the control's.
     const childRecords = (list: ReadonlyArray<SpawnEvent>) =>
-      list.filter((event) => !(event.kind === 'execution-bound' && event.id === 'same'))
+      list.filter(
+        (event) =>
+          !(
+            (event.kind === 'execution-bound' || event.kind === 'root-reentered') &&
+            event.id === 'same'
+          ),
+      )
     expect(recorded(childRecords(healedEvents))).toEqual(recorded(childRecords(controlEvents)))
     expect(recorded(await replaySpawnTree(restarted.journal, restarted.blobs, 'same'))).toEqual(
       recorded(await replaySpawnTree(control.journal, control.blobs, 'same')),

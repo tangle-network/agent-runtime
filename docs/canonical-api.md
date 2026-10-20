@@ -186,6 +186,7 @@ A progress `stopRule` that fired ends it too, and the settle record's `continuat
 A manager with a check is never served `stop`: it ends through `submit_result` or a bound, and a profile that grants it `stop` is refused before any compute.
 A run settles only on a terminal condition: the deadline, a cancel, an exhausted budget, a result the check accepts, or the no-progress bound.
 A turn that ends, a lost stream, a blocked tool and a dead supervisor are boundaries the root is re-entered across, by `resume` for a dead supervisor.
+A supervisor that resumes a run an earlier process drove journals one `root-reentered` record naming the root's workers that were open and those it re-placed (`ResumedWork.reentered`, the one source for both), and enters the root's first drive as `run-reentered` with that list. A drive counts toward `maxBarren` only if it began after the root's harness reported a model event in the new process (`DriveHarness` `onModelEvent`), so a root that speaks and then stays barren for `maxBarren` drives is still refused; a harness that never reports one leaves the run bounded by the continuation deadline, the run's deadline and the budget.
 A thrown parent check reports a validation error through the existing driver failure record; a `CheckUnavailableError` pauses instead.
 
 | I want to… | Use (import) | Do NOT build |

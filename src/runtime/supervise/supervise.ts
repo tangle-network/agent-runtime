@@ -1107,6 +1107,7 @@ function driveHarnessFromBackend(
     coordinationTools,
     reentry,
     session,
+    onModelEvent,
   }) => {
     const priorCommittedArtifact = managerArtifact
     managerArtifact = undefined
@@ -1230,15 +1231,20 @@ function driveHarnessFromBackend(
     // and the coordinator's run state.
     let driveTask = task
     if (reentry !== undefined) {
+      // The first drive after a process restart proves nothing yet: a retained owner reconciles
+      // its own invocation when it recovers, and probing the environment here first reconnected
+      // to it a second time.
       const proven: ReentryContinuity =
-        switchedProviderCheckpointAt === undefined
-          ? await reentryContinuity(boundBackend, scope, retainedOwner !== undefined)
-          : {
-              session: 'new',
-              environment: 'replaced',
-              workspace: 'restored',
-              checkpointAt: switchedProviderCheckpointAt,
-            }
+        reentry.reason.reason === 'run-reentered'
+          ? UNPROVEN_CONTINUITY
+          : switchedProviderCheckpointAt === undefined
+            ? await reentryContinuity(boundBackend, scope, retainedOwner !== undefined)
+            : {
+                session: 'new',
+                environment: 'replaced',
+                workspace: 'restored',
+                checkpointAt: switchedProviderCheckpointAt,
+              }
       if (
         activeSeat?.previous &&
         activeSeat.previous.seat !== activeSeat.seat &&
@@ -1757,6 +1763,7 @@ function driveHarnessFromBackend(
             // retained in the run directory as it arrives and never reaches a meter.
             rootStream?.append(event.progress)
             noteDriveProgress(event.progress)
+            onModelEvent?.()
           } else {
             pendingUsage.push(event)
           }

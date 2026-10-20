@@ -61,6 +61,15 @@
  * best composite. There is no count cap and no caller veto: the old prompt-owned loop logged 896
  * of 1,011 rounds with no progress, and 650 recorded inputs chose seven different re-prompt counts.
  *
+ * A RE-ENTERED run is one this process resumed after an earlier process drove it, usually one
+ * that stopped without settling it. Its first drive is entered as `run-reentered` with the
+ * workers that were open, and a drive counts toward `maxBarren` only if it began after the root
+ * streamed a model event in this process: the drive that straddles the restart never counts, and
+ * a root that speaks and then stays barren is refused as any other. Measured 2026-10-19 on
+ * magnetar-rust-20261019f: after a host reboot the re-entered root was first driven with the
+ * bare original task and no word of its three open workers, two barren continuations followed,
+ * and the run settled `no-result-selected`.
+ *
  * A THIRD CLASS sits between the two: the upstream said "not now". A model provider's exhausted
  * quota, a rate limit, or an overloaded service (HTTP 429, 503, 529, or the router's own codes for
  * them) is not an accident in the driver and not a decision by Runtime; the same request succeeds
@@ -195,8 +204,11 @@ export interface DriverAttemptRecord {
   /** Set when another attempt follows. For an `unavailable` attempt this is the pause, which is
    *  infrastructure time: together with `durationMs` it is what the outage cost this driver. */
   readonly retryInMs?: number
-  /** How this attempt was entered. Absent on the first attempt. */
+  /** How this attempt was entered. Absent on the first attempt of a run this process started. */
   readonly reentry?: DriverReentry['reason']
+  /** Set on an attempt of a re-entered run that began before the root streamed any model event
+   *  in this process. Such an attempt never counts toward `continuation.maxBarren`. */
+  readonly beforeModelEvent?: true
   /** For an `unavailable` attempt: the code or HTTP status that classified it, such as
    *  `provider_quota_exhausted` or `http-429`. */
   readonly unavailableSignal?: string
@@ -289,6 +301,17 @@ export type DriverReentry =
       /** 1-based: which pause this is. */
       readonly pause: number
     }
+  | {
+      /** An earlier process drove this run, usually one that stopped without settling it (a host
+       *  reboot, a crash, a killed process), and this is the first drive of the process that
+       *  resumed it. */
+      readonly reason: 'run-reentered'
+      /** This manager's workers that were open when the previous process stopped. */
+      readonly live: ReadonlyArray<string>
+      /** Of `live`, the workers this process re-placed. The others are gone: they will not
+       *  report, and their unfinished work is lost. */
+      readonly replaced: ReadonlyArray<string>
+    }
 
 /**
  * How a completed drive with its check unmet is re-entered. Runtime builds it from the manager's
@@ -322,8 +345,21 @@ export interface DriverWaitPolicy {
 
 export interface DriverRetryRun {
   /** Run one attempt. Rejects exactly as the un-retried driver would. `reentry` is present on
-   *  every attempt after the first; see {@link DriverReentry}. */
+   *  every attempt after the first, and on the first one of a re-entered run; see
+   *  {@link DriverReentry}. */
   readonly drive: (attempt: number, reentry?: DriverReentry) => Promise<void>
+  /**
+   * Present when this loop drives a run an earlier process drove (a resume). Its first
+   * drive is entered with `first`. Until `modelEvents()` is above zero when an attempt begins, that
+   * attempt does not count toward `continuation.maxBarren`: drives made before the re-entered root
+   * has spoken once measure the restart, not the root. The failure bounds, the deadline and the
+   * budget still apply to them.
+   */
+  readonly reentered?: {
+    readonly first: Extract<DriverReentry, { reason: 'run-reentered' }>
+    /** Model events the root's harness streamed in this process. */
+    readonly modelEvents: () => number
+  }
   /** Read the current progress mark. Called before and after every attempt. */
   readonly progress: () => DriverProgressMark
   /** Read the live budget — the retry's real bound. */
@@ -890,6 +926,7 @@ export function summarizeDriverAttempts(
   for (const record of records) {
     if (record.madeProgress) barren = 0
     else if (
+      record.beforeModelEvent !== true &&
       record.error === undefined &&
       record.reentry !== undefined &&
       record.reentry !== 'wake' &&
@@ -992,11 +1029,17 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   let pauses = 0
   let continuations = 0
   let wakes = 0
-  let reentry: DriverReentry | undefined
+  let reentry: DriverReentry | undefined = run.reentered?.first
+  // Whether the current attempt began before the re-entered root's first model event.
+  let beforeModelEvent = false
 
   const emit = async (record: DriverAttemptRecord): Promise<void> => {
     const entered = reentry === undefined ? {} : { reentry: reentry.reason }
-    const stamped = { ...record, ...entered }
+    const stamped = {
+      ...record,
+      ...entered,
+      ...(beforeModelEvent ? { beforeModelEvent: true as const } : {}),
+    }
     attempts.push(stamped)
     await run.onAttempt?.(stamped)
   }
@@ -1043,6 +1086,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   for (let attempt = 1; ; attempt += 1) {
     const before = run.progress()
     const startedAt = now()
+    beforeModelEvent = run.reentered !== undefined && run.reentered.modelEvents() === 0
     // The completed-drive arm lives OUTSIDE this try. A configuration fault raised while deciding
     // the re-prompt is the caller's, not the driver's, and must reach the caller unwrapped instead
     // of being classified as one more driver failure.
@@ -1051,7 +1095,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     const admissionStop = run.signal.aborted ? 'aborted' : budgetStop(run.budget(), now())
     if (admissionStop !== undefined) {
       // A completed-but-unmet invocation remains completed; its finalizer owns acceptance.
-      if (reentry !== undefined) return
+      if (attempts.length > 0) return
       throw new DriverAttemptsExhaustedError(
         run.signal.aborted
           ? run.signal.reason
@@ -1294,7 +1338,12 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     const contract = contractOf(after)
     const contractField = contract === 'none' ? {} : { contract }
     if (progressed) barrenReentries = 0
-    else if (reentry !== undefined && reentry.reason !== 'wake' && contract === 'unmet') {
+    else if (
+      !beforeModelEvent &&
+      reentry !== undefined &&
+      reentry.reason !== 'wake' &&
+      contract === 'unmet'
+    ) {
       barrenReentries += 1
     }
     // A turn that ends with work open is a wait. The bounds the failure path applies hold here
