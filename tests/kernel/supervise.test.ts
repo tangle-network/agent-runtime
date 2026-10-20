@@ -1531,7 +1531,7 @@ describe('reactive scope', () => {
 
     expect(scope.send(spawned.handle.id, { junk: true })).toBe(false)
     expect(scope.send(spawned.handle.id, { steer: 'use the valid route' })).toBe(true)
-    expect(inbox.drain()).toEqual([
+    expect(inbox.take().messages).toMatchObject([
       { kind: 'steer', text: 'use the valid route', interrupt: false },
     ])
     release()
@@ -2572,7 +2572,9 @@ describe('supervisor', () => {
 
     expect(handle.deliver({ junk: true })).toBe(false)
     expect(handle.deliver({ steer: 'valid correction' })).toBe(true)
-    expect(inbox.drain()).toEqual([{ kind: 'steer', text: 'valid correction', interrupt: false }])
+    expect(inbox.take().messages).toMatchObject([
+      { kind: 'steer', text: 'valid correction', interrupt: false },
+    ])
     release.resolve()
     await running
   })

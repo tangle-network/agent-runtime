@@ -1236,7 +1236,7 @@ export interface Scope<Out> {
    * Steer a RUNNING child out-of-band — deliver a message to its executor's inbox (the driver's
    * `send` verb: next-instruction, interrupt, or resume). Returns `true` if the message was
    * delivered to a live child whose executor accepts delivery, `false` otherwise (unknown id,
-   * already settled, or an executor with no inbox). The executor drains its inbox between turns;
+   * already settled, or an executor with no inbox). The executor reads its inbox between turns;
    * a leaf that does not implement `deliver` simply cannot be steered mid-flight. In-process this
    * is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an MCP tool.
    */

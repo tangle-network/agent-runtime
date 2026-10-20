@@ -55,7 +55,7 @@ import { armDeadlineTimer } from './deadline'
 import { HarnessTurnFailedError } from './driver-retry'
 import { contentRef } from './executor-outcome'
 import { readOptionalAbortSignal, readOptionalMcpAttachments, readSeam } from './executor-seams'
-import { createInbox, type Inbox } from './inbox'
+import { createInbox, failPendingAfter, type Inbox, type InboxLease } from './inbox'
 import {
   attestRuntimeOwnedPendingExecutor,
   finalizeRuntimeOwnedPendingExecutor,
@@ -284,7 +284,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         reason: 'provider-has-no-interactive-contract',
       }),
     execute(task, signal): AsyncIterable<UsageEvent> {
-      return streamBridgeSession({
+      const session = streamBridgeSession({
         task,
         signal,
         ...(stopSignal === undefined ? {} : { stopSignal }),
@@ -332,6 +332,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
           )
         },
       })
+      return failPendingAfter(inbox, session)
     },
     async cancel(request): Promise<ExecutorCancellation> {
       // The bridge OWNS a cancel operation and reports terminal state, so this arm can answer with
@@ -508,7 +509,7 @@ function scheduleBridgeRunStateRefresh(
  * One resumable cli-bridge session, run as a streamed turn loop. Turn 0 sends the
  * task; each subsequent turn fires ONLY when the inbox has a steer/answer to fold —
  * re-calling the SAME `session_id` so cli-bridge resumes the harness conversation.
- * Mirrors `routerToolsInlineExecutor`'s drain→turn→settle loop, but each turn is a
+ * Mirrors `routerToolsInlineExecutor`'s take→turn→settle loop, but each turn is a
  * full streamed harness session call rather than a single chat round.
  */
 async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<UsageEvent> {
@@ -555,13 +556,19 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   // Turn 0 is the task; later turns carry the folded steer/answer as the next prompt
   // on the SAME session. `nextPrompt` is undefined once there's nothing pending.
   let nextPrompt: string | undefined = taskToPrompt(args.task)
+  // The messages this turn's prompt carries. Committed once the bridge streams the run, so a turn
+  // that fails or is interrupted before then hands them back to the next prompt.
+  let lease: InboxLease | undefined
   for (let t = 0; args.maxTurns === 0 || t < args.maxTurns; ) {
+    lease?.release()
     if (args.stopSignal?.aborted) {
       observation.note = 'settled after completion request'
       break
     }
-    // Drain queued down-messages; on turns > 0 they ARE the prompt (resume content).
-    const pending = inbox.drain()
+    // Take queued down-messages; on turns > 0 they ARE the prompt (resume content).
+    const turnLease = inbox.take()
+    lease = turnLease
+    const pending = turnLease.messages
     if (pending.length) {
       const folded = inbox.fold(pending)
       nextPrompt = t === 0 && nextPrompt ? `${nextPrompt}\n\n${folded}` : folded
@@ -686,6 +693,10 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       terminal: false,
     }
     args.activeRuns.set(activeRun.id, activeRun)
+    // A streamed frame is the bridge's word that the harness took this prompt into its session.
+    const accept = (): void => {
+      for (const message of turnLease.messages) turnLease.commit(activeRun.id, message.id)
+    }
     const requestBody = {
       model: seam.model,
       stream: true,
@@ -742,6 +753,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         maxReconnects: args.maxReconnects,
         traceHeaders: args.traceHeaders,
       })) {
+        accept()
         openToolCalls = Math.max(
           0,
           openToolCalls + (chunk.toolCalls?.length ?? 0) - (chunk.toolResults?.length ?? 0),
@@ -918,6 +930,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
           sawEstimatedUsd = true
         }
       }
+      accept()
       publishProfileMaterialization()
     } catch (error) {
       publishProfileMaterialization()
@@ -1094,9 +1107,10 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       break
     }
 
-    // Before settling, drain once more — the worker can't finish while a steer it
+    // Before settling, take once more — the worker can't finish while a steer it
     // never read is pending (the sandbox/router settle contract). A pending steer
-    // becomes the next resume turn; otherwise the session is truly done.
+    // becomes the next resume turn; otherwise the session is truly done. A session that cannot
+    // run that turn reports the steer failed on the way out (`failPendingAfter`).
     // AUTHORITY messages only: a sibling that kept sending mail could otherwise hold a finished
     // worker open indefinitely, which is denial of settlement, not a delivery guarantee.
     if (inbox.pendingAuthority() === 0) break

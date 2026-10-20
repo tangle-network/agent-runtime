@@ -946,12 +946,15 @@ export {
   type InPlaceHarnessResult,
 } from './supervise/in-place-cli-executor'
 // The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
-// drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).
+// leases it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt),
+// and answers each sender `consumed` or `failed`.
 export {
   type AuthorityInboxMessage,
   createInbox,
   type Inbox,
+  type InboxLease,
   type InboxMessage,
+  type InboxReceipt,
   type PeerInboxMessage,
 } from './supervise/inbox'
 export type { WorkerInteractiveAdmission } from './supervise/interactive-admission'

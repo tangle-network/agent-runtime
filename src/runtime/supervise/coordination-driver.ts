@@ -75,7 +75,7 @@ import {
   runTree,
   type SupervisorFinalizer,
 } from './finalizer'
-import { createInbox, type Inbox } from './inbox'
+import { createInbox, type Inbox, type InboxLease, type InboxReceipt } from './inbox'
 import { providerAttemptEvidence } from './materialization'
 import { isTerminalNodeStatus } from './node-status'
 import { addResourceSpend, withBudgetResources } from './resources'
@@ -506,9 +506,18 @@ interface CancelAcknowledgerDeps {
   readonly abortRun?: (reason: string, request?: import('./run-layout').RunCancelRequest) => void
 }
 
+/** An operator steer handed to the run root's inbox. The root answers `receipt` once: when a model
+ *  turn consumes the steer, or when the root stops without reading it. */
+export interface RootSteer {
+  readonly steer: string
+  readonly interrupt: boolean
+  readonly messageId: string
+  readonly receipt: (receipt: InboxReceipt) => void
+}
+
 interface SteerAcknowledgerDeps {
   /** Present only on the run root; nested managers must not claim their parent's child steer. */
-  readonly deliverRoot?: (message: { steer: string; interrupt: boolean }) => boolean
+  readonly deliverRoot?: (message: RootSteer) => boolean
   /** Root delivery is not claimable until the current harness invocation exposes its inbox. */
   readonly deliverRootReady?: () => boolean
   readonly dir: string
@@ -539,6 +548,24 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
   const iso = () => new Date(deps.now()).toISOString()
   const directChildId = (ref: string): boolean =>
     ref.startsWith(`${deps.ownerId}:s`) && /^s\d+$/.test(ref.slice(deps.ownerId.length + 1))
+  // Root steers this process queued and the root has not yet answered, by operation id.
+  const awaiting = new Map<string, WorkerSteerRequest>()
+  const answerRoot = (request: WorkerSteerRequest, receipt: InboxReceipt): void => {
+    if (!awaiting.delete(request.operationId)) return
+    writeWorkerSteerAcknowledgement(deps.dir, {
+      ...base(request),
+      ...(receipt.status === 'consumed'
+        ? {
+            effect: 'delivered',
+            detail: `the root consumed the steer in ${receipt.attemptId}`,
+          }
+        : {
+            effect: 'not_live',
+            detail: `the root did not consume the steer: ${receipt.reason}`,
+          }),
+      observedAt: iso(),
+    })
+  }
 
   const base = (
     request: WorkerSteerRequest,
@@ -556,6 +583,16 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
         if (phase === 'turn' && deps.signal?.aborted) return
         const rootRequest = request.worker === deps.ownerId && deps.deliverRoot !== undefined
         if (!rootRequest && !directChildId(request.worker)) continue
+        const queued = awaiting.get(request.operationId)
+        if (phase === 'final' && queued !== undefined) {
+          answerRoot(queued, {
+            status: 'failed',
+            messageId: request.operationId,
+            cause: 'closed',
+            reason: 'the run ended before a root turn read it',
+          })
+          continue
+        }
         if (readWorkerSteerAcknowledgement(deps.dir, request.operationId) !== undefined) continue
         if (phase === 'final') {
           writeWorkerSteerAcknowledgement(deps.dir, {
@@ -579,15 +616,31 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
         try {
           let outcome: Pick<DownMessageEvent, 'delivered' | 'outcome'>
           if (rootRequest) {
+            awaiting.set(request.operationId, request)
             const delivered = deps.deliverRoot!({
               steer: request.message,
               interrupt: request.interrupt,
+              messageId: request.operationId,
+              receipt: (receipt) => answerRoot(request, receipt),
             })
+            if (!delivered) awaiting.delete(request.operationId)
             outcome = { delivered, outcome: delivered ? 'delivered' : 'runtime-has-no-inbox' }
           } else {
             outcome = await deps.coord.steerWorker(request.worker, request.message, {
               interrupt: request.interrupt,
             })
+          }
+          // A queued root steer stays `unknown` until the root answers its receipt.
+          if (rootRequest && outcome.delivered) {
+            if (awaiting.has(request.operationId)) {
+              writeWorkerSteerAcknowledgement(deps.dir, {
+                ...base(request),
+                effect: 'unknown',
+                observedAt: iso(),
+                detail: 'queued in the root inbox; no root turn has consumed it yet',
+              })
+            }
+            continue
           }
           const effect: WorkerSteerAcknowledgement['effect'] = outcome.delivered
             ? 'delivered'
@@ -603,13 +656,12 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
             effect,
             observedAt: iso(),
             detail: rootRequest
-              ? outcome.delivered
-                ? 'the root inbox accepted the steer; consumption is not confirmed'
-                : 'the root exposes no accepting inbox at delivery time'
+              ? 'the root exposes no accepting inbox at delivery time'
               : steerAcknowledgementDetail(outcome),
           })
         } catch (error) {
           void error
+          awaiting.delete(request.operationId)
           writeWorkerSteerAcknowledgement(deps.dir, {
             ...base(request),
             effect: 'unknown',
@@ -1282,6 +1334,8 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         if (evidenceError !== undefined) throw evidenceError
         return res
       }
+      // Inbox messages folded into the conversation and not yet carried by an answered call.
+      const leases: InboxLease[] = []
       const chat: ToolLoopChat = async (messages, tools) => {
         const turn = driverTurn
         // A compaction may have replaced the middle since `beforeTurn`; its note is what the model sees.
@@ -1292,6 +1346,11 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           { kind: 'driver-inference', turn },
           (reply) => transcript.reply(reply),
         )
+        for (const lease of leases.splice(0)) {
+          for (const message of lease.messages) {
+            lease.commit(`${scope.view.root}#driver-turn-${turn}`, message.id)
+          }
+        }
         driverTurn += 1
         return res
       }
@@ -1383,9 +1442,10 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             driverTurns += 1
             await steerAcknowledger?.pass('turn')
             acknowledger?.pass('turn')
-            const pending = inbox.drain()
-            if (pending.length > 0) {
-              messages.push({ role: 'user', content: inbox.fold(pending) })
+            const lease = inbox.take()
+            if (lease.messages.length > 0) {
+              messages.push({ role: 'user', content: inbox.fold(lease.messages) })
+              leases.push(lease)
             }
             // Before a compaction can fold them away: the previous turn's tool results and this inbox.
             transcript.observe(messages)
@@ -1470,7 +1530,14 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             return true
           },
         },
-      }).catch(analysisFailed)
+      }).catch((error: unknown) => {
+        // The conversation holding the folded messages dies with this loop; the next entry of
+        // this manager takes them again.
+        for (const lease of leases.splice(0)) lease.release()
+        return analysisFailed(error)
+      })
+      // This manager takes no further turn: report anything still held as failed.
+      inbox.failPending('the manager finished before a model turn read the message')
       // Drain every already-settled child the brain never pulled — a gate-verified delivery must
       // never be lost to the driver's pull discipline (e.g. a brain that spawned and stopped
       // without awaiting). Non-blocking: live children are the supervisor's to tear down.

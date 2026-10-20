@@ -9,7 +9,7 @@
  * barren failures end a run: a capacity refusal before dispatch, which the driver must wait out,
  * and an admitted execution the provider can no longer resolve, which Runtime must abandon.
  */
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentRunCancellationAcknowledgement } from '@tangle-network/agent-interface'
@@ -18,9 +18,16 @@ import type {
   AgentEnvironmentProvider,
   AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
-import { afterEach, describe, expect, it } from 'vitest'
+import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { EventAcknowledgement } from '../../src/mcp/tools/coordination'
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
+import {
+  AUTHORITY_PROMOTION_MS,
+  createInbox,
+  type InboxReceipt,
+} from '../../src/runtime/supervise/inbox'
 import { applyRunCancellation } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import {
@@ -29,12 +36,23 @@ import {
   readWorkerSteerAcknowledgement,
   writeWorkerSteer,
 } from '../../src/runtime/supervise/run-layout'
+import { createSteerableSandboxSession } from '../../src/runtime/supervise/sandbox-session'
 import { supervise } from '../../src/runtime/supervise/supervise'
+import { createRootHandle } from '../../src/runtime/supervise/supervisor'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
+import type { SandboxClient } from '../../src/runtime/types'
 import { completeCapture, fileWorkspaceArtifacts } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
+import {
+  callCoordinationTool,
+  type FakeBridge,
+  type FakeBridgeTurn,
+  openTurn,
+  startFakeBridge,
+  streamTurn,
+} from '../helpers/fake-cli-bridge'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
@@ -671,10 +689,11 @@ describe('supervised root with a pending retained turn', () => {
     expect(continuedTurns).toContain(run.methodReceipt!)
     expect(continuedTurns.split('use the corrected evidence')).toHaveLength(2)
     expect(continuedTurns.split('knowledge store is locked by this process')).toHaveLength(2)
+    // The steer ends consumed, naming the root attempt whose turn read it.
     expect(readWorkerSteerAcknowledgement(run.runDir, 'retained-root-correction')).toMatchObject({
       effect: 'delivered',
       operationId: 'retained-root-correction',
-      detail: 'the root inbox accepted the steer; consumption is not confirmed',
+      detail: expect.stringMatching(/^the root consumed the steer in pending-root#attempt-\d+$/),
     })
   })
 
@@ -768,5 +787,297 @@ describe('supervised root with a pending retained turn', () => {
     // One committed first turn, then four invocations: three abandoned, one left unresolved.
     expect(count(run.events, 'execution-input')).toBe(5)
     expect(count(run.events, 'execution-result')).toBe(1)
+  })
+})
+
+/**
+ * A steer ends consumed, naming the attempt whose accepted input carried it, or reported failed to
+ * its sender. Measured on runs 17b-20b: 76 of 143 transcript-checkable steers reached their
+ * recipient's prompt, and 0 of 954 Lab steer receipts recorded consumption.
+ */
+describe('a steer over a cli-bridge recipient', () => {
+  let bridge: FakeBridge | undefined
+  afterEach(async () => {
+    vi.useRealTimers()
+    await bridge?.close()
+    bridge = undefined
+  })
+
+  const codex = (name: string, extra: Parameters<typeof testAgentProfile>[1] = {}) =>
+    testAgentProfile(name, {
+      harness: 'codex',
+      ...extra,
+      model: { provider: 'openai', default: 'test', ...extra.model },
+    })
+  const prompt = (turn: FakeBridgeTurn | undefined): string =>
+    (turn?.messages ?? []).map((message) => message.content).join('\n')
+
+  async function coordinationLog(
+    runDir: string,
+  ): Promise<Array<{ readonly event: { readonly type: string } & Record<string, unknown> }>> {
+    const text = await readFile(join(runDir, 'coordination-log.jsonl'), 'utf8')
+    return text
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line))
+  }
+  const acknowledgements = (
+    rows: Awaited<ReturnType<typeof coordinationLog>>,
+  ): EventAcknowledgement[] =>
+    rows.flatMap((row) =>
+      row.event.type === 'acknowledgement'
+        ? [row.event.acknowledgement as EventAcknowledgement]
+        : [],
+    )
+  const steerReceipt = (rows: Awaited<ReturnType<typeof coordinationLog>>, text: string) =>
+    rows.flatMap((row) =>
+      row.event.type === 'steer' &&
+      (row.event.down as { instruction?: string }).instruction === text
+        ? [(row.event.down as { receiptId: string }).receiptId]
+        : [],
+    )[0]
+
+  it('carries a steer that reached a failed turn into the next prompt', async () => {
+    // Run 18b core-4: the 18:56Z director ruling reached a turn that then failed, the next two
+    // prompts said "Events waiting for you: none", and core-4 tagged rc15 against the ruling.
+    const ruling = 'Director ruling: do not tag rc15 until the release check passes.'
+    const handle = createRootHandle<unknown>()
+    const turns: FakeBridgeTurn[] = []
+    bridge = await startFakeBridge((body, res) => {
+      turns.push(body)
+      if (turns.length === 1) {
+        expect(handle.deliver({ steer: ruling })).toBe(true)
+        res.writeHead(502, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: 'upstream harness died' }))
+        return
+      }
+      streamTurn(res, body, 'held the tag')
+    })
+    const attempts: DriverAttemptRecord[] = []
+    await supervise(codex('core-4'), 'Prepare rc15.', {
+      rootHandle: handle,
+      backend: { backend: 'bridge', bridgeUrl: bridge.url, bridgeBearer: 'test' },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+      driverRetry: { initialBackoffMs: 1 },
+      onDriverAttempt: (record) => void attempts.push(record),
+    })
+    expect(attempts.map((attempt) => attempt.stop ?? attempt.classification)).toEqual([
+      'transient',
+      'completed',
+    ])
+    expect(turns).toHaveLength(2)
+    expect(prompt(turns[0])).not.toContain(ruling)
+    expect(prompt(turns[1])).toContain(ruling)
+  })
+
+  it('promotes a steer unconsumed for 15 minutes to an interrupt of the turn in flight', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+    const correction = 'Stop polishing; run the falsification test now.'
+    const handle = createRootHandle<unknown>()
+    const turns: FakeBridgeTurn[] = []
+    let markFirst!: () => void
+    const first = new Promise<void>((resolve) => {
+      markFirst = resolve
+    })
+    bridge = await startFakeBridge((body, res) => {
+      turns.push(body)
+      if (turns.length === 1) {
+        // A turn that never ends on its own: only an interrupt can move this root.
+        openTurn(res, body)
+        res.write(
+          `id: 1\ndata: ${JSON.stringify({ choices: [{ delta: { content: 'polishing' } }] })}\n\n`,
+        )
+        markFirst()
+        return
+      }
+      streamTurn(res, body, 'ran the falsification test')
+    })
+    const running = supervise(codex('lead'), 'Pursue the hypothesis.', {
+      rootHandle: handle,
+      backend: { backend: 'bridge', bridgeUrl: bridge.url, bridgeBearer: 'test' },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+    })
+    await first
+    expect(handle.deliver({ steer: correction })).toBe(true)
+    await vi.advanceTimersByTimeAsync(AUTHORITY_PROMOTION_MS - 1_000)
+    expect(turns).toHaveLength(1)
+    expect(bridge.cancelled).toEqual([])
+    await vi.advanceTimersByTimeAsync(1_000)
+    await running
+    expect(bridge.cancelled).toEqual([turns[0]?.run_id])
+    expect(turns).toHaveLength(2)
+    expect(turns[1]?.session_id).toBe(turns[0]?.session_id)
+    expect(prompt(turns[1])).toContain(correction)
+  })
+
+  it('refuses a worker settle while a steer is unread, folds it into one more turn, and logs it consumed', async () => {
+    const correction = 'Measure p99, not the mean.'
+    const directory = await mkdtemp(join(tmpdir(), 'steer-consumed-'))
+    directories.push(directory)
+    const runDir = join(directory, 'run')
+    let lead: FakeBridgeTurn | undefined
+    let workerId = ''
+    const workerTurns: FakeBridgeTurn[] = []
+    let steered: Record<string, unknown> | undefined
+    bridge = await startFakeBridge(async (body, res) => {
+      if (body.agent_profile.name === 'lead' && lead === undefined) {
+        lead = body
+        const spawned = await callCoordinationTool(body, 'spawn_worker', {
+          profile: codex('worker'),
+          task: 'Measure the request latency.',
+        })
+        workerId = String(spawned.workerId)
+        streamTurn(res, body, 'spawned the worker')
+        return
+      }
+      if (body.agent_profile.name === 'worker') {
+        workerTurns.push(body)
+        if (workerTurns.length === 1) {
+          steered = await callCoordinationTool(lead!, 'steer_agent', {
+            workerId,
+            instruction: correction,
+          })
+        }
+        streamTurn(res, body, `measurement ${workerTurns.length}`)
+        return
+      }
+      streamTurn(res, body, 'reviewed the worker')
+    })
+    await supervise(
+      codex('lead', { tools: runtimeToolDeclarations('spawn_worker', 'steer_agent') }),
+      'Find the latency regression.',
+      {
+        runDir,
+        runId: 'steer-consumed',
+        backend: { backend: 'bridge', bridgeUrl: bridge.url, bridgeBearer: 'test' },
+        budget: { maxIterations: 10, maxTokens: 100_000 },
+        perWorker: { maxIterations: 4, maxTokens: 10_000 },
+        inheritSpawnRights: false,
+        driverRetry: { enabled: false },
+      },
+    )
+    expect(steered).toMatchObject({ delivered: true })
+    // The worker's first turn ended with the steer unread, so it could not settle.
+    expect(workerTurns).toHaveLength(2)
+    expect(prompt(workerTurns[0])).not.toContain(correction)
+    expect(prompt(workerTurns[1])).toContain(correction)
+    const rows = await coordinationLog(runDir)
+    const receiptId = steerReceipt(rows, correction)
+    expect(receiptId).toBeDefined()
+    expect(acknowledgements(rows).filter((row) => row.messageId === receiptId)).toEqual([
+      expect.objectContaining({ by: 'consumed', attemptId: workerTurns[1]?.run_id }),
+    ])
+  })
+
+  it('reports a steer failed to its sender when the worker can run no further turn', async () => {
+    const correction = 'Also cover the cold-start path.'
+    const directory = await mkdtemp(join(tmpdir(), 'steer-failed-'))
+    directories.push(directory)
+    const runDir = join(directory, 'run')
+    let lead: FakeBridgeTurn | undefined
+    let workerId = ''
+    const workerTurns: FakeBridgeTurn[] = []
+    bridge = await startFakeBridge(async (body, res) => {
+      if (body.agent_profile.name === 'lead' && lead === undefined) {
+        lead = body
+        const spawned = await callCoordinationTool(body, 'spawn_worker', {
+          profile: codex('worker', { model: { metadata: { maxTurns: 1 } } }),
+          task: 'Measure the request latency.',
+        })
+        workerId = String(spawned.workerId)
+        streamTurn(res, body, 'spawned the worker')
+        return
+      }
+      if (body.agent_profile.name === 'worker') {
+        workerTurns.push(body)
+        await callCoordinationTool(lead!, 'steer_agent', { workerId, instruction: correction })
+        streamTurn(res, body, 'measurement')
+        return
+      }
+      streamTurn(res, body, 'reviewed the worker')
+    })
+    await supervise(
+      codex('lead', { tools: runtimeToolDeclarations('spawn_worker', 'steer_agent') }),
+      'Find the latency regression.',
+      {
+        runDir,
+        runId: 'steer-failed',
+        backend: { backend: 'bridge', bridgeUrl: bridge.url, bridgeBearer: 'test' },
+        budget: { maxIterations: 10, maxTokens: 100_000 },
+        perWorker: { maxIterations: 4, maxTokens: 10_000 },
+        inheritSpawnRights: false,
+        driverRetry: { enabled: false },
+      },
+    )
+    // One turn was all the worker had; it settled, and its lead heard the steer went unread.
+    expect(workerTurns).toHaveLength(1)
+    const rows = await coordinationLog(runDir)
+    const receiptId = steerReceipt(rows, correction)
+    expect(acknowledgements(rows).filter((row) => row.messageId === receiptId)).toEqual([
+      expect.objectContaining({
+        by: 'failed',
+        reason: 'the recipient settled before a model turn read the message',
+      }),
+    ])
+  })
+})
+
+describe('a steer over a sandbox recipient', () => {
+  it('hands a steer back from a turn the box failed before streaming, then consumes it', async () => {
+    const ruling = 'Director ruling: do not tag rc15 until the release check passes.'
+    const failed = 'Your rc15 tag FAILED the check.'
+    const prompts: string[] = []
+    const receipts: InboxReceipt[] = []
+    const inbox = createInbox()
+    const client: SandboxClient = {
+      async create() {
+        return {
+          id: 'box-1',
+          async *streamPrompt(text: string): AsyncGenerator<SandboxEvent> {
+            prompts.push(text)
+            if (prompts.length === 1) {
+              // The second steer lands while the first turn is in flight; the box then fails it.
+              inbox.deliver({
+                steer: failed,
+                messageId: 'steer-2',
+                receipt: receipts.push.bind(receipts),
+              })
+              throw new Error('sandbox stream dropped before the first event')
+            }
+            yield {
+              type: 'result',
+              data: { finalText: 'held the tag', usage: { inputTokens: 12, outputTokens: 4 } },
+            } as unknown as SandboxEvent
+          },
+          async delete() {},
+        } as unknown as SandboxInstance
+      },
+    }
+    const session = createSteerableSandboxSession({
+      controller: new AbortController(),
+      profile: testAgentProfile('core-4', { harness: 'claude-code' }),
+      harness: 'claude-code',
+      sandboxClient: client,
+      inbox,
+      taskToPrompt: (task) => String(task),
+      contentRef: (prefix) => `${prefix}:ref`,
+    })
+    inbox.deliver({ steer: ruling, messageId: 'steer-1', receipt: receipts.push.bind(receipts) })
+    const run = async () => {
+      for await (const _event of session.stream('Prepare rc15.', new AbortController().signal)) {
+      }
+    }
+    await expect(run()).rejects.toThrow('sandbox stream dropped')
+    expect(receipts).toEqual([])
+    expect(inbox.pending()).toBe(2)
+    await run()
+    expect(prompts).toHaveLength(2)
+    expect(prompts[0]).toContain(ruling)
+    expect(prompts[1]).toContain(ruling)
+    expect(prompts[1]).toContain(failed)
+    expect(receipts).toEqual([
+      { status: 'consumed', messageId: 'steer-1', attemptId: expect.stringMatching(/#turn-0$/) },
+      { status: 'consumed', messageId: 'steer-2', attemptId: expect.stringMatching(/#turn-0$/) },
+    ])
   })
 })

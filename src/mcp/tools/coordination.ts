@@ -56,6 +56,7 @@ import {
 import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
 import { errMessage } from '../../runtime/supervise/error-message'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
+import { INBOX_RECEIPT_KEY, type InboxReceipt } from '../../runtime/supervise/inbox'
 import { isLiveNodeStatus } from '../../runtime/supervise/node-status'
 import {
   createPeerMailbox,
@@ -931,14 +932,23 @@ export type CoordinationEvent =
 
 /** One acknowledgement record: which delivered events are now processed, and on whose word. */
 export interface EventAcknowledgement {
-  /** Bus `seq` of each acknowledged event, in this process's sequence space. */
+  /** Bus `seq` of each acknowledged event, in this process's sequence space. Empty for the
+   *  recipient's receipt on a steer or answer, which `messageId` names instead. */
   readonly seqs: ReadonlyArray<number>
   /** `manager`: legacy rows from a manager that named them. `turn-completed`: the
    *  driver turn that received them ended normally. `result-accepted`: a submission passed the
-   *  completion check after they were delivered. */
-  readonly by: 'manager' | 'turn-completed' | 'result-accepted'
+   *  completion check after they were delivered. `consumed`: the recipient's provider accepted a
+   *  model input carrying the steer or answer `messageId`. `failed`: the recipient stopped without
+   *  reading it, for `reason`. */
+  readonly by: 'manager' | 'turn-completed' | 'result-accepted' | 'consumed' | 'failed'
   /** The 1-based driver attempt that received them, when the manager has driver attempts. */
   readonly attempt?: number
+  /** `consumed` / `failed`: the `receiptId` of the steer or answer this row answers. */
+  readonly messageId?: string
+  /** `consumed`: the recipient attempt whose accepted input carried the message. */
+  readonly attemptId?: string
+  /** `failed`: why the recipient never read the message. */
+  readonly reason?: string
 }
 
 /** What a manager's coordinator knows about its run, read when the manager is entered again.
@@ -1396,6 +1406,8 @@ export interface ManagerWake {
 
 /** A steer or an answer this manager received from its lead. */
 export interface LeadMessage {
+  /** The sender's message id, when it named one; its receipt is answered under this id. */
+  readonly messageId?: string
   readonly kind: 'steer' | 'answer'
   readonly text: string
   readonly questionId?: string
@@ -2371,6 +2383,8 @@ export function createCoordinationToolsForManager(
   // Lead messages accepted and still being published. The sender is told `delivered` the moment the
   // message is accepted, so a manager that ends its turn then must still count it as open work.
   let leadPublishing = 0
+  // Receipts of queued lead messages by message id, answered when a turn acknowledges them.
+  const leadReceipts = new Map<string, (receipt: InboxReceipt) => void>()
   // Set once a wake has told this manager the deadline is near. From then on open work does not
   // refuse its `submit_result` or `stop`: the notice asks for the best result now, and the workers
   // still running are torn down when the manager settles.
@@ -2411,6 +2425,23 @@ export function createCoordinationToolsForManager(
   ): Promise<number[]> => {
     const fresh = targets.filter((delivery) => !delivery.acknowledged)
     if (fresh.length === 0) return []
+    // A lead's steer or answer was read by the turn that processed it: answer its sender.
+    for (const delivery of fresh) {
+      const event = delivery.record.event
+      const messageId = event.type === 'lead-message' ? event.message.messageId : undefined
+      const receipt = messageId === undefined ? undefined : leadReceipts.get(messageId)
+      if (messageId === undefined || receipt === undefined) continue
+      leadReceipts.delete(messageId)
+      try {
+        receipt({
+          status: 'consumed',
+          messageId,
+          attemptId: `${opts.scope.view.root}#attempt-${delivery.attempt ?? driverAttempt ?? 1}`,
+        })
+      } catch {
+        // A sender's receipt handler cannot change what this manager processed.
+      }
+    }
     const seqs = fresh.map((delivery) => delivery.record.seq)
     await bus.publish(
       {
@@ -3482,9 +3513,29 @@ export function createCoordinationToolsForManager(
     return 'runtime-has-no-inbox'
   }
 
+  /** The recipient's one terminal answer for a delivered steer or answer, as a log row. */
+  const recordReceipt = (receipt: InboxReceipt): void => {
+    bus
+      .publish(
+        {
+          type: 'acknowledgement',
+          acknowledgement: detachedFrozen<EventAcknowledgement>({
+            seqs: [],
+            by: receipt.status,
+            messageId: receipt.messageId,
+            ...(receipt.status === 'consumed'
+              ? { attemptId: receipt.attemptId }
+              : { reason: receipt.reason }),
+          }),
+        },
+        { queue: false },
+      )
+      .catch(() => undefined)
+  }
+
   const attemptDelivery = async (
     instruction: ContinuationInstruction,
-    message: unknown,
+    message: Record<string, unknown>,
     origin?: { readonly analyst?: string },
   ): Promise<DownMessageEvent> => {
     await recordDeliveryAttempt(instruction)
@@ -3495,7 +3546,11 @@ export function createCoordinationToolsForManager(
       if (lifetime?.aborted) {
         outcome = 'scope-stopped'
       } else {
-        delivered = opts.scope.send(instruction.toWorker, message)
+        delivered = opts.scope.send(instruction.toWorker, {
+          ...message,
+          messageId: instruction.receiptId,
+          [INBOX_RECEIPT_KEY]: recordReceipt,
+        })
         outcome = deliveryOutcome(instruction.toWorker, delivered)
       }
     } catch (cause) {
@@ -4158,6 +4213,20 @@ export function createCoordinationToolsForManager(
   }
   let managerAnalysis: Promise<void> | undefined
   const finishAnalysis: CoordinationTools['finishAnalysis'] = (input) => {
+    // This manager takes no further turn: a queued lead message no turn acknowledged is unread.
+    for (const [messageId, receipt] of leadReceipts) {
+      try {
+        receipt({
+          status: 'failed',
+          messageId,
+          cause: 'closed',
+          reason: 'the manager finished before a turn read the message',
+        })
+      } catch {
+        // A sender's receipt handler cannot change how this manager ended.
+      }
+    }
+    leadReceipts.clear()
     if (managerAnalysis) return managerAnalysis
     managerAnalysis = (async () => {
       const routes = analysisRoutes.filter(
@@ -4964,7 +5033,7 @@ export function createCoordinationToolsForManager(
       name: 'steer_agent',
       description:
         'Send a message DOWN to a still-LIVE worker (parent→child): a new instruction, a course ' +
-        'correction, or a continuation. The worker drains it at its next step boundary — and before ' +
+        'correction, or a continuation. The worker reads it at its next step boundary — and before ' +
         'it may settle, so it cannot finish while a message it never read is pending. A worker that ' +
         'already settled is gone (returns delivered:false) — spawn a fresh one instead.',
       inputSchema: {
@@ -5940,6 +6009,10 @@ export function createCoordinationToolsForManager(
     receiveLeadMessage: (message) => {
       const parsed = leadMessageOf(message)
       if (parsed === undefined) return false
+      const receipt = (message as Record<string, unknown>)[INBOX_RECEIPT_KEY]
+      if (parsed.messageId !== undefined && typeof receipt === 'function') {
+        leadReceipts.set(parsed.messageId, receipt as (receipt: InboxReceipt) => void)
+      }
       leadPublishing += 1
       bus
         .publish({ type: 'lead-message', message: parsed })
@@ -6161,9 +6234,12 @@ function leadMessageOf(message: unknown): LeadMessage | undefined {
   if (message === null || typeof message !== 'object') return undefined
   const m = message as Record<string, unknown>
   const interrupt = m.interrupt === true
-  if (typeof m.steer === 'string') return { kind: 'steer', text: m.steer, interrupt }
+  const id =
+    typeof m.messageId === 'string' && m.messageId.length > 0 ? { messageId: m.messageId } : {}
+  if (typeof m.steer === 'string') return { ...id, kind: 'steer', text: m.steer, interrupt }
   if (typeof m.answer === 'string') {
     return {
+      ...id,
       kind: 'answer',
       text: m.answer,
       ...(typeof m.questionId === 'string' ? { questionId: m.questionId } : {}),

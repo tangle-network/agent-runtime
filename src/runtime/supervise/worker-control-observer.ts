@@ -1,5 +1,9 @@
 import type { CoordinationTools } from '../../mcp/tools/coordination'
-import { createCancelAcknowledger, createSteerAcknowledger } from './coordination-driver'
+import {
+  createCancelAcknowledger,
+  createSteerAcknowledger,
+  type RootSteer,
+} from './coordination-driver'
 import type { Scope } from './types'
 
 /** Observe durable worker controls while the native harness owns the manager's turn loop. */
@@ -11,7 +15,7 @@ export function observeWorkerControls(options: {
   signal: AbortSignal
   controlScope: 'run' | 'subtree'
   /** Root's existing inbox only; omitted for every nested manager. */
-  deliverRoot?: (message: { steer: string; interrupt: boolean }) => boolean
+  deliverRoot?: (message: RootSteer) => boolean
   /** Root delivery readiness; checked before a durable steer is claimed. */
   deliverRootReady?: () => boolean
   onError: (error: unknown) => void
