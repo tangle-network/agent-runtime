@@ -538,8 +538,8 @@ export type ExecutorProgressEvent =
        * The turn's execution is still the provider's, and the node waits on its exact result: its
        * stream ended short of a terminal frame, or brought no new evidence for a while. `since`
        * (ISO time) is when the wait began. A stream's silence never ends a node; the wait ends on
-       * the provider's result or the turn's named abort, and the Lab keeper reads this row to
-       * re-drive a root whose wait never ends.
+       * the provider's result or the turn's named abort. This row lets the run page and the keeper
+       * show the wait; the keeper re-drives a root that streams nothing for its hung window.
        */
       readonly kind: 'awaiting-result'
       readonly since: string

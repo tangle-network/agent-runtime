@@ -1815,9 +1815,10 @@ const NATIVE_SETTLE_POLL_MS = 1_000
 /**
  * How long a retained stream may go without new evidence before the node publishes that it is
  * waiting on its exact result. It never ends the turn: silence is a wait, and only the provider's
- * exact result or an abort with its named cause ends it. Ending here settled 5 runs and 17 nodes as
- * `terminal-event-lost` over 2026-10-12..20 whose executions were still running; the bound on a
- * wait that never ends is the Lab keeper's hung-root re-drive, which reads this row.
+ * exact result or an abort with its named cause ends it. Ending here failed 18 attempts as
+ * `terminal-event-lost` over 2026-10-12..20 whose executions were still running. The bound on a
+ * wait that never ends is the Lab keeper's hung-root re-drive, which fires on 15 minutes without a
+ * stream write whether or not it reads this row.
  */
 const RETAINED_AWAITING_RESULT_AFTER_MS = 8 * 60_000
 // Bound observation work, not elapsed provider latency. AsyncIterable has no buffered frontier.
@@ -3040,6 +3041,10 @@ async function providerExecutionSource(
       // result can settle the invocation; retain incomplete observation beside that result.
       // A stream that ended short is not an end: the node waits on the provider's exact result
       // for as long as the provider takes, and only the turn's signal ends that wait sooner.
+      // The Sandbox SDK builds that result by replaying the execution's events, and a replay that
+      // closes short returns `success: false`, "Agent stream ended without a terminal event", with
+      // no error code. Runtime cannot tell that from the execution's own failure, so it settles as
+      // failed; 64 of the 82 C1 attempts (2026-10-12..20) ended there. The SDK owns that verdict.
       if (!sawTerminal && !exactResultSettled && !awaitingPublished) {
         yield awaitingResult(Date.now())
       }
