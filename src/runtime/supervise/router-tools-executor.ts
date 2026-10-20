@@ -34,7 +34,9 @@ import type { ProfileCodeModeSettings, ProfileModelExecutionSettings } from './m
 import { addResourceSpend } from './resources'
 import {
   assertObservedRouterModel,
+  routerGenerationOptions,
   routerRequestIdentity,
+  routerTransportConfig,
   routerTurnRequestIdentity,
   throwRouterTransportFailure,
 } from './router-executor-request'
@@ -288,16 +290,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
               res = await (profileExecution.stream === true
                 ? streamRouterChatWithTools
                 : routerChatWithTools)(
-                {
-                  routerBaseUrl: seam.routerBaseUrl,
-                  routerKey: seam.routerKey,
-                  ...(seam.routing ? { routing: seam.routing } : {}),
-                  model,
-                  ...(profileExecution.retry !== undefined
-                    ? { retry: profileExecution.retry }
-                    : {}),
-                  ...(seam.complete ? { complete: seam.complete } : {}),
-                },
+                routerTransportConfig(seam, model, profileExecution.retry),
                 messages,
                 presentedTools,
                 {
@@ -313,12 +306,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                   ...(profileExecution.toolChoice
                     ? { toolChoice: profileExecution.toolChoice }
                     : {}),
-                  ...profileExecution.tokenLimits.applied,
-                  ...(profileExecution.seed !== undefined ? { seed: profileExecution.seed } : {}),
-                  ...(profileExecution.reasoningEffort
-                    ? { reasoningEffort: profileExecution.reasoningEffort }
-                    : {}),
-                  ...(profileExecution.extraBody ? { extraBody: profileExecution.extraBody } : {}),
+                  ...routerGenerationOptions(profileExecution),
                   ...routerTurnRequestIdentity(requestIdentity, t),
                 },
               )

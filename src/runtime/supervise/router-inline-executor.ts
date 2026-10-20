@@ -22,7 +22,9 @@ import {
 import { addResourceSpend } from './resources'
 import {
   assertObservedRouterModel,
+  routerGenerationOptions,
   routerRequestIdentity,
+  routerTransportConfig,
   runRouterTransport,
 } from './router-executor-request'
 import {
@@ -75,16 +77,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
               ? (profileExecution.stream === true
                   ? streamRouterChatWithTools
                   : routerChatWithTools)(
-                  {
-                    routerBaseUrl: seam.routerBaseUrl,
-                    routerKey: seam.routerKey,
-                    ...(seam.routing ? { routing: seam.routing } : {}),
-                    model,
-                    ...(profileExecution.retry !== undefined
-                      ? { retry: profileExecution.retry }
-                      : {}),
-                    ...(seam.complete ? { complete: seam.complete } : {}),
-                  },
+                  routerTransportConfig(seam, model, profileExecution.retry),
                   messages,
                   seam.tools,
                   {
@@ -95,44 +88,21 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
                     ...(profileExecution.toolChoice
                       ? { toolChoice: profileExecution.toolChoice }
                       : {}),
-                    ...profileExecution.tokenLimits.applied,
-                    ...(profileExecution.seed !== undefined ? { seed: profileExecution.seed } : {}),
-                    ...(profileExecution.reasoningEffort
-                      ? { reasoningEffort: profileExecution.reasoningEffort }
-                      : {}),
-                    ...(profileExecution.extraBody
-                      ? { extraBody: profileExecution.extraBody }
-                      : {}),
+                    ...routerGenerationOptions(profileExecution),
                     ...requestIdentity,
                   },
                 )
               : (profileExecution.stream === true
                   ? streamRouterChatWithUsage
                   : routerChatWithUsage)(
-                  {
-                    routerBaseUrl: seam.routerBaseUrl,
-                    routerKey: seam.routerKey,
-                    ...(seam.routing ? { routing: seam.routing } : {}),
-                    model,
-                    ...(profileExecution.retry !== undefined
-                      ? { retry: profileExecution.retry }
-                      : {}),
-                    ...(seam.complete ? { complete: seam.complete } : {}),
-                  },
+                  routerTransportConfig(seam, model, profileExecution.retry),
                   messages,
                   {
                     ...(profileExecution.temperature !== undefined
                       ? { temperature: profileExecution.temperature }
                       : {}),
                     ...(linked ? { signal: linked } : {}),
-                    ...profileExecution.tokenLimits.applied,
-                    ...(profileExecution.seed !== undefined ? { seed: profileExecution.seed } : {}),
-                    ...(profileExecution.reasoningEffort
-                      ? { reasoningEffort: profileExecution.reasoningEffort }
-                      : {}),
-                    ...(profileExecution.extraBody
-                      ? { extraBody: profileExecution.extraBody }
-                      : {}),
+                    ...routerGenerationOptions(profileExecution),
                     ...requestIdentity,
                   },
                 ),

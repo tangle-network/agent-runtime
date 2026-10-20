@@ -60,7 +60,7 @@ const routerTurnProfileMaterialization = defineProfileMaterializationContract({
   ],
 })
 
-interface RouterProfileExecution {
+export interface RouterProfileExecution {
   systemPrompt: string
   reasoningEffort?: ReasoningEffort
   temperature?: number

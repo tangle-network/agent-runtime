@@ -1,5 +1,8 @@
 import { ValidationError } from '../../errors'
 import { observedModelMatchesDeclared } from '../model-identity'
+import type { RouterConfig } from '../router-client'
+import type { RouterProfileExecution } from './router-profile-execution'
+import type { RouterSeam } from './runtime-seams'
 import type { ExecutorContext } from './types'
 
 export async function runRouterTransport<T>(context: string, call: () => Promise<T>): Promise<T> {
@@ -62,5 +65,38 @@ export function routerTurnRequestIdentity(
     ...(identity.callId ? { callId: `${identity.callId}:turn:${turnIndex + 1}` } : {}),
     ...(identity.correlationId ? { correlationId: identity.correlationId } : {}),
     ...(identity.propagatedHeaders ? { propagatedHeaders: identity.propagatedHeaders } : {}),
+  }
+}
+
+/** Lower the profile's retry policy and host transport without introducing defaults. */
+export function routerTransportConfig(
+  seam: Pick<RouterSeam, 'routerBaseUrl' | 'routerKey' | 'routing' | 'complete'>,
+  model: string,
+  retry: RouterConfig['retry'],
+): RouterConfig {
+  return {
+    routerBaseUrl: seam.routerBaseUrl,
+    routerKey: seam.routerKey,
+    ...(seam.routing ? { routing: seam.routing } : {}),
+    model,
+    ...(retry !== undefined ? { retry } : {}),
+    ...(seam.complete ? { complete: seam.complete } : {}),
+  }
+}
+
+/** Generation fields shared by plain and tool-calling turns, in their original request order. */
+export function routerGenerationOptions(
+  profileExecution: Pick<
+    RouterProfileExecution,
+    'tokenLimits' | 'seed' | 'reasoningEffort' | 'extraBody'
+  >,
+) {
+  return {
+    ...profileExecution.tokenLimits.applied,
+    ...(profileExecution.seed !== undefined ? { seed: profileExecution.seed } : {}),
+    ...(profileExecution.reasoningEffort
+      ? { reasoningEffort: profileExecution.reasoningEffort }
+      : {}),
+    ...(profileExecution.extraBody ? { extraBody: profileExecution.extraBody } : {}),
   }
 }
