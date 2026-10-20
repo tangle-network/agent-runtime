@@ -35,6 +35,7 @@ import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
 import {
   assertSandboxServedModel,
+  createSandboxTurnEventCollector,
   createSandboxUsageLedger,
   notifySandboxEventObserver,
 } from './sandbox-events'
@@ -887,10 +888,10 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         parentIndex: args.parentIndex,
       },
     })
-    const events: SandboxEvent[] = []
-    // Published before the drain, not after it: a run that fails mid-stream keeps the events it
-    // did receive, so the failure can be read from evidence rather than reconstructed.
-    slot.events = events
+    // One snapshot per streamed part, not every cumulative frame (see the collector). Published in
+    // the drain's finally, so a run that fails mid-stream keeps the events it did receive and the
+    // failure can be read from evidence rather than reconstructed.
+    const collector = createSandboxTurnEventCollector()
     // The exact instrument this iteration asked the box for. The platform reports what it
     // actually bound; a mismatch fails the iteration instead of attributing its evidence to a
     // model that did not run (agent-runtime#892).
@@ -902,27 +903,31 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       ...(requestedModel !== undefined ? { model: requestedModel } : {}),
     }
     const outcomeTracker = createAgentRunOutcomeTracker()
-    for await (const event of stream) {
-      events.push(event)
-      if (box !== undefined)
-        args.evidenceTracker?.observe(
-          box,
-          event,
-          source ? args.lineageState?.handles.get(args.item.index)?.sessionId : undefined,
-        )
-      outcomeTracker.observe(event)
-      // Tee each raw event to an optional host observer so a caller can stream
-      // the agent's live output. Best-effort + isolated: the observer gets a
-      // defensive copy (mutating it cannot corrupt the event the run itself
-      // consumes for cost accounting + output parsing below), and a sync throw
-      // or a rejected async result is swallowed — it can never break the run.
-      notifySandboxEventObserver(event, args.ctx.onSandboxEvent, {
-        iterationIndex: args.item.index,
-        agentRunName: slot.agentRunName,
-      })
-      const llmCall = usageLedger.observe(event, slot.agentRunName)
-      if (llmCall) creditLlmCall(llmCall)
-      assertSandboxServedModel(event, requested)
+    try {
+      for await (const event of stream) {
+        collector.push(event)
+        if (box !== undefined)
+          args.evidenceTracker?.observe(
+            box,
+            event,
+            source ? args.lineageState?.handles.get(args.item.index)?.sessionId : undefined,
+          )
+        outcomeTracker.observe(event)
+        // Tee each raw event to an optional host observer so a caller can stream
+        // the agent's live output. Best-effort + isolated: the observer gets a
+        // defensive copy (mutating it cannot corrupt the event the run itself
+        // consumes for cost accounting + output parsing below), and a sync throw
+        // or a rejected async result is swallowed — it can never break the run.
+        notifySandboxEventObserver(event, args.ctx.onSandboxEvent, {
+          iterationIndex: args.item.index,
+          agentRunName: slot.agentRunName,
+        })
+        const llmCall = usageLedger.observe(event, slot.agentRunName)
+        if (llmCall) creditLlmCall(llmCall)
+        assertSandboxServedModel(event, requested)
+      }
+    } finally {
+      slot.events = collector.events()
     }
     const harnessCall = usageLedger.settleTurn(slot.agentRunName)
     if (harnessCall) creditLlmCall(harnessCall)
@@ -932,7 +937,7 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       slot.tokenUsage.tokensKnown = false
       slot.costUsdKnown = false
     }
-    slot.output = args.output.parse(events)
+    slot.output = args.output.parse(slot.events)
     const projection = projectSandboxOutcome(outcome)
     if (projection.status === 'failed') {
       throw new Error(projection.reason)
