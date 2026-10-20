@@ -1,3 +1,7 @@
+## 0.325.17-0
+
+A sandbox turn no longer holds every streamed frame of a text or reasoning part. opencode sends one `message.part.updated` per token, each carrying the part's whole text so far, so a long single turn held O(L²) bytes, and concurrent audit workflows took the platform API to an out-of-memory crash. `openSandboxRun` now keeps the newest snapshot of each part at its newest position and drops that frame's `delta`, which already sits in its text. Delta-only frames and all other events are kept as they arrived, and `collectAgentResponseText` and `collectAgentFinalMessageText` return the same text as from the full stream.
+
 ## 0.325.0
 
 A bridge profile whose provider shares its harness's name keeps the provider on the wire: `harness: opencode` with `provider: opencode` (opencode's keyless free tier, such as `glm-5.3-flash-free`) now sends `opencode/opencode/<model>`, so opencode receives `opencode/<model>` instead of the bare model it could not resolve.
