@@ -26,8 +26,8 @@ Exhausting that limit leaves the original invocation unresolved with its admissi
 A valid exact result can settle a quiet open subscription, with incomplete observation recorded even if a terminal frame was seen. Incomplete token and dollar totals remain unknown while observed subtotals are retained; exact cumulative token usage can cover missing stream receipts, but a bare numeric cost is not a billing receipt.
 Subscription cleanup cannot block that exact result or a provider contract verdict; workspace capture and source teardown retain their separate verified-receipt requirements.
 This scheduler ordering does not certify that later provider or network events were observed.
-A result read that does not settle within the bound records `terminal-event-lost` and keeps the admitted execution for reconciliation; a definite read error keeps its own classified cause. Neither becomes success or a replacement dispatch.
-Replay of an event with the same provider identity neither charges usage twice nor extends the observation bound, and changed content under that identity is a provider contract error.
+Stream silence never ends a turn. A stream that ends short of its terminal frame, or brings no new evidence for 8 minutes, publishes an `awaiting-result` progress row with `since`, and the node keeps waiting on the exact result until the provider answers or the turn's signal aborts it; the Lab keeper's hung-root re-drive bounds a wait that never ends. A definite read error, including an execution the provider reports gone, keeps its own classified cause. Neither becomes success or a replacement dispatch.
+Replay of an event with the same provider identity neither charges usage twice nor counts as new evidence, and changed content under that identity is a provider contract error.
 Recovered results preserve incomplete event observation and a bounded, redacted error summary.
 Runtime refuses settlement for received events with invalid identities and for unavailable or invalid exact results.
 A retained provider contract violation stops automatic driver retries of the unchanged read.

@@ -533,6 +533,17 @@ export type ExecutorProgressEvent =
       readonly kind: 'child_task'
       readonly event: ChildTaskEvent
     }
+  | {
+      /**
+       * The turn's execution is still the provider's, and the node waits on its exact result: its
+       * stream ended short of a terminal frame, or brought no new evidence for a while. `since`
+       * (ISO time) is when the wait began. A stream's silence never ends a node; the wait ends on
+       * the provider's result or the turn's named abort, and the Lab keeper reads this row to
+       * re-drive a root whose wait never ends.
+       */
+      readonly kind: 'awaiting-result'
+      readonly since: string
+    }
 
 /**
  * How a token count was obtained.
@@ -1760,6 +1771,9 @@ export type SpawnEvent =
       kind: 'progress'
       id: NodeId
       spend: Spend
+      /** Present on the row a worker publishes when it starts waiting on its exact result
+       *  (`ExecutorProgressEvent` `awaiting-result`): the run page and the keeper see the wait. */
+      awaitingResult?: { since: string }
       seq: number
       at: string
     }

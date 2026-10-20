@@ -223,7 +223,6 @@ export function retainedExecutorContext(ctx: ExecutorContext): RetainedExecutorC
  */
 export type RetainedPendingCause =
   | 'unobservable'
-  | 'terminal-event-lost'
   | 'provider-contract'
   | 'request-rejected'
   | 'transport'
@@ -231,8 +230,6 @@ export type RetainedPendingCause =
 
 const causeMessages: Record<RetainedPendingCause, string> = {
   unobservable: 'retained provider execution requires reconciliation before replacement',
-  'terminal-event-lost':
-    'retained provider stream ended or stalled without a terminal event; exact result requires reconciliation',
   'provider-contract':
     'retained provider response violated its contract; original execution remains unresolved',
   'request-rejected': 'retained provider execution was refused before it ran; nothing to reconcile',

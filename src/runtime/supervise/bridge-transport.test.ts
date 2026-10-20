@@ -1,12 +1,15 @@
 import { createServer, type Server } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
+import { RunCancellationReason } from './abortable'
 import type { BridgeSeam } from './bridge-config'
 import {
+  type ActiveBridgeRun,
   BRIDGE_RECONNECT_BASE_BACKOFF_MS,
   BRIDGE_RECONNECT_MAX_BACKOFF_MS,
   BRIDGE_ROUTE_PROBE_TIMEOUT_MS,
   bridgeModelRouteRefusal,
   reconnectBackoff,
+  streamDurableBridgeRun,
 } from './bridge-transport'
 
 /** The budget the route probe used to borrow from run-state reads. A bridge slower than this but
@@ -165,5 +168,68 @@ describe('reconnectBackoff', () => {
     const waiting = elapsed(() => reconnectBackoff(4, during.signal))
     setTimeout(() => during.abort(), 30)
     expect(await waiting).toBeLessThan(BRIDGE_RECONNECT_BASE_BACKOFF_MS * 8)
+  })
+})
+
+describe('streamDurableBridgeRun abort', () => {
+  it('an aborted turn carries its cancellation reason', async () => {
+    // A bare "turn aborted" filed 26.42 agent-hours of turn ceilings, stall settles and operator
+    // cancels as one harness failure in the Lab's reliability reader.
+    let opened!: () => void
+    const streaming = new Promise<void>((resolve) => {
+      opened = resolve
+    })
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      res.write(': open\n\n')
+      opened()
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    try {
+      const address = server.address()
+      if (address === null || typeof address === 'string') throw new Error('peer did not bind')
+      const controller = new AbortController()
+      const run: ActiveBridgeRun = {
+        id: 'bridge-run-ceiling',
+        transportAttempts: 0,
+        lastEventId: 0,
+        terminal: false,
+      }
+      const drained = (async () => {
+        for await (const _chunk of streamDurableBridgeRun({
+          seam: {
+            bridgeUrl: `http://127.0.0.1:${address.port}`,
+            bridgeBearer: 'test',
+            model: 'opencode/offline/test-model',
+            providerModel: 'offline/test-model',
+          },
+          profile: {
+            name: 'ceiling-worker',
+            harness: 'opencode',
+            model: { provider: 'offline', default: 'test-model' },
+          },
+          sessionId: 'ceiling-session',
+          body: { messages: [] },
+          signal: controller.signal,
+          run,
+          maxReconnects: 0,
+          traceHeaders: {},
+        })) {
+        }
+      })()
+      await streaming
+      const reason = new RunCancellationReason('turn-deadline', 'turn ceiling')
+      controller.abort(reason)
+      const error = await drained.then(
+        () => undefined,
+        (thrown: unknown) => thrown,
+      )
+      expect(error).toBeInstanceOf(Error)
+      expect(error).toMatchObject({ name: 'AbortError', cause: reason })
+      expect((error as Error).message).toContain('caused by AbortError: turn ceiling')
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
   })
 })

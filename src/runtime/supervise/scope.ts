@@ -3957,13 +3957,16 @@ async function runChild<C>(
       // cover. An overspend is recorded at reconciliation instead.
       const spend = await foldStream(
         ran,
-        async (running) => {
+        async (running, event) => {
           live.spent = running
           live.lastActivityAt = now()
           await journal.appendEvent(journalRoot, {
             kind: 'progress',
             id: live.id,
             spend: running,
+            ...(event.kind === 'progress' && event.progress.kind === 'awaiting-result'
+              ? { awaitingResult: { since: event.progress.since } }
+              : {}),
             seq: nextProgressSeq(),
             at: new Date(now()).toISOString(),
           })
@@ -4556,7 +4559,7 @@ function freezeCorrelation(
  */
 async function foldStream(
   stream: AsyncIterable<UsageEvent>,
-  onProgress?: (running: Spend) => void | Promise<void>,
+  onProgress?: (running: Spend, event: UsageEvent) => void | Promise<void>,
   signal?: AbortSignal,
   priorSpent?: Spend,
   onEvent?: (event: import('./types').ExecutorProgressEvent) => void,
@@ -4572,21 +4575,24 @@ async function foldStream(
       const ev = next.value
       if (ev.kind === 'progress') onEvent?.(ev.progress)
       meterUsageEvent(totals, ev)
-      await onProgress?.({
-        ...addResourceSpend(totals.resources),
-        iterations: totals.iterations,
-        tokens: cloneTokenUsage(totals.tokens),
-        ...(totals.tokensKnown ? {} : { tokensKnown: false }),
-        usd: totals.usd,
-        ...(totals.usdEstimated > 0 ? { usdEstimated: totals.usdEstimated } : {}),
-        ...(totals.usdKnown ? {} : { usdKnown: false }),
-        // A live read says which receipt the running total came from, so `observe_agent` on a
-        // codex seat reports store-read tokens as store-read rather than as a stream receipt.
-        ...(totals.tokensProvenance === undefined || totals.tokensProvenance === 'stream-receipt'
-          ? {}
-          : { tokensProvenance: totals.tokensProvenance }),
-        ms: 0,
-      })
+      await onProgress?.(
+        {
+          ...addResourceSpend(totals.resources),
+          iterations: totals.iterations,
+          tokens: cloneTokenUsage(totals.tokens),
+          ...(totals.tokensKnown ? {} : { tokensKnown: false }),
+          usd: totals.usd,
+          ...(totals.usdEstimated > 0 ? { usdEstimated: totals.usdEstimated } : {}),
+          ...(totals.usdKnown ? {} : { usdKnown: false }),
+          // A live read says which receipt the running total came from, so `observe_agent` on a
+          // codex seat reports store-read tokens as store-read rather than as a stream receipt.
+          ...(totals.tokensProvenance === undefined || totals.tokensProvenance === 'stream-receipt'
+            ? {}
+            : { tokensProvenance: totals.tokensProvenance }),
+          ms: 0,
+        },
+        ev,
+      )
     }
   } catch (error) {
     // Ask a cooperative async generator to close, but never let a broken `return()` hide the

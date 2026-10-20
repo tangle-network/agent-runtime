@@ -314,6 +314,34 @@ function doneStream(text = 'done') {
   }
 }
 
+const TEN_MINUTES_MS = 10 * 60_000
+
+/** Run real scheduler turns until `ready` holds; the fake clock stays where it is. */
+async function untilObserved(ready: () => boolean): Promise<void> {
+  for (let turn = 0; turn < 2_000 && !ready(); turn += 1) {
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  }
+  expect(ready()).toBe(true)
+}
+
+/** The `awaiting-result` rows an execution published. */
+function awaitingRows(events: readonly UsageEvent[]): string[] {
+  return events.flatMap((event) =>
+    event.kind === 'progress' && event.progress.kind === 'awaiting-result'
+      ? [event.progress.since]
+      : [],
+  )
+}
+
+/** A result the test answers by hand, after the fake clock has moved. */
+function heldResult() {
+  let answer!: (result: { text: string; success: boolean }) => void
+  const result = new Promise<{ text: string; success: boolean }>((resolve) => {
+    answer = resolve
+  })
+  return { result, answer }
+}
+
 describe('provider workspace retention', () => {
   it('settles a retained turn from its exact result when the provider loses the terminal event', async () => {
     let dispatches = 0
@@ -351,42 +379,64 @@ describe('provider workspace retention', () => {
     expect(admissions.map((entry) => entry.phase)).toEqual(['intent', 'environment', 'dispatched'])
   })
 
-  it('reports lost terminal evidence within the retained bound without replaying the dispatch', async () => {
-    let dispatches = 0
-    let results = 0
-    const admissions: RetainedRunAdmission[] = []
-    const provider = pendingRetainedProvider({
-      onDispatch: () => {
-        dispatches += 1
-      },
-      events: async function* () {
-        yield* []
-      },
-      result: async () => await new Promise<{ text: string; success: boolean }>(() => {}),
-    })
-    const retention: RetainedExecutorContext = {
-      executionId: 'lost-terminal-worker',
-      admissions,
-      onAdmission: async (admission) => {
-        admissions.push(admission)
-      },
-      onResult: async () => {
-        results += 1
-      },
-    }
-    const signal = new AbortController().signal
-    const executor = providerAsExecutor(provider, { retainedResultWaitMs: 20 })(
-      { profile: testProfile('lost-terminal-worker'), harness: null },
-      { signal, seams: { [retainedExecutorSeamKey]: retention } },
-    )
-    await expect(async () => {
-      for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+  it('waits on the exact result after a stream ends without its terminal event', async () => {
+    // Class C1: Sandbox closed the stream with no terminal frame while the execution still ran.
+    // The node waits for the provider's answer instead of ending as a lost terminal event.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      const start = new Date('2026-10-20T00:00:00.000Z')
+      vi.setSystemTime(start)
+      let dispatches = 0
+      let results = 0
+      const admissions: RetainedRunAdmission[] = []
+      const held = heldResult()
+      const provider = pendingRetainedProvider({
+        onDispatch: () => {
+          dispatches += 1
+        },
+        events: async function* () {
+          yield* []
+        },
+        result: async () => await held.result,
+      })
+      const retention: RetainedExecutorContext = {
+        executionId: 'lost-terminal-worker',
+        admissions,
+        onAdmission: async (admission) => {
+          admissions.push(admission)
+        },
+        onResult: async () => {
+          results += 1
+        },
       }
-    }).rejects.toMatchObject({ pendingCause: 'terminal-event-lost' })
-    expect(dispatches).toBe(1)
-    expect(results).toBe(0)
-    expect(admissions.at(-1)?.phase).toBe('dispatched')
-    expect(await executor.teardown('brutalKill')).toMatchObject({ destroyed: false })
+      const signal = new AbortController().signal
+      const executor = providerAsExecutor(provider)(
+        { profile: testProfile('lost-terminal-worker'), harness: null },
+        { signal, seams: { [retainedExecutorSeamKey]: retention } },
+      )
+      const events: UsageEvent[] = []
+      let settled = false
+      const running = (async () => {
+        for await (const event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+          events.push(event)
+        }
+        settled = true
+      })()
+      await untilObserved(() => awaitingRows(events).length > 0)
+      await vi.advanceTimersByTimeAsync(TEN_MINUTES_MS)
+      expect(settled).toBe(false)
+      held.answer({ text: 'exact result after ten silent minutes', success: true })
+      await running
+      expect(executor.resultArtifact().out).toMatchObject({
+        content: 'exact result after ten silent minutes',
+      })
+      expect(awaitingRows(events)).toEqual([start.toISOString()])
+      expect(JSON.stringify(events)).not.toContain('terminal-event-lost')
+      expect(dispatches).toBe(1)
+      expect(results).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('reattaches after a restart and settles the original terminal-less turn from its exact result', async () => {
@@ -421,31 +471,38 @@ describe('provider workspace retention', () => {
         results += 1
       },
     }
-    const factory = providerAsExecutor(provider, { retainedResultWaitMs: 20 })
+    const factory = providerAsExecutor(provider)
     const makeExecutor = () => {
-      const signal = new AbortController().signal
+      const controller = new AbortController()
       return {
-        signal,
+        controller,
         executor: factory(
           { profile: testProfile('restarted-terminal-less-worker'), harness: null },
-          { signal, seams: { [retainedExecutorSeamKey]: retention } },
+          { signal: controller.signal, seams: { [retainedExecutorSeamKey]: retention } },
         ),
       }
     }
+    // The first process waits on the exact result until it stops; the wait itself never ends it.
     const first = makeExecutor()
-    await expect(async () => {
-      for await (const _event of first.executor.execute(
+    const firstEvents: UsageEvent[] = []
+    const waiting = (async () => {
+      for await (const event of first.executor.execute(
         'task',
-        first.signal,
+        first.controller.signal,
       ) as AsyncIterable<UsageEvent>) {
+        firstEvents.push(event)
       }
-    }).rejects.toMatchObject({ pendingCause: 'terminal-event-lost' })
+    })()
+    await untilObserved(() => awaitingRows(firstEvents).length > 0)
+    first.controller.abort('process restart')
+    await expect(waiting).rejects.toBeDefined()
+    expect(results).toBe(0)
     expect(await first.executor.teardown('brutalKill')).toMatchObject({ destroyed: false })
     resultReady = true
     const resumed = makeExecutor()
     for await (const _event of resumed.executor.recover!(
       'task',
-      resumed.signal,
+      resumed.controller.signal,
     ) as AsyncIterable<UsageEvent>) {
     }
     expect(resumed.executor.resultArtifact().out).toMatchObject({
@@ -477,7 +534,7 @@ describe('provider workspace retention', () => {
       onResult: async () => {},
     }
     const signal = new AbortController().signal
-    const executor = providerAsExecutor(provider, { retainedObservationIdleMs: 2_000 })(
+    const executor = providerAsExecutor(provider)(
       { profile: testProfile('quiet-retained-root'), harness: null },
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
@@ -532,7 +589,7 @@ describe('provider workspace retention', () => {
       onResult: async () => {},
     }
     const signal = new AbortController().signal
-    const executor = providerAsExecutor(provider, { retainedObservationIdleMs: 2_000 })(
+    const executor = providerAsExecutor(provider)(
       { profile: testProfile('flowing-tail'), harness: null },
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
@@ -620,7 +677,7 @@ describe('provider workspace retention', () => {
       onResult: async () => {},
     }
     const signal = new AbortController().signal
-    const executor = providerAsExecutor(provider, { retainedObservationIdleMs: 2_000 })(
+    const executor = providerAsExecutor(provider)(
       { profile: testProfile('terminal-open-subscription'), harness: null },
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
@@ -660,7 +717,7 @@ describe('provider workspace retention', () => {
       onResult: async () => {},
     }
     const signal = new AbortController().signal
-    const executor = providerAsExecutor(provider, { retainedObservationIdleMs: 2_000 })(
+    const executor = providerAsExecutor(provider)(
       { profile: testProfile('no-frame-open-subscription'), harness: null },
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
@@ -1088,7 +1145,7 @@ describe('provider workspace retention', () => {
       },
     }
     const controller = new AbortController()
-    const executor = providerAsExecutor(provider, { retainedObservationIdleMs: 1_000 })(
+    const executor = providerAsExecutor(provider)(
       { profile: testProfile('cancelled-retained-worker'), harness: null },
       { signal: controller.signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
@@ -1161,51 +1218,76 @@ describe('provider workspace retention', () => {
     expect(executor.resultArtifact().spent.tokens).toMatchObject({ input: 3, output: 4 })
   })
 
-  it('does not let an endless duplicate replay extend the retained observation bound', async () => {
-    let dispatches = 0
-    const admissions: RetainedRunAdmission[] = []
-    const repeated: AgentEnvironmentEvent = {
-      id: 'one-frame',
-      type: 'message.part.updated',
-      data: { delta: 'still the same frame' },
-    }
-    const provider = pendingRetainedProvider({
-      onDispatch: () => {
-        dispatches += 1
-      },
-      events: async function* () {
-        yield repeated
-        for (;;) {
-          await new Promise((resolve) => setTimeout(resolve, 1))
-          yield repeated
-        }
-      },
-      result: async () => await new Promise<{ text: string; success: boolean }>(() => {}),
-    })
-    const retention: RetainedExecutorContext = {
-      executionId: 'endless-duplicate-worker',
-      admissions,
-      onAdmission: async (admission) => {
-        admissions.push(admission)
-      },
-      onResult: async () => {
-        throw new Error('an unresolved result cannot settle')
-      },
-    }
-    const signal = new AbortController().signal
-    const executor = providerAsExecutor(provider, {
-      retainedObservationIdleMs: 20,
-      retainedResultWaitMs: 20,
-    })(
-      { profile: testProfile('endless-duplicate-worker'), harness: null },
-      { signal, seams: { [retainedExecutorSeamKey]: retention } },
-    )
-    await expect(async () => {
-      for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+  it('publishes the wait of a silent open stream and settles on the exact result', async () => {
+    // A stream that stays open and only repeats a frame it already sent brings no new evidence.
+    // After a while the node says it waits on its exact result, and the provider's answer ends it.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      const start = new Date('2026-10-20T00:00:00.000Z')
+      vi.setSystemTime(start)
+      let dispatches = 0
+      let results = 0
+      const admissions: RetainedRunAdmission[] = []
+      const repeated: AgentEnvironmentEvent = {
+        id: 'one-frame',
+        type: 'message.part.updated',
+        data: { delta: 'still the same frame' },
       }
-    }).rejects.toMatchObject({ pendingCause: 'terminal-event-lost' })
-    expect(dispatches).toBe(1)
-    expect(await executor.teardown('brutalKill')).toMatchObject({ destroyed: false })
+      const held = heldResult()
+      let sent = 0
+      const provider = pendingRetainedProvider({
+        onDispatch: () => {
+          dispatches += 1
+        },
+        events: async function* () {
+          sent += 1
+          yield repeated
+          for (;;) {
+            await new Promise((resolve) => setTimeout(resolve, 1_000))
+            yield repeated
+          }
+        },
+        result: async () => await held.result,
+      })
+      const retention: RetainedExecutorContext = {
+        executionId: 'silent-open-worker',
+        admissions,
+        onAdmission: async (admission) => {
+          admissions.push(admission)
+        },
+        onResult: async () => {
+          results += 1
+        },
+      }
+      const signal = new AbortController().signal
+      const executor = providerAsExecutor(provider)(
+        { profile: testProfile('silent-open-worker'), harness: null },
+        { signal, seams: { [retainedExecutorSeamKey]: retention } },
+      )
+      const events: UsageEvent[] = []
+      let settled = false
+      const running = (async () => {
+        for await (const event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+          events.push(event)
+        }
+        settled = true
+      })()
+      await untilObserved(() => sent > 0)
+      await vi.advanceTimersByTimeAsync(TEN_MINUTES_MS)
+      expect(settled).toBe(false)
+      // The wait began at the last new evidence, the stream's first frame.
+      expect(awaitingRows(events)).toEqual([start.toISOString()])
+      held.answer({ text: 'exact result behind a silent stream', success: true })
+      await running
+      expect(executor.resultArtifact().out).toMatchObject({
+        content: 'exact result behind a silent stream',
+      })
+      expect(JSON.stringify(events)).not.toContain('terminal-event-lost')
+      expect(dispatches).toBe(1)
+      expect(results).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('retains the admitted native reference across pre-harness failure and cold executor recovery', async () => {

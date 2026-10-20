@@ -6,7 +6,7 @@ import { Readable } from 'node:stream'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { BackendTransportError, ValidationError } from '../../errors'
 import { errorMessage, sleep } from '../util'
-import { runAbortable } from './abortable'
+import { abortReason, runAbortable } from './abortable'
 import {
   type BridgeSeam,
   type ResolvedBridgeModelCredential,
@@ -523,9 +523,7 @@ export async function* streamDurableBridgeRun(
     // bridge drops the final [DONE]. The run remains nonterminal in our local
     // state, so teardown still has to cancel and obtain real terminal proof.
     if (pendingUpstreamError) throw pendingUpstreamError
-    if (args.signal.aborted) {
-      throw new DOMException('bridgeExecutor: turn aborted', 'AbortError')
-    }
+    if (args.signal.aborted) throw turnAbortedError(args.signal)
     if (reconnects >= args.maxReconnects) {
       throw new ValidationError(
         `bridgeExecutor: run ${args.run.id} ended without terminal acknowledgement after ${reconnects + 1} attempts`,
@@ -534,6 +532,23 @@ export async function* streamDurableBridgeRun(
     reconnects += 1
     await reconnectBackoff(reconnects, args.signal)
   }
+}
+
+/**
+ * The turn's abort, carrying the signal's own reason. A bare "turn aborted" let the Lab's
+ * reliability reader file 26.42 agent-hours of turn ceilings, stall settles, operator cancels and
+ * play-check stops as one harness failure; the sandbox path already forwards the reason
+ * (`deriveTurnSignal` in stream-agent-turn.ts). The name stays `AbortError`, which is what every
+ * caller classifies an abort by.
+ */
+function turnAbortedError(signal: AbortSignal): Error {
+  const reason = abortReason(signal, 'turn aborted')
+  const text = reason instanceof Error ? reason.message : String(reason)
+  const error = new Error(`bridgeExecutor: turn aborted: caused by AbortError: ${text}`, {
+    cause: signal.reason,
+  })
+  error.name = 'AbortError'
+  return error
 }
 
 /** Refuse an old bridge before it can start a paid harness turn. This is intentionally uncached:
@@ -721,9 +736,10 @@ async function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promis
     )
     let response: Parameters<typeof Readable.toWeb>[0] | undefined
     const onAbort = (): void => {
-      req.destroy(new DOMException('bridgeExecutor: turn aborted', 'AbortError'))
+      const error = turnAbortedError(args.signal)
+      req.destroy(error)
       if (response && 'destroy' in response && typeof response.destroy === 'function') {
-        response.destroy(new DOMException('bridgeExecutor: turn aborted', 'AbortError'))
+        response.destroy(error)
       }
     }
     if (args.signal.aborted) onAbort()
