@@ -254,12 +254,18 @@ describe('openSandboxRun — live sandbox event observer', () => {
             },
           }) as SandboxEvent,
       )
-    const before = frames('p1', Array.from({ length: 400 }, (_, i) => `narration${i}`))
+    const before = frames(
+      'p1',
+      Array.from({ length: 400 }, (_, i) => `narration${i}`),
+    )
     const tool = {
       type: 'message.part.updated',
       data: { part: { id: 't1', type: 'tool', tool: 'bash', state: { status: 'completed' } } },
     } as SandboxEvent
-    const after = frames('p2', Array.from({ length: 400 }, (_, i) => `answer${i}`))
+    const after = frames(
+      'p2',
+      Array.from({ length: 400 }, (_, i) => `answer${i}`),
+    )
     const streamed = [...before, tool, ...after, doneEvent()]
     const { client } = createFakeClient({ events: streamed })
     const run = await openSandboxRun(

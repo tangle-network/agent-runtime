@@ -502,9 +502,14 @@ function partSnapshot(event: SandboxEvent): { key: string; text: string } | unde
   const data = asRecord(event.data)
   const part = asRecord(data?.part) ?? asRecord(asRecord(data?.properties)?.part)
   if (!part || typeof part.id !== 'string') return undefined
-  if (part.type !== 'text' && part.type !== 'reasoning' && part.type !== 'thinking') return undefined
+  if (part.type !== 'text' && part.type !== 'reasoning' && part.type !== 'thinking')
+    return undefined
   const text =
-    typeof part.text === 'string' ? part.text : typeof part.content === 'string' ? part.content : undefined
+    typeof part.text === 'string'
+      ? part.text
+      : typeof part.content === 'string'
+        ? part.content
+        : undefined
   return text === undefined ? undefined : { key: `${part.type}:${part.id}`, text }
 }
 
@@ -516,5 +521,7 @@ function withoutDelta(event: SandboxEvent): SandboxEvent {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : undefined
+  return value !== null && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : undefined
 }
