@@ -1370,6 +1370,19 @@ export interface ResumedWork<Out> {
    * "already paid" — the run's final `spentTotal` includes it because the journal spans processes.
    */
   readonly priorSpend: { readonly childWork: Spend; readonly driverInference: Spend }
+  /**
+   * This scope's direct workers the journal held open when the prior process stopped, and those
+   * this process re-places (`replaced`, a subset of `live`). The rest are gone: they will not
+   * report. The root's `root-reentered` journal record and its first re-entered drive both read
+   * this one value.
+   */
+  readonly reentered: ReenteredWorkers
+}
+
+/** The workers a resumed scope found open; see {@link ResumedWork.reentered}. */
+export interface ReenteredWorkers {
+  readonly live: ReadonlyArray<NodeId>
+  readonly replaced: ReadonlyArray<NodeId>
 }
 
 /** What the journal proves about one keyed assignment at resume time. */

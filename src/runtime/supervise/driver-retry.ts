@@ -63,11 +63,12 @@
  *
  * A RE-ENTERED run is one this process resumed after an earlier process drove it, usually one
  * that stopped without settling it. Its first drive is entered as `run-reentered` with the
- * workers that were open, and its drives count toward `maxBarren` only once the root has streamed
- * a model event in this process. Measured 2026-10-19 on magnetar-rust-20261019f: after a host
- * reboot the re-entered root was first driven with the bare original task and no word of its
- * three open workers, two barren continuations followed, and the run settled
- * `no-result-selected`.
+ * workers that were open, and a drive counts toward `maxBarren` only if it began after the root
+ * streamed a model event in this process: the drive that straddles the restart never counts, and
+ * a root that speaks and then stays barren is refused as any other. Measured 2026-10-19 on
+ * magnetar-rust-20261019f: after a host reboot the re-entered root was first driven with the
+ * bare original task and no word of its three open workers, two barren continuations followed,
+ * and the run settled `no-result-selected`.
  *
  * A THIRD CLASS sits between the two: the upstream said "not now". A model provider's exhausted
  * quota, a rate limit, or an overloaded service (HTTP 429, 503, 529, or the router's own codes for

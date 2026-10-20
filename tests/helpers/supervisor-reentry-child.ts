@@ -4,16 +4,18 @@
  *
  * Phase 1: the root's first drive streams a model event, spawns a worker that never settles, and
  * SIGKILLs the process once the worker's `spawned` record is on disk. Phase 2: a new process on the
- * same directory and run id re-enters the run; its model is scripted per drive by `PHASE2_DRIVES`.
+ * same directory and run id re-enters the run; its model streams per drive as `<shape>` scripts.
  * Only the model process (`driveHarness`) and the supervisor clock are fake.
  *
- * Usage: `node --import tsx supervisor-reentry-child.ts <dir> <runId> <phase:1|2>`
- * Writes `${dir}/tasks-phase-<n>.jsonl` and `${dir}/attempts-phase-<n>.jsonl`; phase 2 prints one
- * JSON line with the settled result.
+ * Usage: `node --import tsx supervisor-reentry-child.ts <dir> <runId> <phase:1|2> [shape]`
+ * Writes `${dir}/tasks-phase-<n>.jsonl`, and in phase 2 `${dir}/journal-phase-2.jsonl`: what the
+ * run's own journal held as each drive began, while the run was still being driven. Phase 2
+ * prints one JSON line with the settled result.
  */
 
 import { appendFileSync, readFileSync } from 'node:fs'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal'
 import { spendFromUsageEvents } from '../../src/runtime/supervise/budget'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -28,21 +30,20 @@ import type {
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 import { testContinuation } from './continuation'
 
-const [dir, runId, phase] = process.argv.slice(2)
+const [dir, runId, phase, shape = 'silent-first'] = process.argv.slice(2)
 if (dir === undefined || runId === undefined || (phase !== '1' && phase !== '2')) {
-  throw new Error('usage: supervisor-reentry-child.ts <dir> <runId> <1|2>')
+  throw new Error('usage: supervisor-reentry-child.ts <dir> <runId> <1|2> [shape]')
 }
 
 /** Phase 2's model, one entry per drive: whether that drive streams a model event. No drive makes
- *  progress: none submits, spawns, or meters. */
-const PHASE2_DRIVES: ReadonlyArray<{ readonly modelEvent: boolean }> = [
-  { modelEvent: false },
-  { modelEvent: false },
-  { modelEvent: true },
-  { modelEvent: true },
-  { modelEvent: true },
-  { modelEvent: true },
-]
+ *  progress: none submits, spawns, or meters. `streams-first` is the incident's shape: the
+ *  re-entered root speaks on its first drive and then makes no progress. */
+const PHASE2_SHAPES: Readonly<Record<string, ReadonlyArray<boolean>>> = {
+  'silent-first': [false, false, true, true, true, true],
+  'streams-first': [true, true, true, true],
+}
+const PHASE2_DRIVES = PHASE2_SHAPES[shape]
+if (PHASE2_DRIVES === undefined) throw new Error(`unknown phase 2 shape '${shape}'`)
 
 const log = (name: string, value: unknown): void => {
   appendFileSync(`${dir}/${name}-phase-${phase}.jsonl`, `${JSON.stringify(value)}\n`)
@@ -113,10 +114,19 @@ const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task, onModelEve
     process.kill(process.pid, 'SIGKILL')
     return
   }
-  const script = PHASE2_DRIVES[drives - 1]
-  if (script === undefined)
+  // Read the run's journal from a second handle while this drive runs: the run is not settled.
+  const recorded = (await new FileSpawnJournal(journalPath).loadTree(runId)) ?? []
+  log('journal', {
+    drive: drives,
+    reentries: recorded.filter((event) => event.kind === 'root-reentered').length,
+    attempts: recorded.flatMap((event) =>
+      event.kind === 'driver-attempt' && event.id === runId ? [event.record] : [],
+    ),
+  })
+  const streams = PHASE2_DRIVES[drives - 1]
+  if (streams === undefined)
     throw new Error(`phase 2 drove ${drives} times; the script has ${PHASE2_DRIVES.length}`)
-  if (script.modelEvent) onModelEvent?.()
+  if (streams) onModelEvent?.()
 }
 
 const profile = testAgentProfile('reentry-root', {
@@ -131,7 +141,6 @@ const root = supervisorAgent(profile, {
   driveHarness,
   deliverable: { describe: 'A checked answer.', check: () => false },
   continuation: testContinuation({ maxBarren: 2 }),
-  onDriverAttempt: (record) => log('attempts', record),
 })
 const task = 'Answer the question.'
 // The supervisor clock is fake: each phase reads one fixed instant.

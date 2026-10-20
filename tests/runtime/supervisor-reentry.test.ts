@@ -6,11 +6,12 @@
  * continuations followed, and the run settled `no-winner` / `no-result-selected`.
  *
  * Phase 1 runs a harness-driven root in its own OS process and SIGKILLs it mid-drive, with one
- * worker open. Phase 2 is a new process on the same run directory and run id. Its model streams no
- * event for two drives, then streams events without progress. The run must keep running through
- * the silent drives, record the re-entry, and refuse a continuation only after `maxBarren` barren
- * drives that began after the first post-re-entry model event. Only the model process and the
- * supervisor clock are fake (`tests/helpers/supervisor-reentry-child.ts`).
+ * worker open. Phase 2 is a new process on the same run directory and run id, and no phase-2 drive
+ * makes progress. The run must record the re-entry, stay running through two barren drives after
+ * it, and refuse a continuation only after `maxBarren` (2) barren drives that each began after the
+ * first post-re-entry model event. Two model shapes: silent for two drives before it speaks, and
+ * the incident's, speaking from the first drive. Only the model process and the supervisor clock
+ * are fake (`tests/helpers/supervisor-reentry-child.ts`).
  */
 
 import { spawn } from 'node:child_process'
@@ -21,6 +22,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 
+type Shape = 'silent-first' | 'streams-first'
+
+/** What the run's journal held as one phase-2 drive began. */
+interface JournalAtDrive {
+  readonly drive: number
+  readonly reentries: number
+  readonly attempts: ReadonlyArray<DriverAttemptRecord>
+}
+
 const childScript = new URL('../helpers/supervisor-reentry-child.ts', import.meta.url).pathname
 
 interface PhaseExit {
@@ -30,9 +40,15 @@ interface PhaseExit {
   readonly stderr: string
 }
 
-async function runPhase(dir: string, runId: string, phase: '1' | '2'): Promise<PhaseExit> {
+async function runPhase(
+  dir: string,
+  runId: string,
+  phase: '1' | '2',
+  shape?: Shape,
+): Promise<PhaseExit> {
+  const args = [childScript, dir, runId, phase, ...(shape === undefined ? [] : [shape])]
   return await new Promise<PhaseExit>((resolvePhase, rejectPhase) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', childScript, dir, runId, phase], {
+    const child = spawn(process.execPath, ['--import', 'tsx', ...args], {
       cwd: process.cwd(),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -69,11 +85,8 @@ describe('supervisor re-entry after a process restart', () => {
     await rm(dir, { recursive: true, force: true })
   })
 
-  it('keeps a re-entered run running until a barren streak follows its first model event', {
-    timeout: 120_000,
-  }, async () => {
-    const runId = 'reentry-run'
-
+  /** Phase 1, the kill, and phase 2 under `shape`; returns phase 2's journal and evidence. */
+  async function restartedRun(runId: string, shape: Shape) {
     const first = await runPhase(dir, runId, '1')
     expect(first.signal, `phase 1 stderr: ${first.stderr}`).toBe('SIGKILL')
     const journal = new FileSpawnJournal(join(dir, 'spawn-journal.jsonl'))
@@ -82,60 +95,64 @@ describe('supervisor re-entry after a process restart', () => {
     expect(worker).toBeDefined()
     expect(crashed.some((event) => event.kind === 'root-reentered')).toBe(false)
 
-    const second = await runPhase(dir, runId, '2')
+    const second = await runPhase(dir, runId, '2', shape)
     expect(second.code, `phase 2 stderr: ${second.stderr}`).toBe(0)
-
-    // The re-entry is a typed record on the run, naming the worker that was open.
     const events = (await journal.loadTree(runId)) ?? []
-    const reentries = events.filter((event) => event.kind === 'root-reentered')
-    expect(reentries).toEqual([
-      expect.objectContaining({ id: runId, live: [worker?.id], replaced: [], seq: 0 }),
-    ])
+    return {
+      workerId: worker?.id,
+      events,
+      // The root's driver records, as the run's journal holds them after it settled.
+      attempts: events.flatMap((event) =>
+        event.kind === 'driver-attempt' && event.id === runId ? [event.record] : [],
+      ),
+      atDrive: await jsonLines<JournalAtDrive>(join(dir, 'journal-phase-2.jsonl')),
+      tasks: await jsonLines<string>(join(dir, 'tasks-phase-2.jsonl')),
+    }
+  }
 
-    // The first drive after re-entry is re-driven with the workers that were live.
-    const tasks = await jsonLines<string>(join(dir, 'tasks-phase-2.jsonl'))
-    expect(tasks[0]).toContain('a new process took it over')
-    expect(tasks[0]).toContain(`Gone, and they will not report: ${worker?.id}.`)
+  const refusals = (records: ReadonlyArray<DriverAttemptRecord>) =>
+    records.filter((record) => record.repromptRefusedBy !== undefined || record.stop !== undefined)
 
-    const attempts = await jsonLines<DriverAttemptRecord>(join(dir, 'attempts-phase-2.jsonl'))
-    // Two drives with no model event, then one that streams: all three are re-entered without a
-    // refusal, and the silent ones are marked as such.
-    expect(attempts.slice(0, 3)).toEqual([
-      expect.objectContaining({
-        attempt: 1,
-        reentry: 'run-reentered',
-        beforeModelEvent: true,
-        reprompted: true,
-      }),
-      expect.objectContaining({
-        attempt: 2,
-        reentry: 'unmet-contract',
-        beforeModelEvent: true,
-        reprompted: true,
-      }),
-      expect.objectContaining({
-        attempt: 3,
-        reentry: 'unmet-contract',
-        beforeModelEvent: true,
-        reprompted: true,
-      }),
-    ])
-    expect(attempts.slice(0, 3).every((record) => record.madeProgress === false)).toBe(true)
-    // Drives 4 and 5 began after the first model event and made no progress: maxBarren is 2, so
-    // the second of them is the first refusal.
-    expect(attempts.slice(3)).toEqual([
-      expect.objectContaining({ attempt: 4, reprompted: true, madeProgress: false }),
-      expect.objectContaining({
-        attempt: 5,
-        repromptRefusedBy: 'no-progress',
-        stop: 'completed',
-        madeProgress: false,
-      }),
-    ])
-    expect(attempts.slice(3).some((record) => record.beforeModelEvent === true)).toBe(false)
-    expect(attempts.filter((record) => record.repromptRefusedBy !== undefined)).toHaveLength(1)
+  for (const shape of ['silent-first', 'streams-first'] as const) {
+    it(`records the re-entry and stays running through two barren drives (${shape})`, {
+      timeout: 120_000,
+    }, async () => {
+      const runId = `reentry-${shape}`
+      const { workerId, events, attempts, atDrive, tasks } = await restartedRun(runId, shape)
 
-    const report = JSON.parse(second.stdout.trim()) as { kind: string; drives: number }
-    expect(report.drives).toBe(5)
-  })
+      // The re-entry is a typed record on the run, naming the worker that was open.
+      expect(events.filter((event) => event.kind === 'root-reentered')).toEqual([
+        expect.objectContaining({ id: runId, live: [workerId], replaced: [], seq: 0 }),
+      ])
+      // The first drive after re-entry is re-driven with the worker that was live.
+      expect(tasks[0]).toContain(`${workerId}`)
+
+      // As the third drive began, two drives after re-entry had made no progress, and the run's
+      // journal held the re-entry and no refusal or stop: the run was still being driven.
+      const third = atDrive.find((snapshot) => snapshot.drive === 3)
+      expect(third?.reentries).toBe(1)
+      expect(third?.attempts).toHaveLength(2)
+      expect(third?.attempts.every((record) => record.madeProgress === false)).toBe(true)
+      expect(refusals(third?.attempts ?? [])).toEqual([])
+
+      // Exactly one refusal, by `no-progress`, after `maxBarren` drives that began after the first
+      // post-re-entry model event; every drive that began before it is marked and never counted.
+      const silent = shape === 'silent-first' ? 3 : 1
+      expect(attempts).toHaveLength(silent + 2)
+      expect(attempts[0]).toMatchObject({ attempt: 1, reentry: 'run-reentered' })
+      expect(attempts.slice(0, silent).every((record) => record.beforeModelEvent === true)).toBe(
+        true,
+      )
+      expect(attempts.slice(silent).some((record) => record.beforeModelEvent === true)).toBe(false)
+      expect(attempts.slice(0, -1).every((record) => record.reprompted === true)).toBe(true)
+      expect(refusals(attempts)).toEqual([
+        expect.objectContaining({
+          attempt: silent + 2,
+          madeProgress: false,
+          repromptRefusedBy: 'no-progress',
+          stop: 'completed',
+        }),
+      ])
+    })
+  }
 })

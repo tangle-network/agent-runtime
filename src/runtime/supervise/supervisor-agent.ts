@@ -1453,28 +1453,16 @@ function buildSupervisorAgent(
           })
         }
         // A run this process took over after the process driving it stopped: its first drive
-        // names the workers that were open, and which of them this process re-placed.
+        // names the workers that were open, and which of them this process re-places.
         let modelEvents = 0
-        const resumedView = scope.resume?.view
+        const reenteredWorkers = scope.resume?.reentered
         const reentered =
-          resumedView === undefined
+          reenteredWorkers === undefined
             ? undefined
-            : (() => {
-                const live = resumedView.nodes
-                  .filter(
-                    (node) => node.parent === scope.view.root && isLiveNodeStatus(node.status),
-                  )
-                  .map((node) => node.id)
-                const placed = new Set(scope.view.nodes.map((node) => node.id))
-                return {
-                  first: {
-                    reason: 'run-reentered' as const,
-                    live,
-                    replaced: live.filter((id) => placed.has(id)),
-                  },
-                  modelEvents: () => modelEvents,
-                }
-              })()
+            : {
+                first: { reason: 'run-reentered' as const, ...reenteredWorkers },
+                modelEvents: () => modelEvents,
+              }
         let driverFailed = true
         try {
           await runDriverWithRetry({

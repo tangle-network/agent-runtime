@@ -95,7 +95,7 @@ import {
   unknownExecutionBindingReceipt,
   unknownMaterializationReceipt,
 } from './materialization'
-import { isTerminalNodeStatus } from './node-status'
+import { isLiveNodeStatus, isTerminalNodeStatus } from './node-status'
 import {
   DEFAULT_STALL_AFTER_MS,
   type ExecutorProgress,
@@ -168,6 +168,7 @@ import type {
   ProfileMaterializationReceipt,
   ProviderModelExecutionEvidence,
   RecursiveReservationPolicy,
+  ReenteredWorkers,
   ResultBlobStore,
   ResumedKeyState,
   ResumedWork,
@@ -305,6 +306,22 @@ export interface ScopeArgs {
     /** Prior committed spend summed off the journal (settled child work + metered inference). */
     readonly priorSpend: { readonly childWork: Spend; readonly driverInference: Spend }
   }
+}
+
+/**
+ * The direct workers of `parentId` that a resumed journal holds open, and which of them this
+ * process re-places through a retained recovery. One function, so the root's `root-reentered`
+ * record and its first re-entered drive cannot disagree.
+ */
+export function reenteredWorkers(
+  resumeFrom: NonNullable<ScopeArgs['resumeFrom']>,
+  parentId: NodeId,
+): ReenteredWorkers {
+  const live = resumeFrom.view.nodes
+    .filter((node) => node.parent === parentId && isLiveNodeStatus(node.status))
+    .map((node) => node.id)
+  const recovering = new Set((resumeFrom.recoveries ?? []).map((recovery) => recovery.spawned.id))
+  return { live, replaced: live.filter((id) => recovering.has(id)) }
 }
 
 type RuntimeOwnedProviderMeter = (
@@ -2325,6 +2342,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         view: args.resumeFrom.view,
         keys: args.resumeFrom.keys as ReadonlyMap<string, ResumedKeyState<Out>>,
         priorSpend: args.resumeFrom.priorSpend,
+        reentered: reenteredWorkers(args.resumeFrom, args.parentId),
       }
     : undefined
 
