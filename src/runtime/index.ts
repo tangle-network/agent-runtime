@@ -1322,6 +1322,7 @@ export type {
   ProviderModelAttemptEvidence,
   ProviderModelExecutionEvidence,
   RecursiveReservationPolicy,
+  ReenteredWorkers,
   ResourceLimit,
   ResourceSpend,
   ResultBlobStore,

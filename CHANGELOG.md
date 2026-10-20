@@ -1,3 +1,9 @@
+## 0.336.1
+
+`@tangle-network/agent-runtime/runtime` exports `ReenteredWorkers`, the type of `ResumedWork.reentered`.
+
+A sandbox turn no longer holds every streamed frame of a text or reasoning part. opencode sends one `message.part.updated` per token, each carrying the part's whole text so far, so a long single turn held O(L²) bytes, and concurrent audit workflows took the platform API to an out-of-memory crash. `openSandboxRun` now keeps the newest snapshot of each part at its newest position and drops that frame's `delta`, which already sits in its text. Delta-only frames and all other events are kept as they arrived, and `collectAgentResponseText` and `collectAgentFinalMessageText` return the same text as from the full stream.
+
 ## 0.336.0
 
 The `agent-runtime-mcp` `delegate` supervisor is told that only a worker's result is delivered and that it must spawn at least one worker; router brains answered small intents themselves, which settled `no-children-spawned` with the answer discarded. `MCP_SUPERVISOR_INSTRUCTIONS` appends the caller's policy for the workers the supervisor authors, such as the only harness and model its worker boxes can run.
