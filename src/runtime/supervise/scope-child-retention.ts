@@ -1,3 +1,4 @@
+import { chargedTokens } from '../util'
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { type RetainedRunEnvironmentAdmission } from '../retained-run-types'
@@ -8,7 +9,7 @@ import { DEFAULT_BUDGET_STOP_HOLD_MS } from './scope-capabilities'
 import { type LiveChild, type ScopeArgs } from './scope-contract'
 import { detachedSnapshot } from './snapshot'
 import { type TraceRootWriter } from './trace-root'
-import { type NodeExecutionIdentity, type NodeId, type Spend } from './types'
+import { type Budget, type NodeExecutionIdentity, type NodeId, type Spend } from './types'
 
 /** Own the retained child invocation and its durable writes. */
 export function createChildRetention({ args, controller, id, ordinal, identity, recovery,
@@ -207,3 +208,13 @@ export function createChildRetention({ args, controller, id, ordinal, identity, 
     },
   }
 }
+
+/** Whether a settled spend exceeds the budget it was given, by the channels the pool reconciles. */
+function overBudget(budget: Budget, spent: Spend): boolean {
+  return (
+    chargedTokens(spent.tokens) > budget.maxTokens ||
+    spent.iterations > budget.maxIterations ||
+    (budget.maxUsd !== undefined && spent.usdKnown !== false && spent.usd > budget.maxUsd)
+  )
+}
+

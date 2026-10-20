@@ -5,7 +5,7 @@ import { releaseScopeRetainedOwnerEnvironment, scopeRetainedOwnerSettled } from 
 import { type LiveChild } from './scope-contract'
 import { type HeldEnvironment, type ProviderModelExecutionEvidence, type Scope, type SpawnEvent, type Spend, type SubtreeSummary, type UnconfirmedTeardown } from './types'
 
-export type RuntimeOwnedProviderMeter = (
+type RuntimeOwnedProviderMeter = (
   spend: Spend,
   providerModel: ProviderModelExecutionEvidence | undefined,
   detail?: Record<string, unknown>,
@@ -30,13 +30,13 @@ export const retainedSlotClosers = new WeakMap<object, () => Promise<void>>()
 export const teardownRetriers = new WeakMap<object, () => Promise<void>>()
 export const teardownRetriable = new WeakMap<object, (release: boolean) => boolean>()
 /** The retained owner environments a scope's last release could not confirm destroyed. */
-export const ownerUnconfirmedByScope = new WeakMap<object, ReadonlyArray<UnconfirmedTeardown>>()
+const ownerUnconfirmedByScope = new WeakMap<object, ReadonlyArray<UnconfirmedTeardown>>()
 /** The scope a recursive executor owns, so the settlement retry reaches its descendants. */
 export const nestedTeardownScopes = new WeakMap<object, () => Scope<unknown> | undefined>()
 /** Each scope's reader of the manager scopes its children own, read live. */
 export const nestedManagerScopeReaders = new WeakMap<object, () => Scope<unknown>[]>()
 /** A manager scope's release of its own environment, started once and joined by later callers. */
-export const managerEnvironmentReleases = new WeakMap<object, Promise<void>>()
+const managerEnvironmentReleases = new WeakMap<object, Promise<void>>()
 /** Scopes whose settlement released retained environments: none of their retained children is
  *  kept for a resume any longer. */
 export const releasingScopes = new WeakSet<object>()
@@ -153,11 +153,11 @@ export async function releaseRetainedEnvironments(
 }
 
 /** The manager scopes this scope's children own, read live. */
-export function nestedManagerScopes(scope: Scope<unknown>): Scope<unknown>[] {
+function nestedManagerScopes(scope: Scope<unknown>): Scope<unknown>[] {
   return nestedManagerScopeReaders.get(scope)?.() ?? []
 }
 
-export async function releaseNestedManagerEnvironments(scope: Scope<unknown>): Promise<void> {
+async function releaseNestedManagerEnvironments(scope: Scope<unknown>): Promise<void> {
   await Promise.all(
     nestedManagerScopes(scope).map(async (nested) => {
       await releaseNestedManagerEnvironments(nested)

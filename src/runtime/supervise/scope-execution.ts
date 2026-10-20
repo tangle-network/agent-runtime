@@ -473,7 +473,7 @@ export async function runChild<C>(
   }
 }
 
-export function assertReportedSpend(spent: unknown, context: string): asserts spent is Spend {
+function assertReportedSpend(spent: unknown, context: string): asserts spent is Spend {
   const candidate = spent as Partial<Spend> | null | undefined
   if (
     typeof candidate !== 'object' ||
@@ -498,7 +498,7 @@ export function assertReportedSpend(spent: unknown, context: string): asserts sp
  * turns deep from one that had produced nothing. It also means a worker that THROWS mid-stream
  * now reconciles its real partial spend instead of refunding work the provider already billed.
  */
-export async function foldStream(
+async function foldStream(
   stream: AsyncIterable<UsageEvent>,
   onProgress?: (running: Spend, event: UsageEvent) => void | Promise<void>,
   signal?: AbortSignal,
@@ -546,7 +546,7 @@ export async function foldStream(
 
 /** Usage events carry measured increments; the terminal artifact carries whether a provider omitted
  * a whole accounting channel. Preserve those unknowns on the common streaming path. */
-export function preserveUnknownTelemetry(streamed: Spend, terminal: Spend): Spend {
+function preserveUnknownTelemetry(streamed: Spend, terminal: Spend): Spend {
   const terminalTokens = cloneTokenUsage(terminal.tokens)
   return {
     ...streamed,
@@ -596,7 +596,7 @@ export function preserveUnknownTelemetry(streamed: Spend, terminal: Spend): Spen
  * whose result was accepted before the abort arrived: it is ending the turn that submitted that
  * result, so it is awaited rather than discarded, and the executor bounds that wait itself.
  */
-export async function awaitUnlessAccepted<T>(
+async function awaitUnlessAccepted<T>(
   work: Promise<T>,
   signal: AbortSignal,
   executor: Pick<Executor<unknown>, 'resultAccepted'>,
@@ -609,7 +609,7 @@ export async function awaitUnlessAccepted<T>(
   }
 }
 
-export async function awaitAbortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+async function awaitAbortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) {
     // `execute()` may have returned a promise that rejects from the same abort. Observe it before
     // returning the already-winning cancellation so a fast abort cannot become an unhandled
@@ -651,7 +651,7 @@ export async function awaitAbortable<T>(work: Promise<T>, signal: AbortSignal): 
 
 /** Observed partial counts as a lower bound on every channel: the work happened, its remainder went
  *  unreported, and no reader may take the counts for a measurement. */
-export function unknownFloor(spend: Spend): Spend {
+function unknownFloor(spend: Spend): Spend {
   return {
     ...spend,
     tokensKnown: false,
@@ -691,7 +691,7 @@ export function downRecord(
   }
 }
 
-export function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {
+function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -699,7 +699,7 @@ export function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEve
   )
 }
 
-export function isAbortError(err: unknown): boolean {
+function isAbortError(err: unknown): boolean {
   return (
     typeof err === 'object' &&
     err !== null &&
@@ -711,6 +711,6 @@ export function isAbortError(err: unknown): boolean {
 /** External-boundary failures (network/FS/subprocess) are infra — excluded from the merge
  *  `n` and the equal-k assertion. A `ValidationError` from a built-in executor wraps a
  *  config/transport failure, so it counts as infra; other throws are a real bad result. */
-export function isInfraError(err: unknown): boolean {
+function isInfraError(err: unknown): boolean {
   return err instanceof ValidationError
 }

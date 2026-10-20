@@ -60,7 +60,7 @@ export function sameNodeExecutionIdentity(a: NodeExecutionIdentity, b: NodeExecu
   return canonicalCandidateDigest(a) === canonicalCandidateDigest(b)
 }
 
-export function freezeCorrelation(
+function freezeCorrelation(
   value: Readonly<Record<string, string>> | undefined,
 ): Readonly<Record<string, string>> | undefined {
   if (value === undefined) return undefined

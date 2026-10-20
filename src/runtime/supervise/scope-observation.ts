@@ -72,7 +72,7 @@ export function teamProgress(team: LiveTeam): TeamProgress {
 }
 
 /** Latest activity an executor names, or 0. A throwing read is no evidence of activity. */
-export function executorActivityAt(child: LiveChild): number {
+function executorActivityAt(child: LiveChild): number {
   try {
     const recent = child.readProgress?.()?.recentActivity
     return recent?.length ? (recent[recent.length - 1]?.at ?? 0) : 0

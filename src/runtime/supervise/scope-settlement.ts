@@ -14,7 +14,7 @@ export async function raceFirstSettled(pending: LiveChild[]): Promise<LiveChild>
 }
 
 /** Rehomed inference has its own per-child sequence, independent of terminal cursors. */
-export async function appendSettlementMetering(
+async function appendSettlementMetering(
   journal: SpawnJournal,
   root: NodeId,
   id: NodeId,
@@ -31,7 +31,7 @@ export async function appendSettlementMetering(
  *  the whole settlement and the cursor seq (`settledSeq`) beside the floor, through the same
  *  field spread the terminal record uses, so a resume that finds the release sweep died before
  *  its record can write that record byte-for-byte instead of inventing one. */
-export async function appendReconciledFloor(
+async function appendReconciledFloor(
   journal: SpawnJournal,
   root: NodeId,
   subject: TerminalDownSubject,
@@ -77,7 +77,7 @@ export async function appendEnvironmentTeardown(
   })
 }
 
-export async function nextPerNodeSeq(
+async function nextPerNodeSeq(
   journal: SpawnJournal,
   root: NodeId,
   kind: 'metered' | 'reconciled' | 'environment-teardown',
@@ -92,7 +92,7 @@ export async function nextPerNodeSeq(
   )
 }
 
-export async function appendAcknowledged(
+async function appendAcknowledged(
   journal: SpawnJournal,
   root: NodeId,
   event: Extract<SpawnEvent, { kind: 'metered' | 'reconciled' }>,

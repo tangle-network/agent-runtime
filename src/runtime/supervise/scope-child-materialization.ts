@@ -167,7 +167,7 @@ export function createChildMaterialization({ args, spawnCommitted, identity, spe
     fail: async () => pendingEvidence?.fail(),
   }
 }
-export async function appendNodeMaterialization(
+async function appendNodeMaterialization(
   args: Pick<ScopeArgs, 'journal' | 'root'>,
   id: NodeId,
   seq: number,

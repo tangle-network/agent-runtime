@@ -9,7 +9,7 @@ import { detachedSnapshot } from './snapshot'
 import { type ExecutionBindingReceipt, type ExecutorExecutionBinding, type ExecutorNodeContext, type MaterializedExecutionIdentity, type NodeId, type NodeSnapshot, type ProfileMaterializationReceipt, type ResultBlobStore, type Scope, type SpawnEvent, type SpawnJournal } from './types'
 import { type Sha256Digest, agentProfileSchema, canonicalAgentProfileDigest, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 
-export interface OwnerMaterializationState {
+interface OwnerMaterializationState {
   readonly retainedRoot: NodeId
   readonly blobs: ResultBlobStore
   readonly journal: SpawnJournal
@@ -67,7 +67,7 @@ export const ownerMaterializationStates = new WeakMap<Scope<unknown>, OwnerMater
  * receipt before the other's journal append returned, and both appended one: the journal then
  * refused the run as corrupted (duplicate materialization receipt).
  */
-export function serializedOwnerWrite<T>(
+function serializedOwnerWrite<T>(
   state: OwnerMaterializationState,
   write: () => Promise<T>,
 ): Promise<T> {
@@ -93,7 +93,7 @@ export async function recordScopeOwnerMaterialization(
   )
 }
 
-export async function publishOwnerMaterialization(
+async function publishOwnerMaterialization(
   state: OwnerMaterializationState,
   runtime: NodeSnapshot['runtime'],
   declaration: import('./types').ExecutorMaterialization,
@@ -367,7 +367,7 @@ export async function finalizeScopeOwnerMaterialization(scope: Scope<unknown>): 
   await serializedOwnerWrite(state, () => finalizeOwnerMaterialization(state))
 }
 
-export async function finalizeOwnerMaterialization(state: OwnerMaterializationState): Promise<void> {
+async function finalizeOwnerMaterialization(state: OwnerMaterializationState): Promise<void> {
   // Rejection paths publish an unknown binding before returning the original validation error.
   // Finalization still runs after that error, so it must not append the same attempt again.
   if (state.publishedThisProcess || state.bindingPublished) return
@@ -405,7 +405,7 @@ export async function finalizeOwnerMaterialization(state: OwnerMaterializationSt
   }
 }
 
-export function ownerMaterializationState(scope: Scope<unknown>): OwnerMaterializationState {
+function ownerMaterializationState(scope: Scope<unknown>): OwnerMaterializationState {
   const state = ownerMaterializationStates.get(scope)
   if (state === undefined) {
     throw new ValidationError('scope has no deferred runtime-owned root materialization channel')
@@ -413,7 +413,7 @@ export function ownerMaterializationState(scope: Scope<unknown>): OwnerMateriali
   return state
 }
 
-export async function rejectOwnerMaterialization(state: OwnerMaterializationState): Promise<void> {
+async function rejectOwnerMaterialization(state: OwnerMaterializationState): Promise<void> {
   if (state.bindingPublished) return
   if (state.prior !== undefined) {
     await appendUnknownOwnerBinding(state, state.prior, 'invalid-executor-report')
@@ -451,7 +451,7 @@ export async function rejectOwnerMaterialization(state: OwnerMaterializationStat
  * the receipt that was rejected is not journalled, so no operator could tell from the record which
  * field had changed. A guard that refuses a live run owes the reason.
  */
-export function changedRunIdentityFields(
+function changedRunIdentityFields(
   prior: ProfileMaterializationReceipt,
   next: ProfileMaterializationReceipt,
 ): readonly string[] {
@@ -470,7 +470,7 @@ export function changedRunIdentityFields(
   )
 }
 
-export async function appendOwnerMaterialization(
+async function appendOwnerMaterialization(
   state: OwnerMaterializationState,
   receipt: ProfileMaterializationReceipt,
   binding: ExecutionBindingReceipt,
@@ -486,7 +486,7 @@ export async function appendOwnerMaterialization(
   await appendOwnerBinding(state, binding)
 }
 
-export async function appendOwnerSeatMaterialization(
+async function appendOwnerSeatMaterialization(
   state: OwnerMaterializationState,
   segmentIndex: number,
   receipt: ProfileMaterializationReceipt,
@@ -504,7 +504,7 @@ export async function appendOwnerSeatMaterialization(
   await appendOwnerBinding(state, binding)
 }
 
-export async function appendOwnerBinding(
+async function appendOwnerBinding(
   state: OwnerMaterializationState,
   binding: ExecutionBindingReceipt,
 ): Promise<void> {
@@ -518,7 +518,7 @@ export async function appendOwnerBinding(
   state.bindingPublished = true
 }
 
-export async function appendOwnerEvidence(
+async function appendOwnerEvidence(
   state: OwnerMaterializationState,
   event: Extract<SpawnEvent, { kind: 'materialized' | 'seat-materialized' | 'execution-bound' }>,
 ): Promise<void> {
@@ -556,7 +556,7 @@ export async function appendExactMaterializationEvent(
   await journal.appendEvent(root, event)
 }
 
-export async function appendUnknownOwnerBinding(
+async function appendUnknownOwnerBinding(
   state: OwnerMaterializationState,
   receipt: ProfileMaterializationReceipt,
   reason: import('./types').UnknownMaterializationReason,
