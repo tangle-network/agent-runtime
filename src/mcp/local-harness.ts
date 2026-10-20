@@ -37,6 +37,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { AgentProfile, HarnessType, ReasoningEffort } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
+import { isRecord } from '../record-value'
 import { parseCodexUsageRecord } from '../runtime/harness-usage'
 import { processGroupExists, terminateProcessTreeAndConfirm } from '../runtime/process-tree'
 import { concreteProfileModel } from '../runtime/supervise/model-policy'
@@ -1735,8 +1736,4 @@ export function parseCodexTokenUsage(stdout: string): CodexTokenUsage {
       ? {}
       : { cacheWriteInputTokens: record.cacheWriteInputTokens }),
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }

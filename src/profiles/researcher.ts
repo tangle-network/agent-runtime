@@ -25,6 +25,7 @@
 import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { ConfigError } from '../errors'
+import { isRecord } from '../record-value'
 import { assertExecutableAgentProfile } from '../runtime/supervise/model-policy'
 import type {
   AgentRunSpec,
@@ -437,10 +438,6 @@ function parseResearcherEvents(events: SandboxEvent[]): ResearchOutput {
     if (coerced) return coerced
   }
   return { items: [], citations: [], proposedWrites: [] }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 /** A coerced output that carries no items, citations, or proposed writes. */

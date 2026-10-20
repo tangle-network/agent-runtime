@@ -19,6 +19,7 @@ import {
 import type { ReasoningEffort } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
 import { priceTokens } from '../pricing/router-prices'
+import { isRecord } from '../record-value'
 import type { CodeModeToolContext, CodeModeToolsOptions } from './code-mode'
 import { type RouterRetryPolicy, resolveRouterRetryPolicy } from './router-retry-policy'
 import { armDeadlineTimer } from './supervise/deadline'
@@ -592,10 +593,6 @@ function withRouting(
         }),
     ...(routing.requireModel !== undefined ? { require_model: routing.requireModel } : {}),
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function providerRequestExtras(

@@ -20,6 +20,7 @@ import type {
   AgentCandidateWorkspaceSnapshotEvidence,
 } from '@tangle-network/agent-interface'
 import { extract, type Pack, pack, type Extract as TarExtract } from 'tar-stream'
+import { isRecord } from '../record-value'
 import {
   candidateWorkspaceManifest,
   captureMaterializedWorkspace,
@@ -1370,10 +1371,6 @@ function hasControlCharacter(value: string): boolean {
     if (code < 0x20 || code === 0x7f) return true
   }
   return false
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 type TypedArrayGetter = (this: Uint8Array) => unknown

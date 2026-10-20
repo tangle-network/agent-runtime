@@ -12,6 +12,8 @@
  * speaks HTTP — no SDK weight, no transitive deps.
  */
 
+import { isRecord } from '../record-value'
+
 export interface PlatformAuthClientOptions {
   /** Platform base URL, e.g. `https://id.tangle.tools`. */
   baseUrl: string
@@ -59,10 +61,6 @@ export class PlatformAuthError extends Error {
     super(message)
     this.name = 'PlatformAuthError'
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 function isNonemptyString(value: unknown): value is string {

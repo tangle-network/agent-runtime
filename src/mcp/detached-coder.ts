@@ -21,6 +21,7 @@ import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-int
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { ConfigError } from '../errors'
 import { type CoderTask, coderTaskToPrompt } from '../profiles/coder'
+import { isRecord } from '../record-value'
 import { assertExecutableAgentProfile } from '../runtime/supervise/model-policy'
 import { type CoderCheckConstraints, runCoderChecks } from '../runtime/supervise/patch-checks'
 import type { AgentRunSpec, Driver, OutputAdapter, Validator } from '../runtime/types'
@@ -202,10 +203,6 @@ function projectWorktreeArtifact(value: unknown): CoderOutput | undefined {
         }
       : {}),
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 /** Keep the last `max` chars of a diagnostic string — harness stdout can be large; the gate reads
