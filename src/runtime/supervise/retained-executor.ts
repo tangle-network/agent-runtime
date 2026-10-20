@@ -13,6 +13,7 @@ import type {
   ExecutorContext,
   ExecutorFactory,
   ExecutorResult,
+  NodeId,
   ProfileMaterializationReceipt,
   ResultBlobStore,
   SpawnEvent,
@@ -408,15 +409,27 @@ function classifyPendingCause(
   return 'unobservable'
 }
 
-/** @internal Evidence recovery failed; the accepted turn stands and a root pursuit stays open. */
-export class RetainedWorkspaceCapturePendingError extends Error {
-  constructor(executionId: string, cause: unknown) {
-    super(
-      `retained workspace capture pending for ${executionId}; source environment preserved: ${cause instanceof Error ? cause.message : String(cause)}`,
-      { cause },
-    )
-    this.name = 'RetainedWorkspaceCapturePendingError'
-  }
+/**
+ * Evidence debt, a {@link SpawnEvent} row: the workspace an accepted turn left in its retained
+ * source environment could not be captured. The turn's result stands, the node continues in
+ * another environment, and the source is never mutated. Written once per source, at the first
+ * failed capture. A later `execution-evidence` receipt of that exact execution and source pays
+ * it; the owner retries the capture on backoff while the supervisor lives, and a source still
+ * owed at release is kept, named in the result's `teardownUnconfirmed[].kept` with
+ * `keptFor: 'evidence'`, for the caller's salvage. Replay and cost readers skip it.
+ */
+export interface EvidencePendingEvent {
+  kind: 'evidence-pending'
+  id: NodeId
+  environmentId: string
+  /** The accepted turn's execution; absent when its admissions named none exactly. */
+  executionId?: string
+  /** The failed capture, as recorded. */
+  error: string
+  /** When the capture first failed: the durable copy is behind since then. */
+  since: string
+  seq: number
+  at: string
 }
 
 /**

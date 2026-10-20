@@ -1089,6 +1089,7 @@ const outsideCursorNamespaceKinds = [
   'execution-result',
   'execution-abandoned',
   'execution-evidence',
+  'evidence-pending',
   'progress',
   'reconciled',
   'edge',
@@ -1201,45 +1202,8 @@ export async function replaySpawnTree(
   }
   const settled: Settled<unknown>[] = []
   for (const ev of ordered) {
-    if (ev.kind === 'spawned') continue
-    if (ev.kind === 'metered') continue // a spend record, not a settlement — irrelevant to replay
-    if (ev.kind === 'progress') continue // live observation, not a settlement — irrelevant to replay
-    if (ev.kind === 'reconciled') continue // an OPEN node's charged floor, not a settlement
-    if (ev.kind === 'materialized') continue // wire receipt, not a settlement
-    if (ev.kind === 'execution-bound') continue // attempt transport, not a settlement
-    if (
-      ev.kind === 'execution-input' ||
-      ev.kind === 'execution-admitted' ||
-      ev.kind === 'execution-result' ||
-      ev.kind === 'execution-abandoned' ||
-      ev.kind === 'execution-evidence'
-    )
-      continue
-    if (ev.kind === 'edge') continue // edge-ledger observability, not a settlement
-    if (ev.kind === 'teardown-unconfirmed') continue // executor-leak evidence, not a settlement
-    if (ev.kind === 'teardown-pending' || ev.kind === 'teardown-confirmed') continue // cleanup retry
-    if (ev.kind === 'environment-teardown') continue // release receipt, not a settlement
-    if (ev.kind === 'environment-terminal') continue // provider liveness evidence, not a settlement
-    if (ev.kind === 'workspace-checkpoint-requested') continue // workspace intent, not a settlement
-    if (ev.kind === 'workspace-checkpoint') continue // workspace receipt, not a settlement
-    if (ev.kind === 'workspace-checkpoint-fork-requested') continue // workspace intent, not a settlement
-    if (ev.kind === 'workspace-checkpoint-fork-ready') continue // workspace receipt, not a settlement
-    if (ev.kind === 'workspace-checkpoint-fork-teardown') continue // workspace receipt, not a settlement
-    if (ev.kind === 'workspace-checkpoint-capture') continue // workspace receipt, not a settlement
-    if (ev.kind === 'workspace-checkpoint-cleanup') continue // workspace receipt, not a settlement
-    if (ev.kind === 'workspace-restored') continue // workspace receipt, not a settlement
-    if (ev.kind === 'workspace-capture-started') continue // capture intent, not a settlement
-    if (ev.kind === 'workspace-capture') continue // capture timing, not a settlement
-    if (ev.kind === 'trace-unpropagated') continue // severed-hop marker, not a settlement
-    if (ev.kind === 'seat-segment' || ev.kind === 'seat-materialized' || ev.kind === 'seat-paused')
-      continue // placement evidence
-    if (ev.kind === 'root-segment') continue // a root segment boundary, not a settlement
-    if (ev.kind === 'root-reentered') continue // a process restart, not a settlement
-    if (ev.kind === 'paused') continue // an unavailable upstream's pause, not a settlement
-    if (ev.kind === 'driver-attempt') continue // driver diagnosis, not a settlement
-    if (ev.kind === 'node-inputs-resolved') continue // graph-engine fold input, not a settlement
-    if (ev.kind === 'edge-verdict') continue // graph-engine fold input, not a settlement
-    if (ev.kind === 'join-state') continue // graph-engine fold input, not a settlement
+    // Node creation and informational records, read above for handles, are not settlements.
+    if (outsideCursorNamespace(ev)) continue
     if (ev.kind === 'cancelled') {
       settled.push({
         kind: 'down',

@@ -112,14 +112,13 @@ import {
   type ContinuationContext,
   type ContinuationEntry,
 } from './continuation'
-import { isCredentialRefusal } from './credential-refusal'
-import { errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
+import { credentialCommandExit, isCredentialRefusal } from './credential-refusal'
+import { causeChain, errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
 import {
   DISPATCH_NOT_ADMITTED_CODE,
   isProvisioningRefusal,
   RetainedExecutionPendingError,
   type RetainedPendingCause,
-  RetainedWorkspaceCapturePendingError,
 } from './retained-executor'
 import { subscriptionUsageLimitSignal } from './seat-chain'
 import type { Scope } from './types'
@@ -210,9 +209,13 @@ export interface DriverAttemptRecord {
    *  in this process. Such an attempt never counts toward `continuation.maxBarren`. */
   readonly beforeModelEvent?: true
   /** For an `unavailable` attempt: the code or HTTP status that classified it, such as
-   *  `provider_quota_exhausted` or `http-429`. */
+   *  `provider_quota_exhausted` or `http-429`, or `credential-unavailable` when the provider's
+   *  command failed before any dispatch. */
   readonly unavailableSignal?: string
-  /** For an `unavailable` attempt whose refusal named its reset time: the pause holds until then. */
+  /** For a `credential-unavailable` pause: the exit code of the command that failed. */
+  readonly exitCode?: number
+  /** For an `unavailable` attempt whose refusal named its reset time, or a
+   *  `credential-unavailable` pause: the pause holds until then. */
   readonly resumeAt?: string
   /** The completion check's verdict after this attempt. Absent when the caller declares none. */
   readonly contract?: DriverContractState
@@ -560,6 +563,7 @@ function isDispatchNotAdmitted(error: Error): boolean {
  * no structured field decided, because a harness CLI reports the router's refusal as text.
  */
 export function upstreamUnavailableSignal(error: unknown): string | undefined {
+  if (undispatchedCredentialExit(error) !== undefined) return 'credential-unavailable'
   const admission = retainedAdmissionCause(error)
   if (admission !== undefined) return upstreamUnavailableSignal(admission)
   if (!(error instanceof Error)) return undefined
@@ -621,25 +625,6 @@ function isUpstreamUnavailable(error: unknown): boolean {
   return upstreamUnavailableSignal(error) !== undefined
 }
 
-/** The error and its causes (`cause`, and `errors` members), bounded and cycle-safe. */
-function causeChain(error: unknown): object[] {
-  const chain: object[] = []
-  const queue: unknown[] = [error]
-  while (queue.length > 0 && chain.length < 12) {
-    const value = queue.shift()
-    if (typeof value !== 'object' || value === null || chain.includes(value)) continue
-    chain.push(value)
-    try {
-      const errors: unknown = Reflect.get(value, 'errors')
-      if (Array.isArray(errors)) queue.push(...errors)
-      queue.push(Reflect.get(value, 'cause'))
-    } catch {
-      // A cause that cannot be read ends this branch of the walk.
-    }
-  }
-  return chain
-}
-
 /**
  * Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal; an
  * upstream capacity refusal is `unavailable`; anything else foreign is an accident and is
@@ -654,6 +639,8 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   // requires a repaired reader/provider; repeating that read unchanged cannot recover it.
   if (error instanceof RetainedExecutionPendingError && error.pendingCause === 'provider-contract')
     return 'terminal'
+  // Nothing was dispatched, so nothing is pending: a pause, never a reconciliation to count.
+  if (undispatchedCredentialExit(error) !== undefined) return 'unavailable'
   const admission = retainedAdmissionCause(error)
   // A dispatch that Sandbox did not admit gets the same refusal while the owning execution holds
   // the session. A run never starts a turn beside an execution that owns its session, so it stops
@@ -695,6 +682,16 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   if (error instanceof AgentEvalError) return 'terminal'
   if (isUpstreamUnavailable(error)) return 'unavailable'
   return foreignHttpStatusVerdict(error) ?? 'transient'
+}
+
+/** The credential command's exit code when it failed before Runtime journaled a dispatch: no
+ *  provider execution id exists, so nothing ran ({@link credentialCommandExit}). */
+function undispatchedCredentialExit(error: unknown): number | undefined {
+  return error instanceof RetainedExecutionPendingError &&
+    error.phase === 'admission' &&
+    error.pendingCause === 'unobservable'
+    ? credentialCommandExit(error.cause)
+    : undefined
 }
 
 /** Admission refusals keep the original HTTP rules without interpreting failures after execution starts. */
@@ -1104,8 +1101,6 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     try {
       await run.drive(attempt, reentry)
     } catch (error) {
-      // Evidence recovery is not another model attempt, nor an execution to abandon.
-      if (error instanceof RetainedWorkspaceCapturePendingError) throw error
       const durationMs = now() - startedAt
       const classification = classifyDriverFailure(error, run.signal)
       const after = run.progress()
@@ -1153,6 +1148,8 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
           resetAt === undefined
             ? jitteredMs(unavailablePauseMs(consecutivePauses, policy), random)
             : Math.max(1_000, Math.min(resetAt, deadlineMs > 0 ? deadlineMs : resetAt) - pausedAt)
+        const exitCode = undispatchedCredentialExit(error)
+        const resumeAt = resetAt ?? (exitCode === undefined ? undefined : pausedAt + pause)
         await emit({
           attempt,
           durationMs,
@@ -1160,8 +1157,9 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
           classification,
           madeProgress: progressed,
           unavailableSignal,
+          ...(exitCode === undefined ? {} : { exitCode }),
           retryInMs: pause,
-          ...(resetAt === undefined ? {} : { resumeAt: new Date(resetAt).toISOString() }),
+          ...(resumeAt === undefined ? {} : { resumeAt: new Date(resumeAt).toISOString() }),
         })
         // The same rule as a failure retry: re-enter with the ORIGINAL task and the run's state,
         // because the refused turn may have ended before it read a re-prompt.

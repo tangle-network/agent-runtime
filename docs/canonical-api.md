@@ -123,6 +123,7 @@ Large profile resources do not belong in bounded `providerOptions` metadata.
 Runtime validates the turn before environment creation and binds its profile digest into retained admission identity. `assertProfileMaterializes(profile, harness, context)` from `/agent` or `/kernel` checks harness support without processes or I/O. Use it before admission when an adapter has no optional `validateProfile`; the provider remains authoritative for its execution capabilities and complete profile materialization.
 A request-schema refusal ends the driver attempt without repeated provisioning.
 A capacity refusal before dispatch was refused before it ran, and pauses the driver.
+A credential command (`acct sandbox resolve`) that exits non-zero before any dispatch ran nothing; it pauses the driver as `credential-unavailable` and never counts toward `pending-unresolved`. Other failures before dispatch are not paused this way.
 A permanent unsupported credential-route refusal (`model_credential_refused`) before dispatch
 ends the driver after one attempt; after admission it does not settle the execution.
 A dispatch that Sandbox did not admit, because another execution owns the session or turn, was refused before it ran, and stops the driver with that refusal named.

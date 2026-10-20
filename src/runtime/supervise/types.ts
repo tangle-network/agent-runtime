@@ -1,5 +1,4 @@
 /**
- *
  * Recursive execution atom — the FROZEN type surface (the keystone contract).
  *
  * One self-similar `Agent` atom runs inside a budget-conserving reactive `Scope`,
@@ -47,7 +46,7 @@ import type { LoopTokenUsage } from '../types'
 import type { ReservationShortfall } from './budget'
 import type { DriverAttemptRecord } from './driver-retry'
 import type { ExecutorProgress, WorkerProgress } from './progress'
-import type { RetainedPendingCause } from './retained-executor'
+import type { EvidencePendingEvent, RetainedPendingCause } from './retained-executor'
 import type { TraceSource } from './trace-source'
 import type { WorkerTraceResolver } from './worker-trace'
 
@@ -1611,6 +1610,7 @@ export type SpawnEvent =
       seq: number
       at: string
     }
+  | EvidencePendingEvent
   | {
       /** Volatile transport/session binding for exactly one attempt. The full binding is retained
        * only by digest; descriptor fields are safe structural labels, never credential-bearing URLs. */
@@ -2572,7 +2572,7 @@ export interface SpendGap {
  */
 export type RetainedExecutionState = 'pending' | 'released' | 'release-unconfirmed'
 
-export type { RetainedPendingCause } from './retained-executor'
+export type { EvidencePendingEvent, RetainedPendingCause } from './retained-executor'
 
 /**
  * How this run's spawned CHILDREN ended, counted by node id off the complete journal FOREST at

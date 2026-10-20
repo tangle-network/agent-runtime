@@ -262,7 +262,6 @@ export {
 // budget-conserving reactive `Scope`, the event-sourced `Supervisor`, and the spawn
 // journal. Substrate types come from `./supervise/types`; the journal + blob store
 // impls live in `../durable/spawn-journal`.
-//
 // Both pairs are exported: the in-memory stores (tests / scratch / a run that need not
 // outlive its process) AND the file-backed stores that make a run RESUMABLE. Without the
 // durable pair on the public surface a consumer cannot resume at all — and the one that
@@ -1294,6 +1293,7 @@ export type {
   BudgetOverspend,
   BudgetViolation,
   EnvironmentTeardownReceipt,
+  EvidencePendingEvent,
   ExecutionBindingReceipt,
   Executor,
   ExecutorAccounting,
