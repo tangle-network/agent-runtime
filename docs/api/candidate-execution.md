@@ -407,6 +407,15 @@ What a workspace scan reads and how it records a file's permission bits.
 
 **`Experimental`**
 
+##### excludedPaths?
+
+> `readonly` `optional` **excludedPaths?**: readonly `string`[]
+
+**`Experimental`**
+
+Root-relative files or directories left out, each by its exact path (`__retention__` or
+`__retention__/sessions/<id>`). A verify of the same root must name the same paths.
+
 ##### limits?
 
 > `readonly` `optional` **limits?**: [`WorkspaceScanLimits`](#workspacescanlimits)
@@ -3577,6 +3586,17 @@ Caller-owned bytes accepted by createAgentCandidateWorkspacePort.
 > `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
 
 **`Experimental`**
+
+##### excludedPaths?
+
+> `optional` **excludedPaths?**: readonly `string`[]
+
+**`Experimental`**
+
+Root-relative files or directories to leave out of the capture, each by its exact path. A
+caller whose root holds data another capture already keeps, such as a provider's retained
+native session trees, or an environment it can rebuild, such as a virtualenv, names them here
+instead of storing them on every capture. The manifest then describes only what was kept.
 
 ##### artifactPersistence
 
