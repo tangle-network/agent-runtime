@@ -2684,6 +2684,18 @@ What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-3)
 
+##### budgetStopHoldMs?
+
+> `readonly` `optional` **budgetStopHoldMs?**: `number`
+
+How long a keyed worker whose turn ended over its budget keeps its environment for a
+ `spawn_worker` of the same key with a larger budget to continue the same session (ms).
+ Default 600,000; `0` keeps none. Released earlier by `cancel_worker` or the run's end.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`budgetStopHoldMs`](runtime.md#budgetstopholdms-2)
+
 ##### workerSlots?
 
 > `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-6)
@@ -3854,6 +3866,18 @@ What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-3)
+
+##### budgetStopHoldMs?
+
+> `readonly` `optional` **budgetStopHoldMs?**: `number`
+
+How long a keyed worker whose turn ended over its budget keeps its environment for a
+ `spawn_worker` of the same key with a larger budget to continue the same session (ms).
+ Default 600,000; `0` keeps none. Released earlier by `cancel_worker` or the run's end.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`budgetStopHoldMs`](runtime.md#budgetstopholdms-2)
 
 ##### workerSlots?
 

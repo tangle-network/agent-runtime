@@ -19638,6 +19638,18 @@ What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default
 
 [`SuperviseOptions`](#superviseoptions).[`deadlineCheckIn`](#deadlinecheckin-3)
 
+##### budgetStopHoldMs?
+
+> `readonly` `optional` **budgetStopHoldMs?**: `number`
+
+How long a keyed worker whose turn ended over its budget keeps its environment for a
+ `spawn_worker` of the same key with a larger budget to continue the same session (ms).
+ Default 600,000; `0` keeps none. Released earlier by `cancel_worker` or the run's end.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`budgetStopHoldMs`](#budgetstopholdms-2)
+
 ##### workerSlots?
 
 > `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
@@ -20027,6 +20039,16 @@ Default instruction for direct `execute(undefined, signal)` calls. An execution-
 **`Experimental`**
 
 Optional wall-clock cap per harness subprocess (ms). Omit it for no timer.
+
+##### env?
+
+> `optional` **env?**: `Readonly`\<`Record`\<`string`, `string` \| `undefined`\>\>
+
+**`Experimental`**
+
+Variables set (a string) or removed (`undefined`) for this executor's harness process only,
+ e.g. the account a seat rotation selected (`CODEX_HOME`, `CLAUDE_CODE_OAUTH_TOKEN`).
+ `process.env` is never mutated, and no value reaches a receipt or the result.
 
 ##### runHarness?
 
@@ -23394,6 +23416,14 @@ The budget from which this scope's owner-share floor is derived.
 What a steerable child's own time box does: a check-in by default (`deadline.ts`
  `DeadlineCheckIn`); `false` stops the child at its time box. Nested scopes inherit it.
 
+##### budgetStopHoldMs?
+
+> `readonly` `optional` **budgetStopHoldMs?**: `number`
+
+How long a keyed leaf whose turn ended over its budget keeps its environment for a same-key
+ re-spawn to continue (ms). Default [DEFAULT\_BUDGET\_STOP\_HOLD\_MS](#default_budget_stop_hold_ms); `0` keeps none.
+ Nested scopes inherit it.
+
 ##### signal
 
 > `readonly` **signal**: `AbortSignal`
@@ -24978,6 +25008,14 @@ What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default
  the child is told to save its state and submit what it has, and is stopped only once it then
  makes no progress for 30 min. `false` stops it at the time box. The run's own deadline always
  stops every node. See `deadline.ts` `DeadlineCheckIn`.
+
+##### budgetStopHoldMs?
+
+> `readonly` `optional` **budgetStopHoldMs?**: `number`
+
+How long a keyed worker whose turn ended over its budget keeps its environment for a
+ `spawn_worker` of the same key with a larger budget to continue the same session (ms).
+ Default 600,000; `0` keeps none. Released earlier by `cancel_worker` or the run's end.
 
 ##### workerSlots?
 
@@ -27178,6 +27216,19 @@ holds no provider environment omits the method.
 
 readonly [`HeldEnvironment`](#heldenvironment)[]
 
+##### heldForContinuation()?
+
+> `optional` **heldForContinuation**(): [`HeldForContinuation`](#heldforcontinuation-1) \| `undefined`
+
+The environment a settled turn kept because it ended over its budget, so a keyed re-spawn can
+run the next turn in the same environment and harness session. `undefined` once nothing is
+held. `release` destroys it; `handOver` gives it to the successor node, after which this
+executor never destroys it. The scope asks for it through `RetainedExecutorContext.holdOnSettle`.
+
+###### Returns
+
+[`HeldForContinuation`](#heldforcontinuation-1) \| `undefined`
+
 ##### resultArtifact()
 
 > **resultArtifact**(): `object`
@@ -27468,12 +27519,52 @@ The provider-issued environment id — the id a fleet listing shows and a delete
 
 ##### keptFor?
 
-> `readonly` `optional` **keptFor?**: `"resume"` \| `"evidence"`
+> `readonly` `optional` **keptFor?**: `"resume"` \| `"evidence"` \| `"continuation"`
 
 Why the environment is held on purpose; absent when it is held only because its destroy was
 not confirmed. A sweeper never deletes a kept environment.
 - `resume`: a retained execution kept so a resumed run can reconcile the paid work inside it.
 - `evidence`: a workspace preserved because the execution has no verified workspace receipt.
+
+***
+
+### HeldForContinuation
+
+A budget-stopped turn's environment, held for a keyed continuation ([Executor.heldForContinuation](#heldforcontinuation)).
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `string`
+
+##### environmentId
+
+> `readonly` **environmentId**: `string`
+
+#### Methods
+
+##### release()
+
+> **release**(`signal?`): `Promise`\<\{ `destroyed`: `boolean`; `detail?`: `string`; \}\>
+
+###### Parameters
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<\{ `destroyed`: `boolean`; `detail?`: `string`; \}\>
+
+##### handOver()
+
+> **handOver**(): `void`
+
+###### Returns
+
+`void`
 
 ***
 
@@ -28129,6 +28220,14 @@ The settled sibling node this spawn replaces, so a run's record names which work
  whose work. The caller asserts the relation; the coordination `spawn_worker` tool admits only
  a settled worker of the same manager. Journaled on `spawned` and on the `agent.spawn` hook.
 
+##### continueHeld?
+
+> `readonly` `optional` **continueHeld?**: `boolean`
+
+With `key`: when the key's committed result ended over its budget and its environment is still
+held, continue that session in a NEW node (`prior.state: 'continued'`) instead of returning the
+result. The coordination tool sets it when the manager re-spawns the key with a `budget`.
+
 ***
 
 ### Handle
@@ -28453,6 +28552,27 @@ is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an M
 ###### Returns
 
 `boolean`
+
+##### releaseHeld()?
+
+> `optional` **releaseHeld**(`nodeId`, `reason`): `Promise`\<`boolean`\>
+
+Release the environment a settled child holds after a budget stop. Resolves `true` when one was
+held (and journals its `environment-teardown` with `heldRelease`), `false` otherwise.
+
+###### Parameters
+
+###### nodeId
+
+`string`
+
+###### reason
+
+[`HeldRelease`](#heldrelease)
+
+###### Returns
+
+`Promise`\<`boolean`\>
 
 ##### progress()
 
@@ -29311,6 +29431,15 @@ Opt in to keeping each manager's inference share free of its children's slices. 
 What a child's own time box does. Default: a check-in (the child is told to save its state and
  submit what it has, and is stopped only once it then makes no progress for 30 min); `false`
  stops it at the time box. See `deadline.ts` `DeadlineCheckIn`.
+
+##### budgetStopHoldMs?
+
+> `readonly` `optional` **budgetStopHoldMs?**: `number`
+
+How long a keyed worker whose turn ended over its budget keeps its environment, so that
+ re-spawning its key with a larger budget continues the same session (ms). After it the
+ environment is released and the worker stays settled `done` with its `budgetViolation`.
+ Default 600,000 (`DEFAULT_BUDGET_STOP_HOLD_MS`); `0` keeps none.
 
 ##### maxRestarts?
 
@@ -35259,6 +35388,15 @@ conversation cannot present itself as this one. `unavailable` names why, and is 
 
 ***
 
+### HeldRelease
+
+> **HeldRelease** = `"hold-ceiling"` \| `"cancel-worker"` \| `"scope-join"`
+
+Why a held budget-stop environment was released: its hold ceiling ran out, its manager
+ cancelled the worker, or the scope reached its join barrier. Journaled on `environment-teardown`.
+
+***
+
 ### ExecutorProgressEvent
 
 > **ExecutorProgressEvent** = \{ `kind`: `"text_delta"`; `text`: `string`; \} \| \{ `kind`: `"reasoning_delta"`; `text`: `string`; \} \| \{ `kind`: `"tool_call"`; `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; \} \| \{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; \} \| \{ `kind`: `"interaction"`; `request`: `InteractionRequest`; \} \| \{ `kind`: `"child_task"`; `event`: `ChildTaskEvent`; \}
@@ -35696,7 +35834,7 @@ child nobody joins.
 
 ### SpawnPrior
 
-> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](#settled-4)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-10); `reason`: `string`; \}
+> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](#settled-4)\<`Out`\> & `object`; \} \| \{ `state`: `"continued"`; `priorId`: [`NodeId`](#nodeid-10); `environmentId`: `string`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-10); `reason`: `string`; \}
 
 What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
 every unkeyed spawn). `'completed'` is the exactly-once path: NOTHING was spawned — the handle
@@ -35710,6 +35848,26 @@ recovery before a replacement can run.
 ##### Out
 
 `Out` = `unknown`
+
+#### Union Members
+
+##### Type Literal
+
+\{ `state`: `"completed"`; `settled`: [`Settled`](#settled-4)\<`Out`\> & `object`; \}
+
+***
+
+##### Type Literal
+
+\{ `state`: `"continued"`; `priorId`: [`NodeId`](#nodeid-10); `environmentId`: `string`; \}
+
+A NEW node continues the prior node's held environment and session (`SpawnOpts.continueHeld`).
+
+***
+
+##### Type Literal
+
+\{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-10); `reason`: `string`; \}
 
 ***
 
@@ -35914,13 +36072,13 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-10); `parent?`: [`NodeId`](#nodeid-10); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-10); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-8); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-10); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-10); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-10); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-10); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-10); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-10); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-10); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-10); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-10); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-10); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-10); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-10); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-10); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-10); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-10); `label`: `string`; `runtime`: [`Runtime`](#runtime-8); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-10); `label`: `string`; `runtime`: [`Runtime`](#runtime-8); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-ready"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture-started"`; `id`: [`NodeId`](#nodeid-10); `executionId`: `string`; `environmentId`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-10); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `stages?`: `Readonly`\<`Record`\<`string`, `number`\>\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-10); `graph?`: [`NodeId`](#nodeid-10); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-10); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-10); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-10); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-10); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-10); `resumeAt`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-10); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-10); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-10); `parent?`: [`NodeId`](#nodeid-10); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-10); `continues?`: \{ `ofWorker`: [`NodeId`](#nodeid-10); `environmentId`: `string`; \}; `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-8); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-10); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-10); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-10); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-10); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-10); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-10); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-10); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-10); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-10); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-10); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-10); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-10); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-10); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-10); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-10); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-10); `label`: `string`; `runtime`: [`Runtime`](#runtime-8); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-10); `label`: `string`; `runtime`: [`Runtime`](#runtime-8); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `heldRelease?`: [`HeldRelease`](#heldrelease); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-ready"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture-started"`; `id`: [`NodeId`](#nodeid-10); `executionId`: `string`; `environmentId`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-10); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `stages?`: `Readonly`\<`Record`\<`string`, `number`\>\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-10); `graph?`: [`NodeId`](#nodeid-10); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-10); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-10); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-10); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-10); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-10); `resumeAt`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-10); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-10); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-10); `parent?`: [`NodeId`](#nodeid-10); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-10); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-8); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-10); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-10); `parent?`: [`NodeId`](#nodeid-10); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-10); `continues?`: \{ `ofWorker`: [`NodeId`](#nodeid-10); `environmentId`: `string`; \}; `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-8); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-10); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -35956,6 +36114,20 @@ Manager-scoped assignment identity used to join unkeyed and keyed work alike.
 > `optional` **successorOf?**: [`NodeId`](#nodeid-10)
 
 The settled sibling node this spawn replaces (`SpawnOpts.successorOf`).
+
+###### continues?
+
+> `optional` **continues?**: `object`
+
+The budget-stopped node whose held environment and session this node continues.
+
+###### continues.ofWorker
+
+> **ofWorker**: [`NodeId`](#nodeid-10)
+
+###### continues.environmentId
+
+> **environmentId**: `string`
 
 ###### budget
 
@@ -37021,7 +37193,7 @@ the source still needs a separate teardown receipt at settlement.
 
 ##### Type Literal
 
-\{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-10); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `heldRelease?`: [`HeldRelease`](#heldrelease); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -37063,6 +37235,12 @@ One provider environment a settled retained-pending child held, released at root
 ###### detail?
 
 > `optional` **detail?**: `string`
+
+###### heldRelease?
+
+> `optional` **heldRelease?**: [`HeldRelease`](#heldrelease)
+
+Present when the environment was held after a budget stop: why the hold ended.
 
 ###### seq
 
@@ -38916,6 +39094,15 @@ Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded 
 > `const` **SUBTREE\_RESULT\_LIMIT**: `8` = `8`
 
 How many of a manager's direct children its summary lists; the counts always cover all.
+
+***
+
+### DEFAULT\_BUDGET\_STOP\_HOLD\_MS
+
+> `const` **DEFAULT\_BUDGET\_STOP\_HOLD\_MS**: `600000` = `600_000`
+
+Ten minutes: a manager that is alive decides within a turn or two; one that crashed, or a host
+ that restarted, must not leave a paid environment running until a retire pass finds it.
 
 ***
 
@@ -45574,6 +45761,30 @@ const result = compiled.call === 'supervise'
 #### Returns
 
 [`CompiledSearchSpec`](#compiledsearchspec)
+
+***
+
+### subscriptionUsageLimitSignal()
+
+> **subscriptionUsageLimitSignal**(`failure`): `"subscription-usage-limit"` \| `undefined`
+
+Normalize a native harness refusal into a typed limit. A plain HTTP 429 is insufficient.
+
+#### Parameters
+
+##### failure
+
+###### error
+
+`string`
+
+###### errorCode?
+
+`string`
+
+#### Returns
+
+`"subscription-usage-limit"` \| `undefined`
 
 ***
 

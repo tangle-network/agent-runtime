@@ -3833,6 +3833,12 @@ The same overspend for a reader: `tokens 235,857 of 42,000; deadline 3,857 s of 
  `done` worker with it was stopped by its budget at a turn boundary, not finished with its
  task.
 
+##### budgetStopNext?
+
+> `readonly` `optional` **budgetStopNext?**: `string`
+
+With `budgetStop` on a keyed worker: how to continue its session or release it.
+
 ##### trace
 
 > `readonly` **trace**: [`WorkerTraceEvidence`](runtime.md#workertraceevidence)

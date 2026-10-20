@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.334.0` and `@tangle-network/agent-eval@0.215.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.335.0` and `@tangle-network/agent-eval@0.215.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -484,7 +484,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1117 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1121 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -760,6 +760,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1117 exports.
 | `strategyTournament` | function | The tournament on one split, projected from the ledger: each settled cell's final attempt, |
 | `streamAgentTurn` | function | Run ONE agent turn on any backend kind and stream its events. Yields the |
 | `structuralRollout` | function | Build the structuralRollout `Strategy`: k shots → score each by the frozen visible |
+| `subscriptionUsageLimitSignal` | function | Normalize a native harness refusal into a typed limit. A plain HTTP 429 is insufficient. |
 | `summarizeDriverAttempts` | function | Count a loop's attempt records into its {@link DriverLoopRecord}. |
 | `sumSandboxUsage` | function | Sum the token usage + USD cost of a sandbox turn's events — the one honest way to meter an |
 | `supervise` | function | One-call supervisor: build + run a supervisor from its exact profile. |
@@ -810,6 +811,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1117 exports.
 | `CONTINUATION_FACTS` | const | The facts a profile template may name. |
 | `DEADLINE_CHECK_IN_MESSAGE` | const | The check-in a child receives at its own time box. |
 | `DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY` | const | Manager-authored profiles are untrusted until product policy says otherwise. Remote MCP and |
+| `DEFAULT_BUDGET_STOP_HOLD_MS` | const | Ten minutes: a manager that is alive decides within a turn or two; one that crashed, or a host |
 | `DEFAULT_CHECK_IN_IDLE_MS` | const | How long a checked-in child may go without progress before it is stopped: 30 min. |
 | `DEFAULT_DEADLINE_WARNING_MS` | const | How long before its deadline a manager is woken once to submit its best result: 15 min. |
 | `DEFAULT_MAX_DEPTH` | const | The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every |
@@ -1008,6 +1010,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1117 exports.
 | `HarnessUsage` | interface | One harness's own token-usage report for one turn, in the runtime's field names. |
 | `HarvestSurfaceDiffsOptions` | interface | Inputs to {@link harvestSurfaceDiffs}: the run's mount manifest, the read seam, and optional |
 | `HeldEnvironment` | interface | One provider environment an executor holds, named by the provider's own id. |
+| `HeldForContinuation` | interface | A budget-stopped turn's environment, held for a keyed continuation ({@link Executor.heldForContinuation}). |
 | `InMemoryRunContext` | interface | The bundle of stores a supervised run needs, shaped to spread into `SupervisorOpts`. |
 | `InMemoryRunContextOptions` | interface | Options for a supervised run context. |
 | `InPlaceHarnessResult` | interface | The canonical result of one in-place harness run. The edits are the DIRECTORY, not a patch: |
@@ -1323,6 +1326,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1117 exports.
 | `HarnessTranscriptCapture` | type | What the executor holds before settlement: a retained descriptor, inline files, or absence. |
 | `HarnessTranscriptEvidence` | type | The durable receipt on a settlement: a content-addressed pointer to a persisted |
 | `HarnessTranscriptUnavailableReason` | type | Why no transcript reached a record, from either the capture or the settle path. |
+| `HeldRelease` | type | Why a held budget-stop environment was released: its hold ceiling ran out, its manager |
 | `InProcessOnPrompt` | type | The user callback: given a prompt and its round, produce the box's event |
 | `InteractiveWorkerEnvironment` | type | Environment fields supplied to every interactive worker after Runtime adds the exact profile. |
 | `LoopOptionsForDispatch` | type | runAgentRounds options minus the `ctx` (loopDispatch builds the ctx). |
