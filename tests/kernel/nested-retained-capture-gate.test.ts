@@ -22,7 +22,7 @@ afterEach(async () => {
 
 describe('nested retained owner capture gate', () => {
   it.each([true, false])(
-    'gates nested reuse with persistent capture failure=%s and permits an independent parent result',
+    'never reuses an uncaptured nested source (persistent capture failure=%s) and permits an independent parent result',
     {
       timeout: 40_000,
     },
@@ -207,11 +207,15 @@ describe('nested retained owner capture gate', () => {
         'independent parent',
       )
       const nestedDispatches = dispatched.filter((event) => event.role === 'director')
-      expect(nestedDispatches).toHaveLength(persistentFailure ? 1 : 2)
-      expect([...roles.values()].filter((role) => role === 'director')).toHaveLength(1)
+      expect(nestedDispatches).toHaveLength(2)
+      // A source without a receipt is never reused: the nested manager continues elsewhere.
+      expect([...roles.values()].filter((role) => role === 'director')).toHaveLength(
+        persistentFailure ? 2 : 1,
+      )
       expect(captureFailures).toBeGreaterThanOrEqual(persistentFailure ? 2 : 1)
       const nestedId = nestedDispatches[0]!.environmentId
       if (persistentFailure) {
+        expect(nestedDispatches[1]!.environmentId).not.toBe(nestedId)
         expect(destroyed).not.toContain(nestedId)
         expect(await base.get!(nestedId)).not.toBeNull()
       }
@@ -223,11 +227,9 @@ describe('nested retained owner capture gate', () => {
         throw new Error('missing nested owner tree')
       const events = (await context.journal.loadTree(spawn.ownedTreeRoot)) ?? []
       const accepted = events.filter((event) => event.kind === 'execution-result')
-      expect(accepted).toHaveLength(persistentFailure ? 1 : 2)
+      expect(accepted).toHaveLength(2)
       expect(await context.blobs.get(accepted[0]!.outRef)).toBeDefined()
-      expect(events.filter((event) => event.kind === 'execution-input')).toHaveLength(
-        persistentFailure ? 1 : 2,
-      )
+      expect(events.filter((event) => event.kind === 'execution-input')).toHaveLength(2)
       expect(events.filter((event) => event.kind === 'execution-abandoned')).toHaveLength(0)
       if (!persistentFailure) {
         const outputs = await Promise.all(
@@ -246,14 +248,14 @@ describe('nested retained owner capture gate', () => {
         ).toEqual(firstNestedCaptureNode)
         return
       }
-      expect(events.filter((event) => event.kind === 'execution-evidence')).toHaveLength(0)
-      expect(parentEvents.some((event) => event.kind === 'reconciled')).toBe(true)
-      expect(result.tree.nodes.find((node) => node.id === spawn.id)?.status).toBe('failed')
-      expect(
-        parentEvents.some(
-          (event) => event.kind === 'settled' && event.id === spawn.id && event.status === 'done',
-        ),
-      ).toBe(false)
+      // The failed capture is evidence debt on the nested node, one row naming its source.
+      expect(events.filter((event) => event.kind === 'evidence-pending')).toEqual([
+        expect.objectContaining({
+          environmentId: nestedId,
+          executionId: firstNestedCaptureExecution,
+          error: expect.stringContaining('nested capture storage unavailable'),
+        }),
+      ])
     },
   )
 })

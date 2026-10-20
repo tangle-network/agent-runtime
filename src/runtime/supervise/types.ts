@@ -1612,6 +1612,29 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /**
+       * Evidence debt: the workspace an accepted turn left in its retained source environment
+       * could not be captured. The turn's result stands and the node continues in another
+       * environment; the source is never mutated. Written once per source, at the first failed
+       * capture. The debt is paid by a later `execution-evidence` receipt of that exact execution
+       * and source, which the owner retries on backoff while the supervisor lives; a source still
+       * owed at release is kept, named in the result's `teardownUnconfirmed[].kept` with
+       * `keptFor: 'evidence'`, for the caller's salvage. Informational: replay and cost readers
+       * skip it.
+       */
+      kind: 'evidence-pending'
+      id: NodeId
+      environmentId: string
+      /** The accepted turn's execution; absent when its admissions named none exactly. */
+      executionId?: string
+      /** The failed capture, as recorded. */
+      error: string
+      /** When the capture first failed. */
+      since: string
+      seq: number
+      at: string
+    }
+  | {
       /** Volatile transport/session binding for exactly one attempt. The full binding is retained
        * only by digest; descriptor fields are safe structural labels, never credential-bearing URLs. */
       kind: 'execution-bound'

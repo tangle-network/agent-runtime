@@ -27,7 +27,7 @@ import {
 import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../retained-native-stop'
 import { sameControlCoordinates } from '../retained-run-binding'
 import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
-import { addSpend, zeroSpend } from '../util'
+import { addSpend, sleep, zeroSpend } from '../util'
 import { abortError, runAbortable } from './abortable'
 import { assertValidSpend } from './budget'
 import { errMessage, errorText } from './error-message'
@@ -36,7 +36,6 @@ import {
   executorEvidenceWriter,
   type RetainedExecutionPendingError,
   type RetainedExecutorContext,
-  RetainedWorkspaceCapturePendingError,
   type RetainedWorkspaceRestore,
   type RetainedWorkspaceRestoreReceipt,
   workspaceCaptureWriter,
@@ -120,6 +119,8 @@ interface OwnerState {
   turnEnd?: Promise<void>
   /** The release in progress, so a second caller joins it instead of destroying twice. */
   releasing?: Promise<readonly UnconfirmedTeardown[]>
+  /** Capture retries of the evidence this node owes, while any is owed; the release stops them. */
+  evidenceRetry?: { readonly stop: AbortController; done: Promise<void> }
 }
 interface OwnerRegistration {
   readonly rootId: NodeId
@@ -1455,13 +1456,15 @@ export async function scopeRetainedOwnerTurnEnded(scope: Scope<unknown>): Promis
 }
 
 /** @internal Wait for everything this owner still has in flight: the drive ending its turn, the
- *  work that turn handed over, and a release. */
+ *  work that turn handed over, and a release. The run is settling, so its capture retries stop;
+ *  a release retries once itself, and a resumed process starts them again. */
 export async function scopeRetainedOwnerSettled(scope: Scope<unknown>): Promise<void> {
   const state = owners.get(scope)
   if (state === undefined) return
   await ownerDriveEnded(state)
   await scopeRetainedOwnerTurnEnded(scope)
   await state.releasing?.catch(() => undefined)
+  await stopOwnerEvidenceRetry(state)
 }
 
 /**
@@ -1511,6 +1514,10 @@ async function releaseOwnerEnvironment(
   // No checkpoint may race the destroy below, and none is needed after it.
   state.checkpointsUnavailable ??= 'released'
   await state.checkpointing?.catch(() => undefined)
+  // One budget bounds every capture this release runs: the evidence it retries, then checkpoints.
+  const capturesDeadline = Date.now() + capturesMs
+  await stopOwnerEvidenceRetry(state)
+  await recaptureOwnerSources(state, AbortSignal.timeout(capturesMs))
   const events = [...((await args.journal.loadTree(args.rootId)) ?? [])]
   const requestFailures = await reconcileCheckpointRequests(state, events)
   const pendingSources = new Set(requestFailures.map(({ event }) => event.environmentId))
@@ -1564,7 +1571,7 @@ async function releaseOwnerEnvironment(
           `the release's ${capturesMs} ms for checkpoint captures ran out; checkpoint and source kept`,
         ),
       ),
-    capturesMs,
+    Math.max(0, capturesDeadline - Date.now()),
   )
   try {
     for (const sourceEnvironmentId of new Set(pending.map((event) => event.environmentId))) {
@@ -1851,7 +1858,8 @@ async function ownerWorkspaceRetentionFailures(
 ): Promise<ReadonlySet<string>> {
   const attempts = ownerWorkspaceAttempts(events, owner.nodeId)
   const failures = new Set<string>()
-  for (const attempt of attempts) {
+  for (const index of attempts.keys()) {
+    const attempt = withLaterEvidence(attempts, index)
     if (retainedOnly && attempt.workspaceRetention !== true) continue
     if (attempt.environmentIds.size === 0) continue
     // One result receipt cannot prove which source belongs to which environment when a
@@ -1871,6 +1879,17 @@ async function ownerWorkspaceRetentionFailures(
     if (!verified) failures.add(environmentId)
   }
   return failures
+}
+
+/**
+ * The attempt with the evidence journaled after it. A release's capture of a preserved source is
+ * journaled after later invocations began; every receipt names its exact execution, environment
+ * and control reference, so a receipt of another attempt never verifies this one.
+ */
+function withLaterEvidence(attempts: readonly OwnerAttempt[], index: number): OwnerAttempt {
+  const attempt = attempts[index]!
+  const later = attempts.slice(index + 1).flatMap((next) => next.evidence)
+  return later.length === 0 ? attempt : { ...attempt, evidence: [...attempt.evidence, ...later] }
 }
 
 async function ownerAttemptHasCapture(
@@ -1926,20 +1945,22 @@ function ownerCaptureIdentity(attempt: OwnerAttempt, owner: OwnerRegistration) {
 }
 
 /**
- * Recover evidence before reuse. An accepted turn requires a complete receipt. A failed turn
- * keeps its source and pending evidence, while the driver's own classification decides retry.
- * Retry uses another environment if recovery cannot certify the failed turn's workspace.
+ * Recover evidence before reuse. A source without a complete receipt is never mutated. A failed
+ * turn's capture failure is journaled as its evidence and the next invocation starts in another
+ * environment. An accepted turn's failure is evidence debt ({@link owePendingEvidence}): the turn
+ * stands, and neither the node nor its supervisor stops. Returns the sources whose capture failed.
  */
 async function reconcileOwnerWorkspaceBeforeReuse(
   state: OwnerState,
   signal: AbortSignal,
-): Promise<void> {
+): Promise<ReadonlySet<string>> {
   const { args } = state
+  const indebted = new Set<string>()
   const events = (await args.journal.loadTree(args.rootId)) ?? []
   const attempts = ownerWorkspaceAttempts(events, args.nodeId)
   const latest = attempts.at(-1)
   const unusable = unusableEnvironmentIds(events.filter((event) => event.id === args.nodeId))
-  if (latest === undefined) return
+  if (latest === undefined) return indebted
   const reusing = new Set(latest.environmentIds)
   if (latest.result === undefined && state.priorSession !== undefined)
     reusing.add(state.priorSession.environmentId)
@@ -1952,120 +1973,311 @@ async function reconcileOwnerWorkspaceBeforeReuse(
       // only raw process I/O. The partial receipt stays journaled and cleanup remains strict.
       if (await ownerAttemptHasCapture(attempt, environmentId, args.blobs, args, true)) continue
       try {
-        if (attempt.environmentIds.size !== 1 || attempt.executionId === undefined) {
-          throw new Error('accepted workspace has ambiguous admission identity')
-        }
-        if (index < attempts.length - 1) {
-          throw new Error(
-            'a later invocation already admitted this environment; historical workspace cannot be recaptured',
-          )
-        }
-        const capture = state.checkpointCapture
-        const provider = state.provider
-        const intent = attempt.admissions.find((admission) => admission.phase === 'intent')
-        const admission = attempt.admissions.find((admission) => admission.phase === 'environment')
-        const dispatched = attempt.admissions.find((admission) => admission.phase === 'dispatched')
-        if (
-          capture === undefined ||
-          provider?.get === undefined ||
-          intent?.phase !== 'intent' ||
-          admission?.phase !== 'environment' ||
-          dispatched?.phase !== 'dispatched'
-        ) {
-          throw new Error(
-            'accepted workspace recovery requires its retention port and exact admissions',
-          )
-        }
-        const controlRef = dispatched.controlRef
-        if (
-          provider.name !== intent.provider ||
-          admission.provider !== intent.provider ||
-          controlRef.provider !== intent.provider ||
-          admission.environmentId !== controlRef.environmentId ||
-          admission.sessionId !== controlRef.sessionId ||
-          admission.executionId !== controlRef.executionId ||
-          admission.idempotencyKey !== intent.idempotencyKey ||
-          dispatched.idempotencyKey !== intent.idempotencyKey ||
-          admission.sessionId !== intent.sessionId ||
-          admission.executionId !== intent.executionId ||
-          admission.turnId !== intent.turnId ||
-          dispatched.turnId !== intent.turnId ||
-          canonicalAgentProfileDigest(capture.profile) !== intent.requestedProfileDigest
-        ) {
-          throw new Error(
-            'accepted workspace recovery does not match its original profile or admission',
-          )
-        }
-        // The lookup shares the retention port's bound. A box idle 21 minutes took over 30 s to
-        // answer in test-acceptance-canary-20261018h, and a fixed 30 s cap left its accepted
-        // workspace pending and the resumed supervisor exited. A timeout says what timed out.
-        const lookupMs = capture.port.timeoutMs
-        const lookupBound = AbortSignal.timeout(lookupMs)
-        const environment = await runAbortable(
-          () => provider.get!(environmentId),
-          AbortSignal.any([signal, lookupBound]),
-          'accepted workspace source lookup aborted',
-        ).catch((error: unknown) => {
-          if (lookupBound.aborted && !signal.aborted) {
-            throw new Error(`accepted workspace source lookup timed out after ${lookupMs} ms`)
-          }
-          throw error
-        })
-        if (
-          environment === null ||
-          environment.id !== environmentId ||
-          environment.provider !== provider.name
-        )
-          throw new Error('accepted workspace source is unavailable')
-        const identity = ownerCaptureIdentity(attempt, args)
-        const context = {
-          environment,
-          executionId: attempt.executionId,
-          controlRef,
-          providerSessionId: controlRef.sessionId,
-          nativeSessionId: null,
-          profile: capture.profile,
-          ...(identity.node === undefined ? {} : { node: identity.node }),
-        }
-        const captured = await runAbortable(
-          () => captureProviderWorkspaceSnapshot(capture.port, context),
-          signal,
-          'accepted workspace capture aborted',
-        )
-        const output = {
-          workspaceSnapshot: captured.snapshot,
-          workspaceCapture: workspaceCaptureReceipt(context, captured),
-        }
-        // Partial or foreign captures never authorize mutation, even with a permissive port.
-        if (
-          !hasDurableWorkspaceCapture(
-            output,
-            captured.snapshot,
-            environmentId,
-            attempt.executionId,
-            controlRef,
-            identity,
-            true,
-          )
-        )
-          throw new Error(captured.incompleteReason ?? 'accepted workspace capture is incomplete')
-        await state.context.onEvidence!(output)
+        await captureOwnerSource(state, attempts, index, environmentId, signal)
       } catch (cause) {
-        const pending = new RetainedWorkspaceCapturePendingError(
-          attempt.executionId ?? args.nodeId,
-          cause,
-        )
-        if (executorFailureReason(attempt.result) === undefined) throw pending
-        // Reuse the evidence journal, retaining the original attempt's coordinates. Neither a
-        // missing nor a partial receipt permits mutation or deletion of this source.
-        await state.context.onEvidence!({
-          executionId: attempt.executionId,
-          environmentId,
-          controlRef: attempt.controlByEnvironment.get(environmentId),
-          ...ownerCaptureIdentity(attempt, args),
-          workspaceCaptureFailure: pending.message,
-        })
+        const failure = capturePendingMessage(attempt.executionId ?? args.nodeId, cause)
+        if (executorFailureReason(attempt.result) === undefined) {
+          if (await owePendingEvidence(state, events, attempt, environmentId, failure, signal))
+            continue
+        } else {
+          // Reuse the evidence journal, retaining the original attempt's coordinates. Neither a
+          // missing nor a partial receipt permits mutation or deletion of this source.
+          await state.context.onEvidence!({
+            executionId: attempt.executionId,
+            environmentId,
+            controlRef: attempt.controlByEnvironment.get(environmentId),
+            ...ownerCaptureIdentity(attempt, args),
+            workspaceCaptureFailure: failure,
+          })
+        }
+        indebted.add(environmentId)
         state.forceNewSession = true
+      }
+    }
+  }
+  return indebted
+}
+
+function capturePendingMessage(executionId: string, cause: unknown): string {
+  return `retained workspace capture pending for ${executionId}; source environment preserved: ${cause instanceof Error ? cause.message : String(cause)}`
+}
+
+/**
+ * How many sources one node may leave behind as evidence debt. Each holds a live environment
+ * until a capture pays it or the release keeps it, so a capture service that stays down cannot
+ * make every later turn open another one. At the bound the node pauses instead.
+ */
+export const EVIDENCE_DEBT_SOURCES_MAX = 3
+
+/**
+ * Record an accepted turn's failed capture as evidence debt, once per source, and start the
+ * owner's capture retries. Below {@link EVIDENCE_DEBT_SOURCES_MAX} the node continues in another
+ * environment and this returns false. At the bound the node pauses until its debt is paid and
+ * then reuses this source, returning true; a release that stops the retries first ends the pause
+ * with an error, so the turn is never dispatched over an uncaptured workspace.
+ *
+ * Throwing here instead leaves nothing driving any agent of the run, and every restart meets the
+ * same failure: 66 supervisor starts in 17 Discovery runs, 76.7 wall-hours dead, between
+ * 2026-10-12 and 2026-10-19 (magnetar-rust-20261016b, 24 starts on "This Platform key has
+ * expired").
+ */
+async function owePendingEvidence(
+  state: OwnerState,
+  events: readonly SpawnEvent[],
+  attempt: OwnerAttempt,
+  environmentId: string,
+  failure: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const { args } = state
+  const rows = events.filter(
+    (event): event is Extract<SpawnEvent, { kind: 'evidence-pending' }> =>
+      event.kind === 'evidence-pending' && event.id === args.nodeId,
+  )
+  if (!rows.some((row) => row.environmentId === environmentId)) {
+    const at = new Date(args.now()).toISOString()
+    await args.journal.appendEvent(args.rootId, {
+      kind: 'evidence-pending',
+      id: args.nodeId,
+      environmentId,
+      ...(attempt.executionId === undefined ? {} : { executionId: attempt.executionId }),
+      error: failure,
+      since: at,
+      seq: state.nextSequence(),
+      at,
+    })
+  }
+  const sources = new Set([...rows.map((row) => row.environmentId), environmentId]).size
+  const retries = retryOwnerEvidence(state)
+  if (sources <= EVIDENCE_DEBT_SOURCES_MAX) return false
+  await runAbortable(() => retries, signal, 'evidence debt pause aborted')
+  const attempts = ownerWorkspaceAttempts(
+    (await args.journal.loadTree(args.rootId)) ?? [],
+    args.nodeId,
+  )
+  const index = attempts.findIndex((candidate) => candidate.executionId === attempt.executionId)
+  if (
+    index < 0 ||
+    !(await ownerAttemptHasCapture(
+      withLaterEvidence(attempts, index),
+      environmentId,
+      args.blobs,
+      args,
+      true,
+    ))
+  )
+    throw new Error(`evidence debt unpaid when its capture retries stopped: ${failure}`)
+  return true
+}
+
+/** How capture retries of owed evidence back off, measured on the run's clock. */
+export const EVIDENCE_RETRY_BACKOFF_MS = { initial: 30_000, max: 5 * 60_000 } as const
+/** How often the retry loop reads the run's clock. Reading it costs no provider call. */
+const EVIDENCE_RETRY_TICK_MS = 1_000
+
+/**
+ * Retry the captures this node owes while the supervisor lives, backing off from
+ * {@link EVIDENCE_RETRY_BACKOFF_MS}'s `initial` to its `max`. One loop per owner; it ends when
+ * nothing is owed or the release stops it, and the release tries once more itself. Returns the
+ * loop, which never rejects.
+ */
+function retryOwnerEvidence(state: OwnerState): Promise<void> {
+  if (state.evidenceRetry !== undefined) return state.evidenceRetry.done
+  if (state.releasing !== undefined) return Promise.resolve()
+  const stop = new AbortController()
+  const retry: { stop: AbortController; done: Promise<void> } = { stop, done: Promise.resolve() }
+  retry.done = (async () => {
+    let backoff: number = EVIDENCE_RETRY_BACKOFF_MS.initial
+    let dueAt = state.args.now() + backoff
+    while (!stop.signal.aborted) {
+      await sleep(EVIDENCE_RETRY_TICK_MS, stop.signal, false)
+      if (stop.signal.aborted || state.args.now() < dueAt) continue
+      if ((await payOwedEvidence(state, stop.signal)) === 0) return
+      backoff = Math.min(backoff * 2, EVIDENCE_RETRY_BACKOFF_MS.max)
+      dueAt = state.args.now() + backoff
+    }
+  })()
+    .catch(() => undefined)
+    .finally(() => {
+      if (state.evidenceRetry === retry) delete state.evidenceRetry
+    })
+  state.evidenceRetry = retry
+  return retry.done
+}
+
+/** Stop the owner's capture retries and wait for the one in flight. */
+async function stopOwnerEvidenceRetry(state: OwnerState): Promise<void> {
+  const retry = state.evidenceRetry
+  if (retry === undefined) return
+  retry.stop.abort(new Error('the owner settled'))
+  await retry.done
+}
+
+/**
+ * Capture each source this node still owes evidence for, from its `evidence-pending` rows. A
+ * receipt journaled by the capture pays the debt. A source no capture can pay any more (gone,
+ * without an exact execution, or admitted by a later invocation) is left to the release, which
+ * keeps it. Returns how many sources are still owed and payable.
+ */
+async function payOwedEvidence(state: OwnerState, signal: AbortSignal): Promise<number> {
+  const { args } = state
+  const events = (await args.journal.loadTree(args.rootId)) ?? []
+  const attempts = ownerWorkspaceAttempts(events, args.nodeId)
+  const unusable = unusableEnvironmentIds(events.filter((event) => event.id === args.nodeId))
+  let owed = 0
+  for (const row of events) {
+    if (row.kind !== 'evidence-pending' || row.id !== args.nodeId) continue
+    if (unusable.has(row.environmentId)) continue
+    const index = attempts.findIndex((attempt) => attempt.executionId === row.executionId)
+    if (index < 0 || row.executionId === undefined) continue
+    if (attempts.slice(index + 1).some((later) => later.environmentIds.has(row.environmentId)))
+      continue
+    const attempt = withLaterEvidence(attempts, index)
+    if (await ownerAttemptHasCapture(attempt, row.environmentId, args.blobs, args, true)) continue
+    if (signal.aborted) return owed + 1
+    try {
+      await captureOwnerSource(state, attempts, index, row.environmentId, signal)
+    } catch {
+      owed += 1
+    }
+  }
+  return owed
+}
+
+/**
+ * Capture the workspace an accepted turn left in its retained source and journal the receipt.
+ * Throws when the capture cannot be certified for that exact attempt.
+ */
+async function captureOwnerSource(
+  state: OwnerState,
+  attempts: readonly OwnerAttempt[],
+  index: number,
+  environmentId: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const { args } = state
+  const attempt = attempts[index]!
+  if (attempt.environmentIds.size !== 1 || attempt.executionId === undefined) {
+    throw new Error('accepted workspace has ambiguous admission identity')
+  }
+  // A later invocation in another environment leaves this source as the turn left it.
+  if (attempts.slice(index + 1).some((later) => later.environmentIds.has(environmentId))) {
+    throw new Error(
+      'a later invocation already admitted this environment; historical workspace cannot be recaptured',
+    )
+  }
+  const capture = state.checkpointCapture
+  const provider = state.provider
+  const intent = attempt.admissions.find((admission) => admission.phase === 'intent')
+  const admission = attempt.admissions.find((admission) => admission.phase === 'environment')
+  const dispatched = attempt.admissions.find((admission) => admission.phase === 'dispatched')
+  if (
+    capture === undefined ||
+    provider?.get === undefined ||
+    intent?.phase !== 'intent' ||
+    admission?.phase !== 'environment' ||
+    dispatched?.phase !== 'dispatched'
+  ) {
+    throw new Error('accepted workspace recovery requires its retention port and exact admissions')
+  }
+  const controlRef = dispatched.controlRef
+  if (
+    provider.name !== intent.provider ||
+    admission.provider !== intent.provider ||
+    controlRef.provider !== intent.provider ||
+    admission.environmentId !== controlRef.environmentId ||
+    admission.sessionId !== controlRef.sessionId ||
+    admission.executionId !== controlRef.executionId ||
+    admission.idempotencyKey !== intent.idempotencyKey ||
+    dispatched.idempotencyKey !== intent.idempotencyKey ||
+    admission.sessionId !== intent.sessionId ||
+    admission.executionId !== intent.executionId ||
+    admission.turnId !== intent.turnId ||
+    dispatched.turnId !== intent.turnId ||
+    canonicalAgentProfileDigest(capture.profile) !== intent.requestedProfileDigest
+  ) {
+    throw new Error('accepted workspace recovery does not match its original profile or admission')
+  }
+  // The lookup shares the retention port's bound. A box idle 21 minutes took over 30 s to
+  // answer in test-acceptance-canary-20261018h, and a fixed 30 s cap left its accepted
+  // workspace pending and the resumed supervisor exited. A timeout says what timed out.
+  const lookupMs = capture.port.timeoutMs
+  const lookupBound = AbortSignal.timeout(lookupMs)
+  const environment = await runAbortable(
+    () => provider.get!(environmentId),
+    AbortSignal.any([signal, lookupBound]),
+    'accepted workspace source lookup aborted',
+  ).catch((error: unknown) => {
+    if (lookupBound.aborted && !signal.aborted) {
+      throw new Error(`accepted workspace source lookup timed out after ${lookupMs} ms`)
+    }
+    throw error
+  })
+  if (
+    environment === null ||
+    environment.id !== environmentId ||
+    environment.provider !== provider.name
+  )
+    throw new Error('accepted workspace source is unavailable')
+  const identity = ownerCaptureIdentity(attempt, args)
+  const context = {
+    environment,
+    executionId: attempt.executionId,
+    controlRef,
+    providerSessionId: controlRef.sessionId,
+    nativeSessionId: null,
+    profile: capture.profile,
+    ...(identity.node === undefined ? {} : { node: identity.node }),
+  }
+  const captured = await runAbortable(
+    () => captureProviderWorkspaceSnapshot(capture.port, context),
+    signal,
+    'accepted workspace capture aborted',
+  )
+  const output = {
+    workspaceSnapshot: captured.snapshot,
+    workspaceCapture: workspaceCaptureReceipt(context, captured),
+  }
+  // Partial or foreign captures never authorize mutation, even with a permissive port.
+  if (
+    !hasDurableWorkspaceCapture(
+      output,
+      captured.snapshot,
+      environmentId,
+      attempt.executionId,
+      controlRef,
+      identity,
+      true,
+    )
+  )
+    throw new Error(captured.incompleteReason ?? 'accepted workspace capture is incomplete')
+  await state.context.onEvidence!(output)
+}
+
+/**
+ * Before a release, try once more to capture each source preserved for a missing receipt of an
+ * accepted turn, so a capture fault that has cleared settles the evidence debt and frees its
+ * source. A source whose capture fails again is kept for evidence.
+ */
+async function recaptureOwnerSources(state: OwnerState, signal: AbortSignal): Promise<void> {
+  const { args } = state
+  if (state.checkpointCapture === undefined || state.provider?.get === undefined) return
+  const events = (await args.journal.loadTree(args.rootId)) ?? []
+  const owned = events.filter((event) => event.id === args.nodeId)
+  const attempts = ownerWorkspaceAttempts(events, args.nodeId)
+  const unusable = unusableEnvironmentIds(owned)
+  for (const index of attempts.keys()) {
+    const attempt = withLaterEvidence(attempts, index)
+    if (attempt.workspaceRetention !== true || attempt.result === undefined) continue
+    if (executorFailureReason(attempt.result) !== undefined) continue
+    for (const environmentId of attempt.environmentIds) {
+      if (unusable.has(environmentId)) continue
+      if (await ownerAttemptHasCapture(attempt, environmentId, args.blobs, args)) continue
+      if (signal.aborted) return
+      try {
+        await captureOwnerSource(state, attempts, index, environmentId, signal)
+      } catch {
+        // The source stays preserved and the release names it as kept for evidence.
       }
     }
   }
@@ -2322,6 +2534,8 @@ export async function prepareScopeRetainedOwnerTask(
   scope.signal.throwIfAborted()
   const journal = (await args.journal.loadTree(args.rootId)) ?? []
   const owned = journal.filter((event) => event.id === args.nodeId)
+  // A restarted supervisor resumes the capture retries of evidence this node may still owe.
+  if (owned.some((event) => event.kind === 'evidence-pending')) void retryOwnerEvidence(state)
   const latestInput = [...owned].reverse().find((event) => event.kind === 'execution-input')
   if (latestInput?.kind === 'execution-input') {
     const attempt = owned.slice(owned.indexOf(latestInput))
@@ -2338,7 +2552,34 @@ export async function prepareScopeRetainedOwnerTask(
   // Older coordinators could admit the next input before the previous capture finished.
   // Recovery must not dispatch that pending input over an uncertified historical workspace.
   if (state.taskRef !== undefined && state.acceptedRef === undefined) {
-    await reconcileOwnerWorkspaceBeforeReuse(state, scope.signal)
+    const indebted = await reconcileOwnerWorkspaceBeforeReuse(state, scope.signal)
+    const pending = state.admissions.find(
+      (admission): admission is RetainedRunEnvironmentAdmission =>
+        admission.phase === 'environment' && indebted.has(admission.environmentId),
+    )
+    if (
+      pending !== undefined &&
+      !state.admissions.some((admission) => admission.phase === 'dispatched')
+    ) {
+      // That input was admitted into the uncaptured source but never dispatched there. Replaying
+      // it would mutate the source, so it is abandoned and the next drive is a new invocation in
+      // another environment. A dispatch lost before its admission was journaled cannot be ruled
+      // out, so the outcome is uncertain.
+      await args.journal.appendEvent(args.rootId, {
+        kind: 'execution-abandoned',
+        id: args.nodeId,
+        inputSeq: state.inputSequence!,
+        pendingCause: 'unobservable',
+        failures: 1,
+        detail: `admitted into ${pending.environmentId}, whose workspace capture is pending; never dispatched there`,
+        outcome: 'uncertain',
+        seq: state.nextSequence(),
+        at: new Date(args.now()).toISOString(),
+      })
+      delete state.inputSequence
+      delete state.taskRef
+      state.admissions.length = 0
+    }
   }
   const unusable = unusableEnvironmentIds(owned)
   const inFlight = continuedEnvironment(owned)

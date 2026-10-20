@@ -1089,6 +1089,7 @@ const outsideCursorNamespaceKinds = [
   'execution-result',
   'execution-abandoned',
   'execution-evidence',
+  'evidence-pending',
   'progress',
   'reconciled',
   'edge',
@@ -1212,7 +1213,8 @@ export async function replaySpawnTree(
       ev.kind === 'execution-admitted' ||
       ev.kind === 'execution-result' ||
       ev.kind === 'execution-abandoned' ||
-      ev.kind === 'execution-evidence'
+      ev.kind === 'execution-evidence' ||
+      ev.kind === 'evidence-pending'
     )
       continue
     if (ev.kind === 'edge') continue // edge-ledger observability, not a settlement
