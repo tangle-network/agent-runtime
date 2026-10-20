@@ -34,6 +34,13 @@ const CAPTURE_FILES_AT_ONCE = 16
 
 export interface CaptureAgentCandidateWorkspaceToArtifactsOptions {
   limits?: Partial<AgentCandidateWorkspaceArchiveLimits>
+  /**
+   * Top-level entries of the root to leave out of the capture, by name. A caller whose root holds
+   * data another capture already keeps, such as a provider's retained native sessions, or an
+   * environment it can rebuild, such as a virtualenv, names them here instead of storing them on
+   * every capture. The manifest then describes only what was kept.
+   */
+  excludedRootEntries?: readonly string[]
   artifactPersistence: NonNullable<CaptureAgentCandidateWorkspaceOptions['artifactPersistence']>
 }
 
@@ -50,7 +57,11 @@ export async function captureAgentCandidateWorkspaceToArtifacts(
     throw new Error('candidate workspace artifact persistence requires an executionId')
   signal?.throwIfAborted()
   const limits = workspaceLimits(options.limits)
-  const material = await scanMaterializedWorkspaceManifest(rootInput, { limits, signal })
+  const material = await scanMaterializedWorkspaceManifest(rootInput, {
+    limits,
+    signal,
+    excludedRootEntries: options.excludedRootEntries,
+  })
   validateManifest(material, limits)
   const root = await realpath(resolve(rootInput))
   const manifest = canonicalCandidateBytes(material)
@@ -116,7 +127,11 @@ export async function captureAgentCandidateWorkspaceTreeToArtifacts(
     throw new Error('candidate workspace artifact persistence requires an executionId')
   signal?.throwIfAborted()
   const limits = workspaceLimits(options.limits)
-  const material = await scanMaterializedWorkspaceManifest(rootInput, { limits, signal })
+  const material = await scanMaterializedWorkspaceManifest(rootInput, {
+    limits,
+    signal,
+    excludedRootEntries: options.excludedRootEntries,
+  })
   validateManifest(material, limits)
   const root = await realpath(resolve(rootInput))
   const bytes = material.files.reduce((sum, file) => sum + file.byteLength, 0)
