@@ -1160,6 +1160,7 @@ export {
 } from './supervise/sandbox-session'
 export {
   createScope,
+  DEFAULT_BUDGET_STOP_HOLD_MS,
   type ScopeArgs,
   SUBTREE_RESULT_LIMIT,
   settledToIteration,
@@ -1308,6 +1309,8 @@ export type {
   FleetYield,
   Handle,
   HeldEnvironment,
+  HeldForContinuation,
+  HeldRelease,
   MaterializedExecutionIdentity,
   MaterializedModelIdentity,
   NodeExecutionIdentity,
