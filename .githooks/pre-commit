@@ -1,4 +1,10 @@
 #!/usr/bin/env sh
+# Keep size policy in the global hook owner, including when this repo overrides hooksPath.
+r="$(git config --global core.hooksPath)/loc-ratchet"
+if [ -x "$r" ]; then
+  "$r" || exit $?
+fi
+
 # Pre-commit, two independent steps, each re-stages so the commit lands clean:
 #   (1) auto-fix biome (lint + format) on staged files.
 #   (2) regenerate the generated primitive catalog when staged changes touch
