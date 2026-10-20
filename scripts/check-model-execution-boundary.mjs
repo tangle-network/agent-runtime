@@ -69,19 +69,23 @@ const lowLevelModelCallOwners = new Map([
     'routerChatWithTools',
     new Set([
       'src/runtime/router-client.complete.test.ts',
-      'src/runtime/supervise/runtime.ts',
+      'src/runtime/supervise/router-inline-executor.ts',
+      'src/runtime/supervise/router-tools-executor.ts',
     ]),
   ],
   [
     'routerChatWithUsage',
     new Set([
       'src/runtime/router-client.complete.test.ts',
-      'src/runtime/supervise/runtime.ts',
+      'src/runtime/supervise/router-inline-executor.ts',
     ]),
   ],
   [
     'streamRouterChatWithTools',
-    new Set(['src/runtime/supervise/runtime.ts']),
+    new Set([
+      'src/runtime/supervise/router-inline-executor.ts',
+      'src/runtime/supervise/router-tools-executor.ts',
+    ]),
   ],
   ['runLocalHarness', new Set(['src/mcp/worktree-harness.ts'])],
 ])
