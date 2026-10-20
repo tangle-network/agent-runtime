@@ -62,7 +62,7 @@ const lowLevelModelCallOwners = new Map([
     'routerBrain',
     new Set([
       'src/runtime/local-sandbox-client.ts',
-      'src/runtime/supervise/supervisor-agent.ts',
+      'src/runtime/supervise/supervisor-router-config.ts',
     ]),
   ],
   [
