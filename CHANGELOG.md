@@ -1,3 +1,7 @@
+## 0.336.0
+
+The `agent-runtime-mcp` `delegate` supervisor is told that only a worker's result is delivered and that it must spawn at least one worker; router brains answered small intents themselves, which settled `no-children-spawned` with the answer discarded. `MCP_SUPERVISOR_INSTRUCTIONS` appends the caller's policy for the workers the supervisor authors, such as the only harness and model its worker boxes can run.
+
 ## 0.335.0
 
 `@tangle-network/agent-runtime/runtime` exports `HeldForContinuation`, `HeldRelease` and `DEFAULT_BUDGET_STOP_HOLD_MS`, which the budget-stop hold (`Executor.heldForContinuation`, `environment-teardown.heldRelease`, `budgetStopHoldMs`) already referenced.
