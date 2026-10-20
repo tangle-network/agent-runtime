@@ -210,8 +210,9 @@ describe('agent-runtime-mcp bin: one key per product', () => {
     expect(chats.length, stderr.join('')).toBeGreaterThan(0)
     for (const req of chats) expect(req.authorization).toBe(`Bearer ${ROUTER_KEY}`)
     // The supervisor is told to spawn, and carries the caller's worker policy.
-    const system = (JSON.parse(chats[0]?.body ?? '{}') as { messages?: Array<{ role: string; content: string }> })
-      .messages?.find((message) => message.role === 'system')?.content
+    const system = (
+      JSON.parse(chats[0]?.body ?? '{}') as { messages?: Array<{ role: string; content: string }> }
+    ).messages?.find((message) => message.role === 'system')?.content
     expect(system).toContain('call spawn_worker at least once')
     expect(system).toContain('Every worker uses harness=opencode.')
 

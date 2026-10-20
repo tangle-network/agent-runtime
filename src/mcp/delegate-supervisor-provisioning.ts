@@ -92,7 +92,11 @@ function resolveRouterSupervisor(env: NodeJS.ProcessEnv): {
       harness: 'cli-base',
       model: { provider: 'tangle-router', default: model },
       prompt: {
-        systemPrompt: [supervisorInstructions(), delegateContract, ...(consumerInstructions ? ['', consumerInstructions] : [])].join('\n'),
+        systemPrompt: [
+          supervisorInstructions(),
+          delegateContract,
+          ...(consumerInstructions ? ['', consumerInstructions] : []),
+        ].join('\n'),
       },
       tools: Object.fromEntries(
         delegateSupervisorVerbs.map((verb) => [`${coordinationProfileToolPrefix}${verb}`, true]),
