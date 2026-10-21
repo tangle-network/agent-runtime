@@ -22,11 +22,11 @@
  * loop's report surfaces.
  */
 
-import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import type { AnalystFinding, FindingSubject } from '@tangle-network/agent-eval'
 import { parseFindingSubject } from '@tangle-network/agent-eval/analyst'
 import type { ImprovementProposalSource } from '../analyst-loop/types'
+import { sha256 } from '../content-digest'
 import type { AgentSurfaces, ResolvedSurface } from './surfaces'
 import { resolveSubjectPath } from './surfaces'
 
@@ -199,8 +199,4 @@ export function createSurfaceImprovementProposer(
       return { edits, skipped, errors }
     },
   }
-}
-
-function sha256(s: string): string {
-  return createHash('sha256').update(s, 'utf-8').digest('hex')
 }

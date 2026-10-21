@@ -23,10 +23,10 @@
  * that needs better selection replaces `pickBest`, not the records.
  */
 
-import { createHash } from 'node:crypto'
 import { mkdir, readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import { sha256 } from '../../content-digest'
 import {
   readCommittedJsonFile,
   upsertCommittedJsonLine,
@@ -74,10 +74,6 @@ export interface GraphRegistryDir {
 
 const RECORDS_FILE = 'records.jsonl'
 const GRAPHS_DIR = 'graphs'
-
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex')
-}
 
 /** Canonical serialization for content-addressing: stable key order, sorted. */
 function canonicalJson(value: unknown): string {

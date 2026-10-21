@@ -102,11 +102,12 @@ const ownedModelFetchAllowances = new Map([
 
 const forbiddenPublicModelCalls = new Set(['runLocalHarness'])
 
-// These two files are the implementation owners that translate a validated AgentProfile into a
-// local process. Everywhere else, naming a coding-agent CLI in an executable command is a second
-// model-execution path.
+// These implementation owners translate a validated AgentProfile into a local process or
+// prove its isolated Codex execution context. Elsewhere, naming a coding-agent CLI in an
+// executable command is a second model-execution path.
 const directCliOwners = new Set([
-  'src/mcp/local-harness.ts',
+  'src/mcp/local-harness-process.ts',
+  'src/mcp/codex-execution-evidence.ts',
   'scripts/check-model-execution-boundary.test.mjs',
 ])
 
@@ -189,7 +190,7 @@ function isLowLevelModelModule(moduleName) {
     moduleName.startsWith('@tangle-network/agent-eval/') ||
     moduleName === '@tangle-network/agent-runtime' ||
     moduleName.startsWith('@tangle-network/agent-runtime/') ||
-    /(?:^|\/)(?:local-harness|router-client)(?:\.[cm]?[jt]sx?)?$/.test(moduleName)
+    /(?:^|\/)(?:local-harness(?:-process)?|router-client)(?:\.[cm]?[jt]sx?)?$/.test(moduleName)
   )
 }
 

@@ -1,4 +1,4 @@
-import type { runLocalHarness } from '../../mcp/local-harness'
+import type { runLocalHarness } from '../../mcp/local-harness-process'
 import type { GitRunner } from '../../mcp/worktree'
 import type { WorktreeCheckRunner } from '../../mcp/worktree-harness'
 import type { CodeModeStore, CodeModeToolContext, CodeModeToolsOptions } from '../code-mode'
