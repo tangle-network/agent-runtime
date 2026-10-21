@@ -859,7 +859,7 @@ The version chain also removed `JudgedPursuitVersion.improved`, `usd`, `usdKnown
 
 Extend PlatformOidcClient with discovery-bound RFC 8628 device authorization and polling, cancellation, expiry and slow-down handling, plus RFC 8707 resource parameters. Preserve PlatformAuthClient for legacy resource-key consumers. Correct confidential-client Basic encoding and reject protocol redirects. Add a live installed-consumer proof for code/PKCE, refresh, revocation and rejection of both refresh-token generations after disconnect. The provider must advertise and enable its OAuth-integrated device grant before the new device methods can run.
 
-`skills/profile-authoring` is the one AgentProfile authoring skill. It ships in the package, so operators and spawned agents read the same bytes at a version. It starts from the result's audience and its acceptance test, probes the gap between the in-run check and that acceptance before launch, keeps acceptance out of the agents' reward loop, adds a referee from another model family with its own instrument, counts a documented null as success, states the stop under the continuation block, and registers a control for every credited ingredient. It also carries the Runtime profile contract (spawn-only recursion, `submit_result` only with an independent check, file mounts by path, `resources.failOnError: true` propagation), a fill-in checklist and three worked examples. `supervise` points to it; `skills/supervise/references/profile-authoring.md` is removed.
+`skills/profile-authoring` is the one AgentProfile authoring skill. It ships in the package, so operators and spawned agents read the same bytes at a version. It starts from the result's audience and its acceptance test, probes the gap between the in-run check and that acceptance before launch, keeps acceptance out of the agents' reward loop, adds a referee from another model family with its own instrument, counts a documented null as success, states the stop under the continuation block, and registers a control for every credited ingredient. It also carries the Runtime profile contract (spawn-only recursion, `submit_result` only with an independent check, file mounts by path, `resources.failOnError: true` propagation), a fill-in checklist and three worked examples. `supervise` points to it; skills/supervise/references/profile-authoring.md (since removed) is removed.
 
 Breaking: the pursuit version chain (`supervisePursuit({ versions })`) runs on agent-eval's search kernel, and its search ledger at `<runDir>.search/ledger.jsonl` replaces `<runDir>.versions/versions.jsonl` as the chain's only record and checkpoint. Each version is a node (its exact profile), each change an edge, and each run and verdict a cell; the kept version is the kernel's `incumbent({ patience, minImprovement })` leader, so a version replaces the kept one only when it beats it by more than `minImprovement`. The result's `versions` is now a `PursuitVersionChain` (ledger path, close reason `patience`, `max-nodes`, `budget` or `deadline`, kept version, judged versions, spend, receipt). A `null` judge score is retried up to 3 times; an unknown version spend counts at its proven floor instead of stopping the chain; aborting `signal` pauses the chain instead of closing it `aborted`; a settled version directory is read back only after its root's profile and fork seal are checked. Removed: `PursuitVersionsRecord`, `PursuitVersionStopReason`, `PursuitVersionParent`, `PURSUIT_VERSIONS_FILE`, `pursuitVersionRun`, `PreparedPursuitVersion`, `RunPursuitVersion`, and the `versions.run` and `versions.usd` options. Added: `PursuitVersionChain`, `pursuitVersionsLedgerPath`, and `SettledPursuitVersion.nodeId`. Migration: read a chain's state from the ledger (`search-closed` marks a stopped chain; `replaySearchLedgerText` projects it) instead of `versions.jsonl`'s `stopped` line; a chain that still holds `versions.jsonl` is refused, so finish it on 0.280.x or start it in a new `runDir`. Requires agent-eval 0.199 (peer `>=0.199.0 <0.200.0`) and agent-knowledge 17.1.10.
 
@@ -1013,7 +1013,7 @@ The packed compatibility cohort adds its 0.53.0 row once npm serves that version
 ## 0.273.0
 
 One check decides "done", one resend rule sends a director back, and Runtime writes the one note
-it hears (discovery `docs/38-one-loop-and-continuation.md`). Measured before this release on 670
+it hears (discovery docs/38-one-loop-and-continuation.md (since removed)). Measured before this release on 670
 settled discovery-lab runs: the note Runtime wrote carried no line of the check's verdict, 1,565
 of 1,596 re-entries followed a failed turn, 650 inputs chose seven different re-prompt counts,
 and 389 of 650 lead directors could call `stop` and end the run with no check.
@@ -1878,7 +1878,7 @@ is the HARNESS's own first-person session file (`.claude/projects/*/session.json
 vocabulary is now `HarnessTranscript*` throughout: `HarnessTranscriptEvidence`,
 `HarnessTranscriptArtifact`, `HarnessTranscriptFile`, `HARNESS_TRANSCRIPT_SCHEMA_VERSION`,
 `captureHarnessTranscript`, and the field `harnessTranscript`. `src/runtime/harness-transcript.ts`
-replaces `src/runtime/native-session-evidence.ts`. Nothing had time to depend on the old names.
+replaces src/runtime/native-session-evidence.ts (since removed). Nothing had time to depend on the old names.
 
 0.229.0 captured a sandbox child's harness transcript just before the settled result was built,
 which covers the settled path and is the right seam for it. A child that settles `down` has no
@@ -3133,7 +3133,7 @@ This release requires `@tangle-network/sandbox >=0.34.0 <0.35.0`.
 
 `release()` journals the envelope pin (`node-inputs-resolved`) and then the wave consumption (`join-state`). A process killed between them left an instance pinned while its gating edges still read satisfied, so the restart both re-entered the pinned instance AND released a second one — the node executed twice in one resumed segment. A consumer's external effect fired twice through that window (agent-dev-container's workflow scheduler, which now refuses to resume non-idempotent actions through the same window).
 
-The fold records wave consumption on the instance, and a restart that finds a released instance without it journals the missing `join-state` before spawning — re-deriving the SAME decision the crashed process made, because its gating edges are folded exactly as they were when it released. `tests/graph/replay.test.ts` kills at the pin and asserts the node runs exactly once.
+The fold records wave consumption on the instance, and a restart that finds a released instance without it journals the missing `join-state` before spawning — re-deriving the SAME decision the crashed process made, because its gating edges are folded exactly as they were when it released. tests/graph/replay.test.ts (since removed) kills at the pin and asserts the node runs exactly once.
 
 ## 0.174.1
 
@@ -3141,7 +3141,7 @@ Two graph-engine resume fixes, exposed by running agent-dev-container's real `pr
 
 - **A resume released the pool from dead children.** A spawned child that never settled kept its budget reservation across a restart. An `inline` executor runs inside the process that spawned it, so the process death proves the child dead; `uncertainSpawnBudgets` now charges only runtimes that can re-attach (bridge, sandbox). Before the fix, a restart after a mid-flight crash could refuse the next metered node `budget-exhausted` and end the run `unreachable-terminal` — invisible to the all-pure replay test, whose nodes reserve nothing.
 - **Abort reaches a parked run.** A run suspended under `waitForWakes` waited only for a wake, so a host could never shut it down. The wait now races the abort signal, and the run ends `no-winner: aborted`.
-- **The ADC substrate spike ships as an executable proof** (`tests/graph/adc-workflow-spike.test.ts`): the real template lowered to an `EngineGraphSpec`, approve and timeout paths, the human park across a process restart, kill-anywhere replay at every journal boundary over metered HOST kinds, the conserved pool as `maxRunCostUsd`, and the engine settles projected onto the `actionResults` shape the ADC run detail reads.
+- **The ADC substrate spike ships as an executable proof** (tests/graph/adc-workflow-spike.test.ts (since removed)): the real template lowered to an `EngineGraphSpec`, approve and timeout paths, the human park across a process restart, kill-anywhere replay at every journal boundary over metered HOST kinds, the conserved pool as `maxRunCostUsd`, and the engine settles projected onto the `actionResults` shape the ADC run detail reads.
 
 ## 0.174.0
 
@@ -3149,7 +3149,7 @@ Two graph-engine resume fixes, exposed by running agent-dev-container's real `pr
 
 `agenticGenerator`'s `Verifier` answered one boolean, and `ok` carried two meanings at once — "this tree is shippable" and "stop now". The shot loop returned inside `if (result.ok)` and `AgenticGeneratorOptions` exposed no field to override it, so ordinary best-of-n could not be expressed: a caller who wanted to spend the shots it was given and keep the best tree had no way to say so.
 
-A consumer building best-of-n hit exactly that and encoded it by hand (agent-lab's playproof study, `projects/playproof/verify-budget.ts`): reject every shot but the last whatever it measured, score each tree as it is produced, and physically write the best program back into the worktree just before the last shot is accepted — because with only one boolean, "ship the best tree" has to mean "make the best tree BE the worktree". Their measured runs are why it matters. Under first-acceptance-wins, 1 shot of 3 fired and the program that shipped was never once run by its author. Under the workaround, 3 of 3 fired and every shot ran its own program.
+A consumer building best-of-n hit exactly that and encoded it by hand (agent-lab's playproof study, projects/playproof/verify-budget.ts (since removed)): reject every shot but the last whatever it measured, score each tree as it is produced, and physically write the best program back into the worktree just before the last shot is accepted — because with only one boolean, "ship the best tree" has to mean "make the best tree BE the worktree". Their measured runs are why it matters. Under first-acceptance-wins, 1 shot of 3 fired and the program that shipped was never once run by its author. Under the workaround, 3 of 3 fired and every shot ran its own program.
 
 `VerifyResult` gains two optional fields, so three separate questions get three separate answers:
 
@@ -3237,7 +3237,7 @@ Also filed from the same audit: #1000 — the new engine's analyzes edges delive
 
 ### `codemode`: a node whose action space is code, not tool calls
 
-An `agent` node acts one JSON tool call per turn, so N steps cost N model round trips and every tool's schema sits in context. A `codemode` node asks the model once for a program written against the operations that node grants, then runs it: loops and branches happen inside the program and only the answer returns. `examples/engine/codemode.ts` runs one job both ways over the same operations table — **1 model turn against 8**, same 7 operation calls, same answer.
+An `agent` node acts one JSON tool call per turn, so N steps cost N model round trips and every tool's schema sits in context. A `codemode` node asks the model once for a program written against the operations that node grants, then runs it: loops and branches happen inside the program and only the answer returns. examples/engine/codemode.ts (since removed) runs one job both ways over the same operations table — **1 model turn against 8**, same 7 operation calls, same answer.
 
 The runtime already did this once, hard-wired: `strategy-author.ts` has an LLM write an optimization strategy against a fixed contract, lints it, imports it, and runs it — safe because the authored body composes `shot()`/`critique()` and therefore spends through the Supervisor's pool. `codemodeKind()` generalizes that, and the three properties it keeps are exactly the ones a prompt-and-skill version cannot have:
 
@@ -3251,9 +3251,9 @@ The runtime already did this once, hard-wired: `strategy-author.ts` has an LLM w
 
 ### The first example authored against the ENGINE, and the wart it found
 
-`examples/engine/review-loop.ts` is a PR review as an engine graph: a `build` node, three auditors fanned out on `data` edges, a `verdict` node joined `all` over them, and a guarded rebuild edge back to `build` capped at three traversals. Round 1 ships a hardcoded secret and security rejects it; round 2 leaves a bare `any` and style rejects it; round 3 is clean and ships. Every node is a `script` kind, so it runs offline, deterministically, with no credentials: `pnpm tsx examples/engine/review-loop.ts`.
+examples/engine/review-loop.ts (since removed) is a PR review as an engine graph: a `build` node, three auditors fanned out on `data` edges, a `verdict` node joined `all` over them, and a guarded rebuild edge back to `build` capped at three traversals. Round 1 ships a hardcoded secret and security rejects it; round 2 leaves a bare `any` and style rejects it; round 3 is clean and ships. Every node is a `script` kind, so it runs offline, deterministically, with no credentials: `pnpm tsx examples/engine/review-loop.ts`.
 
-It exists because until now nothing outside the engine's own tests authored an engine graph, and "it works" was a claim with no user. It exercises fan-out, `join: 'all'`, guards on both arms of the same output, a bounded cycle, one pure edge projection, and the terminal finalizer — in one run. `tests/examples/engine-review-loop.test.ts` pins all of it, including the arm a successful run cannot show: a build that never satisfies its reviewers is ended by the edge cap with `GraphEdgeCapError`, not left to spin.
+It exists because until now nothing outside the engine's own tests authored an engine graph, and "it works" was a claim with no user. It exercises fan-out, `join: 'all'`, guards on both arms of the same output, a bounded cycle, one pure edge projection, and the terminal finalizer — in one run. tests/examples/engine-review-loop.test.ts (since removed) pins all of it, including the arm a successful run cannot show: a build that never satisfies its reviewers is ended by the edge cap with `GraphEdgeCapError`, not left to spin.
 
 **A second wart, same source:** `createGraphEngine({ coreKinds: [...] })` would not accept an array of differently-configured kinds. `NodeKind<Config>` puts `Config` in a parameter position, so it is contravariant and a heterogeneous set is not assignable to `ReadonlyArray<NodeKind<unknown>>` — every consumer composing a kind set needed a cast, which the example needed on its first line. `AnyNodeKind` now carries that cost once, inside the engine, where a registry is heterogeneous by definition and each kind validates its own config through `validateConfig` anyway.
 
@@ -3265,7 +3265,7 @@ It exists because until now nothing outside the engine's own tests authored an e
 
 0.166.0's entry said "`runGraph` runs on the engine". An audit says that was false in the way that matters. The preset scheduled exactly **one** node whose executor called `superviseAgentGraph` — the entire pre-engine implementation — while every worker node was marked `entry: false` and never scheduled. Execution was 100% the old path. What the wrapper did add was real: a second journal tree (`<runId>:engine`), a second budget pool over the same budget, a second `Scope`, and a capture cell to smuggle a typed error back out through the JSON admission boundary. A layer that moves no behaviour is a second source of truth, so it is deleted.
 
-**`runGraph` calls `superviseAgentGraph` directly again**, as it did before 0.166.0. Its signature, options, result, refusal timing and journal tree are unchanged — the 58-case `tests/kernel/graph.test.ts` still passes unchanged, now for the honest reason that the code path is the one those tests were written against. `graphFromRunGraph(graph, options)` remains, and is what #975 actually asked for: a **pure compiler** that lowers an `AgentGraph` into an engine graph so a consumer can inspect it, diff it, and author natively from there. `tests/graph/preset-run-graph.test.ts` pins what it emits and proves `compileGraph` accepts the result. `preset-run-graph.ts` goes 267 → 82 lines; `RunGraphBody`, `RunGraphCapture`, `RunGraphNodeConfig`, `RunGraphNodeOut`, `runGraphKind`, `runGraphEngine` and `runGraphThroughEngine` are gone with the wrapper.
+**`runGraph` calls `superviseAgentGraph` directly again**, as it did before 0.166.0. Its signature, options, result, refusal timing and journal tree are unchanged — the 58-case `tests/kernel/graph.test.ts` still passes unchanged, now for the honest reason that the code path is the one those tests were written against. `graphFromRunGraph(graph, options)` remains, and is what #975 actually asked for: a **pure compiler** that lowers an `AgentGraph` into an engine graph so a consumer can inspect it, diff it, and author natively from there. tests/graph/preset-run-graph.test.ts (since removed) pins what it emits and proves `compileGraph` accepts the result. `preset-run-graph.ts` goes 267 → 82 lines; `RunGraphBody`, `RunGraphCapture`, `RunGraphNodeConfig`, `RunGraphNodeOut`, `runGraphKind`, `runGraphEngine` and `runGraphThroughEngine` are gone with the wrapper.
 
 ### `subgraph` runs: the engine nests
 
@@ -3275,7 +3275,7 @@ A subgraph node now runs its inner graph as a full engine run on the SAME kinds 
 
 ### The model-fired edge, finally tested
 
-`delegates` was declared MODEL-fired in 0.166.0 with no test exercising it through the scheduler; only `data` edges were covered. `tests/graph/scheduler.test.ts` now proves it: a delegation target is not an entry, is not a terminal, never runs on its own, and produces no ledger row, because only its supervisor may spawn it.
+`delegates` was declared MODEL-fired in 0.166.0 with no test exercising it through the scheduler; only `data` edges were covered. tests/graph/scheduler.test.ts (since removed) now proves it: a delegation target is not an entry, is not a terminal, never runs on its own, and produces no ledger row, because only its supervisor may spawn it.
 
 ## 0.166.1
 
@@ -3304,7 +3304,7 @@ Four contracts sharpened by making the preset work, each useful on its own:
 
 ### The scheduler is six modules, not one file
 
-`src/runtime/graph/scheduler.ts` was 1,180 lines and is now 791, with the parts that other code needs lifted out and reusable: `admit.ts` (edge payload admission), `ledger.ts` (the edge ledger), `join.ts` (the pure join rule), `suspension.ts` (the suspension vocabulary and token minting), `run-context.ts` (the journal/pool/scope bootstrap and the restart recipe), and `result.ts` (settle rehydration, the finalizer reduce, and no-winner classification). No behaviour changed; the preset consumes several of them directly.
+src/runtime/graph/scheduler.ts (since removed) was 1,180 lines and is now 791, with the parts that other code needs lifted out and reusable: `admit.ts` (edge payload admission), `ledger.ts` (the edge ledger), `join.ts` (the pure join rule), `suspension.ts` (the suspension vocabulary and token minting), `run-context.ts` (the journal/pool/scope bootstrap and the restart recipe), and `result.ts` (settle rehydration, the finalizer reduce, and no-winner classification). No behaviour changed; the preset consumes several of them directly.
 
 ### `claude-code` gets the model flag its CLI actually accepts
 
@@ -3346,7 +3346,7 @@ The within-run replay comparison is unchanged: a replayed event carries the reco
 
 ### Kill it anywhere: journal fold, replay, suspensions (`@tangle-network/agent-runtime/graph`)
 
-Engine build 3/4 (#981). The scheduler's state is now a pure function of the journal — fold, never checkpoint (#974). Every scheduling decision is journaled BEFORE its effect is visible (blob-then-journal where a ref is minted), then applied to live state through the SAME reducer (`applyGraphFoldEvent`) a restart replays the journal through. The bar, held by `tests/graph/replay.test.ts`: kill a file-journaled run at EVERY journal boundary — kernel events included — restart with the same journal, and zero settled nodes re-execute while an all-pure graph reproduces its result byte-identically.
+Engine build 3/4 (#981). The scheduler's state is now a pure function of the journal — fold, never checkpoint (#974). Every scheduling decision is journaled BEFORE its effect is visible (blob-then-journal where a ref is minted), then applied to live state through the SAME reducer (`applyGraphFoldEvent`) a restart replays the journal through. The bar, held by tests/graph/replay.test.ts (since removed): kill a file-journaled run at EVERY journal boundary — kernel events included — restart with the same journal, and zero settled nodes re-execute while an all-pure graph reproduces its result byte-identically.
 
 - **Three fold events** join the journal union: `node-inputs-resolved` (the exact envelope one instance was given, pinned by `inputRef` before it spawns — `onCrash: 'restart'` re-runs from this, never through a transform someone has since changed), `edge-verdict` (what the scheduler DECIDED about one edge; `edge` stays delivery observability with its own ledger), and `join-state` (one release: which edges produced it, which in-flight edges the wave consumed-once). The planned `guard-decision` event is NOT needed: every guard is pure over journaled inputs, so the fold re-evaluates nothing and trusts only journaled verdicts. Kernel replay skips all three, exactly as it skips `edge`.
 - **Idempotent recovery.** Each edge folds `judgedSourceSettles` — bumped by a verdict or an absorption — so a kill between a settle and its verdicts re-judges only the unaccounted edges, and an absorbed completion is never re-fired. A kill between a suspension's kernel settle and its `waiting` event is finished on recovery, never propagated as data.
@@ -3734,13 +3734,13 @@ It is now a supervisor internal.
 No consumer imported it, verified across 23 first-party repositories and the only published dependent, so no migration is required.
 This is a minor release because a public export is removed.
 
-`tests/kernel/composition-families.test.ts` is new, and it holds open the boundary between the two ways this package composes agents.
+tests/kernel/composition-families.test.ts (since removed) is new, and it holds open the boundary between the two ways this package composes agents.
 A combinator such as `pipeline` or `loopUntil` runs under `runPersonified`, which accepts no brain, no router, and no model configuration, so the order is a property of the program.
 `runGraph` always routes delegation through a model.
 The test runs one two-node graph twice: the worker runs when the scripted brain emits `spawn_agent`, and nothing runs when the same brain declines.
 A pipeline stage cannot be skipped that way, so neither entry expresses the other.
 
-The audit behind this release is recorded in `docs/research/loop-facade-postmortem.md`.
+The audit behind this release is recorded in `docs/archive/loop-facade-postmortem.md`.
 Two of the five entries an earlier ledger listed for consolidation were not public when it listed them.
 `runLoop` had already been consolidated onto `runAgentRounds`: it was a deprecated alias, and 0.127.0 deleted it.
 `routerToolLoop` is a router-client internal that no barrel exports.
@@ -4036,7 +4036,7 @@ A bridge session id IS the harness conversation key — cli-bridge maps it to th
 Promoted `@experimental` → `@stable` (per-symbol and module-level):
 
 - `runAgentRounds` + the kernel contract (`Driver`, `Validator`, `OutputAdapter`, `Iteration`, `LoopResult`, `AgentRunSpec`, `SandboxClient`, `ExecCtx`, `LoopTraceEmitter`, `RunAgentRoundsOptions`, and the trace-event/provenance closure in `src/runtime/types.ts`) — tests: `tests/kernel/` (`run-loop-harden`, `loop-dispatch` + the kernel suite); doc: `docs/canonical-api.md`; consumers: `bench/src/research-shot.ts`, `bench/src/corpus.ts`.
-- `supervise` / `Scope` / `Supervisor` (+ `createScope` / `createSupervisor` via their module tags) — tests: `tests/kernel/supervise.test.ts` (1,878 lines) + `coordination-driver` / `coordination-mcp`; docs: `docs/execution-model.md`, `docs/canonical-api.md`; consumers: `bench/src/gate.ts`, `examples/supervise`, `examples/supervisor-loop`.
+- `supervise` / `Scope` / `Supervisor` (+ `createScope` / `createSupervisor` via their module tags) — tests: tests/kernel/supervise.test.ts (since removed) (1,878 lines) + `coordination-driver` / `coordination-mcp`; docs: `docs/execution-model.md`, `docs/canonical-api.md`; consumers: `bench/src/gate.ts`, `examples/supervise`, `examples/supervisor-loop`.
 - personify combinators `pipeline` / `fanout` / `loopUntil` / `panel` / `verify` / `widen` + `definePersona` / `runPersonified` — tests: `tests/kernel/personify.test.ts` (797 lines); doc: `docs/canonical-api.md`; consumers: `examples/graphs`, `bench/src/gate.ts`.
 - the spawn journal family (`InMemorySpawnJournal`, `FileSpawnJournal`, `InMemoryResultBlobStore`, `FileResultBlobStore`, `replaySpawnTree`, the `SpawnForest*` views) — tests: `tests/runtime/spawn-journal-replay-identity.test.ts` + the kernel suite's journal assertions; doc: `docs/canonical-api.md`; consumers: `bench/src/gate.ts`, `examples/recursive-supervisor`.
 - the `/mcp` delegation queue + stores + status tools (`DelegationTaskQueue`, the delegation store, the feedback store, `delegate`, `delegation_status`, `delegation_history`, `delegate_feedback`) — tests: `tests/mcp/` (`task-queue`, `task-queue-durable`, `delegation-store`, `delegation-status`, `delegation-history`, `delegate`, `delegate-feedback`); doc: `docs/agent-managed-compute/current-state.md`; consumers: the shipped `agent-runtime-mcp` server (`src/mcp/server.ts`) + `examples/supervisor-loop/run-supervisor-mcp.ts`.
@@ -4048,7 +4048,7 @@ Kept `@experimental`, each with the failing check:
 
 - `Scope.resume` / `SupervisorOpts.resume` and `EventBus` / `createEventBus`: same-process replay only — live supervised-tree recovery after a coordinator restart and the durable cross-process mailbox are listed Not implemented in `docs/agent-managed-compute/README.md`.
 - The detached/worktree delegation leaves (`src/mcp/delegates.ts`, `detached-coder`, `detached-turn`, the worktree harnesses, `local-harness`): the module doc records the unfinished `driveTurn`-over-a-detached-session resume path.
-- The coordination MCP (`src/mcp/tools/coordination.ts`, `src/runtime/supervise/coordination-mcp.ts`): authenticated remote coordination is Not implemented.
+- The coordination MCP (src/mcp/tools/coordination.ts (since removed), `src/runtime/supervise/coordination-mcp.ts`): authenticated remote coordination is Not implemented.
 - `LoopLineageOptions` / `RunAgentRoundsOptions.lineage` and the member-level extension points `Driver.selectWinner`, `SandboxClient.criuStatus`, `ExecCtx.onSandboxEvent`: opt-in surfaces whose platform contracts (session continuity, CRIU fork) are still being proven.
 
 Newly tagged `@experimental` (previously untagged, unfinished):
@@ -4154,7 +4154,7 @@ The previous hints pinned `0.131.0`/`0.133.0`, so following them installed a bri
 
 ### Steering policy is registry data; the loop-kernel steering-driver module is deleted
 
-BREAKING. `src/runtime/steering-drivers.ts` is deleted, and with it the kernel exports `steeringDriver`, `naiveDriver`, `dumbDriver`, `SteeringDirectiveData`, `SteeringDecision`, `ApplyContinuation`, `NaiveDriverOptions`, and `DumbDriverOptions`.
+BREAKING. src/runtime/steering-drivers.ts (since removed) is deleted, and with it the kernel exports `steeringDriver`, `naiveDriver`, `dumbDriver`, `SteeringDirectiveData`, `SteeringDecision`, `ApplyContinuation`, `NaiveDriverOptions`, and `DumbDriverOptions`.
 The steering POLICY texts stay where the graph reads them — registry data (`delegates/naive-continuation`, `delegates/dumb-continuation-pass` / `-fail` in the kernel prompt registry) a `delegates` edge attaches as versioned directives — so the naive/dumb control policies remain optimizable data rows; only the loop-kernel interpreter function is gone.
 `defineLeaderboard`'s per-cell retry — the module's one consumer — is now `naiveRetryDriver` in `define-leaderboard.ts` with identical observable behavior: the same `'naive'` trace name, the same plan/decide semantics (re-run the same case verbatim until a shot is `valid` or the shot cap; `pick-winner` on any valid shot, else `refine` under the cap, `fail` at it), and the same leak-free firewall (reads only `verdict.valid`, never `notes`/`scores`).
 
@@ -4217,7 +4217,7 @@ The narrow profile type adapter remains necessary because Sandbox 0.16.0 is comp
 
 ### The runtime's own supervision journal is readable again
 
-`src/durable/spawn-journal.ts` writes each supervision event wrapped in an envelope — `{kind:'event', root, event}`. Through agent-eval 0.140.0 `parseSupervisorTree` only understood the flat dialect, so it read `kind` as the literal string `event`, matched no tree event kind, and reported **zero spawns for every journal this package produces**. agent-eval 0.140.1 adds `readJournalRow`, which unwraps that envelope and tags the dialect `runtime-envelope`.
+src/durable/spawn-journal.ts (since removed) writes each supervision event wrapped in an envelope — `{kind:'event', root, event}`. Through agent-eval 0.140.0 `parseSupervisorTree` only understood the flat dialect, so it read `kind` as the literal string `event`, matched no tree event kind, and reported **zero spawns for every journal this package produces**. agent-eval 0.140.1 adds `readJournalRow`, which unwraps that envelope and tags the dialect `runtime-envelope`.
 
 The fix therefore lives in agent-eval, but a consumer only receives it if this package's peer range admits it. The peer floor moves accordingly:
 
@@ -4295,7 +4295,7 @@ What the bridge path does NOT do today, stated so no consumer is surprised:
 
 Known consumers to migrate, none broken until they upgrade:
 
-- `loops` — `src/pi-worker.ts` and `extensions/pi/loops.ts`. The largest migration: `pi-worker.ts` builds the executor directly, and steering is the part that changes behaviour rather than just call shape. Pinned at 0.111.0.
+- `loops` — src/pi-worker.ts (since removed) and extensions/pi/loops.ts (since removed). The largest migration: `pi-worker.ts` builds the executor directly, and steering is the part that changes behaviour rather than just call shape. Pinned at 0.111.0.
 - `supervisor-lab` — `bench/deepswe/live.ts:193`. A single `backend: 'pi'` in a benchmark rig; a call-shape change. Pinned at 0.116.0.
 - `agent-eval-runtime-run-reader` — two test files reference the pi backend.
 

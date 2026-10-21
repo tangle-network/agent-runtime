@@ -20,7 +20,7 @@ The example has two blocks:
 1. **Profile** — builds the literal `mcp` entry you drop into your agent's `AgentProfile`. It launches
    the toolkit via `npx -y @tangle-network/agent-runtime mcp` and passes it env vars. That's the whole
    integration — copy the printed block.
-2. **Smoke test** — spawns the locally-built server (the `pnpm build` output `mcp/bin.js` under `dist/`), asks it to list its tools over
+2. **Smoke test** — spawns the locally-built server (the `pnpm build` output for the `mcp` bin, under `dist/`), asks it to list its tools over
    stdio, and asserts the always-on ones are present.
 
 The tools it exposes:

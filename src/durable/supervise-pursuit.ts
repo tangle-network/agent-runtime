@@ -89,7 +89,7 @@ export interface SupervisedPursuitResult<Result> {
   readonly result: Result
   readonly pursuit: PursuitProjection
   readonly observerPath: string
-  /** `runDir/result.json`: `result` as canonical JSON, written once at settle. */
+  /** `result.json` in the run directory: `result` as canonical JSON, written once at settle. */
   readonly settlePath: string
   /** The version chain, when the call set `versions`. */
   readonly versions?: PursuitVersionChain
@@ -99,7 +99,7 @@ export interface SupervisedPursuitResult<Result> {
 export class SupervisePursuitError extends Error {
   readonly pursuit: PursuitProjection
   readonly observerPath: string
-  /** `runDir/failure.json`: the record of this throw. */
+  /** `failure.json` in the run directory: the record of this throw. */
   readonly failurePath: string
 
   constructor(

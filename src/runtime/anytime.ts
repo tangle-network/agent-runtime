@@ -62,7 +62,7 @@ export interface AnytimeReport {
 /**
  * The best-so-far fold — the ONE definition of "how good was the run after k results", shared by
  * the post-run anytime report below and by the LIVE progress-based stop rules
- * (`supervise/stop-rules.ts`). Given the observed objective per settled result in order, it returns
+ * (`src/runtime/supervise/stop-rules.ts`). Given the observed objective per settled result in order, it returns
  * the running maximum. A result with no objective (`undefined` — it failed, or it was never
  * scored) carries the previous best forward rather than resetting it.
  *

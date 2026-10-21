@@ -1061,7 +1061,7 @@ A continuation is the retry path, not a second loop: same scope, same coordinati
 same live children, and the same budget, deadline, and abort bounds. There is no count: the
 loop ends when the check passes, at this deadline, on the budget, after `maxBarren` turns in
 a row without progress, or on cancellation. A turn that ends, a blocked tool, and a lost
-stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`src/runtime/supervise/continuation.ts`); the
 profile owns its words, and `append` may add a section but never replace one.
 
 Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
@@ -2142,7 +2142,7 @@ A continuation is the retry path, not a second loop: same scope, same coordinati
 same live children, and the same budget, deadline, and abort bounds. There is no count: the
 loop ends when the check passes, at this deadline, on the budget, after `maxBarren` turns in
 a row without progress, or on cancellation. A turn that ends, a blocked tool, and a lost
-stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`src/runtime/supervise/continuation.ts`); the
 profile owns its words, and `append` may add a section but never replace one.
 
 Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
@@ -3014,7 +3014,7 @@ Called once when the external driver loop ends, returned or thrown, with what it
 > `readonly` `optional` **continuation?**: [`ContinuationPolicy`](runtime.md#continuationpolicy)
 
 How an EXTERNAL manager with `deliverable` is sent back when its turn ends with the check
- unmet: the deadline, `maxBarren`, and the note's profile and switches (`./continuation.ts`).
+ unmet: the deadline, `maxBarren`, and the note's profile and switches (`src/runtime/supervise/continuation.ts`).
  Required with `deliverable` on the external arm, refused without one, and refused for a
  router-brained supervisor, which runs its own turn loop in process. The harness owns its own
  turn loop, so it can end while the run has delivered nothing — 376 of 376 winning
