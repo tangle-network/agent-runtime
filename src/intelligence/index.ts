@@ -95,7 +95,7 @@ export type {
   PullOutcome,
 } from './delivery'
 export { composeCertifiedPrompt, createCertifiedPromptSource, pullCertified } from './delivery'
-export type { EffortOverrides, EffortOverridesCompiled, EffortSettings, EffortTier } from './effort'
+export type { EffortOverridesCompiled, EffortSettings } from './effort'
 export { compileEffort, isIntelligenceOff, resolveEffort } from './effort'
 export type {
   CreateExactProcessCandidateExperimentExecutorOptions,
@@ -254,7 +254,7 @@ export interface RunReport {
 /** Repo coordinates a product may declare for the (later) Gated-PR mode. The
  *  Observe slice only records their PRESENCE for `doctor()`; it never touches
  *  the repo. */
-export interface RepoConfig {
+interface RepoConfig {
   owner: string
   name: string
   baseBranch: string
