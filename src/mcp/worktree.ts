@@ -1,3 +1,4 @@
+import { hasControlCharacter } from '../path-control-characters'
 /**
  *
  * Git worktree helpers for the in-process delegation executor. Each
@@ -209,14 +210,6 @@ function worktreeDiffPathspecs(paths: ReadonlyArray<string>): string[] {
   return [...normalized]
     .sort((left, right) => left.localeCompare(right))
     .map((path) => `:(top,exclude,literal)${path}`)
-}
-
-function hasControlCharacter(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index)
-    if (code < 0x20 || code === 0x7f) return true
-  }
-  return false
 }
 
 function parseShortstat(text: string): DiffResult['stats'] {

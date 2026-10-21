@@ -2,13 +2,13 @@ import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-
 import type {
   AgentCandidateCode,
   AgentCandidateGitHubRepository,
   AgentCandidateGitHubResource,
   AgentCandidateWorkspaceManifestMaterial,
 } from '@tangle-network/agent-interface'
+import { hasControlCharacter } from '../path-control-characters'
 
 import { candidateWorkspaceManifest, verifyBytes } from './artifacts'
 import { canonicalCandidateBytes } from './digest'
@@ -428,14 +428,6 @@ function assertSafeGitPath(path: string): void {
   ) {
     throw new Error(`candidate Git tree contains an unsafe path: ${path}`)
   }
-}
-
-function hasControlCharacter(value: string): boolean {
-  for (let index = 0; index < value.length; index++) {
-    const code = value.charCodeAt(index)
-    if (code < 0x20 || code === 0x7f) return true
-  }
-  return false
 }
 
 function parseGitHubRemote(value: string): { owner: string; repo: string } | undefined {

@@ -16,10 +16,8 @@ import type {
   AgentCandidateExecutorRequest,
 } from '../src/candidate-execution/types'
 import { verifyAgentCandidateBundle } from '../src/candidate-execution/verify'
-import {
-  captureAgentCandidateWorkspaceFiles,
-  createAgentCandidateWorkspacePort,
-} from '../src/candidate-execution/workspace-archive'
+import { captureAgentCandidateWorkspaceFiles } from '../src/candidate-execution/workspace-archive'
+import { createAgentCandidateWorkspacePort } from '../src/candidate-execution/workspace-archive-local'
 import {
   bindCandidateFixtureBundle,
   candidateBundle,

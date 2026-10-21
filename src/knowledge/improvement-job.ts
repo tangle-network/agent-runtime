@@ -26,7 +26,7 @@ import {
 } from '../candidate-execution/digest'
 import { persistCandidateOutputArtifact } from '../candidate-execution/output-artifacts'
 import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
-import { captureAgentCandidateWorkspace } from '../candidate-execution/workspace-archive'
+import { captureAgentCandidateWorkspace } from '../candidate-execution/workspace-archive-local'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import type { SuperviseOptions } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'

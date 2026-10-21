@@ -16,7 +16,7 @@ import {
   withKnowledgeImprovementCandidate,
 } from '@tangle-network/agent-knowledge'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createAgentCandidateWorkspacePort } from '../src/candidate-execution/workspace-archive'
+import { createAgentCandidateWorkspacePort } from '../src/candidate-execution/workspace-archive-local'
 import { executeAgentImprovementActivation } from '../src/intelligence/activation'
 import {
   createAgentImprovementActivation,

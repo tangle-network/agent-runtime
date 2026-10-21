@@ -1,3 +1,4 @@
+import { hasControlCharacter } from '../path-control-characters'
 /** Durable one-shot lifecycle for candidate execution attempts. */
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
@@ -857,14 +858,6 @@ function assertBoundedIdentifier(
   ) {
     throw new Error(`candidate execution ${label} is invalid`)
   }
-}
-
-function hasControlCharacter(value: string): boolean {
-  for (let index = 0; index < value.length; index++) {
-    const code = value.charCodeAt(index)
-    if (code < 0x20 || code === 0x7f) return true
-  }
-  return false
 }
 
 function assertPositiveTimestamp(value: unknown, label: string): asserts value is number {
