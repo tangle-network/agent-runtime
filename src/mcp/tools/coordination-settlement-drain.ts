@@ -32,6 +32,8 @@ export function createSettlementDrain({
   readonly workerRouteNames: (workerId: string) => Set<string>
   readonly projectSettled: (settled: Settled<unknown>, resumed?: boolean) => SettledWorker
 }) {
+  // Workers whose settle already ran the settle hooks below, live or committed: each runs them once.
+  const hooked = new Set<string>()
   const commitSettled = (w: SettledWorker): void => {
     ledger.push(w)
     // A settled worker's trace source is finished; drop the online subscription with it.
@@ -93,6 +95,7 @@ export function createSettlementDrain({
     }
     commitSettled(pending.worker)
     pendingSettlement = undefined
+    hooked.add(pending.worker.id)
     const advance = pending.analyze && !analysis.isFinishing()
     await maps.runMapStep(
       () => maps.settleMapMember(pending.settled, pending.worker, advance),
@@ -155,6 +158,25 @@ export function createSettlementDrain({
     return true
   }
 
+  // A keyed runtime spawn that came back committed: its done settlement is on disk from a prior
+  // process, already in the ledger, and no cursor will ever yield it. Its result takes the steps a
+  // live settle takes after the ledger: the map member, the maps it expands and its routes. Its
+  // analysis already ran in the process that settled it.
+  const settleCommitted = async (workerId: string): Promise<void> => {
+    if (hooked.has(workerId)) return
+    const settled = opts.scope.resume?.settled.find((s) => s.handle.id === workerId)
+    if (settled === undefined) {
+      throw new Error(`committed worker ${workerId} has no settlement in the resumed journal`)
+    }
+    hooked.add(workerId)
+    const worker = projectSettled(settled, true)
+    const advance = !analysis.isFinishing()
+    await maps.runMapStep(() => maps.settleMapMember(settled, worker, advance), worker)
+    if (!advance) return
+    await maps.runMapStep(() => maps.expandMaps(settled, worker), worker)
+    await routes.route(settled, worker)
+  }
+
   const prepareSettlement = (
     settled: Settled<unknown>,
     analyze: boolean,
@@ -212,6 +234,7 @@ export function createSettlementDrain({
   return {
     drainSettlement,
     drainResolved,
+    settleCommitted,
     isFlushing: () => flushing > 0,
     isBusy: () => pendingSettlement !== undefined || flushing > 0,
   }

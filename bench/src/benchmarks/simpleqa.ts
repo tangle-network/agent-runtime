@@ -31,6 +31,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { runBenchRouterTurn } from '../router-turn'
+import { FINAL_ANSWER_SENTINEL, parseCitations, parseFinalAnswer } from './rag-shared'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 const execFileAsync = promisify(execFile)
@@ -40,7 +41,6 @@ const FIXTURES = join(BENCH_ROOT, 'fixtures', 'simpleqa.json')
 
 const DATASET_URL =
   'https://openaipublic.blob.core.windows.net/simple-evals/simple_qa_test_set.csv'
-const FINAL_ANSWER_SENTINEL = 'FINAL ANSWER:'
 
 /** Worker contract appended to every task prompt. Answer extraction keys off the sentinel. */
 const WORKER_CONTRACT = [
@@ -58,7 +58,7 @@ const WORKER_CONTRACT = [
  * agent runs into a {@link ResearchAnswer} and serializes `finalAnswer` (+ an
  * optional `CITATIONS:` block) into that string before judging.
  */
-export interface ResearchTask {
+export interface SimpleQaTask {
   id: string
   question: string
   /** Gold short answer — the grader's target. */
@@ -69,11 +69,6 @@ export interface ResearchTask {
   topic: string
   /** SimpleQA answer_type, e.g. 'Person' | 'Date' | 'Number' | 'Place'. */
   answerType: string
-}
-
-export interface ResearchAnswer {
-  finalAnswer: string
-  citations: string[]
 }
 
 /** Normalized fixture/loader row — the single shape both the CSV loader and fixtures emit. */
@@ -102,35 +97,6 @@ async function py(script: string, args: string[] = []): Promise<string> {
     maxBuffer: 1024 * 1024 * 256,
   })
   return stdout
-}
-
-/**
- * Parse the worker artifact into the final answer string.
- * Order: the `FINAL ANSWER:` sentinel first (deterministic-extraction discipline);
- * fall back to the last non-empty line. Returns '' when nothing is parseable
- * (fail-closed — never guess); judge() grades '' as NOT_ATTEMPTED.
- */
-export function parseFinalAnswer(artifact: string): string {
-  const lines = artifact.split(/\r?\n/)
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const line = lines[i] ?? ''
-    const idx = line.toUpperCase().indexOf(FINAL_ANSWER_SENTINEL)
-    if (idx !== -1) return line.slice(idx + FINAL_ANSWER_SENTINEL.length).trim()
-  }
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const t = (lines[i] ?? '').trim()
-    if (t.length > 0) return t
-  }
-  return ''
-}
-
-/** Extract every bare URL in the artifact (CITATIONS: block + inline). SOFT provenance signal. */
-export function parseCitations(artifact: string): string[] {
-  const urls = new Set<string>()
-  for (const m of artifact.matchAll(/https?:\/\/[^\s)<>"']+/g)) {
-    urls.add(m[0].replace(/[.,;]+$/, ''))
-  }
-  return [...urls]
 }
 
 /**

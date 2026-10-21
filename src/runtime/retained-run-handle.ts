@@ -22,7 +22,6 @@ import type {
   AgentSessionStatus,
 } from '@tangle-network/agent-interface/environment-provider'
 import {
-  abortError,
   assertBoundaryBinding,
   assertInteractionBinding,
   assertResultBinding,
@@ -50,6 +49,7 @@ import type {
   RetainedRunHandle,
   RetainedRunSnapshot,
 } from './retained-run-types'
+import { abortError } from './util'
 
 type NativeContinuationAdmissionCallback = (controlRef: AgentExactRunControlRef) => void
 

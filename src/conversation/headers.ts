@@ -35,7 +35,7 @@ export const FORWARD_HEADERS = {
 export type ForwardHeaderName = (typeof FORWARD_HEADERS)[keyof typeof FORWARD_HEADERS]
 
 /** Hard cap on chained gateway hops; refused beyond this. Default keeps recursion bounded. */
-export const DEFAULT_MAX_DEPTH = 4
+export const DEFAULT_MAX_FORWARD_DEPTH = 4
 
 /**
  * Lowercase a header lookup so we read the same key regardless of source
@@ -68,7 +68,10 @@ export function readDepth(
  * Refuse further forwarding when the inbound depth has reached the limit.
  * Callers (the gateway middleware) translate the boolean to an HTTP 413.
  */
-export function isDepthExceeded(inboundDepth: number, max: number = DEFAULT_MAX_DEPTH): boolean {
+export function isDepthExceeded(
+  inboundDepth: number,
+  max: number = DEFAULT_MAX_FORWARD_DEPTH,
+): boolean {
   return inboundDepth >= max
 }
 

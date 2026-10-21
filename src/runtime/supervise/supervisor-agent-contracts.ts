@@ -363,7 +363,7 @@ export interface SupervisorAgentDeps {
   readonly finalizer?: SupervisorFinalizer
   /** Where the coordination MCP binds (external arm). Omit = an ephemeral loopback port, which is
    *  unreachable from an off-host harness. A non-loopback host fails closed — see
-   *  {@link assertCoordinationBinding}. */
+   *  {@link runtime.assertCoordinationBinding}. */
   readonly coordination?: CoordinationBinding
   /** OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
    *  pre-journal point that may ask the backend a question (does this bridge route the child's

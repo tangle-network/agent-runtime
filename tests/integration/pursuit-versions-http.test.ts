@@ -19,7 +19,7 @@ import {
   change,
   committedTree,
   model,
-  profile,
+  pursuitVersionTestProfile,
   type runCase,
   runId,
 } from './fixtures/pursuit-version-client'
@@ -150,8 +150,8 @@ it('forks two judged versions, replays a closed chain without compute, and rejec
     expect(initial.chain.receipt.complete).toBe(true)
     const [v1, v2] = initial.chain.versions
     assert(v1 && v2)
-    expect(v1.profile).toEqual(profile)
-    expect(v2.profile).toEqual(applyAgentProfileDiff(profile, change))
+    expect(v1.profile).toEqual(pursuitVersionTestProfile)
+    expect(v2.profile).toEqual(applyAgentProfileDiff(pursuitVersionTestProfile, change))
     expect(v2.change).toEqual(change)
     expect(v2.parent).toEqual({ version: 1, runId, settleDigest: v1.settleDigest })
     expect(v2.result.execution?.correlation).toMatchObject({

@@ -53,12 +53,12 @@ import {
   createWorker,
   HARNESS,
   isUnsafeRelativePath,
+  parseSharedWorkerProfile,
   SHARED_PROVIDER_NAME,
   type SharedBoxHandle,
   sharedBoxCapabilities,
   sharedBoxRefusal,
   sharedWorkerClientName,
-  workerProfile,
 } from './shared-box-worker'
 import type { UnavailablePausePolicy } from './supervise/upstream-unavailable'
 import type { SandboxClient } from './types'
@@ -196,7 +196,7 @@ export function sharedBoxPlacement(options: SharedBoxPlacementOptions): SharedBo
       name: SHARED_PROVIDER_NAME,
       capabilities: sharedBoxCapabilities,
       async create(input): Promise<AgentEnvironment> {
-        const profile = workerProfile(input)
+        const profile = parseSharedWorkerProfile(input)
         const refusal = sharedBoxRefusal(profile)
         if (refusal !== undefined) {
           throw new ValidationError(`sharedBoxPlacement: ${refusal}`)

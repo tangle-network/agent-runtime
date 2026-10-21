@@ -18,6 +18,7 @@ import {
 import { RuntimeRunStateError, ValidationError } from '../errors'
 import { isFiniteNumber } from '../finite-number'
 import type { Spend, SupervisedResult } from '../runtime/supervise/types'
+import { errorMessage } from '../runtime/util'
 import { isNoEntError } from './jsonl-file'
 import type { JudgedPursuitVersion, VersionVerdict } from './pursuit-versions'
 import { parseSettleRecord, SETTLE_RECORD_FILE } from './settle-record'
@@ -177,7 +178,7 @@ export function versionFailure(version: JudgedPursuitVersion): string | null {
   return `driver-failed: ${result.error.name}: ${message}`
 }
 
-export function digestOf(value: unknown, name: string): Sha256Digest {
+export function pursuitValueDigest(value: unknown, name: string): Sha256Digest {
   try {
     return canonicalCandidateDigest(value)
   } catch (error) {
@@ -199,8 +200,4 @@ export async function exists(path: string): Promise<boolean> {
 
 export function isSha256(value: unknown): value is Sha256Digest {
   return typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value)
-}
-
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

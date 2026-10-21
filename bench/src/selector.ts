@@ -8,14 +8,14 @@
  * firewall: a Selector is `(outputs: string[]) => index`; it is structurally
  * incapable of reading `valid`/`score`, so it cannot become an oracle by accident.
  *
- * Scoring is OFFLINE over the corpus: each random@k RunRecord already holds k
+ * Scoring is OFFLINE over the corpus: each random@k BenchRunRecord already holds k
  * attempts each with a stored `valid`, so picking index i and reading
  * attempts[i].valid is the judge's verdict of the pick — zero new rollouts, zero
  * new judge calls. selector@k vs random@k (does picking beat a blind random draw?)
  * and selector@k vs oracle@k (how much ceiling is recoverable?) fall straight out.
  */
 
-import type { AttemptRecord, RunRecord } from './corpus'
+import type { AttemptRecord, BenchRunRecord } from './corpus'
 
 /** Picks one of `outputs` by index, using the candidate text only. Never the verdict. */
 export type Selector = (outputs: string[]) => number
@@ -24,7 +24,7 @@ export type Selector = (outputs: string[]) => number
  *  trim, collapse whitespace, strip surrounding quotes/punctuation, drop a leading
  *  article. Deliberately conservative — it clusters trivial restatements, not
  *  paraphrases (that is the selector's known ceiling, not a bug). */
-export function normalizeAnswer(s: string): string {
+export function normalizeVoteKey(s: string): string {
   return s
     .toLowerCase()
     .trim()
@@ -45,13 +45,13 @@ export const selfConsistencySelect: Selector = (outputs) => {
   if (outputs.length === 0) throw new Error('selfConsistencySelect: no candidate outputs')
   const counts = new Map<string, number>()
   for (const o of outputs) {
-    const k = normalizeAnswer(o)
+    const k = normalizeVoteKey(o)
     counts.set(k, (counts.get(k) ?? 0) + 1)
   }
   let bestIdx = 0
   let bestCount = -1
   for (let i = 0; i < outputs.length; i += 1) {
-    const c = counts.get(normalizeAnswer(outputs[i] as string)) ?? 0
+    const c = counts.get(normalizeVoteKey(outputs[i] as string)) ?? 0
     if (c > bestCount) {
       bestCount = c
       bestIdx = i // first member of the largest cluster encountered
@@ -99,15 +99,15 @@ export interface SelectorOutcome {
   blind: boolean
 }
 
-const usableCandidates = (record: RunRecord): AttemptRecord[] =>
+const usableCandidates = (record: BenchRunRecord): AttemptRecord[] =>
   record.attempts.filter((a) => typeof a.output === 'string' && a.output.length > 0)
 
 /**
- * Score a selector on one RunRecord offline. Returns null when no attempt produced
+ * Score a selector on one BenchRunRecord offline. Returns null when no attempt produced
  * an output (unscoreable — not a pass). The selector sees OUTPUTS ONLY; the stored
  * `valid` flags are read after the pick, never passed to the selector.
  */
-export function scoreSelectorOnRun(record: RunRecord, select: Selector): SelectorOutcome | null {
+export function scoreSelectorOnRun(record: BenchRunRecord, select: Selector): SelectorOutcome | null {
   const usable = usableCandidates(record)
   if (usable.length === 0) return null
   const picked = select(usable.map((a) => a.output as string))
@@ -142,7 +142,7 @@ export interface SelectorReport {
 }
 
 /** Aggregate the offline selector outcome across a corpus slice (one condition). */
-export function summarizeSelector(records: RunRecord[], select: Selector): SelectorReport {
+export function summarizeSelector(records: BenchRunRecord[], select: Selector): SelectorReport {
   let n = 0
   let selector = 0
   let randomExp = 0
@@ -196,7 +196,7 @@ export function summarizeSelector(records: RunRecord[], select: Selector): Selec
 // outcome; selection itself ranks by the checker score, never by the gold.
 // ---------------------------------------------------------------------------
 
-const scoredAttempts = (record: RunRecord): AttemptRecord[] =>
+const scoredAttempts = (record: BenchRunRecord): AttemptRecord[] =>
   record.attempts.filter((a) => typeof a.score === 'number' && Number.isFinite(a.score))
 
 /** One instance's verifier-grounded outcome on the continuous graded reward. */
@@ -217,11 +217,11 @@ export interface VerifierSelectorOutcome {
 }
 
 /**
- * Score verifier-grounded selection on one RunRecord offline. Returns null when no
+ * Score verifier-grounded selection on one BenchRunRecord offline. Returns null when no
  * attempt carries a numeric checker score (unscoreable). The selector ranks by the
  * stored `score` only; `valid` is read post-pick to report the binary outcome.
  */
-export function scoreVerifierSelectorOnRun(record: RunRecord): VerifierSelectorOutcome | null {
+export function scoreVerifierSelectorOnRun(record: BenchRunRecord): VerifierSelectorOutcome | null {
   const usable = scoredAttempts(record)
   if (usable.length === 0) return null
   const scores = usable.map((a) => a.score as number)
@@ -302,7 +302,7 @@ export interface VerifierSelectorReport {
 }
 
 /** Aggregate verifier-grounded selection across a corpus slice (one condition). */
-export function summarizeVerifierSelector(records: RunRecord[]): VerifierSelectorReport {
+export function summarizeVerifierSelector(records: BenchRunRecord[]): VerifierSelectorReport {
   let n = 0
   let selR = 0
   let randR = 0
@@ -352,7 +352,7 @@ export function summarizeVerifierSelector(records: RunRecord[]): VerifierSelecto
  * (or two seeds) reveals how much its decision is noise. A selector whose flips
  * move the resolve rate is not a selector.
  */
-export function flipRate(records: RunRecord[], a: Selector, b: Selector): number {
+export function flipRate(records: BenchRunRecord[], a: Selector, b: Selector): number {
   let n = 0
   let flips = 0
   for (const r of records) {

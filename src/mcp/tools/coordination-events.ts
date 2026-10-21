@@ -66,7 +66,7 @@ export type CoordinationEvent =
   /** One step of a map route. Record-only, except an expansion that was refused and a join that
    *  could not run: those are queued, because no settlement will wake the manager for them. */
   | { readonly type: 'map'; readonly map: MapTraversalEvent }
-  /** One flow step (see {@link RouteFlowEvent}). Record-only: the settle that caused it already
+  /** One flow step (see [RouteFlowEvent](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)). Record-only: the settle that caused it already
    *  woke the manager, and a flow manager makes no decision of its own. */
   | { readonly type: 'route'; readonly route: RouteFlowEvent }
 

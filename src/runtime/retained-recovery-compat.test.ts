@@ -13,8 +13,8 @@ import {
 } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
 import {
+  acceptedContextTransferReceipt,
   retainedContextTransfer,
-  retainedContextTransferReceipt,
 } from './retained-context-transfer-fixture'
 import { legacyRetainedCreateMaterial, retainedCreateMaterial } from './retained-run-intent'
 
@@ -46,7 +46,7 @@ describe('legacy create-material projection', () => {
 describe('context-transfer recovery authority', () => {
   it('recovery passes the transfer request to the lookup and verifies the receipt binding', async () => {
     const request = retainedContextTransfer()
-    const receipt = retainedContextTransferReceipt(request)
+    const receipt = acceptedContextTransferReceipt(request)
     const seen: Array<Record<string, unknown> | undefined> = []
     const wrongRun = { ...receipt, runId: `sha256:${'b'.repeat(64)}` }
 

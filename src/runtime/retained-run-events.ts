@@ -9,7 +9,6 @@ import type {
   AgentSession,
 } from '@tangle-network/agent-interface/environment-provider'
 import {
-  abortError,
   assertCanonicalEventBinding,
   assertEventBinding,
   assertSequence,
@@ -22,6 +21,7 @@ import {
   extractTransportEventIdentity,
   parseCanonicalTransportEvent,
 } from './sandbox-transport-events'
+import { abortError } from './util'
 
 /** The runtime's own contract checks inside the stream loop, so the catch can tell a broken
  *  answer (a verdict) from a read the provider's iterator failed (a wrapper). */

@@ -93,7 +93,7 @@ export function retainedContextTransfer(
   return createContextTransferRequest(material)
 }
 
-export function retainedContextTransferReceipt(
+export function acceptedContextTransferReceipt(
   request: ContextTransferRequest,
 ): ContextTransferReceipt {
   const destination = request.plan.destination

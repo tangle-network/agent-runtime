@@ -14,8 +14,8 @@ import type {
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import { createPushTraceSource } from '../../src/runtime/supervise/trace-source'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
-import { supervise } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain, wakeEvents } from './scripted-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
+import { driverWakeEvents, scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 // ── Leaf fixtures (the offline execution seam; the graph machinery around them is real) ────────
@@ -230,14 +230,14 @@ describe('run_graph — a director runs an agent graph as ONE subtask of its own
       })
       submissions.push(await response.json())
     }
-    await supervise(director, 'write a haiku through a graph', {
+    await superviseForTest(director, 'write a haiku through a graph', {
       runId: 'grg-harness-lead',
       journal,
       budget: { maxIterations: 100, maxTokens: 200_000 },
       deliverable: { describe: 'what only the run deadline ends', check: () => false },
       makeLeafAgent: leafSeam([]),
       driveHarness,
-      brain: scriptedBrain(
+      brain: scriptedDriverBrain(
         [
           {
             toolCalls: [
@@ -266,7 +266,7 @@ describe('run_graph — a director runs an agent graph as ONE subtask of its own
     expect(
       subtree.find((event) => event.kind === 'settled' && event.id === 'grg-harness-lead:s0'),
     ).toMatchObject({ status: 'done' })
-    expect(wakeEvents(seen[2]!)).toContainEqual(
+    expect(driverWakeEvents(seen[2]!)).toContainEqual(
       expect.objectContaining({ type: 'settled', status: 'done' }),
     )
   })

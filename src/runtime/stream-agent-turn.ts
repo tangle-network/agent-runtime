@@ -78,7 +78,7 @@ import {
   type ObservedAgentTurnBackend,
   startTurnSession,
   type TurnAccumulator,
-  throwIfAborted,
+  throwTurnAbortReason,
 } from './agent-turn-backend-events'
 import { runtimeFailureCause } from './failure-cause'
 import { awaitAbortable } from './retained-run-binding'
@@ -588,15 +588,15 @@ async function* streamAgentTurnInternal(
     const seenChildTaskUpdates = new Set<string>()
     for await (const event of abortableValues(inner, deadline.signal)) {
       if (childTaskAlreadySeen(event, seenChildTaskUpdates)) {
-        throwIfAborted(deadline.signal)
+        throwTurnAbortReason(deadline.signal)
         continue
       }
       yield event
-      throwIfAborted(deadline.signal)
+      throwTurnAbortReason(deadline.signal)
     }
     // Some providers close their iterator instead of throwing after an abort
     // or deadline. Never turn that silent close into a successful completion.
-    throwIfAborted(deadline.signal)
+    throwTurnAbortReason(deadline.signal)
 
     if (backend.kind === 'executor') {
       ;({ materialization, executionBinding } = executorEvidence(executor!, profile!, attemptId))

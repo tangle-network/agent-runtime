@@ -26,13 +26,12 @@ export {
   makePerAttemptSignal,
   type RetryableErrorPredicate,
   type RetryBackoff,
-  sleep,
 } from './call-policy'
 export { createConversationBackend } from './conversation-backend'
 export { defineConversation } from './define-conversation'
 export {
   buildForwardHeaders,
-  DEFAULT_MAX_DEPTH,
+  DEFAULT_MAX_FORWARD_DEPTH,
   FORWARD_HEADERS,
   type ForwardHeaderName,
   isDepthExceeded,

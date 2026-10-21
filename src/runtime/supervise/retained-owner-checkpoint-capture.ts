@@ -7,7 +7,7 @@ import {
   workspaceForkResultMatchesRequest,
 } from '@tangle-network/agent-interface'
 import { captureProviderCheckpointWorkspace } from '../provider-workspace-retention'
-import { abortError, runAbortable } from './abortable'
+import { runAbortable, signalAbortError } from './abortable'
 import { errorText } from './error-message'
 import { type CheckpointEvent, checkpointHandle } from './retained-owner-checkpoint-requests'
 import type { OwnerState } from './retained-owner-state'
@@ -151,7 +151,7 @@ async function captureBeforeCleanup(
   // A bound already spent (the release's, or the owner's cancellation) forks nothing more.
   if (parent?.aborted)
     return refuse(
-      `capture failed: ${errorText(abortError(parent, 'capture stopped').message)}`,
+      `capture failed: ${errorText(signalAbortError(parent, 'capture stopped').message)}`,
       true,
     )
   if (branching === undefined) return refuse('source-scoped checkpoint handle unavailable', true)

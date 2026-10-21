@@ -21,7 +21,7 @@ import { answerOutput, sandboxAgentRun, type WorkerBackendType } from '../sandbo
 import { type BridgeCfg, runBridgeCell } from './bridge'
 import { type SearchArm, armLabel, buildArmProfile } from './profiles'
 import { freshTasks } from './tasks-fresh'
-import { type SearchTask, scoreTask, seedTasks, taskToPrompt } from './tasks'
+import { type SearchTask, scoreTask, seedTasks, searchTaskPrompt } from './tasks'
 
 export interface SearchCellResult {
   taskId: string
@@ -153,7 +153,7 @@ async function runCell(
     )
     let turn: Awaited<ReturnType<typeof run.start>>
     try {
-      turn = await run.start(taskToPrompt(task))
+      turn = await run.start(searchTaskPrompt(task))
     } finally {
       await run.close().catch(() => {})
     }

@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { abortError, runAbortable } from './abortable'
+import { runAbortable, signalAbortError } from './abortable'
 
 const settle = () => new Promise<void>((resolve) => queueMicrotask(() => resolve()))
 
-describe('abortError', () => {
+describe('signalAbortError', () => {
   it('carries the signal string reason', () => {
     const controller = new AbortController()
     controller.abort('root cancelled the branch')
-    const error = abortError(controller.signal, 'supervisor aborted')
+    const error = signalAbortError(controller.signal, 'supervisor aborted')
     expect(error.name).toBe('AbortError')
     expect(error.message).toBe('root cancelled the branch')
   })
@@ -15,15 +15,17 @@ describe('abortError', () => {
   it('falls back when the reason is absent, empty, or not a string', () => {
     const noReason = new AbortController()
     noReason.abort()
-    expect(abortError(noReason.signal, 'supervisor aborted').message).toBe('supervisor aborted')
+    expect(signalAbortError(noReason.signal, 'supervisor aborted').message).toBe(
+      'supervisor aborted',
+    )
 
     const empty = new AbortController()
     empty.abort('')
-    expect(abortError(empty.signal, 'driver aborted').message).toBe('driver aborted')
+    expect(signalAbortError(empty.signal, 'driver aborted').message).toBe('driver aborted')
 
     const object = new AbortController()
     object.abort({ why: 'budget' })
-    expect(abortError(object.signal, 'execution aborted').message).toBe('execution aborted')
+    expect(signalAbortError(object.signal, 'execution aborted').message).toBe('execution aborted')
   })
 })
 

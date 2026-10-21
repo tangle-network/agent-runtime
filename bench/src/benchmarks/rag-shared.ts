@@ -4,6 +4,11 @@ import type { BenchScore, BenchTask, LoadOptions } from './types'
 
 export const FINAL_ANSWER_SENTINEL = 'FINAL ANSWER:'
 
+export interface ResearchAnswer {
+  finalAnswer: string
+  citations: string[]
+}
+
 export interface RagContext {
   id: string
   text: string
@@ -35,6 +40,12 @@ export const ragAnswerOutput: OutputAdapter<string> = {
   },
 }
 
+/**
+ * Parse the worker artifact into the final answer string.
+ * Order: the `FINAL ANSWER:` sentinel first (deterministic-extraction discipline);
+ * fall back to the last non-empty line. Returns '' when nothing is parseable
+ * (fail-closed — never guess), which judge() counts as resolved=false.
+ */
 export function parseFinalAnswer(artifact: string): string {
   const lines = artifact.split(/\r?\n/)
   for (let i = lines.length - 1; i >= 0; i -= 1) {
@@ -49,6 +60,7 @@ export function parseFinalAnswer(artifact: string): string {
   return ''
 }
 
+/** Extract cited URLs from a `CITATIONS:` block and any bare URLs in the artifact. */
 export function parseCitations(artifact: string): string[] {
   const urls = new Set<string>()
   for (const match of artifact.matchAll(/https?:\/\/[^\s)<>"']+/g)) {

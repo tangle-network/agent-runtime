@@ -233,7 +233,7 @@ The caller could not persist one detached-run recovery record.
 
 ##### phase
 
-> `readonly` **phase**: `"intent"` \| `"environment"` \| `"dispatched"`
+> `readonly` **phase**: `"environment"` \| `"intent"` \| `"dispatched"`
 
 ###### Inherited from
 
@@ -1305,7 +1305,7 @@ their `AgentBackendContext`; backends that ignore the field still work.
 
 Inbound depth at the point this driver was invoked. The runner
 increments it on every outbound participant call; gateways refuse at
-`DEFAULT_MAX_DEPTH`. Default 0 (origin caller).
+`DEFAULT_MAX_FORWARD_DEPTH`. Default 0 (origin caller).
 
 ##### parentTurnId?
 
@@ -1558,7 +1558,7 @@ Exact profile identity admitted before the shot.
 
 ##### harness
 
-> `readonly` **harness**: `"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
+> `readonly` **harness**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
 
 ##### provider
 
@@ -4193,7 +4193,7 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-18)
+> **budget**: [`Budget`](runtime.md#budget-11)
 
 ##### readinessCheck?
 
@@ -4213,7 +4213,7 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ##### superviseOptions?
 
-> `optional` **superviseOptions?**: `Partial`\<`Omit`\<[`SuperviseOptions`](runtime.md#superviseoptions), `"budget"` \| `"backend"` \| `"makeWorkerAgent"` \| `"deliverable"` \| `"allowedModels"`\>\>
+> `optional` **superviseOptions?**: `Partial`\<`Omit`\<[`SuperviseOptions`](runtime.md#superviseoptions), `"budget"` \| `"backend"` \| `"deliverable"` \| `"allowedModels"` \| `"makeWorkerAgent"`\>\>
 
 ##### allowedModels?
 
@@ -4519,7 +4519,7 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-18)
+> **budget**: [`Budget`](runtime.md#budget-11)
 
 ##### backend?
 
@@ -4537,7 +4537,7 @@ Caller-owned exact supervisor harness/provider/model identity.
 
 ##### superviseOptions?
 
-> `optional` **superviseOptions?**: `Partial`\<`Omit`\<[`SuperviseOptions`](runtime.md#superviseoptions), `"budget"` \| `"backend"` \| `"makeWorkerAgent"` \| `"deliverable"` \| `"allowedModels"`\>\>
+> `optional` **superviseOptions?**: `Partial`\<`Omit`\<[`SuperviseOptions`](runtime.md#superviseoptions), `"budget"` \| `"backend"` \| `"deliverable"` \| `"allowedModels"` \| `"makeWorkerAgent"`\>\>
 
 ##### allowedModels?
 
@@ -4682,7 +4682,7 @@ The supervisor-authored harness profiles — one fanout item (one worktree-CLI l
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-18)
+> **budget**: [`Budget`](runtime.md#budget-11)
 
 **`Experimental`**
 
@@ -11129,7 +11129,7 @@ platform's failure messages, so a settlement with nothing else typed is `unknown
 
 ###### retainedPendingCause?
 
-[`RetainedPendingCause`](runtime.md#retainedpendingcause-1)
+[`RetainedPendingCause`](runtime.md#retainedpendingcause-2)
 
 ###### failure?
 

@@ -40,9 +40,11 @@ export function randomUuid(): string {
   return crypto.randomUUID()
 }
 
-/** Construct an AbortError. Downstream code pattern-matches on `err.name`. */
-export function abortError(): Error {
-  const err = new Error('aborted')
+/** Construct an AbortError carrying the abort reason's message. Downstream code pattern-matches on `err.name`. */
+export function abortError(reason?: unknown): Error {
+  const err = new Error(
+    reason instanceof Error ? reason.message : reason === undefined ? 'aborted' : String(reason),
+  )
   err.name = 'AbortError'
   return err
 }

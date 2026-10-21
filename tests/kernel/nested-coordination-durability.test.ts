@@ -8,8 +8,8 @@ import type { QuestionRecord } from '../../src/mcp/tools/coordination-questions'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
-import { supervise } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const rootTools = runtimeToolDeclarations('spawn_worker', 'steer_agent')
@@ -69,7 +69,7 @@ function rootBrain() {
     harness: 'codex',
     tools: managerTools,
   })
-  return scriptedBrain([
+  return scriptedDriverBrain([
     {
       toolCalls: [
         {
@@ -202,45 +202,49 @@ describe('nested supervisor coordination durability', () => {
         prompt: { systemPrompt: 'Read peer evidence and preserve ownership.' },
       })
     try {
-      await supervise(testAgentProfile('root', { harness: 'codex', tools: rootTools }), 'audit', {
-        signal: cancellation.signal,
-        driverRetry: { enabled: false },
-        backend: {
-          backend: 'router',
-          routerBaseUrl: 'http://unused.invalid',
-          routerKey: 'unused',
-          model: 'unused/model',
-        },
-        budget: { maxIterations: 20, maxTokens: 20_000 },
-        perWorker: { maxIterations: 6, maxTokens: 2_000 },
-        driveHarness,
-        driveHarnessMaterialization: fullProfileMaterialization,
-        peerAudit: true,
-        peerMail: true,
-        resolveSupervisorTools: (context) => {
-          if (context.depth === 1) expect(context.peerRootOwnerId).toBe(context.ownerId)
-          // Product-owned page reads share the manager endpoint with Runtime's journal.
-          return [
-            {
-              name: 'knowledge_read',
-              description: 'Read a recorded page from this run.',
-              inputSchema: {
-                type: 'object',
-                properties: { peerId: { type: 'string' } },
-                required: ['peerId'],
-                additionalProperties: false,
+      await superviseForTest(
+        testAgentProfile('root', { harness: 'codex', tools: rootTools }),
+        'audit',
+        {
+          signal: cancellation.signal,
+          driverRetry: { enabled: false },
+          backend: {
+            backend: 'router',
+            routerBaseUrl: 'http://unused.invalid',
+            routerKey: 'unused',
+            model: 'unused/model',
+          },
+          budget: { maxIterations: 20, maxTokens: 20_000 },
+          perWorker: { maxIterations: 6, maxTokens: 2_000 },
+          driveHarness,
+          driveHarnessMaterialization: fullProfileMaterialization,
+          peerAudit: true,
+          peerMail: true,
+          resolveSupervisorTools: (context) => {
+            if (context.depth === 1) expect(context.peerRootOwnerId).toBe(context.ownerId)
+            // Product-owned page reads share the manager endpoint with Runtime's journal.
+            return [
+              {
+                name: 'knowledge_read',
+                description: 'Read a recorded page from this run.',
+                inputSchema: {
+                  type: 'object',
+                  properties: { peerId: { type: 'string' } },
+                  required: ['peerId'],
+                  additionalProperties: false,
+                },
+                handler: async (raw) => {
+                  const peerId = (raw as { peerId: string }).peerId
+                  const peer = [...roots.entries()].find(([, root]) => root.nodeId === peerId)
+                  if (!peer) return { error: 'unknown-peer' }
+                  return { content: await readFile(join(runDir, `${peer[0]}.md`), 'utf8') }
+                },
               },
-              handler: async (raw) => {
-                const peerId = (raw as { peerId: string }).peerId
-                const peer = [...roots.entries()].find(([, root]) => root.nodeId === peerId)
-                if (!peer) return { error: 'unknown-peer' }
-                return { content: await readFile(join(runDir, `${peer[0]}.md`), 'utf8') }
-              },
-            },
-          ]
+            ]
+          },
+          maxTurns: 8,
         },
-        maxTurns: 8,
-      })
+      )
     } catch (error) {
       throw harnessErrors[0] ?? error
     } finally {
@@ -281,7 +285,7 @@ describe('nested supervisor coordination durability', () => {
         })
       }
     }
-    await supervise(
+    await superviseForTest(
       testAgentProfile('root', { harness: 'codex', tools: traceGrant }),
       'trace policy',
       {
@@ -339,8 +343,8 @@ describe('nested supervisor coordination durability', () => {
       prompt: { systemPrompt: 'Run both managers.' },
     })
 
-    await supervise(profile, 'root task', { ...options, brain: rootBrain() })
-    await supervise(profile, 'root task', { ...options, brain: rootBrain() })
+    await superviseForTest(profile, 'root task', { ...options, brain: rootBrain() })
+    await superviseForTest(profile, 'root task', { ...options, brain: rootBrain() })
 
     expect(seenBeforeCurrentQuestion).toHaveLength(4)
     expect(seenBeforeCurrentQuestion.slice(0, 2)).toEqual([[], []])
@@ -442,7 +446,7 @@ describe('nested supervisor coordination durability', () => {
     }
 
     try {
-      await supervise(
+      await superviseForTest(
         testAgentProfile('root', {
           harness: 'cli-base',
           tools: rootTools,

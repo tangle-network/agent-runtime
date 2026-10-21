@@ -14,11 +14,11 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../src/runtime/supervise/types'
-import { supervise } from './helpers/runtime-with-test-brain'
+import { superviseForTest } from './helpers/runtime-with-test-brain'
 
 // ── An offline worker leaf — returns the ANSWER=42 marker, no network/LLM ─────────
 // The example's runners build this leaf from a real backend (`workerFromBackend`); here
-// we inject an equivalent in-process executor so the surviving supervise() + scripted-brain
+// we inject an equivalent in-process executor so the surviving superviseForTest() + scripted-brain
 // path runs end-to-end at $0. The output rides the `content` field so the example's deployable
 // check (`demoCheck`) matches its content branch.
 function answerExecutor(): Executor<unknown> {
@@ -60,14 +60,14 @@ function makeWorkerAgent(rawProfile: unknown): Agent<unknown, unknown> {
   }
 }
 
-describe('supervisor-loop example — supervise() on the scripted brain (offline, $0)', () => {
+describe('supervisor-loop example — superviseForTest() on the scripted brain (offline, $0)', () => {
   it('the surviving example path drives a worker to a CHECKED delivery and returns a winner', async () => {
     const workerProfile: AgentProfile = {
       name: 'worker',
       harness: 'cli-base',
       model: { provider: 'tangle-router', default: 'offline-worker-model' },
     }
-    const result = await supervise(
+    const result = await superviseForTest(
       {
         name: 'supervisor',
         harness: 'cli-base',

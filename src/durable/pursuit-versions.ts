@@ -49,17 +49,17 @@ import { authoredProfileDigest } from '../runtime/supervise/materialization'
 import { superviseRootProfile } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import type { SpawnEvent, SupervisedResult } from '../runtime/supervise/types'
+import { errorMessage } from '../runtime/util'
 import { contentAddress } from './content-address'
 import { FileObserverJournal } from './observer-journal'
 import { projectPursuit } from './observer-projection'
 import {
-  digestOf,
-  errorMessage,
   exists,
   FREE,
   isSha256,
   jsonProfile,
   loadNode,
+  pursuitValueDigest,
   pursuitVersionsLedgerPath,
   readSealed,
   settledElapsed,
@@ -346,7 +346,7 @@ export async function runPursuitVersions(
       ? profile
       : applyExactAgentProfileDiff(profile, firstFork.change, 'supervisePursuit versions'),
   )
-  const taskRevision = digestOf(task, 'task')
+  const taskRevision = pursuitValueDigest(task, 'task')
   const identity = (nodeProfile: AgentProfile): SearchExecutionIdentity => ({
     model: {
       provider: 'agent-runtime',

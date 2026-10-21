@@ -18,8 +18,8 @@ import { graphRegistry, listGraphRuns } from '../../src/runtime/supervise/graph-
 import { kernelPromptRegistry } from '../../src/runtime/supervise/prompt-registry'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
-import { runGraph, supervise } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { runGraphForTest, superviseForTest } from '../helpers/runtime-with-test-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 let workspace: string
@@ -101,7 +101,7 @@ let innerRuns = 0
 
 async function designerSession(brain: ToolLoopChat) {
   const innerBrain = () =>
-    scriptedBrain([
+    scriptedDriverBrain([
       {
         toolCalls: [
           { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build' } },
@@ -144,7 +144,7 @@ async function designerSession(brain: ToolLoopChat) {
     }),
     runGraph: (graph) => {
       innerRuns += 1
-      return runGraph(graph, {
+      return runGraphForTest(graph, {
         runId: `inner-${innerRuns}`,
         brain: innerBrain(),
         registry: kernelPromptRegistry(),
@@ -153,7 +153,7 @@ async function designerSession(brain: ToolLoopChat) {
     },
   })
   // The designer is ONE supervisor agent: its only tools are the designer tools.
-  return supervise(designerProfile, 'Design (or replay) the graph for this input.', {
+  return superviseForTest(designerProfile, 'Design (or replay) the graph for this input.', {
     brain,
     registry: kernelPromptRegistry(),
     budget: { maxIterations: 100, maxTokens: 100_000 },

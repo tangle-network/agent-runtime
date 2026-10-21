@@ -600,7 +600,7 @@ function analystExecutor(opts: AgenticOptions): Executor<unknown> {
   }
 }
 
-export function leaf(
+export function createStrategyLeaf(
   name: string,
   kind: 'shot' | 'analyst',
   profile: AgentProfile,
@@ -688,7 +688,13 @@ export function depthStrategy(
       let shots = 0
       try {
         for (shots = 0; shots < cfg.maxShots; shots += 1) {
-          const child = leaf(`shot:${shots}`, 'shot', opts.workerProfile, surface, opts)
+          const child = createStrategyLeaf(
+            `shot:${shots}`,
+            'shot',
+            opts.workerProfile,
+            surface,
+            opts,
+          )
           const memorySteer = await renderCorpusReadback(opts)
           const steer = [shots === 0 ? undefined : pendingSteer, memorySteer]
             .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
@@ -706,7 +712,7 @@ export function depthStrategy(
           progression.push(out.score)
           if (out.score >= 1 || shots === cfg.maxShots - 1) break
           // Analyst reads the trajectory (firewalled) → steer the resumed session.
-          const aChild = leaf(
+          const aChild = createStrategyLeaf(
             `analyst:${shots}`,
             'analyst',
             opts.analystProfile ?? opts.workerProfile,
@@ -760,7 +766,7 @@ export function breadthStrategy(
       let opened = 0
       for (let k = 0; k < cfg.width; k += 1) {
         const res = scope.spawn(
-          leaf(`rollout:${k}`, 'shot', opts.workerProfile, _surface, opts),
+          createStrategyLeaf(`rollout:${k}`, 'shot', opts.workerProfile, _surface, opts),
           { task } as ShotTask,
           {
             budget: perChild(innerTurns),

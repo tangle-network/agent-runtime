@@ -4,8 +4,8 @@ import {
   type AgenticSurface,
   type AgenticTask,
   type ArtifactHandle,
+  createStrategyLeaf,
   drainOne,
-  leaf,
   perChild,
   profileTurnLimit,
   type ShotTask,
@@ -377,7 +377,7 @@ export function defineStrategy<Result extends StrategyResult>(
           async shot(spec) {
             const profile = spec?.profile ?? opts.workerProfile
             const innerTurns = profileTurnLimit(profile, 'authored strategy shot')
-            const child = leaf(`shot:${seq}`, 'shot', profile, surface, opts)
+            const child = createStrategyLeaf(`shot:${seq}`, 'shot', profile, surface, opts)
             seq += 1
             const res = scope.spawn(
               child,
@@ -407,7 +407,7 @@ export function defineStrategy<Result extends StrategyResult>(
             }))
           },
           async critique(messages) {
-            const child = leaf(
+            const child = createStrategyLeaf(
               `analyst:${seq}`,
               'analyst',
               opts.analystProfile ?? opts.workerProfile,
@@ -427,7 +427,7 @@ export function defineStrategy<Result extends StrategyResult>(
             return /^\s*COMPLETE\b/i.test(findings) ? null : findings
           },
           async consult(messages, instruction) {
-            const child = leaf(
+            const child = createStrategyLeaf(
               `analyst:${seq}`,
               'analyst',
               opts.analystProfile ?? opts.workerProfile,

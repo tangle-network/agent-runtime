@@ -26,6 +26,7 @@ export {
   ragAnswerOutput,
   scoreAnswerArtifact,
   tokenF1,
+  type ResearchAnswer,
   type RagAnswerScore,
   type RagContext,
 } from './benchmarks/rag-shared'

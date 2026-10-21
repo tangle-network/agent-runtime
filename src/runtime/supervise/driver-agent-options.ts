@@ -197,7 +197,7 @@ export interface DriverAgentOptions {
    * ACKNOWLEDGES worker-scoped cancel requests from. Each turn the driver reads the layout's
    * cancellation inbox once, applies any request naming one of ITS OWN workers through that
    * worker's existing per-child abort (cascading to the worker's subtree and no sibling), and
-   * writes the durable {@link WorkerCancellation} acknowledgement: `cancel_requested` when the
+   * writes the durable {@link runtime.WorkerCancellation} acknowledgement: `cancel_requested` when the
    * abort is issued, `cancelled` only when the worker reaches a terminal `down` on the settle
    * path, `not_live` when the worker is already gone — a missing worker never reads as success.
    * Which requests this driver OWNS is set by {@link controlScope}. Omit = no acknowledger

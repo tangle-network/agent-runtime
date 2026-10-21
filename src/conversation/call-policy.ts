@@ -175,8 +175,3 @@ export function computeBackoff(spec: RetryBackoff | undefined, attempt: number):
   if (typeof spec === 'function') return Math.max(0, spec(attempt))
   return Math.max(0, spec)
 }
-
-/** Resolve after `ms` milliseconds — used for retry backoff in conversation call policy. */
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}

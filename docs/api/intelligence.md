@@ -11,9 +11,9 @@
 Tangle Intelligence SDK — trace capture plus reviewable improvement.
 
 The client keeps live-agent trace delivery best-effort. The separate
-improvement-cycle exports analyze completed traces, run a signed baseline
-versus candidate experiment, bind review to its result, and activate only
-the exact measured candidate.
+improvement-cycle exports analyze completed traces and run a signed baseline
+versus candidate experiment. Activation exports bind review to its result
+and activate only the exact measured candidate.
 
   1. OBSERVE — wrap a generic agent and export one trace span per call to
      Tangle Intelligence, swallowing every export failure so a live agent
@@ -391,6 +391,104 @@ The product owns the private state lookup and atomic write.
 
 ***
 
+### CreateAgentImprovementProposalOptions
+
+#### Properties
+
+##### runId
+
+> **runId**: `string`
+
+##### findings
+
+> **findings**: readonly `ProposalFinding`[]
+
+##### evaluation
+
+> **evaluation**: `AgentImprovementEvaluation`
+
+##### now?
+
+> `optional` **now?**: () => `Date`
+
+###### Returns
+
+`Date`
+
+***
+
+### ReviewAgentImprovementInput
+
+#### Properties
+
+##### decision
+
+> **decision**: `AgentImprovementReviewDecision`
+
+##### reviewedBy
+
+> **reviewedBy**: `string`
+
+##### reason
+
+> **reason**: `string`
+
+##### feedback?
+
+> `optional` **feedback?**: `string`
+
+##### now?
+
+> `optional` **now?**: () => `Date`
+
+###### Returns
+
+`Date`
+
+***
+
+### CreateAgentImprovementActivationOptions
+
+#### Properties
+
+##### intent
+
+> **intent**: `AgentImprovementActivationIntent`
+
+##### targets
+
+> **targets**: \[[`AgentImprovementActivationTargetIdentity`](#agentimprovementactivationtargetidentity), `...AgentImprovementActivationTargetIdentity[]`\]
+
+Runtime derives each exact source digest; callers identify only the records to change.
+
+##### fundingOwner
+
+> **fundingOwner**: `string`
+
+##### authorizedBy
+
+> **authorizedBy**: `string`
+
+##### expiresAt
+
+> **expiresAt**: `string`
+
+##### executionRef?
+
+> `optional` **executionRef?**: `AgentProfileImprovementExecutionRef`
+
+Required only when an activation targets the complete `agent-profile` surface.
+
+##### now?
+
+> `optional` **now?**: () => `Date`
+
+###### Returns
+
+`Date`
+
+***
+
 ### AgentProfileCandidateMeasurementExecutor
 
 Product-owned executor for exact baseline/candidate profile measurement.
@@ -748,7 +846,7 @@ One resolved subagent — folded into `AgentProfile.subagents`.
 
 ***
 
-### ResolvedSurface
+### ResolvedCapabilitySurface
 
 Materialized capability surfaces supplied by a consumer-owned executor.
 
@@ -1895,104 +1993,6 @@ Shared account when preparation and held-out work have one customer budget.
 ##### resolvedResources?
 
 > `optional` **resolvedResources?**: `ReadonlyMap`\<`` `sha256:${string}` ``, `string`\>
-
-***
-
-### CreateAgentImprovementProposalOptions
-
-#### Properties
-
-##### runId
-
-> **runId**: `string`
-
-##### findings
-
-> **findings**: readonly `ProposalFinding`[]
-
-##### evaluation
-
-> **evaluation**: `AgentImprovementEvaluation`
-
-##### now?
-
-> `optional` **now?**: () => `Date`
-
-###### Returns
-
-`Date`
-
-***
-
-### ReviewAgentImprovementInput
-
-#### Properties
-
-##### decision
-
-> **decision**: `AgentImprovementReviewDecision`
-
-##### reviewedBy
-
-> **reviewedBy**: `string`
-
-##### reason
-
-> **reason**: `string`
-
-##### feedback?
-
-> `optional` **feedback?**: `string`
-
-##### now?
-
-> `optional` **now?**: () => `Date`
-
-###### Returns
-
-`Date`
-
-***
-
-### CreateAgentImprovementActivationOptions
-
-#### Properties
-
-##### intent
-
-> **intent**: `AgentImprovementActivationIntent`
-
-##### targets
-
-> **targets**: \[[`AgentImprovementActivationTargetIdentity`](#agentimprovementactivationtargetidentity), `...AgentImprovementActivationTargetIdentity[]`\]
-
-Runtime derives each exact source digest; callers identify only the records to change.
-
-##### fundingOwner
-
-> **fundingOwner**: `string`
-
-##### authorizedBy
-
-> **authorizedBy**: `string`
-
-##### expiresAt
-
-> **expiresAt**: `string`
-
-##### executionRef?
-
-> `optional` **executionRef?**: `AgentProfileImprovementExecutionRef`
-
-Required only when an activation targets the complete `agent-profile` surface.
-
-##### now?
-
-> `optional` **now?**: () => `Date`
-
-###### Returns
-
-`Date`
 
 ***
 
@@ -4191,6 +4191,136 @@ Validate and execute one product-owned activation transition.
 
 ***
 
+### createAgentImprovementProposal()
+
+> **createAgentImprovementProposal**(`options`): `AgentImprovementProposal`
+
+Create the reviewable record only from a complete, recomputable experiment result.
+
+#### Parameters
+
+##### options
+
+[`CreateAgentImprovementProposalOptions`](#createagentimprovementproposaloptions)
+
+#### Returns
+
+`AgentImprovementProposal`
+
+***
+
+### reviewAgentImprovementProposal()
+
+> **reviewAgentImprovementProposal**(`inputProposal`, `input`): `AgentImprovementReview`
+
+Persist a human or tenant-policy decision bound to one exact proposal.
+
+#### Parameters
+
+##### inputProposal
+
+`AgentImprovementProposal`
+
+##### input
+
+[`ReviewAgentImprovementInput`](#reviewagentimprovementinput)
+
+#### Returns
+
+`AgentImprovementReview`
+
+***
+
+### createAgentImprovementActivation()
+
+> **createAgentImprovementActivation**(`inputProposal`, `inputReview`, `options`): `AgentImprovementActivation`
+
+Authorize product-owned writes only after the exact candidate was measured and approved.
+
+#### Parameters
+
+##### inputProposal
+
+`AgentImprovementProposal`
+
+##### inputReview
+
+`AgentImprovementReview`
+
+##### options
+
+[`CreateAgentImprovementActivationOptions`](#createagentimprovementactivationoptions)
+
+#### Returns
+
+`AgentImprovementActivation`
+
+***
+
+### verifyAgentImprovementProposal()
+
+> **verifyAgentImprovementProposal**(`input`): `AgentImprovementProposal`
+
+Validate a proposal and recompute every binding to its measured experiment.
+
+#### Parameters
+
+##### input
+
+`unknown`
+
+#### Returns
+
+`AgentImprovementProposal`
+
+***
+
+### verifyAgentImprovementReview()
+
+> **verifyAgentImprovementReview**(`input`): `AgentImprovementReview`
+
+Validate the canonical identity and wire shape of an improvement review.
+
+#### Parameters
+
+##### input
+
+`unknown`
+
+#### Returns
+
+`AgentImprovementReview`
+
+***
+
+### verifyAgentImprovementActivation()
+
+> **verifyAgentImprovementActivation**(`input`): `AgentImprovementActivation`
+
+Validate activation authority against the exact proposal, review, experiment, and base state.
+
+#### Parameters
+
+##### input
+
+###### proposal
+
+`unknown`
+
+###### review
+
+`unknown`
+
+###### activation
+
+`unknown`
+
+#### Returns
+
+`AgentImprovementActivation`
+
+***
+
 ### proposeAuthoredAgentProfileImprovement()
 
 > **proposeAuthoredAgentProfileImprovement**(`options`): `Promise`\<[`ProposeAuthoredAgentProfileImprovementResult`](#proposeauthoredagentprofileimprovementresult)\>
@@ -4590,136 +4720,6 @@ Analyze, search, then remeasure the resulting exact candidate before proposing i
 
 ***
 
-### createAgentImprovementProposal()
-
-> **createAgentImprovementProposal**(`options`): `AgentImprovementProposal`
-
-Create the reviewable record only from a complete, recomputable experiment result.
-
-#### Parameters
-
-##### options
-
-[`CreateAgentImprovementProposalOptions`](#createagentimprovementproposaloptions)
-
-#### Returns
-
-`AgentImprovementProposal`
-
-***
-
-### reviewAgentImprovementProposal()
-
-> **reviewAgentImprovementProposal**(`inputProposal`, `input`): `AgentImprovementReview`
-
-Persist a human or tenant-policy decision bound to one exact proposal.
-
-#### Parameters
-
-##### inputProposal
-
-`AgentImprovementProposal`
-
-##### input
-
-[`ReviewAgentImprovementInput`](#reviewagentimprovementinput)
-
-#### Returns
-
-`AgentImprovementReview`
-
-***
-
-### createAgentImprovementActivation()
-
-> **createAgentImprovementActivation**(`inputProposal`, `inputReview`, `options`): `AgentImprovementActivation`
-
-Authorize product-owned writes only after the exact candidate was measured and approved.
-
-#### Parameters
-
-##### inputProposal
-
-`AgentImprovementProposal`
-
-##### inputReview
-
-`AgentImprovementReview`
-
-##### options
-
-[`CreateAgentImprovementActivationOptions`](#createagentimprovementactivationoptions)
-
-#### Returns
-
-`AgentImprovementActivation`
-
-***
-
-### verifyAgentImprovementProposal()
-
-> **verifyAgentImprovementProposal**(`input`): `AgentImprovementProposal`
-
-Validate a proposal and recompute every binding to its measured experiment.
-
-#### Parameters
-
-##### input
-
-`unknown`
-
-#### Returns
-
-`AgentImprovementProposal`
-
-***
-
-### verifyAgentImprovementReview()
-
-> **verifyAgentImprovementReview**(`input`): `AgentImprovementReview`
-
-Validate the canonical identity and wire shape of an improvement review.
-
-#### Parameters
-
-##### input
-
-`unknown`
-
-#### Returns
-
-`AgentImprovementReview`
-
-***
-
-### verifyAgentImprovementActivation()
-
-> **verifyAgentImprovementActivation**(`input`): `AgentImprovementActivation`
-
-Validate activation authority against the exact proposal, review, experiment, and base state.
-
-#### Parameters
-
-##### input
-
-###### proposal
-
-`unknown`
-
-###### review
-
-`unknown`
-
-###### activation
-
-`unknown`
-
-#### Returns
-
-`AgentImprovementActivation`
-
-***
-
 ### verifyCandidateExecutionEvidence()
 
 > **verifyCandidateExecutionEvidence**(`input`, `options`): `CandidateExecutionEvidence`
@@ -4752,7 +4752,7 @@ Bind caller-owned target identities to the exact source state Runtime measured.
 
 ##### surfaces
 
-readonly (`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"knowledge"` \| `"hooks"` \| `"prompt"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`)[]
+readonly (`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"knowledge"` \| `"hooks"` \| `"prompt"` \| `"code"` \| `"agent-profile"` \| `"memory"` \| `"rollout-policy"`)[]
 
 ##### experiment
 
@@ -4782,7 +4782,7 @@ Return whether a measured surface can be delivered through an agent profile.
 
 ##### surface
 
-`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"knowledge"` \| `"hooks"` \| `"prompt"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`
+`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"knowledge"` \| `"hooks"` \| `"prompt"` \| `"code"` \| `"agent-profile"` \| `"memory"` \| `"rollout-policy"`
 
 #### Returns
 

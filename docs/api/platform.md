@@ -486,17 +486,15 @@ RFC 8628 pending/slow_down handling, expiry, cancellation and timeout backoff.
 
 ### PlatformAuthClientOptions
 
-Server-side client for the Tangle platform's cross-site SSO bridge.
+`@tangle-network/agent-runtime/platform` — typed server-side clients
+for the Tangle platform's cross-site SSO bridge and integrations
+hub. Apps consume these to avoid rolling their own OAuth, session,
+and connection storage.
 
-Consumer apps (gtm-agent, tax-agent, legal-agent, creative-agent, …)
-use this to:
-  1. Build an /authorize URL that lands the user on id.tangle.tools
-     and brings them back with a single-use code.
-  2. Exchange that code for an API key + the user's identity.
-
-The platform endpoint contract is documented in
-the cross-site route in agent-container's platform API. This client only
-speaks HTTP — no SDK weight, no transitive deps.
+See:
+  - [PlatformAuthClient](#platformauthclient) for the cross-site "Login with Tangle" API-key exchange (the classic mode; OIDC is the newer one — both are live)
+  - [PlatformOidcClient](#platformoidcclient) for standard OIDC authorization code + PKCE and device grants
+  - [PlatformHubClient](#platformhubclient) for the `/v1/hub/*` surface
 
 #### Properties
 

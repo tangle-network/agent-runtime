@@ -25,7 +25,7 @@ import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import { createRootHandle } from '../../src/runtime/supervise/supervisor'
 import type { NodeId, SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
 import { testContinuation } from '../helpers/continuation'
-import { supervise as superviseTree } from '../helpers/runtime-with-test-brain'
+import { superviseForTest as superviseTree } from '../helpers/runtime-with-test-brain'
 import { runtimeToolDeclarations } from './test-agent-profile'
 
 // These cases pin a fixed topology: every child runs exactly as its manager authored it.

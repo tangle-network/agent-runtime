@@ -21,7 +21,7 @@
  *
  * This is the inference-timescale instance of the spine's atom: `runShot` is the
  * worker Agent's `act→Output`; `prompt` is the driver Agent's `act→steer`. It is
- * deliberately corpus-agnostic — callers map `RefineLoopResult` to a RunRecord.
+ * deliberately corpus-agnostic — callers map `RefineLoopResult` to a BenchRunRecord.
  */
 
 /** Minimal per-round verdict — `valid` gates early-stop, `score` is informational. */

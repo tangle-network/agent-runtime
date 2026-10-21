@@ -216,7 +216,7 @@ export function sharedBoxCapabilities(): AgentEnvironmentCapabilities {
   }
 }
 
-export function workerProfile(input: CreateAgentEnvironmentInput): AgentProfile {
+export function parseSharedWorkerProfile(input: CreateAgentEnvironmentInput): AgentProfile {
   const parsed = agentProfileSchema.safeParse(input.profile)
   if (!parsed.success) {
     throw new ValidationError('sharedBoxPlacement: an exact AgentProfile is required at create')
@@ -295,7 +295,7 @@ export function assertWorkerCreateInput(input: CreateAgentEnvironmentInput): voi
   if (
     backend?.profile !== undefined &&
     canonicalAgentProfileDigest(agentProfileSchema.parse(backend.profile)) !==
-      canonicalAgentProfileDigest(workerProfile(input))
+      canonicalAgentProfileDigest(parseSharedWorkerProfile(input))
   ) {
     throw new ValidationError(
       'sharedBoxPlacement: projected profile must match the exact worker profile',

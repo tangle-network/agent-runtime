@@ -20,8 +20,8 @@ import { supervise } from '../../src/runtime/supervise/supervise'
 import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
-import { supervise as superviseWithBrain } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { superviseForTest as superviseWithBrain } from '../helpers/runtime-with-test-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 // A root has no settle record of its own, so before this receipt its harness session reached no
@@ -380,7 +380,7 @@ describe("the root's harness session", () => {
           provider: durableRetainedProvider(join(directory, 'provider.json')),
         },
         budget: { maxIterations: 4, maxTokens: 100 },
-        brain: scriptedBrain([{ content: 'done' }]),
+        brain: scriptedDriverBrain([{ content: 'done' }]),
       },
     )
 

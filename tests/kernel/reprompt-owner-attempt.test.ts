@@ -16,7 +16,7 @@ import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type { Agent, Budget, ExecutorExecutionBinding } from '../../src/runtime/supervise/types'
 import { testContinuation } from '../helpers/continuation'
-import { supervisorAgent } from '../helpers/runtime-with-test-brain'
+import { supervisorAgentForTest } from '../helpers/runtime-with-test-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
@@ -89,7 +89,7 @@ describe('a re-prompted root is a new execution attempt (#1085)', () => {
         arguments: { result: { answer: 42 } },
       })
     }
-    const root = supervisorAgent(profile, {
+    const root = supervisorAgentForTest(profile, {
       blobs,
       makeWorkerAgent: () => deliveringLeaf('unused', {}),
       perWorker,
@@ -166,7 +166,7 @@ describe('a re-prompted root in a new execution environment (#1225, #1230)', () 
         arguments: { result: { answer: 42 } },
       })
     }
-    const root = supervisorAgent(profile, {
+    const root = supervisorAgentForTest(profile, {
       blobs,
       makeWorkerAgent: () => deliveringLeaf('unused', {}),
       perWorker,

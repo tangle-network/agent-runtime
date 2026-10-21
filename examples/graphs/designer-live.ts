@@ -21,7 +21,7 @@ import {
   kernelPromptRegistry,
   runGraph,
 } from '../../src/runtime/index'
-import { scriptedBrain } from '../../tests/kernel/scripted-brain'
+import { scriptedDriverBrain } from '../../tests/kernel/scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from '../../tests/kernel/test-agent-profile'
 
 const ROUTER_URL = process.env.ROUTER_URL ?? 'https://router.tangle.tools/v1'
@@ -97,7 +97,7 @@ async function main() {
   const registryDir = join(WORKSPACE, 'graph-registry')
 
   const innerBrain = () =>
-    scriptedBrain([
+    scriptedDriverBrain([
       {
         toolCalls: [
           { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build' } },

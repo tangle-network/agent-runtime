@@ -677,6 +677,203 @@ validation. The process still fails closed; this only preserves enough evidence 
 
 ***
 
+### CodexExecutionEvidence
+
+Zero-model-call evidence for the exact Codex process about to run.
+
+#### Properties
+
+##### cliVersion
+
+> **cliVersion**: `string`
+
+##### executableSha256
+
+> **executableSha256**: `string`
+
+##### requestedPromptSha256
+
+> **requestedPromptSha256**: `string`
+
+SHA-256 of the exact composed prompt argument proved present in the rendered prompt.
+
+##### effectivePromptSha256
+
+> **effectivePromptSha256**: `string`
+
+##### nonPromptArgsSha256
+
+> **nonPromptArgsSha256**: `string`
+
+##### controlledConfigSha256
+
+> **controlledConfigSha256**: `string`
+
+##### readDeniedPaths
+
+> **readDeniedPaths**: `string`[]
+
+Sorted normalized paths compiled into the permission profile.
+
+##### readDeniedPathsSha256
+
+> **readDeniedPathsSha256**: `string`
+
+##### readDeniedPathCount
+
+> **readDeniedPathCount**: `number`
+
+##### policy
+
+> **policy**: [`CodexExecutionPolicy`](#codexexecutionpolicy)
+
+***
+
+### CodexExecutionPolicy
+
+Isolation settings asserted before a reproducible Codex run is allowed to start.
+
+#### Properties
+
+##### sessionPersistence
+
+> **sessionPersistence**: `"ephemeral"`
+
+##### userConfig
+
+> **userConfig**: `false`
+
+##### rules
+
+> **rules**: `false`
+
+##### projectInstructions
+
+> **projectInstructions**: `false`
+
+##### skillInstructions
+
+> **skillInstructions**: `false`
+
+##### appInstructions
+
+> **appInstructions**: `false`
+
+##### toolSuggestions
+
+> **toolSuggestions**: `false`
+
+##### multiAgentInstructions
+
+> **multiAgentInstructions**: `false`
+
+##### sandbox
+
+> **sandbox**: `"workspace-write"`
+
+##### permissionProfile
+
+> **permissionProfile**: `"agent_runtime_reproducible"`
+
+##### approvalPolicy
+
+> **approvalPolicy**: `"never"`
+
+##### shellNetwork
+
+> **shellNetwork**: `false`
+
+##### webSearch
+
+> **webSearch**: `false`
+
+##### serviceTier
+
+> **serviceTier**: `"default"`
+
+##### shellEnvironment
+
+> **shellEnvironment**: `"core-filtered"`
+
+##### loginShell
+
+> **loginShell**: `false`
+
+##### credentialsReadable
+
+> **credentialsReadable**: `false`
+
+##### hostHomeReadable
+
+> **hostHomeReadable**: `false`
+
+##### procEnvironment
+
+> **procEnvironment**: `"private-sanitized"`
+
+##### sensitiveEnvironmentNamesVisible
+
+> **sensitiveEnvironmentNamesVisible**: `false`
+
+##### parentRepoRead
+
+> **parentRepoRead**: `false`
+
+##### gitMetadata
+
+> **gitMetadata**: `false`
+
+##### temporaryDirectory
+
+> **temporaryDirectory**: `"workspace-private"`
+
+##### stagedExecutable
+
+> **stagedExecutable**: `"static-elf-read-only"`
+
+##### callerReadDeniedPaths
+
+> **callerReadDeniedPaths**: `"enforced"`
+
+##### containerSockets
+
+> **containerSockets**: `false`
+
+***
+
+### CodexTokenUsage
+
+Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event.
+
+`cachedInputTokens` is a part of `inputTokens` and `reasoningOutputTokens` is a part of
+`outputTokens`; neither adds to the total it describes. `cacheWriteInputTokens` is optional
+because the codex CLI reports it and a provider-normalized capture omits it, and an absent
+counter must stay absent rather than become a zero that claims no cache write was measured.
+
+#### Properties
+
+##### inputTokens
+
+> **inputTokens**: `number`
+
+##### cachedInputTokens
+
+> **cachedInputTokens**: `number`
+
+##### outputTokens
+
+> **outputTokens**: `number`
+
+##### reasoningOutputTokens
+
+> **reasoningOutputTokens**: `number`
+
+##### cacheWriteInputTokens?
+
+> `optional` **cacheWriteInputTokens?**: `number`
+
+***
+
 ### DelegateRunCtx
 
 **`Experimental`**
@@ -2457,203 +2654,6 @@ Test seam for locating the native Codex executable before it is staged in the wo
 
 ***
 
-### CodexTokenUsage
-
-Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event.
-
-`cachedInputTokens` is a part of `inputTokens` and `reasoningOutputTokens` is a part of
-`outputTokens`; neither adds to the total it describes. `cacheWriteInputTokens` is optional
-because the codex CLI reports it and a provider-normalized capture omits it, and an absent
-counter must stay absent rather than become a zero that claims no cache write was measured.
-
-#### Properties
-
-##### inputTokens
-
-> **inputTokens**: `number`
-
-##### cachedInputTokens
-
-> **cachedInputTokens**: `number`
-
-##### outputTokens
-
-> **outputTokens**: `number`
-
-##### reasoningOutputTokens
-
-> **reasoningOutputTokens**: `number`
-
-##### cacheWriteInputTokens?
-
-> `optional` **cacheWriteInputTokens?**: `number`
-
-***
-
-### CodexExecutionPolicy
-
-Isolation settings asserted before a reproducible Codex run is allowed to start.
-
-#### Properties
-
-##### sessionPersistence
-
-> **sessionPersistence**: `"ephemeral"`
-
-##### userConfig
-
-> **userConfig**: `false`
-
-##### rules
-
-> **rules**: `false`
-
-##### projectInstructions
-
-> **projectInstructions**: `false`
-
-##### skillInstructions
-
-> **skillInstructions**: `false`
-
-##### appInstructions
-
-> **appInstructions**: `false`
-
-##### toolSuggestions
-
-> **toolSuggestions**: `false`
-
-##### multiAgentInstructions
-
-> **multiAgentInstructions**: `false`
-
-##### sandbox
-
-> **sandbox**: `"workspace-write"`
-
-##### permissionProfile
-
-> **permissionProfile**: `"agent_runtime_reproducible"`
-
-##### approvalPolicy
-
-> **approvalPolicy**: `"never"`
-
-##### shellNetwork
-
-> **shellNetwork**: `false`
-
-##### webSearch
-
-> **webSearch**: `false`
-
-##### serviceTier
-
-> **serviceTier**: `"default"`
-
-##### shellEnvironment
-
-> **shellEnvironment**: `"core-filtered"`
-
-##### loginShell
-
-> **loginShell**: `false`
-
-##### credentialsReadable
-
-> **credentialsReadable**: `false`
-
-##### hostHomeReadable
-
-> **hostHomeReadable**: `false`
-
-##### procEnvironment
-
-> **procEnvironment**: `"private-sanitized"`
-
-##### sensitiveEnvironmentNamesVisible
-
-> **sensitiveEnvironmentNamesVisible**: `false`
-
-##### parentRepoRead
-
-> **parentRepoRead**: `false`
-
-##### gitMetadata
-
-> **gitMetadata**: `false`
-
-##### temporaryDirectory
-
-> **temporaryDirectory**: `"workspace-private"`
-
-##### stagedExecutable
-
-> **stagedExecutable**: `"static-elf-read-only"`
-
-##### callerReadDeniedPaths
-
-> **callerReadDeniedPaths**: `"enforced"`
-
-##### containerSockets
-
-> **containerSockets**: `false`
-
-***
-
-### CodexExecutionEvidence
-
-Zero-model-call evidence for the exact Codex process about to run.
-
-#### Properties
-
-##### cliVersion
-
-> **cliVersion**: `string`
-
-##### executableSha256
-
-> **executableSha256**: `string`
-
-##### requestedPromptSha256
-
-> **requestedPromptSha256**: `string`
-
-SHA-256 of the exact composed prompt argument proved present in the rendered prompt.
-
-##### effectivePromptSha256
-
-> **effectivePromptSha256**: `string`
-
-##### nonPromptArgsSha256
-
-> **nonPromptArgsSha256**: `string`
-
-##### controlledConfigSha256
-
-> **controlledConfigSha256**: `string`
-
-##### readDeniedPaths
-
-> **readDeniedPaths**: `string`[]
-
-Sorted normalized paths compiled into the permission profile.
-
-##### readDeniedPathsSha256
-
-> **readDeniedPathsSha256**: `string`
-
-##### readDeniedPathCount
-
-> **readDeniedPathCount**: `number`
-
-##### policy
-
-> **policy**: [`CodexExecutionPolicy`](#codexexecutionpolicy)
-
-***
-
 ### LocalHarnessResult
 
 **`Experimental`**
@@ -3742,6 +3742,22 @@ Stop a `serve` call. Subsequent requests are rejected.
 
 ***
 
+### AnalystDefinitionIssue
+
+One rejected field of an authored analyst definition: which field, and what is wrong with it.
+
+#### Properties
+
+##### path
+
+> `readonly` **path**: `string`
+
+##### message
+
+> `readonly` **message**: `string`
+
+***
+
 ### SettledWorker
 
 A worker whose settlement reached the manager's inbox.
@@ -3820,7 +3836,7 @@ Why a `down` worker failed, as values: branch on `code` and `owner`, never on `r
 
 ##### budgetViolation?
 
-> `readonly` `optional` **budgetViolation?**: [`BudgetViolation`](runtime.md#budgetviolation-3)
+> `readonly` `optional` **budgetViolation?**: [`BudgetViolation`](runtime.md#budgetviolation-2)
 
 Present when the worker's measured spend exceeded its reservation. The pool already charged
  the true spend; a `done` worker's output is still its result.
@@ -3864,152 +3880,6 @@ Epoch ms from the durable terminal record — the resolution a progress-based st
 
 Present when this worker led workers of its own: its team's counts and its own direct
  children's results, each readable in full through `observe_agent({ outRef })`.
-
-***
-
-### QuestionOption
-
-#### Properties
-
-##### label
-
-> `readonly` **label**: `string`
-
-##### tradeoff
-
-> `readonly` **tradeoff**: `string`
-
-***
-
-### Question
-
-#### Extended by
-
-- [`QuestionRecord`](#questionrecord)
-
-#### Properties
-
-##### id
-
-> `readonly` **id**: `string`
-
-##### from
-
-> `readonly` **from**: `string`
-
-##### level
-
-> `readonly` **level**: [`QuestionLevel`](#questionlevel)
-
-##### question
-
-> `readonly` **question**: `string`
-
-##### reason
-
-> `readonly` **reason**: `string`
-
-##### urgency
-
-> `readonly` **urgency**: [`QuestionUrgency`](#questionurgency)
-
-##### options?
-
-> `readonly` `optional` **options?**: readonly [`QuestionOption`](#questionoption)[]
-
-***
-
-### QuestionRecord
-
-#### Extends
-
-- [`Question`](#question)
-
-#### Properties
-
-##### id
-
-> `readonly` **id**: `string`
-
-###### Inherited from
-
-[`Question`](#question).[`id`](#id-5)
-
-##### from
-
-> `readonly` **from**: `string`
-
-###### Inherited from
-
-[`Question`](#question).[`from`](#from)
-
-##### level
-
-> `readonly` **level**: [`QuestionLevel`](#questionlevel)
-
-###### Inherited from
-
-[`Question`](#question).[`level`](#level)
-
-##### question
-
-> `readonly` **question**: `string`
-
-###### Inherited from
-
-[`Question`](#question).[`question`](#question-1)
-
-##### reason
-
-> `readonly` **reason**: `string`
-
-###### Inherited from
-
-[`Question`](#question).[`reason`](#reason-4)
-
-##### urgency
-
-> `readonly` **urgency**: [`QuestionUrgency`](#questionurgency)
-
-###### Inherited from
-
-[`Question`](#question).[`urgency`](#urgency)
-
-##### options?
-
-> `readonly` `optional` **options?**: readonly [`QuestionOption`](#questionoption)[]
-
-###### Inherited from
-
-[`Question`](#question).[`options`](#options)
-
-##### status
-
-> `readonly` **status**: `"deferred"` \| `"open"` \| `"answered"` \| `"escalated"`
-
-##### decision?
-
-> `readonly` `optional` **decision?**: [`QuestionDecision`](#questiondecision)
-
-##### openedAt
-
-> `readonly` **openedAt**: `number`
-
-***
-
-### AnalystDefinitionIssue
-
-One rejected field of an authored analyst definition: which field, and what is wrong with it.
-
-#### Properties
-
-##### path
-
-> `readonly` **path**: `string`
-
-##### message
-
-> `readonly` **message**: `string`
 
 ***
 
@@ -4100,7 +3970,7 @@ Validate a graph a manager wrote, or load a stored one by digest, and compose th
 
 ##### scope
 
-> `readonly` **scope**: [`Scope`](runtime.md#scope-3)\<`unknown`\>
+> `readonly` **scope**: [`Scope`](runtime.md#scope-2)\<`unknown`\>
 
 ##### peerAudit?
 
@@ -4122,7 +3992,7 @@ Trusted immutable source refs this manager may read using its granted observe_ag
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-18)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-11)
 
 ##### graphs?
 
@@ -4214,7 +4084,7 @@ detached, recorded durably through `onEvent`, and only then delivered.
 
 ##### questionPolicy?
 
-> `readonly` `optional` **questionPolicy?**: [`QuestionPolicy`](#questionpolicy)
+> `readonly` `optional` **questionPolicy?**: [`QuestionPolicy`](#questionpolicy-1)
 
 ##### analyzeOnSettle?
 
@@ -4238,6 +4108,21 @@ Analyst lenses run AUTOMATICALLY when a worker settles `done` (the analyst-on-se
 
 Maps expanded by the runtime when their source settles (see [MapOnSettleRoute](runtime.md#maponsettleroute)). Omit =
  none.
+
+##### routeFlow?
+
+> `readonly` `optional` **routeFlow?**: [`RouteFlow`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)
+
+The flow this manager runs (see [RouteFlow](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)): Runtime spawns its entries when the
+ coordination opens and routes every settle of a flow node. Set only by `runGraph` for a graph
+ with `entry`, whose manager makes no decision of its own. Omit = none.
+
+##### decideGate?
+
+> `readonly` `optional` **decideGate?**: [`DecideGate`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)
+
+Answers each visit to a gate of `routeFlow`. The route step awaits it, bounded by the run's
+ deadline and abort signal. Set by `runGraph` from `RunGraphOptions.decideGate`.
 
 ##### watchWorkers?
 
@@ -4920,6 +4805,136 @@ readonly [`BlockedToolReport`](runtime.md#blockedtoolreport)[]
 
 ***
 
+### QuestionOption
+
+#### Properties
+
+##### label
+
+> `readonly` **label**: `string`
+
+##### tradeoff
+
+> `readonly` **tradeoff**: `string`
+
+***
+
+### Question
+
+#### Extended by
+
+- [`QuestionRecord`](#questionrecord)
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### from
+
+> `readonly` **from**: `string`
+
+##### level
+
+> `readonly` **level**: [`QuestionLevel`](#questionlevel)
+
+##### question
+
+> `readonly` **question**: `string`
+
+##### reason
+
+> `readonly` **reason**: `string`
+
+##### urgency
+
+> `readonly` **urgency**: [`QuestionUrgency`](#questionurgency)
+
+##### options?
+
+> `readonly` `optional` **options?**: readonly [`QuestionOption`](#questionoption)[]
+
+***
+
+### QuestionRecord
+
+#### Extends
+
+- [`Question`](#question)
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+###### Inherited from
+
+[`Question`](#question).[`id`](#id-5)
+
+##### from
+
+> `readonly` **from**: `string`
+
+###### Inherited from
+
+[`Question`](#question).[`from`](#from)
+
+##### level
+
+> `readonly` **level**: [`QuestionLevel`](#questionlevel)
+
+###### Inherited from
+
+[`Question`](#question).[`level`](#level)
+
+##### question
+
+> `readonly` **question**: `string`
+
+###### Inherited from
+
+[`Question`](#question).[`question`](#question-1)
+
+##### reason
+
+> `readonly` **reason**: `string`
+
+###### Inherited from
+
+[`Question`](#question).[`reason`](#reason-4)
+
+##### urgency
+
+> `readonly` **urgency**: [`QuestionUrgency`](#questionurgency)
+
+###### Inherited from
+
+[`Question`](#question).[`urgency`](#urgency)
+
+##### options?
+
+> `readonly` `optional` **options?**: readonly [`QuestionOption`](#questionoption)[]
+
+###### Inherited from
+
+[`Question`](#question).[`options`](#options)
+
+##### status
+
+> `readonly` **status**: `"deferred"` \| `"open"` \| `"answered"` \| `"escalated"`
+
+##### decision?
+
+> `readonly` `optional` **decision?**: [`QuestionDecision`](#questiondecision)
+
+##### openedAt
+
+> `readonly` **openedAt**: `number`
+
+***
+
 ### DelegateFeedbackHandlerOptions
 
 **`Stable`**
@@ -5408,7 +5423,7 @@ Best-effort hint — coder loops can take minutes-to-hours.
 
 ##### kind
 
-> **kind**: `"outcome"` \| `"artifact"` \| `"delegation"`
+> **kind**: `"artifact"` \| `"outcome"` \| `"delegation"`
 
 **`Experimental`**
 
@@ -6412,36 +6427,6 @@ after `intervalMs`; `completed` / `failed` settle the record.
 
 ***
 
-### QuestionLevel
-
-> **QuestionLevel** = `"worker"` \| `"driver"` \| `"loop"`
-
-***
-
-### QuestionUrgency
-
-> **QuestionUrgency** = `"continue-without"` \| `"blocks-step"` \| `"blocks-run"`
-
-***
-
-### QuestionEscalationTarget
-
-> **QuestionEscalationTarget** = *typeof* [`questionEscalationTargets`](#questionescalationtargets)\[`number`\]
-
-***
-
-### QuestionDecision
-
-> **QuestionDecision** = \{ `kind`: `"answer"`; `answer`: `string`; `by`: `string`; \} \| \{ `kind`: `"defer"`; `reason`: `string`; \} \| \{ `kind`: `"escalate"`; `to`: [`QuestionEscalationTarget`](#questionescalationtarget); `reason`: `string`; \}
-
-***
-
-### QuestionPolicy
-
-> **QuestionPolicy** = `"auto"` \| `"mustDecide"` \| `"bubble"` \| `"failClosed"`
-
-***
-
 ### AnalystToolGroupName
 
 > **AnalystToolGroupName** = *typeof* [`analystToolGroupNames`](#analysttoolgroupnames)\[`number`\]
@@ -6484,6 +6469,36 @@ The exact profile the spawn runs: the root node's pinned profile with the graph 
 ##### Type Literal
 
 \{ `ok`: `false`; `reason`: `string`; \}
+
+***
+
+### QuestionLevel
+
+> **QuestionLevel** = `"worker"` \| `"driver"` \| `"loop"`
+
+***
+
+### QuestionUrgency
+
+> **QuestionUrgency** = `"continue-without"` \| `"blocks-step"` \| `"blocks-run"`
+
+***
+
+### QuestionEscalationTarget
+
+> **QuestionEscalationTarget** = *typeof* [`questionEscalationTargets`](#questionescalationtargets)\[`number`\]
+
+***
+
+### QuestionDecision
+
+> **QuestionDecision** = \{ `kind`: `"answer"`; `answer`: `string`; `by`: `string`; \} \| \{ `kind`: `"defer"`; `reason`: `string`; \} \| \{ `kind`: `"escalate"`; `to`: [`QuestionEscalationTarget`](#questionescalationtarget); `reason`: `string`; \}
+
+***
+
+### QuestionPolicy
+
+> **QuestionPolicy** = `"auto"` \| `"mustDecide"` \| `"bubble"` \| `"failClosed"`
 
 ***
 
@@ -6625,7 +6640,7 @@ runtime draws harness names from, so a harness the interface renames is a compil
 
 ### sourcedHarnesses
 
-> `const` **sourcedHarnesses**: readonly (`"claude-code"` \| `"codex"` \| `"opencode"`)[]
+> `const` **sourcedHarnesses**: readonly (`"opencode"` \| `"claude-code"` \| `"codex"`)[]
 
 The harnesses this registry has a sourced list for.
 
@@ -6700,15 +6715,6 @@ the client's requested version when it is listed here, and otherwise with
 
 ***
 
-### questionEscalationTargets
-
-> `const` **questionEscalationTargets**: readonly \[`"parent"`, `"user"`\]
-
-Where a question this driver cannot answer goes next. `answer_question` accepts these and
- nothing else, so the decision type states them and nothing else.
-
-***
-
 ### analystToolGroupNames
 
 > `const` **analystToolGroupNames**: readonly \[`"all"`, `"discovery"`, `"discoveryAndRead"`, `"discoveryAndSearch"`, `"targeted"`, `"singleTrace"`\]
@@ -6747,6 +6753,15 @@ Why one parent→child delivery did not land, in the words the MANAGER needs.
 left the manager to guess whether to retry, spawn, or give up — `already-settled` and
 `scope-stopped` look alike and need opposite moves. Every refusal a coordination verb returns
 carries a sentence like these, because the manager cannot see the state that produced it.
+
+***
+
+### questionEscalationTargets
+
+> `const` **questionEscalationTargets**: readonly \[`"parent"`, `"user"`\]
+
+Where a question this driver cannot answer goes next. `answer_question` accepts these and
+ nothing else, so the decision type states them and nothing else.
 
 ***
 
@@ -7492,6 +7507,28 @@ that filter on a profile read this list, so a profile added here cannot be one a
 
 ## Functions
 
+### parseCodexTokenUsage()
+
+> **parseCodexTokenUsage**(`stdout`): [`CodexTokenUsage`](#codextokenusage)
+
+Parse and validate the one terminal usage event emitted by `codex exec --json`.
+
+The JSONL framing is this surface's own; the usage RECORD is read by `parseCodexUsageRecord`,
+the one codex usage reader the sandbox decoder also calls, so both surfaces hold the same field
+policy and the same two cross-field invariants.
+
+#### Parameters
+
+##### stdout
+
+`string`
+
+#### Returns
+
+[`CodexTokenUsage`](#codextokenusage)
+
+***
+
 ### detachedSessionDelegate()
 
 > **detachedSessionDelegate**(`options`): [`CoderDelegate`](#coderdelegate)
@@ -7883,7 +7920,7 @@ The two are different facts and a caller must not read one as the other.
 
 ##### harness
 
-`"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
+`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
 
 #### Returns
 
@@ -7893,7 +7930,7 @@ readonly `string`[] \| `undefined`
 
 ### collidesWithHarnessNativeTool()
 
-> **collidesWithHarnessNativeTool**(`name`): readonly (`"claude-code"` \| `"codex"` \| `"opencode"`)[]
+> **collidesWithHarnessNativeTool**(`name`): readonly (`"opencode"` \| `"claude-code"` \| `"codex"`)[]
 
 The sourced harnesses that publish `name` natively — empty when the name is clear of all of them.
 
@@ -7908,7 +7945,7 @@ harness's exact casing, so `task` and `Task` are one collision, not two distinct
 
 #### Returns
 
-readonly (`"claude-code"` \| `"codex"` \| `"opencode"`)[]
+readonly (`"opencode"` \| `"claude-code"` \| `"codex"`)[]
 
 ***
 
@@ -8044,28 +8081,6 @@ created, against the same table that emits the argv.
 #### Returns
 
 `boolean`
-
-***
-
-### parseCodexTokenUsage()
-
-> **parseCodexTokenUsage**(`stdout`): [`CodexTokenUsage`](#codextokenusage)
-
-Parse and validate the one terminal usage event emitted by `codex exec --json`.
-
-The JSONL framing is this surface's own; the usage RECORD is read by `parseCodexUsageRecord`,
-the one codex usage reader the sandbox decoder also calls, so both surfaces hold the same field
-policy and the same two cross-field invariants.
-
-#### Parameters
-
-##### stdout
-
-`string`
-
-#### Returns
-
-[`CodexTokenUsage`](#codextokenusage)
 
 ***
 
@@ -8800,6 +8815,72 @@ Re-exports [AuthoredAnalystLimits](runtime.md#authoredanalystlimits)
 
 ***
 
+### DefinedAnalystRecord
+
+Re-exports [DefinedAnalystRecord](runtime.md#definedanalystrecord)
+
+***
+
+### MakeWorkerAgent
+
+Re-exports [MakeWorkerAgent](runtime.md#makeworkeragent)
+
+***
+
+### WorkerSpawnContext
+
+Re-exports [WorkerSpawnContext](runtime.md#workerspawncontext)
+
+***
+
+### AwaitWakeInput
+
+Re-exports [AwaitWakeInput](runtime.md#awaitwakeinput)
+
+***
+
+### CoordinationEvent
+
+Re-exports [CoordinationEvent](runtime.md#coordinationevent)
+
+***
+
+### EventAcknowledgement
+
+Re-exports [EventAcknowledgement](runtime.md#eventacknowledgement)
+
+***
+
+### LeadMessage
+
+Re-exports [LeadMessage](runtime.md#leadmessage)
+
+***
+
+### ManagerReentryState
+
+Re-exports [ManagerReentryState](runtime.md#managerreentrystate)
+
+***
+
+### ManagerWake
+
+Re-exports [ManagerWake](runtime.md#managerwake)
+
+***
+
+### ToolOutcomeEvent
+
+Re-exports [ToolOutcomeEvent](runtime.md#tooloutcomeevent)
+
+***
+
+### WorkerWatchOptions
+
+Re-exports [WorkerWatchOptions](runtime.md#workerwatchoptions)
+
+***
+
 ### AuthorizeDownMessage
 
 Re-exports [AuthorizeDownMessage](runtime.md#authorizedownmessage)
@@ -8812,33 +8893,9 @@ Re-exports [AuthorizedDownMessage](runtime.md#authorizeddownmessage)
 
 ***
 
-### AwaitWakeInput
-
-Re-exports [AwaitWakeInput](runtime.md#awaitwakeinput)
-
-***
-
-### ChildQuestionInbox
-
-Re-exports [ChildQuestionInbox](runtime.md#childquestioninbox)
-
-***
-
 ### ContinuationInstruction
 
 Re-exports [ContinuationInstruction](runtime.md#continuationinstruction)
-
-***
-
-### CoordinationEvent
-
-Re-exports [CoordinationEvent](runtime.md#coordinationevent)
-
-***
-
-### DefinedAnalystRecord
-
-Re-exports [DefinedAnalystRecord](runtime.md#definedanalystrecord)
 
 ***
 
@@ -8866,39 +8923,15 @@ Re-exports [DownMessageEvent](runtime.md#downmessageevent)
 
 ***
 
+### ChildQuestionInbox
+
+Re-exports [ChildQuestionInbox](runtime.md#childquestioninbox)
+
+***
+
 ### EscalateQuestion
 
 Re-exports [EscalateQuestion](runtime.md#escalatequestion)
-
-***
-
-### EventAcknowledgement
-
-Re-exports [EventAcknowledgement](runtime.md#eventacknowledgement)
-
-***
-
-### LeadMessage
-
-Re-exports [LeadMessage](runtime.md#leadmessage)
-
-***
-
-### MakeWorkerAgent
-
-Re-exports [MakeWorkerAgent](runtime.md#makeworkeragent)
-
-***
-
-### ManagerReentryState
-
-Re-exports [ManagerReentryState](runtime.md#managerreentrystate)
-
-***
-
-### ManagerWake
-
-Re-exports [ManagerWake](runtime.md#managerwake)
 
 ***
 
@@ -8911,24 +8944,6 @@ Re-exports [QuestionEscalationOutcome](runtime.md#questionescalationoutcome)
 ### QuestionEscalationRecord
 
 Re-exports [QuestionEscalationRecord](runtime.md#questionescalationrecord)
-
-***
-
-### ToolOutcomeEvent
-
-Re-exports [ToolOutcomeEvent](runtime.md#tooloutcomeevent)
-
-***
-
-### WorkerSpawnContext
-
-Re-exports [WorkerSpawnContext](runtime.md#workerspawncontext)
-
-***
-
-### WorkerWatchOptions
-
-Re-exports [WorkerWatchOptions](runtime.md#workerwatchoptions)
 
 ***
 

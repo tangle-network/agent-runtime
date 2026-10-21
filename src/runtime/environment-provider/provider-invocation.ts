@@ -20,6 +20,7 @@ import { canonicalSandboxUsageMode, createSandboxUsageLedger } from '../sandbox-
 import { createSandboxToolPartState, sandboxProgressEvents } from '../sandbox-executor-output'
 import type { SandboxOutcomeCarrier } from '../sandbox-outcome'
 import { priceUnreceiptedWork } from '../supervise/cost-estimate'
+import type { TeardownAnswer } from '../supervise/deadline'
 import { errorText } from '../supervise/error-message'
 import { contentRef } from '../supervise/executor-outcome'
 import { concreteProfileModel } from '../supervise/model-policy'
@@ -44,7 +45,6 @@ import {
 } from './provider-event-projection'
 import { providerExecutionSource } from './provider-execution-source'
 import type { ProviderExecutorOptions, ProviderLeafOut } from './provider-executor-admission'
-import type { TeardownAnswer } from './provider-executor-lifecycle'
 import { providerWorkspaceCaptureReceipt } from './provider-retention-lifecycle'
 import { environmentAsSandboxInstance } from './provider-sandbox-adapter'
 import {

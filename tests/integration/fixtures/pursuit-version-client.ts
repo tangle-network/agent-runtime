@@ -29,7 +29,7 @@ import type {
 export const runId = 'run:versions-http'
 export const model = 'versions-protocol-model'
 const firstVersionSystemPrompt = 'VERSION_ONE: write evidence, then submit its exact manifest.'
-export const profile: AgentProfile = {
+export const pursuitVersionTestProfile: AgentProfile = {
   name: 'versions-http',
   harness: 'cli-base',
   model: { provider: 'tangle-router', default: model },
@@ -122,12 +122,17 @@ process.stdout.write(JSON.stringify({ score: content === 'version two\\n' ? 2 : 
 export async function runCase(root: string, routerBaseUrl: string) {
   const baseDir = join(root, 'version')
   const allowed = new Map([
-    [runId, { dir: baseDir, profileDigest: canonicalAgentProfileDigest(profile) }],
+    [
+      runId,
+      { dir: baseDir, profileDigest: canonicalAgentProfileDigest(pursuitVersionTestProfile) },
+    ],
     [
       `${runId}.v2`,
       {
         dir: `${baseDir}.v2`,
-        profileDigest: canonicalAgentProfileDigest(applyAgentProfileDiff(profile, change)),
+        profileDigest: canonicalAgentProfileDigest(
+          applyAgentProfileDiff(pursuitVersionTestProfile, change),
+        ),
       },
     ],
   ])
@@ -216,7 +221,7 @@ export async function runCase(root: string, routerBaseUrl: string) {
       return { score: detail.score, judgeDigest: judge.digest, detail }
     },
   }
-  const result = await supervisePursuit(profile, task, {
+  const result = await supervisePursuit(pursuitVersionTestProfile, task, {
     pursuitId: 'pursuit:versions-http',
     runId,
     runDir: baseDir,

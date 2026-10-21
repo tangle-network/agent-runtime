@@ -27,6 +27,7 @@ import { awaitAbortable, freezeControlRef } from '../retained-run-binding'
 import type { RetainedRunHandle } from '../retained-run-types'
 import { linkAbort, RunCancellationReason } from '../supervise/abortable'
 import { bridgeStopSignalKey } from '../supervise/bridge-config'
+import type { TeardownAnswer } from '../supervise/deadline'
 import { readOptionalAbortSignal } from '../supervise/executor-seams'
 import {
   attestRuntimeOwnedPendingExecutor,
@@ -938,5 +939,3 @@ export const LEAF_CONTINUATION_TASK =
   'Your previous turn was interrupted before it finished. This is the same task in the same ' +
   'session: your conversation so far and the files in your workspace are where you left them. ' +
   'Continue from where you stopped. Do not start over.'
-
-export type TeardownAnswer = { destroyed: boolean; detail?: string; permanent?: boolean }

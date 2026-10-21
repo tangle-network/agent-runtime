@@ -22,7 +22,7 @@ import {
 import type { SearchArm } from './profiles'
 import { armLabel } from './profiles'
 import type { SearchCellResult } from './run.mts'
-import { type SearchTask, scoreTask, taskToPrompt } from './tasks'
+import { type SearchTask, scoreTask, searchTaskPrompt } from './tasks'
 
 const nativeWebDisallowed = ['WebSearch', 'WebFetch', 'web_search', 'web_fetch', 'websearch', 'webfetch', 'fetch']
 
@@ -143,7 +143,7 @@ export async function runBridgeCell(
       timeoutMs: cfg.timeoutMs ?? 300_000,
     })({ profile, harness: null }, { signal: controller.signal, seams: {} })
     // bridgeExecutor is one-shot (async execute resolves an ExecutorResult).
-    const artifact = (await exec.execute(taskToPrompt(task), controller.signal)) as {
+    const artifact = (await exec.execute(searchTaskPrompt(task), controller.signal)) as {
       out: unknown
       spent: { tokens: { input: number; output: number }; usd: number }
     }

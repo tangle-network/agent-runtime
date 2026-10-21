@@ -33,7 +33,7 @@ import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 import { agentProfileSchema } from '@tangle-network/agent-interface'
 
-import { appendRunRecord, type AttemptRecord, type RunRecord } from './corpus'
+import { appendRunRecord, type AttemptRecord, type BenchRunRecord } from './corpus'
 import { runPool } from './run-pool'
 
 const BENCH_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -43,7 +43,7 @@ const PROFILE_AGENT_IMPORT = 'tb_agents.opencode_router_agent:OpenCodeRouterAgen
 // The durable learning-flywheel corpus (docs/learning-flywheel.md). terminal-bench
 // is bench-orchestrated (tb owns the containers) so it cannot use buildRunRecord,
 // which consumes runAgentRounds Iterations; instead each task's per-round tb artifacts are
-// folded into one RunRecord here so the corpus is genuinely cross-benchmark
+// folded into one BenchRunRecord here so the corpus is genuinely cross-benchmark
 // (finsearch-loop.ts writes the same store from the runAgentRounds path).
 const CORPUS = process.env.CORPUS ?? join(BENCH_ROOT, 'corpus', 'terminal.jsonl')
 
@@ -327,7 +327,7 @@ function informativeFailureMode(mode: string | undefined): string | undefined {
 }
 
 /**
- * Build and persist one flywheel RunRecord per task from terminal-compare's own
+ * Build and persist one flywheel BenchRunRecord per task from terminal-compare's own
  * round data — no buildRunRecord (that consumes runAgentRounds Iterations; tb is not
  * runAgentRounds-shaped). condition = 'refine@k' when a refine budget was available,
  * 'blind' when only the single blind round can run (ROUNDS===1). Appended once
@@ -346,7 +346,7 @@ async function captureRunRecord(
   }
   const blindResolved = rounds[0]?.resolved === true
   const last = rounds[rounds.length - 1]
-  const record: RunRecord = {
+  const record: BenchRunRecord = {
     ts: new Date().toISOString(),
     benchmark: 'terminal-bench',
     instanceId: taskId,
@@ -465,7 +465,7 @@ async function solveTask(taskId: string): Promise<{
     await captureRunRecord(taskId, history, priorSteers)
   } catch (err) {
     const msg = err instanceof Error ? (err.stack ?? err.message) : String(err)
-    console.error(`  [corpus] WARN: failed to persist RunRecord for ${taskId}: ${msg}`)
+    console.error(`  [corpus] WARN: failed to persist BenchRunRecord for ${taskId}: ${msg}`)
   }
   return { taskId, blind, refine, rounds: history }
 }

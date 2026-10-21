@@ -274,11 +274,11 @@ export async function* driveExecutorTurn(
         const projected = executorProgressStreamEvent(usage.progress, task, session)
         foldEvent(projected, acc)
         yield projected
-        throwIfAborted(signal)
+        throwTurnAbortReason(signal)
         continue
       }
       foldUsageEvent(usage, acc)
-      throwIfAborted(signal)
+      throwTurnAbortReason(signal)
     }
     result = executor.resultArtifact()
   } else {
@@ -657,7 +657,7 @@ export function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-export function throwIfAborted(signal: AbortSignal): void {
+export function throwTurnAbortReason(signal: AbortSignal): void {
   if (!signal.aborted) return
   throw signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason))
 }
