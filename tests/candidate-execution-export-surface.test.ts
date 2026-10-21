@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   freezeGenericAgentCandidateProfile as fromCandidateExecution,
-  omitUndefinedObjectFields as omitFromCandidateExecution,
-  parseExactCandidateProfile as parseFromCandidateExecution,
   runProtectedAgentCandidateModelGrant as runFromCandidateExecution,
 } from '../src/candidate-execution'
+import {
+  omitUndefinedObjectFields as omitFromCandidateExecution,
+  parseExactCandidateProfile as parseFromCandidateExecution,
+} from '../src/candidate-execution/profile'
 
 describe('candidate profile conversion public surface', () => {
   it('exports the canonical conversion and exact parser from its public barrel', () => {

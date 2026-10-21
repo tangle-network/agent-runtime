@@ -237,46 +237,6 @@ The caller inlines the profile's skill content into the loop's context, so
 tool and permission that load them count as covered on `loop`. Off by default:
 the skills then keep the work in the sandbox.
 
-***
-
-### SandboxOnlyRequirementsOptions
-
-Options for [sandboxOnlyRequirements](#sandboxonlyrequirements).
-
-#### Extends
-
-- `LoopProfileRefusalOptions`
-
-#### Properties
-
-##### vacuousAxes?
-
-> `optional` **vacuousAxes?**: readonly `"permissions"`[]
-
-###### Inherited from
-
-`LoopProfileRefusalOptions.vacuousAxes`
-
-##### inlineSkills?
-
-> `optional` **inlineSkills?**: `boolean`
-
-###### Inherited from
-
-`LoopProfileRefusalOptions.inlineSkills`
-
-##### requirements?
-
-> `optional` **requirements?**: [`PlacementRequirements`](#placementrequirements)
-
-##### profile?
-
-> `optional` **profile?**: `object` \| `AgentProfile`
-
-##### interactive
-
-> **interactive**: `boolean`
-
 ## Type Aliases
 
 ### KnownAgentProfileMaterializationAxis
@@ -326,25 +286,6 @@ metadata. No harness, native tools, files, MCP, subagents, hooks or modes.
 
 ## Functions
 
-### sandboxOnlyRequirements()
-
-> **sandboxOnlyRequirements**(`options`): `string`[]
-
-Every declared requirement only a sandbox can meet. A caller resuming work in the
-loop it began in checks this is empty before it continues there.
-
-#### Parameters
-
-##### options
-
-[`SandboxOnlyRequirementsOptions`](#sandboxonlyrequirementsoptions)
-
-#### Returns
-
-`string`[]
-
-***
-
 ### placeExecution()
 
 > **placeExecution**(`input`): [`PlacementRecord`](#placementrecord)
@@ -357,44 +298,6 @@ Throws [PlacementRefusedError](#placementrefusederror) when no tier can meet eve
 ##### input
 
 [`PlaceExecutionInput`](#placeexecutioninput)
-
-#### Returns
-
-[`PlacementRecord`](#placementrecord)
-
-***
-
-### authoredPlacement()
-
-> **authoredPlacement**(`chosen`): [`PlacementRecord`](#placementrecord)
-
-The record for a tier the author named: nothing was chosen or refused.
-
-#### Parameters
-
-##### chosen
-
-[`ExecutionTier`](#executiontier)
-
-#### Returns
-
-[`PlacementRecord`](#placementrecord)
-
-***
-
-### resumedPlacement()
-
-> **resumedPlacement**(`chosen`): [`PlacementRecord`](#placementrecord)
-
-The record for work that resumes under the tier it began with. A retry reuses the
-recorded tier and never re-decides, so one turn never runs on two tiers; a caller
-resuming on `loop` first checks [sandboxOnlyRequirements](#sandboxonlyrequirements) is empty.
-
-#### Parameters
-
-##### chosen
-
-[`ExecutionTier`](#executiontier)
 
 #### Returns
 

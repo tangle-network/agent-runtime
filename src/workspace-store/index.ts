@@ -4,18 +4,7 @@
  * file tools bound to a trusted turn, a default authority policy, the pinned
  * memory block, and the contract suite every adapter runs. Worker-safe.
  */
-export {
-  aesGcmContentCodecFromEnv,
-  type ContentCodecOptions,
-  createAesGcmContentCodec,
-  openWorkspaceBytes,
-  SEALED_CONTENT_PREFIX,
-  sealWorkspaceBytes,
-  type WorkspaceCodecContext,
-  WorkspaceCodecError,
-  type WorkspaceContentCodec,
-  withContentCodec,
-} from './codec'
+export type { ContentCodecOptions, WorkspaceCodecContext, WorkspaceContentCodec } from './codec'
 export {
   type MakeWorkspaceStore,
   runWorkspaceStoreContract,
@@ -24,19 +13,7 @@ export {
   type WorkspaceStoreContractResult,
   workspaceStoreContractCases,
 } from './contract'
-export {
-  captureHarnessMemory,
-  HARNESS_MEMORY_BEGIN,
-  type HarnessIngestResult,
-  type HarnessNativeFiles,
-  type HarnessProvenance,
-  ingestHarnessMemories,
-  type MemoryDivergence,
-  memoryDivergence,
-  parseHarnessActor,
-  projectHarnessMemory,
-  renderHarnessMemory,
-} from './harness'
+export type { HarnessIngestResult, HarnessProvenance, MemoryDivergence } from './harness'
 export {
   assertWorkspacePath,
   checkWorkspacePut,

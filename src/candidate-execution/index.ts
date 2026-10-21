@@ -8,7 +8,6 @@
 
 export {
   candidateWorkspaceManifest,
-  scanMaterializedWorkspaceManifest,
   type WorkspaceScanLimits,
   type WorkspaceScanOptions,
 } from './artifacts'
@@ -59,9 +58,7 @@ export {
   applyExactAgentProfileDiff,
   assertCandidateProfileBinding,
   freezeGenericAgentCandidateProfile,
-  omitUndefinedObjectFields,
   parseExactAgentProfileDiff,
-  parseExactCandidateProfile,
 } from './profile'
 export {
   type AgentCandidateModelGrantRunReservationInput,
@@ -145,14 +142,12 @@ export {
   type MaterializeAgentWorkspaceSnapshotOptions,
   materializeAgentWorkspaceSnapshot,
 } from './workspace-transfer'
-export {
-  type DescribeWorkspaceTreeOptions,
-  describeWorkspaceTree,
-  type SeedWorkspaceTreeInput,
-  seedWorkspaceTree,
-  type WorkspaceTreeAlgorithm,
-  type WorkspaceTreeDescriptor,
-  type WorkspaceTreeEntryPolicy,
-  type WorkspaceTreeExclusion,
-  type WorkspaceTreeExclusionReason,
+export type {
+  DescribeWorkspaceTreeOptions,
+  SeedWorkspaceTreeInput,
+  WorkspaceTreeAlgorithm,
+  WorkspaceTreeDescriptor,
+  WorkspaceTreeEntryPolicy,
+  WorkspaceTreeExclusion,
+  WorkspaceTreeExclusionReason,
 } from './workspace-tree'

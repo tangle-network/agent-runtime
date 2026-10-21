@@ -394,10 +394,6 @@ Narrowed shape we accept for `AnalystRegistry` so the orchestrator
 remains testable without instantiating the real class. The real
 class satisfies this trivially.
 
-#### Extended by
-
-- [`AnalystRegistryStreamingLike`](#analystregistrystreaminglike)
-
 #### Methods
 
 ##### list()
@@ -483,95 +479,6 @@ readonly `AnalystFinding`[]
 ###### Returns
 
 `Promise`\<`void`\>
-
-***
-
-### AnalystRegistryStreamingLike
-
-Narrow the `AnalystRegistryLike` further when we need streaming: the
-loop checks if the registry exposes `runStream` and uses it when
-present, falling back to `run()` otherwise. This keeps the type
-surface backwards-compatible — older registry shims that only
-implement `run` still work; they just don't forward per-analyst
-events.
-
-#### Extends
-
-- [`AnalystRegistryLike`](#analystregistrylike)
-
-#### Methods
-
-##### list()
-
-> **list**(): readonly `object`[]
-
-###### Returns
-
-readonly `object`[]
-
-###### Inherited from
-
-[`AnalystRegistryLike`](#analystregistrylike).[`list`](#list)
-
-##### run()
-
-> **run**(`runId`, `inputs`, `opts?`): `Promise`\<`AnalystRunResult`\>
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### inputs
-
-`AnalystRunInputs`
-
-###### opts?
-
-###### priorFindings?
-
-readonly `AnalystFinding`[] \| `Record`\<`string`, readonly `AnalystFinding`[]\>
-
-###### chainFindings?
-
-`boolean`
-
-###### Returns
-
-`Promise`\<`AnalystRunResult`\>
-
-###### Inherited from
-
-[`AnalystRegistryLike`](#analystregistrylike).[`run`](#run)
-
-##### runStream()?
-
-> `optional` **runStream**(`runId`, `inputs`, `opts?`): `AsyncIterable`\<`AnalystRunEvent`\>
-
-###### Parameters
-
-###### runId
-
-`string`
-
-###### inputs
-
-`AnalystRunInputs`
-
-###### opts?
-
-###### priorFindings?
-
-readonly `AnalystFinding`[] \| `Record`\<`string`, readonly `AnalystFinding`[]\>
-
-###### chainFindings?
-
-`boolean`
-
-###### Returns
-
-`AsyncIterable`\<`AnalystRunEvent`\>
 
 ## Type Aliases
 

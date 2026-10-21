@@ -15,12 +15,11 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 239 exports.
+Import from `@tangle-network/agent-runtime` — 235 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `agenticGenerator` | function | Full-agentic `CandidateGenerator`: run an exact profiled author inside the existing candidate worktree. |
-| `applyRunRecordDefaults` | function | Stamp cross-cutting defaults onto adapter-projected RunRecords without |
 | `auditLoopRunner` | function | `audit` mode — analyst loop over captured trace/run data. |
 | `buildKnowledgeImprovementExperimentBundles` | function | Attach both frozen knowledge inputs to one otherwise-identical bundle pair. |
 | `buildLoopOtelSpans` | function | Build a nested, real-duration OTLP span tree for ONE loop run from its full |
@@ -63,9 +62,7 @@ Import from `@tangle-network/agent-runtime` — 239 exports.
 | `runPersonaConversation` | function | Run one worker profile against one persona as a multi-round conversation. |
 | `runPersonaDispatch` | function | Wrap {@link runPersonaConversation} as a `ProfileDispatchFn` for |
 | `runtimeStreamServerSentEvent` | function | Serialize a `RuntimeStreamEvent` as a Server-Sent Event string. |
-| `sanitizeAgentRuntimeEvent` | function | Reduce an `AgentRuntimeEvent` to a PII-safe, serializable plain object for telemetry. |
 | `sanitizeKnowledgeReadinessReport` | function | Strip PII and large blobs from a `KnowledgeReadinessReport` for safe telemetry emission. |
-| `sanitizeRuntimeStreamEvent` | function | Reduce a `RuntimeStreamEvent` to a PII-safe, serializable plain object for telemetry. |
 | `searchMethod` | function | Build Runtime's native search for `improve(profile, { method })`. |
 | `sharedBoxLane` | function | Cells as workers packed into shared Sandbox boxes, `workersPerBox` to a box. |
 | `startRuntimeRun` | function | Construct a runtime-run handle. The returned handle is mutable across its |
@@ -82,7 +79,6 @@ Import from `@tangle-network/agent-runtime` — 239 exports.
 | `InMemoryRuntimeSessionStore` | class | In-memory `RuntimeSessionStore` for single-process use and tests. |
 | `JudgeError` | class | A judge call failed in a way that's not retryable: schema parse failure, bad rubric, conflicting dimensions. |
 | `NotFoundError` | class | A named resource (run, span, rubric, scenario, dataset row, route) does not exist. |
-| `RuntimeRunStateError` | class | A runtime-run lifecycle method was called in an order the state machine does |
 | `SearchEnvironmentFault` | class | The environment, not the candidate, ended the attempt: a box that died, a platform that |
 | `ValidationError` | class | Caller passed invalid arguments (out of range, mutually-exclusive options, bad shape). |
 | `CandidateGenerator` | interface | The byte-producing path that differs between the cheap |
@@ -147,30 +143,17 @@ Import from `@tangle-network/agent-runtime` — 239 exports.
 
 ### Vertical agent — manifest + surface proposal source
 
-Import from `@tangle-network/agent-runtime/agent` — 43 exports.
+Import from `@tangle-network/agent-runtime/agent` — 30 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `assertProfileMaterialization` | function | Throw when a candidate changes axes the selected run path cannot carry. |
 | `assertProfileMaterializes` | function | Throw when the CHOSEN HARNESS has no control for a dimension the profile asks for. |
-| `collectAgentRun` | function | Drain `act`'s `events` into an array AND await its `output`. Useful for |
 | `createSandboxAct` | function | Build an `AgentRuntime.act` implementation backed by a single prod-profile |
 | `createSurfaceImprovementProposer` | function | Resolve each finding to a real surface and draft a detached patch candidate. |
 | `defineAgent` | function | Construct a validated agent manifest. Throws `AgentManifestError` |
-| `defineProfileMaterializationContract` | function | Define the profile axes a concrete run path actually carries into execution. |
-| `profileMaterializationAxes` | function | Return every canonical profile leaf that contains a meaningful request. |
 | `renderSurfaceIssues` | function | Format a list of surface validation issues into a human-readable error string. |
 | `unimplementedAgentRun` | function | Stub for agents whose `runtime.act` is not yet wired to the substrate's |
-| `validateProfileMaterialization` | function | Return every changed profile axis that the selected run path would drop. |
 | `validateSurfaces` | function | Validate an `AgentSurfaces` map on disk — missing paths fail loud at `defineAgent` time instead of silently skipping self-improvement edits. |
-| `controlProfileMaterialization` | const | Materialization contract for a raw process path that carries only control/identity fields. |
-| `fullProfileMaterialization` | const | Materialization contract for a run path that executes every canonical AgentProfile leaf. |
-| `promptControlProfileMaterialization` | const | Materialization contract for an injected inference function whose surrounding driver still |
-| `promptModelProfileMaterialization` | const | Materialization contract for an intentionally limited prompt-and-model execution path. |
-| `promptOnlyProfileMaterialization` | const | Materialization contract for a run path that only injects prompt text. |
-| `promptResourceProfileMaterialization` | const | Materialization contract for a run path that injects prompt text plus inline resources. |
-| `sandboxActProfileMaterialization` | const | `createSandboxAct` sends the profile as `backend.profile`; its contract must match Sandbox. |
-| `worktreeCliProfileMaterialization` | const | Materialization contract for a local coding CLI in an isolated git worktree. |
 | `AgentManifestError` | class | Thrown when `defineAgent` finds a required surface missing on disk. |
 | `AgentManifest` | interface | The full agent manifest. Each agent ships ONE of these. |
 | `AgentSurfaces` | interface | Surface declarations. Every path is repo-relative (or absolute) at |
@@ -283,21 +266,17 @@ Import from `@tangle-network/agent-runtime/tool-loop` — 15 exports.
 
 ### Execution placement — cheapest tier a profile allows, edge-safe
 
-Import from `@tangle-network/agent-runtime/placement` — 16 exports.
+Import from `@tangle-network/agent-runtime/placement` — 12 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `authoredPlacement` | function | The record for a tier the author named: nothing was chosen or refused. |
 | `placeExecution` | function | Choose where work runs: the cheapest tier every declared requirement allows. |
-| `resumedPlacement` | function | The record for work that resumes under the tier it began with. A retry reuses the |
-| `sandboxOnlyRequirements` | function | Every declared requirement only a sandbox can meet. A caller resuming work in the |
 | `loopTierProfileMaterialization` | const | The profile axes `inference` and `loop` carry: identity, prompt, model controls and |
 | `PLACEMENT_POLICY` | const | The policy version every {@link PlacementRecord} carries. |
 | `PlacementRefusedError` | class | No tier can meet every declared requirement. Raised before any spend. |
 | `PlacementContext` | interface | Which tiers this deployment has wired. |
 | `PlacementRecord` | interface | What was chosen, under which policy, why, and why each other tier was refused. |
 | `PlacementRequirements` | interface | The declared requirements of the work, beside its profile. Field names follow |
-| `SandboxOnlyRequirementsOptions` | interface | Options for {@link sandboxOnlyRequirements}. |
 | `AgentProfileMaterializationAxis` | type | AgentProfile axis name, with `custom:<name>` reserved for caller-owned extensions. |
 | `ExecutionTier` | type | Where one unit of agent work runs, cheapest first. |
 | `VacuousAxis` | type | Profile axes a tier may count as covered when their declared value grants nothing. |
@@ -415,7 +394,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 145 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 993 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -474,7 +453,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 993 exports.
 | `createExecutorRegistry` | function | The open resolver/registry. Pre-registers the three built-ins under their |
 | `createFencedSqlRunContext` | function | A cross-machine run context on the existing autocommit SqlAdapter. Reuse the same database, |
 | `createFileRunContext` | function | Build a DURABLE run context: the spawn journal and the result blobs are file-backed (fsynced |
-| `createInbox` | function | Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages and a sibling's peer mail queue here, and the worker's loop leases them at step boundaries and be |
 | `createInMemoryRunContext` | function | Build a fresh in-memory run context. Every call returns NEW stores (no shared global |
 | `createInPlaceCliExecutor` | function | Build an in-place CLI leaf `Executor`. Per-spawn, but NOT per-workspace: repeated spawns against |
 | `createMcpEnvironment` | function | Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. |
@@ -500,7 +478,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 993 exports.
 | `declaredCheckDigest` | function | The digest a version judge records: the program, the sealed cases, and how they are run. |
 | `declaredCheckJudge` | function | The declared check as a version chain's judge: it scores a settled version on its sealed cases |
 | `decodeHarnessUsage` | function | Decode a sandbox event with one harness's adapter, or `undefined` when the event carries no |
-| `decodeToolPart` | function | Decode a part with a specific harness's adapter when known, else try every registered adapter |
 | `defaultExtractCandidate` | function | The candidate a shot produced, read from its conversation: the LAST `submit_answer` |
 | `defaultSelectWinner` | function | The kernel's winner argmax — best-valid-score, ties broken by earliest index, |
 | `defaultToolDetectors` | function | The default online panel for a tool-call pipe: a worker repeating the same call, or hammering |
@@ -629,7 +606,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 993 exports.
 | `runTaskQueue` | function | Admit bounded work and yield settlements for the caller's policy to interpret. |
 | `safeWorkerFile` | function | A worker label reduced to a safe filename stem. Empty labels get a stable fallback. |
 | `sandboxCheckRunner` | function | Default CheckRunner backend: pipes the check program into `python3` over the sandbox |
-| `sandboxSessionTraceSource` | function | The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool |
 | `sanitizeMcpToolSchema` | function | Coerce an MCP inputSchema to an OpenAI-tool-valid top-level object schema. |
 | `searchSpecDigest` | function | The canonical digest of a spec: equal for two specs that mean the same, different otherwise. |
 | `secretEnvOfMcpServer` | function | Read (and validate) a server entry's declared secret-env map, if any. |
@@ -1027,7 +1003,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 993 exports.
 | `SeatStage` | interface | A stage is authored in the immutable profile. A selection is a concrete, private placement. |
 | `SelectionReceipt` | interface | A record of one candidate-selection decision: which iteration the selector |
 | `SessionMessageLike` | interface | A harness session message carrying parts (the shape `box.messages()` returns). Structurally typed |
-| `SessionTraceBox` | interface | The minimal box surface this needs: list a session's messages (incl. mid-turn partials). |
 | `SettledWorker` | interface | A worker whose settlement reached the manager's inbox. |
 | `ShapeBudget` | interface | Budget knobs a shape reads to size its fanout/children WITHOUT owning the conserved pool. |
 | `ShapeContext` | interface | The construction context a `LoopShape` factory receives. Carries the persona's resolved |
@@ -1239,13 +1214,12 @@ Import from `@tangle-network/agent-runtime/kernel` — 993 exports.
 
 ### Analyst loop — trace findings on a running loop
 
-Import from `@tangle-network/agent-runtime/analyst-loop` — 13 exports.
+Import from `@tangle-network/agent-runtime/analyst-loop` — 12 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `runAnalystLoop` | function | Analyze a run and apply accepted knowledge and agent-surface proposals. |
 | `AnalystRegistryLike` | interface | Narrowed shape we accept for `AnalystRegistry` so the orchestrator |
-| `AnalystRegistryStreamingLike` | interface | Narrow the `AnalystRegistryLike` further when we need streaming: the |
 | `FindingsStoreLike` | interface | Narrowed shape we accept for `FindingsStore`. |
 | `ImprovementProposalSource` | interface | Agent-surface bridge — proposes prompt, skill, tool, and scaffolding edits. |
 | `KnowledgeProposalSource` | interface | Knowledge-side bridge — consumers wire `proposeFromFindings` from agent-knowledge. |
@@ -1303,7 +1277,7 @@ Import from `@tangle-network/agent-runtime/platform` — 28 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 122 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 117 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1319,21 +1293,16 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 122 exports.
 | `captureAgentWorkspaceSnapshot` | function | Capture through the canonical archive owner and return references only. |
 | `createAgentCandidateWorkspacePort` | function | Create the standard bounded materializer for candidate execution ports. |
 | `createProtectedAgentCandidateModelPort` | function | Bind a protected model-grant service to the immutable candidate runtime. |
-| `describeWorkspaceTree` | function | Describe one directory tree by content, streaming every file. |
 | `disposePreparedAgentCandidateExecution` | function | Revoke reservations held by a prepared candidate that will not be executed. |
 | `exactProcessProviderAsCandidateExecutor` | function | Adapt one neutral exact-process provider to Runtime's trusted candidate boundary. |
 | `executePreparedAgentCandidate` | function | Executes and finalizes one durably claimed candidate without exposing an unproven result. |
 | `freezeGenericAgentCandidateProfile` | function | Convert only behavior-preserving generic profile fields into the closed candidate contract. |
 | `materializeAgentCandidateWorkspaceFromArtifacts` | function | Restore regular-file artifacts into an empty destination, publishing only after complete verification. |
 | `materializeAgentWorkspaceSnapshot` | function | Restore canonical workspace references before an agent starts. |
-| `omitUndefinedObjectFields` | function | Recursively remove undefined object fields while refusing undefined array entries. |
 | `parseExactAgentProfileDiff` | function | Parse a profile diff without silently discarding unsupported fields. |
-| `parseExactCandidateProfile` | function | Parse a candidate profile without silently discarding unsupported or non-canonical fields. |
 | `prepareAgentCandidateExecution` | function | Materializes a verified candidate into one immutable evaluator-owned execution plan. |
 | `runProtectedAgentCandidateModelGrant` | function | Run one bounded unit under a protected model grant. |
-| `scanMaterializedWorkspaceManifest` | function | The canonical manifest of one materialized workspace, read without holding any file. |
 | `sealAgentCandidateBundle` | function | Validate and content-address a candidate bundle before it crosses an approval boundary. |
-| `seedWorkspaceTree` | function | Seed a workspace from a directory, one entry at a time, and return the digest of what was |
 | `verifyAgentCandidateBundle` | function | Verifies every digest, resource, workspace, and Git object in a candidate bundle. |
 | `verifyAgentCandidateWorkspaceArtifacts` | function | Verify durable regular-file workspace evidence without retaining archive or file contents. |
 | `verifyAgentCandidateWorkspaceTree` | function | Read a tree back by its digest and confirm the store holds every file it names. Returns the |
@@ -1512,34 +1481,20 @@ Import from `@tangle-network/agent-runtime/task-queue` — 4 exports.
 
 ### Workspace store — versioned per-tenant memory and files, tools, pinned memory, adapter contract
 
-Import from `@tangle-network/agent-runtime/workspace-store` — 51 exports.
+Import from `@tangle-network/agent-runtime/workspace-store` — 36 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `aesGcmContentCodecFromEnv` | function | The AES-256-GCM codec from an app's env, or `null` when neither variable is |
 | `assertWorkspacePath` | function | Refuse anything but an absolute, normalized path such as `/files/report.md`. |
-| `captureHarnessMemory` | function | What the harness added during the turn, outside the generated block: new |
 | `checkWorkspacePut` | function | Validate a put before any adapter touches storage; adapters call this first. |
-| `createAesGcmContentCodec` | function | AES-256-GCM with a key id per value. `keys` maps key id to 32 raw bytes |
 | `createFileTools` | function | `files.list`, `files.read`, `files.write`, `files.delete`, `files.search` over `/files/**` and `/knowledge/**`. |
 | `createInMemoryWorkspaceStore` | function | Process-local adapter for tests, previews, and single-instance hosts. |
 | `createMemoryTools` | function | `memory.remember`, `memory.recall`, `memory.forget`. |
 | `defaultMemoryPolicy` | function | Default authority. Reads: workspace memory, the speaker's own member memory, |
-| `ingestHarnessMemories` | function | Save captured facts as workspace memories through the same policy as |
-| `memoryDivergence` | function | Compare each native file with the store as `turn` sees it, after ingest ran. |
-| `openWorkspaceBytes` | function | Open bytes a host downloaded for an entry's `bytes` reference. |
-| `parseHarnessActor` | function | Read the harness, turn, and member provenance encoded by `harnessActor`. |
-| `projectHarnessMemory` | function | Replace the generated block in `native`, or append one; text outside it is kept byte for byte. |
 | `readTurnMemories` | function | Workspace memories plus the speaker's own member memories, the set a turn may see. |
-| `renderHarnessMemory` | function | The generated block a host writes into a harness's native memory location. |
 | `renderPinnedMemory` | function | Render the memories a turn sees as one stable block for the per-turn preamble. |
 | `runWorkspaceStoreContract` | function | Run every contract case against fresh stores; never throws for a failing case. |
-| `sealWorkspaceBytes` | function | Seal bytes a host is about to upload (an R2 object) under the entry's tenant and path. |
-| `withContentCodec` | function | `store` with every entry's `content` sealed at rest. Index fields, `bytes` |
 | `workspaceStoreContractCases` | function | The contract as named cases; each case builds its own store. |
-| `HARNESS_MEMORY_BEGIN` | const | Opening marker for the generated block in a harness's native memory file. |
-| `SEALED_CONTENT_PREFIX` | const | Stored text of a sealed `content`: a prefix, then the sealed bytes in base64. |
-| `WorkspaceCodecError` | class | A value did not open: unknown key, wrong tenant or path, tampering, or plaintext where a seal was required. |
 | `WorkspaceConflictError` | class | A write lost a compare-and-set race or targeted the wrong revision. Re-read and retry. |
 | `HarnessProvenance` | interface | Where a captured memory came from. |
 | `WorkspaceBytesRef` | interface | Large content kept outside the index, e.g. an R2 object. The adapter owns `key`. |
@@ -1549,7 +1504,6 @@ Import from `@tangle-network/agent-runtime/workspace-store` — 51 exports.
 | `WorkspaceTombstone` | interface | Erasure record: the content and bytes are gone; only this audit row remains. |
 | `WorkspaceToolDefinition` | interface | Structural tool shape, assignable to agent-app's `McpToolDefinition` |
 | `WorkspaceTurn` | interface | The speaker of the running turn, resolved by the host from its trusted session. |
-| `HarnessNativeFiles` | type | Native files keyed by path, as the host read them. A missing file is absent or `undefined`. |
 | `MakeWorkspaceStore` | type | Make a fresh, empty store for one case. |
 | `WorkspaceEntryKind` | type | What an entry holds; memory kinds are written through `memory.remember`, files through `files.write`. |
 | `WorkspaceEntryScope` | type | `member` entries live under `/memories/members/<memberId>/`; everything else is `workspace`. |

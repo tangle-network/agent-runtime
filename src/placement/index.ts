@@ -323,21 +323,6 @@ function profileDefaultModel(profile: object | undefined): unknown {
   return (profile as { model?: { default?: unknown } } | undefined)?.model?.default
 }
 
-/** Options for {@link sandboxOnlyRequirements}. */
-export interface SandboxOnlyRequirementsOptions extends LoopProfileRefusalOptions {
-  requirements?: PlacementRequirements
-  profile?: AgentProfile | object
-  interactive: boolean
-}
-
-/**
- * Every declared requirement only a sandbox can meet. A caller resuming work in the
- * loop it began in checks this is empty before it continues there.
- */
-export function sandboxOnlyRequirements(options: SandboxOnlyRequirementsOptions): string[] {
-  return sandboxRequirements({ ...options, requirements: options.requirements ?? {} })
-}
-
 /** Tools the work grants, each of which the loop can hold. */
 function toolRequirements(cfg: PlacementRequirements): string[] {
   const tools: string[] = []
@@ -472,31 +457,6 @@ function declaredAxes(profile: object): AgentProfileMaterializationAxis[] {
   return axes
 }
 
-/** The record for a tier the author named: nothing was chosen or refused. */
-export function authoredPlacement(chosen: ExecutionTier): PlacementRecord {
-  return {
-    chosen,
-    policy: PLACEMENT_POLICY,
-    reason: `authored placement: ${chosen}`,
-    coveredAxes: [],
-    rejected: [],
-  }
-}
-
-/**
- * The record for work that resumes under the tier it began with. A retry reuses the
- * recorded tier and never re-decides, so one turn never runs on two tiers; a caller
- * resuming on `loop` first checks {@link sandboxOnlyRequirements} is empty.
- */
-export function resumedPlacement(chosen: ExecutionTier): PlacementRecord {
-  return {
-    chosen,
-    policy: PLACEMENT_POLICY,
-    reason: `resumed under the placement it began with: ${chosen}`,
-    coveredAxes: [],
-    rejected: [],
-  }
-}
 export type {
   AgentProfileMaterializationAxis,
   KnownAgentProfileMaterializationAxis,

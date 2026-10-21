@@ -568,13 +568,12 @@ export * from './supervise/in-place-cli-executor'
 // The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
 // leases it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt),
 // and answers each sender `consumed` or `failed`.
-export {
-  type AuthorityInboxMessage,
-  createInbox,
-  type Inbox,
-  type InboxLease,
-  type InboxMessage,
-  type PeerInboxMessage,
+export type {
+  AuthorityInboxMessage,
+  Inbox,
+  InboxLease,
+  InboxMessage,
+  PeerInboxMessage,
 } from './supervise/inbox'
 /** Provider-backed native interactive workers. Runtime owns admission and control identity; the
  * provider owns the environment and process. */
@@ -741,10 +740,7 @@ export {
 // OWNED loop (push) OR a sandbox box session (message parts). The common currency for both analysts.
 export {
   createPushTraceSource,
-  decodeToolPart,
   type SessionMessageLike,
-  type SessionTraceBox,
-  sandboxSessionTraceSource,
   type ToolStepInput,
   type TraceSource,
 } from './supervise/trace-source'

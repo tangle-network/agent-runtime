@@ -4124,36 +4124,6 @@ Why one entry contributed its name instead of its content.
 
 ## Functions
 
-### scanMaterializedWorkspaceManifest()
-
-> **scanMaterializedWorkspaceManifest**(`root`, `options?`): `Promise`\<`AgentCandidateWorkspaceManifestMaterial`\>
-
-**`Experimental`**
-
-The canonical manifest of one materialized workspace, read without holding any file.
-
-Every file is digested by streaming, so the size of the largest file does not decide whether the
-workspace can be described. `FileHandle.readFile` refuses anything above 2 GiB with
-`ERR_FS_FILE_TOO_LARGE`, which made a workspace holding one such artifact impossible to verify
-against a manifest it already matched. The digest is sha-256 over the same bytes either way, so
-a manifest a buffered read produced is reproduced exactly.
-
-#### Parameters
-
-##### root
-
-`string`
-
-##### options?
-
-[`WorkspaceScanOptions`](#workspacescanoptions) = `{}`
-
-#### Returns
-
-`Promise`\<`AgentCandidateWorkspaceManifestMaterial`\>
-
-***
-
 ### candidateWorkspaceManifest()
 
 > **candidateWorkspaceManifest**(`files`, `options?`): `AgentCandidateWorkspaceManifestMaterial`
@@ -4422,26 +4392,6 @@ Apply one exact diff and reject any value that cannot be preserved canonically.
 
 ***
 
-### parseExactCandidateProfile()
-
-> **parseExactCandidateProfile**(`input`): `AgentCandidateProfile`
-
-**`Experimental`**
-
-Parse a candidate profile without silently discarding unsupported or non-canonical fields.
-
-#### Parameters
-
-##### input
-
-`unknown`
-
-#### Returns
-
-`AgentCandidateProfile`
-
-***
-
 ### agentCandidateProfileAsAgentProfile()
 
 > **agentCandidateProfileAsAgentProfile**(`candidate`): `AgentProfile`
@@ -4459,30 +4409,6 @@ Convert the candidate profile contract into the portable interface profile it re
 #### Returns
 
 `AgentProfile`
-
-***
-
-### omitUndefinedObjectFields()
-
-> **omitUndefinedObjectFields**(`value`, `path`): `unknown`
-
-**`Experimental`**
-
-Recursively remove undefined object fields while refusing undefined array entries.
-
-#### Parameters
-
-##### value
-
-`unknown`
-
-##### path
-
-`string`
-
-#### Returns
-
-`unknown`
 
 ***
 
@@ -4806,67 +4732,3 @@ the allocation scope against other writers; Node directory rename is not atomic 
 #### Returns
 
 `Promise`\<`void`\>
-
-***
-
-### describeWorkspaceTree()
-
-> **describeWorkspaceTree**(`directory`, `options?`): `Promise`\<[`WorkspaceTreeDescriptor`](#workspacetreedescriptor)\>
-
-**`Experimental`**
-
-Describe one directory tree by content, streaming every file.
-
-The digest covers, for every entry in sorted order: its kind, its tree-relative path, its mode
-under the selected algorithm, and then — for a file, its length and its own sha-256; for a kept
-link, its target; for an excluded entry, the reason and the target. A file's content therefore
-never enters the tree hash directly, which is what removes any in-memory size ceiling: the tree
-hash consumes 32 bytes per file however large the file is.
-
-A hard-linked regular file is described like any other regular file. Its content is what the
-digest is about, and a package manager that links a store into `node_modules` is ordinary
-content, not a reason to refuse a workspace.
-
-#### Parameters
-
-##### directory
-
-`string`
-
-##### options?
-
-[`DescribeWorkspaceTreeOptions`](#describeworkspacetreeoptions) = `{}`
-
-#### Returns
-
-`Promise`\<[`WorkspaceTreeDescriptor`](#workspacetreedescriptor)\>
-
-***
-
-### seedWorkspaceTree()
-
-> **seedWorkspaceTree**(`input`): `Promise`\<[`WorkspaceTreeDescriptor`](#workspacetreedescriptor)\>
-
-**`Experimental`**
-
-Seed a workspace from a directory, one entry at a time, and return the digest of what was
-seeded.
-
-Nothing is packed: `cp` walks and copies file by file, so a multi-gigabyte seed costs one file
-handle rather than one archive in memory. Existing destination entries are never overwritten —
-a seed that could replace a file the workspace already holds would make the resulting tree
-depend on the order two seeds ran in.
-
-Links are copied verbatim, exactly as they were written. Following them would copy bytes from
-outside the seed into the workspace, which is the same rule [describeWorkspaceTree](#describeworkspacetree)
-applies to the digest.
-
-#### Parameters
-
-##### input
-
-[`SeedWorkspaceTreeInput`](#seedworkspacetreeinput)
-
-#### Returns
-
-`Promise`\<[`WorkspaceTreeDescriptor`](#workspacetreedescriptor)\>

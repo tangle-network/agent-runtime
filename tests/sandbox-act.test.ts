@@ -1,7 +1,8 @@
 import type { TraceEmitter } from '@tangle-network/agent-eval'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import { type AgentRunContext, collectAgentRun, createSandboxAct } from '../src/agent'
+import { type AgentRunContext, createSandboxAct } from '../src/agent'
+import { collectAgentRun } from '../src/agent/define-agent'
 import type { OutputAdapter, SandboxClient } from '../src/runtime'
 
 const BASE = {

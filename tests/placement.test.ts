@@ -1,7 +1,6 @@
 import { type AgentProfile, profileMaterializationAxes } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
-  authoredPlacement,
   loopTierProfileMaterialization,
   PLACEMENT_POLICY,
   type PlaceExecutionInput,
@@ -9,8 +8,6 @@ import {
   PlacementRefusedError,
   type PlacementRequirements,
   placeExecution,
-  resumedPlacement,
-  sandboxOnlyRequirements,
 } from '../src/placement'
 import {
   type AgentPlacementInput,
@@ -365,47 +362,5 @@ describe('placement tiers as profile materialization contracts', () => {
     for (const axis of ['harness', 'tools', 'permissions', 'mcp', 'files', 'skills', 'hooks']) {
       expect(loopTierProfileMaterialization.axes).not.toContain(axis)
     }
-  })
-})
-
-describe('authored and resumed placement', () => {
-  it('reuses the recorded tier on a retry even when a fresh decision would now differ', () => {
-    const input = {
-      requirements: { tools: ['t'] },
-      profile: PROMPT_ONLY,
-      context: { interactive: false, inferenceAvailable: true, loopAvailable: true },
-    }
-    const first = placeExecution(input)
-    expect(first.chosen).toBe('loop')
-    // The deployment lost its loop between attempts: a fresh decision would move tiers.
-    const fresh = placeExecution({ ...input, context: { ...input.context, loopAvailable: false } })
-    expect(fresh.chosen).toBe('sandbox')
-    expect(resumedPlacement(first.chosen)).toEqual({
-      chosen: 'loop',
-      policy: PLACEMENT_POLICY,
-      reason: 'resumed under the placement it began with: loop',
-      coveredAxes: [],
-      rejected: [],
-    })
-    expect(sandboxOnlyRequirements({ ...input, interactive: false })).toEqual([])
-  })
-
-  it('names what now needs a sandbox for work that began on the loop', () => {
-    expect(
-      sandboxOnlyRequirements({
-        profile: { ...PROMPT_ONLY, harness: 'codex' },
-        interactive: false,
-      }),
-    ).toEqual(['profile harness needs a sandbox'])
-  })
-
-  it('records an authored tier without a decision', () => {
-    expect(authoredPlacement('sandbox')).toEqual({
-      chosen: 'sandbox',
-      policy: PLACEMENT_POLICY,
-      reason: 'authored placement: sandbox',
-      coveredAxes: [],
-      rejected: [],
-    })
   })
 })

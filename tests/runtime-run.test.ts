@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
+import { RuntimeRunStateError } from '../src/errors'
 import {
   type AgentTaskSpec,
   type RuntimeRunPersistenceAdapter,
   type RuntimeRunRow,
-  RuntimeRunStateError,
   type RuntimeStreamEvent,
   startRuntimeRun,
   ValidationError,

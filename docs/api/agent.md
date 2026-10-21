@@ -1092,85 +1092,6 @@ the loop produces 20 minutes later).
 
 > **reason**: `"missing"` \| `"not-directory"` \| `"not-file"`
 
-## Variables
-
-### fullProfileMaterialization
-
-> `const` **fullProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
-
-Materialization contract for a run path that executes every canonical AgentProfile leaf.
-
-***
-
-### promptModelProfileMaterialization
-
-> `const` **promptModelProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
-
-Materialization contract for an intentionally limited prompt-and-model execution path.
-Identity, harness, and metadata are control fields consumed for naming, placement,
-authorization, and durable attribution; they are carried without adding worker behavior.
-Every behavioral axis other than prompt and model remains unsupported.
-
-***
-
-### worktreeCliProfileMaterialization
-
-> `const` **worktreeCliProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
-
-Materialization contract for a local coding CLI in an isolated git worktree.
-The shared workspace materializer carries native tools, permissions, MCP, hooks, subagents,
-modes, and file-backed resources when the selected CLI supports their exact values.
-`resourceFailOnError` is carried: it is the fail-closed policy the pre-worktree resource
-RESOLUTION step (`resolveAgentProfileResources`) applies to remote profile resources. Runtime
-placement concerns (hub connections and confidential execution), provider-native extensions,
-and unused model hints are deliberately absent so they fail before a worktree or executor is
-created rather than being mistaken for an effective candidate change.
-
-***
-
-### controlProfileMaterialization
-
-> `const` **controlProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
-
-Materialization contract for a raw process path that carries only control/identity fields.
-
-***
-
-### promptControlProfileMaterialization
-
-> `const` **promptControlProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
-
-Materialization contract for an injected inference function whose surrounding driver still
-applies the profile prompt, name, placement, and metadata, but not model selection.
-
-***
-
-### sandboxActProfileMaterialization
-
-> `const` **sandboxActProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
-
-`createSandboxAct` sends the profile as `backend.profile`; its contract must match Sandbox.
-`buildBackendOptions` also refuses unsupported secret fields before creating a box.
-
-***
-
-### promptOnlyProfileMaterialization
-
-> `const` **promptOnlyProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
-
-Materialization contract for a run path that only injects prompt text.
-
-***
-
-### promptResourceProfileMaterialization
-
-> `const` **promptResourceProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
-
-Materialization contract for a run path that injects prompt text plus inline resources.
-
-`resourceFailOnError` is absent: it is a resolution POLICY the attaching path would have to
-enforce, and inlining resource content does not carry it.
-
 ## Functions
 
 ### unimplementedAgentRun()
@@ -1200,37 +1121,6 @@ the eval path consumes the manifest end-to-end.
 #### Returns
 
 [`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
-
-***
-
-### collectAgentRun()
-
-> **collectAgentRun**\<`TRunOutput`\>(`invocation`): `Promise`\<\{ `events`: readonly [`RuntimeStreamEvent`](index.md#runtimestreamevent)[]; `output`: `TRunOutput`; \}\>
-
-Drain `act`'s `events` into an array AND await its `output`. Useful for
-eval / outcome-measurement code paths that don't care about live
-rendering. The events array is preserved so the substrate can inspect
-tool calls / readiness / questions retrospectively.
-
-IMPORTANT: chat-centric UX MUST NOT call this — it defeats streaming
-(no incremental render). Use `for await (const ev of invocation.events)`
-directly in the chat surface.
-
-#### Type Parameters
-
-##### TRunOutput
-
-`TRunOutput`
-
-#### Parameters
-
-##### invocation
-
-[`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
-
-#### Returns
-
-`Promise`\<\{ `events`: readonly [`RuntimeStreamEvent`](index.md#runtimestreamevent)[]; `output`: `TRunOutput`; \}\>
 
 ***
 
@@ -1287,60 +1177,6 @@ Resolve each finding to a real surface and draft a detached patch candidate.
 #### Returns
 
 [`ImprovementProposalSource`](analyst-loop.md#improvementproposalsource)\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
-
-***
-
-### defineProfileMaterializationContract()
-
-> **defineProfileMaterializationContract**(`options`): [`ProfileMaterializationContract`](#profilematerializationcontract)
-
-Define the profile axes a concrete run path actually carries into execution.
-
-#### Parameters
-
-##### options
-
-[`DefineProfileMaterializationContractOptions`](#defineprofilematerializationcontractoptions)
-
-#### Returns
-
-[`ProfileMaterializationContract`](#profilematerializationcontract)
-
-***
-
-### validateProfileMaterialization()
-
-> **validateProfileMaterialization**(`options`): readonly [`ProfileMaterializationIssue`](#profilematerializationissue)[]
-
-Return every changed profile axis that the selected run path would drop.
-
-#### Parameters
-
-##### options
-
-[`ValidateProfileMaterializationOptions`](#validateprofilematerializationoptions)
-
-#### Returns
-
-readonly [`ProfileMaterializationIssue`](#profilematerializationissue)[]
-
-***
-
-### assertProfileMaterialization()
-
-> **assertProfileMaterialization**(`options`): `void`
-
-Throw when a candidate changes axes the selected run path cannot carry.
-
-#### Parameters
-
-##### options
-
-[`AssertProfileMaterializationOptions`](#assertprofilematerializationoptions)
-
-#### Returns
-
-`void`
 
 ***
 
