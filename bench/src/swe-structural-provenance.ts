@@ -14,7 +14,7 @@ export interface Fingerprints {
   composite: string
 }
 
-export interface FingerprintInputs {
+interface FingerprintInputs {
   source: unknown
   config: unknown
   commonConfig: unknown
@@ -24,7 +24,7 @@ export interface FingerprintInputs {
   task: unknown
 }
 
-export interface SharedExecutionReceipt {
+interface SharedExecutionReceipt {
   runTool: {
     timeoutS: number
     outputLimit: number
@@ -39,7 +39,7 @@ export interface SharedExecutionReceipt {
   }
 }
 
-export interface ExecutionReceipt extends SharedExecutionReceipt {
+interface ExecutionReceipt extends SharedExecutionReceipt {
   image: {
     tag: string
     namespace: 'swebench' | 'none'
@@ -60,7 +60,7 @@ function canonicalize(value: unknown): unknown {
   return value
 }
 
-export function canonicalJson(value: unknown): string {
+function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalize(value))
 }
 

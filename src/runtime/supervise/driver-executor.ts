@@ -84,9 +84,6 @@ import type {
   Spend,
 } from './types'
 
-/** The runtime tag the registry maps a driver child to. */
-export { driverRuntime } from './tree-key'
-
 /** A driver child's spec carries the `Agent` to run inside the nested scope. */
 interface DriverSpec extends AgentSpec {
   readonly driverRuntime: typeof driverRuntime

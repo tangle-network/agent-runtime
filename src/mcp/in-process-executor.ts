@@ -30,7 +30,7 @@ import type { GitRunner, WorktreeHandle } from './worktree'
 import { runWorktreeHarness } from './worktree-harness'
 
 /** @experimental */
-export interface InProcessExecutorOptions {
+interface InProcessExecutorOptions {
   /** Absolute path to the git repo (the workspace). Worktrees go under `<repoRoot>/.agent-worktrees/`. */
   repoRoot: string
   /** Optional per-delegation test command run in the worktree after the harness exits. */
@@ -55,7 +55,7 @@ export interface InProcessExecutorOptions {
 }
 
 /** @experimental */
-export interface InProcessExecutorDescribePlacement extends LoopSandboxPlacement {
+interface InProcessExecutorDescribePlacement extends LoopSandboxPlacement {
   /** Worktree path in the parent sandbox's filesystem (set so traces correlate to on-disk artifacts). */
   worktreePath?: string
   /** Which harness handled this delegation. */

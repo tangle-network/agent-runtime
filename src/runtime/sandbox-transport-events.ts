@@ -99,7 +99,7 @@ export function parseCanonicalTransportEvent(
 }
 
 /** Identity fields carried by either the transport envelope or its data payload. */
-export interface TransportEventIdentity {
+interface TransportEventIdentity {
   readonly eventId?: string
   readonly cursor?: string
   readonly sequence?: number

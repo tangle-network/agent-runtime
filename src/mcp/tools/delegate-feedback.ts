@@ -149,7 +149,7 @@ function validateRating(raw: unknown): FeedbackRating {
 }
 
 /** @stable */
-export interface DelegateFeedbackHandlerOptions {
+interface DelegateFeedbackHandlerOptions {
   queue: DelegationTaskQueue
   store: FeedbackStore
   generateId?: () => string

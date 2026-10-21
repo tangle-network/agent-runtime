@@ -36,7 +36,7 @@ import { ConfigError } from '../errors'
 import type { ImproveCost, SearchPromotion } from './improve-types'
 
 /** What Runtime decided about a closed search. */
-export interface SearchShipDecision {
+interface SearchShipDecision {
   decision: 'ship' | 'hold'
   /** The claim's reason, the Runtime rule that held a statistical ship, and any
    * cost bound the decision relied on. */
@@ -248,7 +248,7 @@ async function searchPromotion(
   return { experiment, decision }
 }
 
-export interface DecideSearchImprovementOptions {
+interface DecideSearchImprovementOptions {
   /** The closed search's directory, `<runDir>/search/<searchId>`: its
    * `ledger.jsonl`, `blobs/` and, unless `costLedger` is given, `cost-ledger.jsonl`. */
   searchDir: string
@@ -259,7 +259,7 @@ export interface DecideSearchImprovementOptions {
   storage?: CampaignStorage
 }
 
-export interface SearchImprovementDecision extends SearchShipDecision {
+interface SearchImprovementDecision extends SearchShipDecision {
   searchId: string
   claim: SearchClaim
   claimVerification: SearchClaimVerification

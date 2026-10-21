@@ -21,7 +21,7 @@ import { type ObserverRecord, verifyObserverRecords } from './observer-journal'
  * failure (a settlement is journaled as `kind: 'down'`, cancellation included), so a consumer can
  * join run rows to node rows on `status` and read one failure population instead of two.
  */
-export type PursuitStatus = 'running' | 'done' | 'down'
+type PursuitStatus = 'running' | 'done' | 'down'
 
 /**
  * Where a node's dollar figure came from. `reported` = a provider billed all of it; `estimated` =
@@ -35,7 +35,7 @@ export type PursuitCostProvenance = 'reported' | 'estimated' | 'partial' | 'unkn
  * not report them — absence is not zero. `tokensKnown` is `false` when work happened whose token
  * count no provider reported, which makes `input`/`output` a floor.
  */
-export interface PursuitNodeUsage {
+interface PursuitNodeUsage {
   readonly input: number
   readonly output: number
   readonly cacheRead?: number
@@ -55,7 +55,7 @@ export interface PursuitNodeUsage {
  * Absent on a node that ran no box. `boxMinutes` absent WITH the block present says a box ran and
  * nothing measured it — a missing measurement is never a zero.
  */
-export interface PursuitNodePlatform {
+interface PursuitNodePlatform {
   readonly boxMinutes?: number
   /** `false` when a box ran whose time could not be closed, so `boxMinutes` is a floor. */
   readonly boxMinutesKnown: boolean
@@ -65,7 +65,7 @@ export interface PursuitNodePlatform {
 }
 
 /** One node's dollar cost with the provenance that decides whether it may be compared or summed. */
-export interface PursuitNodeCost {
+interface PursuitNodeCost {
   readonly usd: number
   readonly usdKnown: boolean
   /** The part of `usd` a model catalog priced because no provider receipt covered it. */
@@ -79,7 +79,7 @@ export interface PursuitNodeCost {
  * `firstTokenAt` stays absent unless a provider reports that instant; it is never inferred from
  * `firstOutputAt`, which is when the node first reported usage for a turn.
  */
-export interface PursuitNodeTiming {
+interface PursuitNodeTiming {
   readonly startedAt: number
   readonly firstOutputAt?: number
   readonly firstTokenAt?: number
@@ -88,13 +88,13 @@ export interface PursuitNodeTiming {
 }
 
 /** Where and how a node's execution was placed, read off its execution-binding receipt. */
-export type PursuitNodePlacement = Readonly<Record<string, string | number | boolean | null>>
+type PursuitNodePlacement = Readonly<Record<string, string | number | boolean | null>>
 
 /**
  * One run's spend counted once, and each node's own share of it. `inclusive` and the entries of
  * `exclusiveByNode` are the two views a client needs to show a tree without double counting.
  */
-export interface PursuitRunTotals {
+interface PursuitRunTotals {
   /**
    * The whole run counted once. A node's settled `spent` already contains the child work its own
    * nested tree reported, so summing only the run's top-level nodes plus every node's own

@@ -1,45 +1,9 @@
-/**
- *
- * Authored `AgentProfile` presets (the §1.5 author-the-profile DATA) for common agent roles, each
- * with a pure task-to-prompt formatter. The substrate materializes a profile into a harness
- * invocation; "is it delivered" is a `DeliverableSpec`, not a bundled validator.
- *
- * @module
- * @experimental
- */
-
-export type { CoderTask } from './coder'
-export { coderTaskToPrompt } from './coder'
-export type {
-  KnowledgeItem,
-  KnowledgeUpdate,
-  MultiHarnessResearcherFanoutOptions,
-  ResearcherProfileOptions,
-  ResearchOutput,
-  ResearchSource,
-  ResearchTask,
-} from './researcher'
-export {
-  createResearcherValidator,
-  multiHarnessResearcherFanout,
-  researcherProfile,
-} from './researcher'
-export type {
-  UiAuditCapture,
-  UiAuditCaptureRequest,
-  UiAuditOutput,
-  UiAuditTask,
-  UiAuditViewport,
-  UiFinding,
-  UiFindingScreenshot,
-  UiFindingSeverity,
-  UiLens,
-} from './ui-auditor'
+export type { ResearchOutput, ResearchTask } from './researcher'
+export { researcherProfile } from './researcher'
+export type { UiAuditCaptureRequest, UiAuditTask, UiFinding, UiLens } from './ui-auditor'
 export {
   buildAuditorSystemPrompt,
   LENS_BRIEFS,
   parseAuditorEvents,
   SHARED_AUDITOR_RULES,
-  UI_FINDING_SEVERITIES,
-  UI_LENSES,
 } from './ui-auditor'

@@ -21,12 +21,12 @@ import type { ProposalFinding } from '@tangle-network/agent-eval'
 import { optimizerMethod } from './optimizer-prompt'
 
 /** Evidence supplied to a generated tool or MCP build instruction. */
-export interface BuildPromptFindingsInput {
+interface BuildPromptFindingsInput {
   findings: ReadonlyArray<ProposalFinding>
 }
 
 /** Render findings as the ranked-evidence block every build prompt ends with. */
-export function findingLines(findings: ReadonlyArray<ProposalFinding>): string[] {
+function findingLines(findings: ReadonlyArray<ProposalFinding>): string[] {
   return findings.map((f) => {
     const where = f.subject ? ` [${f.subject}]` : ''
     const action = f.recommended_action ? ` → ${f.recommended_action}` : ''

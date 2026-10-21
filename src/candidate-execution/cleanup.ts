@@ -1,4 +1,4 @@
-export const DEFAULT_CANDIDATE_CLEANUP_TIMEOUT_MS = 30_000
+const DEFAULT_CANDIDATE_CLEANUP_TIMEOUT_MS = 30_000
 /** Largest delay Node schedules without clamping to one millisecond. */
 export const MAX_CANDIDATE_TIMER_INTERVAL_MS = 2_147_483_647
 

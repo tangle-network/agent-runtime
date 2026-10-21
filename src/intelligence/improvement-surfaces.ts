@@ -69,7 +69,7 @@ export const AGENT_PROFILE_MEASURED_SURFACES = [
 
 export type AgentProfileMeasuredSurface = (typeof AGENT_PROFILE_MEASURED_SURFACES)[number]
 
-export interface AgentImprovementTargetProfileDiffOptions {
+interface AgentImprovementTargetProfileDiffOptions {
   id: string
   source?: AgentProfileDiff['source']
   metadata?: Record<string, unknown>

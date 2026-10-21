@@ -13,7 +13,7 @@ import type {
   VerifiedAgentCandidateTaskOutcome,
 } from './types'
 
-export interface BoundAgentCandidateBenchmarkRun {
+interface BoundAgentCandidateBenchmarkRun {
   readonly grader: AgentCandidateBenchmarkGraderIdentity
   readonly grading: {
     readonly usage: AgentCandidateFixedSpend

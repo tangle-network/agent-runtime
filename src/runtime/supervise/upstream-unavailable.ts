@@ -106,10 +106,10 @@ export function cappedDoublingMs(consecutive: number, first: number, ceiling: nu
 }
 
 /** The longest hold a refusal's own reset time may ask for: a 5-hour plan window plus a margin. */
-export const MAX_RESET_HOLD_MS = 6 * 60 * 60_000
+const MAX_RESET_HOLD_MS = 6 * 60 * 60_000
 
 /** How often a refusal whose reset is beyond {@link MAX_RESET_HOLD_MS} is probed again. */
-export const FAR_RESET_PROBE_MS = 60 * 60_000
+const FAR_RESET_PROBE_MS = 60 * 60_000
 
 /**
  * When a refusal says its quota resets, as epoch ms, or `undefined` when it names no usable time.

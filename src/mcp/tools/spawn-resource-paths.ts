@@ -48,7 +48,7 @@ import { isRecord } from '../../record-value'
 export const SPAWN_RESOURCE_PATH_MAX_BYTES = 4 * 1024 * 1024
 
 /** One successful read: the bytes as a string plus the identity the journal records. */
-export interface SpawnResourceBytes {
+interface SpawnResourceBytes {
   readonly content: string
   readonly byteLength: number
   readonly sha256: string

@@ -25,42 +25,16 @@ export type {
 export { createIterableBackend, createSandboxPromptBackend } from './backends'
 // ── Conversations ─────────────────────────────────────────────
 export {
-  type AuthSource,
-  type BackendCallPolicy,
-  type CircuitBreakerConfig,
   type Conversation,
-  type ConversationDriveState,
-  type ConversationParticipant,
-  type ConversationPolicy,
-  type ConversationResult,
-  type ConversationStreamEvent,
   type ConversationTurn,
   createConversationBackend,
   createProfileExecutionBackend,
-  defineConversation,
-  type HaltContext,
-  type HaltPredicate,
-  type HaltReason,
-  type HaltSignal,
-  type PersonaConversationResult,
   type PersonaDriver,
-  type RetryableErrorPredicate,
-  type RetryBackoff,
-  type RunConversationOptions,
-  type RunPersonaConfig,
-  type RunPersonaConversationOptions,
   runConversation,
   runConversationStream,
   runPersonaConversation,
   runPersonaDispatch,
-  type TurnOrder,
 } from './conversation'
-export {
-  type D1DatabaseLike,
-  type D1StmtLike,
-  d1ToSqlAdapter,
-  type SqlAdapter,
-} from './durable/sql-adapter'
 // ── Errors ───────────────────────────────────────────────────────────
 export {
   AgentEvalError,
@@ -69,11 +43,6 @@ export {
   ConfigError,
   JudgeError,
   NotFoundError,
-  PlannerError,
-  RetainedInteractiveAdmissionError,
-  RetainedInteractiveBindingError,
-  RetainedRunAdmissionError,
-  RetainedRunDispatchBindingError,
   RuntimeRunStateError,
   ValidationError,
 } from './errors'
@@ -81,210 +50,64 @@ export {
 // Complete agent-eval methods optimize profile fields. Runtime owns isolated
 // code/worktree candidates and checkpoint-producing trainer execution.
 export {
-  type AgenticGeneratorExecutorForWorktree,
   type AgenticGeneratorOptions,
   type AgenticGeneratorShotDisposition,
   type AgenticGeneratorShotExecution,
   type AgenticGeneratorShotReceipt,
   agenticGenerator,
   commandVerifier,
-  defaultBuildPrompt,
   type Verifier,
   type VerifyResult,
 } from './improvement/agentic-generator'
 export {
-  type BuildPromptFindingsInput,
-  findingLines,
-  mcpBuildPrompt,
-  toolBuildPrompt,
-} from './improvement/build-prompts'
-export {
-  type CheckpointServingPort,
   type ControlledTrainingCommand,
   createCommandProfileTrainer,
-  type DecideSearchImprovementOptions,
   decideSearchImprovement,
   dedicatedLane,
-  type ImproveCandidateValidationInput,
-  type ImproveCandidateValidator,
-  type ImproveCodeBaseOptions,
-  type ImproveCodeOptions,
-  type ImproveCodeResult,
-  type ImproveCodeRunOptions,
-  type ImproveCost,
-  type ImproveCustomCodeGeneratorOptions,
   type ImproveLineage,
-  type ImproveMethodContext,
   type ImproveMethodFactory,
-  type ImproveMethodLineage,
-  type ImproveMethodOptions,
   type ImproveMethodResult,
   type ImproveMethodSource,
-  type ImprovementCandidate,
-  type ImprovementCodeCandidate,
-  type ImprovementProfileCandidate,
-  type ImproveOptimizationRunOptions,
-  type ImproveOptions,
   type ImproveProfileAgent,
-  type ImproveProfileComponents,
   type ImproveProfileSurface,
-  type ImproveResult,
-  type ImproveRuntimeCodeGeneratorOptions,
-  type ImproveScenarioPartitions,
-  type ImproveSearchAgent,
-  type ImproveSearchIdentity,
-  type ImproveSearchMethod,
-  type ImproveSearchOptions,
   type ImproveSearchResult,
-  type ImproveSkillsOptions,
   type ImproveSurface,
   type ImproveTrainingOptions,
   type ImproveTrainingResult,
   improve,
-  isSearchEnvironmentFault,
   type ProfileTrainer,
-  type ProfileTrainerRequest,
   routerLane,
   type SearchCellContext,
   type SearchDispatchContext,
   SearchEnvironmentFault,
-  type SearchImprovementDecision,
   type SearchLane,
-  type SearchLaneKind,
-  type SearchLaneOptions,
-  type SearchMethodOptions,
-  type SearchPromotion,
-  type SearchTraceOptions,
-  type SharedBoxSearchLane,
   searchMethod,
   sharedBoxLane,
   subscriptionLane,
-  type TrainingBoundaryResult,
-  type TrainingDatasetDocument,
 } from './improvement/improve'
 export type { CandidateGenerator } from './improvement/improvement-driver'
-export { type McpServeSpec, mcpServeVerifier } from './improvement/mcp-serve-verifier'
+export { officialGepa, officialSkillOpt } from './improvement/official-optimizers'
+export { optimizerMethod } from './improvement/optimizer-prompt'
 export {
-  type OfficialGepaOptions,
-  type OfficialOptimizerContextOptions,
-  OfficialOptimizerUnavailableError,
-  type OfficialSensitiveCandidateInput,
-  type OfficialSkillOptOptions,
-  officialGepa,
-  officialSkillOpt,
-} from './improvement/official-optimizers'
-export {
-  optimizerMethod,
-  strategyAuthorMethod,
-} from './improvement/optimizer-prompt'
-export {
-  type CreateProfileImprovementHarnessOptions,
   createProfileImprovementHarness,
   type ProfileImprovementHarness,
-  type ProfileImprovementHarnessRunOptions,
-  type ProfileImprovementHarnessTrainOptions,
 } from './improvement/profile-improvement-harness'
-export type { DeepReadonly, ReadonlyAgentProfile } from './improvement/profile-types'
-export {
-  PROMPT_INSTRUCTION_COMPONENT_PREFIX,
-  promptInstructionsProfileComponents,
-} from './improvement/prompt-instructions-profile-components'
-export {
-  type RawTraceDistillerOptions,
-  rawTraceDistiller,
-} from './improvement/raw-trace-distiller'
-export {
-  type ReflectiveGeneratorOptions,
-  reflectiveGenerator,
-} from './improvement/reflective-generator'
-export {
-  type ReflectiveProfileProposerOptions,
-  type ReflectiveProposerChat,
-  type ReflectiveProposerParent,
-  type ReflectiveProposerReply,
-  reflectiveProfileProposer,
-} from './improvement/reflective-profile-proposer'
-export {
-  applyRolloutPolicyToProfile,
-  normalizeRolloutPolicy,
-  parseRolloutPolicy,
-  ROLLOUT_POLICY_EXTENSION,
-  serializeRolloutPolicy,
-  structuralRolloutPolicyFromProfile,
-} from './improvement/rollout-policy'
+export type { ReadonlyAgentProfile } from './improvement/profile-types'
+export { reflectiveGenerator } from './improvement/reflective-generator'
+export { reflectiveProfileProposer } from './improvement/reflective-profile-proposer'
 // ── Knowledge orchestration ──────────────────────────────────────────
 // Runtime owns live agent orchestration; agent-knowledge owns the KB/RAG/memory state.
 // These wrappers bridge the two without making agent-knowledge import runtime.
+export { createKnowledgeImprovementActivationExecutor } from './knowledge/activation'
 export {
-  type CreateKnowledgeImprovementActivationExecutorOptions,
-  createKnowledgeImprovementActivationExecutor,
-  type KnowledgeImprovementActivationExecutor,
-} from './knowledge/activation'
-export {
-  type AgentKnowledgeReadinessCheckOptions,
   buildKnowledgeImprovementExperimentBundles,
-  createAgentKnowledgeReadinessCheck,
-  type KnowledgeImprovementCandidatePair,
-  type KnowledgeImprovementExperimentBundles,
-  type KnowledgeImprovementJobMeasurement,
-  type KnowledgeImprovementJobResult,
-  type RunKnowledgeImprovementJobOptions,
   runKnowledgeImprovementJob,
 } from './knowledge/improvement-job'
-export {
-  createSupervisedKnowledgeUpdater,
-  formatSupervisedKnowledgeTask,
-  type KnowledgeReadinessCheck,
-  type KnowledgeReadinessCheckInput,
-  type KnowledgeReadinessCheckResult,
-  knowledgeReadinessDeliverable,
-  RESEARCH_SUPERVISOR_SYSTEM_PROMPT,
-  runSupervisedKnowledgeUpdate,
-  type SupervisedKnowledgeUpdateInput,
-  type SupervisedKnowledgeUpdateOptions,
-  type SupervisedKnowledgeUpdateResult,
-  type SupervisedKnowledgeUpdater,
-} from './knowledge/supervised-update'
 // ── Delegated loop-runner (configured code/research/review/audit/improvement) ──
-export {
-  auditLoopRunner,
-  DELEGATED_LOOP_MODES,
-  type DelegatedLoopMode,
-  type DelegatedLoopRegistry,
-  type DelegatedLoopResult,
-  type DelegatedLoopRunner,
-  isDelegatedLoopMode,
-  type ResearchLoopResult,
-  type ResearchLoopRunnerOptions,
-  type RunDelegatedLoopOptions,
-  researchLoopRunner,
-  runDelegatedLoop,
-  type VetoedFact,
-  type WorktreeLoopRunnerOptions,
-  worktreeLoopRunner,
-} from './loop-runner'
-export {
-  type LoopRunnerCliArgs,
-  type LoopRunnerCliResult,
-  parseLoopRunnerArgv,
-  runLoopRunnerCli,
-} from './loop-runner-bin'
-// ── MCP → OpenAI tools projection ────────────────────────────────────
-// Helper for eval / orchestrator code that routes through the
-// OpenAI-compat backend and needs the 5 delegation tools surfaced to
-// the model. Sandbox-SDK callers discover tools via the runtime's MCP
-// mount and don't need this projection.
-export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './mcp/openai-tools'
-export type { WorktreeCheckRunner } from './mcp/worktree-harness'
+export { auditLoopRunner } from './loop-runner'
 // ── Chat-model resolution ────────────────────────────────────────────
 // Router catalog fetch + fail-closed id validation + precedence resolver.
-export type {
-  ChatModelCandidate,
-  ChatModelValidation,
-  ModelInfo,
-  ResolvedChatModel,
-  RouterEnv,
-} from './model-resolution'
+export type { ModelInfo, ResolvedChatModel, RouterEnv } from './model-resolution'
 export {
   cleanModelId,
   DEFAULT_ROUTER_BASE_URL,
@@ -293,90 +116,35 @@ export {
   resolveRouterBaseUrl,
   validateChatModelId,
 } from './model-resolution'
-export type {
-  LoopSpanNode,
-  OtelAttribute,
-  OtelExportConfig,
-  OtelExporter,
-  OtelExportStats,
-  OtelSpan,
-  RuntimeEventOtelOptions,
-} from './otel-export'
+export type { OtelAttribute, OtelExportConfig, OtelExporter, OtelSpan } from './otel-export'
 // ── OTEL export + trace propagation ──────────────────────────────────
 export {
   buildLoopOtelSpans,
-  buildLoopSpanNodes,
-  buildRuntimeEventOtelSpans,
-  createOpenInferenceFileExporter,
   createOtelExporter,
-  generateSpanId,
   loopEventToOtelSpan,
   padSpanId,
   padTraceId,
-  toOtelAttributes,
 } from './otel-export'
-export {
-  priceTokens,
-  ROUTER_PRICE_SOURCE,
-  type RouterTokenPrice,
-  routerTokenPrice,
-  type TokenWork,
-} from './pricing/router-prices'
+export { priceTokens, ROUTER_PRICE_SOURCE, type TokenWork } from './pricing/router-prices'
 // ── Readiness ─────────────────────────────────────────────────────────
 export { decideKnowledgeReadiness } from './readiness'
 // ── Run loop ─────────────────────────────────────────────────────────
 export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
-// ── Terminal failure causes ──────────────────────────────────────────
-export {
-  type RuntimeFailureCause,
-  type RuntimeFailureCode,
-  type RuntimeFailureContext,
-  type RuntimeFailureOwner,
-  runtimeFailureCause,
-  settlementFailureCause,
-} from './runtime/failure-cause'
 export {
   isolatedCheckBoxEvidenceSchema,
   isolatedCheckResultSchema,
 } from './runtime/isolated-check-result'
 // ── Runtime hooks ────────────────────────────────────────────────────
-export type {
-  RuntimeDecisionEvidenceRef,
-  RuntimeDecisionKind,
-  RuntimeDecisionPoint,
-  RuntimeHookContext,
-  RuntimeHookErrorContext,
-  RuntimeHookEvent,
-  RuntimeHookPhase,
-  RuntimeHooks,
-  RuntimeHookTarget,
-} from './runtime-hooks'
-export {
-  composeRuntimeHooks,
-  defineRuntimeHooks,
-  notifyRuntimeDecisionPoint,
-  notifyRuntimeHookEvent,
-} from './runtime-hooks'
+export type { RuntimeHookEvent, RuntimeHooks } from './runtime-hooks'
+export { composeRuntimeHooks, defineRuntimeHooks } from './runtime-hooks'
 // ── Production run lifecycle ─────────────────────────────────────────
-export type {
-  RuntimeRunCompleteInput,
-  RuntimeRunCost,
-  RuntimeRunHandle,
-  RuntimeRunOptions,
-  RuntimeRunPersistenceAdapter,
-  RuntimeRunRow,
-  RuntimeRunStatus,
-} from './runtime-run'
+export type { RuntimeRunHandle, RuntimeRunPersistenceAdapter, RuntimeRunRow } from './runtime-run'
 export { startRuntimeRun } from './runtime-run'
 // ── Sanitization / telemetry ─────────────────────────────────────────
 export type {
-  RuntimeEventCollector,
   RuntimeStreamEventCollector,
-  RuntimeStreamEventSink,
-  RuntimeStreamEventSummary,
   RuntimeTelemetryOptions,
   SanitizedKnowledgeReadinessReport,
-  SanitizedKnowledgeRequirement,
 } from './sanitize'
 export {
   createRuntimeEventCollector,
@@ -388,11 +156,7 @@ export {
 // ── Sessions ──────────────────────────────────────────────────────────
 export { InMemoryRuntimeSessionStore } from './sessions'
 // ── SSE ───────────────────────────────────────────────────────────────
-export {
-  readinessServerSentEvent,
-  runtimeStreamServerSentEvent,
-  type ServerSentEventOptions,
-} from './sse'
+export { readinessServerSentEvent, runtimeStreamServerSentEvent } from './sse'
 // ── Core types ───────────────────────────────────────────────────────
 export type {
   AgentAdapter,
@@ -401,19 +165,13 @@ export type {
   AgentExecutionBackend,
   AgentKnowledgeProvider,
   AgentRuntimeEvent,
-  AgentRuntimeEventSink,
   AgentTaskContext,
   AgentTaskRunResult,
   AgentTaskSpec,
   AgentTaskStatus,
-  BackendErrorDetail,
-  KnowledgeReadinessDecision,
   OpenAIChatResponseFormat,
   OpenAIChatTool,
   OpenAIChatToolChoice,
-  RunAgentTaskOptions,
-  RunAgentTaskStreamOptions,
-  RuntimeCanonicalStreamEvent,
   RuntimeSession,
   RuntimeSessionStore,
   RuntimeStreamEvent,

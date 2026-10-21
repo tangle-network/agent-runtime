@@ -331,7 +331,7 @@ type OutsideCursorNamespaceKind = (typeof outsideCursorNamespaceKinds)[number]
 
 /** A record that closes or advances a node's cursor slot — the complement of
  *  {@link outsideCursorNamespace}, computed from the union rather than restated. */
-export type CursorNamespaceEvent = Exclude<SpawnEvent, { kind: OutsideCursorNamespaceKind }>
+type CursorNamespaceEvent = Exclude<SpawnEvent, { kind: OutsideCursorNamespaceKind }>
 
 const outsideKinds: ReadonlySet<string> = new Set<string>(outsideCursorNamespaceKinds)
 

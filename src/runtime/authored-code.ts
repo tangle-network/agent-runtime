@@ -11,7 +11,7 @@
  */
 import { ValidationError } from '../errors'
 
-export interface AuthoredCodeOptions {
+interface AuthoredCodeOptions {
   /** Import specifiers an authored module may name. Empty (the default) bans every import. A
    *  specifier admits ANY import form of that module (named, namespace, default) — the lint
    *  gates WHICH module, not the syntax used to reach it. */

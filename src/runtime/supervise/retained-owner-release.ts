@@ -37,7 +37,7 @@ export function retainedOwnerReleaseRetriable(scope: Scope<unknown>): boolean {
  * settled 98 minutes after its deadline. The release captures that finished there took 67 seconds
  * and 7 and 34 minutes, beside live captures of abandoned directors on the same slots.
  */
-export const RELEASE_CHECKPOINT_CAPTURES_MS = 15 * 60_000
+const RELEASE_CHECKPOINT_CAPTURES_MS = 15 * 60_000
 
 /**
  * Release the owner's environment once no turn of it will run again: at the run's final

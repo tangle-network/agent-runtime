@@ -81,7 +81,7 @@ function journaledEnvironmentId(owned: ReadonlyArray<SpawnEvent>): string | unde
  * path is never restored, so a per-tree heal inside the resume of its tree would never reach its
  * grandchild. Returns the number of records written.
  */
-export async function healReleasedSlots(
+async function healReleasedSlots(
   opts: ResumeStores,
   signal: AbortSignal,
   now: () => number,
@@ -195,7 +195,7 @@ export async function healReleasedSlots(
 }
 
 /** Validate durable inputs without waiting for work that may need its resumed manager. */
-export async function prepareInterruptedExecutors(
+async function prepareInterruptedExecutors(
   opts: ResumeStores,
   events: SpawnEvent[],
   signal: AbortSignal,
@@ -560,7 +560,7 @@ function keyedAssignments(
  *  their spend and the ceiling is the only sound charge. An open node with a `reconciled` record is
  *  not uncertain in that sense — its floor is measured evidence and is charged by
  *  {@link sumMeasuredSpendFromEvents}, never here, so the two readers cannot charge one node twice. */
-export function uncertainSpawnBudgets(
+function uncertainSpawnBudgets(
   events: SpawnEvent[],
   recovered: ReadonlySet<NodeId> = new Set(),
 ): Budget[] {
@@ -587,7 +587,7 @@ export function uncertainSpawnBudgets(
 
 /** Highest `seq` among events matching `pred`, or `-1` when none match (so a resumed scope's
  *  first new ordinal/seq is 0 — the same start a fresh scope uses). */
-export function maxSeqOf(events: SpawnEvent[], pred: (ev: SpawnEvent) => boolean): number {
+function maxSeqOf(events: SpawnEvent[], pred: (ev: SpawnEvent) => boolean): number {
   let max = -1
   for (const ev of events) if (pred(ev) && ev.seq > max) max = ev.seq
   return max
@@ -603,7 +603,7 @@ export function maxSeqOf(events: SpawnEvent[], pred: (ev: SpawnEvent) => boolean
  * scope's own cursor — must start past BOTH, or a recovered result lands on a seq an open node
  * has reserved and the heal can only ever collide. One function so no writer can drift.
  */
-export function reservedCursorFloor(events: SpawnEvent[]): number {
+function reservedCursorFloor(events: SpawnEvent[]): number {
   return Math.max(
     maxSeqOf(events, closesCursorSlot),
     events.reduce(
@@ -650,7 +650,7 @@ export function sumSpendFromEvents(events: SpawnEvent[]): {
   return totals
 }
 
-export function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
+function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
   childWork: Spend
   driverInference: Spend
 } {

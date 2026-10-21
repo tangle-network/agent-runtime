@@ -109,7 +109,7 @@ export interface DelegationRecord {
 }
 
 /** @stable */
-export interface SubmitInput<Args extends DelegationArgs> {
+interface SubmitInput<Args extends DelegationArgs> {
   profile: DelegationProfile
   args: Args
   namespace?: string
@@ -131,7 +131,7 @@ export interface SubmitInput<Args extends DelegationArgs> {
 }
 
 /** @stable Context handed to a `SubmitInput.run` function. */
-export interface DelegationRunContext {
+interface DelegationRunContext {
   signal: AbortSignal
   report(progress: DelegationProgress): void
   /** The `detachedSessionRef` recorded at submit, when one was supplied. */
@@ -157,7 +157,7 @@ export interface DelegationRunContext {
 }
 
 /** @stable */
-export interface SubmitOutput {
+interface SubmitOutput {
   taskId: string
   /** True when a prior matching `idempotencyKey` returned an existing record. */
   reused: boolean
@@ -203,7 +203,7 @@ export interface DelegationResumeDriver {
 }
 
 /** @stable */
-export interface DelegationTaskQueueOptions {
+interface DelegationTaskQueueOptions {
   /** ID generator override; default `randomTaskId`. */
   generateId?: () => string
   /** Clock override; default `() => new Date().toISOString()`. */
@@ -829,20 +829,11 @@ function canonicalize(value: unknown): unknown {
 // Re-exports re-used by the feedback-store + handler glue. Kept local so
 // consumers of the queue don't have to import from `./types` separately.
 export type {
-  DelegateCodeArgs,
-  DelegateCodeResult,
-  DelegateFeedbackArgs,
-  DelegateFeedbackResult,
-  DelegateResearchArgs,
-  DelegateResearchResult,
   DelegateUiAuditArgs,
-  DelegateUiAuditConfig,
   DelegateUiAuditResult,
-  DelegateUiAuditRoute,
   DelegationError,
   DelegationFeedbackSnapshot,
   DelegationHistoryArgs,
-  DelegationHistoryEntry,
   DelegationHistoryResult,
   DelegationProfile,
   DelegationProgress,
@@ -850,5 +841,4 @@ export type {
   DelegationStatus,
   DelegationStatusArgs,
   DelegationStatusResult,
-  UiAuditorDelegationOutput,
 } from './types'

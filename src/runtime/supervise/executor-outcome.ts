@@ -13,7 +13,7 @@ const outcomeSchema = AgentTurnResultSchema.pick({ success: true, error: true })
 
 /** Why an executor's own envelope says the execution failed, with the provider's machine code
  *  when it reported one. */
-export interface ExecutorFailure {
+interface ExecutorFailure {
   readonly error: string
   readonly errorCode?: string
   readonly statusCode?: number
@@ -63,7 +63,7 @@ export const PLATFORM_FAILURE_CODES: ReadonlySet<string> = new Set(
   ].map((code) => code.toLowerCase()),
 )
 
-export const PLATFORM_FAILURE_MESSAGES: ReadonlyArray<RegExp> = [
+const PLATFORM_FAILURE_MESSAGES: ReadonlyArray<RegExp> = [
   /^terminated$/u, // the box was terminated under the execution: 25
   /Execution exceeded its time limit/u, // the platform's execution TTL: 4
   /Execution interrupted: the agent runtime restarted/u, // buffer.overflow misreported: 3

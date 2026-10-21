@@ -25,7 +25,6 @@
 
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { AgentProfileMcpServer } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
 import { createStdioToolServer, type McpToolDescriptor, type StdioToolServer } from './tool-server'
 
@@ -41,43 +40,17 @@ export interface MemoryItem {
   source?: string
 }
 
-/**
- * The `memory` artifact payload — HOW a profile's memory is stored and served:
- *
- *   - `store: 'file'` — served by the in-repo memory bin
- *     (`agent-runtime-memory-mcp`, src/mcp/memory-bin.ts): rows load from
- *     `path` (a JSON array or JSONL file of `MemoryItem`) and/or the inline
- *     `items` seed (inline wins on id collision). At least one of
- *     `path`/`items` is required.
- *   - `store: 'mcp'`  — an EXTERNAL, already-runnable MCP server that exposes
- *     the memory tools itself; `server` is required and mounts verbatim.
- *
- * `logPath` makes the served memory append one JSONL row per `memory_search`
- * — the retrieval log a holdout estimator reads (see module doc).
- */
-export interface AgentMemorySpec {
-  store: 'file' | 'mcp'
-  /** `store:'file'` — host path to the durable row store (JSON array or JSONL). */
-  path?: string
-  /** Inline seed rows, served alongside (and winning over) `path` rows. */
-  items?: MemoryItem[]
-  /** `store:'mcp'` — the external server that already serves memory tools. */
-  server?: AgentProfileMcpServer
-  /** JSONL retrieval log: one row per `memory_search` (ts, query, k, returned). */
-  logPath?: string
-}
-
 /** Env var naming the durable row store file the memory bin loads (the
  *  `memoryMcpServer` ↔ memory-bin contract). */
 export const MEMORY_FILE_ENV = 'AGENT_MEMORY_FILE'
 /** Env var carrying inline JSON `MemoryItem` rows (win over file rows on id). */
 export const MEMORY_ITEMS_ENV = 'AGENT_MEMORY_ITEMS'
 /** Env var naming the JSONL retrieval log (one row per `memory_search`). */
-export const MEMORY_LOG_ENV = 'AGENT_MEMORY_LOG'
+const MEMORY_LOG_ENV = 'AGENT_MEMORY_LOG'
 /** Env var overriding the served display name (default 'agent-memory'). */
-export const MEMORY_NAME_ENV = 'AGENT_MEMORY_NAME'
+const MEMORY_NAME_ENV = 'AGENT_MEMORY_NAME'
 
-export interface CreateMemoryToolServerOptions {
+interface CreateMemoryToolServerOptions {
   /** The rows to serve. MUST be non-empty (an empty memory is never served). */
   items: readonly MemoryItem[]
   /** Server display name surfaced via `initialize`. Default 'agent-memory'. */
@@ -257,7 +230,7 @@ export function readMemoryItemsFile(path: string): MemoryItem[] {
 }
 
 /** What the memory bin resolved from its environment. */
-export interface ResolvedMemoryEnv {
+interface ResolvedMemoryEnv {
   items: MemoryItem[]
   serverName?: string
   logPath?: string

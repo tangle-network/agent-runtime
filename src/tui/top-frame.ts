@@ -10,7 +10,7 @@ import {
   type WorkerView,
 } from './top-snapshot'
 
-export interface RenderOptions {
+interface RenderOptions {
   readonly width?: number
   readonly height?: number
   readonly color?: boolean
@@ -33,7 +33,7 @@ export interface RenderTarget {
   readonly supervisorId?: string
 }
 
-export interface RenderedTopFrame {
+interface RenderedTopFrame {
   readonly frame: string
   readonly targets: RenderTarget[]
 }

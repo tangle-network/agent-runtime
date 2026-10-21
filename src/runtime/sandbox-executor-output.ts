@@ -437,9 +437,7 @@ function carriesText(event: SandboxEvent): boolean {
 }
 
 /** The last served identity the platform reported across a turn's events, or `undefined`. */
-export function lastServedBackend(
-  events: readonly SandboxEvent[],
-): SandboxServedBackend | undefined {
+function lastServedBackend(events: readonly SandboxEvent[]): SandboxServedBackend | undefined {
   let served: SandboxServedBackend | undefined
   for (const event of events) {
     const next = sandboxEventServedBackend(event)

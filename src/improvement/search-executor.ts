@@ -101,7 +101,7 @@ export interface SearchLane extends KernelSearchLane {
 }
 
 /** Options every lane builder takes. */
-export interface SearchLaneOptions {
+interface SearchLaneOptions {
   name?: string
   recoverReceipt?: SearchLane['recoverReceipt']
 }
@@ -111,7 +111,7 @@ function laneReceipts(options: SearchLaneOptions): Pick<SearchLane, 'recoverRece
 }
 
 /** A lane of workers packed into shared Sandbox boxes. Close `placement` when the run settles. */
-export interface SharedBoxSearchLane extends SearchLane {
+interface SharedBoxSearchLane extends SearchLane {
   readonly kind: 'shared-box'
   readonly placement: SharedBoxPlacement
 }
@@ -282,7 +282,7 @@ export interface SearchCellContext {
 export type SearchTraceOptions = 'off' | { readonly otlp: OtelExportConfig }
 
 /** One attempt as the executor hands it to the cell runner. */
-export interface SearchAttempt<TArtifact> {
+interface SearchAttempt<TArtifact> {
   readonly work: SearchCellWork<TArtifact>
   readonly lane: SearchLane
   readonly context: SearchCellContext
@@ -294,12 +294,12 @@ export interface SearchAttempt<TArtifact> {
   span(name: string, attributes?: Record<string, unknown>): SearchAttemptSpan
 }
 
-export interface SearchAttemptSpan {
+interface SearchAttemptSpan {
   setAttribute(key: string, value: unknown): void
   end(attributes?: Record<string, unknown>): void
 }
 
-export interface SearchExecutorOptions<TArtifact> {
+interface SearchExecutorOptions<TArtifact> {
   lanes: readonly SearchLane[]
   /** The profile a node runs, read by placement to skip a lane that refuses it. */
   profileOf(nodeId: string): AgentProfile | null

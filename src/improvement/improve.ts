@@ -35,26 +35,17 @@ import {
 // The owning modules are the single list of these names; re-exporting them by
 // hand made every new option type a three-file edit.
 export type * from './improve-types'
-export {
-  type DecideSearchImprovementOptions,
-  decideSearchImprovement,
-  type SearchImprovementDecision,
-} from './search-decision'
+export { decideSearchImprovement } from './search-decision'
 export {
   dedicatedLane,
-  isSearchEnvironmentFault,
   routerLane,
   type SearchCellContext,
   SearchEnvironmentFault,
   type SearchLane,
-  type SearchLaneKind,
-  type SearchLaneOptions,
-  type SearchTraceOptions,
-  type SharedBoxSearchLane,
   sharedBoxLane,
   subscriptionLane,
 } from './search-executor'
-export { type SearchMethodOptions, searchMethod } from './search-method'
+export { searchMethod } from './search-method'
 export type * from './training'
 export { createCommandProfileTrainer } from './training'
 

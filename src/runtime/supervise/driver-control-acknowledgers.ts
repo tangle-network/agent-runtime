@@ -229,7 +229,7 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
  * the SAME outcomes, so `tests/kernel/refusal-reasons.test.ts` holds both maps total over
  * `DownMessageDeliveryOutcome` — a new code cannot land in only one.
  */
-export function steerAcknowledgementDetail(outcome: Pick<DownMessageEvent, 'outcome'>): string {
+function steerAcknowledgementDetail(outcome: Pick<DownMessageEvent, 'outcome'>): string {
   switch (outcome.outcome) {
     case 'delivered':
       return 'the owning manager delivered the steer to the exact live worker'

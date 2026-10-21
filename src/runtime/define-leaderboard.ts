@@ -73,7 +73,7 @@ export interface LeaderboardScenario<TCase> extends Scenario {
 /** Terminal-or-continue decision set of {@link naiveRetryDriver}: the non-terminal `'refine'`
  *  requests another shot; `'pick-winner'`/`'fail'` stop the loop (`isTerminalDecision` in
  *  run-loop.ts treats them as terminal). */
-export type NaiveRetryDecision = 'refine' | 'pick-winner' | 'fail'
+type NaiveRetryDecision = 'refine' | 'pick-winner' | 'fail'
 
 /**
  * The no-signal retry floor as a bare `Driver` literal: re-run the case VERBATIM as an

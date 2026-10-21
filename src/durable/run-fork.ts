@@ -54,10 +54,10 @@ export const RUN_FORK_CORRELATION_KEYS = Object.freeze([
 ] as const)
 
 /** The correlation key an accepted uncertain parent adds: its uncertain node ids, comma-joined. */
-export const FORK_PARENT_UNCERTAIN_NODES_KEY = 'forkParentUncertainNodes'
+const FORK_PARENT_UNCERTAIN_NODES_KEY = 'forkParentUncertainNodes'
 
 /** What `supervisePursuit` executes for a fork: the changed profile and the attributed execution. */
-export interface PreparedRunFork {
+interface PreparedRunFork {
   readonly profile: AgentProfile
   readonly execution: AgentExecutionRef
 }

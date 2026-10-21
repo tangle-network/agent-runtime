@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
-import type { SqlAdapter } from '../../../src/conversation/journal-sql'
+import type { SqlAdapter } from '../../../src/durable/sql-adapter'
 
 export type SqlBoundary = (
   when: 'before' | 'after',

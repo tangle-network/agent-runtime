@@ -108,7 +108,7 @@ export type ProviderNativeCapturePhase = 'running' | 'settled' | 'failed' | 'int
 /** Default {@link ProviderWorkspaceRetentionPort.nativeIntervalMs}. */
 export const DEFAULT_NATIVE_CAPTURE_INTERVAL_MS = 120_000
 /** Default {@link ProviderWorkspaceRetentionPort.nativeTimeoutMs}. */
-export const DEFAULT_NATIVE_CAPTURE_TIMEOUT_MS = 120_000
+const DEFAULT_NATIVE_CAPTURE_TIMEOUT_MS = 120_000
 
 /** Source inventory metadata for a workspace entry. */
 export interface ProviderWorkspaceEntryMetadata {

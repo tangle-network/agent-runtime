@@ -65,7 +65,7 @@ export async function verifyWorkspaceSnapshotArtifacts(
 }
 
 /** The per-scan caps a bounded capture applies. */
-export interface WorkspaceScanLimits {
+interface WorkspaceScanLimits {
   readonly maxFiles: number
   readonly maxFileBytes: number
   readonly maxTotalFileBytes: number
@@ -75,7 +75,7 @@ export interface WorkspaceScanLimits {
 export class WorkspaceScanLimitError extends Error {}
 
 /** What a workspace scan reads and how it records a file's permission bits. */
-export interface WorkspaceScanOptions {
+interface WorkspaceScanOptions {
   readonly signal?: AbortSignal
   readonly ignoredProtectedRootEntries?: readonly ('.git' | '.sidecar')[]
   /**
@@ -136,7 +136,7 @@ export async function scanMaterializedWorkspaceManifest(
  * ignores them, and each carries its source's modification time, so a digest that covered them
  * would change when a program was merely run and could not be reproduced from any checkout.
  */
-export interface WorkspaceCaptureOptions extends WorkspaceScanOptions {
+interface WorkspaceCaptureOptions extends WorkspaceScanOptions {
   readonly skipPythonBytecode?: boolean
 }
 

@@ -32,7 +32,7 @@ import {
 } from './optimization-receipt'
 import type { AgentImprovementProfileStateDigest } from './profile-activation'
 
-export interface ProfileImprovementBenchmarkInput {
+interface ProfileImprovementBenchmarkInput {
   tasks: [AgentProfileImprovementTaskMaterial, ...AgentProfileImprovementTaskMaterial[]]
   reps: number
   seeds: [number, ...number[]]

@@ -16,14 +16,14 @@ import { sanitizeKnowledgeReadinessReport, sanitizeRuntimeStreamEvent } from './
 import type { RuntimeStreamEvent } from './types'
 
 /** @stable */
-export interface ServerSentEventOptions {
+interface ServerSentEventOptions {
   event?: string
   id?: string
   retry?: number
 }
 
 /** @stable */
-export function encodeServerSentEvent(data: unknown, options: ServerSentEventOptions = {}): string {
+function encodeServerSentEvent(data: unknown, options: ServerSentEventOptions = {}): string {
   const lines: string[] = []
   if (options.id) lines.push(`id: ${stripNewlines(options.id)}`)
   if (options.event) lines.push(`event: ${stripNewlines(options.event)}`)

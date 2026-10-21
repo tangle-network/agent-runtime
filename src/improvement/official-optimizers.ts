@@ -30,7 +30,7 @@ const skillOptInstall =
   '`python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"`'
 
 /** Runtime context appended to an official optimizer's own configuration. */
-export interface OfficialOptimizerContextOptions {
+interface OfficialOptimizerContextOptions {
   /** Context supplied to the optimizer before Runtime appends the profile surface and findings. */
   background?: string
   /** Include current trace or analyst findings in the optimizer background. Default true. */
@@ -48,12 +48,12 @@ export interface OfficialOptimizerContextOptions {
   authorizeSensitiveCandidate?: (input: OfficialSensitiveCandidateInput) => boolean
 }
 
-export interface OfficialSensitiveCandidateInput extends ImproveCandidateValidationInput {
+interface OfficialSensitiveCandidateInput extends ImproveCandidateValidationInput {
   sensitivePaths: readonly string[]
 }
 
 /** Official GEPA configuration plus bounded Runtime findings context. */
-export type OfficialGepaOptions<
+type OfficialGepaOptions<
   TScenario extends { id: string; kind: string },
   TArtifact = unknown,
 > = Omit<
@@ -63,7 +63,7 @@ export type OfficialGepaOptions<
   OfficialOptimizerContextOptions
 
 /** Official SkillOpt configuration plus bounded Runtime findings context. */
-export type OfficialSkillOptOptions<
+type OfficialSkillOptOptions<
   TScenario extends { id: string; kind: string },
   TArtifact = unknown,
 > = Omit<
@@ -73,7 +73,7 @@ export type OfficialSkillOptOptions<
   OfficialOptimizerContextOptions
 
 /** Missing optional Python dependencies for an official optimizer. */
-export class OfficialOptimizerUnavailableError extends ConfigError {
+class OfficialOptimizerUnavailableError extends ConfigError {
   readonly optimizer: 'gepa' | 'skillopt'
 
   constructor(optimizer: 'gepa' | 'skillopt', cause: unknown) {
@@ -454,7 +454,7 @@ function redactJudgeScore(score: JudgeScore, redactor: Redactor): JudgeScore {
   }
 }
 
-export function optimizerRedactionPolicyRef(
+function optimizerRedactionPolicyRef(
   redact: Redactor | false | undefined,
   builtInIdentity: unknown = defaultRedactorIdentityMaterial(),
 ): string {

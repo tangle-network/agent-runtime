@@ -58,7 +58,7 @@ const HARNESS_ALIASES: Record<string, string> = {
   'kimi-code': 'kimi',
 }
 
-export interface WorkerLineageOptions {
+interface WorkerLineageOptions {
   /** Backend type (`claude-code`, `codex`, …) or the CLI binary path the worker runs. */
   readonly harness: string | null | undefined
   /** Runtime node id of the worker, recorded as its native id `runtime:<nodeId>`. */
@@ -73,7 +73,7 @@ export interface WorkerLineageOptions {
   readonly now?: () => Date
 }
 
-export interface WorkerLineage {
+interface WorkerLineage {
   /** Environment to merge into the worker's spawn env, below the caller's own seam env. */
   readonly env: Record<string, string>
   /** The same ids as cli-bridge request headers. */
@@ -82,9 +82,7 @@ export interface WorkerLineage {
 
 const EMPTY: WorkerLineage = { env: {}, headers: {} }
 
-export function lineageHost(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): string {
+function lineageHost(env: Readonly<Record<string, string | undefined>> = process.env): string {
   const name = (env.LINEAGE_HOST || hostname()).trim().toLowerCase()
   return name.endsWith('.local') ? name.slice(0, -'.local'.length) : name
 }

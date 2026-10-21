@@ -23,7 +23,7 @@ import type { ImproveMethodResult, ImproveScenarioPartitions } from '../improvem
 
 type OptimizationProvenance = NonNullable<OptimizationMethodComparison['best']['provenance']>
 
-export interface OptimizationActivationReceipt {
+interface OptimizationActivationReceipt {
   kind: 'optimization-activation-receipt'
   method: string
   source: OptimizationPackageSource
@@ -56,7 +56,7 @@ export interface OptimizationActivationReceipt {
   digest: Sha256Digest
 }
 
-export interface OptimizationReceiptCost {
+interface OptimizationReceiptCost {
   totalUsd: number
   accountingComplete: boolean
   incompleteReasons: string[]

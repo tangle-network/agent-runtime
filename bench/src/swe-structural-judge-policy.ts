@@ -2,7 +2,7 @@ import { realpathSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { Fingerprints } from './swe-structural-provenance'
 
-export const PAIRED_FINGERPRINT_KEYS = [
+const PAIRED_FINGERPRINT_KEYS = [
   'source',
   'commonConfig',
   'repro',
@@ -76,7 +76,7 @@ export function assertDistinctArtifactPaths(paths: Record<string, string>): void
   }
 }
 
-export interface CompletedJudgeScore {
+interface CompletedJudgeScore {
   hiddenResolved: boolean
   judgeDetail: string | null
   judgeSkipped: 'empty-patch' | null
@@ -114,7 +114,7 @@ export function assertJudgeCompletionMatchesInput(
   }
 }
 
-export interface JudgeResumeFingerprintReceipt {
+interface JudgeResumeFingerprintReceipt {
   pairFingerprint: string
   phaseFileFingerprint: string
   inputFingerprint: string

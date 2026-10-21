@@ -25,12 +25,12 @@
  */
 
 /** Minimal per-round verdict — `valid` gates early-stop, `score` is informational. */
-export interface RoundVerdict {
+interface RoundVerdict {
   valid: boolean
   score?: number
 }
 
-export interface RoundRecord<Artifact> {
+interface RoundRecord<Artifact> {
   /** 1-based round index. */
   round: number
   prompt: string
@@ -41,7 +41,7 @@ export interface RoundRecord<Artifact> {
   note?: string
 }
 
-export interface RefineLoopSpec<Artifact, Ctx = void> {
+interface RefineLoopSpec<Artifact, Ctx = void> {
   /** Max shots. Always ≥ 1. */
   rounds: number
   /** Build the per-task execution context once (clone repo / create box / mkdtemp). */
@@ -62,7 +62,7 @@ export interface RefineLoopSpec<Artifact, Ctx = void> {
   teardown?: (ctx: Ctx) => Promise<void>
 }
 
-export interface RefineLoopResult<Artifact> {
+interface RefineLoopResult<Artifact> {
   /** Every executed round in order. */
   rounds: RoundRecord<Artifact>[]
   /** Round 1 — the blind artifact. */

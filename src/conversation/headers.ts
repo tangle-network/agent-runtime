@@ -32,8 +32,6 @@ export const FORWARD_HEADERS = {
   speaker: 'x-tangle-speaker',
 } as const
 
-export type ForwardHeaderName = (typeof FORWARD_HEADERS)[keyof typeof FORWARD_HEADERS]
-
 /** Hard cap on chained gateway hops; refused beyond this. Default keeps recursion bounded. */
 export const DEFAULT_MAX_FORWARD_DEPTH = 4
 

@@ -63,7 +63,7 @@ export type WorkerInteractiveAdmission =
 export type InteractiveAdmissionWriter = (admission: RetainedInteractiveAdmission) => Promise<void>
 
 /** Return the exact credential-free admission file for one worker and phase. */
-export function workerInteractiveAdmissionFile(
+function workerInteractiveAdmissionFile(
   eventDir: string,
   workerId: string,
   phase: WorkerInteractiveAdmission['phase'],

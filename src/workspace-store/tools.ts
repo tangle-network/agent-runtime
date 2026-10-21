@@ -393,7 +393,7 @@ function tokens(text: string): string[] {
  * BM25 over entry text (and path words), highest score first, ties by path.
  * Entries without inline text match on path words only.
  */
-export function rankEntries(
+function rankEntries(
   entries: readonly WorkspaceEntry[],
   query: string,
   limit: number,

@@ -131,14 +131,6 @@ import importlib.metadata
 print(importlib.metadata.version("swebench"))
 `
 
-/** Installed official scorer package stamped into experiment execution receipts. */
-export async function resolveSweBenchScorerVersion(): Promise<string> {
-  const output = await runVenvPython(SWEBENCH_VERSION_SCRIPT, [], 60_000)
-  const version = output.trim().split('\n').filter(Boolean).pop() ?? ''
-  if (!version) throw new Error('could not resolve installed swebench scorer version')
-  return version
-}
-
 /**
  * Cheap string pre-filter for an agent-supplied repo-relative path, applied before the path is
  * joined to a workspace root: rejects absolute paths and any `..` segment, strips a leading `./`.
@@ -158,17 +150,17 @@ export const jailPath = (_root: string, p: string): string | null => {
  */
 export const isInsideJail = (jailRoot: string, real: string): boolean => real === jailRoot || real.startsWith(jailRoot + sep)
 
-export interface SweImageIdentity {
+interface SweImageIdentity {
   id: string
   repoDigests: string[]
 }
 
-export interface SweImageCandidate {
+interface SweImageCandidate {
   tag: string
   namespace: 'swebench' | 'none'
 }
 
-export type SweImageResolution =
+type SweImageResolution =
   | { ok: true; tag: string; namespace: SweImageCandidate['namespace']; identity: SweImageIdentity }
   | { ok: false; reason: string }
 
@@ -220,7 +212,7 @@ interface Ws {
  *  Fail-closed: docker down / no cached image / resolver error → `{ ok:false }`. Exported so script-side
  *  calibrators (swe-repro-calibrate) hard-assert image presence through the SAME resolution the `run`
  *  tool uses instead of hand-building tags. */
-export async function resolveImageForMetadata(
+async function resolveImageForMetadata(
   metadata: Record<string, unknown>,
 ): Promise<SweImageResolution> {
   let candidates: SweImageCandidate[]

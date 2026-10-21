@@ -76,7 +76,7 @@ function withDirective(profile: AgentProfile, directiveText: string): AgentProfi
   }
 }
 
-export interface GraphOverlayOptions {
+interface GraphOverlayOptions {
   readonly registry: PromptRegistry
   /** The journal every edge event rides. */
   readonly journal: SpawnJournal

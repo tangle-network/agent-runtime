@@ -672,7 +672,7 @@ export interface VerdictSummary {
   readonly total?: number
 }
 
-export function summarizeVerdict(verdict: CheckVerdict | undefined): VerdictSummary | null {
+function summarizeVerdict(verdict: CheckVerdict | undefined): VerdictSummary | null {
   if (verdict === undefined) return null
   const total = Object.keys(verdict.items ?? {}).length
   return {
@@ -682,7 +682,7 @@ export function summarizeVerdict(verdict: CheckVerdict | undefined): VerdictSumm
   }
 }
 
-export function noteDigest(note: string): string {
+function noteDigest(note: string): string {
   return `sha256:${sha256(note)}`
 }
 
@@ -695,7 +695,7 @@ export const CONTINUATIONS_DIR = 'continuations'
  * `panel.jsonl` when the panel ran. The director reads them through `read_continuation`, because
  * its box cannot read the driver's run directory.
  */
-export async function writeContinuationFiles(
+async function writeContinuationFiles(
   dir: string,
   continuation: number,
   files: {
@@ -754,7 +754,7 @@ function format(value: number): string {
 // ── One manager's continuations ──────────────────────────────────────────────────────────────────
 
 /** What a manager's continuation keeper reads from its run. */
-export interface ContinuationKeeperInput {
+interface ContinuationKeeperInput {
   readonly policy: ContinuationPolicy
   readonly task: unknown
   /** What the run owes, from the check's description. */

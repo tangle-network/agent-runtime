@@ -43,13 +43,13 @@ export interface DelegationTraceSpan {
 }
 
 /** Default cap on spans retained per delegation record. @experimental */
-export const DELEGATION_TRACE_MAX_SPANS = 512
+const DELEGATION_TRACE_MAX_SPANS = 512
 
 /** Default cap on the serialized trace payload per record, in bytes. @experimental */
-export const DELEGATION_TRACE_MAX_BYTES = 256 * 1024
+const DELEGATION_TRACE_MAX_BYTES = 256 * 1024
 
 /** @experimental */
-export interface DelegationTraceCaps {
+interface DelegationTraceCaps {
   /** Default {@link DELEGATION_TRACE_MAX_SPANS}. */
   maxSpans?: number
   /** Default {@link DELEGATION_TRACE_MAX_BYTES}. Approximate — measured as the
@@ -58,7 +58,7 @@ export interface DelegationTraceCaps {
 }
 
 /** @experimental */
-export interface CappedDelegationTrace {
+interface CappedDelegationTrace {
   trace: DelegationTraceSpan[]
   /** True when oldest spans were dropped to honor the caps. */
   truncated: boolean
@@ -121,7 +121,7 @@ export function capDelegationTrace(
  *
  * @experimental
  */
-export interface DelegationTraceCollector {
+interface DelegationTraceCollector {
   emitter: LoopTraceEmitter
   /** Flush buffered events of runs that never reached `loop.ended`. */
   settle(): void

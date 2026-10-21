@@ -133,11 +133,11 @@ interface BoundProfileChat {
   readonly settings: ProfileModelExecutionSettings
 }
 
-export type ProfileChatRun =
+type ProfileChatRun =
   | { readonly succeeded: true; readonly response: ChatResponse; readonly turn: CollectedAgentTurn }
   | { readonly succeeded: false; readonly error: string; readonly turn: CollectedAgentTurn }
 
-export function bindProfileChat(args: {
+function bindProfileChat(args: {
   profile: AgentProfile
   executor: ExecutorConfig
   context: string
@@ -158,7 +158,7 @@ export function bindProfileChat(args: {
   }
 }
 
-export async function runBoundProfileChat(
+async function runBoundProfileChat(
   binding: BoundProfileChat,
   req: ChatRequest,
   callOpts?: Parameters<ChatClient['chat']>[1],

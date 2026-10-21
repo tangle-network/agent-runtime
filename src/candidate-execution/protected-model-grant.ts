@@ -13,13 +13,13 @@ import type {
 } from './types'
 
 /** Reservation fields supplied by a caller before Runtime resolves the model. */
-export type AgentCandidateModelGrantRunReservationInput = Omit<
+type AgentCandidateModelGrantRunReservationInput = Omit<
   AgentCandidateModelGrantReserveInput,
   'resolved'
 >
 
 /** Values available only while one protected model grant is active. */
-export interface ProtectedAgentCandidateModelGrantContext {
+interface ProtectedAgentCandidateModelGrantContext {
   readonly activation: AgentCandidateProtectedModelActivation
   readonly reservation: AgentCandidateProtectedModelReservation
   readonly resolved: AgentCandidateResolvedModel
@@ -40,7 +40,7 @@ export interface RunProtectedAgentCandidateModelGrantOptions<TResult> {
 }
 
 /** Result and sealed settlement returned after one protected grant closes. */
-export interface RunProtectedAgentCandidateModelGrantResult<TResult> {
+interface RunProtectedAgentCandidateModelGrantResult<TResult> {
   readonly value: TResult
   readonly resolved: AgentCandidateResolvedModel
   readonly reservation: AgentCandidateProtectedModelReservation

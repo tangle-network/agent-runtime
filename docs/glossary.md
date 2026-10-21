@@ -13,9 +13,9 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 |---|---|---|---|
 | **Iteration** | ONE `driver.plan → dispatch → output.parse → validator.validate → driver.decide` cycle. The kernel's official accounting unit; trace events are `loop.iteration.*`. | `types.ts:119` (`Iteration`), `src/runtime/agent-rounds.ts` (the loop body) | not a "rollout" (that's what happens *inside* it); not a "turn" |
 | **Round** | Informal synonym for **iteration**. **Avoid — say "iteration".** | docstrings only | — |
-| **Rollout** | ONE agent execution in a box: one `streamPrompt` (or one executor `execute`) producing an answer/patch/artifact. The **worker's** unit, nested *inside* one iteration. | `sandbox-run.ts:30` ("a SINGLE rollout") | NOT the driver↔worker round (that's an iteration); a fanout iteration contains N rollouts |
-| **Attempt** | A rollout as the steer/analyst sees it (its output + verdict + trace). Same event, steer-side view. | `bench/src/sandbox-run.ts:39` (`SteerHistory`) | — |
-| **Turn** | One prompt→response over a persistent session (multi-turn `resume`). Conversation/`openSandboxRun` term, not the kernel-loop unit. | `sandbox-run.ts` (`TurnResult`, `resume`) | not an iteration |
+| **Rollout** | ONE agent execution in a box: one `streamPrompt` (or one executor `execute`) producing an answer/patch/artifact. The **worker's** unit, nested *inside* one iteration. | `src/runtime/sandbox-run.ts` (`openSandboxRun`) | NOT the driver↔worker round (that's an iteration); a fanout iteration contains N rollouts |
+| **Attempt** | A rollout as the steer/analyst sees it (its output + verdict + trace). Same event, steer-side view. | — | — |
+| **Turn** | One prompt→response over a persistent session (multi-turn `resume`). Conversation/`openSandboxRun` term, not the kernel-loop unit. | `src/runtime/sandbox-run.ts` (`TurnResult`, `resume`) | not an iteration |
 
 **The nesting, stated once:** a **driver↔worker round is an _iteration_**; what the worker *does* in it is a **_rollout_**; a fanout iteration has many rollouts; the steer reading a past rollout calls it an **_attempt_**.
 
@@ -27,7 +27,7 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 | **Worker** | The agent run dispatched within an iteration (round-robin over `agentRuns`). "worker box", "finished worker". **Live term.** | `src/runtime/iteration-execution.ts` (`AgentRunSpec` `types.ts:67`) |
 | **Validator** | Owns scoring: `validate(output, ctx) → Verdict {valid, score}`. The judge. Selector ≠ judge: the driver selects, the validator judges. `ctx.box` is the iteration's LIVE sandbox, so a check can execute commands in the container it scores; a supervised worker gets one through `SandboxSeam.validator`. | `types.ts:52` |
 | **OutputAdapter** | Owns event-stream decode: `parse(events) → Output`. | `types.ts:105` |
-| **Analyst** | An `Agent.act` over the trace that returns a steer (never reads the verdict — the steer firewall). `llmAnalyst` (one router call); a strategy reads it via `ctx.critique`. | `bench/src/sandbox-run.ts:58` (`llmAnalyst`); firewall `src/runtime/personify/analyst.ts` (`assertTraceDerivedFindings`) |
+| **Analyst** | An `Agent.act` over the trace that returns a steer (never reads the verdict — the steer firewall). A strategy reads it via `ctx.critique`. | firewall `src/runtime/personify/analyst.ts` (`assertTraceDerivedFindings`) |
 
 **The vocabulary law (ends the overload):** "driver" and "worker" are roles of one `Agent`, so "driver↔worker loop" must always be qualified by **timescale** — inference (within a run) vs optimization (across runs). A benchmark is an **adapter**; the thing that picks the answer is the **selector**, never the judge.
 
@@ -40,7 +40,7 @@ The shape grows by LLM decision through the **coordination toolbox** over a live
 | **Strategy** (`sample`/`refine`) | A `defineStrategy(name, body)` value run through the Supervisor as one recursive `Agent.act`: `sample` = breadth/best-of-N, `refine` = depth/iterate-with-feedback. The harness-verified topology, NOT a fixed script. | `src/runtime/strategy-author.ts` (`defineStrategy`); `src/runtime/strategy.ts` (`sample`, `refine`) |
 | **Coordination toolbox** | The driver's per-step move set as MCP tools over a live `Scope`: `spawn_worker` (branch N) · `steer_agent` (interrupt) · `observe_agent` · `stop`; the driver reacts in the turn Runtime wakes it with. This **is** "topology grown through LLM decisions". | `src/mcp/tools/coordination-manager.ts` (`createCoordinationTools`) |
 | **Profiles table** | `SuperviseRegistry.profiles`: the named `AgentProfile`s any manager in a run may spawn with `spawn_worker({ profile: '<name>' })`. Each `SuperviseProfileEntry` is exploratory, or promoted by a verified `SealedExperiment` plus a `PairedPromotionDecision` that promoted. Omitted or empty, the spawn tool is unchanged: that is the off switch. | `src/runtime/supervise/supervise.ts` (`SuperviseRegistry`, `snapshotProfileTable`); `src/mcp/tools/coordination-contracts.ts` (`SuperviseProfileEntry`) |
-| **AnalystFn / `critique`** | `(history, task?) → correction`. The firewalled steer — trajectory in, never the score. `llmAnalyst` (one router call); the strategy author calls it via `ctx.critique`. | `bench/src/sandbox-run.ts:50,58` (`llmAnalyst`); `src/runtime/strategy-author.ts` (`ctx.critique`) |
+| **AnalystFn / `critique`** | `(history, task?) → correction`. The firewalled steer — trajectory in, never the score. The strategy author calls it via `ctx.critique`. | `src/runtime/strategy-author.ts` (`ctx.critique`) |
 
 ## The executor port (the unified execution seam)
 
@@ -50,7 +50,7 @@ The shape grows by LLM decision through the **coordination toolbox** over a live
 | **createExecutor** | The ONE built-in: `createExecutor({backend: 'router'|'bridge'|'cli'|'sandbox', …seam})` — backend as **data**, not an import. Per-backend bodies are internal case-arms. | `src/runtime/supervise/runtime.ts` |
 | **SandboxClient** | The box-shaped structural contract (`create → box.streamPrompt → delete`, optional sessions/fs/fork). What `runAgentRounds` drives. (was `LoopSandboxClient`.) | `types.ts` (`SandboxClient`) |
 | **inlineSandboxClient** | The ONE adapter presenting any non-box `Executor` as a `SandboxClient`, so `runAgentRounds` drives router/bridge/BYO without re-faking a box. | `inline-sandbox-client.ts` |
-| **openSandboxRun** | The one run/stream/**resume** seam over a persistent box (sessions + fs-artifact deliverables). | `sandbox-run.ts` |
+| **openSandboxRun** | The one run/stream/**resume** seam over a persistent box (sessions + fs-artifact deliverables). | `src/runtime/sandbox-run.ts` |
 
 ## Budget & accounting
 

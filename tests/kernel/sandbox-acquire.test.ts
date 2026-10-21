@@ -199,7 +199,9 @@ describe('acquireSandbox — cold-start resilience', () => {
         return held
       },
     }
-    const { SandboxEvidenceRetentionError } = await import('../../src/runtime')
+    const { SandboxEvidenceRetentionError } = await import(
+      '../../src/runtime/sandbox-evidence-retention'
+    )
     await expect(
       acquireSandbox(client, OPTS, {
         ...clock(),

@@ -36,9 +36,7 @@
 import type { AnalystFinding } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type {
-  Agent,
   AgentSpec,
-  Budget,
   DefaultVerdict,
   NodeId,
   ResultBlobStore,
@@ -622,18 +620,14 @@ export type EqualKOnCost = (
 
 // ── Re-exports so a Core impl imports the wave surface from one place ──────────────────
 export type {
-  Agent,
   AgentProfile,
   AnalystFinding,
-  Budget,
   DefaultVerdict,
   LoopShape,
   NodeId,
   Outcome,
-  ResultBlobStore,
   Scope,
   Settled,
   ShapeContext,
-  SpawnJournal,
   Spend,
 }

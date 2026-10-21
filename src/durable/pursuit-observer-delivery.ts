@@ -43,7 +43,7 @@ const DEFAULT_INTERVAL_MS = 60_000
 const DEFAULT_TIMEOUT_MS = 10_000
 
 /** POST one projection. Never throws; the outcome says whether Intelligence accepted it. */
-export async function deliverPursuitObserver(
+async function deliverPursuitObserver(
   delivery: PursuitObserverDelivery,
   state: PursuitObserverState,
   projection: PursuitProjection,

@@ -548,6 +548,6 @@ const RETAINED_TAIL_FLOW_MS = 100
 
 /** Runtime's own mark, beside the provider's frames, that a retained turn now waits on its exact
  *  result. The executor publishes it as an `awaiting-result` progress row; it is never a frame. */
-export interface RetainedAwaitingResult {
+interface RetainedAwaitingResult {
   readonly awaitingResultSince: string
 }

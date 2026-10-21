@@ -83,7 +83,7 @@ export interface AppliedIntelligence {
 
 /** An agent wrapped by {@link withIntelligence}: receives the input plus the
  *  intelligence delivered for this run. */
-export type IntelligenceAgent<I, O> = (input: I, applied: AppliedIntelligence) => Promise<O>
+type IntelligenceAgent<I, O> = (input: I, applied: AppliedIntelligence) => Promise<O>
 
 /** `withIntelligence` config = the Observe config plus the pull target, refresh
  *  cadence, and a proposals callback. One base URL (`baseUrl` /

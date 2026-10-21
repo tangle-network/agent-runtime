@@ -363,7 +363,7 @@ export function subscriptionUsageLimitSignal(failure: {
 }
 
 /** An ineligible or misconfigured account must never turn an authored stage into another model. */
-export function checkedSeatSelection(stage: SeatStage, selected: SeatSelection): SeatSelection {
+function checkedSeatSelection(stage: SeatStage, selected: SeatSelection): SeatSelection {
   if ('resumeAt' in selected) {
     if (!Number.isFinite(Date.parse(selected.resumeAt))) {
       throw new ValidationError('selectSeat: resumeAt must be an ISO timestamp')

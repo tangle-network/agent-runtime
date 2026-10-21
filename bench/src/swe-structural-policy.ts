@@ -1,8 +1,8 @@
 import { isAbsolute } from 'node:path'
 
-export type ExperimentArm = 'independent-2' | 'persistent-refine-2'
+type ExperimentArm = 'independent-2' | 'persistent-refine-2'
 
-export interface ExperimentArmPreset {
+interface ExperimentArmPreset {
   arm: ExperimentArm
   k: 1 | 2
   repairs: 0 | 1
@@ -11,7 +11,7 @@ export interface ExperimentArmPreset {
   workerSessions: 2
 }
 
-export interface WorkerSessionReceipt {
+interface WorkerSessionReceipt {
   calls: number
   completions: number
   attemptError: string | null

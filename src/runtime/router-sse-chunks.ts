@@ -9,7 +9,7 @@ import type { RawUsage } from './router-response'
  *  streamed-transport tests read (`tests/kernel/fixtures/router-chat-completion-stream.sse`):
  *  `delta.reasoning_content` token-by-token, one `delta.tool_calls` entry carrying
  *  `index`/`id`/`function`, then a terminal chunk with `finish_reason` + `usage`. */
-export interface ChatCompletionChunk {
+interface ChatCompletionChunk {
   model?: unknown
   choices?: Array<{
     index?: number

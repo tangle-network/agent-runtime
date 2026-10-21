@@ -18,13 +18,7 @@ import { createInterface, type Interface as ReadlineInterface } from 'node:readl
 import { ValidationError } from '../errors'
 import type { JsonRpcMessage, JsonRpcResponse, McpToolDescriptor, McpTransport } from './protocol'
 
-export type {
-  JsonRpcMessage,
-  JsonRpcResponse,
-  McpToolAnnotations,
-  McpToolDescriptor,
-  McpTransport,
-} from './protocol'
+export type { JsonRpcMessage, JsonRpcResponse, McpToolDescriptor, McpTransport } from './protocol'
 
 export const PROTOCOL_VERSION = '2024-11-05'
 
@@ -33,7 +27,7 @@ export const PROTOCOL_VERSION = '2024-11-05'
  * the client's requested version when it is listed here, and otherwise with
  * `PROTOCOL_VERSION` (2024-11-05), which every client that speaks 2024-11-05 accepts.
  */
-export const SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [
+const SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [
   '2025-11-25',
   '2025-06-18',
   '2025-03-26',
@@ -41,7 +35,7 @@ export const SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [
 ]
 
 /** @experimental */
-export interface StdioToolServerOptions {
+interface StdioToolServerOptions {
   /** Server display name surfaced via `initialize`. */
   serverName: string
   /** Server version surfaced via `initialize`. */

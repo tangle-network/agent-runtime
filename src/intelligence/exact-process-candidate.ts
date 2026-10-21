@@ -59,13 +59,13 @@ export interface CreateExactProcessCandidateExperimentExecutorOptions {
 }
 
 /** Product-owned candidate ports other than protected model access. */
-export type AgentCandidateExecutionHostPorts = Omit<AgentCandidateExecutionPorts, 'models'>
+type AgentCandidateExecutionHostPorts = Omit<AgentCandidateExecutionPorts, 'models'>
 
 /**
  * Builds the standard exact-process executor with model access that is scoped,
  * metered, and settled by the caller's grant service.
  */
-export interface CreateProtectedExactProcessCandidateExperimentExecutorOptions
+interface CreateProtectedExactProcessCandidateExperimentExecutorOptions
   extends Omit<CreateExactProcessCandidateExperimentExecutorOptions, 'ports'> {
   hostPorts: AgentCandidateExecutionHostPorts
   model: CreateProtectedAgentCandidateModelPortOptions
@@ -80,14 +80,14 @@ export interface ExactProcessCandidateExperimentExecution
   preparation?: PrepareAgentCandidateExecutionOptions
 }
 
-export interface ExactProcessCandidateExperimentExecutor {
+interface ExactProcessCandidateExperimentExecutor {
   /** Runtime's expired-attempt path reuses this port only to stop and dispose. */
   readonly executor: AgentCandidateExecutorPort
   execute(input: ExactProcessCandidateExperimentExecution): Promise<CandidateExecutionEvidence>
 }
 
 /** Exact-process executor plus the ports required for durable recovery. */
-export interface ProtectedExactProcessCandidateExperimentExecutor
+interface ProtectedExactProcessCandidateExperimentExecutor
   extends ExactProcessCandidateExperimentExecutor {
   readonly recoveryPorts: Pick<AgentCandidateExecutionPorts, 'models' | 'memory'>
 }

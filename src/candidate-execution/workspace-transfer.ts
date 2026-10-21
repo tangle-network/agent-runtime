@@ -26,7 +26,7 @@ export type AgentCandidateWorkspaceSnapshotReferences = Pick<
   readonly archive: AgentCandidateArtifactRef
 }
 
-export type CaptureAgentWorkspaceSnapshotOptions = Omit<
+type CaptureAgentWorkspaceSnapshotOptions = Omit<
   CaptureAgentCandidateWorkspaceOptions,
   'artifactPersistence'
 > & {
@@ -54,7 +54,7 @@ export async function captureAgentWorkspaceSnapshot(
   return workspaceReferences(captured.snapshot)
 }
 
-export interface MaterializeAgentWorkspaceSnapshotOptions {
+interface MaterializeAgentWorkspaceSnapshotOptions {
   snapshot: AgentCandidateWorkspaceSnapshotReferences
   /** Authorizes each immutable reference for the accepted transfer owner; must stream reads. */
   artifacts: AgentCandidateArtifactPort

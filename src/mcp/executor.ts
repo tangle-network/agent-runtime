@@ -39,7 +39,7 @@ export interface DelegationExecutor {
 }
 
 /** @experimental */
-export interface SiblingSandboxExecutorOptions {
+interface SiblingSandboxExecutorOptions {
   client: SandboxClient
 }
 
@@ -91,7 +91,7 @@ export interface FleetHandle {
 }
 
 /** @experimental */
-export interface FleetWorkspaceExecutorOptions {
+interface FleetWorkspaceExecutorOptions {
   fleet: FleetHandle
   /**
    * Override the machine-selection policy. Default = round-robin across

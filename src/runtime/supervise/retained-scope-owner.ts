@@ -2,7 +2,6 @@ export {
   noteScopeRetainedOwnerCoordination,
   scopeRetainedOwnerCheckpointing,
 } from './retained-owner-checkpoint-rotation'
-export type { RetainedOwnerEnvironmentState } from './retained-owner-environment-recovery'
 export {
   reconcileScopeRetainedOwnerEnvironment,
   scopeRetainedOwnerRestorePoint,
@@ -16,7 +15,6 @@ export {
   scopeRetainedOwnerResult,
 } from './retained-owner-invocation'
 export {
-  RELEASE_CHECKPOINT_CAPTURES_MS,
   releaseScopeRetainedOwnerEnvironment,
   retainedOwnerReleaseRetriable,
 } from './retained-owner-release'

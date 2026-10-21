@@ -68,7 +68,7 @@ export interface DelegatedLoopResult<T = unknown> {
 }
 
 /** @experimental */
-export interface RunDelegatedLoopOptions {
+interface RunDelegatedLoopOptions {
   signal?: AbortSignal
   /** Clock override for deterministic tests. */
   now?: () => number
@@ -113,7 +113,7 @@ export async function runDelegatedLoop<T = unknown>(
 }
 
 /** @experimental Options for the local-repo `code` runner over the GENERIC recursive path. */
-export interface WorktreeLoopRunnerOptions {
+interface WorktreeLoopRunnerOptions {
   /** Exact profile carried by the personified root that owns this fanout. */
   rootProfile: AgentProfile
   /** Absolute path to the local git checkout each worktree is cut from. */
@@ -209,7 +209,7 @@ export interface VetoedFact {
 }
 
 /** @experimental */
-export interface ResearchLoopResult {
+interface ResearchLoopResult {
   /** Facts that passed the fail-closed gate — safe to write to the KB. */
   accepted: FactCandidate[]
   /** Facts the gate vetoed in the final round — escalate, do not silently drop. */
@@ -219,7 +219,7 @@ export interface ResearchLoopResult {
 }
 
 /** @experimental Options for the default `research` runner. */
-export interface ResearchLoopRunnerOptions {
+interface ResearchLoopRunnerOptions {
   /**
    * The research engine (the consumer's web/doc searcher + extractor). Called
    * each round with the prior round's vetoes so it can re-research the gaps.

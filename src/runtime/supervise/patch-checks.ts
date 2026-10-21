@@ -43,7 +43,7 @@ export interface CoderCheckConstraints {
 
 /** The unified-diff paths the patch touches — the `+++`/`---` headers, de-`a/`/`b/`-prefixed,
  *  with `/dev/null` (a delete's other side) dropped. */
-export function touchedPathsFromPatch(patch: string): string[] {
+function touchedPathsFromPatch(patch: string): string[] {
   const out = new Set<string>()
   for (const line of patch.split(/\r?\n/)) {
     if (line.startsWith('+++ ') || line.startsWith('--- ')) {
@@ -57,7 +57,7 @@ export function touchedPathsFromPatch(patch: string): string[] {
 }
 
 /** Count the added/removed content lines in a unified diff (excludes the `+++`/`---` headers). */
-export function countDiffLines(patch: string): number {
+function countDiffLines(patch: string): number {
   let count = 0
   for (const line of patch.split(/\r?\n/)) {
     if (

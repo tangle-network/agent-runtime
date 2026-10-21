@@ -40,7 +40,7 @@ import { buildMethodEvaluationIdentity, type MethodEvaluationIdentity } from './
 import { createProfileCandidateMaterializer, prepareProfileSurface } from './profile-surface'
 
 /** The options both improvement paths read before they diverge. */
-export type ProfileImprovementInput<TScenario extends Scenario, TArtifact> = Pick<
+type ProfileImprovementInput<TScenario extends Scenario, TArtifact> = Pick<
   ImproveMethodOptions<TScenario, TArtifact>,
   | 'surface'
   | 'executionRef'

@@ -14,11 +14,9 @@
 import { sleep } from './util'
 
 /** Text read from the box, or the last error after every attempt failed. */
-export type BoxReadAttemptResult =
-  | { succeeded: true; text: string }
-  | { succeeded: false; error: unknown }
+type BoxReadAttemptResult = { succeeded: true; text: string } | { succeeded: false; error: unknown }
 
-export interface BoxReadRetryOptions {
+interface BoxReadRetryOptions {
   /** Total read attempts, including the first. Values below 1 are treated as 1. */
   attempts: number
   /** Linear backoff base in ms; the i-th retry waits `delayMs × i`. 0 disables the wait. */

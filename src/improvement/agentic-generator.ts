@@ -70,7 +70,6 @@ import {
 import { createExecutor, type ExecutorConfig } from '../runtime/supervise/runtime'
 import { detachedSnapshot } from '../runtime/supervise/snapshot'
 import type { CandidateGenerator } from './improvement-driver'
-import { optimizerMethod } from './optimizer-prompt'
 import { restoreWorktreeTree, snapshotWorktreeTree, worktreeChangedPaths } from './worktree-tree'
 
 const RAW_TRACE_ANALYST_ID = 'raw-trace-distiller'
@@ -750,43 +749,6 @@ function promptCacheReadTokens(usage: AgentTurnUsage): number | undefined {
     if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
   }
   return undefined
-}
-
-/** Turn proposal findings into a concrete coder task —
- *  the senior scientific-method framing shared with the tool/MCP build prompts. */
-export function defaultBuildPrompt(args: { findings: ReadonlyArray<ProposalFinding> }): string {
-  const lines: string[] = [
-    'You are improving this codebase based on an evaluation analysis: real runs failed, an',
-    'analyst distilled the findings below, and your change will be measured on held-out tasks',
-    'against the unchanged baseline — only a real lift promotes it.',
-    '',
-    optimizerMethod,
-    '',
-    'THE SURFACE — what a deliverable change looks like here:',
-    '- edit this codebase in place: the smallest coherent change set that fully tests your',
-    '  hypothesis about the dominant failure mode (see the method above — no unrelated edits,',
-    '  they confound the measurement),',
-    '- keep the diff reviewable: a reviewer should be able to trace every hunk back to a finding,',
-    '- do not commit — leave changes in the working tree.',
-    '',
-    'FINDINGS — ranked evidence from real failed runs:',
-  ]
-  for (const f of args.findings) {
-    const where = f.subject ? ` [${f.subject}]` : ''
-    lines.push(`- (${f.severity})${where} ${f.claim}`)
-    if (f.recommended_action) lines.push(`    → ${f.recommended_action}`)
-  }
-  if (requiresRawTraceEvidence(args.findings)) {
-    lines.push(
-      '',
-      'Raw trace evidence requirement:',
-      `- Inspect at least one raw trace path named above before editing.`,
-      `- Write ${RAW_TRACE_DIAGNOSIS_PATH} in this worktree.`,
-      '- Include the exact trace path(s) inspected, the failure mechanism, and the code change made.',
-      '- A candidate without this file, or with only this file changed, is discarded.',
-    )
-  }
-  return lines.join('\n')
 }
 
 const EMPTY_TREE_NOTE =

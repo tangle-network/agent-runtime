@@ -22,7 +22,7 @@
 import { ValidationError } from '../errors'
 import type { McpListedTool, StdioMcpConnection } from './stdio-mcp-client'
 
-export const HTTP_MCP_PROTOCOL_VERSION = '2025-06-18'
+const HTTP_MCP_PROTOCOL_VERSION = '2025-06-18'
 
 export interface HttpMcpServerSpec {
   /** The MCP endpoint URL, e.g. `https://host/mcp`. */
@@ -38,7 +38,7 @@ export interface HttpMcpServerSpec {
   fetchImpl?: typeof fetch
 }
 
-export type HttpMcpConnection = StdioMcpConnection
+type HttpMcpConnection = StdioMcpConnection
 
 /** A remote MCP endpoint refused the connection before the handshake completed. */
 export class McpConnectFault extends Error {

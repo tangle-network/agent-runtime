@@ -26,7 +26,7 @@ export interface ProtectedTraceIdentity {
   readonly tags: Readonly<Record<string, string>>
 }
 
-export interface ProtectedRecordRedactor {
+interface ProtectedRecordRedactor {
   record<T>(value: T): T
   query<T>(value: T): T
   identifier(value: string): string
@@ -115,10 +115,7 @@ export function redactProtectedReason(reason: string, protectedValues: readonly 
   }
 }
 
-export function assertNoProtectedEvidence(
-  value: unknown,
-  protectedValues: readonly string[],
-): void {
+function assertNoProtectedEvidence(value: unknown, protectedValues: readonly string[]): void {
   if (value instanceof Uint8Array) {
     assertNoProtectedBytes(value, protectedValues)
     return

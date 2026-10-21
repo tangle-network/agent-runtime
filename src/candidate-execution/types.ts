@@ -226,7 +226,7 @@ export type AgentCandidateProtectedModelSettlementCall = AgentCandidateModelSett
   accountedInputTokens: number
 }
 
-export interface AgentCandidateMemoryResetResult {
+interface AgentCandidateMemoryResetResult {
   preparationId: string
   accessDigest: Sha256Digest
   expiresAtMs: number
@@ -374,8 +374,6 @@ export interface PreparedAgentCandidateExecution {
   readonly memory: AgentCandidateEffectiveMemory
   readonly [preparedCandidateBrand]: true
 }
-
-export type { AgentCandidateBenchmarkGraderIdentity } from '@tangle-network/agent-interface'
 
 export interface AgentCandidateProtectedRunCapture {
   executionId: string

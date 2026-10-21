@@ -81,7 +81,7 @@ export interface DriveTurnCapableBox {
  *
  * @experimental
  */
-export interface DetachedSessionRefParts {
+interface DetachedSessionRefParts {
   sessionId: string
   sandboxId?: string
 }
@@ -164,7 +164,7 @@ export function detachedTurnEvents(sessionId: string, turn: DetachedTurn): Sandb
 }
 
 /** @experimental */
-export interface RunDetachedTurnOptions {
+interface RunDetachedTurnOptions {
   /** Sandbox client used to acquire the box (the delegate's executor client). */
   client: SandboxClient
   /** Profile + overrides for box acquisition — same spec the streaming path uses. */
@@ -366,7 +366,7 @@ function detachedRunningPhase(elapsedMs: number | undefined): string {
 }
 
 /** @experimental */
-export interface DetachedTurnResumeDriverOptions {
+interface DetachedTurnResumeDriverOptions {
   /**
    * Resolve the live box owning a detached session. The bin wires this to the
    * sandbox client's `get(sandboxId)`; throw when the box no longer exists —

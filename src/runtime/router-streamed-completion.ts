@@ -25,7 +25,7 @@ interface StreamingToolCall {
 }
 
 /** One streamed completion, reassembled but not yet metered. */
-export interface StreamedCompletion {
+interface StreamedCompletion {
   /** Visible answer with any inline `<think>` block split into `reasoning`. */
   content: string
   /** Whether any `delta.content` string arrived, including an empty one. */

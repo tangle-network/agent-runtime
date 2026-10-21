@@ -42,17 +42,9 @@ export interface TopSnapshot {
 
 export type TopSnapshotCompleteness = 'complete' | 'partial'
 
-export type TopSnapshotDiagnosticSource =
-  | 'supervisor-state'
-  | 'journal'
-  | 'progress'
-  | 'worker-tail'
+type TopSnapshotDiagnosticSource = 'supervisor-state' | 'journal' | 'progress' | 'worker-tail'
 
-export type TopSnapshotDiagnosticReason =
-  | 'unreadable'
-  | 'partial-json'
-  | 'invalid-state'
-  | 'missing'
+type TopSnapshotDiagnosticReason = 'unreadable' | 'partial-json' | 'invalid-state' | 'missing'
 
 /**
  * One skipped or partially read snapshot source. `path` is relative to the run directory and
@@ -65,7 +57,7 @@ export interface TopSnapshotDiagnostic {
   readonly reason: TopSnapshotDiagnosticReason
 }
 
-export interface SupervisorBase {
+interface SupervisorBase {
   readonly id: string
   readonly status: string
   readonly task: string
@@ -132,7 +124,7 @@ export interface SupervisorTotals {
   readonly workerLatency: Distribution
 }
 
-export interface Distribution {
+interface Distribution {
   readonly n: number
   readonly min: number
   readonly median: number

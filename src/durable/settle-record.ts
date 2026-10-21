@@ -36,7 +36,7 @@ export const SETTLE_RECORD_FILE = 'result.json'
 export const FAILURE_RECORD_FILE = 'failure.json'
 
 /** What `failure.json` records about the most recent throw. */
-export interface DurableFailureRecord {
+interface DurableFailureRecord {
   readonly runId: string
   readonly pursuitId: string
   /** ISO instant the throw was recorded. */
@@ -66,7 +66,7 @@ export class SettledRunDirectoryError extends Error {
 }
 
 /** A result member whose JSON form would misstate it. */
-export class UnrecordableSettleValueError extends TypeError {
+class UnrecordableSettleValueError extends TypeError {
   readonly path: string
 
   constructor(path: string, kind: string) {

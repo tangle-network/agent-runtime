@@ -7,7 +7,7 @@ import type { NextPursuitVersion } from './pursuit-versions'
 
 /** Where `'review-of-best'` mounts a review: `inputs/review/version-<n>.md`. One review lives in
  *  a profile at a time. */
-export const REVIEW_DIR = 'inputs/review/'
+const REVIEW_DIR = 'inputs/review/'
 
 /**
  * `'review-of-best'`: fork from the kept version with its check's verdict mounted under

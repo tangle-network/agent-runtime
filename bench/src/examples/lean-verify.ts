@@ -24,7 +24,7 @@ const IMAGE = process.env.LEAN_IMAGE ?? 'agent-runtime-lean-verify:local'
 /** A proof that reaches acceptance via an unchecked escape is not a proof — reject it. */
 const TRUST_ESCAPE = /\b(sorry|admit|sorryAx|native_decide)\b/
 
-export interface LeanResult {
+interface LeanResult {
   /** Lean accepted the proof AND it used no trust-escape. */
   readonly passed: boolean
   /** Lean's compiler output on failure — feed this back to the prover verbatim. */

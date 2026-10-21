@@ -29,14 +29,14 @@ import type { RouterResponseReceipt } from '../router-http-transport'
 import type { ToolLoopMessageRecord, ToolLoopToolCall } from '../tool-loop'
 
 /** The harness name a router-brained agent's transcript carries. */
-export const ROUTER_TRANSCRIPT_HARNESS = 'router'
+const ROUTER_TRANSCRIPT_HARNESS = 'router'
 
 /**
  * The most bytes of one message's `content` a turn event carries. A longer content is cut, and
  * the message says so with its full length, so a reader never takes a cut message for the whole.
  * The settled transcript keeps the full content, within the bounds of `harnessTranscriptFromLines`.
  */
-export const TURN_CONTENT_BYTES = 256 * 1024
+const TURN_CONTENT_BYTES = 256 * 1024
 
 /** What the brain returned for one turn, as the recorder keeps it. */
 export interface RouterTranscriptReply {

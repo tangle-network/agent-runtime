@@ -25,7 +25,7 @@ import {
   isAgentProfileMeasuredSurface,
 } from './improvement-surfaces'
 
-export type AgentImprovementProfileActivationTarget = Omit<
+type AgentImprovementProfileActivationTarget = Omit<
   AgentImprovementActivationTargetPlan,
   'surface'
 > & {
@@ -39,17 +39,16 @@ type AgentProfileImprovementTransitionTarget = Omit<
   surface: AgentProfileMeasuredSurface
 }
 
-export type AgentImprovementProfileTargetState = Omit<
-  AgentImprovementActivationTargetState,
-  'surface'
-> & { surface: AgentProfileMeasuredSurface }
+type AgentImprovementProfileTargetState = Omit<AgentImprovementActivationTargetState, 'surface'> & {
+  surface: AgentProfileMeasuredSurface
+}
 
-export type AgentImprovementProfileTargetTransition = Omit<
+type AgentImprovementProfileTargetTransition = Omit<
   AgentImprovementActivationTargetTransition,
   'surface'
 > & { surface: AgentProfileMeasuredSurface }
 
-export interface AgentImprovementProfileReplacement {
+interface AgentImprovementProfileReplacement {
   identity: string
   profile: AgentProfile
 }
@@ -64,7 +63,7 @@ export type AgentImprovementProfileStateDigest = (
   input: AgentImprovementProfileStateDigestInput,
 ) => Sha256Digest
 
-export interface AgentImprovementProfileStateResolverInput {
+interface AgentImprovementProfileStateResolverInput {
   identity: string
   stateDigest: Sha256Digest
 }
@@ -74,7 +73,7 @@ export type AgentImprovementProfileStateResolver = (
   input: AgentImprovementProfileStateResolverInput,
 ) => AgentProfile | undefined
 
-export type AgentImprovementProfileActivationInput =
+type AgentImprovementProfileActivationInput =
   | {
       currentByIdentity: ReadonlyMap<string, AgentProfile>
       targets: readonly [
@@ -89,7 +88,7 @@ export type AgentImprovementProfileActivationInput =
       resolveState?: AgentImprovementProfileStateResolver
     }
 
-export type AgentImprovementProfileActivationPreparation =
+type AgentImprovementProfileActivationPreparation =
   | {
       status: 'missing'
       identities: readonly string[]

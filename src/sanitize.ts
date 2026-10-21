@@ -52,7 +52,7 @@ export interface RuntimeTelemetryOptions {
 }
 
 /** @stable */
-export interface SanitizedKnowledgeRequirement {
+interface SanitizedKnowledgeRequirement {
   id: string
   description?: string
   requiredFor: string[]
@@ -526,7 +526,7 @@ function pickPublicStreamFields(event: RuntimeStreamEvent): Record<string, unkno
 }
 
 /** @stable */
-export interface RuntimeEventCollector<
+interface RuntimeEventCollector<
   TState = unknown,
   TAction = unknown,
   TActionResult = unknown,

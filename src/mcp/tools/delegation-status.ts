@@ -74,7 +74,7 @@ export function validateDelegationStatusArgs(raw: unknown): DelegationStatusArgs
 }
 
 /** @stable */
-export interface DelegationStatusHandlerOptions {
+interface DelegationStatusHandlerOptions {
   queue: DelegationTaskQueue
 }
 

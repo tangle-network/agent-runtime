@@ -58,7 +58,7 @@ export function candidateMaterializerHarness(harness: HarnessType): HarnessId {
 }
 
 /** Runtime applies the materializer's launch flags to the candidate process. */
-export const CANDIDATE_PROFILE_MATERIALIZER_BINDS = ['systemPrompt'] as const
+const CANDIDATE_PROFILE_MATERIALIZER_BINDS = ['systemPrompt'] as const
 export const PI_CANDIDATE_AGENT_DIR_ENV = 'PI_CODING_AGENT_DIR'
 export const PI_CANDIDATE_SESSION_DIR_ENV = 'PI_CODING_AGENT_SESSION_DIR'
 

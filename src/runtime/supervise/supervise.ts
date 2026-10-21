@@ -72,9 +72,5 @@ export type {
 } from './supervise-options'
 export { DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY } from './supervise-profile-admission'
 export type { SuperviseRegistry, SuperviseRegistryTable } from './supervise-registry'
-export {
-  profileGuidanceComposer,
-  rootSpawnResourceRoot,
-  superviseRootProfile,
-} from './supervise-root-profile'
+export { profileGuidanceComposer, superviseRootProfile } from './supervise-root-profile'
 export { workerFromBackend } from './supervise-worker-backend'

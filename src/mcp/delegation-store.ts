@@ -98,7 +98,7 @@ export class InMemoryDelegationStore implements DelegationStore {
 }
 
 /** @stable */
-export interface FileDelegationStoreOptions {
+interface FileDelegationStoreOptions {
   /** Absolute path of the JSON state file. Parent directories are created on first write. */
   filePath: string
   /**

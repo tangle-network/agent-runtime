@@ -110,7 +110,7 @@ export type PullOutcome =
   | { succeeded: true; value: CertifiedProfile }
   | { succeeded: false; error: string; status?: number }
 
-export interface PullCertifiedOptions {
+interface PullCertifiedOptions {
   /** The agent target certified artifacts are promoted under. */
   target: string
   /** Bearer key. Defaults to `process.env.TANGLE_API_KEY`. */
@@ -128,10 +128,10 @@ export interface PullCertifiedOptions {
  * `not-sent` means no request began, `rejected` means Intelligence returned a
  * definitive 4xx response, and `unconfirmed` means the caller may safely retry
  * the same immutable proposal. */
-export type AgentImprovementProposalSubmissionState = 'not-sent' | 'rejected' | 'unconfirmed'
+type AgentImprovementProposalSubmissionState = 'not-sent' | 'rejected' | 'unconfirmed'
 
 /** Submit a completed measured proposal for product-side review. */
-export interface SubmitAgentImprovementProposalOptions {
+interface SubmitAgentImprovementProposalOptions {
   proposal: AgentImprovementProposal
   /** Bearer key. Defaults to `process.env.TANGLE_API_KEY`. */
   apiKey?: string
@@ -146,7 +146,7 @@ export interface SubmitAgentImprovementProposalOptions {
 
 /** Typed result for proposal submission. A successful result contains the
  * exact immutable proposal Intelligence recorded. */
-export type SubmitAgentImprovementProposalOutcome =
+type SubmitAgentImprovementProposalOutcome =
   | { succeeded: true; value: AgentImprovementProposal; status: number }
   | {
       succeeded: false
@@ -252,7 +252,7 @@ function toDiffProvenance(value: unknown): DiffProvenance {
  * here so they round-trip to the consumer; a plane that has not yet promoted any
  * diffs simply yields empty arrays / a null profile (fail-closed, never a crash).
  */
-export function normalizeCertifiedProfile(raw: unknown): CertifiedProfile {
+function normalizeCertifiedProfile(raw: unknown): CertifiedProfile {
   const r = asRecord(raw)
   const promptSurface = r.promptSurface ? (r.promptSurface as CertifiedPromptSurface) : null
   const artifacts = (r.artifacts as Record<string, CertifiedArtifact[]> | undefined) ?? {}
@@ -407,7 +407,7 @@ export async function submitAgentImprovementProposal(
  *  is delivered here so it actually reaches the agent — never bucketed into a
  *  type the fold then silently skips. The resolver reuses this exact set so its
  *  `promptAdditions` slot matches the folded prompt byte-for-byte. */
-export const promptFoldTypes = ['prompt-surface', 'skill', 'instructions'] as const
+const promptFoldTypes = ['prompt-surface', 'skill', 'instructions'] as const
 
 /**
  * Fold the certified prompt surface (and any certified prompt-folding artifacts:

@@ -50,7 +50,7 @@ export interface HubIntegrationClient {
   exec(input: { path: string; input?: unknown; connectionId?: string }): Promise<unknown>
 }
 
-export interface HubIntegrationToolsOptions {
+interface HubIntegrationToolsOptions {
   client: HubIntegrationClient
   /** Provider kinds to expose. Defaults to `HUB_DATA_PROVIDER_KINDS`. */
   providers?: readonly string[]
@@ -158,7 +158,7 @@ export async function hubIntegrationTools(
   })
 }
 
-export interface CreateHubIntegrationToolServerOptions extends HubIntegrationToolsOptions {
+interface CreateHubIntegrationToolServerOptions extends HubIntegrationToolsOptions {
   /** Server display name surfaced via `initialize`. Default 'agent-hub-integrations'. */
   serverName?: string
   /** Server version surfaced via `initialize`. Default '0'. */

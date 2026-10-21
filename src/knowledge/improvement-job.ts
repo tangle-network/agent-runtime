@@ -38,7 +38,7 @@ import {
   type SupervisedKnowledgeUpdateOptions,
 } from './supervised-update'
 
-export interface RunKnowledgeImprovementJobOptions
+interface RunKnowledgeImprovementJobOptions
   extends Omit<KnowledgeImprovementOptions, 'updateKnowledge'> {
   budget: Budget
   readinessCheck?: KnowledgeReadinessCheck
@@ -61,7 +61,7 @@ export interface RunKnowledgeImprovementJobOptions
   onMeasurement?: (measurement: KnowledgeImprovementJobMeasurement) => Promise<void> | void
 }
 
-export interface KnowledgeImprovementJobMeasurement {
+interface KnowledgeImprovementJobMeasurement {
   startedAt: string
   finishedAt: string
   durationMs: number
@@ -77,14 +77,14 @@ export interface KnowledgeImprovementJobMeasurement {
   }
 }
 
-export interface KnowledgeImprovementJobResult {
+interface KnowledgeImprovementJobResult {
   improvement: KnowledgeImprovementResult
   knowledge?: KnowledgeImprovementCandidatePair
   measurement: KnowledgeImprovementJobMeasurement
   blocked: boolean
 }
 
-export interface KnowledgeImprovementCandidatePair {
+interface KnowledgeImprovementCandidatePair {
   reference: AgentCandidateKnowledge['candidate']
   stateScope?: AgentCandidateKnowledge['stateScope']
   evaluation: AgentCandidateCapturedArtifact
@@ -92,12 +92,12 @@ export interface KnowledgeImprovementCandidatePair {
   candidate: AgentCandidateKnowledge['snapshot']
 }
 
-export interface KnowledgeImprovementExperimentBundles {
+interface KnowledgeImprovementExperimentBundles {
   baseline: AgentCandidateBundle
   candidate: AgentCandidateBundle
 }
 
-export interface AgentKnowledgeReadinessCheckOptions {
+interface AgentKnowledgeReadinessCheckOptions {
   goal: string
   readinessSpecs?: readonly KnowledgeReadinessSpec[]
   readinessTaskId?: string
@@ -107,7 +107,7 @@ export interface AgentKnowledgeReadinessCheckOptions {
 }
 
 /** Build the default readiness check backed by `@tangle-network/agent-knowledge` validation and scoring. */
-export function createAgentKnowledgeReadinessCheck(
+function createAgentKnowledgeReadinessCheck(
   options: AgentKnowledgeReadinessCheckOptions,
 ): KnowledgeReadinessCheck {
   return async (input): Promise<KnowledgeReadinessCheckResult> => {

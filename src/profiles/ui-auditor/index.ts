@@ -7,17 +7,5 @@
 
 export { buildAuditorSystemPrompt, LENS_BRIEFS, SHARED_AUDITOR_RULES } from './lens-prompts'
 export { parseAuditorEvents } from './output-adapter'
-export type {
-  UiFinding,
-  UiFindingScreenshot,
-  UiFindingSeverity,
-  UiLens,
-} from './substrate'
-export { UI_FINDING_SEVERITIES, UI_LENSES } from './substrate'
-export type {
-  UiAuditCapture,
-  UiAuditCaptureRequest,
-  UiAuditOutput,
-  UiAuditTask,
-  UiAuditViewport,
-} from './task'
+export type { UiFinding, UiLens } from './substrate'
+export type { UiAuditCapture, UiAuditCaptureRequest, UiAuditTask } from './task'

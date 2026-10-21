@@ -282,7 +282,6 @@ for (const n of exportsFromDts(
 for (const f of [
   'bench/src/adapters.ts',
   'bench/src/gate.ts',
-  'bench/src/stats.mts',
   'bench/src/benchmarks/types.ts',
   'bench/src/index.ts',
 ]) {

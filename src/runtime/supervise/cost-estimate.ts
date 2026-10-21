@@ -10,7 +10,7 @@
 import { priceTokens } from '../../pricing/router-prices'
 import type { UsageEvent } from './types'
 
-export interface UnreceiptedWork {
+interface UnreceiptedWork {
   /** The provider's whole prompt total for this work, cache reads and writes included. */
   inputTokens: number
   outputTokens: number

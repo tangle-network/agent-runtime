@@ -28,7 +28,7 @@ import {
 export const HARNESS_MEMORY_BEGIN =
   '<!-- workspace-store:memory begin. Generated from the workspace store; save memories with memory.remember. -->'
 /** Closing marker for the generated block in a harness's native memory file. */
-export const HARNESS_MEMORY_END = '<!-- workspace-store:memory end -->'
+const HARNESS_MEMORY_END = '<!-- workspace-store:memory end -->'
 
 /** The generated block a host writes into a harness's native memory location. */
 export function renderHarnessMemory(
@@ -80,7 +80,7 @@ function projectedIds(block: string): Map<string, string> {
 export type HarnessNativeFiles = Readonly<Record<string, string | undefined>>
 
 /** Lowercase, collapse spaces, drop a leading "Remember:" and trailing punctuation: the duplicate key. */
-export function normalizeMemoryText(text: string): string {
+function normalizeMemoryText(text: string): string {
   return text
     .replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)?/, '')
     .replace(/^(?:remember|note)\b\s*(?:that\b)?\s*:?\s*/i, '')
@@ -145,7 +145,7 @@ function outside(native: string): string {
 }
 
 /** Where a captured memory came from. */
-export interface HarnessProvenance {
+interface HarnessProvenance {
   readonly harness: string
   readonly turnId: string
   readonly memberId: string
@@ -154,7 +154,7 @@ export interface HarnessProvenance {
 const ACTOR = /^harness:([a-z0-9][a-z0-9._-]{0,40})\/turn:([^/\s]{1,128})\/member:([^/\s]{1,128})$/
 
 /** The entry `actor` for a captured memory, so `createdBy` carries its provenance. */
-export function harnessActor({ harness, turnId, memberId }: HarnessProvenance): string {
+function harnessActor({ harness, turnId, memberId }: HarnessProvenance): string {
   const actor = `harness:${harness}/turn:${turnId}/member:${memberId}`
   if (!ACTOR.test(actor)) throw new TypeError(`invalid harness provenance: ${actor}`)
   return actor
@@ -166,7 +166,7 @@ export function parseHarnessActor(actor: string): HarnessProvenance | null {
   return match ? { harness: match[1]!, turnId: match[2]!, memberId: match[3]! } : null
 }
 
-export interface HarnessIngestResult {
+interface HarnessIngestResult {
   readonly saved: WorkspaceEntry[]
   /** Facts already in the store, by normalized text. */
   readonly duplicates: string[]
@@ -230,7 +230,7 @@ export async function ingestHarnessMemories(
   return { saved, duplicates, refused }
 }
 
-export interface MemoryDivergence {
+interface MemoryDivergence {
   /** Sum of the counts below; 0 means every native copy agrees with the store. */
   readonly total: number
   /** Store memories the turn sees that a native file's generated block omits. */

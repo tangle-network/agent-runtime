@@ -256,7 +256,7 @@ export interface DriverContinuationPolicy {
  * A turn that ends with work open is a wait, not a completion. Runtime blocks with no model turn
  * until something happens, then enters the same driver again with what happened.
  */
-export interface DriverWaitPolicy {
+interface DriverWaitPolicy {
   /** True while the manager has work it must hear back about. */
   readonly open: () => boolean
   /** Wait for the next wake of `attempt`; the wake input, or undefined when nothing is open. */
@@ -265,7 +265,7 @@ export interface DriverWaitPolicy {
   ) => Promise<{ readonly input: string; readonly idleMs: number } | undefined>
 }
 
-export interface DriverRetryRun {
+interface DriverRetryRun {
   /** Run one attempt. Rejects exactly as the un-retried driver would. `reentry` is present on
    *  every attempt after the first, and on the first one of a re-entered run; see
    *  {@link DriverReentry}. */
@@ -357,10 +357,7 @@ const SAME_PENDING_LIMIT = 2
 const SAME_PARTIAL_FAILURE_LIMIT = 2
 
 /** The budget's own verdict on whether another attempt may run at all. */
-export function budgetStop(
-  budget: DriverBudgetReadout,
-  atMs: number,
-): DriverAttemptStop | undefined {
+function budgetStop(budget: DriverBudgetReadout, atMs: number): DriverAttemptStop | undefined {
   if (budget.deadlineMs > 0 && atMs >= budget.deadlineMs) return 'deadline'
   if (budget.tokensLeft <= 0 || budget.iterationsLeft <= 0) return 'budget-exhausted'
   if (budget.usdCapped && budget.usdLeft <= 0) return 'budget-exhausted'
