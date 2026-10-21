@@ -162,8 +162,9 @@ describe('known defect: 2026-09-16 re-entry lost the director state (non-retaine
     graph.nodes[0] = { id: 'conductor', profile: rootProfile }
     const res = await runGraph(graph, {
       runId: 'reentry-contract',
-      // One continuation; the second barren turn ends the loop.
-      continuation: testContinuation({ maxBarren: 1 }),
+      // One continuation; the second barren turn pauses until the continuation deadline, which
+      // ends the loop.
+      continuation: testContinuation({ maxBarren: 1, deadline: Date.now() + 10_000 }),
       workerSlots: 3,
       maxTurns: 8,
       perWorker: { maxIterations: 20, maxTokens: 100_000 },
@@ -172,7 +173,7 @@ describe('known defect: 2026-09-16 re-entry lost the director state (non-retaine
         throw new Error('the unmet-contract drive never spawns in this case')
       },
     })
-    // The run completes (undelivered) after exhausting its one re-prompt.
+    // The run completes (undelivered) at the continuation deadline.
     expect(res.result.kind).toBe('no-winner')
     expect(tasks.length).toBe(2)
 

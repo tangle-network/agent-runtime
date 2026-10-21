@@ -24,8 +24,8 @@ export function createAuditTools({
         'The coordinator calls that tool again, with those arguments, under your identity.',
         'When the call succeeds you are not blocked: the reply carries its result, and you continue.',
         'When it fails again, the record keeps both errors and the run goes on: work around the tool,',
-        'or end your turn and be woken later. A blocked tool never ends the run; turns that end',
-        "without progress end it at the run's no-progress bound.",
+        'or end your turn and be woken later. A blocked tool never ends the run; turns in a row',
+        'that end without progress make Runtime wait longer before each next turn.',
         'submit_result, stop and report_blocked cannot be probed.',
       ].join(' '),
       inputSchema: {
@@ -113,8 +113,8 @@ export function createAuditTools({
           guidance:
             'The call failed when the coordinator made it too, and the record keeps both errors. ' +
             'The run does not end on a blocked tool. Continue with the work that does not need it, ' +
-            'or end your turn: you will be woken, and the tool may work then. Turns that end ' +
-            'without progress end the run at its no-progress bound.',
+            'or end your turn: you will be woken, and the tool may work then. Turns in a row that ' +
+            'end without progress make Runtime wait longer before each next turn.',
         }
       },
     },

@@ -89,8 +89,10 @@ describe('continuation instructions agree with the served coordination capabilit
           describe: 'Outside assessment remains pending; preserve the output packet.',
           check: () => false,
         },
+        // A barren streak only pauses the run; the continuation deadline ends it.
         continuation: testContinuation({
           maxBarren: 2,
+          deadline: Date.now() + 8_000,
           profile: {
             id: 'outside-assessment-capability-control',
             opening: 'Outside assessment remains pending. The retained contract is {owed}',

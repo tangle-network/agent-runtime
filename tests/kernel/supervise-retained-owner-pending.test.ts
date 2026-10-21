@@ -95,6 +95,9 @@ interface Fixture {
   readonly queuedWakesOnFirstResult?: boolean
   /** The successful dispatch on which the director submits. */
   readonly submitOn: number
+  /** Milliseconds from now to the continuation deadline, for a director that never submits: a
+   *  barren streak only pauses the run, and this deadline ends it. Default one hour. */
+  readonly continuationDeadlineMs?: number
   /** Delay each source lookup between the first failed capture and its recovery. */
   readonly slowSourceLookupMs?: number
   /** The retention port's bound; 5 s unless a slow lookup needs more. */
@@ -422,7 +425,10 @@ async function superviseRoot(fixture: Fixture) {
         unavailablePauseMs: 1,
         maxUnavailablePauseMs: 1,
       },
-      continuation: testContinuation({ maxBarren: 3 }),
+      continuation: testContinuation({
+        maxBarren: 3,
+        deadline: Date.now() + (fixture.continuationDeadlineMs ?? 3_600_000),
+      }),
       retainedAtSettlement: 'release',
       teardownConfirmMs: 0,
       deliverable: {
@@ -698,6 +704,7 @@ describe('supervised root with a pending retained turn', () => {
     const run = await superviseRoot({
       queuedWakesOnFirstResult: true,
       submitOn: Number.POSITIVE_INFINITY,
+      continuationDeadlineMs: 8_000,
     })
     expect(run.dispatched.length).toBeGreaterThanOrEqual(2)
     expect(run.steerRecorded).toBe(true)

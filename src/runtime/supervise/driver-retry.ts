@@ -54,21 +54,26 @@
  * the drive harness's fact, and the caller composes the re-entry task from it (see
  * `./reentry.ts`). A continuation re-enters the same session only on a backend that proves it.
  *
- * Progress bounds the continuations, and nothing else counts them. The same delivery reading that
- * resets the barren failure counter decides whether a continued drive earned another:
- * `continuation.maxBarren` consecutive re-entered drives that completed without progress end the
- * loop with `repromptRefusedBy: 'no-progress'`. Progress is a delivery or a rise in the check's
- * best composite. There is no count cap and no caller veto: the old prompt-owned loop logged 896
- * of 1,011 rounds with no progress, and 650 recorded inputs chose seven different re-prompt counts.
+ * Progress paces the continuations, and nothing else counts them. The same delivery reading that
+ * resets the barren failure counter decides how soon a continued drive is re-entered: once
+ * `continuation.maxBarren` re-entered drives in a row complete without progress, the loop PAUSES
+ * before each further continuation, 5 minutes and doubling per barren drive up to 60, journals one
+ * `barren-pause` row per pause for an operator alarm, and re-enters. A barren streak never ends the
+ * run: the check, the deadline, the budget and cancellation do. Progress is a delivery or a rise
+ * in the check's best composite, and it resets the streak and the backoff. There is no count cap
+ * and no caller veto: the old prompt-owned loop logged 896 of 1,011 rounds with no progress, and
+ * 650 recorded inputs chose seven different re-prompt counts. Measured 2026-10-21 on
+ * magnetar-rust-20261021a: the barren bound settled a 48-hour run `no-winner` after 14.3 hours,
+ * while its last two turns updated its pages and waited on its own 2^20 prove.
  *
  * A RE-ENTERED run is one this process resumed after an earlier process drove it, usually one
  * that stopped without settling it. Its first drive is entered as `run-reentered` with the
  * workers that were open, and a drive counts toward `maxBarren` only if it began after the root
  * streamed a model event in this process: the drive that straddles the restart never counts, and
- * a root that speaks and then stays barren is refused as any other. Measured 2026-10-19 on
+ * a root that speaks and then stays barren is paced as any other. Measured 2026-10-19 on
  * magnetar-rust-20261019f: after a host reboot the re-entered root was first driven with the
  * bare original task and no word of its three open workers, two barren continuations followed,
- * and the run settled `no-result-selected`.
+ * and the barren bound of the time settled the run `no-result-selected`.
  *
  * A THIRD CLASS sits between the two: the upstream said "not now". A model provider's exhausted
  * quota, a rate limit, or an overloaded service (HTTP 429, 503, 529, or the router's own codes for
@@ -196,6 +201,9 @@ export type DriverReentry =
       readonly steer: string
       /** 1-based: which continuation this is. */
       readonly continuation: number
+      /** Present when the barren streak had reached `maxBarren` and the loop paused before this
+       *  re-entry: the re-entered drives in a row that delivered nothing, and the pause. */
+      readonly barren?: { readonly streak: number; readonly pausedMs: number }
     }
   | {
       readonly reason: 'driver-failure'
@@ -235,13 +243,28 @@ export type DriverReentry =
       readonly replaced: ReadonlyArray<string>
     }
 
+/** One pause before a continuation, taken because the barren streak reached `maxBarren`. */
+interface DriverBarrenPause {
+  /** The completed attempt the pause follows, 1-based. */
+  readonly attempt: number
+  /** Re-entered drives in a row, that attempt included, that completed without progress. */
+  readonly streak: number
+  readonly pauseMs: number
+  /** ISO 8601: when the next drive may start. */
+  readonly resumeAt: string
+  /** ISO 8601: when the last attempt that made progress ended, or when this loop began if none
+   *  has. */
+  readonly lastProgressAt: string
+}
+
 /**
  * How a completed drive with its check unmet is re-entered. Runtime builds it from the manager's
  * `ContinuationPolicy`; nothing here is a product hook, so no caller can veto a continuation or
  * replace Runtime's note.
  */
 export interface DriverContinuationPolicy {
-  /** Re-entered drives in a row that may complete without progress. Minimum 1. */
+  /** Re-entered drives in a row that may complete without progress before each further
+   *  continuation waits {@link barrenPauseMs}. Minimum 1. */
   readonly maxBarren: number
   /** Epoch ms at or after which no continuation starts. */
   readonly deadlineMs: number
@@ -295,6 +318,8 @@ interface DriverRetryRun {
   /** How a completed drive that left work open waits. Omit = a completed drive is the end. */
   readonly wait?: DriverWaitPolicy
   readonly onAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
+  /** Called as a barren pause begins, before the loop sleeps through it. */
+  readonly onBarrenPause?: (pause: DriverBarrenPause) => void | Promise<void>
   /**
    * Abandon the unfinished retained invocation a failed drive left pending, and answer whether
    * it was abandoned. The loop asks when the same invocation failed reconciliation with the same
@@ -323,6 +348,20 @@ const DEFAULT_INITIAL_BACKOFF_MS = 2_000
 const DEFAULT_MAX_BACKOFF_MS = 30_000
 
 const DEFAULT_TRANSIENT_OUTAGE_MS = 900_000
+
+const BARREN_PAUSE_FIRST_MS = 5 * 60_000
+
+const BARREN_PAUSE_MAX_MS = 60 * 60_000
+
+/**
+ * The pause before a continuation once `streak` re-entered drives in a row have completed without
+ * progress: 5 minutes at `maxBarren`, doubling per further barren drive, 60 minutes at most.
+ * Derived from the streak alone, so a progress reading resets the backoff with the streak. Not
+ * jittered: a barren streak is one root's, not an outage that cut many drivers off together.
+ */
+function barrenPauseMs(streak: number, maxBarren: number): number {
+  return cappedDoublingMs(streak - maxBarren + 1, BARREN_PAUSE_FIRST_MS, BARREN_PAUSE_MAX_MS)
+}
 
 /**
  * The repeated-failure bound: attempts that each fail within {@link INSTANT_FAILURE_MS} with the
@@ -405,7 +444,7 @@ async function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
  * Run the driver until it completes WITH ITS CONTRACT MET, or until the budget, the deadline, an
  * abort, a terminal error, or a ceiling stops it. Transient failures are retried. A drive that
  * returns with its completion check unmet is re-entered with Runtime's continuation note until the
- * continuation's deadline or `maxBarren` turns without progress. Throws
+ * continuation's deadline, pausing first once `maxBarren` turns in a row made no progress. Throws
  * `DriverAttemptsExhaustedError` (cause = the last real failure) when a FAILURE ends the loop; a
  * completed drive returns, met contract or not, because deciding what an undelivered run is worth
  * belongs to the finalizer, not to this loop.
@@ -469,6 +508,8 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   let reentry: DriverReentry | undefined = run.reentered?.first
   // Whether the current attempt began before the re-entered root's first model event.
   let beforeModelEvent = false
+  // When the last attempt that made progress ended, for the barren-pause record.
+  let lastProgressAt = now()
 
   const emit = async (record: DriverAttemptRecord): Promise<void> => {
     const entered = reentry === undefined ? {} : { reentry: reentry.reason }
@@ -491,7 +532,10 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     policy: DriverContinuationPolicy,
     attempt: number,
     after: DriverProgressMark,
-  ): Promise<{ steer: string } | { refusedBy: DriverRepromptRefusal }> => {
+  ): Promise<
+    | { steer: string; barren?: { streak: number; pausedMs: number } }
+    | { refusedBy: DriverRepromptRefusal }
+  > => {
     const bounds = (): DriverRepromptRefusal | undefined => {
       if (policy.closed()) return 'closed'
       if (run.signal.aborted) return 'aborted'
@@ -499,9 +543,34 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       const byBudget = budgetStop(run.budget(), now())
       return byBudget === 'deadline' || byBudget === 'budget-exhausted' ? byBudget : undefined
     }
-    if (barrenReentries >= policy.maxBarren) return { refusedBy: 'no-progress' }
     const before = bounds()
     if (before !== undefined) return { refusedBy: before }
+    // A barren streak paces the run and never ends it. The pause holds no longer than the
+    // earlier deadline, and the bounds are read again when it ends.
+    let barren: { streak: number; pausedMs: number } | undefined
+    if (barrenReentries >= policy.maxBarren) {
+      const pausedAt = now()
+      const budgetDeadline = run.budget().deadlineMs
+      const until = Math.min(
+        policy.deadlineMs,
+        budgetDeadline > 0 ? budgetDeadline : Number.POSITIVE_INFINITY,
+      )
+      const pauseMs = Math.max(
+        0,
+        Math.min(barrenPauseMs(barrenReentries, policy.maxBarren), until - pausedAt),
+      )
+      await run.onBarrenPause?.({
+        attempt,
+        streak: barrenReentries,
+        pauseMs,
+        resumeAt: new Date(pausedAt + pauseMs).toISOString(),
+        lastProgressAt: new Date(lastProgressAt).toISOString(),
+      })
+      await sleep(pauseMs, run.signal)
+      barren = { streak: barrenReentries, pausedMs: pauseMs }
+      const afterPause = bounds()
+      if (afterPause !== undefined) return { refusedBy: afterPause }
+    }
     const steer = (
       await policy.compose({
         attempt,
@@ -517,7 +586,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     if (steer.length === 0) {
       throw new ValidationError('runDriverWithRetry: the continuation note is empty')
     }
-    return { steer }
+    return barren === undefined ? { steer } : { steer, barren }
   }
 
   for (let attempt = 1; ; attempt += 1) {
@@ -548,7 +617,10 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       const classification = classifyDriverFailure(error, run.signal)
       const after = run.progress()
       const progressed = madeProgress(before, after)
-      if (progressed) abandonments = 0
+      if (progressed) {
+        abandonments = 0
+        lastProgressAt = now()
+      }
       const retainedFailure = error instanceof RetainedExecutionPendingError ? error : undefined
       const pending = abandonablePending(error)
       const failureRecord = () => ({
@@ -763,8 +835,10 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     const progressed = madeProgress(before, after)
     const contract = contractOf(after)
     const contractField = contract === 'none' ? {} : { contract }
-    if (progressed) barrenReentries = 0
-    else if (
+    if (progressed) {
+      barrenReentries = 0
+      lastProgressAt = now()
+    } else if (
       !beforeModelEvent &&
       reentry !== undefined &&
       reentry.reason !== 'wake' &&
@@ -802,7 +876,8 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       const decision = await decideContinuation(continuation, attempt, after)
       if ('steer' in decision) {
         continuations += 1
-        // No backoff: the driver is not failing — it finished early.
+        // No failure backoff: the driver is not failing, it finished early. A barren pause, when
+        // the streak called for one, was taken before the note was composed.
         await emit({
           attempt,
           durationMs,
@@ -810,8 +885,14 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
           ...contractField,
           reprompted: true,
           retryInMs: 0,
+          ...(decision.barren === undefined ? {} : { barrenPauseMs: decision.barren.pausedMs }),
         })
-        reentry = { reason: 'unmet-contract', steer: decision.steer, continuation: continuations }
+        reentry = {
+          reason: 'unmet-contract',
+          steer: decision.steer,
+          continuation: continuations,
+          ...(decision.barren === undefined ? {} : { barren: decision.barren }),
+        }
         continue
       }
       await emit({

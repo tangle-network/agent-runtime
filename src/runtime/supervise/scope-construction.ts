@@ -19,6 +19,7 @@ import {
 } from './retained-scope-owner'
 import {
   admissionSeals,
+  barrenPauseRecorders,
   childDrains,
   driverAttemptRecorders,
   heldReleasers,
@@ -522,6 +523,23 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       id: args.parentId,
       ...pause,
       seq: pauseSeq++,
+      at: new Date(now()).toISOString(),
+    })
+  })
+  // Counted from the journal, like the driver records, so a resumed run continues the sequence.
+  let barrenPauseSeq: number | undefined
+  barrenPauseRecorders.set(scope as Scope<unknown>, async (pause) => {
+    if (barrenPauseSeq === undefined) {
+      const events = (await args.journal.loadTree(args.root)) ?? []
+      barrenPauseSeq = events.filter(
+        (event) => event.kind === 'barren-pause' && event.id === args.parentId,
+      ).length
+    }
+    await args.journal.appendEvent(args.root, {
+      kind: 'barren-pause',
+      id: args.parentId,
+      ...pause,
+      seq: barrenPauseSeq++,
       at: new Date(now()).toISOString(),
     })
   })

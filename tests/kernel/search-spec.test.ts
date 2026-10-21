@@ -373,7 +373,7 @@ describe('SearchSpec presets', () => {
     })
   })
 
-  it('solo runs the root alone and its stop rule ends a run that never passes', async () => {
+  it('solo runs the root alone and paces a run that never passes until its deadline', async () => {
     const root = testAgentProfile('solo-root', { tools: runtimeToolDeclarations('submit_result') })
     const observed = observe()
     const passing = drive()
@@ -399,6 +399,8 @@ describe('SearchSpec presets', () => {
         searchPresets.solo(),
         inputs({
           profile: root,
+          // A barren streak only pauses the run; the continuation deadline ends it.
+          deadline: Date.now() + 10_000,
           options: {
             runId: 'solo-barren',
             makeLeafAgent: leaves(observe()),
@@ -408,10 +410,11 @@ describe('SearchSpec presets', () => {
         }),
       ),
     )
-    // The first turn, then stop.maxBarren (2) re-entered turns in a row without progress.
+    // The first turn, then stop.maxBarren (2) re-entered turns in a row without progress, then
+    // one barren pause that the deadline cut short.
     expect(barren.tasks).toHaveLength(3)
     expect(stopped.kind).toBe('no-winner')
-    expect(stopped.continuation?.repromptRefusedBy).toBe('no-progress')
+    expect(stopped.continuation?.repromptRefusedBy).toBe('deadline')
   })
 
   it('tree(2) holds two workers at once over three assignments, with no peer mail', async () => {

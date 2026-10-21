@@ -1101,7 +1101,8 @@ async function setup(
         },
         ...(repeat
           ? {
-              continuation: testContinuation({ maxBarren: 1 }),
+              // The second drive is barren; its pause runs to this deadline, which ends the run.
+              continuation: testContinuation({ maxBarren: 1, deadline: Date.now() + 8_000 }),
               deliverable: { describe: 'A checked delivery', check: async () => false },
             }
           : {}),

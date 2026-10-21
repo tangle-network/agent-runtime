@@ -765,7 +765,7 @@ export type SpawnEvent =
        *  without settling it after a host reboot, a crash, or a killed process. `live` names every
        *  worker the journal held open at that moment; `replaced` names those this process
        *  re-placed, so the rest are gone. The root is re-driven with both, and no re-entered drive
-       *  counts toward its no-progress bound until the root has streamed a model event in this
+       *  counts toward its barren streak until the root has streamed a model event in this
        *  process. Infrastructure evidence: replay and cost readers skip it; `seq` counts this run's
        *  re-entries. */
       kind: 'root-reentered'
@@ -793,6 +793,26 @@ export type SpawnEvent =
       pauseMs: number
       /** Whether the refused attempt still moved the run toward its deliverable. */
       madeProgress: boolean
+      seq: number
+      at: string
+    }
+  | {
+      /** A manager's re-entered drives completed without progress `streak` times in a row, at or
+       *  past its `continuation.maxBarren`, and the driver paused before the next continuation
+       *  instead of ending the run. One row per pause, for an operator alarm. Informational:
+       *  replay, `materializeTreeView`, and cost readers skip it; `seq` counts this node's barren
+       *  pauses. */
+      kind: 'barren-pause'
+      id: NodeId
+      /** The completed driver attempt the pause follows, 1-based. */
+      attempt: number
+      streak: number
+      pauseMs: number
+      /** ISO 8601: when the next drive may start. */
+      resumeAt: string
+      /** ISO 8601: when the manager's last attempt that made progress ended, or when its driver
+       *  loop began in this process if none has. */
+      lastProgressAt: string
       seq: number
       at: string
     }

@@ -83,7 +83,8 @@ export interface SearchSpec {
     readonly analysts?: ReadonlyArray<string>
   }
   readonly stop: {
-    /** Re-entered turns in a row without progress before the run ends (`continuation.maxBarren`). */
+    /** Re-entered turns in a row without progress before each further continuation waits a
+     *  barren pause (`continuation.maxBarren`). */
     readonly maxBarren: number
     /** End the run when a window of settlements lifts the best score by no more than `minDelta`. */
     readonly plateau?: { readonly window: number; readonly minDelta: number }
