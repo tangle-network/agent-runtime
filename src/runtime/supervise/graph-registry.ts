@@ -43,6 +43,9 @@ export interface StoredGraph {
   readonly edges: ReadonlyArray<GraphEdge>
   readonly budget: AgentGraph['budget']
   readonly deliverable: { readonly describe?: string; readonly checkRef?: string }
+  /** A flow graph's entry and gates; absent for any other graph. */
+  readonly entry?: AgentGraph['entry']
+  readonly gates?: AgentGraph['gates']
 }
 
 /** One completed run of one graph, for one task shape. */
@@ -87,7 +90,9 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value)
 }
 
-/** Digest of the exact graph (nodes + edges + budget + deliverable describe). */
+/** Digest of the exact graph (nodes + edges + budget + deliverable describe, and a flow graph's
+ *  entry and gates). An absent key is not serialized, so a graph without `entry` keeps the digest
+ *  it had before flow graphs were stored. */
 export function graphDigest(graph: Omit<StoredGraph, 'digest'>): string {
   return sha256(canonicalJson(graph))
 }
@@ -105,22 +110,17 @@ export function digestOfGraph(graph: AgentGraph): string {
 }
 
 function storeGraph(graph: AgentGraph): StoredGraph {
-  return {
-    digest: graphDigest({
-      nodes: graph.nodes,
-      edges: graph.edges,
-      budget: graph.budget,
-      deliverable: {
-        ...(graph.deliverable.describe ? { describe: graph.deliverable.describe } : {}),
-      },
-    }),
+  const content: Omit<StoredGraph, 'digest'> = {
     nodes: graph.nodes,
     edges: graph.edges,
     budget: graph.budget,
     deliverable: {
       ...(graph.deliverable.describe ? { describe: graph.deliverable.describe } : {}),
     },
+    ...(graph.entry === undefined ? {} : { entry: graph.entry }),
+    ...(graph.gates === undefined ? {} : { gates: graph.gates }),
   }
+  return { digest: graphDigest(content), ...content }
 }
 
 function assertRecord(record: GraphRunRecord): void {
@@ -259,6 +259,8 @@ export function graphFromStored(
       check,
       ...(stored.deliverable.describe ? { describe: stored.deliverable.describe } : {}),
     },
+    ...(stored.entry === undefined ? {} : { entry: stored.entry }),
+    ...(stored.gates === undefined ? {} : { gates: stored.gates }),
   }
 }
 

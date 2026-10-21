@@ -8,10 +8,14 @@
  * verdict `{ verdict }`). The graph machinery around them is the shipped path.
  */
 
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   type Agent,
   type AgentGraph,
   type AgentSpec,
+  digestOfGraph,
   type EdgeTraversal,
   type Executor,
   type ExecutorResult,
@@ -22,10 +26,12 @@ import {
   type GraphResult,
   GraphRouteError,
   type GraphTopology,
+  graphRegistry,
   InMemorySpawnJournal,
   type MakeWorkerAgent,
   promptHandle,
   type RunGraphOptions,
+  recordGraphRun,
   runGraph,
   type WorkerSpawnContext,
 } from '@tangle-network/agent-runtime/kernel'
@@ -792,68 +798,85 @@ describe('flow graphs — a flow inside a maps item and a run_graph subtask', ()
     expect(join.failures[0]).toMatchObject({ index: 1, item: 'b', outcome: 'failed' })
   })
 
-  it('runs a flow graph as a run_graph subtask', async () => {
-    const spawns: Spawn[] = []
-    const journal = new InMemorySpawnJournal()
-    const director = testAgentProfile('director', {
-      harness: 'cli-base',
-      tools: runtimeToolDeclarations('run_graph'),
-    })
-    const graph = {
-      nodes: [node('draft'), node('review')],
-      entry: [{ node: 'draft', task: 'write the haiku' }],
-      edges: [
-        {
-          kind: 'routes',
-          from: 'draft',
-          to: 'review',
-          directive: 'delegates/worker-brief/v1',
-          evidence: ['draft'],
-        },
-      ],
-    }
-    await supervise(director, 'write a haiku through a flow graph', {
-      runId: 'rg-flow',
-      journal,
-      budget: { maxIterations: 100, maxTokens: 200_000 },
-      deliverable: { describe: 'the subtask settles', check: () => true },
-      makeLeafAgent: leaves(
-        { draft: [{ out: { haiku: 'old pond' } }], review: [{ out: { approved: true } }] },
-        spawns,
-      ),
-      brain: scriptedBrain([
-        {
-          toolCalls: [
-            {
-              name: 'run_graph',
-              arguments: {
-                graph,
-                deliverable: 'a reviewed haiku',
-                budget: { maxIterations: 30, maxTokens: 40_000 },
+  // The stored form keeps `entry`, so a flow graph run by its digest runs as the inline one does.
+  it.each(['inline', 'stored'] as const)(
+    'runs a flow graph as a run_graph subtask (%s)',
+    async (form) => {
+      const spawns: Spawn[] = []
+      const journal = new InMemorySpawnJournal()
+      const director = testAgentProfile('director', {
+        harness: 'cli-base',
+        tools: runtimeToolDeclarations('run_graph'),
+      })
+      const graph: GraphTopology = {
+        nodes: [node('draft'), node('review')],
+        entry: [{ node: 'draft', task: 'write the haiku' }],
+        edges: [
+          { kind: 'routes', from: 'draft', to: 'review', directive: brief, evidence: ['draft'] },
+        ],
+      }
+      let registry: string | undefined
+      let source: { graph: GraphTopology } | { graphDigest: string } = { graph }
+      if (form === 'stored') {
+        registry = await mkdtemp(join(tmpdir(), 'rg-flow-registry-'))
+        const stored: AgentGraph = { ...graph, deliverable: accept, budget }
+        const graphDigest = digestOfGraph(stored)
+        await recordGraphRun(graphRegistry(registry), stored, {
+          graphDigest,
+          taskDigest: 'haiku',
+          startedAt: '2026-10-21T00:00:00.000Z',
+          finishedAt: '2026-10-21T00:00:01.000Z',
+          outcome: { kind: 'delivered' },
+          cost: {},
+          traversals: 2,
+        })
+        source = { graphDigest }
+      }
+      await supervise(director, 'write a haiku through a flow graph', {
+        runId: 'rg-flow',
+        journal,
+        ...(registry === undefined ? {} : { graphRegistry: registry }),
+        budget: { maxIterations: 100, maxTokens: 200_000 },
+        deliverable: { describe: 'the subtask settles', check: () => true },
+        makeLeafAgent: leaves(
+          { draft: [{ out: { haiku: 'old pond' } }], review: [{ out: { approved: true } }] },
+          spawns,
+        ),
+        brain: scriptedBrain([
+          {
+            toolCalls: [
+              {
+                name: 'run_graph',
+                arguments: {
+                  ...source,
+                  deliverable: 'a reviewed haiku',
+                  budget: { maxIterations: 30, maxTokens: 40_000 },
+                },
               },
-            },
-          ],
-        },
-        { content: 'waiting for the graph' },
-        { content: 'done' },
-      ]),
-    })
-    expect(spawns.map((s) => s.node)).toEqual(['draft', 'review'])
-    expect(spawns[1]?.task).toEqual({
-      from: { node: 'draft', result: { haiku: 'old pond' } },
-      evidence: { draft: { haiku: 'old pond' } },
-    })
-    const events = (await journal.loadTree('rg-flow')) ?? []
-    expect(
-      events.find((event) => event.kind === 'settled' && event.id === 'rg-flow:s0'),
-    ).toMatchObject({ status: 'done' })
-    // The subtask's flow ledgers its routes under the node that drives it.
-    expect(
-      events.flatMap((event) =>
-        event.kind === 'edge' && event.edge.kind === 'routes' ? [event.edge.to] : [],
-      ),
-    ).toEqual(['draft', 'review'])
-  })
+            ],
+          },
+          { content: 'waiting for the graph' },
+          { content: 'done' },
+        ]),
+      })
+      expect(spawns.map((s) => s.node)).toEqual(['draft', 'review'])
+      expect(spawns[1]?.task).toEqual({
+        from: { node: 'draft', result: { haiku: 'old pond' } },
+        evidence: { draft: { haiku: 'old pond' } },
+      })
+      const events = (await journal.loadTree('rg-flow')) ?? []
+      expect(
+        events.find((event) => event.kind === 'settled' && event.id === 'rg-flow:s0'),
+      ).toMatchObject({ status: 'done' })
+      // The subtask's flow ledgers its routes under the node that drives it.
+      expect(
+        events.flatMap((event) =>
+          event.kind === 'edge' && event.edge.kind === 'routes' ? [event.edge.to] : [],
+        ),
+      ).toEqual(['draft', 'review'])
+      if (registry !== undefined) await rm(registry, { recursive: true, force: true })
+    },
+  )
 })
 
 describe('flow graphs — refusals before compute', () => {
@@ -974,6 +997,29 @@ describe('flow graphs — refusals before compute', () => {
       ]),
       /routes cycle through a /,
     )
+  })
+
+  it('refuses an uncapped subcycle inside a component that has one capped edge', () => {
+    let thrown: unknown
+    try {
+      void runGraph(
+        flow(['a', 'b', 'c'], entryA, [
+          routes('a', 'b', { maxTraversals: 2 }),
+          routes('b', 'c', { when: { pointer: '/again', equals: true } }),
+          routes('b', 'a', { when: { pointer: '/restart', equals: true } }),
+          routes('b', { finish: 'done' }),
+          routes('c', 'b'),
+        ]),
+        opts,
+      )
+    } catch (error) {
+      thrown = error
+    }
+    expect((thrown as Error | undefined)?.name).toBe('ValidationError')
+    const message = (thrown as Error).message
+    expect(message).toMatch(/routes cycle through .* sets no maxTraversals/)
+    const cycle = /routes cycle through ([^(]+) \(/.exec(message)?.[1]?.split(', ')
+    expect([...(cycle ?? [])].sort()).toEqual(['b', 'c'])
   })
 
   it('refuses evidence that cannot settle before the edge source', () => {

@@ -51,7 +51,7 @@ A match reads `from` unless it names a node listed in the edge's `evidence`; a p
 An edge without `when` is the default branch: at most one per node, and last.
 A node target receives `{ from: { node, result }, evidence }` and the edge directive; `{ stop: reason }` ends the run with no winner; `{ finish: reason }` makes this settle part of the output.
 The output is `{ [node]: latest usable result }` over terminal nodes (no outgoing routes or map edge) and finish sources, and the deliverable decides it.
-Every routes cycle needs an edge with an explicit `maxTraversals`; an edge at its cap is skipped and matching continues, so give a repair loop a fallback edge.
+Every routes cycle, each subcycle included, must cross an edge with an explicit `maxTraversals`: a cap on `a -> b` does not bound a `b <-> c` loop beside it. An edge at its cap is skipped and matching continues, so give a repair loop a fallback edge.
 `continuity: 'resume'` continues the target's latest settled session.
 A fork lists two or more nodes in `to`: one traversal spawns them all at once, each under key `route:<edge>#<traversal>:<node>`.
 A join lists two or more nodes in `from`: it fires once every member has settled usably since it last fired, its target's evidence holds each member's latest result, it carries no `when`, and it is the only routes edge leaving each member.

@@ -18,7 +18,14 @@ export async function storedGraphTopology(
   if (stored === undefined) {
     throw new ValidationError(`run_graph: the graph registry holds no graph ${digest}`)
   }
-  return parseGraphSubtaskTopology({ nodes: stored.nodes, edges: stored.edges })
+  // The stored graph's topology keys exactly as the inline form passes them, so a flow graph keeps
+  // its entry and a gated graph is refused as it is inline.
+  return parseGraphSubtaskTopology({
+    nodes: stored.nodes,
+    edges: stored.edges,
+    ...(stored.entry === undefined ? {} : { entry: stored.entry }),
+    ...(stored.gates === undefined ? {} : { gates: stored.gates }),
+  })
 }
 
 /**
