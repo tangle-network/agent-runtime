@@ -24,8 +24,8 @@ import {
 } from '../../src/runtime/supervise/graph-registry'
 import { kernelPromptRegistry, promptHandle } from '../../src/runtime/supervise/prompt-registry'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
-import { runGraph } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { runGraphForTest } from '../helpers/runtime-with-test-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 let workspace: string
@@ -101,7 +101,7 @@ function leafSeam(): (
 
 /** The brain that drives the two-node graph: spawn once, then settle. */
 const solvingBrain = () =>
-  scriptedBrain([
+  scriptedDriverBrain([
     {
       toolCalls: [
         { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
@@ -112,10 +112,10 @@ const solvingBrain = () =>
 
 async function runAndRecord(
   graph: AgentGraph,
-  brain: () => ReturnType<typeof scriptedBrain>,
+  brain: () => ReturnType<typeof scriptedDriverBrain>,
   taskDigest: string,
 ): Promise<{ result: GraphResult; stored: Awaited<ReturnType<typeof recordGraphRun>> }> {
-  const result = await runGraph(graph, {
+  const result = await runGraphForTest(graph, {
     brain: brain(),
     registry: kernelPromptRegistry(),
     makeLeafAgent: leafSeam() as never,
@@ -174,7 +174,7 @@ describe('graph registry — the designer loop', () => {
     expect(replayed.nodes.map((n) => n.id)).toEqual(['root', 'worker'])
     expect(replayed.budget).toEqual(twoNodeGraph().budget)
 
-    const result = await runGraph(replayed, {
+    const result = await runGraphForTest(replayed, {
       brain: solvingBrain(),
       registry: kernelPromptRegistry(),
       makeLeafAgent: leafSeam() as never,

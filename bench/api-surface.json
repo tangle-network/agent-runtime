@@ -32,6 +32,7 @@
       "PierDockerConnection": "type 44c845d83812",
       "RagAnswerScore": "type dcc71dc5fdfd",
       "RagContext": "type 3d965af96dc7",
+      "ResearchAnswer": "type a099b3b1cabf",
       "RunBenchmarksOptions": "type e8e8307df3c7",
       "RunBenchmarksReport": "type f3ac75211350",
       "StagedJudgeError": "value e8a9a9f9b22a",
@@ -144,19 +145,15 @@
       "createFinsearchcompAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/frames": {
-      "ResearchAnswer": "value a099b3b1cabf",
-      "ResearchTask": "value 858d0ac430ee",
+      "FramesTask": "value 858d0ac430ee",
       "createFramesAdapter": "value cb4e742d9a39",
-      "normalizeAnswer": "value 8b2ddb657a6c",
-      "parseCitations": "value e3d8ef3e402f",
-      "parseFinalAnswer": "value 083c8ae0aa78"
+      "normalizeFramesAnswer": "value 8b2ddb657a6c"
     },
     "./benchmarks/hotpotqa": {
       "createHotpotqaAdapter": "value cb4e742d9a39",
       "exactMatch": "value 88380c225175",
-      "normalizeAnswer": "value 8b2ddb657a6c",
-      "parseFinalAnswer": "value 083c8ae0aa78",
-      "tokenF1": "value 4ef56f0767f0"
+      "hotpotTokenF1": "value 4ef56f0767f0",
+      "normalizeHotpotAnswer": "value 8b2ddb657a6c"
     },
     "./benchmarks/humaneval": {
       "CheckResult": "value bd6e3b592363",
@@ -235,6 +232,7 @@
       "FINAL_ANSWER_SENTINEL": "value b0c5dfafb7f1",
       "RagAnswerScore": "value dcc71dc5fdfd",
       "RagContext": "value 3d965af96dc7",
+      "ResearchAnswer": "value a099b3b1cabf",
       "allStrings": "value a53fb37fb9af",
       "answerScoreToBenchScore": "value ed51667ffaae",
       "contextBlock": "value 824d8a4af2e9",
@@ -256,11 +254,8 @@
       "createRagBenchAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/simpleqa": {
-      "ResearchAnswer": "value a099b3b1cabf",
-      "ResearchTask": "value e39092793568",
-      "createSimpleQaAdapter": "value cb4e742d9a39",
-      "parseCitations": "value e3d8ef3e402f",
-      "parseFinalAnswer": "value 083c8ae0aa78"
+      "SimpleQaTask": "value e39092793568",
+      "createSimpleQaAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/swe-bench": {
       "SweBenchAdapterOptions": "value f9f39f610b19",

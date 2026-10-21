@@ -26,8 +26,8 @@ import type {
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { testContinuation } from '../helpers/continuation'
-import { supervisorAgent } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { supervisorAgentForTest } from '../helpers/runtime-with-test-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
@@ -123,7 +123,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       }
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
     }
-    const root = supervisorAgent(
+    const root = supervisorAgentForTest(
       testAgentProfile('sup', {
         harness: 'opencode',
         prompt: { systemPrompt: 'delegate, do not solve' },
@@ -164,7 +164,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       }
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
     }
-    const root = supervisorAgent(
+    const root = supervisorAgentForTest(
       testAgentProfile('sup', {
         harness: 'opencode',
         tools: runtimeToolDeclarations('spawn_worker', 'stop'),
@@ -211,7 +211,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       })
       throw new Error('backend exited after submission')
     }
-    const root = supervisorAgent(
+    const root = supervisorAgentForTest(
       testAgentProfile('sup', {
         harness: 'pi',
         prompt: { systemPrompt: 'solve or delegate' },
@@ -261,7 +261,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       })
       if (providerCalls > 0) throw new Error('provider call after accepted submission')
     }
-    const root = supervisorAgent(
+    const root = supervisorAgentForTest(
       testAgentProfile('sup', {
         harness: 'pi',
         prompt: { systemPrompt: 'solve or delegate' },
@@ -349,7 +349,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     }
     const routerBlobs = new InMemoryResultBlobStore()
     await runSupervisor(
-      supervisorAgent(
+      supervisorAgentForTest(
         testAgentProfile('router-manager', {
           harness: 'cli-base',
           tools: runtimeToolDeclarations('read_product_evidence'),
@@ -386,7 +386,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       })
     }
     await runSupervisor(
-      supervisorAgent(
+      supervisorAgentForTest(
         testAgentProfile('external-manager', {
           harness: 'opencode',
           tools: runtimeToolDeclarations('read_product_evidence'),
@@ -496,12 +496,12 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
         resolveSupervisorTools,
       }
       if (arm === 'router') {
-        const brain = scriptedBrain([
+        const brain = scriptedDriverBrain([
           { toolCalls: [{ name: 'compose_children', arguments: {} }] },
           { content: 'done' },
         ])
         await runSupervisor(
-          supervisorAgent(
+          supervisorAgentForTest(
             testAgentProfile('router-manager', {
               harness: 'cli-base',
               tools: runtimeToolDeclarations('compose_children', 'spawn_worker'),
@@ -528,7 +528,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
         })
       }
       await runSupervisor(
-        supervisorAgent(
+        supervisorAgentForTest(
           testAgentProfile('external-manager', {
             harness: 'opencode',
             tools: runtimeToolDeclarations('compose_children', 'spawn_worker'),
@@ -591,7 +591,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
         harnessFinished()
       }
     }
-    const root = supervisorAgent(
+    const root = supervisorAgentForTest(
       testAgentProfile('external-manager', {
         harness: 'opencode',
         tools: runtimeToolDeclarations('run_experiment'),
@@ -692,7 +692,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       await new Promise<void>((resolve) => setImmediate(resolve))
       responses.push(await call([{ id: 'daniel-murfet', kind: 'researcher' }]))
     }
-    const root = supervisorAgent(
+    const root = supervisorAgentForTest(
       testAgentProfile('external-manager', {
         harness: 'opencode',
         tools: runtimeToolDeclarations('literature_sourcing'),
@@ -773,7 +773,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     const journal = new InMemorySpawnJournal()
     let url = ''
     const coordination: { host: string } = { host: '127.0.0.1' }
-    const root = supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
+    const root = supervisorAgentForTest(testAgentProfile('sup', { harness: 'opencode' }), {
       blobs,
       makeWorkerAgent: () => deliveringLeaf('w', {}),
       perWorker,
@@ -802,7 +802,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
         arguments: { result: { answer: tasks.length === 1 ? 41 : 42 } },
       })
     }
-    const root = supervisorAgent(
+    const root = supervisorAgentForTest(
       testAgentProfile('sup', {
         harness: 'pi',
         prompt: { systemPrompt: 'solve or delegate' },
@@ -869,7 +869,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     const tasks: string[] = []
     let stateReads = 0
     let files = 0
-    const root = supervisorAgent(
+    const root = supervisorAgentForTest(
       testAgentProfile('sup', {
         harness: 'pi',
         tools: runtimeToolDeclarations('submit_result'),
@@ -917,7 +917,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     const tasks: string[] = []
     const attempts: DriverAttemptRecord[] = []
     let up = false
-    const root = supervisorAgent(
+    const root = supervisorAgentForTest(
       testAgentProfile('sup', {
         harness: 'pi',
         tools: runtimeToolDeclarations('submit_result'),
@@ -980,7 +980,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
         arguments: { result: { answer: 42 } },
       })
     }
-    const root = supervisorAgent(
+    const root = supervisorAgentForTest(
       testAgentProfile('sup', {
         harness: 'pi',
         tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
@@ -1036,7 +1036,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     const journal = new InMemorySpawnJournal()
     const tasks: string[] = []
     const steer = 'Operator: cap the run at 8 sessions and finish the open crates first.'
-    let root!: ReturnType<typeof supervisorAgent>
+    let root!: ReturnType<typeof supervisorAgentForTest>
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task }) => {
       tasks.push(String(task))
       if (tasks.length === 1) {
@@ -1054,7 +1054,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
         arguments: { result: { answer: 42 } },
       })
     }
-    root = supervisorAgent(
+    root = supervisorAgentForTest(
       testAgentProfile('sup', {
         harness: 'pi',
         tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
@@ -1089,7 +1089,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     let finalizations = 0
     const partial = { component: 'database', ready: true }
     const complete = { answer: 42 }
-    const root = supervisorAgent(
+    const root = supervisorAgentForTest(
       testAgentProfile('sup', {
         harness: 'pi',
         tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
@@ -1169,7 +1169,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
       let checks = 0
       let finalizations = 0
       let turns = 0
-      const root = supervisorAgent(
+      const root = supervisorAgentForTest(
         testAgentProfile('sup', {
           harness,
           tools: runtimeToolDeclarations('spawn_worker'),
@@ -1194,7 +1194,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
                 continuation: testContinuation({ deadline: 1 }),
               }
             : {
-                brain: scriptedBrain([
+                brain: scriptedDriverBrain([
                   {
                     toolCalls: [
                       {
@@ -1248,7 +1248,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
       url = coordinationMcpUrl
     }
-    const root = supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
+    const root = supervisorAgentForTest(testAgentProfile('sup', { harness: 'opencode' }), {
       blobs,
       makeWorkerAgent: () => deliveringLeaf('w', {}),
       perWorker,

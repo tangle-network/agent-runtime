@@ -35,7 +35,7 @@ import type {
   SpawnEvent,
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
-import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
+import { type ScriptedDriverTurn, scriptedDriverBrain } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
 
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
@@ -128,17 +128,17 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
-const spawnCall = (label: string, kind = 'hang'): ScriptedTurn['toolCalls'] => [
+const spawnCall = (label: string, kind = 'hang'): ScriptedDriverTurn['toolCalls'] => [
   { name: 'spawn_worker', arguments: { profile: { metadata: { kind } }, task: 'go', label } },
 ]
 /** A turn without a tool call: the manager waits, and Runtime wakes it with what happened. */
-const awaitTurn: ScriptedTurn = { content: 'waiting for the workers' }
+const awaitTurn: ScriptedDriverTurn = { content: 'waiting for the workers' }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 /** One scripted turn as the raw shape a `ToolLoopChat` returns — for a brain that decides its
  *  next turn from live durable state instead of a fixed sequence. */
-const turnOf = (turn: ScriptedTurn) => scriptedBrain([turn])([], [])
+const turnOf = (turn: ScriptedDriverTurn) => scriptedDriverBrain([turn])([], [])
 
 /** Append journal events for one tree the way any durable writer does — the seam a slow teardown
  *  in another process writes its terminal record through. */
@@ -165,7 +165,7 @@ describe('acknowledged worker cancellation (#758)', () => {
         },
       })
 
-    const script = scriptedBrain([
+    const script = scriptedDriverBrain([
       { toolCalls: spawnCall('a') },
       { toolCalls: [{ name: 'list_questions', arguments: {} }] },
       awaitTurn,
@@ -260,7 +260,7 @@ describe('acknowledged worker cancellation (#758)', () => {
       > & { executorSpec: AgentSpec }
     }
 
-    const script = scriptedBrain([
+    const script = scriptedDriverBrain([
       {
         toolCalls: [
           ...(spawnCall('victim', 'victim') ?? []),
@@ -322,7 +322,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     const makeAgent = (p: AgentProfile): Agent<unknown, unknown> => {
       const kind = p.metadata?.kind
       if (kind === 'lead') {
-        const leadBrain = scriptedBrain([
+        const leadBrain = scriptedDriverBrain([
           { toolCalls: [...(spawnCall('d1') ?? []), ...(spawnCall('d2') ?? [])] },
           awaitTurn, // repeats forever — the lead never stops on its own
         ])
@@ -333,7 +333,7 @@ describe('acknowledged worker cancellation (#758)', () => {
         )
       }
       if (kind === 'peer') {
-        const peerBrain = scriptedBrain([
+        const peerBrain = scriptedDriverBrain([
           { toolCalls: spawnCall('peer-worker', 'peer-worker') },
           awaitTurn,
           { content: 'peer done' },
@@ -348,7 +348,7 @@ describe('acknowledged worker cancellation (#758)', () => {
       return hangingLeaf(kind === 'hang' ? 'd' : String(kind), { onStart: () => markStarted?.() })
     }
 
-    const rootScript = scriptedBrain([
+    const rootScript = scriptedDriverBrain([
       {
         toolCalls: [
           {
@@ -406,7 +406,11 @@ describe('acknowledged worker cancellation (#758)', () => {
     const makeAgent = (_p: AgentProfile) => hangingLeaf('a')
 
     cancelWorker(dir, 'a', 'op-reconnect', { source: 'test' })
-    const chat = scriptedBrain([{ toolCalls: spawnCall('a') }, awaitTurn, { content: 'stopping' }])
+    const chat = scriptedDriverBrain([
+      { toolCalls: spawnCall('a') },
+      awaitTurn,
+      { content: 'stopping' },
+    ])
     const root = driverAgent(driverOpts('root', chat, makeAgent, blobs, { controlDir: dir }))
     await createSupervisor<unknown, unknown>().run(root, 'x', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
@@ -436,7 +440,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     // An operation naming a worker that never existed anywhere.
     cancelWorker(dir, 'ghost', 'op-ghost', { source: 'test' })
 
-    const script = scriptedBrain([
+    const script = scriptedDriverBrain([
       { toolCalls: spawnCall('w', 'worker') },
       awaitTurn,
       { toolCalls: [{ name: 'list_questions', arguments: {} }] },
@@ -499,7 +503,7 @@ describe('acknowledged worker cancellation (#758)', () => {
           if (record.effect === 'cancel_requested') return turnOf(awaitTurn)
           return turnOf({ content: 'lead stopping' })
         }
-        const first = scriptedBrain([{ toolCalls: spawnCall('d1') }])
+        const first = scriptedDriverBrain([{ toolCalls: spawnCall('d1') }])
         let leadCall = 0
         const chat: ToolLoopChat = async (messages, tools, context) => {
           const index = leadCall
@@ -528,7 +532,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     }
 
     let call = 0
-    const rootScript = scriptedBrain([
+    const rootScript = scriptedDriverBrain([
       {
         toolCalls: [
           {
@@ -598,7 +602,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     })
     const makeAgent = (p: AgentProfile): Agent<unknown, unknown> => {
       if (p.metadata?.kind === 'lead') {
-        const leadBrain = scriptedBrain([
+        const leadBrain = scriptedDriverBrain([
           { toolCalls: spawnCall('dup', 'lead-dup') },
           awaitTurn, // repeats — the lead holds its dup until the run tears down
         ])
@@ -624,7 +628,7 @@ describe('acknowledged worker cancellation (#758)', () => {
       return hangingLeaf('root-dup', { onStart: () => markStarted?.() })
     }
 
-    const spawnTurn: ScriptedTurn = {
+    const spawnTurn: ScriptedDriverTurn = {
       toolCalls: [
         {
           name: 'spawn_worker',
@@ -700,7 +704,7 @@ describe('acknowledged worker cancellation (#758)', () => {
         },
       })
 
-    const script = scriptedBrain([{ toolCalls: spawnCall('a') }, { content: 'stopping' }])
+    const script = scriptedDriverBrain([{ toolCalls: spawnCall('a') }, { content: 'stopping' }])
     let call = 0
     const chat: ToolLoopChat = async (messages, tools, context) => {
       const index = call
@@ -763,7 +767,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     const makeAgent = (p: AgentProfile): Agent<unknown, unknown> => {
       const kind = p.metadata?.kind
       if (kind === 'lead') {
-        const leadBrain = scriptedBrain([
+        const leadBrain = scriptedDriverBrain([
           { toolCalls: [...(spawnCall('d-self', 'self') ?? []), ...(spawnCall('d-hang') ?? [])] },
           awaitTurn, // woken by d-self's own death, then holds until the cascade
         ])
@@ -801,7 +805,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     }
 
     let call = 0
-    const rootScript = scriptedBrain([
+    const rootScript = scriptedDriverBrain([
       {
         toolCalls: [
           {
@@ -872,7 +876,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     })
     const makeAgent = (p: AgentProfile): Agent<unknown, unknown> => {
       if (p.metadata?.kind === 'lead') {
-        const leadBrain = scriptedBrain([
+        const leadBrain = scriptedDriverBrain([
           { toolCalls: spawnCall('d1') },
           awaitTurn, // repeats — the lead never stops on its own
         ])
@@ -885,7 +889,7 @@ describe('acknowledged worker cancellation (#758)', () => {
       return hangingLeaf('d1', { onStart: () => markStarted?.() })
     }
 
-    const spawnTurn: ScriptedTurn = {
+    const spawnTurn: ScriptedDriverTurn = {
       toolCalls: [
         {
           name: 'spawn_worker',
@@ -968,7 +972,11 @@ describe('acknowledged worker cancellation (#758)', () => {
     const events: CoordinationEvent[] = []
 
     cancelWorker(dir, 'a', 'op-settle', { source: 'test' })
-    const chat = scriptedBrain([{ toolCalls: spawnCall('a') }, awaitTurn, { content: 'stopping' }])
+    const chat = scriptedDriverBrain([
+      { toolCalls: spawnCall('a') },
+      awaitTurn,
+      { content: 'stopping' },
+    ])
     const root = driverAgent(
       driverOpts('root', chat, makeAgent, blobs, {
         controlDir: dir,

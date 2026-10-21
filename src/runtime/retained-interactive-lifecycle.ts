@@ -2,7 +2,8 @@ import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { abortError, awaitAbortable } from './retained-run-binding'
+import { awaitAbortable } from './retained-run-binding'
+import { abortError } from './util'
 
 const INTERACTIVE_CLEANUP_TIMEOUT_MS = 30_000
 /** Bound on one lookup that asks the provider whether it still holds an environment. */

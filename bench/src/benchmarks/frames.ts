@@ -26,6 +26,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { runBenchRouterTurn } from '../router-turn'
+import { FINAL_ANSWER_SENTINEL, parseCitations, parseFinalAnswer } from './rag-shared'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 const execFileAsync = promisify(execFile)
@@ -37,7 +38,6 @@ const DATASET = 'google/frames-benchmark'
 /** Pin the dataset revision: ids are derived from row order (no native id column),
  *  so a reorder would break opts.ids selection + scorecard joins. */
 const DATASET_REVISION = 'main'
-const FINAL_ANSWER_SENTINEL = 'FINAL ANSWER:'
 
 /** Worker contract appended to every task prompt. Tier-1 parsing keys off the sentinel. */
 const WORKER_CONTRACT = [
@@ -54,7 +54,7 @@ const WORKER_CONTRACT = [
  * loop worker decodes its agent runs into a {@link ResearchAnswer} and serializes
  * `finalAnswer` (+ optional `CITATIONS:` block) into that string before judging.
  */
-export interface ResearchTask {
+export interface FramesTask {
   id: string
   question: string
   /** Gold short answer — judge resolves strictly against this. */
@@ -63,11 +63,6 @@ export interface ResearchTask {
   goldSources: string[]
   /** FRAMES reasoning_types, e.g. 'numerical | temporal' — slices the scorecard by hop-type. */
   reasoningTypes: string
-}
-
-export interface ResearchAnswer {
-  finalAnswer: string
-  citations: string[]
 }
 
 interface FramesRow {
@@ -216,7 +211,7 @@ function canonicalizeDates(s: string): string {
 }
 
 /** Port of the SQuAD/GAIA normalize_answer routine, plus number/date canonicalization. */
-export function normalizeAnswer(input: string): string {
+export function normalizeFramesAnswer(input: string): string {
   let s = input.toLowerCase()
   s = canonicalizeDates(s)
   s = canonicalizeNumbers(s)
@@ -233,42 +228,13 @@ export function normalizeAnswer(input: string): string {
 
 /** Tier-1 match: normalized equality OR normalized gold as a token-boundary substring. */
 function tier1Match(candidate: string, gold: string): boolean {
-  const nc = normalizeAnswer(candidate)
-  const ng = normalizeAnswer(gold)
+  const nc = normalizeFramesAnswer(candidate)
+  const ng = normalizeFramesAnswer(gold)
   if (ng.length === 0) return false
   if (nc === ng) return true
   // token-boundary containment: gold appears as a whole-token run inside candidate
   const re = new RegExp(`(^|\\s)${ng.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`)
   return re.test(nc)
-}
-
-/**
- * Parse the worker artifact into the final answer string.
- * Order: the `FINAL ANSWER:` sentinel first (deterministic-extraction discipline);
- * fall back to the last non-empty line. Returns '' when nothing is parseable
- * (fail-closed — never guess), which judge() counts as resolved=false.
- */
-export function parseFinalAnswer(artifact: string): string {
-  const lines = artifact.split(/\r?\n/)
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const line = lines[i] ?? ''
-    const idx = line.toUpperCase().indexOf(FINAL_ANSWER_SENTINEL)
-    if (idx !== -1) return line.slice(idx + FINAL_ANSWER_SENTINEL.length).trim()
-  }
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const t = (lines[i] ?? '').trim()
-    if (t.length > 0) return t
-  }
-  return ''
-}
-
-/** Extract cited URLs from a `CITATIONS:` block and any bare URLs in the artifact. */
-export function parseCitations(artifact: string): string[] {
-  const urls = new Set<string>()
-  for (const m of artifact.matchAll(/https?:\/\/[^\s)<>"']+/g)) {
-    urls.add(m[0].replace(/[.,;]+$/, ''))
-  }
-  return [...urls]
 }
 
 /** Fraction of gold Wikipedia article slugs touched by the candidate's citations. SOFT signal. */
@@ -483,7 +449,7 @@ print(json.dumps(out))
           detail: JSON.stringify({
             tier: 'none',
             reason: 'no parseable answer',
-            normalizedGold: normalizeAnswer(meta.gold),
+            normalizedGold: normalizeFramesAnswer(meta.gold),
             citationCoverage: coverage,
           }),
         }
@@ -496,8 +462,8 @@ print(json.dumps(out))
           score: 1,
           detail: JSON.stringify({
             tier: 1,
-            normalizedAnswer: normalizeAnswer(finalAnswer),
-            normalizedGold: normalizeAnswer(meta.gold),
+            normalizedAnswer: normalizeFramesAnswer(finalAnswer),
+            normalizedGold: normalizeFramesAnswer(meta.gold),
             citationCoverage: coverage,
           }),
         }
@@ -510,8 +476,8 @@ print(json.dumps(out))
         score: verdict ? 1 : 0,
         detail: JSON.stringify({
           tier: 2,
-          normalizedAnswer: normalizeAnswer(finalAnswer),
-          normalizedGold: normalizeAnswer(meta.gold),
+          normalizedAnswer: normalizeFramesAnswer(finalAnswer),
+          normalizedGold: normalizeFramesAnswer(meta.gold),
           judgeVerdict: verdict ? 'correct' : 'incorrect',
           citationCoverage: coverage,
         }),

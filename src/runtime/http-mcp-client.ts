@@ -20,7 +20,7 @@
  */
 
 import { ValidationError } from '../errors'
-import type { McpToolDescriptor, StdioMcpConnection } from './stdio-mcp-client'
+import type { McpListedTool, StdioMcpConnection } from './stdio-mcp-client'
 
 export const HTTP_MCP_PROTOCOL_VERSION = '2025-06-18'
 
@@ -191,9 +191,9 @@ export async function connectHttpMcp(spec: HttpMcpServerSpec): Promise<HttpMcpCo
     if (list.error) {
       throw new Error(redact(`tools/list errored: ${JSON.stringify(list.error)}`))
     }
-    const rawTools = (list.result as { tools?: McpToolDescriptor[] } | undefined)?.tools
+    const rawTools = (list.result as { tools?: McpListedTool[] } | undefined)?.tools
     if (!Array.isArray(rawTools)) throw new Error('tools/list result has no tools array')
-    const tools = JSON.parse(redact(JSON.stringify(rawTools))) as McpToolDescriptor[]
+    const tools = JSON.parse(redact(JSON.stringify(rawTools))) as McpListedTool[]
 
     const callTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
       const res = await request('tools/call', { name, arguments: args })

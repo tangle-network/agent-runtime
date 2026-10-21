@@ -11,9 +11,9 @@ import {
 } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
 import {
+  acceptedContextTransferReceipt,
   retainedContextProfile,
   retainedContextTransfer,
-  retainedContextTransferReceipt,
 } from './retained-context-transfer-fixture'
 import { recoverRetainedRun, startRetainedRun } from './retained-run-start'
 import type {
@@ -24,7 +24,7 @@ import type {
 
 function fixture() {
   const request = retainedContextTransfer()
-  const receipt = retainedContextTransferReceipt(request)
+  const receipt = acceptedContextTransferReceipt(request)
   const counts = { creates: 0, gets: 0, dispatches: 0, destroys: 0 }
   const admissions: RetainedRunAdmission[] = []
   let received: AgentTurnInput | undefined
@@ -275,7 +275,7 @@ describe('retained context transfer attachment', () => {
       startRetainedRun({
         ...f.material,
         turn: { ...f.material.turn, contextTransfer: request },
-        contextTransferReceipt: retainedContextTransferReceipt(request),
+        contextTransferReceipt: acceptedContextTransferReceipt(request),
         intent: saved!,
         provider: f.createProvider(),
         onAdmission: f.onAdmission,

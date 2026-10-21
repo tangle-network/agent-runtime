@@ -8,7 +8,7 @@ import {
   settleHarnessTranscript,
 } from '../harness-transcript'
 import { cloneTokenUsage } from '../util'
-import { abortError } from './abortable'
+import { signalAbortError } from './abortable'
 import { type BudgetPool, BudgetReconcileFault, type ReservationTicket } from './budget'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { errMessage } from './error-message'
@@ -171,7 +171,7 @@ export async function runChild<C>(
     // begin. A failed append or invalid executor declaration produces a typed-down child and
     // refunds its reservation; the executor observes zero calls.
     await executionReady
-    if (childAbort.signal.aborted) throw abortError(childAbort.signal, 'execution aborted')
+    if (childAbort.signal.aborted) throw signalAbortError(childAbort.signal, 'execution aborted')
     // A queued child runs nothing until the pool grants its budget slice and then the allocator
     // grants it a worker slot. A refused budget wait settles it down as budget-exhausted; an abort
     // while it waits settles it down with whatever it holds refunded.
@@ -631,7 +631,7 @@ async function awaitAbortable<T>(work: Promise<T>, signal: AbortSignal): Promise
     // returning the already-winning cancellation so a fast abort cannot become an unhandled
     // provider rejection.
     void work.catch(() => undefined)
-    throw abortError(signal, 'execution aborted')
+    throw signalAbortError(signal, 'execution aborted')
   }
   return await new Promise<T>((resolve, reject) => {
     let settled = false
@@ -643,7 +643,7 @@ async function awaitAbortable<T>(work: Promise<T>, signal: AbortSignal): Promise
         if (settled) return
         settled = true
         cleanup()
-        reject(abortError(signal, 'execution aborted'))
+        reject(signalAbortError(signal, 'execution aborted'))
       })
     }
     const cleanup = () => signal.removeEventListener('abort', onAbort)

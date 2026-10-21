@@ -24,7 +24,7 @@ import { execSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { scoreTask, taskToPrompt } from '../search-bench/tasks'
+import { scoreTask, searchTaskPrompt } from '../search-bench/tasks'
 import { runBenchRouterTurn } from '../router-turn'
 import { type EvalCertification, type GeneratedEval, generatedEvalSchemaVersion, parseCandidate } from './schema'
 
@@ -130,7 +130,7 @@ export async function discriminationGate(
         model: { provider: 'tangle-router', default: model },
       },
     },
-    taskToPrompt(candidate),
+    searchTaskPrompt(candidate),
   )
   const { score, reasons } = scoreTask(candidate, res.finalText)
   return score === 0

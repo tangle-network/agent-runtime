@@ -12,7 +12,7 @@ import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import type { Budget } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import type { SandboxClient } from '../../src/runtime/types'
-import { supervise } from '../helpers/runtime-with-test-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
 import { runtimeToolDeclarations } from '../kernel/test-agent-profile'
 
 const WRONG = 'legacy/wrong.ts'
@@ -216,7 +216,7 @@ describe('mid-flight steering — a supervisor observes a live worker and change
     const harness = createFakeHarness()
     const record: { steer?: Record<string, unknown>; answer?: Record<string, unknown> } = {}
     try {
-      await supervise(messageAuthorityRootProfile, 'change the right module', {
+      await superviseForTest(messageAuthorityRootProfile, 'change the right module', {
         budget,
         backend: backend(harness, true),
         brain: missingMessageAuthorityBrain(harness, record),

@@ -16,8 +16,8 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import { testContinuation } from '../helpers/continuation'
-import { supervise } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
@@ -90,7 +90,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       await call(coordinationMcpUrl, 'submit_result', { result: { answer: 42 } })
     }
 
-    const result = await supervise(
+    const result = await superviseForTest(
       testAgentProfile('root', {
         harness: 'opencode',
         tools: runtimeToolDeclarations('spawn_worker'),
@@ -189,7 +189,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       childReply = await call(coordinationMcpUrl, 'submit_result', { result: 'CHILD: ready' })
     }
 
-    await supervise(
+    await superviseForTest(
       testAgentProfile('root', {
         harness: 'opencode',
         tools: runtimeToolDeclarations('spawn_worker'),
@@ -230,7 +230,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     const dir = await mkdtemp(join(tmpdir(), 'supervise-rundir-'))
     try {
       const script = () =>
-        scriptedBrain([
+        scriptedDriverBrain([
           {
             toolCalls: [
               { name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } },
@@ -246,7 +246,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         runDir: dir,
       }
 
-      const first = await supervise(
+      const first = await superviseForTest(
         rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
         'solve it',
         {
@@ -268,7 +268,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       // A second `supervise()` against the SAME runDir + runId takes the resume path. Without the
       // `resume` flag threaded through, this would fail loud in `beginTree` ("already begun at …,
       // refusing to overwrite") because the wall-clock `at` differs between the two calls.
-      const second = await supervise(
+      const second = await superviseForTest(
         rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
         'solve it',
         {
@@ -321,12 +321,12 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         runDir: dir,
         onCoordinationEvent,
       }
-      const first = await supervise(
+      const first = await superviseForTest(
         rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
         'solve it',
         {
           ...common,
-          brain: scriptedBrain([
+          brain: scriptedDriverBrain([
             {
               toolCalls: [
                 { name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } },
@@ -343,7 +343,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       expect(new Set(observations.map((entry) => entry.eventId))).toHaveLength(1)
 
       acknowledge = true
-      const replayScript = scriptedBrain([
+      const replayScript = scriptedDriverBrain([
         { content: 'waiting for the worker' },
         { content: 'finish from committed work' },
       ])
@@ -351,7 +351,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         expect(replayCommitted).toBe(true)
         return replayScript(...args)
       }
-      const second = await supervise(
+      const second = await superviseForTest(
         rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
         'solve it',
         {
@@ -379,7 +379,7 @@ describe('supervise — the coordination bind is opt-in and fails closed off loo
 
   it('passes an authenticated non-loopback bind through to the coordination server', async () => {
     let url = ''
-    await supervise(testAgentProfile('root', { harness: 'opencode' }), 't', {
+    await superviseForTest(testAgentProfile('root', { harness: 'opencode' }), 't', {
       ...harnessOpts,
       driveHarness: async ({ coordinationMcpUrl }) => {
         url = coordinationMcpUrl
@@ -391,7 +391,7 @@ describe('supervise — the coordination bind is opt-in and fails closed off loo
 
   it('binds the requested loopback host without authentication needed', async () => {
     let url = ''
-    await supervise(testAgentProfile('root', { harness: 'opencode' }), 't', {
+    await superviseForTest(testAgentProfile('root', { harness: 'opencode' }), 't', {
       ...harnessOpts,
       driveHarness: async ({ coordinationMcpUrl }) => {
         url = coordinationMcpUrl
@@ -436,7 +436,7 @@ describe('supervise — peerMail threads from options through both supervisor ar
 
   it('refuses a router-brained nested driver as a loud spawn error, not a silent no-mail run', async () => {
     const spawnReplies: unknown[] = []
-    await supervise(
+    await superviseForTest(
       testAgentProfile('root', {
         harness: 'opencode',
         tools: runtimeToolDeclarations('spawn_worker', 'stop'),
@@ -519,14 +519,14 @@ describe('supervise — the deadline warning wakes a waiting manager', () => {
   async function runStuckManager(
     secondTurn: (url: string, notice: string) => Promise<void>,
   ): Promise<{
-    result: Awaited<ReturnType<typeof supervise>>
+    result: Awaited<ReturnType<typeof superviseForTest>>
     turns: Array<{ at: number; task: string }>
     refusedBeforeWarning: Record<string, unknown>
   }> {
     const started = Date.now()
     const turns: Array<{ at: number; task: string }> = []
     let refusedBeforeWarning: Record<string, unknown> = {}
-    const result = await supervise(
+    const result = await superviseForTest(
       testAgentProfile('root', {
         harness: 'opencode',
         tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),

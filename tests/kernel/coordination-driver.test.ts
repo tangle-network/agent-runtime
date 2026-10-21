@@ -21,7 +21,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
-import { scriptedBrain } from './scripted-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
 
 // ── Offline scripted leaf worker (no network/sandbox/LLM) ────────────────────────
@@ -124,7 +124,7 @@ it('recovers an accepted direct result after the driver dies before it settles',
     const interrupted = driverAgent({
       ...driverOpts(
         'root',
-        scriptedBrain([
+        scriptedDriverBrain([
           { toolCalls: [{ name: 'submit_result', arguments: { result: { answer: 42 } } }] },
         ]),
         dummyWorker,

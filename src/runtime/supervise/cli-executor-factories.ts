@@ -13,6 +13,7 @@ import {
 import type { Executor, ExecutorFactory } from './types'
 import { createWorktreeCliExecutor } from './worktree-cli-executor'
 
+/** Executor factory for a CLI harness that runs in a git worktree of the caller's checkout. */
 export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<CliWorktreeSeam>(ctx, cliWorktreeSeamKey, 'cli-worktree')
   if (!seam.repoRoot) {

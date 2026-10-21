@@ -32,6 +32,7 @@
 import type { KnowledgeReadinessReport } from '@tangle-network/agent-eval'
 
 import { BackendTransportError } from '../errors'
+import { sleep } from '../runtime/util'
 import { InMemoryRuntimeSessionStore, nowIso, startOrResumeRuntimeSession } from '../sessions'
 import type {
   AgentBackendContext,
@@ -45,7 +46,6 @@ import {
   computeBackoff,
   defaultIsRetryable,
   makePerAttemptSignal,
-  sleep,
 } from './call-policy'
 import { buildForwardHeaders, FORWARD_HEADERS } from './headers'
 import { turnId as deriveTurnId, slugifySpeaker } from './turn-id'

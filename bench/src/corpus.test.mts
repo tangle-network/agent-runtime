@@ -5,7 +5,7 @@ import {
   benchRecordToCorpusRecords,
   buildRunRecord,
   buildRunRecordFromAttempts,
-  type RunRecord,
+  type BenchRunRecord,
 } from './corpus'
 import { createRuntimeHookRecorder } from './runtime-hook-recorder'
 
@@ -23,12 +23,12 @@ const measuredAttempt = (round: number, output: string, valid: boolean): Attempt
   eventTypes: { llm_call: 1, tool_call: 1 },
 })
 
-const baseRec = (attempts: AttemptRecord[], over: Partial<RunRecord> = {}): RunRecord => ({
+const baseRec = (attempts: AttemptRecord[], over: Partial<BenchRunRecord> = {}): BenchRunRecord => ({
   ts: '2026-06-03T00:00:00.000Z',
   benchmark: 'finsearchcomp',
   instanceId: 'i1',
   condition: 'random@3',
-  // canonical RunRecord requires a snapshot-pinned model; bench writes bare
+  // canonical BenchRunRecord requires a snapshot-pinned model; bench writes bare
   // aliases, so the happy path supplies the resolved snapshot via opts.model.
   model: 'gpt-5',
   blindResolved: attempts[0]?.valid === true,
@@ -97,7 +97,7 @@ const baseRec = (attempts: AttemptRecord[], over: Partial<RunRecord> = {}): RunR
   assert.equal(unmappable.length, 0, 'all measured attempts map')
   assert.equal(records.length, 2, 'one record per attempt')
   for (const r of records) {
-    assert.ok(isRunRecord(r), 'each is a valid canonical RunRecord')
+    assert.ok(isRunRecord(r), 'each is a valid canonical BenchRunRecord')
   }
   const [r0, r1] = records
   assert.equal(r0?.candidateId, 'random@3', 'candidateId = condition (the gate-pairing arm)')
@@ -151,7 +151,7 @@ const baseRec = (attempts: AttemptRecord[], over: Partial<RunRecord> = {}): RunR
   )
   assert.equal(records.length, 0, 'a bare-alias model is not a reproducibility artifact')
   assert.equal(unmappable.length, 1)
-  assert.match(unmappable[0]!.reason, /invalid RunRecord/, 'surfaces the validator rejection')
+  assert.match(unmappable[0]!.reason, /invalid BenchRunRecord/, 'surfaces the validator rejection')
   assert.match(unmappable[0]!.reason, /snapshot/, 'reason explains the snapshot-pin requirement')
 }
 

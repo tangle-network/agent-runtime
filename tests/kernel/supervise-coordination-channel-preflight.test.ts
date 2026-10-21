@@ -20,7 +20,7 @@ import { InMemorySpawnJournal } from '../../src/durable/in-memory-spawn-stores'
 import type { SuperviseOptions } from '../../src/runtime/supervise/supervise'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type { NodeId, SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
-import { supervise } from '../helpers/runtime-with-test-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
 import { runtimeToolDeclarations } from './test-agent-profile'
 
 function recordingJournal(into: SpawnEvent[]): SpawnJournal {
@@ -72,7 +72,7 @@ async function spawnLeadFromRoot(
   const events: SpawnEvent[] = []
   const toolResults: string[] = []
   let turn = 0
-  await supervise(routerRoot, 'Delegate.', {
+  await superviseForTest(routerRoot, 'Delegate.', {
     ...options,
     budget: { maxIterations: 8, maxTokens: 8_000 },
     perWorker: { maxIterations: 2, maxTokens: 1_000 },
@@ -153,7 +153,7 @@ describe('supervise coordination-channel pre-flight', () => {
     const events: SpawnEvent[] = []
     const toolResults: string[] = []
     let turn = 0
-    await supervise(
+    await superviseForTest(
       { ...routerRoot, tools: runtimeToolDeclarations('spawn_worker') },
       'Delegate.',
       {

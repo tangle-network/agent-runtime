@@ -3,7 +3,7 @@ import { InMemorySpawnJournal } from '../../src/durable/in-memory-spawn-stores'
 import type { QuestionRecord } from '../../src/mcp/tools/coordination-questions'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import { testContinuation } from '../helpers/continuation'
-import { supervise } from '../helpers/runtime-with-test-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const budget = { maxTokens: 20_000, maxIterations: 20 }
@@ -82,7 +82,7 @@ describe('supervise delivers parent questions, not just callback configuration',
           childFinished()
         }
       }
-      await supervise(
+      await superviseForTest(
         testAgentProfile('root', {
           tools: runtimeToolDeclarations('ask_parent', 'spawn_worker'),
         }),
@@ -170,7 +170,7 @@ describe('supervise delivers parent questions, not just callback configuration',
       }
       await tool('submit_result', { result: { answer: 'checked with source B' } })
     }
-    await supervise(
+    await superviseForTest(
       testAgentProfile('root', {
         tools: runtimeToolDeclarations('spawn_worker', 'list_questions', 'answer_question'),
       }),

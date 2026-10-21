@@ -25,7 +25,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { spendFromUsageEvents } from '../../src/runtime/supervise/usage-metering'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
-import { supervise } from './runtime-with-test-brain'
+import { superviseForTest } from './runtime-with-test-brain'
 
 const [dir, runId, phase] = process.argv.slice(2)
 if (
@@ -150,7 +150,7 @@ const brain: ToolLoopChat = async (messages) => {
   return { content: 'waiting for the workers', toolCalls: [], usage: brainUsage }
 }
 
-const result = await supervise(
+const result = await superviseForTest(
   {
     ...offlineProfile('root'),
     tools: {

@@ -15,7 +15,7 @@ import { createConversationBackend } from './conversation-backend'
 import { defineConversation } from './define-conversation'
 import {
   buildForwardHeaders,
-  DEFAULT_MAX_DEPTH,
+  DEFAULT_MAX_FORWARD_DEPTH,
   FORWARD_HEADERS,
   isDepthExceeded,
   readDepth,
@@ -76,7 +76,7 @@ describe('headers — parse + build', () => {
     expect(isDepthExceeded(4)).toBe(true)
     expect(isDepthExceeded(99)).toBe(true)
     expect(isDepthExceeded(2, 2)).toBe(true) // custom max
-    expect(DEFAULT_MAX_DEPTH).toBe(4)
+    expect(DEFAULT_MAX_FORWARD_DEPTH).toBe(4)
   })
   it('buildForwardHeaders increments depth + carries identity + run/turn', () => {
     const out = buildForwardHeaders({

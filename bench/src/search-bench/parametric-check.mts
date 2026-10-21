@@ -13,7 +13,7 @@ import { writeFileSync } from 'node:fs'
 import { runPool } from '../run-pool'
 import { runBenchRouterTurn } from '../router-turn'
 import { freshTasks } from './tasks-fresh'
-import { scoreTask, taskToPrompt } from './tasks'
+import { scoreTask, searchTaskPrompt } from './tasks'
 
 async function main(): Promise<void> {
   const model = process.env.MODEL ?? 'deepseek-v4-flash'
@@ -37,7 +37,7 @@ async function main(): Promise<void> {
             model: { provider: 'tangle-router', default: model },
           },
         },
-        taskToPrompt(task),
+        searchTaskPrompt(task),
       )
       const { score } = scoreTask(task, res.finalText)
       return {

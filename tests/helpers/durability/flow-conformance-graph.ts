@@ -132,6 +132,29 @@ export function flowConformanceGraph(): AgentGraph {
   }
 }
 
+/** The smallest restart case: three nodes in a line, the entry first. A kill right after the entry
+ *  settles must resume along its outgoing route, so phase 2 runs only `edit` and `publish`. */
+export const PIPELINE_OUT = { publish: { published: 'edited draft' } }
+
+export function flowPipelineGraph(): AgentGraph {
+  return {
+    nodes: ['draft', 'edit', 'publish'].map((id) => ({ id, profile: offlineProfile(id) })),
+    entry: [{ node: 'draft', task: 'Write the draft.' }],
+    edges: [
+      { kind: 'routes', from: 'draft', to: 'edit', directive: brief },
+      { kind: 'routes', from: 'edit', to: 'publish', directive: brief },
+    ],
+    deliverable: {
+      describe: 'the published draft',
+      check: (out: unknown) => (out as { publish?: unknown } | null)?.publish !== undefined,
+    },
+    budget: { maxIterations: 100, maxTokens: 1_000_000 },
+  }
+}
+
+/** The graph a child phase runs, named by `FLOW_GRAPH` in its environment. */
+export type FlowGraphName = 'conformance' | 'pipeline'
+
 interface RouteTask {
   readonly from: { readonly node: string; readonly result: Record<string, unknown> }
 }
@@ -164,6 +187,12 @@ function leafStep(name: string, task: unknown): { readonly tag: string; readonly
       const review = (task as { evidence: { review: { build: number } } }).evidence.review
       return { tag: name, out: { verified: true, build: review.build } }
     }
+    case 'draft':
+      return { tag: name, out: { text: 'draft' } }
+    case 'edit':
+      return { tag: name, out: { text: `edited ${String(from?.result.text)}` } }
+    case 'publish':
+      return { tag: name, out: { published: from?.result.text } }
     default:
       throw new Error(`flow conformance graph has no node '${name}'`)
   }
@@ -255,6 +284,7 @@ export async function runFlowGraphPhase(
   dir: string,
   phase: string,
   killAt?: string,
+  graph: FlowGraphName = 'conformance',
 ): Promise<void> {
   const kill = armKillSwitch({
     ...(killAt === undefined ? {} : { killAt }),
@@ -267,7 +297,8 @@ export async function runFlowGraphPhase(
   }
   const tagByKey = new Map<string, string>()
   const tagByChild = new Map<string, string>()
-  const { result } = await superviseGraphPursuit(flowConformanceGraph(), {
+  const topology = graph === 'pipeline' ? flowPipelineGraph() : flowConformanceGraph()
+  const { result } = await superviseGraphPursuit(topology, {
     pursuitId: 'flow-graph-conformance',
     runId: FLOW_RUN_ID,
     runDir: dir,

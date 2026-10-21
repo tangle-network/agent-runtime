@@ -35,9 +35,9 @@ export interface RuleScenario extends Scenario {
 const tasks = (prefix: string, count: number): RuleScenario[] =>
   Array.from({ length: count }, (_, i) => ({ id: `${prefix}-${i}`, kind: 'rule-task' as const }))
 
-export const trainScenarios = tasks('train', 4)
-export const selectionScenarios = tasks('selection', 12)
-export const testScenarios = tasks('test', 24)
+export const ruleTrainScenarios = tasks('train', 4)
+export const ruleSelectionScenarios = tasks('selection', 12)
+export const ruleTestScenarios = tasks('test', 24)
 
 /** Each rule's true effect on every task's score. */
 export const ruleEffects: Readonly<Record<string, number>> = {
@@ -56,7 +56,7 @@ function jitter(key: string): number {
 }
 
 /** The agent returns its prompt; one metered call per cell keeps the cost known. */
-export const agent = async (
+export const ruleAgent = async (
   candidate: ReadonlyAgentProfile,
   _scenario: RuleScenario,
   ctx: DispatchContext,
@@ -80,7 +80,7 @@ export const agent = async (
 
 /** Score: a per-task base, plus each present rule's effect and a small
  * task-by-rule interaction. */
-export const judge: JudgeConfig<string, RuleScenario> = {
+export const ruleJudge: JudgeConfig<string, RuleScenario> = {
   name: 'rule-effects',
   dimensions: [{ key: 'quality', description: 'rule effects on this task' }],
   score: ({ artifact, scenario }) => {
@@ -119,17 +119,17 @@ export const ruleProposer: SurfaceProposer = {
   },
 }
 
-export const profile: AgentProfile = {
+export const ruleProfile: AgentProfile = {
   name: 'search-example',
   prompt: { systemPrompt: 'Answer the question from the documents.' },
 }
 
-export const executionRef = canonicalCandidateDigest({
+export const ruleExecutionRef = canonicalCandidateDigest({
   callback: 'examples/improve/search/agent',
   model: 'deterministic-example',
 })
 
-export const claim: EvaluationClaim = {
+export const ruleClaim: EvaluationClaim = {
   use: 'comparison',
   population: { id: 'rule-tasks', description: 'the example rule tasks' },
   samplingFrame: 'every generated rule task',
@@ -139,9 +139,9 @@ export const claim: EvaluationClaim = {
 }
 
 export async function runSearchExample(runDir: string): Promise<ImproveSearchResult> {
-  return improve(profile, {
+  return improve(ruleProfile, {
     surface: 'prompt',
-    executionRef,
+    executionRef: ruleExecutionRef,
     method: searchMethod({
       proposer: ruleProposer,
       maxExpansions: 8,
@@ -149,12 +149,12 @@ export async function runSearchExample(runDir: string): Promise<ImproveSearchRes
       // lane can hold each cell to it.
       lanes: [routerLane({ capacity: 4, cellUsd: 0.0001 })],
     }),
-    claim,
-    trainScenarios,
-    selectionScenarios,
-    testScenarios,
-    judges: [judge],
-    agent,
+    claim: ruleClaim,
+    trainScenarios: ruleTrainScenarios,
+    selectionScenarios: ruleSelectionScenarios,
+    testScenarios: ruleTestScenarios,
+    judges: [ruleJudge],
+    agent: ruleAgent,
     costCeiling: 1,
     runDir,
   })
