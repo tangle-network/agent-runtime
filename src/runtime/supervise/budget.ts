@@ -65,25 +65,11 @@
  */
 
 import { ValidationError } from '../../errors'
-import type { LoopTokenUsage } from '../types'
-import {
-  addTokenUsage,
-  chargedTokens,
-  cloneTokenUsage,
-  hasCompleteCacheBreakdown,
-  zeroTokenUsage,
-} from '../util'
-import { addResourceSpend, assertResources, withBudgetResources } from './resources'
-import type {
-  Budget,
-  BudgetOverspend,
-  BudgetViolation,
-  Spend,
-  TokenUsageProvenance,
-  UsageEvent,
-} from './types'
-
-export type { Budget, BudgetOverspend, BudgetViolation, Spend, UsageEvent }
+import { chargedTokens, hasCompleteCacheBreakdown, zeroTokenUsage } from '../util'
+import { withBudgetResources } from './resources'
+import { assertValidBudget, assertValidSpend } from './spend-validation'
+import type { Budget, BudgetOverspend, BudgetViolation, Spend, UsageEvent } from './types'
+import { foldUsage } from './usage-metering'
 
 /**
  * A reconciliation whose spend the pool cannot verify. It is thrown after the reservation has
@@ -196,6 +182,7 @@ export type BudgetReadout = Readonly<{
   deadlineMs: number
   reservedTokens: number
 }>
+
 /** The part of each channel a reservation must leave free: a manager's own share of its slice,
  *  which its children may not reserve. */
 export interface ReservationFloor {
@@ -268,93 +255,6 @@ export interface BudgetPoolRestore {
   readonly uncertainReservations?: ReadonlyArray<Budget>
 }
 
-/** Reject malformed ceilings before they can mint capacity through negative reservations. */
-export function assertValidBudget(budget: Budget, label = 'budget'): void {
-  const safeInteger = (value: number, field: string) => {
-    if (!Number.isSafeInteger(value) || value < 0) {
-      throw new Error(`${label}.${field} must be a non-negative safe integer`)
-    }
-  }
-  const finiteNonNegative = (value: number, field: string) => {
-    if (!Number.isFinite(value) || value < 0) {
-      throw new Error(`${label}.${field} must be a non-negative finite number`)
-    }
-  }
-  assertResources(budget.resources, 'limit', `${label}.resources`)
-  safeInteger(budget.maxIterations, 'maxIterations')
-  safeInteger(budget.maxTokens, 'maxTokens')
-  if (budget.maxUsd !== undefined) finiteNonNegative(budget.maxUsd, 'maxUsd')
-  if (budget.deadlineMs !== undefined) finiteNonNegative(budget.deadlineMs, 'deadlineMs')
-}
-
-export function assertValidSpend(spend: Spend, label: string): void {
-  assertResources(spend.resources, 'amount', `${label}.resources`)
-  if (!Number.isSafeInteger(spend.iterations) || spend.iterations < 0) {
-    throw new Error(`${label}.iterations must be a non-negative safe integer`)
-  }
-  for (const [field, value] of [
-    ['input', spend.tokens.input],
-    ['output', spend.tokens.output],
-    ['freshInput', spend.tokens.freshInput],
-    ['cacheRead', spend.tokens.cacheRead],
-    ['cacheWrite', spend.tokens.cacheWrite],
-  ] as const) {
-    if (value === undefined) continue
-    if (!Number.isSafeInteger(value) || value < 0) {
-      throw new Error(`${label}.tokens.${field} must be a non-negative safe integer`)
-    }
-  }
-  for (const [field, value] of [
-    ['tokensKnown', spend.tokens.tokensKnown],
-    ['cacheBreakdownKnown', spend.tokens.cacheBreakdownKnown],
-  ] as const) {
-    if (value !== undefined && value !== false) {
-      throw new Error(`${label}.tokens.${field} must be false when present`)
-    }
-  }
-  const { freshInput, cacheRead, cacheWrite } = spend.tokens
-  if (freshInput !== undefined && cacheRead !== undefined && cacheWrite !== undefined) {
-    const classified = freshInput + cacheRead + cacheWrite
-    // A spend that CLAIMS a complete split must partition `input` exactly — that invariant is what
-    // lets the charge credit a cache read. A spend that declares its split INCOMPLETE reports
-    // classes covering only part of `input`, which is exactly what `addTokenUsage` produces when it
-    // folds a classified turn together with an unclassified one. Demanding an exact partition there
-    // rejects the shape the incomplete flag exists to describe, and a resumed pool built from such
-    // an aggregate died at construction. Either way the classes may never EXCEED the total they
-    // partition; that direction would let bad telemetry credit tokens nobody presented.
-    if (spend.tokens.cacheBreakdownKnown !== false) {
-      if (classified !== spend.tokens.input) {
-        throw new Error(`${label}.tokens cache classes must sum to input`)
-      }
-    } else if (classified > spend.tokens.input) {
-      throw new Error(`${label}.tokens cache classes must not exceed input`)
-    }
-  }
-  for (const [field, value] of [
-    ['usd', spend.usd],
-    ['ms', spend.ms],
-  ] as const) {
-    if (!Number.isFinite(value) || value < 0) {
-      throw new Error(`${label}.${field} must be a non-negative finite number`)
-    }
-  }
-  if (spend.usdEstimated !== undefined) {
-    if (!Number.isFinite(spend.usdEstimated) || spend.usdEstimated < 0) {
-      throw new Error(`${label}.usdEstimated must be a non-negative finite number`)
-    }
-    // The catalog-priced part is a part OF `usd`, not an addition to it. A larger value would let
-    // `usd - usdEstimated` report negative provider-billed dollars.
-    if (spend.usdEstimated > spend.usd) {
-      throw new Error(`${label}.usdEstimated must not exceed ${label}.usd`)
-    }
-    // A catalog price is never a measurement. Admitting one under `usdKnown: true` would let an
-    // estimate be read as billed spend.
-    if (spend.usdKnown !== false) {
-      throw new Error(`${label}.usdEstimated requires ${label}.usdKnown false`)
-    }
-  }
-}
-
 export interface BudgetPool {
   /**
    * Atomically reserve a child's full ceiling from the free balance. Fails closed
@@ -417,127 +317,6 @@ export interface BudgetPool {
   /** Every reservation still open, with its holder. Empty on a healthy pool. Read at the join
    *  barrier so a run that failed can REPORT a leak it must not also be destroyed by. */
   openReservations(): ReadonlyArray<LeakedReservation>
-}
-
-/** Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate
- *  channels; iterations come from `'iteration'` events. Pure; `ms` stays zero (the
- *  pool does not read wall-clock). */
-export function spendFromUsageEvents(events: UsageEvent[]): Spend {
-  const totals = newUsageTotals()
-  for (const ev of events) meterUsageEvent(totals, ev)
-  return spendFromUsageTotals(totals)
-}
-
-/** Running accounting totals folded from `UsageEvent`s. */
-export interface UsageTotals {
-  resources?: Spend['resources']
-  tokens: LoopTokenUsage
-  tokensKnown: boolean
-  /** Which evidence the counted tokens came from. `undefined` until the first `tokens` event. */
-  tokensProvenance?: TokenUsageProvenance
-  usd: number
-  usdEstimated: number
-  usdKnown: boolean
-  iterations: number
-}
-
-/** Fresh accounting totals, optionally restored from verified committed spend. */
-export function newUsageTotals(priorSpent?: Spend): UsageTotals {
-  if (priorSpent !== undefined) assertValidSpend(priorSpent, 'prior committed usage')
-  return {
-    ...addResourceSpend(priorSpent?.resources),
-    tokens: priorSpent === undefined ? zeroTokenUsage() : cloneTokenUsage(priorSpent.tokens),
-    tokensKnown: priorSpent?.tokensKnown !== false,
-    ...(priorSpent?.tokensProvenance === undefined
-      ? {}
-      : { tokensProvenance: priorSpent.tokensProvenance }),
-    usd: priorSpent?.usd ?? 0,
-    usdEstimated: priorSpent?.usdEstimated ?? 0,
-    usdKnown: priorSpent?.usdKnown !== false,
-    iterations: priorSpent?.iterations ?? 0,
-  }
-}
-
-/**
- * Fold ONE usage event into running totals — the single place that decides which event kinds
- * meter. `progress` carries observed output rather than accounting, so it meters nothing; only
- * `iteration` advances the iteration count.
- */
-export function meterUsageEvent(totals: UsageTotals, ev: UsageEvent): void {
-  if (ev.kind === 'resource') {
-    totals.resources = addResourceSpend(
-      totals.resources,
-      Object.fromEntries([[ev.name, { unit: ev.unit, amount: ev.amount, known: ev.known }]]),
-    ).resources
-    return
-  }
-  if (ev.kind === 'tokens') {
-    if (ev.mode === 'cumulative') {
-      if (ev.input < totals.tokens.input || ev.output < totals.tokens.output) {
-        throw new ValidationError('cumulative executor tokens must not decrease')
-      }
-      const snapshot = zeroTokenUsage()
-      addTokenUsage(snapshot, {
-        ...ev,
-        ...(ev.freshInput === undefined && totals.tokens.freshInput !== undefined
-          ? { freshInput: totals.tokens.freshInput }
-          : {}),
-        ...(ev.cacheRead === undefined && totals.tokens.cacheRead !== undefined
-          ? { cacheRead: totals.tokens.cacheRead }
-          : {}),
-        ...(ev.cacheWrite === undefined && totals.tokens.cacheWrite !== undefined
-          ? { cacheWrite: totals.tokens.cacheWrite }
-          : {}),
-        ...(totals.tokens.tokensKnown === false ? { tokensKnown: false } : {}),
-      })
-      totals.tokens = snapshot
-    } else {
-      addTokenUsage(totals.tokens, ev)
-    }
-    if (ev.tokensKnown === false) totals.tokensKnown = false
-    // An event that names no provenance came from the executor's own live stream, which is what
-    // every path reported before a harness store was readable.
-    const source = ev.provenance ?? 'stream-receipt'
-    totals.tokensProvenance =
-      totals.tokensProvenance === undefined || totals.tokensProvenance === source ? source : 'mixed'
-    return
-  }
-  if (ev.kind === 'cost') {
-    totals.usd += ev.usd
-    if (ev.usdKnown === false) {
-      totals.usdEstimated += ev.usdEstimated ?? 0
-      totals.usdKnown = false
-    }
-    return
-  }
-  if (ev.kind === 'iteration') totals.iterations += 1
-}
-
-/** Project folded totals onto the conserved-pool `Spend`. `ms` stays zero — the pool does not
- *  read wall-clock. */
-export function spendFromUsageTotals(totals: UsageTotals): Spend {
-  return {
-    ...addResourceSpend(totals.resources),
-    iterations: totals.iterations,
-    tokens: totals.tokens,
-    ...(totals.tokensKnown ? {} : { tokensKnown: false }),
-    usd: totals.usd,
-    ...(totals.usdKnown ? {} : { usdKnown: false }),
-    ...(totals.usdEstimated > 0 ? { usdEstimated: totals.usdEstimated } : {}),
-    // Only a provenance OTHER than the live stream is stated. Absence is the historical answer and
-    // means the same thing, so every path that never reads a harness store is byte-unchanged.
-    ...(totals.tokensProvenance === undefined || totals.tokensProvenance === 'stream-receipt'
-      ? {}
-      : { tokensProvenance: totals.tokensProvenance }),
-    ms: 0,
-  }
-}
-
-async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Promise<Spend> {
-  if (Array.isArray(events)) return spendFromUsageEvents(events)
-  const totals = newUsageTotals()
-  for await (const ev of events) meterUsageEvent(totals, ev)
-  return spendFromUsageTotals(totals)
 }
 
 /**

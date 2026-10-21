@@ -16,7 +16,6 @@
 
 import { appendFileSync } from 'node:fs'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { spendFromUsageEvents } from '../../src/runtime/supervise/budget'
 import type {
   Agent,
   AgentSpec,
@@ -24,6 +23,7 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { spendFromUsageEvents } from '../../src/runtime/supervise/usage-metering'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { supervise } from './runtime-with-test-brain'
 
