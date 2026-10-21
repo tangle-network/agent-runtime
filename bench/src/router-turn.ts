@@ -13,19 +13,19 @@ import {
 } from '@tangle-network/agent-runtime/kernel'
 
 /** Bench-local target shorthand; Runtime still executes only the exact profile below. */
-export interface BenchRouterTarget {
+interface BenchRouterTarget {
   routerBaseUrl: string
   routerKey: string
   profile: AgentProfile
 }
 
-export interface BenchRouterTurnConfig extends BenchRouterTarget {
+interface BenchRouterTurnConfig extends BenchRouterTarget {
   tools?: ReadonlyArray<ToolSpec>
   timeoutMs?: number
   signal?: AbortSignal
 }
 
-export interface BenchProfileSettings {
+interface BenchProfileSettings {
   systemPrompt?: string
   temperature?: number
   maxTokens?: number
@@ -93,14 +93,6 @@ export function withBenchProfile(
       ? { prompt: { ...base.prompt, systemPrompt: settings.systemPrompt } }
       : {}),
   })
-}
-
-export function benchProfileModel(profile: AgentProfile): string {
-  const model = profile.model?.default
-  if (typeof model !== 'string' || model.length === 0 || model === 'runtime-selected') {
-    throw new Error('benchmark AgentProfile.model.default must be concrete')
-  }
-  return model
 }
 
 /**
