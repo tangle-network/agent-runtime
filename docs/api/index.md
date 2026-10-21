@@ -106,45 +106,6 @@ cracking the log line open.
 
 ***
 
-### RuntimeRunStateError
-
-**`Stable`**
-
-A runtime-run lifecycle method was called in an order the state machine does
-not allow: `persist()` before `complete()`, `complete()` twice, etc.
-
-#### Extends
-
-- `AgentEvalError`
-
-#### Constructors
-
-##### Constructor
-
-> **new RuntimeRunStateError**(`message`, `options?`): [`RuntimeRunStateError`](#runtimerunstateerror)
-
-###### Parameters
-
-###### message
-
-`string`
-
-###### options?
-
-###### cause?
-
-`unknown`
-
-###### Returns
-
-[`RuntimeRunStateError`](#runtimerunstateerror)
-
-###### Overrides
-
-`AgentEvalError.constructor`
-
-***
-
 ### SearchEnvironmentFault
 
 The environment, not the candidate, ended the attempt: a box that died, a platform that
@@ -8642,38 +8603,6 @@ Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / 
 
 ***
 
-### applyRunRecordDefaults()
-
-> **applyRunRecordDefaults**(`records`, `scenarioId`, `controlFailureClass`): `RunRecord`[]
-
-Stamp cross-cutting defaults onto adapter-projected RunRecords without
- overriding anything the adapter set explicitly:
-  - `scenarioId` — the run's scenario, when the record omits one.
-  - `failureClass` — the control layer's failure classification promoted
-    onto the canonical cross-agent key, but ONLY when it's a real taxonomy
-    class. This is what lets the substrate aggregate failures across every
-    agent in one vocabulary instead of per-agent ad-hoc strings.
-
-#### Parameters
-
-##### records
-
-`RunRecord`[]
-
-##### scenarioId
-
-`string`
-
-##### controlFailureClass
-
-`string` \| `undefined`
-
-#### Returns
-
-`RunRecord`[]
-
-***
-
 ### runAgentTask()
 
 > **runAgentTask**\<`TState`, `TAction`, `TActionResult`, `TEval`\>(`options`): `Promise`\<[`AgentTaskRunResult`](#agenttaskrunresult)\<`TState`, `TAction`, `TActionResult`, `TEval`\>\>
@@ -8850,72 +8779,6 @@ Strip PII and large blobs from a `KnowledgeReadinessReport` for safe telemetry e
 #### Returns
 
 [`SanitizedKnowledgeReadinessReport`](#sanitizedknowledgereadinessreport)
-
-***
-
-### sanitizeAgentRuntimeEvent()
-
-> **sanitizeAgentRuntimeEvent**\<`TState`, `TAction`, `TActionResult`, `TEval`\>(`event`, `options?`): `Record`\<`string`, `unknown`\>
-
-**`Stable`**
-
-Reduce an `AgentRuntimeEvent` to a PII-safe, serializable plain object for telemetry.
-
-#### Type Parameters
-
-##### TState
-
-`TState`
-
-##### TAction
-
-`TAction`
-
-##### TActionResult
-
-`TActionResult`
-
-##### TEval
-
-`TEval` *extends* `ControlEvalResult`
-
-#### Parameters
-
-##### event
-
-[`AgentRuntimeEvent`](#agentruntimeevent)\<`TState`, `TAction`, `TActionResult`, `TEval`\>
-
-##### options?
-
-[`RuntimeTelemetryOptions`](#runtimetelemetryoptions) = `{}`
-
-#### Returns
-
-`Record`\<`string`, `unknown`\>
-
-***
-
-### sanitizeRuntimeStreamEvent()
-
-> **sanitizeRuntimeStreamEvent**(`event`, `options?`): `Record`\<`string`, `unknown`\>
-
-**`Stable`**
-
-Reduce a `RuntimeStreamEvent` to a PII-safe, serializable plain object for telemetry.
-
-#### Parameters
-
-##### event
-
-[`RuntimeStreamEvent`](#runtimestreamevent)
-
-##### options?
-
-[`RuntimeTelemetryOptions`](#runtimetelemetryoptions) = `{}`
-
-#### Returns
-
-`Record`\<`string`, `unknown`\>
 
 ***
 

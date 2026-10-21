@@ -285,7 +285,7 @@ Import from `@tangle-network/agent-runtime/placement` — 12 exports.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
-Import from `@tangle-network/agent-runtime/intelligence` — 144 exports.
+Import from `@tangle-network/agent-runtime/intelligence` — 145 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -390,7 +390,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 144 exports.
 | `PullOutcome` | type | Typed outcome for the pull — inspect `succeeded` before `value`. A 404 |
 | `Redactor` | type | A redactor maps an arbitrary trace value to a safe-to-export value. Pure; |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateExperimentCellPlacement`, `AgentImprovementActivationTargetPlan`, `AgentImprovementProfileReplacement`, `AgentImprovementProfileStateDigestInput`, `AgentImprovementProfileStateResolverInput`, `AgentImprovementProposal`, `AgentImprovementTargetProfileDiffOptions`, `AgentProfileImprovementActivationTargetPlan`, `CreateAgentImprovementActivationOptions`, `CreateAgentImprovementActivationResultOptions`, `CreateAgentImprovementProposalOptions`, `CreateExactProcessCandidateExperimentExecutorOptions`, `ExactProcessCandidateExperimentExecution`, `ExactProcessCandidateExperimentExecutor`, `ExecuteAgentCandidateExperimentCellOptions`, `ExecuteAgentImprovementActivationInput`, `ExecuteAgentImprovementActivationOptions`, `OptimizationActivationReceipt`, `OptimizationReceiptCost`, `PrepareAgentCandidateExecutionOptions`, `ProposeAgentImprovementOptions`, `ProposeAgentImprovementResult`, `ProposeAgentProfileImprovementResult`, `ProposeAuthoredAgentProfileImprovementResult`, `PullCertifiedOptions`, `ReviewAgentImprovementInput`, `RunAgentCandidateExperimentOptions`, `RunAgentCandidateExperimentResult`, `SealedCandidateActivationTransitionInput`, `VerifyCandidateExecutionEvidenceOptions`, `AgentImprovementActivationIntent`, `AgentImprovementActivationOutcome`, `AgentImprovementActivationTargetIdentity`, `AgentImprovementActivationTransitionInput`, `AgentImprovementAnalysisOptions`, `AgentImprovementProfileActivationInput`, `AgentImprovementProfileActivationPreparation`, `AgentImprovementProfileActivationTarget`, `AgentImprovementProfileSurface`, `AgentImprovementProfileTargetState`, `AgentImprovementProfileTargetTransition`, `AgentImprovementReviewDecision`, `AgentProfileMeasuredSurface`, `ImproveResult`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateExperimentCellPlacement`, `AgentImprovementActivationTargetPlan`, `AgentImprovementProfileReplacement`, `AgentImprovementProfileStateDigestInput`, `AgentImprovementProfileStateResolverInput`, `AgentImprovementProposal`, `AgentImprovementTargetProfileDiffOptions`, `AgentProfileImprovementActivationTargetPlan`, `CreateAgentImprovementActivationOptions`, `CreateAgentImprovementActivationResultOptions`, `CreateAgentImprovementProposalOptions`, `CreateExactProcessCandidateExperimentExecutorOptions`, `ExactProcessCandidateExperimentExecution`, `ExactProcessCandidateExperimentExecutor`, `ExecuteAgentCandidateExperimentCellOptions`, `ExecuteAgentImprovementActivationInput`, `ExecuteAgentImprovementActivationOptions`, `OptimizationActivationReceipt`, `OptimizationReceiptCost`, `PrepareAgentCandidateExecutionOptions`, `ProposeAgentImprovementOptions`, `ProposeAgentImprovementResult`, `ProposeAgentProfileImprovementResult`, `ProposeAuthoredAgentProfileImprovementResult`, `PullCertifiedOptions`, `ReviewAgentImprovementInput`, `RunAgentCandidateExperimentOptions`, `RunAgentCandidateExperimentResult`, `SealedCandidateActivationTransitionInput`, `VerifyCandidateExecutionEvidenceOptions`, `AgentImprovementActivationIntent`, `AgentImprovementActivationOutcome`, `AgentImprovementActivationTargetIdentity`, `AgentImprovementActivationTransitionInput`, `AgentImprovementAnalysisOptions`, `AgentImprovementProfileActivationInput`, `AgentImprovementProfileActivationPreparation`, `AgentImprovementProfileActivationTarget`, `AgentImprovementProfileSurface`, `AgentImprovementProfileTargetState`, `AgentImprovementProfileTargetTransition`, `AgentImprovementReviewDecision`, `AgentProfileImprovementActivationOperation`, `AgentProfileMeasuredSurface`, `ImproveResult`.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
@@ -1214,7 +1214,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 
 ### Analyst loop — trace findings on a running loop
 
-Import from `@tangle-network/agent-runtime/analyst-loop` — 11 exports.
+Import from `@tangle-network/agent-runtime/analyst-loop` — 12 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1223,6 +1223,7 @@ Import from `@tangle-network/agent-runtime/analyst-loop` — 11 exports.
 | `FindingsStoreLike` | interface | Narrowed shape we accept for `FindingsStore`. |
 | `ImprovementProposalSource` | interface | Agent-surface bridge — proposes prompt, skill, tool, and scaffolding edits. |
 | `KnowledgeProposalSource` | interface | Knowledge-side bridge — consumers wire `proposeFromFindings` from agent-knowledge. |
+| `AnalystLoopEvent` | type | Events emitted by `runAnalystLoop` via `opts.onEvent`. UIs and |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `ImprovementEditBatch`, `ImprovementReport`, `KnowledgeProposalBatch`, `KnowledgeReport`, `RunAnalystLoopOpts`, `RunAnalystLoopResult`.
 
@@ -1276,7 +1277,7 @@ Import from `@tangle-network/agent-runtime/platform` — 28 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 115 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 117 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1306,6 +1307,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 115 exports.
 | `verifyAgentCandidateWorkspaceArtifacts` | function | Verify durable regular-file workspace evidence without retaining archive or file contents. |
 | `verifyAgentCandidateWorkspaceTree` | function | Read a tree back by its digest and confirm the store holds every file it names. Returns the |
 | `FileAgentCandidateExecutionClaimStore` | class | Cross-process lifecycle implemented as fsynced, create-if-absent records. |
+| `AgentCandidateArtifactPort` | interface | Reads one content-addressed object from the closed S3/IPFS locator set. |
 | `AgentCandidateBenchmarkGraderPort` | interface | Evaluator-owned executable grader, pinned by immutable implementation bytes. |
 | `AgentCandidateCodeSurfaceSource` | interface | The only accepted path from an agent-eval code candidate to executable bytes. |
 | `AgentCandidateExecutionAttemptRecord` | interface | Persisted state available to a fresh trusted recovery worker after a crash. |
@@ -1327,6 +1329,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 115 exports.
 | `AgentCandidateTaskExecution` | interface | Runtime placement for one exact cell from a signed candidate experiment. |
 | `AgentCandidateWorkspacePort` | interface | Materializes an already-verified workspace archive. |
 | `AgentCandidateWorkspaceTree` | interface | A workspace stored as one content-addressed object per file plus the manifest that names them. |
+| `BuildAgentCandidateBundleInput` | interface | Complete measured surfaces and execution policy compiled into one candidate bundle. |
 | `PreparedAgentCandidateKnowledge` | interface | Exact file-backed knowledge admitted by the candidate bundle. |
 | `ProtectedAgentCandidateModelGrantContext` | interface | Values available only while one protected model grant is active. |
 | `RunProtectedAgentCandidateModelGrantOptions` | interface | Inputs for one protected grant scoped to one bounded caller unit. |

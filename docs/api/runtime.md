@@ -29012,30 +29012,6 @@ A harness session message carrying parts (the shape `box.messages()` returns). S
 
 ***
 
-### SessionTraceBox
-
-The minimal box surface this needs: list a session's messages (incl. mid-turn partials).
-
-#### Methods
-
-##### messages()
-
-> **messages**(`opts`): `Promise`\<readonly [`SessionMessageLike`](#sessionmessagelike)[]\>
-
-###### Parameters
-
-###### opts
-
-###### sessionId
-
-`string`
-
-###### Returns
-
-`Promise`\<readonly [`SessionMessageLike`](#sessionmessagelike)[]\>
-
-***
-
 ### TrajectoryAnalysis
 
 #### Properties
@@ -42415,18 +42391,6 @@ not an existing directory throws before the harness launches. `resultArtifact()`
 
 ***
 
-### createInbox()
-
-> **createInbox**(): [`Inbox`](#inbox)
-
-Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages and a sibling's peer mail queue here, and the worker's loop leases them at step boundaries and before settle.
-
-#### Returns
-
-[`Inbox`](#inbox)
-
-***
-
 ### workerFromInteractiveProvider()
 
 > **workerFromInteractiveProvider**(`provider`, `options?`): [`MakeWorkerAgent`](#makeworkeragent)
@@ -43783,29 +43747,6 @@ Validate a stored trace artifact before an analyst or replay trusts it.
 
 ***
 
-### decodeToolPart()
-
-> **decodeToolPart**(`part`, `harness?`): [`ToolStepInput`](#toolstepinput) \| `undefined`
-
-Decode a part with a specific harness's adapter when known, else try every registered adapter
- (the composite — robust to mixed/unknown streams). Never throws.
-
-#### Parameters
-
-##### part
-
-`unknown`
-
-##### harness?
-
-`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
-
-#### Returns
-
-[`ToolStepInput`](#toolstepinput) \| `undefined`
-
-***
-
 ### createPushTraceSource()
 
 > **createPushTraceSource**(`opts?`): `object`
@@ -43847,51 +43788,6 @@ A push source for OWNED tool loops (router-tools / cli-bridge tool dispatch): th
 ###### Returns
 
 `ToolSpan`
-
-***
-
-### sandboxSessionTraceSource()
-
-> **sandboxSessionTraceSource**(`box`, `sessionId`, `opts?`): [`TraceSource`](#tracesource-5)
-
-The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool
- calls into spans. `collect` (settle) is the solid path — `box.messages({sessionId})` → parts → spans;
- black-box harnesses aren't mid-step interruptible, so online steering is the owned-loop's job and a
- live `subscribe` is opt-in (pass `subscribeParts` from `streamPrompt` when the harness streams parts).
-
-#### Parameters
-
-##### box
-
-[`SessionTraceBox`](#sessiontracebox)
-
-##### sessionId
-
-`string`
-
-##### opts?
-
-###### harness?
-
-`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
-
-The box's harness (e.g. 'opencode', 'claude-code') → selects its decoder adapter.
-
-###### subscribeParts?
-
-(`onPart`) => () => `void`
-
-###### runId?
-
-`string`
-
-###### now?
-
-() => `number`
-
-#### Returns
-
-[`TraceSource`](#tracesource-5)
 
 ***
 

@@ -66,6 +66,7 @@ export { defaultRedactor } from '../redact'
 export type {
   AgentImprovementActivationTargetPlan,
   AgentImprovementActivationTransitionInput,
+  AgentProfileImprovementActivationOperation,
   AgentProfileImprovementActivationTargetPlan,
   CreateAgentImprovementActivationOptions,
   CreateAgentImprovementActivationResultOptions,

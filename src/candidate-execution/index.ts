@@ -15,6 +15,7 @@ export {
   type AgentCandidateCodeSource,
   type AgentCandidateCodeSurfaceSource,
   type AgentCandidateProfileSource,
+  type BuildAgentCandidateBundleInput,
   buildAgentCandidateBundle,
 } from './builder'
 export { type AgentCandidateBundleInput, sealAgentCandidateBundle } from './bundle'
@@ -73,6 +74,7 @@ export {
   createProtectedAgentCandidateModelPort,
 } from './protected-model-port'
 export type {
+  AgentCandidateArtifactPort,
   AgentCandidateBenchmarkGraderPort,
   AgentCandidateContainerPort,
   AgentCandidateExecutionPorts,

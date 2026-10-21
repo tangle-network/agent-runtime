@@ -10,6 +10,7 @@
 
 export { runAnalystLoop } from './run-analyst-loop'
 export type {
+  AnalystLoopEvent,
   AnalystRegistryLike,
   FindingsStoreLike,
   ImprovementEditBatch,
