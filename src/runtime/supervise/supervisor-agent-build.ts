@@ -232,6 +232,7 @@ export function buildSupervisorAgent(
         ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
         ...supervisorCoordinationObservers(deps),
         ...(deps.routeFlow ? { routeFlow: deps.routeFlow } : {}),
+        ...(deps.decideGate ? { decideGate: deps.decideGate } : {}),
         ...(deps.wake !== undefined ? { wake: deps.wake } : {}),
         ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
         ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),

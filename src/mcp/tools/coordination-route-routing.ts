@@ -14,6 +14,7 @@ import { safeJsonText } from './coordination-json'
 import { resolveJsonPointer, workerSettlement } from './coordination-map-routing'
 import type { ContinuityMode } from './coordination-messages'
 import type {
+  GateDecision,
   RouteFlowEvent,
   RouteMatch,
   RouteOnSettleEdge,
@@ -26,7 +27,8 @@ import type {
  * It has two call sites. `start` spawns every entry when the manager's coordination opens, before
  * the manager's first turn, so a manager that makes no tool call still has open work. `route` runs
  * on each settle beside the map expansion and fires at most one edge leaving the settled node; that
- * edge may start several nodes at once (a fork), or wait for several sources (a join).
+ * edge may start several nodes at once (a fork), or wait for several sources (a join). An edge into
+ * a gate awaits `decideGate`, and the decision `{ choice, by }` is routed as the gate's result.
  */
 export function createRouteRouting({
   opts,
@@ -51,6 +53,9 @@ export function createRouteRouting({
   const flow = opts.routeFlow
   const flowNodes = new Set(flow?.nodes ?? [])
   const terminals = new Set(flow?.terminals ?? [])
+  const gates = new Map((flow?.gates ?? []).map((gate) => [gate.id, gate]))
+  // How many times the run reached each gate: the `visit` a decision is asked and journaled under.
+  const visits = new Map<string, number>()
   const routesFrom = new Map<string, RouteOnSettleEdge[]>()
   for (const edge of flow?.routes ?? []) {
     for (const from of edge.from) routesFrom.set(from, [...(routesFrom.get(from) ?? []), edge])
@@ -155,20 +160,23 @@ export function createRouteRouting({
   const targetName = (to: RouteOnSettleEdge['to']): string =>
     'nodes' in to
       ? to.nodes.map((target) => target.node).join('+')
-      : 'stop' in to
-        ? `stop:${to.stop}`
-        : `finish:${to.finish}`
+      : 'gate' in to
+        ? to.gate
+        : 'stop' in to
+          ? `stop:${to.stop}`
+          : `finish:${to.finish}`
 
+  // A node's settle names its worker; a gate's decision names `gate:<id>#<visit>`.
   const fire = async (
     edge: RouteOnSettleEdge,
     node: string,
-    worker: SettledWorker,
+    source: string,
     result: unknown,
   ): Promise<void> => {
     const traversal = (fired.get(edge.edge) ?? 0) + 1
     fired.set(edge.edge, traversal)
     const from = edge.from.join('+')
-    const row = { kind: 'traversal' as const, edge: edge.edge, from, sourceWorker: worker.id }
+    const row = { kind: 'traversal' as const, edge: edge.edge, from, sourceWorker: source }
     if ('stop' in edge.to) {
       await publish({
         ...row,
@@ -178,7 +186,7 @@ export function createRouteRouting({
         bytes: textBytes(result),
       })
       await end(
-        { kind: 'stopped', edge: edge.edge, at: node, workerId: worker.id, reason: edge.to.stop },
+        { kind: 'stopped', edge: edge.edge, at: node, workerId: source, reason: edge.to.stop },
         `route ${edge.edge}: ${edge.to.stop}`,
       )
       return
@@ -191,7 +199,24 @@ export function createRouteRouting({
         continuity: 'fresh',
         bytes: textBytes(result),
       })
-      await publish({ kind: 'output', node, workerId: worker.id, result, edge: edge.edge })
+      await publish({ kind: 'output', node, workerId: source, result, edge: edge.edge })
+      return
+    }
+    // The members of a join ride its evidence beside the nodes the edge lists.
+    const evidence: Record<string, unknown> = {}
+    for (const id of [...(edge.from.length > 1 ? edge.from : []), ...edge.evidence]) {
+      if (latest.has(id)) evidence[id] = latest.get(id)
+    }
+    if ('gate' in edge.to) {
+      const reached = { [node]: result, ...evidence }
+      await publish({
+        ...row,
+        to: edge.to.gate,
+        outcome: 'delivered',
+        continuity: 'fresh',
+        bytes: textBytes(reached),
+      })
+      await decide(edge.to.gate, reached)
       return
     }
     // Converging branches use a join: a second spawn of a running node would race the first.
@@ -202,18 +227,13 @@ export function createRouteRouting({
           kind: 'unrouted',
           reason: 'target-live',
           node,
-          workerId: worker.id,
+          workerId: source,
           detail: `${edge.edge} fired into '${busy.node}', which still has a running worker`,
           result,
         },
         `flow: ${edge.edge} fired into live node '${busy.node}'`,
       )
       return
-    }
-    // The members of a join ride its evidence beside the nodes the edge lists.
-    const evidence: Record<string, unknown> = {}
-    for (const id of [...(edge.from.length > 1 ? edge.from : []), ...edge.evidence]) {
-      if (latest.has(id)) evidence[id] = latest.get(id)
     }
     const task = { from: { node, result }, evidence }
     const fork = edge.to.nodes.length > 1
@@ -280,6 +300,12 @@ export function createRouteRouting({
       await publish({ kind: 'output', node, workerId: worker.id, result })
       return
     }
+    await select(node, worker.id, result)
+  }
+
+  // Fire the first edge leaving `node` whose `when` holds over its latest result.
+  const select = async (node: string, source: string, result: unknown): Promise<void> => {
+    const edges = routesFrom.get(node) ?? []
     for (const edge of edges) {
       if (!holds(edge.when, node)) continue
       if (edge.from.length > 1) {
@@ -300,11 +326,11 @@ export function createRouteRouting({
           continuity: edge.continuity,
           bytes: 0,
           reason: `traversal-cap-exhausted (max ${edge.maxTraversals})`,
-          sourceWorker: worker.id,
+          sourceWorker: source,
         })
         continue
       }
-      await fire(edge, node, worker, result)
+      await fire(edge, node, source, result)
       return
     }
     // A node left only by maps edges is routed by its maps; one with routes edges must match one.
@@ -314,12 +340,92 @@ export function createRouteRouting({
         kind: 'unrouted',
         reason: 'unrouted',
         node,
-        workerId: worker.id,
+        workerId: source,
         detail: `no routes edge leaving '${node}' matched its result`,
         result,
       },
       `flow: no routes edge leaving '${node}' matched`,
     )
+  }
+
+  // Ask the caller for one gate visit while the process holds the run, then route the decision as
+  // the gate's result. The wait counts against the run's deadline: an undecided gate at the
+  // deadline ends the flow as a timed-out node does, and an aborted run records nothing.
+  const decide = async (id: string, evidence: Record<string, unknown>): Promise<void> => {
+    const gate = gates.get(id)
+    if (gate === undefined || opts.decideGate === undefined) {
+      throw new Error(`gate '${id}' has no decideGate to ask`)
+    }
+    const visit = (visits.get(id) ?? 0) + 1
+    visits.set(id, visit)
+    const source = `gate:${id}#${visit}`
+    const asked = opts.decideGate({
+      gate: id,
+      visit,
+      question: gate.question,
+      choices: gate.choices,
+      evidence,
+    })
+    const answer = await untilDeadline(asked)
+    if (ended || answer === 'aborted') return
+    if (answer === 'deadline') {
+      const reason = `deadline: gate '${id}' visit ${visit} was not decided`
+      await end({ kind: 'stopped', at: id, workerId: source, reason }, `flow ${reason}`)
+      return
+    }
+    const decision = gateDecision(answer, gate.choices)
+    if (typeof decision === 'string') {
+      throw new Error(`decideGate answered gate '${id}' visit ${visit} with ${decision}`)
+    }
+    const replayed = answer.replayed === true ? { replayed: true } : {}
+    await publish({
+      kind: 'traversal',
+      edge: `gate:${id}`,
+      from: id,
+      to: decision.kind === 'choose' ? `choice:${decision.choice}` : `stop:${decision.reason}`,
+      outcome: 'delivered',
+      continuity: 'fresh',
+      bytes: textBytes(decision),
+      gate:
+        decision.kind === 'choose'
+          ? { by: decision.by, choice: decision.choice, ...replayed }
+          : { by: decision.by, stop: decision.reason, ...replayed },
+    })
+    if (decision.kind === 'stop') {
+      await end(
+        { kind: 'stopped', edge: `gate:${id}`, at: id, workerId: source, reason: decision.reason },
+        `gate ${id}: ${decision.reason}`,
+      )
+      return
+    }
+    const result = { choice: decision.choice, by: decision.by }
+    latest.set(id, result)
+    await select(id, source, result)
+  }
+
+  // A gate wait ends with the run: its abort signal, or its absolute deadline when it has one.
+  const untilDeadline = <T>(asked: Promise<T>): Promise<T | 'aborted' | 'deadline'> => {
+    const signal = opts.scope.signal
+    if (signal.aborted) return Promise.resolve('aborted')
+    const deadlineMs = opts.scope.budget.deadlineMs
+    return new Promise((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const onAbort = (): void => settle(() => resolve('aborted'))
+      const settle = (done: () => void): void => {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', onAbort)
+        done()
+      }
+      if (deadlineMs > 0) {
+        const left = Math.max(0, deadlineMs - Date.now())
+        timer = setTimeout(() => settle(() => resolve('deadline')), left)
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      asked.then(
+        (value) => settle(() => resolve(value)),
+        (error: unknown) => settle(() => reject(error)),
+      )
+    })
   }
 
   // Route steps run on the settlement path, which they must never take down; a step that throws
@@ -342,4 +448,23 @@ export function createRouteRouting({
   }
 
   return { start, route }
+}
+
+/** The caller's decision, checked against the gate's choices, or why it is not one. */
+function gateDecision(answer: unknown, choices: ReadonlyArray<string>): GateDecision | string {
+  const value = answer as Partial<{ kind: unknown; choice: unknown; reason: unknown; by: unknown }>
+  const shown = safeJsonText(answer)
+  if (typeof value !== 'object' || value === null || typeof value.by !== 'string' || !value.by) {
+    return `${shown} — a decision names who decided in a non-empty by`
+  }
+  if (value.kind === 'choose' && typeof value.choice === 'string') {
+    if (choices.includes(value.choice)) {
+      return { kind: 'choose', choice: value.choice, by: value.by }
+    }
+    return `${shown} — choice is not one of ${choices.join(', ')}`
+  }
+  if (value.kind === 'stop' && typeof value.reason === 'string' && value.reason.length > 0) {
+    return { kind: 'stop', reason: value.reason, by: value.by }
+  }
+  return `${shown} — expected { kind: 'choose', choice, by } or { kind: 'stop', reason, by }`
 }

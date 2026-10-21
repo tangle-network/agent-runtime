@@ -667,6 +667,9 @@ export type SpawnEvent =
       outcome: 'delivered' | 'stripped' | 'empty' | 'unpropagated' | 'failed'
       /** A maps edge's row: the list's expansion, one item by index, or the join. */
       map?: { phase: 'expand' | 'item' | 'join'; index?: number }
+      /** A flow gate's decision row (`from` is the gate, `traversal` its visit): who decided and
+       *  the choice or stop reason. A resumed run replays it instead of asking again. */
+      gate?: { by: string } & ({ choice: string } | { stop: string })
       /** How the hop CONTINUED the node's work: spawn traversals stamp their effective mode
        *  (`'fresh'` = new session, `'resume'` = re-attached to the node's prior settled session),
        *  and every mid-run delivery into an already-live recipient — a driver steer leg and every

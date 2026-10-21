@@ -17,12 +17,49 @@ export type RouteMatch = { readonly node?: string; readonly pointer: string } & 
 /** A route condition: one match, or every match of `all`. */
 export type RouteWhen = RouteMatch | { readonly all: ReadonlyArray<RouteMatch> }
 
-/** Where a fired route goes: the nodes to spawn (one, or every node of a fork at once), the end of
- *  the run, or a terminal result. */
+/** Where a fired route goes: the nodes to spawn (one, or every node of a fork at once), a gate
+ *  that asks the caller, the end of the run, or a terminal result. */
 export type RouteTarget =
   | { readonly nodes: ReadonlyArray<{ readonly node: string; readonly profile: AgentProfile }> }
+  | { readonly gate: string }
   | { readonly stop: string }
   | { readonly finish: string }
+
+/** A vertex that is not an agent: reaching it asks the caller for one of `choices`. The edges
+ *  leaving it match `{ pointer: '/choice', equals: <choice> }`, one edge per choice. */
+export interface RouteGate {
+  readonly id: string
+  readonly question: string
+  readonly choices: ReadonlyArray<string>
+}
+
+/** What a gate asks its caller. `visit` is the 1-based count of times this run reached the gate;
+ *  `evidence` is the evidence of the edge that reached it, with that edge's source. */
+export interface GateRequest {
+  readonly gate: string
+  readonly visit: number
+  readonly question: string
+  readonly choices: ReadonlyArray<string>
+  readonly evidence: Readonly<Record<string, unknown>>
+}
+
+/** The caller's answer to one gate visit: route on a choice, or end the run. `by` names who
+ *  decided and rides the decision's ledger row. */
+export type GateDecision =
+  | { readonly kind: 'choose'; readonly choice: string; readonly by: string }
+  | { readonly kind: 'stop'; readonly reason: string; readonly by: string }
+
+/** The coordination layer's gate decider: the caller's decision, marked `replayed` when it came
+ *  from the run journal instead of the caller, so its ledger row is not journaled twice. */
+export type DecideGate = (
+  request: GateRequest,
+) => Promise<GateDecision & { readonly replayed?: boolean }>
+
+/** A decision's facts on its ledger row and journal twin. */
+export type GateDecisionRecord = { readonly by: string } & (
+  | { readonly choice: string }
+  | { readonly stop: string }
+)
 
 /** One routes edge in coordination form. The edges leaving one node are tried in declaration
  *  order on each usable settle; the first whose `when` holds fires. A join (several `from` nodes)
@@ -64,11 +101,14 @@ export interface RouteEntry {
  * runtime-authored {@link RouteSpawnMarker}, so the pool, the pre-flight and node pinning judge it.
  *
  * Plain data, like a map route: flow state is process-local, and a restarted manager does not
- * replay the traversals of a prior process.
+ * replay the traversals of a prior process. A gate decision is the exception: the decider replays a
+ * journaled decision instead of asking the caller again.
  */
 export interface RouteFlow {
   readonly entries: ReadonlyArray<RouteEntry>
   readonly routes: ReadonlyArray<RouteOnSettleEdge>
+  /** Gates a routes edge can reach. A flow with gates needs `CoordinationToolsOptions.decideGate`. */
+  readonly gates?: ReadonlyArray<RouteGate>
   /** Nodes whose settles this flow routes, by profile name: entries, route targets, map joins. */
   readonly nodes: ReadonlyArray<string>
   /** Flow nodes with no outgoing routes edge and no outgoing maps edge: their usable settles are
@@ -89,10 +129,11 @@ export interface RouteSpawnMarker {
  * the manager):
  *
  * - `traversal`: an entry or a routes edge fired, or was skipped at its cap, or its spawn was
- *   refused;
+ *   refused, or a gate was decided (`gate` set; its edge is `gate:<id>`);
  * - `output`: a terminal node or a `finish` edge made this settle part of the run's output;
- * - `stopped`: a `stop` edge fired, or a flow node settled down or without a usable result where a
- *   route was needed, and the flow spawns nothing more;
+ * - `stopped`: a `stop` edge fired, a gate decided `stop`, or a flow node settled down or without a
+ *   usable result where a route was needed, or a gate was undecided at the deadline, and the flow
+ *   spawns nothing more;
  * - `unrouted`: a flow node's usable settle matched no edge (`unrouted`), or a fired edge named a
  *   node that still has a running worker (`target-live`); converging branches use a join.
  */
@@ -111,6 +152,8 @@ export type RouteFlowEvent =
       readonly workerId?: string
       /** The settled worker whose result fired the edge. Absent on an entry. */
       readonly sourceWorker?: string
+      /** A gate decision: who decided and what. `replayed` decisions are already journaled. */
+      readonly gate?: GateDecisionRecord & { readonly replayed?: boolean }
     }
   | {
       readonly kind: 'output'
@@ -125,7 +168,8 @@ export type RouteFlowEvent =
       readonly at: string
       readonly workerId: string
       readonly reason: string
-      /** The stop edge, or absent when a down or unusable settle ended the flow. */
+      /** The stop edge or `gate:<id>`, or absent when a down or unusable settle or the deadline
+       *  ended the flow. */
       readonly edge?: string
     }
   | {

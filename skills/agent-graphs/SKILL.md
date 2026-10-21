@@ -9,6 +9,7 @@ Use `runGraph` when roles are known before execution and their relationships mus
 When the order, branches, repair loops and stop rules are known too, author a flow graph: `entry` plus `routes` edges, with no root and no brain.
 Parallel stages are a fork (`to` lists several nodes, spawned at once) and waiting for all of them is a join (`from` lists several nodes); converging plain routes into one running node throw `GraphRouteError` with reason `target-live`.
 A loop per item is a flow graph inside a maps item, and a flow graph can run as a `run_graph` subtask.
+A human approval in a flow is a gate (`gates: [{ id, question, choices }]` with one routes edge per choice matching `/choice`), answered by the caller's `decideGate` while the run is held; a wait of days without a held process belongs to a Platform workflow `wait.*` or `decision` action.
 Keep a root (delegation edges) only when a model must decide what runs next; a root brain that only orders fixed stages is the anti-pattern a flow graph replaces.
 Use a smaller maintained composition when it provides the required behavior.
 Use dynamic supervision when the agent must discover or create roles while working.
@@ -37,6 +38,7 @@ Offline control-flow tests do not establish that a real agent solves the task.
 Inspect the terminal result, complete cost and token accounting, edge delivery records, exhausted edges, and journal evidence.
 An expected edge with zero traversals did not exercise its intended relationship, unless it is a branch the test chose not to take.
 A flow run that ends early names why on `stopped`; a settle no routes edge matches throws `GraphRouteError` with the ledger.
+Each gate visit is one `gate:<id>` ledger row whose `gate.by` names who decided.
 Unknown usage is missing evidence, not zero cost.
 A passing check proves only the outcome it actually tests.
 

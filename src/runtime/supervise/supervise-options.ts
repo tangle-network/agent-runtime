@@ -15,7 +15,11 @@ import type {
   DownMessageAuthorizationInput,
 } from '../../mcp/tools/coordination-messages'
 import type { EscalateQuestion } from '../../mcp/tools/coordination-questions'
-import type { RouteFlow, RouteSpawnMarker } from '../../mcp/tools/coordination-route-contracts'
+import type {
+  DecideGate,
+  RouteFlow,
+  RouteSpawnMarker,
+} from '../../mcp/tools/coordination-route-contracts'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type { RouterTransportConfig } from '../router-http-transport'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
@@ -392,6 +396,9 @@ export interface SuperviseOptions {
   /** The flow the root manager runs: an AgentGraph with `entry` sets it, together with its
    *  runtime-owned root, which makes no model call. See `RouteFlow`. Omit = none. */
   readonly routeFlow?: RouteFlow
+  /** Answers each gate visit of `routeFlow`; `runGraph` sets it from `RunGraphOptions.decideGate`,
+   *  replaying a decision the run journal already holds. Omit = none. */
+  readonly decideGate?: DecideGate
   /**
    * Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
    * moment one loops or error-storms — so the supervisor learns it mid-run (in its next wake)
