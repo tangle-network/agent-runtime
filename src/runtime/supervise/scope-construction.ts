@@ -10,6 +10,7 @@ import {
 } from './retained-scope-owner'
 import {
   admissionSeals,
+  barrenPauseRecorders,
   childDrains,
   driverAttemptRecorders,
   heldReleasers,
@@ -189,7 +190,7 @@ function reservationOwnerFloor(
     : undefined
 }
 
-/** Journal the owner's driver attempts and pauses, each in its own monotonic `seq` namespace. */
+/** Journal the owner's driver attempts, pauses and barren pauses, each in its own monotonic `seq` namespace. */
 function bindOwnerJournalRecorders(scope: Scope<unknown>, args: ScopeArgs, now: () => number) {
   let driverAttemptSeq: number | undefined
   driverAttemptRecorders.set(scope, async (record) => {
@@ -223,6 +224,23 @@ function bindOwnerJournalRecorders(scope: Scope<unknown>, args: ScopeArgs, now: 
       id: args.parentId,
       ...pause,
       seq: pauseSeq++,
+      at: new Date(now()).toISOString(),
+    })
+  })
+  // Counted from the journal, like the driver records, so a resumed run continues the sequence.
+  let barrenPauseSeq: number | undefined
+  barrenPauseRecorders.set(scope, async (pause) => {
+    if (barrenPauseSeq === undefined) {
+      const events = (await args.journal.loadTree(args.root)) ?? []
+      barrenPauseSeq = events.filter(
+        (event) => event.kind === 'barren-pause' && event.id === args.parentId,
+      ).length
+    }
+    await args.journal.appendEvent(args.root, {
+      kind: 'barren-pause',
+      id: args.parentId,
+      ...pause,
+      seq: barrenPauseSeq++,
       at: new Date(now()).toISOString(),
     })
   })

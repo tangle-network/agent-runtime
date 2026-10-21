@@ -593,7 +593,8 @@ export interface CoordinationTools {
     readonly unavailable?: string
   }): CheckRead
   /** Every `report_blocked` whose probe failed too, in report order. A blocked tool is evidence,
-   *  not a terminal condition: the run goes on, and the no-progress bound ends it when it cannot. */
+   *  not a terminal condition: the run goes on, and turns without progress pace it with longer
+   *  barren pauses until the check, the deadline, the budget or a cancel ends it. */
   blocked(): ReadonlyArray<BlockedToolReport>
 }
 

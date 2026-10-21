@@ -12,6 +12,7 @@ import {
   upstreamUnavailableSignal,
 } from './driver-attempt-evidence'
 import type {
+  DriverBarrenPause,
   DriverBudgetReadout,
   DriverContinuationPolicy,
   DriverContractState,
@@ -34,6 +35,18 @@ const DEFAULT_MAX_ATTEMPTS = Number.POSITIVE_INFINITY
 const DEFAULT_INITIAL_BACKOFF_MS = 2_000
 const DEFAULT_MAX_BACKOFF_MS = 30_000
 const DEFAULT_TRANSIENT_OUTAGE_MS = 900_000
+const BARREN_PAUSE_FIRST_MS = 5 * 60_000
+const BARREN_PAUSE_MAX_MS = 60 * 60_000
+
+/**
+ * The pause before a continuation once `streak` re-entered drives in a row have completed without
+ * progress: 5 minutes at `maxBarren`, doubling per further barren drive, 60 minutes at most.
+ * Derived from the streak alone, so a progress reading resets the backoff with the streak. Not
+ * jittered: a barren streak is one root's, not an outage that cut many drivers off together.
+ */
+function barrenPauseMs(streak: number, maxBarren: number): number {
+  return cappedDoublingMs(streak - maxBarren + 1, BARREN_PAUSE_FIRST_MS, BARREN_PAUSE_MAX_MS)
+}
 
 /**
  * The repeated-failure bound: {@link REPEATED_FAILURE_LIMIT} or more attempts in a row, each
@@ -178,12 +191,15 @@ export class DriverRetryLoop {
   reentry: DriverReentry | undefined
   /** Whether the current attempt began before the re-entered root's first model event. */
   beforeModelEvent = false
+  // When the last attempt that made progress ended, for the barren-pause record.
+  private lastProgressAt: number
 
   constructor(
     private readonly run: DriverRetryRun,
     private readonly limits: DriverRetryLimits,
   ) {
     this.reentry = run.reentered?.first
+    this.lastProgressAt = limits.now()
   }
 
   private async emit(record: DriverAttemptRecord): Promise<void> {
@@ -247,7 +263,10 @@ export class DriverRetryLoop {
     const classification = classifyDriverFailure(error, this.run.signal)
     const after = this.run.progress()
     const progressed = madeProgress(before, after)
-    if (progressed) this.abandonments = 0
+    if (progressed) {
+      this.abandonments = 0
+      this.lastProgressAt = this.limits.now()
+    }
     const pending = abandonablePending(error)
     const failure: DriverFailure = {
       error,
@@ -470,7 +489,10 @@ export class DriverRetryLoop {
     policy: DriverContinuationPolicy,
     attempt: number,
     after: DriverProgressMark,
-  ): Promise<{ steer: string } | { refusedBy: DriverRepromptRefusal }> {
+  ): Promise<
+    | { steer: string; barren?: { streak: number; pausedMs: number } }
+    | { refusedBy: DriverRepromptRefusal }
+  > {
     const { run } = this
     const now = this.limits.now
     const bounds = (): DriverRepromptRefusal | undefined => {
@@ -480,9 +502,13 @@ export class DriverRetryLoop {
       const byBudget = budgetStop(run.budget(), now())
       return byBudget === 'deadline' || byBudget === 'budget-exhausted' ? byBudget : undefined
     }
-    if (this.barrenReentries >= policy.maxBarren) return { refusedBy: 'no-progress' }
     const before = bounds()
     if (before !== undefined) return { refusedBy: before }
+    const barren = await this.barrenPause(policy, attempt)
+    if (barren !== undefined) {
+      const afterPause = bounds()
+      if (afterPause !== undefined) return { refusedBy: afterPause }
+    }
     const steer = (
       await policy.compose({
         attempt,
@@ -498,7 +524,40 @@ export class DriverRetryLoop {
     if (steer.length === 0) {
       throw new ValidationError('runDriverWithRetry: the continuation note is empty')
     }
-    return { steer }
+    return barren === undefined ? { steer } : { steer, barren }
+  }
+
+  /**
+   * A barren streak paces the run and never ends it: once it reaches `maxBarren`, journal the
+   * pause and sleep through it. The pause holds no longer than the earlier deadline; the caller
+   * reads the bounds again when it ends.
+   */
+  private async barrenPause(
+    policy: DriverContinuationPolicy,
+    attempt: number,
+  ): Promise<{ streak: number; pausedMs: number } | undefined> {
+    if (this.barrenReentries < policy.maxBarren) return undefined
+    const { run } = this
+    const pausedAt = this.limits.now()
+    const budgetDeadline = run.budget().deadlineMs
+    const until = Math.min(
+      policy.deadlineMs,
+      budgetDeadline > 0 ? budgetDeadline : Number.POSITIVE_INFINITY,
+    )
+    const pauseMs = Math.max(
+      0,
+      Math.min(barrenPauseMs(this.barrenReentries, policy.maxBarren), until - pausedAt),
+    )
+    const pause: DriverBarrenPause = {
+      attempt,
+      streak: this.barrenReentries,
+      pauseMs,
+      resumeAt: new Date(pausedAt + pauseMs).toISOString(),
+      lastProgressAt: new Date(this.lastProgressAt).toISOString(),
+    }
+    await run.onBarrenPause?.(pause)
+    await this.limits.sleep(pauseMs, run.signal)
+    return { streak: this.barrenReentries, pausedMs: pauseMs }
   }
 
   /** Read a completed drive: wait, continue, or end the loop. True re-enters the driver. */
@@ -529,8 +588,10 @@ export class DriverRetryLoop {
       madeProgress: progressed,
       ...(contract === 'none' ? {} : { contract }),
     }
-    if (progressed) this.barrenReentries = 0
-    else if (
+    if (progressed) {
+      this.barrenReentries = 0
+      this.lastProgressAt = this.limits.now()
+    } else if (
       !this.beforeModelEvent &&
       this.reentry !== undefined &&
       this.reentry.reason !== 'wake' &&
@@ -543,12 +604,19 @@ export class DriverRetryLoop {
       const decision = await this.decideContinuation(continuation, attempt, after)
       if ('steer' in decision) {
         this.continuations += 1
-        // No backoff: the driver is not failing — it finished early.
-        await this.emit({ ...completed, reprompted: true, retryInMs: 0 })
+        // No failure backoff: the driver is not failing, it finished early. A barren pause, when
+        // the streak called for one, was taken before the note was composed.
+        await this.emit({
+          ...completed,
+          reprompted: true,
+          retryInMs: 0,
+          ...(decision.barren === undefined ? {} : { barrenPauseMs: decision.barren.pausedMs }),
+        })
         this.reentry = {
           reason: 'unmet-contract',
           steer: decision.steer,
           continuation: this.continuations,
+          ...(decision.barren === undefined ? {} : { barren: decision.barren }),
         }
         return true
       }

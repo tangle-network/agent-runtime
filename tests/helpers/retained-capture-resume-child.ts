@@ -132,6 +132,7 @@ const backend = {
   provider,
   ...(phase === 'no-retention' ? {} : { workspaceRetention: retention }),
 }
+const operator = new AbortController()
 try {
   const result = await supervisePursuit(
     testAgentProfile('root', {
@@ -162,28 +163,29 @@ try {
       pursuitId: runId,
       runId,
       runDir: join(directory, 'run'),
-      journal:
-        phase === 'kill-after-evidence' || phase.startsWith('kill-before-')
-          ? {
-              beginTree: context.journal.beginTree.bind(context.journal),
-              loadTree: context.journal.loadTree.bind(context.journal),
-              async appendEvent(root, event) {
-                await context.journal.appendEvent(root, event)
-                if (phase === 'kill-after-evidence' && event.kind === 'execution-evidence')
-                  process.kill(process.pid, 'SIGKILL')
-                if (
-                  (phase === 'kill-before-input' && event.kind === 'execution-input') ||
-                  (phase === 'kill-before-dispatch' &&
-                    event.kind === 'execution-admitted' &&
-                    event.admission.phase === 'environment')
-                ) {
-                  const events = (await context.journal.loadTree(root)) ?? []
-                  if (events.filter((next) => next.kind === 'execution-input').length > 1)
-                    process.kill(process.pid, 'SIGKILL')
-                }
-              },
-            }
-          : context.journal,
+      // The director never delivers, and a barren streak only pauses the run: the operator stops
+      // it at the first `barren-pause` row.
+      signal: operator.signal,
+      journal: {
+        beginTree: context.journal.beginTree.bind(context.journal),
+        loadTree: context.journal.loadTree.bind(context.journal),
+        async appendEvent(root, event) {
+          await context.journal.appendEvent(root, event)
+          if (event.kind === 'barren-pause') operator.abort(new Error('operator stopped the run'))
+          if (phase === 'kill-after-evidence' && event.kind === 'execution-evidence')
+            process.kill(process.pid, 'SIGKILL')
+          if (
+            (phase === 'kill-before-input' && event.kind === 'execution-input') ||
+            (phase === 'kill-before-dispatch' &&
+              event.kind === 'execution-admitted' &&
+              event.admission.phase === 'environment')
+          ) {
+            const events = (await context.journal.loadTree(root)) ?? []
+            if (events.filter((next) => next.kind === 'execution-input').length > 1)
+              process.kill(process.pid, 'SIGKILL')
+          }
+        },
+      },
       blobs: context.blobs,
       backend,
       driverBackend: backend,

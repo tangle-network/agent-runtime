@@ -39,10 +39,15 @@
  * own `stop: 'completed'`). A completed drive whose contract is unmet is now a first-class moment:
  * the manager's `continuation` policy (`./continuation.ts`) re-enters the driver with Runtime's
  * continuation note, crossing the same budget, deadline and abort bounds. Successful
- * continuations do not consume the failure allowance. `continuation.maxBarren` consecutive
- * re-entered drives that completed without progress end the loop with
- * `repromptRefusedBy: 'no-progress'`; there is no count cap and no caller veto (the old
- * prompt-owned loop logged 896 of 1,011 rounds with no progress).
+ * continuations do not consume the failure allowance. Progress paces the continuations: once
+ * `continuation.maxBarren` re-entered drives in a row complete without progress, the loop PAUSES
+ * before each further continuation, 5 minutes and doubling per barren drive up to 60, journals one
+ * `barren-pause` row per pause for an operator alarm, and re-enters. A barren streak never ends the
+ * run: the check, the deadline, the budget and cancellation do. Progress resets the streak and the
+ * backoff. There is no count cap and no caller veto (the old prompt-owned loop logged 896 of 1,011
+ * rounds with no progress). Measured 2026-10-21 on magnetar-rust-20261021a: the barren bound
+ * settled a 48-hour run `no-winner` after 14.3 hours, while its last two turns updated its pages
+ * and waited on its own 2^20 prove.
  *
  * This loop decides WHETHER to re-enter, not WHERE the next drive runs: the drive harness owns
  * whether it continues the same session, environment or a replacement, and the caller composes the
@@ -50,10 +55,11 @@
  *
  * A RE-ENTERED run is one this process resumed after an earlier process drove it. Its first drive
  * is entered as `run-reentered` with the workers that were open, and a drive counts toward
- * `maxBarren` only if it began after the root streamed a model event in this process. Measured
- * 2026-10-19 on magnetar-rust-20261019f: after a host reboot the root was driven with the bare
- * original task and no word of its three open workers, two barren continuations followed, and the
- * run settled `no-result-selected`.
+ * `maxBarren` only if it began after the root streamed a model event in this process; a root that
+ * speaks and then stays barren is paced as any other. Measured 2026-10-19 on
+ * magnetar-rust-20261019f: after a host reboot the root was driven with the bare original task and
+ * no word of its three open workers, two barren continuations followed, and the barren bound of the
+ * time settled the run `no-result-selected`.
  *
  * A TRANSIENT failure that spent nothing, settled nothing and made no progress is an infrastructure
  * outage until its streak has lasted `transientOutageMs`: within that window it consumes neither
@@ -132,6 +138,9 @@ export type DriverReentry =
       readonly steer: string
       /** 1-based: which continuation this is. */
       readonly continuation: number
+      /** Present when the barren streak had reached `maxBarren` and the loop paused before this
+       *  re-entry: the re-entered drives in a row that delivered nothing, and the pause. */
+      readonly barren?: { readonly streak: number; readonly pausedMs: number }
     }
   | {
       readonly reason: 'driver-failure'
@@ -165,10 +174,25 @@ export type DriverReentry =
       readonly replaced: ReadonlyArray<string>
     }
 
+/** One pause before a continuation, taken because the barren streak reached `maxBarren`. */
+export interface DriverBarrenPause {
+  /** The completed attempt the pause follows, 1-based. */
+  readonly attempt: number
+  /** Re-entered drives in a row, that attempt included, that completed without progress. */
+  readonly streak: number
+  readonly pauseMs: number
+  /** ISO 8601: when the next drive may start. */
+  readonly resumeAt: string
+  /** ISO 8601: when the last attempt that made progress ended, or when this loop began if none
+   *  has. */
+  readonly lastProgressAt: string
+}
+
 /** How a completed drive with its check unmet is re-entered; built from the manager's
  *  `ContinuationPolicy`, so no caller can veto a continuation or replace Runtime's note. */
 export interface DriverContinuationPolicy {
-  /** Re-entered drives in a row that may complete without progress. Minimum 1. */
+  /** Re-entered drives in a row that may complete without progress before each further
+   *  continuation waits {@link barrenPauseMs}. Minimum 1. */
   readonly maxBarren: number
   /** Epoch ms at or after which no continuation starts. */
   readonly deadlineMs: number
@@ -215,6 +239,8 @@ export interface DriverRetryRun {
   /** How a completed drive that left work open waits. Omit = a completed drive is the end. */
   readonly wait?: DriverWaitPolicy
   readonly onAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
+  /** Called as a barren pause begins, before the loop sleeps through it. */
+  readonly onBarrenPause?: (pause: DriverBarrenPause) => void | Promise<void>
   /**
    * Abandon the unfinished retained invocation a failed drive left pending; answers whether it was.
    * Asked when it failed reconciliation with the same cause twice in a row or would otherwise end
@@ -245,7 +271,7 @@ function assertContinuationPolicy(continuation: DriverContinuationPolicy | undef
  * Run the driver until it completes WITH ITS CONTRACT MET, or until the budget, the deadline, an
  * abort, a terminal error, or a ceiling stops it. Transient failures are retried. A drive that
  * returns with its completion check unmet is re-entered with Runtime's continuation note until the
- * continuation's deadline or `maxBarren` turns without progress. Throws
+ * continuation's deadline, pausing first once `maxBarren` turns in a row made no progress. Throws
  * `DriverAttemptsExhaustedError` (cause = the last real failure) when a FAILURE ends the loop; a
  * completed drive returns, met contract or not, because deciding what an undelivered run is worth
  * belongs to the finalizer, not to this loop.

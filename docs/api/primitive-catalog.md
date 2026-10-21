@@ -1110,7 +1110,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `DriverContractState` | type | Whether the declared completion check has passed; `'none'` means the caller declared no check. |
 | `DriverFailureClass` | type | How one driver failure is answered. |
 | `DriverReentry` | type | Why the loop is entering the driver again (absent on the first attempt only). An `unmet-contract` |
-| `DriverRepromptRefusal` | type | Why a completed drive with an unmet contract was not re-entered. `no-progress` means |
+| `DriverRepromptRefusal` | type | Why a completed drive with an unmet contract was not re-entered. `closed` means the run was |
 | `EdgeDeliveryOutcome` | type | `failed` is a maps item or join that ran and settled without a usable result (down, or |
 | `Environment` | type | A checkable task domain — implement these 5 hooks and the suite does the rest. The |
 | `ExecutionBindingReceipt` | type | One attempt's immutable link from a stable materialization plan to its actual transport. |

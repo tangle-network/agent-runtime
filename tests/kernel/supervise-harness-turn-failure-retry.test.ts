@@ -83,6 +83,10 @@ async function harnessFailureFixture(options: {
   /** Awaited by a dispatched turn before it submits the deliverable. */
   readonly beforeSubmit?: (dispatch: number) => Promise<void>
   readonly deadlineMs?: number
+  /** Milliseconds from now to the continuation deadline alone; defaults to `deadlineMs`, then
+   *  one hour. A director that never submits is only paused by its barren streak, and this
+   *  deadline ends its run. */
+  readonly continuationDeadlineMs?: number
   /** Continuations without progress the root may make; the test default is 2. */
   readonly maxBarren?: number
 }) {
@@ -299,7 +303,8 @@ async function harnessFailureFixture(options: {
         },
         continuation: testContinuation({
           ...(options.maxBarren === undefined ? {} : { maxBarren: options.maxBarren }),
-          deadline: Date.now() + (options.deadlineMs ?? 3_600_000),
+          deadline:
+            Date.now() + (options.continuationDeadlineMs ?? options.deadlineMs ?? 3_600_000),
         }),
         coordination: {
           authentication: {
@@ -780,6 +785,9 @@ describe('a root harness turn that ends with a failed outcome', () => {
       withholdsSubmit: () => true,
       workspaceRetention: 'timeout',
       cancelDuringTeardown: true,
+      // The director never submits: a barren streak only pauses it, and the continuation
+      // deadline ends the run.
+      continuationDeadlineMs: 5_000,
     })
     const { result } = await fixture.run({})
     expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled', source: 'signal' })

@@ -185,8 +185,8 @@ export interface DriveHarness {
     }
     /** Call once per model event the harness streams: text, reasoning, or a tool call or result.
      *  On a run this process took over after a restart, the driver counts no drive toward its
-     *  no-progress bound until the first call, so a harness that never calls it leaves that run
-     *  bounded only by the continuation deadline, the run's deadline and its budget. */
+     *  barren streak until the first call, so a harness that never calls it is never paused for
+     *  a barren streak on that run. */
     readonly onModelEvent?: () => void
   }): Promise<void>
   /** Optional live inbox for the manager session this adapter currently drives. Return `false`

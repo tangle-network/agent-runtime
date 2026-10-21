@@ -61,7 +61,11 @@ export function composeReentryTask(input: ReentryTaskInput): string {
   const { reentry, continuity, state } = input
   if (reentry.reason === 'unmet-contract' && continuity.session === 'continued') {
     const changes = stateLines(state, false, input.tools)
-    return [reentry.steer, ...(changes.length > 0 ? ['', ...changes] : [])].join('\n')
+    return [
+      ...barrenLines(reentry).flatMap((line) => [line, '']),
+      reentry.steer,
+      ...(changes.length > 0 ? ['', ...changes] : []),
+    ].join('\n')
   }
   // A woken manager in the same session already holds everything but what happened.
   if (reentry.reason === 'wake' && continuity.session === 'continued') return reentry.input
@@ -70,6 +74,7 @@ export function composeReentryTask(input: ReentryTaskInput): string {
       'This is the same run and the same objective, not a new one.',
     whyLine(reentry),
     environmentLine(continuity),
+    ...(reentry.reason === 'unmet-contract' ? barrenLines(reentry) : []),
     '',
     '## Objective',
     '',
@@ -133,6 +138,21 @@ function whyLine(reentry: DriverReentry): string {
   return reentry.reason === 'upstream-unavailable'
     ? 'Your previous turn was interrupted before it finished; the run itself is intact.'
     : `Your previous turn ended before it finished (retry ${reentry.retry}); the run itself is intact.`
+}
+
+/**
+ * What a root re-entered after a barren pause is told: its last turns delivered nothing, and how
+ * to wait on long work of its own instead of ending the turn. Measured 2026-10-21 on
+ * magnetar-rust-20261021a: the root ended two turns to wait on its own 2^20 prove, and both
+ * counted as barren.
+ */
+function barrenLines(reentry: Extract<DriverReentry, { reason: 'unmet-contract' }>): string[] {
+  if (reentry.barren === undefined) return []
+  const minutes = Math.round(reentry.barren.pausedMs / 60_000)
+  return [
+    `Your last ${reentry.barren.streak} turns ended with the check unmet and delivered nothing: no accepted result, no worker that passed its check, and no rise in the check's score. Runtime waited ${minutes} minutes before this turn.`,
+    'If you are waiting on long work of your own, such as a build, a proof or a job you started, do not end your turn to wait for it. Wait inside the turn with your wake or wait tool, or a command that blocks until the work finishes, then act on its result. Each turn in a row that ends with nothing delivered doubles the wait before the next, up to an hour.',
+  ]
 }
 
 function restartLine(reentry: Extract<DriverReentry, { reason: 'run-reentered' }>): string {

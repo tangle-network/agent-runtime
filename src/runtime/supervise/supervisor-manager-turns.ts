@@ -24,6 +24,7 @@ import { applyRunCancellation } from './run-cancellation'
 import { runTraceAnalysisStore } from './run-traces'
 import {
   beginScopeOwnerAttempt,
+  recordScopeOwnerBarrenPause,
   recordScopeOwnerDriverAttempt,
   recordScopeOwnerPause,
 } from './scope'
@@ -179,6 +180,8 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
           }
         : {}),
       onAttempt: (record) => recordManagerAttempt(loop, record),
+      // A barren streak paces the root and the run's own journal records each pause.
+      onBarrenPause: (pause) => recordScopeOwnerBarrenPause(loop.session.state.scope, pause),
     })
     driverFailed = false
   } finally {

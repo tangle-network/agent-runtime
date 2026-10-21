@@ -29,6 +29,15 @@ export const runtimeOwnedProviderMeters = new WeakMap<object, RuntimeOwnedProvid
 /** What {@link recordScopeOwnerPause} journals, less the fields the scope supplies. */
 type ScopeOwnerPause = Omit<Extract<SpawnEvent, { kind: 'paused' }>, 'kind' | 'id' | 'seq' | 'at'>
 export const pauseRecorders = new WeakMap<object, (pause: ScopeOwnerPause) => Promise<void>>()
+/** What {@link recordScopeOwnerBarrenPause} journals, less the fields the scope supplies. */
+type ScopeOwnerBarrenPause = Omit<
+  Extract<SpawnEvent, { kind: 'barren-pause' }>,
+  'kind' | 'id' | 'seq' | 'at'
+>
+export const barrenPauseRecorders = new WeakMap<
+  object,
+  (pause: ScopeOwnerBarrenPause) => Promise<void>
+>()
 export const driverAttemptRecorders = new WeakMap<
   object,
   (record: DriverAttemptRecord) => Promise<void>
@@ -327,6 +336,21 @@ export function recordScopeOwnerPause(
   const record = pauseRecorders.get(scope as object)
   if (record === undefined) {
     throw new ValidationError('scope: pause recorder is not bound to this scope')
+  }
+  return record(pause)
+}
+
+/**
+ * @internal Journal that this scope's owner paused before a continuation because its barren
+ * streak reached `continuation.maxBarren`. Recorded against the owner node.
+ */
+export function recordScopeOwnerBarrenPause(
+  scope: Scope<unknown>,
+  pause: ScopeOwnerBarrenPause,
+): Promise<void> {
+  const record = barrenPauseRecorders.get(scope as object)
+  if (record === undefined) {
+    throw new ValidationError('scope: barren pause recorder is not bound to this scope')
   }
   return record(pause)
 }
