@@ -20,14 +20,8 @@ export {
   type RunGraphTestOptions,
   runGraphWithTestBrain,
 } from '../runtime/supervise/graph'
-export {
-  type SuperviseTestOptions,
-  superviseWithTestBrain,
-} from '../runtime/supervise/supervise'
-export {
-  type SupervisorAgentTestDeps,
-  supervisorAgentWithTestBrain,
-} from '../runtime/supervise/supervisor-agent'
+export { superviseWithTestBrain } from '../runtime/supervise/supervise'
+export { supervisorAgentWithTestBrain } from '../runtime/supervise/supervisor-agent'
 export type { ToolLoopCallContext, ToolLoopChat } from '../runtime/tool-loop'
 
 const serializedAgentImprovementProposalFixture = JSON.stringify(

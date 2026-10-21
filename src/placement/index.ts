@@ -198,7 +198,7 @@ const TOP_LEVEL_AXES: ReadonlySet<string> = new Set([
 ])
 
 /** Options for {@link loopProfileRefusal}. */
-export interface LoopProfileRefusalOptions {
+interface LoopProfileRefusalOptions {
   vacuousAxes?: readonly VacuousAxis[]
   inlineSkills?: boolean
 }
@@ -209,7 +209,7 @@ export interface LoopProfileRefusalOptions {
  * subagents, hooks or modes needs a sandbox; the loop never drops one silently.
  * Platform's `workerProfileRefusal`, read through {@link loopTierProfileMaterialization}.
  */
-export function loopProfileRefusal(
+function loopProfileRefusal(
   profile: object,
   options: LoopProfileRefusalOptions = {},
 ): string | undefined {
@@ -324,7 +324,7 @@ function profileDefaultModel(profile: object | undefined): unknown {
 }
 
 /** Options for {@link sandboxOnlyRequirements}. */
-export interface SandboxOnlyRequirementsOptions extends LoopProfileRefusalOptions {
+interface SandboxOnlyRequirementsOptions extends LoopProfileRefusalOptions {
   requirements?: PlacementRequirements
   profile?: AgentProfile | object
   interactive: boolean

@@ -25,87 +25,36 @@
  * journal that `supervise` replays, and shared-SQL ownership
  * (`createFencedSqlRunContext`). See `docs/durability.md` for the full owner map.
  */
-export {
-  ROOT_STREAM_FILE,
-  type RootStreamReceipt,
-  type RootStreamRecord,
-  readRootStream,
-  readRootStreamReceipt,
-} from '../runtime/supervise/root-stream'
+export { readRootStream, readRootStreamReceipt } from '../runtime/supervise/root-stream'
 export type {
   ChatStreamEvent,
-  ChatTurnHooks,
   ChatTurnIdentity,
   ChatTurnProducer,
   ChatTurnResult,
-  RunChatTurnInput,
 } from './chat-engine'
 export { handleChatTurn } from './chat-engine'
 export { deriveExecutionId } from './execution-handle'
-export {
-  FileObserverJournal,
-  type ObserverJournal,
-  type ObserverRecord,
-  type ObserverRecordKind,
-  observerRecordDigest,
-  verifyObserverRecords,
-} from './observer-journal'
+export { FileObserverJournal, observerRecordDigest } from './observer-journal'
 export {
   type PursuitCostProvenance,
-  type PursuitNodeCost,
-  type PursuitNodePlacement,
-  type PursuitNodePlatform,
   type PursuitNodeProjection,
-  type PursuitNodeTiming,
-  type PursuitNodeUsage,
   type PursuitProjection,
   type PursuitRunProjection,
-  type PursuitRunTotals,
-  type PursuitStatus,
   projectPursuit,
 } from './observer-projection'
-export type { PursuitObserverDelivery } from './pursuit-observer-delivery'
-export {
-  assertPursuitVersions,
-  type JudgedPursuitVersion,
-  type NextPursuitVersion,
-  type NextPursuitVersionInput,
-  type PursuitVersionChain,
-  type PursuitVersionStop,
-  type PursuitVersions,
-  type SettledPursuitVersion,
-  type VersionJudge,
-  type VersionVerdict,
-} from './pursuit-versions'
-export {
-  type PursuitFork,
-  RUN_FORK_CORRELATION_KEYS,
-} from './run-fork'
+export { assertPursuitVersions, type VersionJudge } from './pursuit-versions'
+export { RUN_FORK_CORRELATION_KEYS } from './run-fork'
 export {
   acquireRunDirectoryLock,
-  type RunDirectoryHolderLiveness,
-  type RunDirectoryLock,
   RunDirectoryLockedError,
-  type RunDirectoryLockHolder,
   readRunDirectoryLock,
   runDirectoryHolderIsLive,
 } from './run-lock'
+export { readFailureRecord, readSettleRecord, SettledRunDirectoryError } from './settle-record'
 export {
-  type DurableFailureRecord,
-  readFailureRecord,
-  readSettleRecord,
-  SettledRunDirectoryError,
-} from './settle-record'
-export {
-  type SupervisedPursuitResult,
-  type SuperviseGraphPursuitOptions,
   SupervisePursuitError,
   type SupervisePursuitOptions,
   superviseGraphPursuit,
   supervisePursuit,
 } from './supervise-pursuit'
-export {
-  type DurableCoordinationStreamIdentity,
-  type DurableSupervisionDiscovery,
-  discoverDurableSupervisionRun,
-} from './supervision-discovery'
+export { discoverDurableSupervisionRun } from './supervision-discovery'

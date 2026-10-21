@@ -50,13 +50,11 @@ import {
 import { mergeReportedUsage, normalizeReportedUsage } from './usage'
 
 export type {
-  AgentCandidateProfileActivation as CandidateProfileMaterialization,
   AgentImprovementActivation,
   AgentImprovementActivationIntent,
   AgentImprovementActivationOutcome,
   AgentImprovementActivationResult,
   AgentImprovementEvaluation,
-  AgentImprovementMeasuredComparison,
   AgentImprovementProposal,
   AgentImprovementReview,
   AgentImprovementReviewDecision,
@@ -64,23 +62,12 @@ export type {
 } from '@tangle-network/agent-interface'
 export { parseAgentCandidateProfileActivation as parseCandidateProfileMaterialization } from '../candidate-execution/profile'
 export type { Redactor } from '../redact'
-export { defaultRedactor, resolveRedactor } from '../redact'
+export { defaultRedactor } from '../redact'
 export type {
-  AgentImprovementActivationReconciliation,
-  AgentImprovementActivationResultStore,
-  AgentImprovementActivationTargetPlan,
-  AgentImprovementActivationTransition,
   AgentImprovementActivationTransitionInput,
   AgentProfileImprovementActivationOperation,
-  AgentProfileImprovementActivationTargetPlan,
   CreateAgentImprovementActivationOptions,
-  CreateAgentImprovementActivationResultOptions,
-  CreateAgentImprovementProposalOptions,
-  ExecuteAgentImprovementActivationInput,
-  ExecuteAgentImprovementActivationOptions,
   ProfileImprovementActivationTransitionInput,
-  ReviewAgentImprovementInput,
-  SealedCandidateActivationTransitionInput,
 } from './activation'
 export {
   createAgentImprovementActivation,
@@ -95,74 +82,24 @@ export {
 } from './activation'
 export type {
   AgentProfileCandidateMeasurementExecutor,
-  AuthoredAgentProfileCandidateLineage,
-  AuthoredAgentProfileDiffOptions,
   ProposeAuthoredAgentProfileImprovementOptions,
-  ProposeAuthoredAgentProfileImprovementResult,
 } from './authored-profile-improvement'
 export { proposeAuthoredAgentProfileImprovement } from './authored-profile-improvement'
-export type {
-  CapabilityAuth,
-  CapabilityInterface,
-  CapabilityManifest,
-  CapabilitySurface,
-  CertifiedCapability,
-  CertProvenance,
-  ContentRef,
-  CredentialRef,
-  DeliveryBinding,
-  DeliveryBindingKind,
-  HostSpec,
-  JsonSchema,
-  ResolvedCapabilitySurface,
-  ResolvedHook,
-  ResolvedRetrieval,
-  ResolvedSubagent,
-} from './capability'
+export type { CertifiedCapability, CredentialRef } from './capability'
 export { CapabilityNotAdmittedError, manifestFromProfile } from './capability'
 export type {
-  AgentImprovementProposalSubmissionState,
   CertifiedArtifact,
-  CertifiedCapabilitySummary,
   CertifiedProfile,
   CertifiedPromptSource,
   CertifiedPromptSourceOptions,
-  CertifiedPromptSurface,
-  DiffProvenance,
-  ProposedProfileDiff,
-  PullCertifiedOptions,
   PullOutcome,
-  SubmitAgentImprovementProposalOptions,
-  SubmitAgentImprovementProposalOutcome,
 } from './delivery'
-export {
-  composeCertifiedPrompt,
-  createCertifiedPromptSource,
-  normalizeCertifiedProfile,
-  pullCertified,
-  resolveIntelligenceBaseUrl,
-  submitAgentImprovementProposal,
-} from './delivery'
+export { composeCertifiedPrompt, createCertifiedPromptSource, pullCertified } from './delivery'
+export type { EffortOverrides, EffortOverridesCompiled, EffortSettings, EffortTier } from './effort'
+export { compileEffort, isIntelligenceOff, resolveEffort } from './effort'
 export type {
-  CorpusAccess,
-  EffortOverrides,
-  EffortOverridesCompiled,
-  EffortSettings,
-  EffortTier,
-} from './effort'
-export {
-  compileEffort,
-  defaultEffortTier,
-  isIntelligenceOff,
-  resolveEffort,
-} from './effort'
-export type {
-  AgentCandidateExecutionHostPorts,
   CreateExactProcessCandidateExperimentExecutorOptions,
-  CreateProtectedExactProcessCandidateExperimentExecutorOptions,
   ExactProcessCandidateExperimentExecution,
-  ExactProcessCandidateExperimentExecutor,
-  ProtectedExactProcessCandidateExperimentExecutor,
 } from './exact-process-candidate'
 export {
   createExactProcessCandidateExperimentExecutor,
@@ -170,24 +107,12 @@ export {
   exactProcessCandidateExperimentExecutionSupport,
 } from './exact-process-candidate'
 export type {
-  AgentCandidateExperimentCellPlacement,
-  AgentImprovementAnalysisOptions,
-  AgentImprovementExperimentMaterial,
   AgentProfileImprovementBenchmark,
-  AgentProfileImprovementExecutor,
-  AgentProfileImprovementMethodOptions,
-  ExecuteAgentCandidateExperimentCellOptions,
-  ProposeAgentImprovementOptions,
-  ProposeAgentImprovementResult,
   ProposeAgentProfileImprovementOptions,
   ProposeAgentProfileImprovementResult,
-  RunAgentCandidateExperimentOptions,
-  RunAgentCandidateExperimentResult,
   VerifyCandidateExecutionEvidenceOptions,
 } from './improvement-cycle'
 export {
-  AgentCandidateExperimentCellExecutionError,
-  createAgentImprovementMeasuredComparison,
   executeAgentCandidateExperimentCell,
   proposeAgentImprovement,
   proposeAgentProfileImprovement,
@@ -197,44 +122,26 @@ export {
 export type {
   AgentImprovementActivationTargetIdentity,
   AgentImprovementProfileSurface,
-  AgentImprovementTargetProfileDiffOptions,
-  AgentProfileMeasuredSurface,
 } from './improvement-surfaces'
 export {
-  AGENT_IMPROVEMENT_PROFILE_SURFACES,
-  AGENT_PROFILE_MEASURED_SURFACES,
   agentImprovementProfileDiffs,
   agentImprovementProfileSurfaceDigest,
   agentImprovementProfileSurfaceInput,
   agentImprovementTargetProfileDiffs,
-  buildAgentImprovementActivationTargets,
   isAgentImprovementProfileSurface,
   isAgentProfileMeasuredSurface,
 } from './improvement-surfaces'
-export type {
-  OptimizationActivationReceipt,
-  OptimizationReceiptCost,
-} from './optimization-receipt'
 export {
   createOptimizationActivationReceipt,
   optimizationActivationReceiptFromMetadata,
 } from './optimization-receipt'
 export type {
-  AgentImprovementProfileActivationInput,
-  AgentImprovementProfileActivationPreparation,
-  AgentImprovementProfileActivationTarget,
-  AgentImprovementProfileReplacement,
   AgentImprovementProfileStateDigest,
-  AgentImprovementProfileStateDigestInput,
   AgentImprovementProfileStateResolver,
-  AgentImprovementProfileStateResolverInput,
-  AgentImprovementProfileTargetState,
-  AgentImprovementProfileTargetTransition,
 } from './profile-activation'
 export { prepareAgentImprovementProfileActivation } from './profile-activation'
 export type {
   AppliedIntelligence,
-  IntelligenceAgent,
   IntelligenceHookConfig,
   IntelligenceWrapped,
 } from './with-intelligence'
@@ -437,7 +344,7 @@ export interface TraceHandle {
 }
 
 /** Metadata for {@link IntelligenceClient.recordTrace}. */
-export interface RecordTraceMeta {
+interface RecordTraceMeta {
   /** 32-hex trace id to anchor every span to. Defaults to a fresh id. */
   traceId?: string
   /** Span id of an enclosing span the loop root should parent under (e.g. a
@@ -447,7 +354,7 @@ export interface RecordTraceMeta {
 
 /** The resolved outcome of one traced run, surfaced on the export span and
  *  available to the caller for downstream billing assertions. */
-export interface TraceOutcome {
+interface TraceOutcome {
   runId: string
   traceId: string
   project: string
@@ -512,14 +419,14 @@ export interface IntelligenceClient {
 }
 
 /** One mode's readiness verdict. */
-export interface ModeReadiness {
+interface ModeReadiness {
   ready: boolean
   /** Inputs this mode still needs, when not ready. Empty when ready. */
   missing: string[]
 }
 
 /** The `doctor()` readiness report — Mode-readiness without any network call. */
-export interface DoctorReport {
+interface DoctorReport {
   project: string
   effort: EffortSettings
   /** True when an OTLP endpoint is configured (export will actually ship). */
