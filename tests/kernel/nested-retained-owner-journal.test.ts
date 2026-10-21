@@ -10,8 +10,8 @@ import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import type { SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
-import { supervise } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
@@ -126,7 +126,7 @@ describe('nested retained owner journal isolation', () => {
         harness: 'cli-base',
         tools: runtimeToolDeclarations('spawn_worker'),
       })
-      await supervise(root, 'Delegate.', {
+      await superviseForTest(root, 'Delegate.', {
         runDir: join(directory, 'run'),
         runId: 'root',
         journal,
@@ -141,7 +141,7 @@ describe('nested retained owner journal isolation', () => {
         },
         coordination,
         finalizer,
-        brain: scriptedBrain([
+        brain: scriptedDriverBrain([
           {
             toolCalls: [
               {
@@ -205,7 +205,7 @@ describe('nested retained owner journal isolation', () => {
           },
         }
         const restarted = createFileRunContext(join(directory, 'run'))
-        await supervise(root, 'Delegate.', {
+        await superviseForTest(root, 'Delegate.', {
           runDir: join(directory, 'run'),
           runId: 'root',
           journal: restarted.journal,
@@ -216,7 +216,7 @@ describe('nested retained owner journal isolation', () => {
           driverRetry: { maxAttempts: 1, initialBackoffMs: 0, maxBackoffMs: 0 },
           coordination,
           finalizer,
-          brain: scriptedBrain([{ content: 'waiting for the manager' }, { content: 'done' }]),
+          brain: scriptedDriverBrain([{ content: 'waiting for the manager' }, { content: 'done' }]),
         })
         const recoveredParent = (await restarted.journal.loadTree('root')) ?? []
         const recoveredNested = (await restarted.journal.loadTree(spawn.ownedTreeRoot)) ?? []

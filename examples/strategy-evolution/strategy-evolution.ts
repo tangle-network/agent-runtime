@@ -47,7 +47,7 @@ export const train = tasks('train', 4)
 export const selection = tasks('selection', 12)
 export const test = tasks('test', 24)
 
-export const claim: EvaluationClaim = {
+const claim: EvaluationClaim = {
   use: 'comparison',
   population: { id: 'counter-targets', description: 'counter tasks with targets from 2 to 8' },
   samplingFrame: 'every generated counter task',

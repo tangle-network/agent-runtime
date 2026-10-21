@@ -11,8 +11,8 @@ import {
   writeWorkerSteer,
 } from '../../src/runtime/supervise/run-layout'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
-import { supervise } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const roots: string[] = []
@@ -60,9 +60,9 @@ describe('durable root steering through the existing operation protocol', () => 
     const { runDir, options, write } = fixture()
     write('before-first-turn')
     const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
-    await supervise(testAgentProfile('root', { harness: 'cli-base' }), 'research', {
+    await superviseForTest(testAgentProfile('root', { harness: 'cli-base' }), 'research', {
       ...options,
-      brain: scriptedBrain([{ content: 'done' }], seen),
+      brain: scriptedDriverBrain([{ content: 'done' }], seen),
     })
     expect(JSON.stringify(seen[0])).toContain('use the corrected evidence')
     expect(readWorkerSteerAcknowledgement(runDir, 'before-first-turn')).toMatchObject(consumed)
@@ -105,7 +105,7 @@ describe('durable root steering through the existing operation protocol', () => 
         },
       },
     )
-    await supervise(
+    await superviseForTest(
       testAgentProfile('root', { tools: runtimeToolDeclarations('ask_parent') }),
       'research',
       { ...options, driveHarness },
@@ -139,7 +139,7 @@ describe('durable root steering through the existing operation protocol', () => 
     )
 
     write('delayed-root')
-    await supervise(
+    await superviseForTest(
       testAgentProfile('root', { tools: runtimeToolDeclarations('ask_parent') }),
       'research',
       { ...options, driveHarness },
@@ -179,7 +179,7 @@ describe('durable root steering through the existing operation protocol', () => 
       },
     )
 
-    const run = supervise(
+    const run = superviseForTest(
       testAgentProfile('root', { tools: runtimeToolDeclarations('ask_parent') }),
       'research',
       {
@@ -211,7 +211,7 @@ describe('durable root steering through the existing operation protocol', () => 
   it('queues a root steer for the next wake when the native root has no live inbox', async () => {
     const { runDir, options, write } = fixture()
     const tasks: string[] = []
-    await supervise(
+    await superviseForTest(
       testAgentProfile('root', { tools: runtimeToolDeclarations('ask_parent') }),
       'research',
       {
@@ -250,7 +250,7 @@ describe('durable root steering through the existing operation protocol', () => 
         },
       },
     )
-    await supervise(
+    await superviseForTest(
       testAgentProfile('root', { tools: runtimeToolDeclarations('ask_parent') }),
       'research',
       { ...options, driveHarness },
@@ -275,9 +275,9 @@ describe('durable root steering through the existing operation protocol', () => 
       }),
     ).toBe(true)
     const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
-    await supervise(testAgentProfile('root', { harness: 'cli-base' }), 'research', {
+    await superviseForTest(testAgentProfile('root', { harness: 'cli-base' }), 'research', {
       ...options,
-      brain: scriptedBrain([{ content: 'done' }], seen),
+      brain: scriptedDriverBrain([{ content: 'done' }], seen),
     })
     expect(JSON.stringify(seen)).not.toContain('use the corrected evidence')
     expect(readWorkerSteerAcknowledgement(runDir, 'in-doubt-root')?.effect).toBe('unknown')
@@ -285,7 +285,7 @@ describe('durable root steering through the existing operation protocol', () => 
 
   it('expires a late root correction without delivering after the final turn', async () => {
     const { runDir, options, write } = fixture()
-    await supervise(testAgentProfile('root', { harness: 'cli-base' }), 'research', {
+    await superviseForTest(testAgentProfile('root', { harness: 'cli-base' }), 'research', {
       ...options,
       brain: async () => {
         write('late-root')

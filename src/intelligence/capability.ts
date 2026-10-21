@@ -184,7 +184,7 @@ export interface ResolvedSubagent {
 }
 
 /** Materialized capability surfaces supplied by a consumer-owned executor. */
-export interface ResolvedSurface {
+export interface ResolvedCapabilitySurface {
   /** Host-side tool defs → `RouterToolsSeam.tools` / agent-app `extraTools`. */
   tools: ToolSpec[]
   /** Host-side dispatch for a resolved tool. Throws when `name` is unknown so a

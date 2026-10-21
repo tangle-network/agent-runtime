@@ -32,7 +32,7 @@ import type { RetainedInteractiveRunHandle } from '../retained-interactive-types
 import { retainedCreateMaterial } from '../retained-run-intent'
 import type { RetainedInteractiveAdmission } from '../retained-run-types'
 import { sleep } from '../util'
-import { abortError, linkAbort } from './abortable'
+import { linkAbort, signalAbortError } from './abortable'
 import { executableAgentProfileSnapshot } from './executable-spec'
 import { createInbox, failPendingAfter } from './inbox'
 import {
@@ -495,7 +495,7 @@ function interactiveExecutor(input: InteractiveExecutorInput): Executor<Interact
       let status: AgentInteractiveSessionStatus | undefined
       for (;;) {
         if (signal.aborted || localController.signal.aborted) {
-          throw abortError(
+          throw signalAbortError(
             signal.aborted ? signal : localController.signal,
             'interactive execution aborted',
           )

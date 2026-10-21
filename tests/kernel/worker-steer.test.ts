@@ -18,7 +18,7 @@ import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
-import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
+import { type ScriptedDriverTurn, scriptedDriverBrain } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
 
 const cleanups: string[] = []
@@ -92,7 +92,7 @@ describe('durable external worker steer', () => {
     const journal = new FileSpawnJournal(join(controlDir, 'spawn-journal.jsonl'))
     const blobs = new InMemoryResultBlobStore()
     const delivered: unknown[] = []
-    const script = scriptedBrain([
+    const script = scriptedDriverBrain([
       {
         toolCalls: [
           {
@@ -104,7 +104,7 @@ describe('durable external worker steer', () => {
       { toolCalls: [{ name: 'list_questions', arguments: {} }] },
       { content: 'waiting for the worker' },
       { content: 'done' },
-    ] satisfies ScriptedTurn[])
+    ] satisfies ScriptedDriverTurn[])
     let turn = 0
     const brain: ToolLoopChat = async (messages, tools, context) => {
       if (turn === 1) {

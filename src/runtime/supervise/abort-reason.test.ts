@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { abortError, linkAbort } from './abortable'
+import { linkAbort, signalAbortError } from './abortable'
 
 /**
  * A cascaded abort must carry the upstream reason. When it does not, every downstream
@@ -56,12 +56,12 @@ describe('cascaded abort reasons', () => {
   })
 
   it('carries the upstream reason into the AbortError a worker settles with', () => {
-    // The end of the chain: the cascade feeds `abortError`, whose message becomes the `down`
+    // The end of the chain: the cascade feeds `signalAbortError`, whose message becomes the `down`
     // record. A dropped reason surfaced here as the caller's fallback, naming no cause.
     const parent = new AbortController()
     const linked = link(parent.signal, new AbortController().signal)
     parent.abort('pool starved before the child could start')
-    expect(abortError(linked, 'execution aborted').message).toBe(
+    expect(signalAbortError(linked, 'execution aborted').message).toBe(
       'pool starved before the child could start',
     )
   })

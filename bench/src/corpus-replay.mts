@@ -5,7 +5,7 @@
  *
  * Two jobs, both READ-ONLY against the corpus:
  *
- *   1. REPLAY - for each RunRecord, take the recorded FINAL output and either
+ *   1. REPLAY - for each BenchRunRecord, take the recorded FINAL output and either
  *      (a) recompute the structural verdict from the stored per-attempt verdicts
  *          (default, zero model tokens) - proves the corpus is structurally
  *          replayable: the stored `resolved` matches the stored attempt verdicts; or
@@ -32,7 +32,7 @@ import { argv } from 'node:process'
 import { fileURLToPath } from 'node:url'
 import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
 import { ADAPTERS } from './adapters'
-import type { RunRecord } from './corpus'
+import type { BenchRunRecord } from './corpus'
 import { selfConsistencySelect, summarizeSelector, summarizeVerifierSelector } from './selector'
 
 /** The benchmark's own judge - the EXTERNAL, write-only anchor (learning-flywheel.md). */
@@ -43,7 +43,7 @@ export type Judge = (task: BenchTask, artifact: string) => Promise<BenchScore>
  * produced an output. Returns undefined when no attempt produced one (every round
  * errored / blank) - the caller treats that as an unreplayable record, not a pass.
  */
-export function finalOutput(record: RunRecord): string | undefined {
+export function finalOutput(record: BenchRunRecord): string | undefined {
   for (let i = record.attempts.length - 1; i >= 0; i -= 1) {
     const out = record.attempts[i]?.output
     if (typeof out === 'string' && out.length > 0) return out
@@ -52,7 +52,7 @@ export function finalOutput(record: RunRecord): string | undefined {
 }
 
 /** The stored structural verdict for the final attempt (its `valid` flag). */
-function storedFinalValid(record: RunRecord): boolean {
+function storedFinalValid(record: BenchRunRecord): boolean {
   for (let i = record.attempts.length - 1; i >= 0; i -= 1) {
     const a = record.attempts[i]
     if (a?.output !== undefined && a.output.length > 0) return a.valid === true
@@ -77,7 +77,7 @@ function storedFinalValid(record: RunRecord): boolean {
  * was used to score the corpus so offline and online scores are comparable.
  */
 export async function scoreCandidateOffline(
-  record: RunRecord,
+  record: BenchRunRecord,
   candidateOutput: string,
   judge: Judge,
   task: BenchTask,
@@ -92,7 +92,7 @@ export async function scoreCandidateOffline(
 }
 
 /** Parse the corpus JSONL; fail loud on empty/unreadable. */
-async function readCorpus(corpusPath: string): Promise<RunRecord[]> {
+async function readCorpus(corpusPath: string): Promise<BenchRunRecord[]> {
   let raw: string
   try {
     raw = await readFile(corpusPath, 'utf8')
@@ -106,7 +106,7 @@ async function readCorpus(corpusPath: string): Promise<RunRecord[]> {
   if (lines.length === 0) throw new Error(`corpus-replay: corpus ${corpusPath} is empty - nothing to replay`)
   return lines.map((l, i) => {
     try {
-      return JSON.parse(l) as RunRecord
+      return JSON.parse(l) as BenchRunRecord
     } catch (err) {
       throw new Error(`corpus-replay: corpus ${corpusPath} line ${i + 1} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
   const records = await readCorpus(corpusPath)
 
   // Group by benchmark so each adapter judges only its own records.
-  const byBench = new Map<string, RunRecord[]>()
+  const byBench = new Map<string, BenchRunRecord[]>()
   for (const r of records) {
     const bench = benchOverride ?? r.benchmark
     const list = byBench.get(bench)

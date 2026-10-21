@@ -15,8 +15,8 @@ import {
   type WorkerSpawnRetryAttempt,
   withWorkerSpawnRetry,
 } from '../../src/runtime/supervise/worker-retry'
-import { supervise } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 /**
@@ -292,7 +292,7 @@ describe('supervise({ workerRetry })', () => {
   it('rescues a backend-derived worker whose spawn a saturated executor refused', async () => {
     const leaf = flakyLeaf({ name: 'w1', failures: 1, reason: ACQUIRE_TIMEOUT })
     const retries: WorkerSpawnRetryAttempt[] = []
-    const result = await supervise(
+    const result = await superviseForTest(
       testAgentProfile('root', {
         harness: 'cli-base',
         tools: runtimeToolDeclarations('spawn_worker'),
@@ -303,7 +303,7 @@ describe('supervise({ workerRetry })', () => {
         makeLeafAgent: () => leaf.agent,
         workerRetry: { initialBackoffMs: 0, maxBackoffMs: 0 },
         onWorkerRetry: (attempt) => retries.push(attempt),
-        brain: scriptedBrain([
+        brain: scriptedDriverBrain([
           {
             toolCalls: [
               { name: 'spawn_worker', arguments: { profile: workerProfile('w1'), task: 'go' } },
@@ -322,7 +322,7 @@ describe('supervise({ workerRetry })', () => {
 
   it('loses the same worker when no retry policy is declared', async () => {
     const leaf = flakyLeaf({ name: 'w1', failures: 1, reason: ACQUIRE_TIMEOUT })
-    const result = await supervise(
+    const result = await superviseForTest(
       testAgentProfile('root', {
         harness: 'cli-base',
         tools: runtimeToolDeclarations('spawn_worker'),
@@ -331,7 +331,7 @@ describe('supervise({ workerRetry })', () => {
       {
         budget,
         makeLeafAgent: () => leaf.agent,
-        brain: scriptedBrain([
+        brain: scriptedDriverBrain([
           {
             toolCalls: [
               { name: 'spawn_worker', arguments: { profile: workerProfile('w1'), task: 'go' } },
@@ -350,22 +350,22 @@ describe('supervise({ workerRetry })', () => {
     // The seam wraps the backend-derived path. A caller that replaced that path with its own
     // factory would otherwise get a run with no retry and no complaint.
     expect(() =>
-      supervise(testAgentProfile('root', { harness: 'cli-base' }), 't', {
+      superviseForTest(testAgentProfile('root', { harness: 'cli-base' }), 't', {
         budget,
         makeWorkerAgent: () => flakyLeaf({ name: 'w1', failures: 0, reason: '' }).agent,
         workerRetry: {},
-        brain: scriptedBrain([{ content: 'done' }]),
+        brain: scriptedDriverBrain([{ content: 'done' }]),
       }),
     ).toThrow(/workerRetry applies only to backend-derived workers/)
   })
 
   it('refuses a workerRetry bound a run cannot act on, before any compute', () => {
     expect(() =>
-      supervise(testAgentProfile('root', { harness: 'cli-base' }), 't', {
+      superviseForTest(testAgentProfile('root', { harness: 'cli-base' }), 't', {
         budget,
         makeLeafAgent: () => flakyLeaf({ name: 'w1', failures: 0, reason: '' }).agent,
         workerRetry: { maxTotalMs: -5 },
-        brain: scriptedBrain([{ content: 'done' }]),
+        brain: scriptedDriverBrain([{ content: 'done' }]),
       }),
     ).toThrow(/workerRetry\.maxTotalMs/)
   })

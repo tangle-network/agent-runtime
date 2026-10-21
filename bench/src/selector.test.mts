@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import type { AttemptRecord, RunRecord } from './corpus'
+import type { AttemptRecord, BenchRunRecord } from './corpus'
 import {
   bootstrapDeltaCI,
   flipRate,
-  normalizeAnswer,
+  normalizeVoteKey,
   scoreSelectorOnRun,
   scoreVerifierSelectorOnRun,
   selfConsistencySelect,
@@ -22,11 +22,11 @@ assert.throws(() => verifierGroundedSelect([]), /no candidate pass-counts/)
 assert.throws(() => verifierGroundedSelect([0, -1]), /invalid pass-count/)
 assert.throws(() => verifierGroundedSelect([0, Number.NaN]), /invalid pass-count/)
 
-// --- normalizeAnswer ---
-assert.equal(normalizeAnswer('  The Paris.  '), 'paris')
-assert.equal(normalizeAnswer('"London"'), 'london')
-assert.equal(normalizeAnswer('a Cat'), 'cat')
-assert.equal(normalizeAnswer('New   York'), 'new york')
+// --- normalizeVoteKey ---
+assert.equal(normalizeVoteKey('  The Paris.  '), 'paris')
+assert.equal(normalizeVoteKey('"London"'), 'london')
+assert.equal(normalizeVoteKey('a Cat'), 'cat')
+assert.equal(normalizeVoteKey('New   York'), 'new york')
 
 // --- selfConsistencySelect: majority, ties, single ---
 assert.equal(selfConsistencySelect(['Paris', 'Paris', 'London']), 0, 'largest cluster')
@@ -35,7 +35,7 @@ assert.equal(selfConsistencySelect(['a', 'b']), 0, 'tie → earliest cluster')
 assert.equal(selfConsistencySelect(['only']), 0)
 assert.throws(() => selfConsistencySelect([]), /no candidate outputs/)
 
-// helper: build a RunRecord whose attempts carry (output, valid)
+// helper: build a BenchRunRecord whose attempts carry (output, valid)
 const att = (output: string, valid: boolean): AttemptRecord => ({
   round: 0,
   prompt: '',
@@ -48,7 +48,7 @@ const att = (output: string, valid: boolean): AttemptRecord => ({
   eventCount: 0,
   eventTypes: {},
 })
-const rec = (atts: AttemptRecord[], blind = atts[0]?.valid === true): RunRecord => ({
+const rec = (atts: AttemptRecord[], blind = atts[0]?.valid === true): BenchRunRecord => ({
   ts: '',
   benchmark: 'test',
   instanceId: 'i',
@@ -77,7 +77,7 @@ const rec = (atts: AttemptRecord[], blind = atts[0]?.valid === true): RunRecord 
 // --- selector beats random when the majority correlates with correctness ---
 // Across instances where the right answer is usually the majority, selector@k > random@k.
 {
-  const records: RunRecord[] = [
+  const records: BenchRunRecord[] = [
     rec([att('A', true), att('A', true), att('B', false)]), // majority right
     rec([att('X', true), att('Y', false), att('X', true)]), // majority right
     rec([att('Q', false), att('Q', false), att('R', true)]), // majority wrong (selector loses this one)
@@ -94,7 +94,7 @@ const rec = (atts: AttemptRecord[], blind = atts[0]?.valid === true): RunRecord 
 
 // --- unscoreable record (no outputs) is skipped, not counted as a pass ---
 {
-  const blank: RunRecord = {
+  const blank: BenchRunRecord = {
     ts: '', benchmark: 'test', instanceId: 'i', condition: 'random@3', model: 'm',
     blindResolved: false, resolved: false, infraError: true,
     attempts: [{ round: 0, prompt: '', costUsd: 0, tokensIn: 0, tokensOut: 0, eventCount: 0, eventTypes: {} }],
@@ -126,7 +126,7 @@ const attS = (score: number, output = `out-${score}`): AttemptRecord => ({
   eventCount: 0,
   eventTypes: {},
 })
-const recS = (scores: number[]): RunRecord => ({
+const recS = (scores: number[]): BenchRunRecord => ({
   ts: '', benchmark: 'aec', instanceId: 'i', condition: 'random@4', model: 'm',
   blindResolved: (scores[0] ?? 0) >= 1,
   resolved: scores.some((s) => s >= 1),
@@ -175,7 +175,7 @@ const recS = (scores: number[]): RunRecord => ({
 
 // unscoreable (no checker score on any attempt) is skipped, not counted
 {
-  const noScore: RunRecord = {
+  const noScore: BenchRunRecord = {
     ts: '', benchmark: 'aec', instanceId: 'i', condition: 'random@4', model: 'm',
     blindResolved: false, resolved: false, infraError: false,
     attempts: [{ round: 0, prompt: '', output: 'x', costUsd: 0, tokensIn: 0, tokensOut: 0, eventCount: 0, eventTypes: {} }],

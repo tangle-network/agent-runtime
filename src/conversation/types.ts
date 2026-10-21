@@ -208,7 +208,7 @@ export interface RunConversationOptions {
   /**
    * Inbound depth at the point this driver was invoked. The runner
    * increments it on every outbound participant call; gateways refuse at
-   * `DEFAULT_MAX_DEPTH`. Default 0 (origin caller).
+   * `DEFAULT_MAX_FORWARD_DEPTH`. Default 0 (origin caller).
    */
   inboundDepth?: number
   /**

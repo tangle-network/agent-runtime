@@ -48,7 +48,7 @@ export function abortReason(signal: AbortSignal, fallback: string): unknown {
 }
 
 /** An `AbortError` carrying the signal's own string reason, or `fallback` when it states none. */
-export function abortError(signal: AbortSignal, fallback: string): Error {
+export function signalAbortError(signal: AbortSignal, fallback: string): Error {
   const reason = abortReason(signal, fallback)
   const error = new Error(
     reason instanceof Error
@@ -121,7 +121,7 @@ export async function runAbortable<T>(
   signal: AbortSignal,
   fallback: string,
 ): Promise<T> {
-  if (signal.aborted) throw abortError(signal, fallback)
+  if (signal.aborted) throw signalAbortError(signal, fallback)
   return await new Promise<T>((resolve, reject) => {
     let settled = false
     const cleanup = () => signal.removeEventListener('abort', onAbort)
@@ -130,7 +130,7 @@ export async function runAbortable<T>(
         if (settled) return
         settled = true
         cleanup()
-        reject(abortError(signal, fallback))
+        reject(signalAbortError(signal, fallback))
       })
     }
     signal.addEventListener('abort', onAbort, { once: true })

@@ -105,10 +105,10 @@ export type {
   DeliveryBindingKind,
   HostSpec,
   JsonSchema,
+  ResolvedCapabilitySurface,
   ResolvedHook,
   ResolvedRetrieval,
   ResolvedSubagent,
-  ResolvedSurface,
 } from './capability'
 export { CapabilityNotAdmittedError, manifestFromProfile } from './capability'
 export type {

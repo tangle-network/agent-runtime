@@ -3,7 +3,7 @@ import { InMemorySpawnJournal } from '../../src/durable/in-memory-spawn-stores'
 import { DEADLINE_CHECK_IN_MESSAGE } from '../../src/runtime/supervise/deadline'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import { testContinuation } from '../helpers/continuation'
-import { supervise } from '../helpers/runtime-with-test-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 /** `ok` for an answered call, else what came back instead. */
@@ -100,7 +100,7 @@ describe("a manager's own time box", () => {
       return harness
     }
 
-    await supervise(
+    await superviseForTest(
       testAgentProfile('root', { tools: runtimeToolDeclarations('spawn_worker') }),
       'research',
       {

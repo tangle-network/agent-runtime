@@ -20,14 +20,14 @@ import {
 } from '@tangle-network/agent-runtime'
 
 import {
-  claim,
-  executionRef,
-  profile,
   type RuleScenario,
+  ruleClaim,
+  ruleExecutionRef,
+  ruleProfile,
   ruleProposer,
-  selectionScenarios,
-  testScenarios,
-  trainScenarios,
+  ruleSelectionScenarios,
+  ruleTestScenarios,
+  ruleTrainScenarios,
 } from './search.js'
 
 const runDir = process.argv[2]
@@ -36,11 +36,11 @@ const outages = new Set<string>()
 const recordFault = process.argv[3] === '--record-fault'
 let recordFaults = 0
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
-const promptHash = canonicalAgentProfileDigest(profile).replace(/^sha256:/, '')
+const promptHash = canonicalAgentProfileDigest(ruleProfile).replace(/^sha256:/, '')
 const run = () =>
-  improve<RuleScenario, { execRunId: string }>(profile, {
+  improve<RuleScenario, { execRunId: string }>(ruleProfile, {
     surface: 'prompt',
-    executionRef,
+    executionRef: ruleExecutionRef,
     method: searchMethod({
       proposer: ruleProposer,
       maxExpansions: 0,
@@ -49,10 +49,10 @@ const run = () =>
       lanes: [dedicatedLane({ capacity: 2, cellUsd: 0.01 })],
       maxAttempts: 2,
     }),
-    claim,
-    trainScenarios: trainScenarios.slice(0, 2),
-    selectionScenarios: selectionScenarios.slice(0, 6),
-    testScenarios: testScenarios.slice(0, 6),
+    claim: ruleClaim,
+    trainScenarios: ruleTrainScenarios.slice(0, 2),
+    selectionScenarios: ruleSelectionScenarios.slice(0, 6),
+    testScenarios: ruleTestScenarios.slice(0, 6),
     judges: [
       {
         name: 'transient-judge',

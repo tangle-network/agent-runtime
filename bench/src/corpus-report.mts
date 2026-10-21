@@ -2,7 +2,7 @@
  * Cross-benchmark corpus analysis instrument (docs/learning-flywheel.md - the
  * "corpus" + "measurement" layers).
  *
- * The corpus (one JSONL RunRecord per condition-run) is the flywheel's only durable
+ * The corpus (one JSONL BenchRunRecord per condition-run) is the flywheel's only durable
  * asset. This reads it back and reports, GROUPED BY benchmark x condition, the
  * numbers the doc says must hold before any rung is "earned":
  *
@@ -36,7 +36,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import { glob } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import type { RunRecord, AttemptRecord } from './corpus.ts'
+import type { BenchRunRecord, AttemptRecord } from './corpus.ts'
 import { benjaminiHochberg } from '@tangle-network/agent-eval'
 
 const DEFAULT_CORPUS = resolve(import.meta.dirname, '..', 'corpus', 'finsearch.jsonl')
@@ -77,9 +77,9 @@ async function resolveCorpusFiles(args: string[]): Promise<string[]> {
 
 /** Parse one JSONL file into RunRecords. Throws on a malformed line - corrupt fuel
  *  must surface, never be silently skipped. */
-async function loadFile(file: string): Promise<RunRecord[]> {
+async function loadFile(file: string): Promise<BenchRunRecord[]> {
   const text = await readFile(file, 'utf8')
-  const out: RunRecord[] = []
+  const out: BenchRunRecord[] = []
   const lines = text.split('\n')
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -90,11 +90,11 @@ async function loadFile(file: string): Promise<RunRecord[]> {
     } catch (err) {
       throw new Error(`malformed JSONL at ${file}:${i + 1}: ${(err as Error).message}`)
     }
-    const r = rec as Partial<RunRecord>
+    const r = rec as Partial<BenchRunRecord>
     if (typeof r.benchmark !== 'string' || typeof r.instanceId !== 'string' || typeof r.condition !== 'string') {
-      throw new Error(`not a RunRecord at ${file}:${i + 1} (missing benchmark/instanceId/condition)`)
+      throw new Error(`not a BenchRunRecord at ${file}:${i + 1} (missing benchmark/instanceId/condition)`)
     }
-    out.push(rec as RunRecord)
+    out.push(rec as BenchRunRecord)
   }
   return out
 }
@@ -107,8 +107,8 @@ async function loadFile(file: string): Promise<RunRecord[]> {
  *  emitted); the clean-trace cost axis below uses that same latest record so every
  *  reported number comes from one real run. Returns the kept records + how many were
  *  superseded (reported in caveats). */
-function dedupeLatest(records: RunRecord[]): { kept: RunRecord[]; superseded: number } {
-  const byKey = new Map<string, RunRecord>()
+function dedupeLatest(records: BenchRunRecord[]): { kept: BenchRunRecord[]; superseded: number } {
+  const byKey = new Map<string, BenchRunRecord>()
   let superseded = 0
   for (const r of records) {
     const key = `${r.benchmark}	${r.instanceId}	${r.condition}`
@@ -160,7 +160,7 @@ function countMeasured(attempts: AttemptRecord[], pick: (a: AttemptRecord) => nu
   return attempts.reduce((c, a) => c + (typeof pick(a) === 'number' ? 1 : 0), 0)
 }
 
-function cleanTrace(records: RunRecord[]): CleanTrace {
+function cleanTrace(records: BenchRunRecord[]): CleanTrace {
   const n = records.length
   // Tokens are measured as a PAIR (in+out) or not at all — an attempt counts as
   // measured only when BOTH are present, and the sum includes only those (a
@@ -343,7 +343,7 @@ async function main(): Promise<void> {
   if (files.length === 0) {
     throw new Error('no corpus files resolved from the given paths')
   }
-  const all: RunRecord[] = []
+  const all: BenchRunRecord[] = []
   for (const f of files) all.push(...(await loadFile(f)))
   if (all.length === 0) {
     throw new Error(`corpus is empty (0 RunRecords across ${files.length} file(s)): ${files.join(', ')}`)
@@ -356,7 +356,7 @@ async function main(): Promise<void> {
   console.log(`  bootstrap B=${BOOTSTRAP_N} (paired resample of shared instanceIds)`)
 
   // Group by benchmark, then condition.
-  const benchmarks = new Map<string, RunRecord[]>()
+  const benchmarks = new Map<string, BenchRunRecord[]>()
   for (const r of kept) {
     const arr = benchmarks.get(r.benchmark) ?? []
     arr.push(r)
@@ -369,14 +369,14 @@ async function main(): Promise<void> {
   const tests: TestEntry[] = []
 
   for (const benchmark of [...benchmarks.keys()].sort()) {
-    const benchRecords = benchmarks.get(benchmark) as RunRecord[]
+    const benchRecords = benchmarks.get(benchmark) as BenchRunRecord[]
     console.log(`\n== benchmark: ${benchmark} ==`)
 
     // Partition into clean (analyzed) vs infra-errored (excluded but counted).
     const clean = benchRecords.filter((r) => r.infraError !== true)
     const erroredCount = benchRecords.length - clean.length
 
-    const byCondition = new Map<string, RunRecord[]>()
+    const byCondition = new Map<string, BenchRunRecord[]>()
     for (const r of clean) {
       const arr = byCondition.get(r.condition) ?? []
       arr.push(r)
@@ -393,7 +393,7 @@ async function main(): Promise<void> {
     // (1) + (4): per-condition rates and clean-trace cost.
     console.log('  per-condition (resolve / blind rate * clean-trace cost):')
     for (const condition of conditions) {
-      const recs = byCondition.get(condition) as RunRecord[]
+      const recs = byCondition.get(condition) as BenchRunRecord[]
       const n = recs.length
       const resolveRate = recs.filter((r) => r.resolved === true).length / n
       const blindRate = recs.filter((r) => r.blindResolved === true).length / n
@@ -408,12 +408,12 @@ async function main(): Promise<void> {
 
     // (2) + (3): the ablation - paired lifts with bootstrap CIs.
     // Outcome maps keyed by instanceId, per condition.
-    const resolvedById = (recs: RunRecord[]) => {
+    const resolvedById = (recs: BenchRunRecord[]) => {
       const m = new Map<string, number>()
       for (const r of recs) m.set(r.instanceId, r.resolved === true ? 1 : 0)
       return m
     }
-    const blindById = (recs: RunRecord[]) => {
+    const blindById = (recs: BenchRunRecord[]) => {
       const m = new Map<string, number>()
       for (const r of recs) m.set(r.instanceId, r.blindResolved === true ? 1 : 0)
       return m
@@ -431,7 +431,7 @@ async function main(): Promise<void> {
       console.log('  ablation: (no random@k condition - cannot isolate the compute control; lifts unmeasurable)')
     }
     for (const rc of randomConditions) {
-      const recs = byCondition.get(rc) as RunRecord[]
+      const recs = byCondition.get(rc) as BenchRunRecord[]
       const lift = pairedLift(blindById(recs), resolvedById(recs))
       if (lift) tests.push({ benchmark, label: `more-compute (${rc} - blind)`, family: 'more-compute', lift })
     }
@@ -447,15 +447,15 @@ async function main(): Promise<void> {
         console.log(`    steering (${refc} - random?) - no matching random@k condition`)
         continue
       }
-      const baseline = resolvedById(byCondition.get(matchRandom) as RunRecord[])
-      const treatment = resolvedById(byCondition.get(refc) as RunRecord[])
+      const baseline = resolvedById(byCondition.get(matchRandom) as BenchRunRecord[])
+      const treatment = resolvedById(byCondition.get(refc) as BenchRunRecord[])
       const lift = pairedLift(baseline, treatment)
       if (lift) tests.push({ benchmark, label: `steering (${refc} - ${matchRandom})`, family: 'steering', lift })
     }
 
     // (5) honest caveats for this benchmark.
     const totalN = clean.length
-    const minCondN = conditions.length === 0 ? 0 : Math.min(...conditions.map((c) => (byCondition.get(c) as RunRecord[]).length))
+    const minCondN = conditions.length === 0 ? 0 : Math.min(...conditions.map((c) => (byCondition.get(c) as BenchRunRecord[]).length))
     console.log('  caveats:')
     console.log(`    * clean records: ${totalN} across ${conditions.length} condition(s); smallest condition n=${minCondN}`)
     console.log(`    * infra-errored excluded: ${erroredCount}`)

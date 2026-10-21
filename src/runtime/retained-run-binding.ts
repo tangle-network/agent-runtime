@@ -21,6 +21,7 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { isRecord } from '../record-value'
 import { armDeadlineTimer } from './supervise/deadline'
+import { abortError } from './util'
 
 export function exactSession(
   environment: AgentEnvironment,
@@ -323,14 +324,6 @@ export function assertStableText(value: string, label: string): void {
   if (value.length === 0 || value.trim() !== value) {
     throw new Error(`${label} must be non-empty and have no outer whitespace`)
   }
-}
-
-export function abortError(reason: unknown): Error {
-  const error = new Error(
-    reason instanceof Error ? reason.message : reason === undefined ? 'aborted' : String(reason),
-  )
-  error.name = 'AbortError'
-  return error
 }
 
 export function assertWaitDuration(value: number, label: string): void {
