@@ -882,8 +882,8 @@ export function createGraphOverlay(
     const marker = input.route as NonNullable<SpawnAuthorizationInput['route']>
     const node = requested === undefined ? undefined : flow?.nodes.get(requested)
     const edge = flow?.routes.get(marker.edge)
-    const entry = flow?.entries.some((e) => e.edge === marker.edge && e.node === requested)
-    if (node === undefined || marker.node !== requested || (edge?.to !== requested && !entry)) {
+    const starts = flow?.starts.get(marker.edge)?.has(requested as NodeId) === true
+    if (node === undefined || marker.node !== requested || !starts) {
       throw new ValidationError(
         `runGraph: route spawn for ${JSON.stringify(marker.edge)} names ` +
           `${JSON.stringify(requested)}, which is not the node that edge starts`,

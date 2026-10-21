@@ -14,17 +14,15 @@ import type { ChildQuestionInbox, QuestionRecord } from '../../mcp/tools/coordin
 import { CONTINUATIONS_DIR } from './continuation'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
 import { errMessage } from './error-message'
-import {
-  createGraphOverlay,
-  type GraphOverlay,
-  productSpawnAuthority,
-  validateGraphTopology,
-} from './graph-overlay'
+import { runtimeFlowBrain } from './flow-brain'
+import { createFlowRun, flowOfSubtask, routeFlowOf } from './graph-flow'
+import { createGraphOverlay, type GraphOverlay, productSpawnAuthority } from './graph-overlay'
 import {
   type GraphSubtaskTopology,
   graphSubtaskOf,
   parseGraphSubtaskTopology,
   prepareGraphSubtask,
+  validateGraphSubtask,
 } from './graph-subtask'
 import { assertProfileModelsAllowed } from './model-policy'
 import { kernelPromptRegistry } from './prompt-registry'
@@ -60,6 +58,7 @@ import {
   ownSubmissionDeliverable,
   providerVisibleProfile,
   supervisorAgent,
+  supervisorAgentWithTestBrain,
 } from './supervisor-agent'
 import type { Agent, AgentSpec, ExecutorFactory, NodeExecutionIdentity } from './types'
 import { withWorkerSpawnRetry } from './worker-retry'
@@ -141,22 +140,20 @@ export function createSuperviseWorkers(
   // The graph layer for the root of a `run_graph` subtask, rebuilt from the topology its admitted
   // profile carries — on a fresh spawn and on recovery alike.
   const productAuthority = productSpawnAuthority(options.authorizeSpawn)
-  const graphOverlayFor = (topology: GraphSubtaskTopology): GraphOverlay => {
+  const graphOverlayFor = (topology: GraphSubtaskTopology) => {
     const registry = kernelPromptRegistry()
-    const overlay = createGraphOverlay(
-      validateGraphTopology(topology.nodes, topology.edges, registry, analysts),
-      {
-        registry,
-        journal,
-        runId,
-        now,
-        ...(guidanceComposer ? { guidance: guidanceComposer } : {}),
-        ...(productAuthority ? { authorizeSpawn: productAuthority } : {}),
-        subtask: true,
-      },
-    )
+    const validated = validateGraphSubtask(topology, registry, analysts)
+    const overlay = createGraphOverlay(validated, {
+      registry,
+      journal,
+      runId,
+      now,
+      ...(guidanceComposer ? { guidance: guidanceComposer } : {}),
+      ...(productAuthority ? { authorizeSpawn: productAuthority } : {}),
+      subtask: true,
+    })
     graphOverlays.add(overlay)
-    return overlay
+    return { overlay, validated }
   }
   let makeWorkerAgent = options.makeWorkerAgent
   if (!makeWorkerAgent) {
@@ -324,8 +321,22 @@ export function createSuperviseWorkers(
             'supervise: a node of a graph cannot start another graph; add the work as nodes',
           )
         }
-        const ownGraph = subtask === undefined ? undefined : graphOverlayFor(subtask)
+        const own = subtask === undefined ? undefined : graphOverlayFor(subtask)
+        const ownGraph = own?.overlay
         const subtreeGraph = ownGraph ?? graph
+        // A flow subtask runs under Runtime's flow root, as `runGraph` runs a flow: its brain makes
+        // no model call, and its routes decide every spawn. Inside a maps item the item value is
+        // the task of every `{ item: true }` entry.
+        const ownFlow =
+          own?.validated.flow === undefined
+            ? undefined
+            : {
+                run: createFlowRun(),
+                route: flowOfSubtask(
+                  routeFlowOf(own.validated),
+                  spawnContext.map === undefined ? undefined : { item: spawnContext.task },
+                ),
+              }
         // A managed child, a graph node included, settles on its own accepted submission. Its result
         // goes to the manager that assigned it, and the run's check judges the run's result, never
         // a child's narrower assignment. A deliverable `resolveDeliverable` chose for this spawn
@@ -428,12 +439,13 @@ export function createSuperviseWorkers(
           ? async (context, event, record) => {
               await observeNodeEvent?.(context, event, record)
               subtreeGraph.onCoordinationEvent(event)
+              if (context.ownerId === ownerId) ownFlow?.run.observe(event)
             }
           : observeNodeEvent
         let acceptedSubmission = false
         let unassessedOutput = false
         const peerAudit = depth === 1 ? peerAuditFor(spawnContext.parentNodeId) : undefined
-        const nested = supervisorAgent(authorized, {
+        const nestedDeps: Parameters<typeof supervisorAgent>[1] = {
           ...(spawnContext.peerMailUrl ? { peerMailUrl: spawnContext.peerMailUrl } : {}),
           ...(peerAudit ? { peerAudit } : {}),
           blobs,
@@ -548,7 +560,18 @@ export function createSuperviseWorkers(
           ...(options.runDir === undefined && options.steerDir === undefined
             ? {}
             : { controlScope: 'subtree' as const }),
-        })
+        }
+        const nested =
+          ownFlow === undefined
+            ? supervisorAgent(authorized, nestedDeps)
+            : supervisorAgentWithTestBrain(authorized, {
+                ...nestedDeps,
+                brain: runtimeFlowBrain(),
+                routeFlow: ownFlow.route,
+                finalizer: ownFlow.run.finalizer,
+                // A flow root's wake batches nothing for a decision.
+                wake: { debounceMs: 0, ...options.wake },
+              })
         return withModelSubstitution(
           driverChild(
             authorized,
@@ -559,7 +582,7 @@ export function createSuperviseWorkers(
             recoveryFactories.get(childFactory),
             () => unassessedOutput,
             seatManagedLeaf ? managerDeliverable : undefined,
-            ownGraph ? (out) => graphSubtaskOutput(ownGraph, out) : undefined,
+            ownGraph ? (out) => graphSubtaskOutput(ownGraph, out, ownFlow?.run.failure) : undefined,
           ),
           modelSubstitution,
         )

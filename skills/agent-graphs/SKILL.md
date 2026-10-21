@@ -7,6 +7,8 @@ description: Author fixed AgentGraph roles, routes, delegation, analysis, comple
 
 Use `runGraph` when roles are known before execution and their relationships must be explicit Runtime data.
 When the order, branches, repair loops and stop rules are known too, author a flow graph: `entry` plus `routes` edges, with no root and no brain.
+Parallel stages are a fork (`to` lists several nodes, spawned at once) and waiting for all of them is a join (`from` lists several nodes); converging plain routes into one running node throw `GraphRouteError` with reason `target-live`.
+A loop per item is a flow graph inside a maps item, and a flow graph can run as a `run_graph` subtask.
 Keep a root (delegation edges) only when a model must decide what runs next; a root brain that only orders fixed stages is the anti-pattern a flow graph replaces.
 Use a smaller maintained composition when it provides the required behavior.
 Use dynamic supervision when the agent must discover or create roles while working.

@@ -25,10 +25,23 @@ export async function storedGraphTopology(
  * What a `run_graph` subtask settles with once its root manager returned and its subtree closed:
  * the root's result and the graph's edge ledger. A delegates cap that refused work while the root
  * delivered nothing ended the graph, not the task, so that fails loud with the cap named, as
- * `runGraph` fails a root graph with `GraphEdgeCapError`.
+ * `runGraph` fails a root graph with `GraphEdgeCapError`. A flow subtask that stopped (a down
+ * settle, a stop edge) or could not route fails the same way, so a maps item's `onItemFailure`
+ * decides its join exactly as it does for a down item node.
  */
-export async function graphSubtaskOutput(overlay: GraphOverlay, out: unknown): Promise<unknown> {
+export async function graphSubtaskOutput(
+  overlay: GraphOverlay,
+  out: unknown,
+  flowFailure?: () => string | undefined,
+): Promise<unknown> {
   const { ledger, exhaustedEdges, exhaustedDelegates } = await overlay.settle()
+  const ended = flowFailure?.()
+  if (ended !== undefined) {
+    throw new ValidationError(
+      `run_graph: the flow graph ended without a result (${ended}); the edge ledger is in the ` +
+        'run journal',
+    )
+  }
   if ((out === undefined || out === null) && exhaustedDelegates.length > 0) {
     throw new ValidationError(
       `run_graph: edge traversal cap exhausted on ${exhaustedDelegates.join(', ')} and the graph ` +

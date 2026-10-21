@@ -38,7 +38,9 @@ export function mountGraphsTools({
             description:
               'The graph as data: { nodes: [{ id, profile }], edges: [...] }. Delegates edges ' +
               'run from the root to each worker node; an optional analyzes edge ' +
-              "({ kind: 'analyzes', analyst, over, to, directive }) names an analyst node.",
+              "({ kind: 'analyzes', analyst, over, to, directive }) names an analyst node. With " +
+              "entry ([{ node, task }]) it is a flow graph of routes edges ({ kind: 'routes', from, " +
+              'to, directive, when? }), where Runtime starts the entries and decides every spawn.',
             additionalProperties: true,
           },
           graphDigest: {

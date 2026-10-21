@@ -19,6 +19,7 @@ import {
   type GraphNode,
   type GraphResult,
   GraphRouteError,
+  type GraphTopology,
   InMemorySpawnJournal,
   type MakeWorkerAgent,
   promptHandle,
@@ -27,6 +28,9 @@ import {
   type WorkerSpawnContext,
 } from '@tangle-network/agent-runtime/kernel'
 import { describe, expect, it } from 'vitest'
+import { supervise } from '../helpers/runtime-with-test-brain'
+import { scriptedBrain } from './scripted-brain'
+import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 const LEAF_TOKENS = { input: 5, output: 7 }
@@ -57,6 +61,11 @@ interface Shot {
   readonly valid?: boolean
   /** Called as the leaf settles, with the nodes spawned so far. */
   readonly probe?: (spawned: ReadonlyArray<string>) => void
+  /** Hold this leaf until the named node's leaf has started executing; a leaf that waits 5 s fails,
+   *  so two branches run one after the other cannot both settle. */
+  readonly awaitStart?: string
+  /** The settle output, computed from this spawn's task. */
+  readonly outOf?: (task: unknown) => unknown
 }
 
 /** Leaves keyed by node: spawn k of a node settles with `shots[k]` (the last one repeats). */
@@ -66,6 +75,7 @@ function leaves(
   aborted: string[] = [],
 ): MakeWorkerAgent {
   const attempts = new Map<string, number>()
+  const started = new Set<string>()
   return (profile, context) => {
     const name = profile.name ?? 'leaf'
     const attempt = (attempts.get(name) ?? 0) + 1
@@ -82,6 +92,15 @@ function leaves(
     const executor: Executor<unknown> = {
       runtime: 'router',
       async execute(_task, signal) {
+        started.add(name)
+        if (shot.awaitStart !== undefined) {
+          const until = Date.now() + 5_000
+          while (!started.has(shot.awaitStart)) {
+            if (Date.now() > until)
+              throw new Error(`leaf ${name}: ${shot.awaitStart} never started`)
+            await new Promise((resolve) => setTimeout(resolve, 5))
+          }
+        }
         if (shot.delayMs !== undefined) {
           await new Promise<void>((resolve) => {
             const timer = setTimeout(resolve, shot.delayMs)
@@ -99,7 +118,7 @@ function leaves(
         if (shot.fail !== undefined) throw new Error(shot.fail)
         artifact = {
           outRef: `w:${name}:${attempt}`,
-          out: shot.out,
+          out: shot.outOf ? shot.outOf(context?.task) : shot.out,
           verdict: { valid: shot.valid ?? true, score: 1 },
           spent: { iterations: 1, tokens: LEAF_TOKENS, usd: 0, ms: 0 },
         }
@@ -131,7 +150,7 @@ function flow(
 }
 
 const routes = (
-  from: string,
+  from: Extract<GraphEdge, { kind: 'routes' }>['from'],
   to: Extract<GraphEdge, { kind: 'routes' }>['to'],
   extra: Partial<Extract<GraphEdge, { kind: 'routes' }>> = {},
 ): GraphEdge => ({ kind: 'routes', from, to, directive: brief, ...extra })
@@ -562,6 +581,278 @@ describe('flow graphs — start, entries, matches and failures', () => {
   })
 })
 
+describe('flow graphs — fork and join', () => {
+  const forkJoin = flow(
+    ['plan', 'left', 'right', 'merge'],
+    [{ node: 'plan', task: 'split the work' }],
+    [routes('plan', ['left', 'right'], { evidence: ['plan'] }), routes(['left', 'right'], 'merge')],
+  )
+
+  it('runs both branches of a fork at once, and the join hands the target both results', async () => {
+    const L = { side: 'left', lines: 12 }
+    const R = { side: 'right', lines: 30 }
+    // Each branch's leaf waits until the other has started: run one after the other, neither
+    // could settle.
+    const { res, spawns } = await run(forkJoin, {
+      plan: [{ out: { parts: 2 } }],
+      left: [{ out: L, awaitStart: 'right' }],
+      right: [{ out: R, awaitStart: 'left' }],
+      merge: [{ out: { merged: true } }],
+    })
+    expect(res.result.kind).toBe('winner')
+    if (res.result.kind === 'winner') expect(res.result.out).toEqual({ merge: { merged: true } })
+    expect(
+      spawns
+        .map((s) => s.node)
+        .slice(1, 3)
+        .sort(),
+    ).toEqual(['left', 'right'])
+    const keys = spawns.filter((s) => s.node !== 'merge').map((s) => s.context?.key)
+    expect(keys).toEqual([
+      'route:entry:plan',
+      'route:routes:plan#1->left+right#1:left',
+      'route:routes:plan#1->left+right#1:right',
+    ])
+    const merge = spawns.find((s) => s.node === 'merge')
+    expect((merge?.task as { evidence?: unknown } | undefined)?.evidence).toEqual({
+      left: L,
+      right: R,
+    })
+    expect(rows(res.ledger)).toEqual([
+      'routes:entry->plan delivered',
+      'routes:plan#1->left+right delivered',
+      'routes:plan#1->left+right delivered',
+      'routes:left+right#1->merge delivered',
+    ])
+    expect(
+      res.ledger.filter((row) => row.edge === 'routes:plan#1->left+right').map((r) => r.to),
+    ).toEqual(['left', 'right'])
+  })
+
+  it('keeps the join target unspawned until its slow member settles', async () => {
+    const atSlowSettle: Array<ReadonlyArray<string>> = []
+    const { res, spawns } = await run(forkJoin, {
+      left: [{ out: { fast: true } }],
+      right: [
+        { out: { slow: true }, delayMs: 150, probe: (spawned) => atSlowSettle.push(spawned) },
+      ],
+    })
+    expect(res.result.kind).toBe('winner')
+    expect(atSlowSettle).toHaveLength(1)
+    expect(atSlowSettle[0]).toEqual(expect.arrayContaining(['plan', 'left', 'right']))
+    expect(atSlowSettle[0]).not.toContain('merge')
+    expect(spawns.map((s) => s.node).at(-1)).toBe('merge')
+    expect(spawns.filter((s) => s.node === 'merge')).toHaveLength(1)
+  })
+
+  it('throws GraphRouteError target-live when two plain routes converge on a running node', async () => {
+    const error = await runGraph(
+      flow(
+        ['a', 'b', 'c'],
+        [
+          { node: 'a', task: 'one' },
+          { node: 'b', task: 'two' },
+        ],
+        [routes('a', 'c'), routes('b', 'c')],
+      ),
+      {
+        runId: 'flow',
+        makeLeafAgent: leaves(
+          { a: [{ out: 1 }], b: [{ out: 2, delayMs: 20 }], c: [{ out: 3, delayMs: 30_000 }] },
+          [],
+        ),
+      },
+    ).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(GraphRouteError)
+    const routeError = error as GraphRouteError
+    expect(routeError.reason).toBe('target-live')
+    expect(routeError.node).toBe('b')
+    expect(routeError.message).toMatch(/live target/)
+    expect(routeError.ledger.filter((row) => row.to === 'c')).toHaveLength(1)
+  })
+})
+
+describe('flow graphs — a flow inside a maps item and a run_graph subtask', () => {
+  type ItemResult = { deliverable: { verify: { item: string; passed: boolean } } }
+  const itemFlow: GraphTopology = {
+    nodes: [node('critic'), node('verify')],
+    entry: [{ node: 'critic', task: { item: true } }],
+    edges: [
+      routes('critic', 'verify', { evidence: ['critic'] }),
+      routes('verify', 'critic', {
+        when: { pointer: '/passed', equals: false },
+        maxTraversals: 1,
+        evidence: ['verify'],
+      }),
+      routes('verify', { finish: 'verified' }),
+    ],
+  }
+  const mapped = (item: GraphTopology, onItemFailure: 'all-or-refuse' | 'settled-subset') =>
+    flow(
+      ['plan', 'collect'],
+      [{ node: 'plan', task: 'assign the critics' }],
+      [
+        {
+          kind: 'maps',
+          from: 'plan',
+          pointer: '/assignments',
+          graph: item,
+          join: 'collect',
+          directive: brief,
+          maxItems: 5,
+          concurrency: 3,
+          onItemFailure,
+        },
+      ],
+    )
+
+  it('runs a verify-and-repair loop per item and joins three results in order', async () => {
+    // The critic reads its item (the entry task) or, on a repair, the verify result it was handed.
+    const criticOut = (task: unknown) =>
+      typeof task === 'string'
+        ? { item: task, repaired: false }
+        : {
+            item: (task as { from: { result: { item: string } } }).from.result.item,
+            repaired: true,
+          }
+    const verifyOut = (task: unknown) => {
+      const critic = (task as { from: { result: { item: string; repaired: boolean } } }).from.result
+      return { item: critic.item, passed: critic.item !== 'b' || critic.repaired }
+    }
+    const { res, spawns } = await run(mapped(itemFlow, 'all-or-refuse'), {
+      plan: [{ out: { assignments: ['a', 'b', 'c'] } }],
+      critic: [{ outOf: criticOut }],
+      verify: [{ outOf: verifyOut }],
+      collect: [{ out: { collected: 3 } }],
+    })
+    expect(res.result.kind).toBe('winner')
+    const critics = spawns.filter((s) => s.node === 'critic')
+    // Three items, one repair.
+    expect(critics).toHaveLength(4)
+    expect(critics.filter((s) => typeof s.task !== 'string')).toHaveLength(1)
+    expect(
+      critics
+        .filter((s) => typeof s.task === 'string')
+        .map((s) => s.task)
+        .sort(),
+    ).toEqual(['a', 'b', 'c'])
+    expect(spawns.filter((s) => s.node === 'verify')).toHaveLength(4)
+    const join = spawns.find((s) => s.node === 'collect')?.task as {
+      items: number
+      results: Array<{ index: number; item: string; result: ItemResult }>
+      failures: unknown[]
+    }
+    expect(join.items).toBe(3)
+    expect(join.failures).toEqual([])
+    expect(join.results.map((r) => [r.index, r.item, r.result.deliverable.verify])).toEqual([
+      [0, 'a', { item: 'a', passed: true }],
+      [1, 'b', { item: 'b', passed: true }],
+      [2, 'c', { item: 'c', passed: true }],
+    ])
+    // Each item's flow ledgers its own routes; the outer run's ledger holds only its own.
+    expect(res.ledger.filter((row) => row.kind === 'routes').map((row) => row.edge)).toEqual([
+      'routes:entry->plan',
+    ])
+  })
+
+  it('a down settle inside one item ends that item only; settled-subset joins the rest', async () => {
+    const one: GraphTopology = {
+      nodes: [node('check')],
+      entry: [{ node: 'check', task: { item: true } }],
+      edges: [],
+    }
+    const { res, spawns } = await run(mapped(one, 'settled-subset'), {
+      plan: [{ out: { assignments: ['a', 'b', 'c'] } }],
+      check: [
+        {
+          outOf: (task) => {
+            if (task === 'b') throw new Error('the sandbox died')
+            return { checked: task }
+          },
+        },
+      ],
+      collect: [{ out: { collected: 2 } }],
+    })
+    expect(res.result.kind).toBe('winner')
+    expect(res.stopped).toBeUndefined()
+    if (res.result.kind === 'winner') expect(res.result.out).toEqual({ collect: { collected: 2 } })
+    expect(spawns.filter((s) => s.node === 'check')).toHaveLength(3)
+    const join = spawns.find((s) => s.node === 'collect')?.task as {
+      results: Array<{ index: number; result: { deliverable: unknown } }>
+      failures: Array<{ index: number; item: unknown; outcome: string }>
+    }
+    expect(join.results.map((r) => [r.index, r.result.deliverable])).toEqual([
+      [0, { check: { checked: 'a' } }],
+      [2, { check: { checked: 'c' } }],
+    ])
+    expect(join.failures).toHaveLength(1)
+    expect(join.failures[0]).toMatchObject({ index: 1, item: 'b', outcome: 'failed' })
+  })
+
+  it('runs a flow graph as a run_graph subtask', async () => {
+    const spawns: Spawn[] = []
+    const journal = new InMemorySpawnJournal()
+    const director = testAgentProfile('director', {
+      harness: 'cli-base',
+      tools: runtimeToolDeclarations('run_graph'),
+    })
+    const graph = {
+      nodes: [node('draft'), node('review')],
+      entry: [{ node: 'draft', task: 'write the haiku' }],
+      edges: [
+        {
+          kind: 'routes',
+          from: 'draft',
+          to: 'review',
+          directive: 'delegates/worker-brief/v1',
+          evidence: ['draft'],
+        },
+      ],
+    }
+    await supervise(director, 'write a haiku through a flow graph', {
+      runId: 'rg-flow',
+      journal,
+      budget: { maxIterations: 100, maxTokens: 200_000 },
+      deliverable: { describe: 'the subtask settles', check: () => true },
+      makeLeafAgent: leaves(
+        { draft: [{ out: { haiku: 'old pond' } }], review: [{ out: { approved: true } }] },
+        spawns,
+      ),
+      brain: scriptedBrain([
+        {
+          toolCalls: [
+            {
+              name: 'run_graph',
+              arguments: {
+                graph,
+                deliverable: 'a reviewed haiku',
+                budget: { maxIterations: 30, maxTokens: 40_000 },
+              },
+            },
+          ],
+        },
+        { content: 'waiting for the graph' },
+        { content: 'done' },
+      ]),
+    })
+    expect(spawns.map((s) => s.node)).toEqual(['draft', 'review'])
+    expect(spawns[1]?.task).toEqual({
+      from: { node: 'draft', result: { haiku: 'old pond' } },
+      evidence: { draft: { haiku: 'old pond' } },
+    })
+    const events = (await journal.loadTree('rg-flow')) ?? []
+    expect(
+      events.find((event) => event.kind === 'settled' && event.id === 'rg-flow:s0'),
+    ).toMatchObject({ status: 'done' })
+    // The subtask's flow ledgers its routes under the node that drives it.
+    expect(
+      events.flatMap((event) =>
+        event.kind === 'edge' && event.edge.kind === 'routes' ? [event.edge.to] : [],
+      ),
+    ).toEqual(['draft', 'review'])
+  })
+})
+
 describe('flow graphs — refusals before compute', () => {
   const opts: RunGraphOptions = { makeLeafAgent: leaves({}, []) }
   const refuses = (graph: AgentGraph, message: RegExp, extra: Partial<RunGraphOptions> = {}) => {
@@ -691,6 +982,55 @@ describe('flow graphs — refusals before compute', () => {
 
   it('refuses a node unreachable from entry', () => {
     refuses(flow(['a', 'b', 'island'], entryA, [routes('a', 'b')]), /'island' is unreachable/)
+  })
+
+  it('refuses malformed forks and joins', () => {
+    const three = ['a', 'b', 'c', 'd']
+    refuses(flow(three, entryA, [routes('a', ['b'])]), /a fork with 1 node\(s\) in to/)
+    refuses(flow(three, entryA, [routes('a', ['b', 'c']), routes(['b'], 'd')]), /a join with 1/)
+    refuses(
+      flow(three, entryA, [routes('a', ['b', 'c']), routes(['b', 'ghost'], 'd')]),
+      /unknown node "ghost"/,
+    )
+    refuses(
+      flow(three, entryA, [routes('a', ['b', 'c']), routes(['b', 'b'], 'd')]),
+      /lists 'b' twice in its join/,
+    )
+    refuses(flow(three, entryA, [routes('a', ['b', 'b'])]), /lists 'b' twice in its fork/)
+    refuses(
+      flow(three, entryA, [
+        routes('a', ['b', 'c']),
+        routes(['b', 'c'], 'd', { when: { pointer: '/ok', equals: true } }),
+      ]),
+      /is a join with a when/,
+    )
+    refuses(
+      flow(three, entryA, [
+        routes('a', ['b', 'c']),
+        routes('b', { stop: 'early' }, { when: { pointer: '/stop', equals: true } }),
+        routes(['b', 'c'], 'd'),
+      ]),
+      /'b' is a member of join .* other outgoing routes edge/,
+    )
+  })
+
+  it('refuses forks and joins that break reachability or the cycle rule', () => {
+    // A join member that waits on the join's own target: the join can never fire.
+    refuses(
+      flow(['a', 'b', 'c'], entryA, [
+        routes('a', 'b'),
+        routes(['b', 'c'], 'c', { maxTraversals: 2 }),
+      ]),
+      /'c' is unreachable from entry/,
+    )
+    // A fork back into its own source with no cap.
+    refuses(
+      flow(['a', 'b'], entryA, [
+        routes('a', ['a', 'b'], { when: { pointer: '/again', equals: true } }),
+        routes('a', { finish: 'done' }),
+      ]),
+      /routes cycle through .* sets no maxTraversals/,
+    )
   })
 
   it('refuses an invalid continuity', () => {

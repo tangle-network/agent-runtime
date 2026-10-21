@@ -25,7 +25,8 @@ import type {
  * The flow scheduler of one manager: entry and route spawns are runtime spawns, like map items.
  * It has two call sites. `start` spawns every entry when the manager's coordination opens, before
  * the manager's first turn, so a manager that makes no tool call still has open work. `route` runs
- * on each settle beside the map expansion and fires at most one edge.
+ * on each settle beside the map expansion and fires at most one edge leaving the settled node; that
+ * edge may start several nodes at once (a fork), or wait for several sources (a join).
  */
 export function createRouteRouting({
   opts,
@@ -52,12 +53,19 @@ export function createRouteRouting({
   const terminals = new Set(flow?.terminals ?? [])
   const routesFrom = new Map<string, RouteOnSettleEdge[]>()
   for (const edge of flow?.routes ?? []) {
-    routesFrom.set(edge.from, [...(routesFrom.get(edge.from) ?? []), edge])
+    for (const from of edge.from) routesFrom.set(from, [...(routesFrom.get(from) ?? []), edge])
   }
   // The latest usable result of every flow node: what a match and a task's evidence read.
   const latest = new Map<string, unknown>()
   // Fired traversals per edge: what the cap judges and what each route spawn's key counts.
   const fired = new Map<string, number>()
+  // Per join edge, the members that settled usably since it last fired.
+  const joined = new Map<string, Set<string>>()
+  // Flow workers still running, by node: a route into one of them is refused as `target-live`.
+  const live = new Map<string, Set<string>>()
+  const setLive = (node: string, workerId: string): void => {
+    live.set(node, (live.get(node) ?? new Set()).add(workerId))
+  }
   let ended = false
   let started: Promise<void> | undefined
 
@@ -113,6 +121,7 @@ export function createRouteRouting({
           entry.key,
           { continuity: 'fresh' },
         )
+        if ('workerId' in spawned) setLive(entry.node, spawned.workerId)
         await publish({
           kind: 'traversal',
           edge: entry.edge,
@@ -143,6 +152,13 @@ export function createRouteRouting({
     when === undefined ||
     ('all' in when ? when.all.every((match) => matches(match, from)) : matches(when, from))
 
+  const targetName = (to: RouteOnSettleEdge['to']): string =>
+    'nodes' in to
+      ? to.nodes.map((target) => target.node).join('+')
+      : 'stop' in to
+        ? `stop:${to.stop}`
+        : `finish:${to.finish}`
+
   const fire = async (
     edge: RouteOnSettleEdge,
     node: string,
@@ -151,7 +167,8 @@ export function createRouteRouting({
   ): Promise<void> => {
     const traversal = (fired.get(edge.edge) ?? 0) + 1
     fired.set(edge.edge, traversal)
-    const row = { kind: 'traversal' as const, edge: edge.edge, from: node, sourceWorker: worker.id }
+    const from = edge.from.join('+')
+    const row = { kind: 'traversal' as const, edge: edge.edge, from, sourceWorker: worker.id }
     if ('stop' in edge.to) {
       await publish({
         ...row,
@@ -177,46 +194,71 @@ export function createRouteRouting({
       await publish({ kind: 'output', node, workerId: worker.id, result, edge: edge.edge })
       return
     }
-    const target = edge.to
+    // Converging branches use a join: a second spawn of a running node would race the first.
+    const busy = edge.to.nodes.find((target) => (live.get(target.node)?.size ?? 0) > 0)
+    if (busy !== undefined) {
+      await end(
+        {
+          kind: 'unrouted',
+          reason: 'target-live',
+          node,
+          workerId: worker.id,
+          detail: `${edge.edge} fired into '${busy.node}', which still has a running worker`,
+          result,
+        },
+        `flow: ${edge.edge} fired into live node '${busy.node}'`,
+      )
+      return
+    }
+    // The members of a join ride its evidence beside the nodes the edge lists.
     const evidence: Record<string, unknown> = {}
-    for (const id of edge.evidence) if (latest.has(id)) evidence[id] = latest.get(id)
+    for (const id of [...(edge.from.length > 1 ? edge.from : []), ...edge.evidence]) {
+      if (latest.has(id)) evidence[id] = latest.get(id)
+    }
     const task = { from: { node, result }, evidence }
-    // A resume edge re-attaches to the target's latest settled session; a target that never
-    // settled starts fresh, as a delegates edge's declared resume does.
-    const resolved =
-      edge.continuity === 'resume'
-        ? resolveContinuity('resume', target.node, undefined)
-        : { continuity: 'fresh' as const }
-    const continuity =
-      'error' in resolved && resolved.error === 'resume-no-prior'
-        ? { continuity: 'fresh' as const }
-        : resolved
-    const spawned =
-      'error' in continuity
-        ? { refused: `${continuity.error}: ${continuity.hint}` }
-        : await spawnNode(
-            { edge: edge.edge, node: target.node },
-            target.profile,
-            task,
-            `route:${edge.edge}#${traversal}`,
-            continuity,
-          )
-    await publish({
-      ...row,
-      to: target.node,
-      outcome: 'workerId' in spawned ? 'delivered' : 'unpropagated',
-      continuity: 'continuity' in continuity ? continuity.continuity : edge.continuity,
-      bytes: 'workerId' in spawned ? textBytes(task) : 0,
-      ...('workerId' in spawned
-        ? { workerId: spawned.workerId }
-        : { reason: `route spawn refused: ${spawned.refused}` }),
-    })
+    const fork = edge.to.nodes.length > 1
+    for (const target of edge.to.nodes) {
+      // A resume edge re-attaches to the target's latest settled session; a target that never
+      // settled starts fresh, as a delegates edge's declared resume does.
+      const resolved =
+        edge.continuity === 'resume'
+          ? resolveContinuity('resume', target.node, undefined)
+          : { continuity: 'fresh' as const }
+      const continuity =
+        'error' in resolved && resolved.error === 'resume-no-prior'
+          ? { continuity: 'fresh' as const }
+          : resolved
+      const spawned =
+        'error' in continuity
+          ? { refused: `${continuity.error}: ${continuity.hint}` }
+          : await spawnNode(
+              { edge: edge.edge, node: target.node },
+              target.profile,
+              task,
+              fork
+                ? `route:${edge.edge}#${traversal}:${target.node}`
+                : `route:${edge.edge}#${traversal}`,
+              continuity,
+            )
+      if ('workerId' in spawned) setLive(target.node, spawned.workerId)
+      await publish({
+        ...row,
+        to: target.node,
+        outcome: 'workerId' in spawned ? 'delivered' : 'unpropagated',
+        continuity: 'continuity' in continuity ? continuity.continuity : edge.continuity,
+        bytes: 'workerId' in spawned ? textBytes(task) : 0,
+        ...('workerId' in spawned
+          ? { workerId: spawned.workerId }
+          : { reason: `route spawn refused: ${spawned.refused}` }),
+      })
+    }
   }
 
   const routeSettle = async (settled: Settled<unknown>, worker: SettledWorker): Promise<void> => {
     if (ended) return
     const node = profileNameByWorker.get(worker.id)
     if (node === undefined || !flowNodes.has(node)) return
+    live.get(node)?.delete(worker.id)
     const settlement = workerSettlement(settled, worker)
     if (worker.status === 'down' || settled.kind !== 'done') {
       const reason = `down: ${settlement.reason ?? 'down'}`
@@ -240,17 +282,20 @@ export function createRouteRouting({
     }
     for (const edge of edges) {
       if (!holds(edge.when, node)) continue
+      if (edge.from.length > 1) {
+        // A join is the only edge leaving its members: it fires once each has settled since it
+        // last fired, and until then this settle simply waits.
+        const settled = (joined.get(edge.edge) ?? new Set<string>()).add(node)
+        joined.set(edge.edge, settled)
+        if (settled.size < edge.from.length) return
+        joined.delete(edge.edge)
+      }
       if ((fired.get(edge.edge) ?? 0) >= edge.maxTraversals) {
         await publish({
           kind: 'traversal',
           edge: edge.edge,
-          from: node,
-          to:
-            'node' in edge.to
-              ? edge.to.node
-              : 'stop' in edge.to
-                ? `stop:${edge.to.stop}`
-                : `finish:${edge.to.finish}`,
+          from: edge.from.join('+'),
+          to: targetName(edge.to),
           outcome: 'unpropagated',
           continuity: edge.continuity,
           bytes: 0,
@@ -267,6 +312,7 @@ export function createRouteRouting({
     await end(
       {
         kind: 'unrouted',
+        reason: 'unrouted',
         node,
         workerId: worker.id,
         detail: `no routes edge leaving '${node}' matched its result`,

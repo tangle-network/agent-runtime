@@ -17,24 +17,27 @@ export type RouteMatch = { readonly node?: string; readonly pointer: string } & 
 /** A route condition: one match, or every match of `all`. */
 export type RouteWhen = RouteMatch | { readonly all: ReadonlyArray<RouteMatch> }
 
-/** Where a fired route goes: a node to spawn, the end of the run, or a terminal result. */
+/** Where a fired route goes: the nodes to spawn (one, or every node of a fork at once), the end of
+ *  the run, or a terminal result. */
 export type RouteTarget =
-  | { readonly node: string; readonly profile: AgentProfile }
+  | { readonly nodes: ReadonlyArray<{ readonly node: string; readonly profile: AgentProfile }> }
   | { readonly stop: string }
   | { readonly finish: string }
 
 /** One routes edge in coordination form. The edges leaving one node are tried in declaration
- *  order on each usable settle; the first whose `when` holds fires. */
+ *  order on each usable settle; the first whose `when` holds fires. A join (several `from` nodes)
+ *  is the only edge leaving each of its members, carries no `when`, and fires once every member
+ *  has settled usably since it last fired. */
 export interface RouteOnSettleEdge {
   /** Stable edge identity carried on every `route` event and in every route spawn's key. */
   readonly edge: string
-  /** The source, by profile name. */
-  readonly from: string
+  /** The source by profile name, or every member of a join. */
+  readonly from: ReadonlyArray<string>
   readonly to: RouteTarget
   /** Absent on the default edge, which is the last edge leaving its source. */
   readonly when?: RouteWhen
   /** Nodes whose latest usable result rides the target's task, and the only nodes other than
-   *  `from` a match may read. */
+   *  `from` a match may read. A join's members ride it too. */
   readonly evidence: ReadonlyArray<string>
   /** Fired traversals beyond this are skipped and recorded `unpropagated`. */
   readonly maxTraversals: number
@@ -90,7 +93,8 @@ export interface RouteSpawnMarker {
  * - `output`: a terminal node or a `finish` edge made this settle part of the run's output;
  * - `stopped`: a `stop` edge fired, or a flow node settled down or without a usable result where a
  *   route was needed, and the flow spawns nothing more;
- * - `unrouted`: a flow node's usable settle matched no edge.
+ * - `unrouted`: a flow node's usable settle matched no edge (`unrouted`), or a fired edge named a
+ *   node that still has a running worker (`target-live`); converging branches use a join.
  */
 export type RouteFlowEvent =
   | {
@@ -126,6 +130,7 @@ export type RouteFlowEvent =
     }
   | {
       readonly kind: 'unrouted'
+      readonly reason: 'unrouted' | 'target-live'
       readonly node: string
       readonly workerId: string
       readonly detail: string

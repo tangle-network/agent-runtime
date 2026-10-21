@@ -4,7 +4,8 @@
  * README catalog); each test asserts the ledger rows that make its pattern true, through the
  * example's exported factory and the shipped `runGraph` path (`runGraphWithTestBrain` for a graph
  * whose root is driven by a scripted brain). Nothing is mocked below the leaf seam and the driver
- * brain; a flow graph (role-chain, conditional-skip, loop-until-dry, proof-gate) has no brain.
+ * brain; a flow graph (role-chain, conditional-skip, loop-until-dry, proof-gate, dependency-waves)
+ * has no brain.
  *
  *   static-fanout-synthesize   3 delegates (one per dimension) + 3 analyzes rows into the root;
  *                              result.out is the joined synthesis, and it flips with one dimension
@@ -21,7 +22,7 @@
  *   judge-panel                2 judges x 3 attempts = 6 scores; result.out is the top attempt's work
  *   loop-until-dry             the critic's dry streak finishes the loop at two, under the cap
  *   hierarchical-nested        the lead's workers have ids nested under the lead's
- *   dependency-waves           ledger order respects the DAG
+ *   dependency-waves           a fork releases api, ui and docs; a join starts e2e after both
  *   proof-gate                 no proof, no traversal on the destructive edge
  *   arm-comparison             3 registry records; the cheapest delivery wins and replays
  *   sandbox-e2e                skips cleanly without credentials
@@ -297,12 +298,13 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
     expect(res.exhaustedEdges).toEqual([])
   })
 
-  it('dependency-waves: every node is ledgered after the nodes it needs', async () => {
+  it('dependency-waves: a fork releases the wave, a join waits for both branches', async () => {
     const { graph, opts } = dependencyWaves()
-    const res = await runGraphWithTestBrain(graph, opts)
+    const res = await runGraph(graph, opts)
 
     expect(res.result.kind).toBe('winner')
-    const order = delegatesOf(res).map((r) => r.to)
+    const spawned = routesOf(res).filter((r) => r.outcome === 'delivered')
+    const order = spawned.map((r) => r.to)
     expect([...order].sort()).toEqual(Object.keys(DAG).sort())
     for (const [node, needs] of Object.entries(DAG)) {
       for (const need of needs) {
@@ -311,8 +313,14 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
         )
       }
     }
-    expect(order[0]).toBe('schema')
-    expect(order.at(-1)).toBe('e2e')
+    expect(spawned.map((r) => r.edge)).toEqual([
+      'routes:entry->schema',
+      'routes:schema#1->api+ui+docs',
+      'routes:schema#1->api+ui+docs',
+      'routes:schema#1->api+ui+docs',
+      'routes:api+ui#1->e2e',
+    ])
+    expect(Object.keys(delivered(res) as object).sort()).toEqual(['docs', 'e2e'])
     expect(res.exhaustedEdges).toEqual([])
   })
 

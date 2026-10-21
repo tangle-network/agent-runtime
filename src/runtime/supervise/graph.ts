@@ -203,13 +203,25 @@ export type GraphEdge =
    * spawned with `{ from: { node, result }, evidence: { [id]: latest usable result } }` and the
    * directive appended to its pinned instructions; `{ stop }` ends the run with no winner and
    * `GraphResult.stopped`; `{ finish }` makes this settle part of the run's output.
+   *
+   * A fork lists two or more nodes in `to`: one traversal spawns each of them at once, each under
+   * its own key `route:<edge id>#<traversal>:<node>`. A join lists two or more nodes in `from`: it
+   * fires once every member has settled usably since it last fired, and the target's evidence
+   * holds each member's latest result. A join carries no `when`, and it is the only routes edge
+   * leaving each of its members. A route into a node that still has a running worker throws
+   * {@link GraphRouteError} with reason `target-live`: converging branches use a join.
    */
   | {
       readonly kind: 'routes'
-      readonly from: NodeId
-      readonly to: NodeId | { readonly stop: string } | { readonly finish: string }
+      readonly from: NodeId | ReadonlyArray<NodeId>
+      readonly to:
+        | NodeId
+        | ReadonlyArray<NodeId>
+        | { readonly stop: string }
+        | { readonly finish: string }
       readonly directive: PromptHandle
-      /** Absent on the default edge. A match reads `from` unless it names a node in `evidence`. */
+      /** Absent on the default edge and on every join. A match reads `from` unless it names a node
+       *  in `evidence`. */
       readonly when?: RouteWhen
       /** Nodes whose latest usable result rides the target's task. */
       readonly evidence?: ReadonlyArray<NodeId>
@@ -223,10 +235,13 @@ export type GraphEdge =
     }
 
 /** A topology without the run's own budget and deliverable: the form a `maps` edge runs per item,
- *  as `run_graph` runs it. */
+ *  as `run_graph` runs it. With `entry` it is a flow graph. Inside a maps item, the item value is
+ *  the task of every entry whose task is the placeholder `{ item: true }`; a down settle inside the item ends
+ *  that item only, and the maps edge's `onItemFailure` decides the join. */
 export interface GraphTopology {
   readonly nodes: ReadonlyArray<GraphNode>
   readonly edges: ReadonlyArray<GraphEdge>
+  readonly entry?: AgentGraph['entry']
 }
 
 export interface AgentGraph {
@@ -305,15 +320,18 @@ export class GraphEdgeCapError extends Error {
   }
 }
 
-/** A flow node's usable settle matched no routes edge leaving it. The flow spawned nothing more;
- *  the full evidence rides on the error, shaped like {@link GraphEdgeCapError}. */
+/** A flow node's usable settle matched no routes edge leaving it (`unrouted`), or a fired edge named
+ *  a node that still had a running worker (`target-live`). The flow spawned nothing more; the full
+ *  evidence rides on the error, shaped like {@link GraphEdgeCapError}. */
 export class GraphRouteError extends Error {
+  readonly reason: 'unrouted' | 'target-live'
   readonly node: NodeId
   readonly workerId: string
   readonly ledger: ReadonlyArray<EdgeTraversal>
   readonly result: SupervisedResult<unknown>
   constructor(
     unrouted: {
+      readonly reason: 'unrouted' | 'target-live'
       readonly node: NodeId
       readonly workerId: string
       readonly detail: string
@@ -322,11 +340,17 @@ export class GraphRouteError extends Error {
     result: SupervisedResult<unknown>,
   ) {
     super(
-      `runGraph: flow node '${unrouted.node}' (worker ${unrouted.workerId}) settled a result ` +
-        `no routes edge matched (${unrouted.detail}). Add a default routes edge or fix the node; ` +
-        'the full edge ledger and the supervised result ride on this error.',
+      unrouted.reason === 'target-live'
+        ? `runGraph: flow node '${unrouted.node}' (worker ${unrouted.workerId}) fired a route ` +
+            `into a live target (${unrouted.detail}). Converging branches use a join (a routes ` +
+            'edge whose from lists every branch); the full edge ledger and the supervised ' +
+            'result ride on this error.'
+        : `runGraph: flow node '${unrouted.node}' (worker ${unrouted.workerId}) settled a result ` +
+            `no routes edge matched (${unrouted.detail}). Add a default routes edge or fix the ` +
+            'node; the full edge ledger and the supervised result ride on this error.',
     )
     this.name = 'GraphRouteError'
+    this.reason = unrouted.reason
     this.node = unrouted.node
     this.workerId = unrouted.workerId
     this.ledger = ledger
@@ -875,10 +899,13 @@ export function superviseAgentGraph(
       runId,
       hooks,
       onCoordinationEvent: async (
-        _context: unknown,
+        context: { readonly depth: number },
         _eventId: unknown,
         record: { readonly event: Parameters<typeof overlay.onCoordinationEvent>[0] },
       ) => {
+        // A route event belongs to the flow of the manager that published it: a flow inside a
+        // maps item or a run_graph subtask ledgers and concludes its own.
+        if (record.event.type === 'route' && context.depth !== 0) return
         overlay.onCoordinationEvent(record.event)
         flow?.observe(record.event)
       },
