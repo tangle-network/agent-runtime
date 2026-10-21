@@ -37,7 +37,7 @@ import {
   type ValidatedGraph,
   validateGraphNodes,
   validateMaps,
-} from './graph-overlay'
+} from './graph-topology'
 import { formatPromptHandle, type PromptRegistry } from './prompt-registry'
 import { coordinationProfileToolPrefix } from './provider-visible-profile'
 import type { NodeId, SpawnJournal, SupervisedResult } from './types'

@@ -23,7 +23,7 @@ import {
   parseGraphSubtaskTopology,
   prepareGraphSubtask,
   validateGraphSubtask,
-} from './graph-subtask'
+} from './graph-topology'
 import { assertProfileModelsAllowed } from './model-policy'
 import { kernelPromptRegistry } from './prompt-registry'
 import { registerRetainedExecutorPreparation } from './retained-executor'

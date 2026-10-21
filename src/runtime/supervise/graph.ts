@@ -85,13 +85,13 @@ import {
   routeFlowOf,
   validateFlowGraph,
 } from './graph-flow'
+import { createGraphOverlay } from './graph-overlay'
 import {
-  createGraphOverlay,
   graphRootProfile,
   type RootValidatedGraph,
   type ValidatedGraph,
   validateGraphTopology,
-} from './graph-overlay'
+} from './graph-topology'
 import { kernelPromptRegistry, type PromptHandle, type PromptRegistry } from './prompt-registry'
 import { withRunContext } from './run-context'
 import {
@@ -112,7 +112,7 @@ export type {
   RouteWhen,
 } from '../../mcp/tools/coordination-route-contracts'
 export { GraphRouteError } from './graph-flow'
-export { defaultEdgeTraversalCap } from './graph-overlay'
+export { defaultEdgeTraversalCap } from './graph-topology'
 
 // ── The algebra ────────────────────────────────────────────────────────────────
 
