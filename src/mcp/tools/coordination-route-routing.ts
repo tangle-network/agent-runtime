@@ -80,6 +80,9 @@ export function createRouteRouting({
   const joined = new Map<string, Set<string>>()
   // Flow workers still running, by node: a route into one of them is refused as `target-live`.
   const live = new Map<string, Set<string>>()
+  // The latest settled worker of each flow node, live or replayed from the journal: the
+  // predecessor a routes edge names when it spawns that node again.
+  const settledWorker = new Map<string, string>()
   const setLive = (node: string, workerId: string): void => {
     live.set(node, (live.get(node) ?? new Set()).add(workerId))
   }
@@ -110,7 +113,8 @@ export function createRouteRouting({
       task,
       key,
       continuity,
-      successorOf: undefined,
+      // A back edge re-spawns a node that already settled in this flow; the new worker succeeds it.
+      successorOf: settledWorker.get(marker.node),
       preflightProfile: () =>
         opts.resolveSpawnProfile ? detachedFrozen(opts.resolveSpawnProfile(profile)) : profile,
       resourcesFromPath: [],
@@ -265,7 +269,12 @@ export function createRouteRouting({
       )
       return
     }
-    const task = { from: { node, result }, evidence }
+    // A join's task names every member in declared order, never the member that happened to
+    // settle last: a resume replays members in another order and must derive the same task.
+    const task =
+      edge.from.length > 1
+        ? { from: { nodes: edge.from }, evidence }
+        : { from: { node, result }, evidence }
     const fork = edge.to.nodes.length > 1
     const committed: Array<{ readonly workerId: string; readonly node: string }> = []
     for (const target of edge.to.nodes) {
@@ -321,6 +330,7 @@ export function createRouteRouting({
     const node = nodeOf(worker.id)
     if (node === undefined || !flowNodes.has(node)) return
     live.get(node)?.delete(worker.id)
+    settledWorker.set(node, worker.id)
     const settlement = workerSettlement(settled, worker)
     if (worker.status === 'down' || settled.kind !== 'done') {
       const reason = `down: ${settlement.reason ?? 'down'}`

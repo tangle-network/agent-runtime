@@ -217,14 +217,17 @@ export type GraphEdge =
    * root decides the order, the branch, the repair loop or the stop. On each usable settle of
    * `from` its outgoing routes edges are tried in declaration order and the first whose `when`
    * holds fires; an edge without `when` is the default branch and comes last. A node target is
-   * spawned with `{ from: { node, result }, evidence: { [id]: latest usable result } }` and the
-   * directive appended to its pinned instructions; `{ stop }` ends the run with no winner and
+   * spawned with `{ from: { node, result }, evidence: { [id]: latest usable result } }` (a join's
+   * target with `{ from: { nodes }, evidence }`, see below) and the directive appended to its pinned instructions; `{ stop }` ends the run with no winner and
    * `GraphResult.stopped`; `{ finish }` makes this settle part of the run's output.
    *
    * A fork lists two or more nodes in `to`: one traversal spawns each of them at once, each under
    * its own key `route:<edge id>#<traversal>:<node>`. A join lists two or more nodes in `from`: it
-   * fires once every member has settled usably since it last fired, and the target's evidence
-   * holds each member's latest result. A join carries no `when`, and it is the only routes edge
+   * fires once every member has settled usably since it last fired, and the target's task is
+   * `{ from: { nodes: <members in declared order> }, evidence }` with each member's latest result
+   * in `evidence`, so it does not depend on which member settled last and a resumed run derives the
+   * same task. A routes edge that spawns a node with a settled worker in this flow (a back edge)
+   * names that node's latest settled worker as the spawn's `successorOf`. A join carries no `when`, and it is the only routes edge
    * leaving each of its members. A route into a node that still has a running worker throws
    * {@link GraphRouteError} with reason `target-live`: converging branches use a join.
    */
