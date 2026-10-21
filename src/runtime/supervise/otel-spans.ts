@@ -143,6 +143,181 @@ interface OpenNode {
   readonly attrs: Attrs
 }
 
+/** The state one recorder keeps about a run's span tree; the functions below are its transitions. */
+interface RunTrace {
+  readonly runId: string
+  readonly traceId: string
+  readonly rootSpanId: string
+  readonly rootStartMs: number
+  readonly base: Attrs
+  readonly rootIdentity: Attrs
+  /** Who acted, per span: the root's identity, and each opened node's own. A turn whose node this
+   *  recorder never opened names no one rather than borrowing the root's. */
+  readonly identityOf: Map<string, Attrs>
+  /** Node id → its open span. */
+  readonly open: Map<string, OpenNode>
+  /** Node id → its span id, seeded with the run id ⇒ the root span, because a depth-0 spawn's
+   *  `parentId` is the run id itself and every deeper spawn's is a real node id. */
+  readonly spanIdOf: Map<string, string>
+}
+
+interface SpanSpec {
+  readonly spanId: string
+  readonly parentSpanId: string | undefined
+  readonly name: string
+  readonly startMs: number
+  readonly endMs: number
+  readonly attrs: Attrs
+  readonly status: number
+  readonly message?: string | undefined
+}
+
+function otelSpan(traceId: string, spec: SpanSpec): OtelSpan {
+  return {
+    traceId,
+    spanId: spec.spanId,
+    ...(spec.parentSpanId ? { parentSpanId: spec.parentSpanId } : {}),
+    name: spec.name,
+    kind: 1,
+    startTimeUnixNano: msToNano(spec.startMs),
+    endTimeUnixNano: msToNano(Math.max(spec.startMs, spec.endMs)),
+    attributes: toOtelAttributes(spec.attrs),
+    status: { code: spec.status, ...(spec.message ? { message: spec.message } : {}) },
+  }
+}
+
+/**
+ * The span a node's event hangs under. A parent node whose span this recorder never opened (it
+ * ran in an earlier process) leaves the child on the root span, which is a placeholder, not a
+ * recorded parent.
+ */
+function parentSpan(
+  t: RunTrace,
+  parentId: string | undefined,
+): { spanId: string; confidence: 'explicit' | 'unknown' } {
+  const spanId = parentId === undefined ? undefined : t.spanIdOf.get(parentId)
+  return spanId
+    ? { spanId, confidence: 'explicit' }
+    : { spanId: t.rootSpanId, confidence: 'unknown' }
+}
+
+function openNode(t: RunTrace, event: RuntimeHookEvent): void {
+  const p = record(event.payload)
+  const childId = str(p.childId)
+  if (!childId) return
+  const identity = agentIdentityAttributes(record(p.agent) as AgentIdentity)
+  t.identityOf.set(childId, identity)
+  const attrs = spawnAttributes(t.base, event, identity)
+
+  const parent = parentSpan(t, event.parentId)
+  attrs[ATTR.parentConfidence] = parent.confidence
+
+  const spanId = generateSpanId()
+  t.spanIdOf.set(childId, spanId)
+  t.open.set(childId, {
+    spanId,
+    parentSpanId: parent.spanId,
+    name: str(p.label) ?? 'node',
+    startMs: event.timestamp,
+    attrs,
+  })
+}
+
+function settleNode(t: RunTrace, event: RuntimeHookEvent): OtelSpan | undefined {
+  const p = record(event.payload)
+  const childId = str(p.childId)
+  if (!childId) return undefined
+  const node = t.open.get(childId)
+  if (!node) return undefined
+  t.open.delete(childId)
+
+  const down = str(p.status) === 'down'
+  return otelSpan(t.traceId, {
+    spanId: node.spanId,
+    parentSpanId: node.parentSpanId,
+    name: node.name,
+    startMs: node.startMs,
+    endMs: event.timestamp,
+    attrs: settledAttributes(node.attrs, event),
+    status: down ? STATUS_ERROR : STATUS_OK,
+    message: down ? (str(p.reason) ?? 'child down') : undefined,
+  })
+}
+
+function turnSpan(t: RunTrace, event: RuntimeHookEvent): OtelSpan {
+  const parentId = event.parentId
+  // A turn with no node is the root manager's own.
+  const parent = parentId
+    ? parentSpan(t, parentId)
+    : { spanId: t.rootSpanId, confidence: 'explicit' }
+  const attrs: Attrs = {
+    ...t.base,
+    ...(t.identityOf.get(parentId ?? t.runId) ?? {}),
+    [ATTR.parentConfidence]: parent.confidence,
+    [ATTR.spanKind]: 'LLM',
+    'inference.observation_kind': 'LLM',
+    'tangle.supervise.node.kind': 'inference',
+  }
+  if (parentId) attrs['tangle.supervise.node.id'] = parentId
+  const p = record(event.payload)
+  assignTurnDetail(attrs, p)
+  const spend = assignSpend(attrs, p.spend)
+  return otelSpan(t.traceId, {
+    spanId: generateSpanId(),
+    parentSpanId: parent.spanId,
+    name: 'gen_ai.client.inference',
+    startMs: event.timestamp,
+    endMs: event.timestamp + (spend?.ms ?? 0),
+    attrs,
+    status: STATUS_OK,
+  })
+}
+
+/**
+ * The spans that close a run, yielded one at a time so each is exported as it is built. A node
+ * still open here never settled — the run was aborted, cancelled, or died with it in flight. Its
+ * span is closed UNSET and explicitly marked, never silently dropped and never reported as a clean
+ * finish.
+ */
+function* closingSpans(
+  t: RunTrace,
+  opts: SupervisorSpanOptions,
+  endMs: number,
+  outcome: SupervisorSpanOutcome | undefined,
+): Generator<OtelSpan> {
+  for (const [nodeId, node] of t.open) {
+    yield otelSpan(t.traceId, {
+      spanId: node.spanId,
+      parentSpanId: node.parentSpanId,
+      name: node.name,
+      startMs: node.startMs,
+      endMs,
+      attrs: {
+        ...node.attrs,
+        'tangle.supervise.node.status': 'unsettled',
+        'tangle.supervise.node.settled': false,
+        'tangle.supervise.node.id': nodeId,
+      },
+      status: STATUS_UNSET,
+    })
+  }
+  t.open.clear()
+  yield otelSpan(t.traceId, {
+    spanId: t.rootSpanId,
+    parentSpanId: opts.parentSpanId,
+    name: 'supervisor.run',
+    startMs: t.rootStartMs,
+    endMs,
+    attrs: {
+      ...rootAttrs(t.base, opts.agentName ?? 'supervisor', outcome),
+      ...t.rootIdentity,
+      ...(opts.parentSpanId ? { [ATTR.parentConfidence]: 'explicit' } : {}),
+    },
+    status: rootStatus(outcome),
+    message: rootMessage(outcome),
+  })
+}
+
 /**
  * Build the span recorder for one supervised run, or `undefined` when no exporter resolves — the
  * off-by-default path. A run that passes no `exporter` and no `exportConfig` never reaches this
@@ -161,38 +336,25 @@ export function createSupervisorSpanRecorder(
   const traceId = normalizeTraceId(opts.traceId, opts.runId, opts.namespace)
   const rootSpanId = generateSpanId()
   const rootStartMs = now()
-  const base: Attrs = {
-    'tangle.run.id': opts.runId,
-    // The sample vocabulary our own OTLP producers already emit; kept so one reader groups a
-    // supervised run with a pi/coding-CLI session without a per-producer special case.
-    'tangle.sessionId': opts.runId,
-    ...(opts.attributes ?? {}),
-  }
-
-  // Who acted, per span: the root's identity, and each opened node's own. A turn whose node this
-  // recorder never opened names no one rather than borrowing the root's.
   const rootIdentity = agentIdentityAttributes(opts.agentIdentity)
-  const identityOf = new Map<string, Attrs>([[opts.runId, rootIdentity]])
-
-  /** Node id → its open span. Seeded with the run id ⇒ the root span, because a depth-0 spawn's
-   *  `parentId` is the run id itself and every deeper spawn's is a real node id. */
-  const open = new Map<string, OpenNode>()
-  const spanIdOf = new Map<string, string>([[opts.runId, rootSpanId]])
-  let finished = false
-
-  /**
-   * The span a node's event hangs under. A parent node whose span this recorder never opened (it
-   * ran in an earlier process) leaves the child on the root span, which is a placeholder, not a
-   * recorded parent.
-   */
-  const parentSpan = (
-    parentId: string | undefined,
-  ): { spanId: string; confidence: 'explicit' | 'unknown' } => {
-    const spanId = parentId === undefined ? undefined : spanIdOf.get(parentId)
-    return spanId
-      ? { spanId, confidence: 'explicit' }
-      : { spanId: rootSpanId, confidence: 'unknown' }
+  const trace: RunTrace = {
+    runId: opts.runId,
+    traceId,
+    rootSpanId,
+    rootStartMs,
+    base: {
+      'tangle.run.id': opts.runId,
+      // The sample vocabulary our own OTLP producers already emit; kept so one reader groups a
+      // supervised run with a pi/coding-CLI session without a per-producer special case.
+      'tangle.sessionId': opts.runId,
+      ...(opts.attributes ?? {}),
+    },
+    rootIdentity,
+    identityOf: new Map<string, Attrs>([[opts.runId, rootIdentity]]),
+    open: new Map<string, OpenNode>(),
+    spanIdOf: new Map<string, string>([[opts.runId, rootSpanId]]),
   }
+  let finished = false
 
   /** Every export is best-effort: a throwing exporter must never reach the run. */
   const emit = (span: OtelSpan): void => {
@@ -203,182 +365,16 @@ export function createSupervisorSpanRecorder(
     }
   }
 
-  const span = (
-    spanId: string,
-    parentSpanId: string | undefined,
-    name: string,
-    startMs: number,
-    endMs: number,
-    attrs: Attrs,
-    status: number,
-    message?: string,
-  ): OtelSpan => ({
-    traceId,
-    spanId,
-    ...(parentSpanId ? { parentSpanId } : {}),
-    name,
-    kind: 1,
-    startTimeUnixNano: msToNano(startMs),
-    endTimeUnixNano: msToNano(Math.max(startMs, endMs)),
-    attributes: toOtelAttributes(attrs),
-    status: { code: status, ...(message ? { message } : {}) },
-  })
-
-  function onSpawn(event: RuntimeHookEvent): void {
-    const p = record(event.payload)
-    const childId = str(p.childId)
-    if (!childId) return
-    const label = str(p.label) ?? 'node'
-    const runtime = str(p.runtime)
-    const attrs: Attrs = {
-      ...base,
-      [ATTR.spanKind]: 'AGENT',
-      'agent.name': label,
-      'tangle.supervise.node.id': childId,
-      'tangle.supervise.node.label': label,
-      'tangle.supervise.node.kind': 'agent',
-      // The journal tree this node lives in: a nested driver subtree gets its own tree key, which
-      // is what joins a span back to the journal rows that prove its spend.
-      'tangle.supervise.tree.root': event.runId,
-    }
-    const identity = agentIdentityAttributes(record(p.agent) as AgentIdentity)
-    identityOf.set(childId, identity)
-    Object.assign(attrs, identity)
-    if (event.parentId) attrs['tangle.supervise.node.parent_id'] = event.parentId
-    if (runtime) attrs['tangle.supervise.node.runtime'] = runtime
-    if (typeof p.depth === 'number') attrs['tangle.supervise.node.depth'] = p.depth
-    // Retry safety: every try of one keyed assignment shares its operation id and carries its own
-    // attempt id, and the key is what makes a re-spawn re-attach instead of running twice.
-    const key = str(p.key)
-    const operation = str(p.assignmentId) ?? key
-    if (operation) attrs[ATTR.operationId] = operation
-    const attempt = str(p.attemptId)
-    if (attempt) attrs[ATTR.attemptId] = attempt
-    if (key) attrs[ATTR.idempotencyKey] = key
-    if (typeof event.stepIndex === 'number')
-      attrs['tangle.supervise.node.ordinal'] = event.stepIndex
-    if (p.resumed === true) attrs['tangle.supervise.node.resumed'] = true
-    assignBudget(attrs, p.budget)
-
-    const parent = parentSpan(event.parentId)
-    attrs[ATTR.parentConfidence] = parent.confidence
-
-    const spanId = generateSpanId()
-    spanIdOf.set(childId, spanId)
-    open.set(childId, {
-      spanId,
-      parentSpanId: parent.spanId,
-      name: label,
-      startMs: event.timestamp,
-      attrs,
-    })
-  }
-
-  function onSettled(event: RuntimeHookEvent): void {
-    const p = record(event.payload)
-    const childId = str(p.childId)
-    if (!childId) return
-    const node = open.get(childId)
-    if (!node) return
-    open.delete(childId)
-
-    const status = str(p.status)
-    const down = status === 'down'
-    const attrs: Attrs = { ...node.attrs, 'tangle.supervise.node.status': status ?? 'done' }
-    if (typeof event.stepIndex === 'number') attrs['tangle.supervise.node.seq'] = event.stepIndex
-    if (typeof p.outRef === 'string') attrs['tangle.supervise.node.out_ref'] = p.outRef
-    if (typeof p.valid === 'boolean') attrs['tangle.supervise.verdict.valid'] = p.valid
-    if (typeof p.score === 'number') attrs['tangle.supervise.verdict.score'] = p.score
-    if (down) {
-      attrs['error.type'] = p.infra === true ? 'infra' : 'child-down'
-      const reason = str(p.reason)
-      if (reason) attrs['error.message'] = truncate(reason)
-      if (typeof p.infra === 'boolean') attrs['tangle.supervise.node.infra'] = p.infra
-    }
-    // A wait node settles with its outcome instead of a spend — free by construction, not by
-    // measurement, so it carries no token or cost attribute at all.
-    const wait = record(p.wait)
-    const wokeBy = str(wait.settled)
-    if (wokeBy) attrs['tangle.supervise.wait.settled'] = wokeBy
-    assignSpend(attrs, p.spent)
-
-    emit(
-      span(
-        node.spanId,
-        node.parentSpanId,
-        node.name,
-        node.startMs,
-        event.timestamp,
-        attrs,
-        down ? STATUS_ERROR : STATUS_OK,
-        down ? (str(p.reason) ?? 'child down') : undefined,
-      ),
-    )
-  }
-
-  function onTurn(event: RuntimeHookEvent): void {
-    const p = record(event.payload)
-    const parentId = event.parentId
-    // A turn with no node is the root manager's own.
-    const parent = parentId ? parentSpan(parentId) : { spanId: rootSpanId, confidence: 'explicit' }
-    const parentSpanId = parent.spanId
-    const attrs: Attrs = {
-      ...base,
-      ...(identityOf.get(parentId ?? opts.runId) ?? {}),
-      [ATTR.parentConfidence]: parent.confidence,
-      [ATTR.spanKind]: 'LLM',
-      'inference.observation_kind': 'LLM',
-      'tangle.supervise.node.kind': 'inference',
-    }
-    if (parentId) attrs['tangle.supervise.node.id'] = parentId
-    // Free-form `Scope.meter` detail: named keys get the canonical attribute, the rest ride
-    // namespaced and bounded so a caller's extra context survives without unbounded span growth.
-    for (const [key, value] of Object.entries(p)) {
-      if (key === 'spend') continue
-      if (key === 'driver' && typeof value === 'string') {
-        attrs['agent.name'] = value
-        attrs['inference.agent_name'] = value
-        continue
-      }
-      if (key === 'model' && typeof value === 'string') {
-        attrs['llm.model_name'] = value
-        continue
-      }
-      if (Array.isArray(value)) {
-        const scalars = value.filter((v) => typeof v === 'string' || typeof v === 'number')
-        if (scalars.length > 0) {
-          attrs[`tangle.supervise.turn.${key}`] = truncate(scalars.join(','))
-        }
-        continue
-      }
-      if (typeof value === 'string') attrs[`tangle.supervise.turn.${key}`] = truncate(value)
-      else if (typeof value === 'number' || typeof value === 'boolean') {
-        attrs[`tangle.supervise.turn.${key}`] = value
-      }
-    }
-    const spend = assignSpend(attrs, p.spend)
-    const endMs = event.timestamp + (spend?.ms ?? 0)
-    emit(
-      span(
-        generateSpanId(),
-        parentSpanId,
-        'gen_ai.client.inference',
-        event.timestamp,
-        endMs,
-        attrs,
-        STATUS_OK,
-      ),
-    )
-  }
-
   const hooks: RuntimeHooks = {
     onEvent(event) {
       if (finished) return
       try {
         if (event.phase !== 'after') return
-        if (event.target === 'agent.spawn') onSpawn(event)
-        else if (event.target === 'agent.child') onSettled(event)
-        else if (event.target === 'agent.turn') onTurn(event)
+        if (event.target === 'agent.spawn') openNode(trace, event)
+        else if (event.target === 'agent.child') {
+          const settled = settleNode(trace, event)
+          if (settled) emit(settled)
+        } else if (event.target === 'agent.turn') emit(turnSpan(trace, event))
       } catch {
         // A malformed payload or a broken exporter is a telemetry defect, never a run failure.
         // `notifyRuntimeHookEvent` would already contain a throw; this makes it true regardless of
@@ -392,51 +388,14 @@ export function createSupervisorSpanRecorder(
     traceId,
     rootSpanId,
     workerTrace(spawningNodeId: string): TraceContext {
-      return { traceId, parentSpanId: spanIdOf.get(spawningNodeId) ?? rootSpanId }
+      return { traceId, parentSpanId: trace.spanIdOf.get(spawningNodeId) ?? rootSpanId }
     },
     async finish(outcome?: SupervisorSpanOutcome): Promise<void> {
       if (finished) return
       finished = true
       const endMs = now()
       try {
-        // A node still open here never settled — the run was aborted, cancelled, or died with it in
-        // flight. Its span is closed UNSET and explicitly marked, never silently dropped and never
-        // reported as a clean finish.
-        for (const [nodeId, node] of open) {
-          emit(
-            span(
-              node.spanId,
-              node.parentSpanId,
-              node.name,
-              node.startMs,
-              endMs,
-              {
-                ...node.attrs,
-                'tangle.supervise.node.status': 'unsettled',
-                'tangle.supervise.node.settled': false,
-                'tangle.supervise.node.id': nodeId,
-              },
-              STATUS_UNSET,
-            ),
-          )
-        }
-        open.clear()
-        emit(
-          span(
-            rootSpanId,
-            opts.parentSpanId,
-            'supervisor.run',
-            rootStartMs,
-            endMs,
-            {
-              ...rootAttrs(base, opts.agentName ?? 'supervisor', outcome),
-              ...rootIdentity,
-              ...(opts.parentSpanId ? { [ATTR.parentConfidence]: 'explicit' } : {}),
-            },
-            rootStatus(outcome),
-            rootMessage(outcome),
-          ),
-        )
+        for (const closing of closingSpans(trace, opts, endMs, outcome)) emit(closing)
       } catch {
         // Telemetry is not the work: a failure building or emitting the closing
         // spans above must never reach the run.
@@ -461,6 +420,91 @@ export function createSupervisorSpanRecorder(
 }
 
 // ── Attribute mapping ─────────────────────────────────────────────────────────
+
+/** The attributes of a node span at `agent.spawn`, before its parent span is known. */
+function spawnAttributes(base: Attrs, event: RuntimeHookEvent, identity: Attrs): Attrs {
+  const p = record(event.payload)
+  const label = str(p.label) ?? 'node'
+  const runtime = str(p.runtime)
+  const attrs: Attrs = {
+    ...base,
+    [ATTR.spanKind]: 'AGENT',
+    'agent.name': label,
+    'tangle.supervise.node.id': str(p.childId)!,
+    'tangle.supervise.node.label': label,
+    'tangle.supervise.node.kind': 'agent',
+    // The journal tree this node lives in: a nested driver subtree gets its own tree key, which
+    // is what joins a span back to the journal rows that prove its spend.
+    'tangle.supervise.tree.root': event.runId,
+  }
+  Object.assign(attrs, identity)
+  if (event.parentId) attrs['tangle.supervise.node.parent_id'] = event.parentId
+  if (runtime) attrs['tangle.supervise.node.runtime'] = runtime
+  if (typeof p.depth === 'number') attrs['tangle.supervise.node.depth'] = p.depth
+  // Retry safety: every try of one keyed assignment shares its operation id and carries its own
+  // attempt id, and the key is what makes a re-spawn re-attach instead of running twice.
+  const key = str(p.key)
+  const operation = str(p.assignmentId) ?? key
+  if (operation) attrs[ATTR.operationId] = operation
+  const attempt = str(p.attemptId)
+  if (attempt) attrs[ATTR.attemptId] = attempt
+  if (key) attrs[ATTR.idempotencyKey] = key
+  if (typeof event.stepIndex === 'number') attrs['tangle.supervise.node.ordinal'] = event.stepIndex
+  if (p.resumed === true) attrs['tangle.supervise.node.resumed'] = true
+  assignBudget(attrs, p.budget)
+  return attrs
+}
+
+/** A node span's attributes at `agent.child`: the spawn-time ones plus how it settled. */
+function settledAttributes(opened: Attrs, event: RuntimeHookEvent): Attrs {
+  const p = record(event.payload)
+  const status = str(p.status)
+  const attrs: Attrs = { ...opened, 'tangle.supervise.node.status': status ?? 'done' }
+  if (typeof event.stepIndex === 'number') attrs['tangle.supervise.node.seq'] = event.stepIndex
+  if (typeof p.outRef === 'string') attrs['tangle.supervise.node.out_ref'] = p.outRef
+  if (typeof p.valid === 'boolean') attrs['tangle.supervise.verdict.valid'] = p.valid
+  if (typeof p.score === 'number') attrs['tangle.supervise.verdict.score'] = p.score
+  if (status === 'down') {
+    attrs['error.type'] = p.infra === true ? 'infra' : 'child-down'
+    const reason = str(p.reason)
+    if (reason) attrs['error.message'] = truncate(reason)
+    if (typeof p.infra === 'boolean') attrs['tangle.supervise.node.infra'] = p.infra
+  }
+  // A wait node settles with its outcome instead of a spend — free by construction, not by
+  // measurement, so it carries no token or cost attribute at all.
+  const wokeBy = str(record(p.wait).settled)
+  if (wokeBy) attrs['tangle.supervise.wait.settled'] = wokeBy
+  assignSpend(attrs, p.spent)
+  return attrs
+}
+
+/** Free-form `Scope.meter` detail: named keys get the canonical attribute, the rest ride
+ *  namespaced and bounded so a caller's extra context survives without unbounded span growth. */
+function assignTurnDetail(attrs: Attrs, payload: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === 'spend') continue
+    if (key === 'driver' && typeof value === 'string') {
+      attrs['agent.name'] = value
+      attrs['inference.agent_name'] = value
+      continue
+    }
+    if (key === 'model' && typeof value === 'string') {
+      attrs['llm.model_name'] = value
+      continue
+    }
+    if (Array.isArray(value)) {
+      const scalars = value.filter((v) => typeof v === 'string' || typeof v === 'number')
+      if (scalars.length > 0) {
+        attrs[`tangle.supervise.turn.${key}`] = truncate(scalars.join(','))
+      }
+      continue
+    }
+    if (typeof value === 'string') attrs[`tangle.supervise.turn.${key}`] = truncate(value)
+    else if (typeof value === 'number' || typeof value === 'boolean') {
+      attrs[`tangle.supervise.turn.${key}`] = value
+    }
+  }
+}
 
 function rootAttrs(base: Attrs, agentName: string, outcome?: SupervisorSpanOutcome): Attrs {
   const attrs: Attrs = {

@@ -65,10 +65,19 @@
  */
 
 import { ValidationError } from '../../errors'
-import { chargedTokens, hasCompleteCacheBreakdown, zeroTokenUsage } from '../util'
-import { withBudgetResources } from './resources'
+import {
+  type BudgetLedger,
+  ledgerClassifyOverspend,
+  ledgerObserve,
+  ledgerRestore,
+  ledgerSettle,
+  ledgerShortfalls,
+  ledgerTake,
+  ledgerValidateUnits,
+  openBudgetLedger,
+} from './budget-ledger'
 import { assertValidBudget, assertValidSpend } from './spend-validation'
-import type { Budget, BudgetOverspend, BudgetViolation, Spend, UsageEvent } from './types'
+import type { Budget, BudgetViolation, Spend, UsageEvent } from './types'
 import { foldUsage } from './usage-metering'
 
 /**
@@ -337,213 +346,13 @@ export function createBudgetPool(
     throw new Error('budget runStartedAtMs must be a non-negative finite number')
   }
   // free + reserved + committed ≡ root totals, per channel, always.
-  let freeTokens = root.maxTokens
-  let reservedTokens = 0
-  let committedTokens = 0
-  // Set once the pool records work with an unreported token count, and never cleared. Unlike
-  // `usdTainted` it does NOT close admission: the token channel is always capped, so refusing every
-  // later reservation would turn one provider that skipped a usage report into a dead run. The pool
-  // keeps enforcing the cap on what it knows and reports, via `readout().tokensKnown`, that the
-  // balance is an under-count rather than a measurement.
-  let tokensTainted = false
-  // Set once the pool charges a spend whose cache split it could not read, and never cleared. That
-  // spend was charged at its rolled-up prompt total, so the balance is an upper bound on
-  // newly-presented tokens. Same admission treatment as `tokensTainted`: enforce on what is known,
-  // report the uncertainty. A restored uncertain reservation does NOT set it — a declared ceiling
-  // carries no cache composition to misread, and `tokensTainted` already reports that charge.
-  let cacheBreakdownTainted = false
-
-  const usdCapped = root.maxUsd !== undefined
-  let freeUsd = root.maxUsd ?? 0
-  let reservedUsd = 0
-  let committedUsd = 0
-  // Closes dollar admission: set when unknown dollar cost lands under a dollar-capped root.
-  let usdTainted = false
-  // Reporting only: set whenever ANY recorded work carried `usdKnown: false`, capped or not, so
-  // the readout never presents a lower bound as a measured dollar total.
-  let usdMeasured = true
-
-  let freeIterations = root.maxIterations
-  let reservedIterations = 0
-  let committedIterations = 0
-
-  const absoluteDeadlineMs = root.deadlineMs === undefined ? 0 : runStartedAtMs + root.deadlineMs
-
-  const resources = new Map<
-    string,
-    {
-      unit: string
-      limit: number
-      remaining: number
-      reserved: number
-      committed: number
-      known: boolean
-    }
-  >(
-    Object.entries(root.resources ?? {}).map(
-      ([name, value]) =>
-        [
-          name,
-          { ...value, remaining: value.limit, reserved: 0, committed: 0, known: true },
-        ] as const,
-    ),
-  )
-
-  function validateResourceUnits(spend: Spend): void {
-    for (const [name, value] of Object.entries(spend.resources ?? {})) {
-      const limit = resources.get(name)
-      if (limit && limit.unit !== value.unit) throw new Error(`resource ${name}: unit mismatch`)
-    }
-  }
-
-  /**
-   * Commit named-resource spend and classify it. `allocations` is the settling reservation's own
-   * resource allocations, or `undefined` for spend that holds no reservation (`observe`, restore).
-   *
-   * Unverifiable usage is a `fault`: the remaining balance is consumed so admission closes.
-   * Measured usage above an allocation is `overspent`. Without allocations, measured usage that
-   * leaves a root limit overdrawn is `rootExceeded`. A reservation that stays within its own
-   * allocation is never charged with a root overdraw: `reserve` admits an allocation only from
-   * the remaining balance, so a negative balance at its settlement was caused, and reported, by
-   * earlier spend.
-   */
-  function commitResources(
-    spend: Spend,
-    allocations?: Budget['resources'],
-    requireAll = true,
-  ): { fault?: string; overspent: BudgetOverspend[]; rootExceeded?: string } {
-    let fault: string | undefined
-    let rootExceeded: string | undefined
-    const overspent: BudgetOverspend[] = []
-    for (const [name, state] of resources) {
-      const value = spend.resources?.[name]
-      if (!requireAll && value === undefined) continue
-      const allocation = allocations?.[name]?.limit ?? 0
-      const amount = value?.amount ?? 0
-      state.reserved -= allocation
-      const committed = state.committed + amount
-      const overflow = !Number.isSafeInteger(committed)
-      state.committed = Math.min(committed, Number.MAX_SAFE_INTEGER)
-      // Subtract reserved capacity first so every intermediate balance stays a safe integer.
-      state.remaining = state.limit - state.reserved - state.committed
-      if (value?.known !== true || overflow) {
-        state.known = false
-        // The remaining balance cannot fund another invocation without a complete receipt.
-        // Consume free capacity conservatively; later known refunds do not reopen admission.
-        const retained = Math.max(0, state.remaining)
-        state.committed += retained
-        state.remaining -= retained
-        fault ??= overflow
-          ? `resource ${name}: amount overflow under an enforced limit`
-          : `resource ${name}: unknown usage under an enforced limit`
-      } else if (allocations !== undefined) {
-        if (amount > allocation) {
-          overspent.push({ channel: `resource:${name}`, reserved: allocation, spent: amount })
-        }
-      } else if (state.remaining < 0) {
-        rootExceeded ??= `resource ${name}: exceeded root limit ${state.limit}`
-      }
-    }
-    return { ...(fault ? { fault } : {}), overspent, ...(rootExceeded ? { rootExceeded } : {}) }
-  }
-
+  const ledger = openBudgetLedger(root, runStartedAtMs)
   let nextTicketId = 0
   const open = new Map<number, ReservationHolder>()
-
   /** Tickets admitted to wait for budget, in the order they asked. Each is also in `open`. */
-  const waiting: Array<{
-    readonly ticket: ReservationTicket
-    readonly budget: Budget
-    readonly keep: ReservationFloor | undefined
-    readonly grant: () => void
-    readonly refuse: (error: ReservationWaitRefused) => void
-  }> = []
+  const waiting: WaitingReservation[] = []
   /** Open tickets that hold nothing: waiting, or refused and not yet reconciled. */
   const holdingNothing = new Set<number>()
-
-  /** Every channel `b` does not fit, measured against the free balance less `keep`. */
-  function shortfallsFor(b: Budget, keep: ReservationFloor | undefined): ReservationShortfall[] {
-    const wantTokens = b.maxTokens
-    const wantUsd = b.maxUsd ?? 0
-    const wantIterations = b.maxIterations
-    const shortfalls: ReservationShortfall[] = []
-    const short = (
-      channel: ReservationShortfall['channel'],
-      requested: number,
-      free: number,
-      held: number,
-      closedByUnknownSpend = false,
-    ): void => {
-      shortfalls.push({
-        channel,
-        requested,
-        free: closedByUnknownSpend ? 0 : Math.max(0, free),
-        ...(closedByUnknownSpend || held <= 0 ? {} : { held }),
-        ...(closedByUnknownSpend ? { closedByUnknownSpend: true as const } : {}),
-      })
-    }
-    for (const [name, state] of resources) {
-      const limit = b.resources![name]!.limit
-      if (!state.known) short(`resource:${name}`, limit, 0, 0, true)
-      else if (limit > state.remaining)
-        short(`resource:${name}`, limit, state.remaining, state.reserved)
-    }
-    if (usdCapped && usdTainted) short('usd', wantUsd, 0, 0, true)
-    const tokensFree = freeTokens - (keep?.tokens ?? 0)
-    const iterationsFree = freeIterations - (keep?.iterations ?? 0)
-    if (wantTokens > tokensFree) short('tokens', wantTokens, tokensFree, reservedTokens)
-    if (wantIterations > iterationsFree)
-      short('iterations', wantIterations, iterationsFree, reservedIterations)
-    const usdFree = freeUsd - (keep?.usd ?? 0)
-    if (usdCapped && !usdTainted && wantUsd > usdFree) short('usd', wantUsd, usdFree, reservedUsd)
-    return shortfalls
-  }
-
-  /** Whether every short channel would fit once the open reservations return what they hold. */
-  function fitsAfterRefunds(shortfalls: readonly ReservationShortfall[]): boolean {
-    return shortfalls.every(
-      (shortfall) =>
-        shortfall.closedByUnknownSpend !== true &&
-        shortfall.requested <= shortfall.free + (shortfall.held ?? 0),
-    )
-  }
-
-  /** Move `b` from free to reserved. The caller has checked that it fits. */
-  function take(b: Budget): void {
-    for (const [name, state] of resources) {
-      const amount = b.resources![name]!.limit
-      state.remaining -= amount
-      state.reserved += amount
-    }
-    freeTokens -= b.maxTokens
-    reservedTokens += b.maxTokens
-    freeIterations -= b.maxIterations
-    reservedIterations += b.maxIterations
-    const wantUsd = b.maxUsd ?? 0
-    if (wantUsd > 0) {
-      freeUsd -= wantUsd
-      reservedUsd += wantUsd
-    }
-  }
-
-  function ticketFor(id: number, b: Budget): ReservationTicket {
-    return {
-      id,
-      reserved: {
-        ...(b.resources === undefined
-          ? {}
-          : {
-              resources: Object.fromEntries(
-                Object.entries(b.resources).map(([name, value]) => [name, { ...value }]),
-              ),
-            }),
-        tokens: b.maxTokens,
-        usd: b.maxUsd ?? 0,
-        iterations: b.maxIterations,
-        usdBudgeted: b.maxUsd !== undefined,
-      },
-    }
-  }
 
   /** Grant waiting tickets in the order they asked while the head fits. When the head does not
    *  fit and no reservation is held that could return budget, nothing can ever cover it: refuse
@@ -551,10 +360,10 @@ export function createBudgetPool(
   function grantWaiting(): void {
     while (waiting.length > 0) {
       const head = waiting[0]!
-      const shortfalls = shortfallsFor(head.budget, head.keep)
+      const shortfalls = ledgerShortfalls(ledger, head.budget, head.keep)
       if (shortfalls.length === 0) {
         waiting.shift()
-        take(head.budget)
+        ledgerTake(ledger, head.budget)
         holdingNothing.delete(head.ticket.id)
         head.grant()
         continue
@@ -565,49 +374,12 @@ export function createBudgetPool(
     }
   }
 
-  function reserve(
+  /** Admit `b` to wait: it holds nothing until settlements return enough, in the order asked. */
+  function admitToWait(
     b: Budget,
-    holder: ReservationHolder = { stage: 'admitted' },
-    options: ReserveOptions = {},
-  ):
-    | { ok: true; ticket: ReservationTicket; granted?: Promise<void> }
-    | { ok: false; reason: ReservationRejection; shortfalls?: readonly ReservationShortfall[] } {
-    assertValidBudget(b, 'reservation budget')
-    for (const [name, state] of resources) {
-      const wanted = b.resources?.[name]
-      if (!wanted) throw new ValidationError(`resource ${name}: child must declare its limit`)
-      if (wanted.unit !== state.unit) throw new ValidationError(`resource ${name}: unit mismatch`)
-    }
-    for (const name of Object.keys(b.resources ?? {})) {
-      if (!resources.has(name))
-        throw new ValidationError(`resource ${name}: root must declare its limit`)
-    }
-    const wantUsd = b.maxUsd ?? 0
-    const keep = options.keep
-    // Fail-closed admission: every requested channel must fit the free balance. Every channel
-    // that does not fit is reported, so a caller that shrinks one request is not refused again
-    // on a second channel it was never told about.
-    const shortfalls = shortfallsFor(b, keep)
-    // A dollar request against a root that declared no dollar ceiling can never be satisfied at
-    // ANY amount, which is a different fact from an exhausted balance and calls for a different
-    // fix: budget the root, do not retry smaller. Reporting both as `budget-exhausted` invites a
-    // caller to shrink its request forever — observed live, a driver walked its child budget down
-    // to $0.01 and spent 68k tokens before asking for help. An exhausted channel above still
-    // takes precedence, as it did before shortfalls were reported.
-    if (shortfalls.length === 0 && wantUsd > 0 && !usdCapped) {
-      return { ok: false, reason: 'usd-unbudgeted' }
-    }
-    const queueAhead = options.wait === true && waiting.length > 0
-    if (shortfalls.length === 0 && !queueAhead) {
-      take(b)
-      const id = nextTicketId++
-      open.set(id, holder)
-      return { ok: true, ticket: ticketFor(id, b) }
-    }
-    if (options.wait !== true || !fitsAfterRefunds(shortfalls)) {
-      return { ok: false, reason: 'budget-exhausted', shortfalls }
-    }
-    // Admit it to wait: it holds nothing until settlements return enough, in the order asked.
+    holder: ReservationHolder,
+    keep: ReservationFloor | undefined,
+  ): { ok: true; ticket: ReservationTicket; granted: Promise<void> } {
     const id = nextTicketId++
     open.set(id, holder)
     const ticket = ticketFor(id, b)
@@ -625,6 +397,43 @@ export function createBudgetPool(
     return { ok: true, ticket, granted }
   }
 
+  function reserve(
+    b: Budget,
+    holder: ReservationHolder = { stage: 'admitted' },
+    options: ReserveOptions = {},
+  ):
+    | { ok: true; ticket: ReservationTicket; granted?: Promise<void> }
+    | { ok: false; reason: ReservationRejection; shortfalls?: readonly ReservationShortfall[] } {
+    assertValidBudget(b, 'reservation budget')
+    assertResourceDeclarations(ledger, b)
+    const wantUsd = b.maxUsd ?? 0
+    const keep = options.keep
+    // Fail-closed admission: every requested channel must fit the free balance. Every channel
+    // that does not fit is reported, so a caller that shrinks one request is not refused again
+    // on a second channel it was never told about.
+    const shortfalls = ledgerShortfalls(ledger, b, keep)
+    // A dollar request against a root that declared no dollar ceiling can never be satisfied at
+    // ANY amount, which is a different fact from an exhausted balance and calls for a different
+    // fix: budget the root, do not retry smaller. Reporting both as `budget-exhausted` invites a
+    // caller to shrink its request forever — observed live, a driver walked its child budget down
+    // to $0.01 and spent 68k tokens before asking for help. An exhausted channel above still
+    // takes precedence, as it did before shortfalls were reported.
+    if (shortfalls.length === 0 && wantUsd > 0 && !ledger.usdCapped) {
+      return { ok: false, reason: 'usd-unbudgeted' }
+    }
+    const queueAhead = options.wait === true && waiting.length > 0
+    if (shortfalls.length === 0 && !queueAhead) {
+      ledgerTake(ledger, b)
+      const id = nextTicketId++
+      open.set(id, holder)
+      return { ok: true, ticket: ticketFor(id, b) }
+    }
+    if (options.wait !== true || !fitsAfterRefunds(shortfalls)) {
+      return { ok: false, reason: 'budget-exhausted', shortfalls }
+    }
+    return admitToWait(b, holder, keep)
+  }
+
   function attribute(ticket: ReservationTicket, holder: ReservationHolder): void {
     const current = open.get(ticket.id)
     if (current === undefined) return
@@ -636,7 +445,7 @@ export function createBudgetPool(
       throw new Error(`budget pool: reconcile of unknown or already-settled ticket ${ticket.id}`)
     }
     assertValidSpend(spent, `budget pool ticket ${ticket.id} spend`)
-    validateResourceUnits(spent)
+    ledgerValidateUnits(ledger, spent)
     // A ticket still waiting, or refused while waiting, reserved nothing: it settles against a
     // zero reservation, and a waiting one leaves the queue.
     const heldNothing = holdingNothing.delete(ticket.id)
@@ -647,15 +456,6 @@ export function createBudgetPool(
     const held = heldNothing
       ? { tokens: 0, usd: 0, iterations: 0, resources: undefined }
       : ticket.reserved
-    const { tokens: rTokens, usd: rUsd, iterations: rIterations } = held
-    const unknownUnderCap = usdCapped && spent.usdKnown === false
-    const spentTokens = chargedTokens(spent.tokens)
-    // A child whose `Budget` named no `maxUsd` reserved NO dollar allocation, so it has no
-    // dollar ceiling to exceed: under a capped root its real dollars are OBSERVED spend, and
-    // the settlement below commits them and debits them from `free` (the same treatment
-    // `observe` gives driver inference). Only a child that DECLARED a ceiling can overspend
-    // one. Conflating the two made a successful priced child fail its own reconcile.
-    const usdBudgeted = ticket.reserved.usdBudgeted !== false
 
     // Two outcomes are DECIDED here and reported at the very END, after the reservation has
     // been settled. A throw placed before settlement is how a ticket escapes the pool:
@@ -664,67 +464,18 @@ export function createBudgetPool(
     // barrier. Everything between here and the report is unconditional arithmetic.
     //
     // A FAULT is spend the pool cannot verify, and it throws. An OVERSPEND is measured spend
-    // above the reservation, and it is returned. The settlement commits the actual spend either
-    // way and lets `free` go negative, which keeps `total ≡ free + reserved + committed` exact
-    // and refuses later reservations on its own. Throwing on an overspend changed no accounting
-    // and discarded work that had already completed and been paid for (agent-runtime#1206).
-    // Unknown dollars are a fault even beside an overspend, so the child still fails closed.
-    const overspent: BudgetOverspend[] = []
-    if (spentTokens > rTokens) {
-      overspent.push({ channel: 'tokens', reserved: rTokens, spent: spentTokens })
-    }
-    if (spent.iterations > rIterations) {
-      overspent.push({ channel: 'iterations', reserved: rIterations, spent: spent.iterations })
-    }
-    // Dollars that are not measured may not be compared against a reservation as if they were
-    // billed: a catalog-priced turn can exceed the ceiling and would then be reported as an
-    // overspend the child never made. The known channels still settle, then the dollar channel
-    // is permanently tainted and admission closes.
+    // above the reservation, and it is returned: the settlement commits the actual spend either
+    // way and lets `free` go negative (agent-runtime#1206). Unknown dollars are a fault even
+    // beside an overspend, so the child still fails closed.
+    const usdBudgeted = ticket.reserved.usdBudgeted !== false
+    const { overspent, unknownUnderCap } = ledgerClassifyOverspend(ledger, held, usdBudgeted, spent)
     let fault = unknownUnderCap
       ? `ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`
       : undefined
-    // USD is conserved ONLY when the root declared a ceiling AND the child declared one to be
-    // measured against. `maxUsd` is optional on both: when either is unset, usd is an OBSERVED
-    // quantity (committed for accounting), never a budgeted constraint — an unset ceiling must
-    // not behave as a hard $0 limit that fail-closes a real priced spend.
-    if (!unknownUnderCap && usdCapped && usdBudgeted && spent.usd > rUsd) {
-      overspent.push({ channel: 'usd', reserved: rUsd, spent: spent.usd })
-    }
 
-    // ── Settlement: unconditional, and the only place the ticket closes ───────────────
+    // Settlement: unconditional, and the only place the ticket closes.
     open.delete(ticket.id)
-
-    // Release the whole reservation, then commit actual spend; the difference is the
-    // refund that flows back to `free`.
-    if (spent.tokensKnown === false) tokensTainted = true
-    if (!hasCompleteCacheBreakdown(spent.tokens)) cacheBreakdownTainted = true
-    if (spent.usdKnown === false) usdMeasured = false
-    reservedTokens -= rTokens
-    committedTokens += spentTokens
-    freeTokens += rTokens - spentTokens
-
-    reservedIterations -= rIterations
-    committedIterations += spent.iterations
-    freeIterations += rIterations - spent.iterations
-
-    if (usdCapped) {
-      reservedUsd -= rUsd
-      committedUsd += spent.usd
-      if (unknownUnderCap) {
-        usdTainted = true
-        freeUsd = 0
-      } else {
-        // `rUsd` is 0 for a child that declared no ceiling, so this debits its observed
-        // dollars straight out of the capped root's free balance — the root's `usdLeft`
-        // shrinks by what the child really spent and admission closes when it runs out.
-        freeUsd += rUsd - spent.usd
-      }
-    } else {
-      // With no root dollar limit, record observed spend without a reservation channel.
-      committedUsd += spent.usd
-    }
-
-    const resourceSettlement = commitResources(spent, held.resources ?? {})
+    const resourceSettlement = ledgerSettle(ledger, held, spent, unknownUnderCap)
     fault ??= resourceSettlement.fault
     overspent.push(...resourceSettlement.overspent)
     // The refund may cover waiting tickets, and a settlement that leaves nothing held ends the
@@ -746,7 +497,7 @@ export function createBudgetPool(
     options: { partial?: boolean; alreadySpent?: boolean } = {},
   ): void {
     assertValidSpend(spend, 'observed spend')
-    validateResourceUnits(spend)
+    ledgerValidateUnits(ledger, spend)
     // Unknown dollars under a dollar cap are REFUSED before any balance mutates: unlike a
     // reconciled child (whose reservation must settle), an observation has no ticket to strand,
     // so the honest reading is a fail-loud refusal the caller surfaces — `driver-failed` carrying
@@ -754,7 +505,7 @@ export function createBudgetPool(
     // finished with no caller left to refuse it (a Runtime-owned analyst lens) closes dollar
     // admission instead, as a reconciled child's unknown dollars do: refusing it would discard
     // what that work produced and still leave its dollars unaccounted.
-    const unknownUnderCap = usdCapped && spend.usdKnown === false
+    const unknownUnderCap = ledger.usdCapped && spend.usdKnown === false
     if (unknownUnderCap && options.alreadySpent !== true) {
       // A typed refusal, not a bare invariant guard: this is a contract failure the caller sees on
       // the `driver-failed` arm, and a driver retry must be able to tell it apart from a foreign
@@ -763,47 +514,31 @@ export function createBudgetPool(
         'budget pool: cannot observe unknown dollar cost under a dollar-capped budget',
       )
     }
-    // Work whose token count was never reported still debits what IS known (usually nothing) and
-    // marks the balance incomplete. The alternative — refusing to record it — is the "free turn"
-    // the pool must never see.
-    if (spend.tokensKnown === false) tokensTainted = true
-    if (!hasCompleteCacheBreakdown(spend.tokens)) cacheBreakdownTainted = true
-    if (spend.usdKnown === false) usdMeasured = false
-    const tokens = chargedTokens(spend.tokens)
-    // Direct free → committed debit (no reservation ticket). `free` may go negative on overspend —
-    // that is honest; the readout then reports exhaustion and the in-loop guard halts the driver.
     // The DURABLE record of this spend is the journal's `metered` event (the twin written by
     // `Scope.meter`); this debit exists only to make the live `readout()` reflect driver inference.
-    freeTokens -= tokens
-    committedTokens += tokens
-    freeIterations -= spend.iterations
-    committedIterations += spend.iterations
-    committedUsd += spend.usd
-    if (usdCapped) freeUsd -= spend.usd
-    if (unknownUnderCap) usdTainted = true
-    const settlement = commitResources(spend, undefined, !options.partial)
+    const settlement = ledgerObserve(ledger, spend, unknownUnderCap, !options.partial)
     const violation = settlement.fault ?? settlement.rootExceeded
     if (violation) throw new ValidationError(`budget pool: ${violation}`)
   }
 
   function readout(): BudgetReadout {
     return {
-      ...(resources.size
+      ...(ledger.resources.size
         ? {
             resources: Object.fromEntries(
-              [...resources].map(([name, value]) => [name, { ...value }]),
+              [...ledger.resources].map(([name, value]) => [name, { ...value }]),
             ),
           }
         : {}),
-      tokensLeft: freeTokens,
-      tokensKnown: !tokensTainted,
-      cacheBreakdownKnown: !cacheBreakdownTainted,
-      usdLeft: usdCapped ? (usdTainted ? 0 : freeUsd) : 0,
-      usdCapped,
-      usdKnown: usdMeasured && !usdTainted,
-      iterationsLeft: freeIterations,
-      deadlineMs: absoluteDeadlineMs,
-      reservedTokens,
+      tokensLeft: ledger.freeTokens,
+      tokensKnown: !ledger.tokensTainted,
+      cacheBreakdownKnown: !ledger.cacheBreakdownTainted,
+      usdLeft: ledger.usdCapped ? (ledger.usdTainted ? 0 : ledger.freeUsd) : 0,
+      usdCapped: ledger.usdCapped,
+      usdKnown: ledger.usdMeasured && !ledger.usdTainted,
+      iterationsLeft: ledger.freeIterations,
+      deadlineMs: ledger.absoluteDeadlineMs,
+      reservedTokens: ledger.reservedTokens,
     }
   }
 
@@ -819,65 +554,7 @@ export function createBudgetPool(
     }
   }
 
-  // Reconstruct the conserved balances before exposing the pool. Measured prior spend is debited
-  // exactly once. A started-without-terminal child is charged at its entire reservation: this
-  // never mints capacity on restart, but unlike treating unknown as zero it can leave unrelated
-  // capacity usable. The false known flags remain visible in every later report. Restore uses
-  // direct arithmetic rather than `observe`, because the prior process's spend ALREADY happened:
-  // refusing to record it would be the zero-cost restart the pool must never allow.
-  if (restore.committed !== undefined) {
-    assertValidSpend(restore.committed, 'budget restore committed')
-    validateResourceUnits(restore.committed)
-    commitResources(restore.committed)
-    const committed = restore.committed
-    if (committed.tokensKnown === false) tokensTainted = true
-    if (!hasCompleteCacheBreakdown(committed.tokens)) cacheBreakdownTainted = true
-    if (committed.usdKnown === false) usdMeasured = false
-    const tokens = chargedTokens(committed.tokens)
-    freeTokens -= tokens
-    committedTokens += tokens
-    freeIterations -= committed.iterations
-    committedIterations += committed.iterations
-    committedUsd += committed.usd
-    if (usdCapped) {
-      freeUsd -= committed.usd
-      if (committed.usdKnown === false) {
-        // The prior process spent dollars it could not measure under a dollar cap: the remaining
-        // balance is not a sound bound, so consume it and close dollar admission.
-        usdTainted = true
-        if (freeUsd > 0) committedUsd += freeUsd
-        freeUsd = 0
-      }
-    }
-  }
-  for (const [index, uncertain] of (restore.uncertainReservations ?? []).entries()) {
-    assertValidBudget(uncertain, `budget restore uncertainReservations[${index}]`)
-    // The child ran (or may have run) without a settle record: its telemetry is unknown, so the
-    // pool charges the full declared ceiling and reports the balance as a ceiling, never a
-    // measurement.
-    const unknownResources = withBudgetResources(
-      { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 },
-      root,
-    )
-    commitResources(unknownResources)
-    tokensTainted = true
-    usdMeasured = false
-    freeTokens -= uncertain.maxTokens
-    committedTokens += uncertain.maxTokens
-    freeIterations -= uncertain.maxIterations
-    committedIterations += uncertain.maxIterations
-    if (usdCapped) {
-      if (uncertain.maxUsd === undefined) {
-        // No child dollar ceiling existed, so the root's remaining dollar capacity is not safe.
-        usdTainted = true
-        committedUsd += freeUsd > 0 ? freeUsd : 0
-        freeUsd = 0
-      } else {
-        freeUsd -= uncertain.maxUsd
-        committedUsd += uncertain.maxUsd
-      }
-    }
-  }
+  ledgerRestore(ledger, root, restore)
 
   return {
     reserve,
@@ -888,6 +565,55 @@ export function createBudgetPool(
     observe,
     assertNoOpenTickets,
     openReservations,
+  }
+}
+
+interface WaitingReservation {
+  readonly ticket: ReservationTicket
+  readonly budget: Budget
+  readonly keep: ReservationFloor | undefined
+  readonly grant: () => void
+  readonly refuse: (error: ReservationWaitRefused) => void
+}
+
+/** A reservation must name a limit for exactly the resources the root declared, in its units. */
+function assertResourceDeclarations(ledger: BudgetLedger, b: Budget): void {
+  for (const [name, state] of ledger.resources) {
+    const wanted = b.resources?.[name]
+    if (!wanted) throw new ValidationError(`resource ${name}: child must declare its limit`)
+    if (wanted.unit !== state.unit) throw new ValidationError(`resource ${name}: unit mismatch`)
+  }
+  for (const name of Object.keys(b.resources ?? {})) {
+    if (!ledger.resources.has(name))
+      throw new ValidationError(`resource ${name}: root must declare its limit`)
+  }
+}
+
+/** Whether every short channel would fit once the open reservations return what they hold. */
+function fitsAfterRefunds(shortfalls: readonly ReservationShortfall[]): boolean {
+  return shortfalls.every(
+    (shortfall) =>
+      shortfall.closedByUnknownSpend !== true &&
+      shortfall.requested <= shortfall.free + (shortfall.held ?? 0),
+  )
+}
+
+function ticketFor(id: number, b: Budget): ReservationTicket {
+  return {
+    id,
+    reserved: {
+      ...(b.resources === undefined
+        ? {}
+        : {
+            resources: Object.fromEntries(
+              Object.entries(b.resources).map(([name, value]) => [name, { ...value }]),
+            ),
+          }),
+      tokens: b.maxTokens,
+      usd: b.maxUsd ?? 0,
+      iterations: b.maxIterations,
+      usdBudgeted: b.maxUsd !== undefined,
+    },
   }
 }
 
