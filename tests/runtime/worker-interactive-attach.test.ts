@@ -28,11 +28,11 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  FileResultBlobStore,
-  FileSpawnJournal,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
-} from '../../src/durable/spawn-journal'
+} from '../../src/durable/in-memory-spawn-stores'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
+import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
 import { startRetainedInteractiveRun } from '../../src/runtime/retained-interactive'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'

@@ -7,6 +7,7 @@ import {
 } from '@tangle-network/agent-interface'
 import type { AgentIdentity } from '@tangle-network/agent-trace-contract'
 import { ValidationError } from '../../errors'
+import { snapshotProviderObservations } from '../provider-observation-snapshot'
 import { detachedSnapshot } from './snapshot'
 import type {
   ExecutionBindingReceipt,
@@ -289,16 +290,8 @@ export function runtimeOwnedExecutorProviderEvidence<Out>(
 ): ProviderModelExecutionEvidence | undefined {
   const state = runtimeOwnedExecutorProviderEvidenceState.get(executor as object)
   if (state === undefined || state.attempts.length === 0) return undefined
-  const attempts: ReadonlyArray<ProviderModelAttemptEvidence> = Object.freeze(
-    state.attempts.map((attempt) =>
-      Object.freeze({
-        observations: Object.freeze([...attempt.observations]),
-        ...(attempt.identityConflict ? { identityConflict: true } : {}),
-        ...(attempt.providerDispatch === 'not_started'
-          ? { providerDispatch: 'not_started' as const }
-          : {}),
-      }),
-    ),
+  const attempts: ReadonlyArray<ProviderModelAttemptEvidence> = snapshotProviderObservations(
+    state.attempts,
   )
   const models = Object.freeze([...new Set(attempts.flatMap((attempt) => attempt.observations))])
   const missing = attempts.some(

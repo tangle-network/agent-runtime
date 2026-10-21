@@ -33,11 +33,11 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
+import { contentAddress } from '../../src/durable/content-address'
 import {
-  contentAddress,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
-} from '../../src/durable/spawn-journal'
+} from '../../src/durable/in-memory-spawn-stores'
 import { providerAsExecutor } from '../../src/runtime/environment-provider'
 import {
   type DriverAttemptRecord,

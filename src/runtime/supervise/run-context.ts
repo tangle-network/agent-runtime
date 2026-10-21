@@ -24,12 +24,9 @@
  * @experimental
  */
 
-import {
-  FileResultBlobStore,
-  FileSpawnJournal,
-  InMemoryResultBlobStore,
-  InMemorySpawnJournal,
-} from '../../durable/spawn-journal'
+import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/in-memory-spawn-stores'
+import { FileSpawnJournal } from '../../durable/spawn-journal/journal-store'
+import { FileResultBlobStore } from '../../durable/spawn-journal/result-blob-store'
 import { type CoordinationLog, FileCoordinationLog } from './coordination-log'
 import { withDriverExecutor } from './driver-executor'
 import { createExecutorRegistry } from './runtime'

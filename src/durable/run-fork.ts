@@ -15,7 +15,8 @@ import type { AgentExecutionRef, SpawnEvent } from '../runtime/supervise/types'
 import { contentAddress } from './content-address'
 import { isNoEntError } from './jsonl-file'
 import { readSettleRecord, SETTLE_RECORD_FILE } from './settle-record'
-import { FileSpawnJournal, loadSpawnForest } from './spawn-journal'
+import { FileSpawnJournal } from './spawn-journal/journal-store'
+import { loadSpawnForest } from './spawn-journal/spawn-forest'
 
 /**
  * Start a run as a version of a settled run: the parent's recorded root inputs plus one change.

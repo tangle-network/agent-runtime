@@ -3,15 +3,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
+import { contentAddress } from '../../src/durable/content-address'
 import {
-  contentAddress,
-  FileResultBlobStore,
-  FileSpawnJournal,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
-  materializeTreeView,
-  replaySpawnTree,
-} from '../../src/durable/spawn-journal'
+} from '../../src/durable/in-memory-spawn-stores'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
+import { replaySpawnTree } from '../../src/durable/spawn-journal/replay'
+import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
+import { materializeTreeView } from '../../src/durable/spawn-journal/tree-view'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createScope } from '../../src/runtime/supervise/scope'

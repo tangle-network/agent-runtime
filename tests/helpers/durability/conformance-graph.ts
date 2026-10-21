@@ -21,8 +21,9 @@
 
 import { appendFileSync, readFileSync } from 'node:fs'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { FileSpawnJournal } from '../../../src/durable/spawn-journal'
+import { FileSpawnJournal } from '../../../src/durable/spawn-journal/journal-store'
 import { superviseGraphPursuit } from '../../../src/durable/supervise-pursuit'
+import type { MakeWorkerAgent } from '../../../src/mcp/tools/coordination-contracts'
 import type { AgentGraph } from '../../../src/runtime/supervise/graph'
 import { promptHandle } from '../../../src/runtime/supervise/prompt-registry'
 import type {
@@ -30,7 +31,6 @@ import type {
   AgentSpec,
   Executor,
   ExecutorResult,
-  MakeWorkerAgent,
   SpawnEvent,
 } from '../../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../../src/runtime/tool-loop'

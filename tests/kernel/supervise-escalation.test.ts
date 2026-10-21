@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import { InMemorySpawnJournal } from '../../src/durable/in-memory-spawn-stores'
 import type { QuestionRecord } from '../../src/mcp/tools/coordination-questions'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import { testContinuation } from '../helpers/continuation'

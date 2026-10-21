@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { contentAddress } from '../durable/content-address'
-import { InMemoryResultBlobStore } from '../durable/spawn-journal'
+import { InMemoryResultBlobStore } from '../durable/in-memory-spawn-stores'
 import {
   captureHarnessTranscript,
   harnessTranscriptArtifact,

@@ -1,5 +1,5 @@
 import { sha256DigestSchema } from '@tangle-network/agent-interface'
-import { contentAddress } from '../../durable/spawn-journal'
+import { contentAddress } from '../../durable/content-address'
 import { RuntimeRunStateError } from '../../errors'
 import {
   knownExecutionBindingReceipt,

@@ -2,12 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import {
-  FileResultBlobStore,
-  FileSpawnJournal,
-  materializeTreeView,
-  replaySpawnTree,
-} from '../../src/durable/spawn-journal'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
+import { replaySpawnTree } from '../../src/durable/spawn-journal/replay'
+import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
+import { materializeTreeView } from '../../src/durable/spawn-journal/tree-view'
 import { createBudgetPool, spendFromUsageEvents } from '../../src/runtime/supervise/budget'
 import { prepareScopeResume } from '../../src/runtime/supervise/recover-executors'
 import { withBudgetResources } from '../../src/runtime/supervise/resources'

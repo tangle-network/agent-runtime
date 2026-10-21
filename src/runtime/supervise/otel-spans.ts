@@ -34,7 +34,7 @@ import {
   ATTR,
   agentIdentityAttributes,
 } from '@tangle-network/agent-trace-contract'
-import { contentAddress } from '../../durable/spawn-journal'
+import { contentAddress } from '../../durable/content-address'
 import type { OtelExportConfig, OtelExporter, OtelExportStats, OtelSpan } from '../../otel-export'
 import { createOtelExporter, generateSpanId, toOtelAttributes } from '../../otel-export'
 import { isRecord } from '../../record-value'

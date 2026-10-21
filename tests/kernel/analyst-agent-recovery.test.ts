@@ -4,7 +4,10 @@ import { join } from 'node:path'
 import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { leafSeam, offlineProfile } from '../../examples/graphs/shared'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import {
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../src/durable/in-memory-spawn-stores'
 import type { CoordinationEvent } from '../../src/mcp/tools/coordination-events'
 import { createCoordinationTools } from '../../src/mcp/tools/coordination-manager'
 import { FileCoordinationLog } from '../../src/runtime/supervise/coordination-log'

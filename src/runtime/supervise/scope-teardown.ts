@@ -1,4 +1,4 @@
-import { closesCursorSlot } from '../../durable/spawn-journal'
+import { closesCursorSlot } from '../../durable/spawn-journal/event-index'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { errMessage } from './error-message'
