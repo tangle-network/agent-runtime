@@ -23,8 +23,7 @@ import {
 import type { Environment } from './run-benchmark'
 import { runAgentic } from './strategy'
 import type { Strategy } from './strategy-author'
-import type { StrategyEvolutionConfig } from './strategy-evolution'
-import type { StrategyNode } from './strategy-evolution-nodes'
+import type { StrategyEvolutionConfig, StrategyNode } from './strategy-evolution'
 import type { EvolutionPlan } from './strategy-evolution-plan'
 
 /**

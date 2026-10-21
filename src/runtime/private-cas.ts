@@ -7,11 +7,12 @@ import {
   hexOf,
   locatePrivateCasObject,
   type PrivateCasLayout,
+  putPrivateCasBuffered,
+  putPrivateCasStream,
   readPrivateCasRef,
   readPrivateCasStream,
 } from './private-cas-objects'
 import { PrivateCasOffload } from './private-cas-offload'
-import { putPrivateCasBuffered, putPrivateCasStream } from './private-cas-write'
 
 const SAFE_NAMESPACE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u
 // A durable copy that moves no bytes for this long is abandoned and retried. Every put and pass that

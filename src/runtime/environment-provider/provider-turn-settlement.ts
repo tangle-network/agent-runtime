@@ -8,6 +8,7 @@ import { contentRef } from '../supervise/executor-outcome'
 import { RetainedExecutionPendingError } from '../supervise/retained-executor'
 import type { ExecutorResult, Spend, UsageEvent } from '../supervise/types'
 import { unavailableSignalOfFailure } from '../supervise/upstream-unavailable'
+import { destroyExecutorEnvironment } from './provider-environment-teardown'
 import { failureStatusCode, resultFromEvents } from './provider-event-projection'
 import type { ProviderLeafOut } from './provider-executor-admission'
 import type { ProviderInvocationEnd, StreamProviderExecutorArgs } from './provider-invocation'
@@ -19,21 +20,17 @@ import { ValidationError } from './provider-validation-error'
 
 /** What the settled turn left behind and what the teardown must still decide about. */
 export class ProviderTurnSettlement {
-  /** The artifact this turn settled with, once it exists. Its presence is what separates "the work
-   *  finished and the resource would not release" from "the work never finished". */
+  /** The artifact this turn settled with. Its presence separates "the work finished and the
+   *  resource would not release" from "the work never finished". */
   private settled: ExecutorResult<unknown> | undefined
-  /** The body's own failure, held so the teardown cannot REPLACE it. A `finally` that throws
-   *  discards the in-flight exception, so a teardown error would otherwise mask the real cause of
-   *  a turn that failed for its own reasons. */
+  /** The body's own failure, held so a throwing teardown `finally` cannot mask it. */
   private failure: unknown
   private failed = false
   /** Set when the turn was refused for capacity and the caller will continue in this environment. */
   private unavailable: ProviderInvocationEnd['unavailable']
-  /** Whether the turn's final session copy was already taken: a turn whose workspace capture the
-   *  owner took over copies its session before it hands the capture over. */
+  /** Whether the final session copy was taken before the workspace capture was handed to the owner. */
   private finalCopyTaken = false
-  // A deadline or a cancellation stops the harness once, before any capture of its session, so
-  // the failure capture and the final copy read a session that has stopped changing.
+  // A deadline or cancellation stops the harness once, before any session capture reads it.
   private harnessStop: Promise<void> | undefined
 
   constructor(
@@ -59,11 +56,9 @@ export class ProviderTurnSettlement {
 
   /**
    * Whether this turn's owner takes its workspace capture over, so the turn ends without waiting
-   * for it. The owner's environment outlives its turns; the owner awaits the capture before the
-   * environment's next turn and before it destroys the environment, and the capture's receipt is
-   * journaled as evidence of this invocation. Only a port that copies the session on its own
-   * queue hands the capture over: without one, the workspace capture is the only record of the
-   * session the node settles with.
+   * for it: the owner awaits it before the environment's next turn and before destroying the
+   * environment, and journals its receipt. Only a port that copies the session on its own queue
+   * hands it over; without one the capture is the only record of the session.
    */
   private ownerTakesCapture(): boolean {
     const { args } = this
@@ -91,12 +86,10 @@ export class ProviderTurnSettlement {
     const { args, environment } = this
     args.retention?.onEndOfTurnWork?.(
       (async () => {
-        // The final native copy runs beside the workspace capture, which holds the session too and
-        // replaces the copy as the transcript when it settles. Neither holds the completed turn
-        // open; the retained owner waits for this work before reuse or release. On canary
-        // test-acceptance-canary-20261019o (Runtime 0.332.2) the copy ran first, for 17.8 s, and the
-        // workspace capture started 59-66 s after the turn's result. A native copy is best-effort
-        // evidence: its failure leaves the workspace capture as the owner's retention boundary.
+        // The final native copy runs beside the workspace capture, which replaces it as the
+        // transcript when it settles; the retained owner waits for both. Run in sequence on canary
+        // test-acceptance-canary-20261019o (Runtime 0.332.2), the copy took 17.8 s and the capture
+        // started 59-66 s after the result. A failed copy leaves the capture as the retention boundary.
         const finalCopy = (async () => {
           try {
             await beforeCapture?.()
@@ -124,23 +117,18 @@ export class ProviderTurnSettlement {
   private stopEndedHarness(): Promise<void> {
     const { signal } = this.args
     if (this.settled !== undefined || !signal.aborted) return Promise.resolve()
-    this.harnessStop ??= this.args.stopEndedHarness(signal)
+    this.harnessStop ??= this.args.scope.nativeControl.stopEndedHarness(signal)
     return this.harnessStop
   }
 
-  /**
-   * Retention captures once and exposes that verified archive through the transcript port.
-   * Environments without retention keep the existing bounded live-read path.
-   */
+  /** Retention captures once and exposes that archive through the transcript port; otherwise read live. */
   private async readLiveTranscript(): Promise<void> {
     const { args } = this
     if (args.options.workspaceRetention !== undefined) return
-    args.onHarnessTranscript(
-      await captureHarnessTranscript(
-        this.environment as Parameters<typeof captureHarnessTranscript>[0],
-        args.profile.harness,
-        args.signal,
-      ),
+    args.scope.state.harnessTranscript = await captureHarnessTranscript(
+      this.environment as Parameters<typeof captureHarnessTranscript>[0],
+      args.profile.harness,
+      args.signal,
     )
   }
 
@@ -165,10 +153,9 @@ export class ProviderTurnSettlement {
         : {}),
       ...(outcome ? { outcome } : {}),
     }
-    const { executionSpent } = usage.spend(this.started)
-    // Scored HERE, before the teardown destroys the environment: a validator that reads a file or
-    // runs a command needs the environment it is scoring to still exist. Every other supervised
-    // hook fires after teardown and can only read the artifact.
+    const executionSpent = usage.spend(this.started)
+    // Scored HERE, before teardown: a validator that reads a file or runs a command needs the
+    // environment alive. Every other supervised hook fires after teardown.
     const verdict = await args.options.validator?.validate(result, {
       iteration: 0,
       ...(args.node === undefined ? {} : { node: args.node }),
@@ -178,11 +165,9 @@ export class ProviderTurnSettlement {
       }),
       signal: args.signal,
     })
-    // Every retained owner with a native copy commits its turn before the slow workspace capture.
-    // The owner waits for that capture before its next turn or environment release, so a queued or
-    // failed capture cannot hide a completed provider result from the caller. Discovery's contract
-    // canary had both exact Sandbox executions complete while their results stayed unjournaled for
-    // over 18 minutes behind capture (2026-10-14).
+    // A retained owner with a native copy commits its turn before the slow workspace capture, so a
+    // queued or failed capture cannot hide a completed result: Discovery's contract canary left two
+    // finished Sandbox executions unjournaled for over 18 minutes behind capture (2026-10-14).
     const deferCapture = this.ownerTakesCapture()
     const { retainedWorkspace, workspaceCaptureFailure } = deferCapture
       ? {}
@@ -202,26 +187,24 @@ export class ProviderTurnSettlement {
     this.unavailable = this.refusalOf(result)
     if (this.retained) await args.retention?.onResult(settled)
     else if (retainedWorkspace !== undefined) await args.retention?.onEvidence?.(settledResult)
-    args.onPending(false)
-    args.onArtifact(settled)
+    args.scope.state.pending = false
+    args.scope.state.artifact = settled
     if (deferCapture) {
-      // The session copy this turn settles with is taken first, on the native queue, which never
-      // waits behind workspace captures; the workspace capture then reads a session that ended.
-      // Both copies belong to the owner so neither delays delivery of this result to the caller.
+      // The session copy is taken first on the native queue, which never waits behind workspace
+      // captures; the capture then reads an ended session. The owner holds both.
       this.finalCopyTaken = true
       this.handCaptureToOwner(settledResult, outcome, true, () =>
-        args.finishNativeMirror(this.environment, 'settled'),
+        args.scope.mirrors.finishNativeMirror(this.environment, 'settled'),
       )
     }
   }
 
   /**
-   * The turn has settled, so a capture that fails or exceeds its deadline is a fact about the
-   * evidence, never the turn's outcome. Measured 2026-10-03 on Runtime 0.295.4: one capture that
-   * waited past its 1,200,000 ms deadline behind a two-slot queue shared by 34 workers threw an
-   * AbortError, the driver classified it terminal, and two research roots ended with 13 and 0 of
-   * their children settled. The source stays preserved because no receipt exists, the retained
-   * owner reads the receipt-less result as a retention failure, and the turn is not re-run.
+   * A capture that fails or exceeds its deadline after settlement is a fact about the evidence,
+   * never the turn's outcome. On Runtime 0.295.4 (2026-10-03) a capture past its 1,200,000 ms
+   * deadline behind a two-slot queue shared by 34 workers threw an AbortError, the driver
+   * classified it terminal, and two research roots ended with 13 and 0 children settled. With no
+   * receipt the source stays preserved and the owner reads a retention failure; the turn is not re-run.
    */
   private async captureSettledWorkspace(outcome: AgentRunOutcome | undefined): Promise<{
     retainedWorkspace?: AgentCandidateWorkspaceSnapshotEvidence
@@ -285,14 +268,15 @@ export class ProviderTurnSettlement {
   /** Record the turn's failure, then capture what evidence its environment still holds. */
   async *fail(error: unknown): AsyncGenerator<UsageEvent> {
     const { args, environment } = this
-    // A limit or transport stop may omit the terminal aggregate. Credit completed native
-    // response receipts before the failed attempt is journaled, without replaying the turn.
+    // A limit or transport stop may omit the terminal aggregate: credit completed native receipts.
     yield* this.usage.settleTurn()
     this.failure = this.retained ? new RetainedExecutionPendingError(error) : error
     this.failed = true
-    // A failed or cancelled stream has no ProviderLeafOut for the caller to retrieve. Keep the
-    // live source even when capture succeeds, so its executable state remains the receipt boundary.
-    if (args.options.workspaceRetention !== undefined) args.onUnsettledFailure()
+    // A failed stream has no ProviderLeafOut to retrieve: keep the live source even when capture
+    // succeeds, so its executable state remains the receipt boundary.
+    if (args.options.workspaceRetention !== undefined) {
+      args.scope.state.workspacePreservationRequired = true
+    }
     const failureOutcome =
       this.observer.failures.finish() ??
       ({
@@ -302,16 +286,15 @@ export class ProviderTurnSettlement {
         ...(args.signal.aborted ? { errorCode: 'cancelled' } : {}),
       } satisfies AgentRunOutcome)
     await this.stopEndedHarness()
-    // The scope settles an aborted node as soon as the abort reaches it and reads the transcript
-    // this executor holds then. The stopped harness's final session copy is taken here, before the
-    // capture of the whole workspace, which can run for minutes; the 2026-10-04 trace proof
-    // settled a deadline node with its last running copy, `native_snapshot_live`.
-    if (args.signal.aborted) await args.finishNativeMirror(environment, 'failed')
-    args.onTranscriptSettled()
+    // The scope settles an aborted node at once and reads the transcript held then, so the stopped
+    // harness's final session copy is taken before the minutes-long workspace capture (the
+    // 2026-10-04 trace proof settled a deadline node with `native_snapshot_live`).
+    if (args.signal.aborted) await args.scope.mirrors.finishNativeMirror(environment, 'failed')
+    args.scope.state.settleTranscript()
     if (this.ownerTakesCapture()) {
       // The owner takes this failed turn's capture over too, so the drive ends now and the
       // owner's release reads the capture's receipt before it decides what to destroy.
-      if (!args.signal.aborted) await args.finishNativeMirror(environment, 'failed')
+      if (!args.signal.aborted) await args.scope.mirrors.finishNativeMirror(environment, 'failed')
       this.finalCopyTaken = true
       this.handCaptureToOwner(
         {
@@ -340,9 +323,8 @@ export class ProviderTurnSettlement {
         })
       }
     } catch (captureError) {
-      // Preserve the stream failure alongside capture's own cause. A persistence error can
-      // be shared with the supervisor, so never replace its cause or make it refer to itself
-      // when capture was also the original failure.
+      // Keep the stream failure beside capture's cause; a shared persistence error must not be
+      // replaced or made to refer to itself when capture was the original failure.
       if (captureError instanceof Error && captureError !== error) {
         this.failure =
           captureError.cause === undefined
@@ -360,16 +342,15 @@ export class ProviderTurnSettlement {
   async release(): Promise<void> {
     const { args } = this
     await this.stopEndedHarness()
-    // Before any teardown: the final copy reads the session from the live environment. This is
-    // the only capture that runs when the stream was closed by an abort or a deadline.
+    // Before teardown: the final copy reads the live environment, and is the only capture that
+    // runs when an abort or deadline closed the stream.
     if (!this.finalCopyTaken) {
-      await args.finishNativeMirror(
+      await args.scope.mirrors.finishNativeMirror(
         this.environment,
         this.failed ? 'failed' : this.settled !== undefined ? 'settled' : 'interrupted',
       )
     }
-    // A keyed turn that ended over its budget keeps its environment, so a re-spawn of its key
-    // with more budget runs the next turn in this same environment and harness session.
+    // A keyed turn that ended over budget keeps its environment for a re-spawn with more budget.
     const held =
       this.retained &&
       this.settled !== undefined &&
@@ -377,7 +358,7 @@ export class ProviderTurnSettlement {
       this.unavailable === undefined &&
       args.retention?.preserveEnvironment !== true &&
       args.retention?.holdOnSettle?.(this.settled.spent) === true
-    if (held) args.onHeld()
+    if (held) args.scope.state.holdingForContinuation = true
     if (
       (!this.retained || (this.settled !== undefined && !this.failed)) &&
       !(this.retained && args.retention?.preserveEnvironment) &&
@@ -391,29 +372,24 @@ export class ProviderTurnSettlement {
   }
 
   private async destroyEnvironment(): Promise<void> {
-    const cleanup = await this.args.destroyEnvironment()
+    const cleanup = await destroyExecutorEnvironment(this.args.scope)
     if (cleanup.destroyed) return
     const error = new Error(cleanup.detail ?? 'provider environment teardown was not confirmed')
-    // ONCE THE TURN HAS SETTLED, TEARDOWN CANNOT CHANGE THE OUTCOME. Measured: a second DELETE
-    // answered 409, the rejection escaped this `finally`, and a run whose turn had completed
-    // (`spent.iterations: 1`, artifact produced) was reported as a failure. The resource fact is
-    // recorded beside the result; the result stands.
-    //
-    // Before the turn settles there is no outcome to protect, so the failure IS the outcome and
-    // is rethrown — a create-then-fail-then-leak path must still fail loudly.
+    // ONCE THE TURN HAS SETTLED, TEARDOWN CANNOT CHANGE THE OUTCOME: a second DELETE answered 409,
+    // the rejection escaped this `finally`, and a completed run was reported as a failure. The
+    // resource fact is recorded beside the result; the result stands.
     if (this.settled !== undefined) {
-      this.args.onArtifact({
+      this.args.scope.state.artifact = {
         ...this.settled,
         teardown: { failed: true, error: error.message, at: new Date().toISOString() },
-      })
+      }
     } else if (!this.failed) {
-      // Nothing settled and the body did not fail on its own: the teardown failure IS the
-      // outcome, so a create-then-leak path still fails loudly.
+      // Nothing settled and the body did not fail: the teardown failure IS the outcome, so a
+      // create-then-leak path still fails loudly.
       this.failure = error
       this.failed = true
     } else {
-      // The body already failed. ITS error is the cause a reader needs; the teardown failure
-      // rides along as `cause` rather than displacing it.
+      // The body already failed: its error stays the cause; the teardown failure rides as `cause`.
       this.failure =
         this.failure instanceof Error
           ? Object.assign(this.failure, { cause: this.failure.cause ?? error })

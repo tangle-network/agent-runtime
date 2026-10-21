@@ -1,4 +1,4 @@
-import type { Handle, Settled } from '../../runtime'
+import type { Handle, Scope, Settled } from '../../runtime'
 import { isLiveNodeStatus } from '../../runtime/supervise/node-status'
 import type { PeerMailbox } from '../../runtime/supervise/peer-mail'
 import { detachedFrozen } from '../../runtime/supervise/snapshot'
@@ -61,16 +61,12 @@ export function createSpawnAdmission(deps: AdmissionDeps) {
     profileNameByWorker: state.profileNameByWorker,
     workerByAssignment: state.workerByAssignment,
     preflightCounts: state.preflightCounts,
-    nodeForWorker: (id: string) => nodeForWorker(state, id),
-    workerRouteNames: (workerId: string) => workerRouteNames(state, workerId),
-    liveWorkerIdNamed: (destination: string) => liveWorkerIdNamed(state, destination),
-    resolveContinuity: (
-      requested: ContinuityMode | undefined,
-      profileName: string | undefined,
-      key: string | undefined,
-    ) => resolveContinuity(state, requested, profileName, key),
-    admitSpawn: (input: SpawnAdmission) => admitSpawn(state, input),
-    abortWorker: (ref: string, reason?: string) => abortWorker(state, ref, reason),
+    nodeForWorker: nodeForWorker.bind(null, state),
+    workerRouteNames: workerRouteNames.bind(null, state),
+    liveWorkerIdNamed: liveWorkerIdNamed.bind(null, state),
+    resolveContinuity: resolveContinuity.bind(null, state),
+    admitSpawn: admitSpawn.bind(null, state),
+    abortWorker: abortWorker.bind(null, state),
   }
 }
 
@@ -78,9 +74,7 @@ const nodeForWorker = ({ opts }: AdmissionState, id: string) =>
   opts.scope.view.nodes.find((node) => node.id === id) ??
   opts.scope.resume?.view.nodes.find((node) => node.id === id)
 
-// The names an analyst route may know a worker by: its authored profile name (the stable node
-// identity) and its spawn label (the driver's free-text choice).
-// A named profile is the worker's route identity. The label is the driver's free text and
+// The names an analyst route may know a worker by. A named profile is the worker's route identity. The label is the driver's free text and
 // defaults to the profile name, or 'worker' for an unnamed profile, so matching it for a named
 // profile would make a route over a node named 'worker' cover every unlabelled worker. It names
 // only a worker without a profile name.
@@ -426,8 +420,6 @@ function abortWorker(
   handle.abort(reason)
   return { id: target.id, label: target.label }
 }
-
-import type { Scope } from '../../runtime'
 
 function nextUnkeyedAssignmentOrdinal(scope: Scope<unknown>): number {
   let next = 0

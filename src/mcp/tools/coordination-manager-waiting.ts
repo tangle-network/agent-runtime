@@ -14,12 +14,9 @@ import type { ManagerState } from './coordination-manager-state'
 import type { createSettlementDrain } from './coordination-settlement-drain'
 import type { createWorkerObservation } from './coordination-worker-observation'
 
-// ── waiting ─────────────────────────────────────────────────────────────────────
-//
-// A manager with nothing to do ends its turn, and Runtime waits for it. Measured 2026-10-05 on
-// two Discovery roots: when the manager did the waiting through a bounded poll, 18 of 88 model
-// turns did nothing but wait, each re-reading the whole cached context. The wait below spends
-// no model turn: it blocks on the bus, and its result becomes the input of the next turn.
+// A manager with nothing to do ends its turn, and Runtime waits for it. A bounded poll spent 18 of
+// 88 model turns on waiting alone (two Discovery roots, 2026-10-05); this wait blocks on the bus
+// and spends no model turn.
 
 type WaitingEnv = {
   readonly opts: CoordinationToolsOptions
@@ -36,12 +33,10 @@ type WaitingEnv = {
 
 export function createManagerWaiting(env: WaitingEnv) {
   return {
-    ensureDrain: () => ensureDrain(env),
-    hasOpenWork: () => hasOpenWork(env),
-    awaitWake: (input: AwaitWakeInput) => awaitWake(env, input),
-    awaitSettlement: (workerIds: ReadonlyArray<string>, signal?: AbortSignal) =>
-      awaitSettlement(env, workerIds, signal),
-    settledWithoutDrain: () => settledWithoutDrain(env),
+    ensureDrain: ensureDrain.bind(null, env),
+    hasOpenWork: hasOpenWork.bind(null, env),
+    awaitWake: awaitWake.bind(null, env),
+    awaitSettlement: awaitSettlement.bind(null, env),
   }
 }
 

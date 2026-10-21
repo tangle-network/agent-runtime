@@ -18,12 +18,10 @@ import { RetainedExecutionPendingError } from '../supervise/retained-executor'
 import { isTerminalEnvironmentEvent } from './provider-event-projection'
 
 /**
- * How long a retained stream may go without new evidence before the node publishes that it is
- * waiting on its exact result. It never ends the turn: silence is a wait, and only the provider's
- * exact result or an abort with its named cause ends it. Ending here failed 18 attempts as
- * `terminal-event-lost` over 2026-10-12..20 whose executions were still running. The bound on a
- * wait that never ends is the Lab keeper's hung-root re-drive, which fires on 15 minutes without a
- * stream write whether or not it reads this row.
+ * How long a retained stream may go without new evidence before the node publishes that it waits
+ * on its exact result. Silence never ends the turn (ending there failed 18 still-running attempts
+ * as `terminal-event-lost`, 2026-10-12..20); only the exact result or an abort does. The bound on
+ * a wait that never ends is the Lab keeper's hung-root re-drive after 15 minutes without a write.
  */
 const RETAINED_AWAITING_RESULT_AFTER_MS = 8 * 60_000
 
@@ -31,10 +29,9 @@ const RETAINED_AWAITING_RESULT_AFTER_MS = 8 * 60_000
 const RETAINED_OBSERVATION_BATCH_EVENTS = 1_024
 
 /**
- * After its exact result, a stream that still owes its terminal frame keeps reading only while its
- * frames keep coming: the next frame must arrive within this long of the last one. A quiet stream,
- * or one with no frame at all, closes on the result at once and never holds the wake. A provider
- * sends a turn's last frames and its result together on two connections, and a burst that
+ * After its exact result, a stream that still owes its terminal frame keeps reading only while
+ * each frame arrives within this long of the last; a quiet stream closes on the result at once.
+ * A provider sends a turn's last frames and its result on two connections, and a burst that
  * straddles the result is read whole.
  */
 const RETAINED_TAIL_FLOW_MS = 100
@@ -51,11 +48,9 @@ type FrameRead =
   | { kind: 'quiet' }
 
 /**
- * Why the event stream stopped short, as bounded redacted text. A settlement reason is built from
- * messages and `cause` links only, never from an AggregateError's members, so a wrapper that
- * leaves this out hides which layer lost the stream: a tournament judge on 2026-10-16
- * (critics-tournament-v1-158ca88e83bf:s1) settled as a lost terminal event and its journal could
- * not say whether the stream ended, broke, or refused a frame.
+ * Why the event stream stopped short, as bounded redacted text. A settlement reason reads messages
+ * and `cause` links only, never an AggregateError's members, so a wrapper that omits this hides
+ * which layer lost the stream (critics-tournament-v1-158ca88e83bf:s1, 2026-10-16).
  */
 function observationFailureText(failure: { readonly error: unknown }): string {
   const error = failure.error
@@ -83,11 +78,10 @@ export class RetainedObservation {
   private observedFrames = 0
   private framesAfterResult = 0
   private budgetExceeded = false
-  // One reaction on the exact result for the whole drain, not one per event read. Each read adds its
-  // waker here and removes it when the read ends, so a read's event is released with it. A reaction
-  // added per read to this run-long promise kept every drained event reachable through Promise.race:
-  // on 2026-10-18 free-tier supervisors (whole ~225 KB part states per update) grew to node's 4 GB
-  // heap limit within an hour.
+  // One reaction on the exact result for the whole drain; each read adds and removes its waker. A
+  // reaction per read on this run-long promise kept every drained event reachable through
+  // Promise.race: free-tier supervisors (~225 KB part states per update) hit node's 4 GB heap
+  // limit within an hour on 2026-10-18.
   private readonly exactWakers = new Set<() => void>()
   private exactWatched = false
   private readonly seenEvents = new Map<string, string>()
@@ -109,14 +103,11 @@ export class RetainedObservation {
       session.events({ executionId: this.handle.controlRef.executionId, signal: this.signal }),
     )
     if (!completed && !this.sawTerminal && this.lastReplayPosition !== undefined) {
-      // The live stream broke before the terminal receipt. That receipt is where a Sandbox
-      // execution reports its token usage, and the exact result read below does not carry it,
-      // so a break here used to settle a 15-minute turn at 0 tokens with tokensKnown: false,
-      // which the conserved pool debits as nothing. Measured on
-      // mech-interp-foundations-pi-20260915k turn 1 (926 s, 0/0) and -20260915l turns 2 and 3
-      // (1693 s and 846 s, 0/0), each cut by one frame the provider refused mid-stream. The
-      // provider replays from a cursor, so resume once from the last replay position. A second
-      // failure keeps the first as the recorded cause; it is the one that lost the frames.
+      // The stream broke before the terminal receipt, which is where a Sandbox execution reports
+      // token usage and the exact result lacks it: a break used to settle a 15-minute turn at 0
+      // tokens, debited as nothing (mech-interp-foundations-pi-20260915k turn 1, -20260915l turns
+      // 2 and 3). The provider replays from a cursor, so resume once from the last replay
+      // position; a second failure keeps the first as the recorded cause.
       const firstFailure = this.failure
       this.failure = undefined
       const since = this.lastReplayPosition
@@ -130,10 +121,8 @@ export class RetainedObservation {
       if (!resumed) this.failure = firstFailure
     }
     if (this.budgetExceeded) {
-      // Preserve a definite exact-result error instead of masking it as observation loss.
-      await this.readExactResult()
-      // A result does not prove that unobserved queued frames were bound or non-refusals.
-      // Preserve the original admission rather than accepting success at an arbitrary cut.
+      // Keep a definite exact-result error rather than masking it as observation loss. A result
+      // does not prove unobserved queued frames were bound or non-refusals.
       throw new RetainedExecutionPendingError(
         new Error(
           `retained provider observation exceeded ${RETAINED_OBSERVATION_BATCH_EVENTS} frames after its exact result`,
@@ -144,14 +133,12 @@ export class RetainedObservation {
     if (!this.sawTerminal && this.failure === undefined) {
       this.failure = { error: new Error('retained provider stream did not yield a terminal event') }
     }
-    // Observation failure does not establish execution failure. Only the exact retained
-    // result can settle the invocation; retain incomplete observation beside that result.
-    // A stream that ended short is not an end: the node waits on the provider's exact result
-    // for as long as the provider takes, and only the turn's signal ends that wait sooner.
-    // The Sandbox SDK builds that result by replaying the execution's events, and a replay that
-    // closes short returns `success: false`, "Agent stream ended without a terminal event", with
-    // no error code. Runtime cannot tell that from the execution's own failure, so it settles as
-    // failed; 64 of the 82 C1 attempts (2026-10-12..20) ended there. The SDK owns that verdict.
+    // Observation failure does not establish execution failure: only the exact retained result
+    // settles the invocation, and a short stream is not an end. The node waits on it as long as the
+    // provider takes. The Sandbox SDK builds that result by replaying events, and a short replay
+    // returns `success: false` "Agent stream ended without a terminal event" with no error code,
+    // indistinguishable from the execution's own failure (64 of 82 C1 attempts, 2026-10-12..20).
+    // The SDK owns that verdict.
     if (!this.sawTerminal && !this.exactResultSettled && !this.awaitingPublished) {
       yield this.awaitingResult(Date.now())
     }
@@ -237,10 +224,9 @@ export class RetainedObservation {
     let unwatch: (() => void) | undefined
     let clearQuiet: (() => void) | undefined
     try {
-      // Give this event read one scheduler turn before an exact result closes a quiet
-      // subscription. A stream still owing its terminal frame whose last frame came within
-      // RETAINED_TAIL_FLOW_MS keeps reading for the rest of that window; a quiet one closes
-      // at once. Ready tails are observed only within the finite work allowance.
+      // Give this read one scheduler turn before an exact result closes a quiet subscription; a
+      // stream owing its terminal frame whose last frame came within RETAINED_TAIL_FLOW_MS keeps
+      // reading for the rest of that window.
       const exactWake = new Promise<FrameRead>((resolve) => {
         wake = setImmediate(() => {
           const close = () => {
@@ -288,8 +274,8 @@ export class RetainedObservation {
   private acceptFrame(event: AgentEnvironmentEvent): boolean {
     this.observedFrames += 1
     if (this.exactResultSettled) this.framesAfterResult += 1
-    // A received event for another execution must never be accepted as evidence — and
-    // it is the PROVIDER's contract that was broken, so it must classify as such (#1204).
+    // An event for another execution is never evidence, and it is the PROVIDER's contract that
+    // broke, so it classifies as such (#1204).
     try {
       assertEventBinding(event, this.handle.controlRef)
     } catch (error) {
@@ -319,8 +305,7 @@ export class RetainedObservation {
       }
       this.seenEvents.set(eventId, digest)
     }
-    // A replayed frame is not progress. Only new evidence extends the silence bound;
-    // otherwise a provider repeating one cursor could keep a finished turn open forever.
+    // A replayed frame is not progress: a provider repeating one cursor must not hold a finished turn open.
     this.lastObservedAt = Date.now()
     this.lastFrameAt = this.lastObservedAt
     if (identity.cursor !== undefined) this.lastReplayPosition = identity.cursor
@@ -354,8 +339,7 @@ export class RetainedObservation {
           this.observedFrames > 0 &&
           this.observedFrames % RETAINED_OBSERVATION_BATCH_EVENTS === 0
         ) {
-          // Ready iterators can otherwise monopolize the microtask queue and starve the
-          // result transport, cancellation, and deadlines. Duplicates count as work too.
+          // Ready iterators would otherwise starve result transport, cancellation and deadlines.
           await awaitAbortable(new Promise<void>((resolve) => setImmediate(resolve)), this.signal)
         }
         let observed: FrameRead
@@ -382,8 +366,7 @@ export class RetainedObservation {
         if (this.acceptFrame(observed.value.value)) yield observed.value.value
       }
     } finally {
-      // Subscription cleanup cannot establish execution readiness or suppress a binding
-      // verdict. A provider may never resolve return(); source teardown has its own proof.
+      // Cleanup proves nothing about readiness; a provider may never resolve return().
       void Promise.resolve()
         .then(() => iterator?.return?.())
         .catch(() => undefined)

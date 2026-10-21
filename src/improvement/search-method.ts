@@ -24,29 +24,39 @@ import {
   aide,
   asha,
   type CampaignStorage,
+  campaignCellSearchResult,
   createRunCostLedger,
   fsCampaignStorage,
+  isProposedCandidate,
   openSearchLedger,
+  type ProposeContext,
   type RunCampaignOptions,
+  renderSearchSummary,
   resolveRunDir,
+  runCampaign,
   runSearch,
   type Scenario,
   type SearchAllocator,
   type SearchArtifactCodec,
+  type SearchCellResult,
   type SearchExecutionIdentity,
   type SearchPolicy,
+  type SearchProposerPort,
   SearchRecorder,
   type SearchSourceRef,
   type SearchTask,
   type SurfaceProposer,
   searchClaimReserveUsd,
+  searchProposalExecution,
+  searchProposerView,
+  searchReceiptAccounting,
 } from '@tangle-network/agent-eval/campaign'
 import {
   defineEvaluationClaim,
   type EvaluationClaim,
   summarizeEvaluationUnits,
 } from '@tangle-network/agent-eval/experiment'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
 import { privateValuePaths } from './candidate-validation'
@@ -57,15 +67,16 @@ import type {
   ImproveSearchResult,
 } from './improve-types'
 import { type PreparedProfileImprovement, prepareProfileImprovement } from './profile-improvement'
-import { searchCellRunner } from './search-cell-attempt'
 import { decideClosedSearch, improveSearchCost } from './search-decision'
 import {
   assertSearchLanes,
+  isSearchEnvironmentFault,
   reconcileInterruptedSearchCalls,
   type SearchLane,
+  searchCallTags,
   searchExecutor,
+  taggedLedger,
 } from './search-executor'
-import { searchProposerPort } from './search-proposer-port'
 import {
   type ProfileNode,
   profileNodeOf,
@@ -260,11 +271,8 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
   const session: SearchSession<TScenario, TArtifact> = {
     method,
     prepared,
-    storage,
     searchId,
-    searchDir,
     costLedger,
-    execution,
     recorder,
   }
 
@@ -576,5 +584,189 @@ function searchMethodDescriptor(method: ImproveSearchMethod): unknown {
     claimReserveUsd: method.claimReserveUsd,
     deadline: method.deadline,
     maxAttempts: method.maxAttempts,
+  }
+}
+
+const PROPOSAL_PHASE = 'search.proposal'
+
+function searchProposerPort<TScenario extends Scenario, TArtifact>(
+  session: SearchSession<TScenario, TArtifact>,
+): SearchProposerPort<ProfileNode> {
+  const { method, prepared, recorder, costLedger, searchId } = session
+  const { proposer } = method
+  const proposerSource: SearchSourceRef = {
+    uri: `proposer:${proposer.kind}`,
+    revision: canonicalCandidateDigest({
+      kind: proposer.kind,
+      propose: Function.prototype.toString.call(proposer.propose),
+      decide: proposer.decide ? Function.prototype.toString.call(proposer.decide) : null,
+    }),
+  }
+  return {
+    name: proposer.kind,
+    kind: 'optimizer',
+    source: proposerSource,
+    execution: { kind: 'deterministic', source: proposerSource },
+    childrenPerProposal: method.childrenPerProposal,
+    async propose(request) {
+      // The proposal's calls carry its operation, so its accounting is exactly them.
+      const tags = searchCallTags(searchId, { operation: request.operationId })
+      // Read the ledger once, synchronously, before any await: the kernel
+      // retires a state view when it appends.
+      const state = await recorder.state()
+      const parents = request.parents.map(({ nodeId, artifact }) => ({
+        nodeId,
+        artifact: artifact.surface,
+      }))
+      const context: ProposeContext<ProposalFinding> = Object.freeze({
+        currentSurface: parents[0]?.artifact ?? prepared.baselineSurface,
+        operator: request.operator,
+        parents,
+        train: searchProposerView(state),
+        summary: renderSearchSummary(state, { split: 'train' }),
+        history: [],
+        findings: prepared.findings,
+        populationSize: method.childrenPerProposal,
+        generation: request.expansion,
+        signal: request.signal,
+        costLedger: taggedLedger(costLedger, tags),
+        costPhase: PROPOSAL_PHASE,
+      })
+      const decision = proposer.decide?.({ history: [] })
+      const proposed = decision?.stop ? [] : await proposer.propose(context)
+      if (!Array.isArray(proposed)) {
+        throw new ConfigError('improve(): the search proposer must return an array')
+      }
+      const fresh = costLedger.list({ phase: PROPOSAL_PHASE, tags })
+      return {
+        children: proposed.slice(0, method.childrenPerProposal).map((child) =>
+          isProposedCandidate(child)
+            ? {
+                artifact: profileNodeOf(prepared, child.surface),
+                label: child.label,
+                rationale: child.rationale,
+                ...(child.attribution ? { attribution: child.attribution } : {}),
+              }
+            : { artifact: profileNodeOf(prepared, child), label: '', rationale: '' },
+        ),
+        ...(decision?.stop ? { stop: decision.reason ?? 'the proposer decided to stop' } : {}),
+        accounting: searchReceiptAccounting(fresh),
+        execution: searchProposalExecution(
+          fresh,
+          prepared.searchIdentity.model.provider,
+          proposerSource,
+        ),
+      }
+    },
+  }
+}
+
+type RunAttempt = Parameters<typeof searchExecutor<ProfileNode>>[0]['runAttempt']
+
+/** What every cell of one search shares. */
+interface SearchCellEnvironment<TScenario extends Scenario, TArtifact> {
+  readonly campaignOptions: Omit<RunCampaignOptions<TScenario, TArtifact>, 'scenarios' | 'dispatch'>
+  readonly prepared: PreparedProfileImprovement<TScenario, TArtifact>
+  readonly agent: ImproveSearchOptions<TScenario, TArtifact>['agent']
+  readonly executionRunId: ImproveSearchOptions<TScenario, TArtifact>['executionRunId']
+  readonly recordCell: ImproveSearchOptions<TScenario, TArtifact>['recordCell']
+  readonly scenarios: TScenario[]
+  readonly seed: number
+  readonly reps: number
+  readonly storage: CampaignStorage
+  readonly searchDir: string
+  readonly evaluationRef: string
+  readonly execution: SearchExecutionIdentity
+}
+
+/** The executor's cell runner for one search. */
+function searchCellRunner<TScenario extends Scenario, TArtifact>(
+  env: SearchCellEnvironment<TScenario, TArtifact>,
+): RunAttempt {
+  const { campaignOptions, prepared, executionRunId, recordCell, execution } = env
+  return async ({ work, lane, context, costLedger: cellLedger, span }) => {
+    const nodeProfile = work.artifact.profile
+    if (!nodeProfile) throw new Error(`improve(): refused node ${work.nodeId} was given a cell`)
+    const profileDigest = canonicalAgentProfileDigest(nodeProfile)
+    let fault: unknown
+    const campaign = await runCampaign<TScenario, TArtifact>({
+      ...campaignOptions,
+      // A seat's work leaves no receipt, which the campaign would otherwise report as a stub.
+      ...(lane.kind === 'subscription' &&
+      (campaignOptions as { expectUsage?: unknown }).expectUsage === undefined
+        ? { expectUsage: 'off' as const }
+        : {}),
+      scenarios: env.scenarios,
+      judges: prepared.judges.map((judge) => ({
+        ...judge,
+        async score(input) {
+          try {
+            return await judge.score(input)
+          } catch (error) {
+            if (isSearchEnvironmentFault(error)) fault = error
+            throw error
+          }
+        },
+      })),
+      seed: env.seed,
+      reps: env.reps,
+      storage: env.storage,
+      runDir: `${env.searchDir}/nodes/${profileDigest.slice('sha256:'.length)}`,
+      dispatchRef: `improve:${env.evaluationRef}:${profileDigest}`,
+      async dispatch(scenario, ctx) {
+        try {
+          return await env.agent(nodeProfile, scenario, { ...ctx, search: context })
+        } catch (error) {
+          if (isSearchEnvironmentFault(error)) fault = error
+          throw error
+        }
+      },
+      cellFilter: ({ scenario, rep }) => scenario.id === work.taskId && rep === work.rep,
+      resumable: true,
+      maxConcurrency: 1,
+      costLedger: cellLedger,
+      costPhase: `search.${work.stage}`,
+      buildTraceWriter: () => ({ span, flush: async () => {} }),
+      signal: work.signal,
+    })
+    const cell = campaign.cells[0]
+    if (!cell) throw new Error(`improve(): cell ${work.cellId} produced no campaign cell`)
+    const result = campaignCellSearchResult(cell, { execution, lane: lane.name })
+    const execRunId = cell.error ? null : (executionRunId?.(cell.artifact) ?? null)
+    const settled = faultResult(
+      execRunId && context.trace
+        ? {
+            ...result,
+            traceRef: {
+              traceId: context.trace.traceId,
+              execRunId,
+              spansWritten: null,
+              spansDropped: null,
+            },
+          }
+        : result,
+      fault,
+    )
+    return recordCell && settled.outcome.status !== 'errored'
+      ? {
+          ...settled,
+          recordCell: (finalResult) => recordCell({ cell, search: context, result: finalResult }),
+        }
+      : settled
+  }
+}
+
+/**
+ * An environment fault the agent raised settles retryable. The campaign reports every error as
+ * final because it applies its own retry policy; here the kernel owns retries.
+ */
+function faultResult(result: SearchCellResult, fault: unknown): SearchCellResult {
+  if (fault === undefined || result.outcome.status !== 'errored') return result
+  return {
+    ...result,
+    outcome: {
+      ...result.outcome,
+      error: { code: 'environment-fault', message: searchRefusalText(fault), retryable: true },
+    },
   }
 }

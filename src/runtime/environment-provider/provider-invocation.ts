@@ -9,20 +9,16 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
-import type { HarnessTranscriptCapture } from '../harness-transcript'
-import type {
-  ProviderNativeCapturePhase,
-  ProviderWorkspaceCaptureProvenance,
-} from '../provider-workspace-retention'
+import type { ProviderWorkspaceCaptureProvenance } from '../provider-workspace-retention'
 import type { RetainedRunHandle } from '../retained-run-types'
-import type { TeardownAnswer } from '../supervise/deadline'
 import { concreteProfileModel } from '../supervise/model-policy'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import { detachedSnapshot } from '../supervise/snapshot'
 import type { createPushTraceSource } from '../supervise/trace-source'
-import type { ExecutorNodeContext, ExecutorResult, Spend, UsageEvent } from '../supervise/types'
+import type { ExecutorNodeContext, Spend, UsageEvent } from '../supervise/types'
 import { providerExecutionSource } from './provider-execution-source'
 import type { ProviderExecutorOptions } from './provider-executor-admission'
+import type { ProviderExecutorScope } from './provider-executor-state'
 import {
   providerTurnDefaults,
   providerTurnWithDefaults,
@@ -69,11 +65,11 @@ export async function* streamProviderExecutor(
 ): AsyncGenerator<UsageEvent, ProviderInvocationEnd, undefined> {
   const started = Date.now()
   const turn = invocationTurn(args)
-  args.onProviderSessionId(turn.sessionId ?? null)
+  args.scope.state.providerSessionId = turn.sessionId ?? null
   const source = await providerExecutionSource(args, turn, args.signal)
   const environment = source.environment
   args.onEnvironment(environment)
-  args.startNativeMirror(environment)
+  args.scope.mirrors.startNativeMirror(environment)
   const usage = new ProviderUsageAccount(args, turn.model)
   const observer = new ProviderTurnObserver(args, usage, source.retained)
   const settlement = new ProviderTurnSettlement(
@@ -122,43 +118,18 @@ export interface StreamProviderExecutorArgs {
    *  caller to continue (`ProviderExecutorOptions.unavailablePause`). Only a retained source
    *  continues, because only it journals each invocation. */
   mayContinue: boolean
-  /** Whether the manager this turn serves has stopped: an accepted result, `stop`, a stop rule. */
-  managerStopped: () => boolean
+  /** The executor's state, mirrors and native control, which an invocation reports through. */
+  scope: ProviderExecutorScope
   onRetained: (handle: RetainedRunHandle) => void
-  onPending: (pending: boolean) => void
   onEnvironment: (environment: AgentEnvironment) => void
-  onArtifact: (artifact: ExecutorResult<unknown>) => void
-  onProviderSessionId: (id: string | null) => void
-  onUnsettledFailure: () => void
   onPublishedSnapshot: (snapshot: AgentCandidateWorkspaceSnapshotEvidence | undefined) => void
   captureWorkspace: (
     environment: AgentEnvironment,
     outcome: AgentRunOutcome | undefined,
   ) => Promise<AgentCandidateWorkspaceSnapshotEvidence | undefined>
-  /** Start copying the harness session to durable artifacts on an interval. */
-  startNativeMirror: (environment: AgentEnvironment) => void
-  /** Count one provider event, so the native mirror can skip a copy of an unchanged session. */
-  noteProviderEvent: () => void
-  /** Stop the harness of a turn its deadline or a cancellation ended, before its final copy.
-   *  Bounded; never throws. */
-  stopEndedHarness: (signal: AbortSignal) => Promise<void>
-  /** Stop the interval and copy once more, on every way the turn ends. Never throws. */
-  finishNativeMirror: (
-    environment: AgentEnvironment,
-    phase: ProviderNativeCapturePhase,
-  ) => Promise<void>
   workspaceControlRef: () => AgentExactRunControlRef | undefined
   workspaceProvenance: () => ProviderWorkspaceCaptureProvenance | undefined
   workspaceCoverage: () => { complete: boolean; incompleteReason?: string }
-  destroyEnvironment: (signal?: AbortSignal) => Promise<TeardownAnswer>
-  /** The harness transcript read out of the live environment, reported on the settled path AND
-   *  on the drop path. One channel for both, so a reader never has to know which path ran. */
-  onHarnessTranscript: (capture: HarnessTranscriptCapture) => void
-  /** The transcript is final for this turn: an aborted turn's harness stopped and its session's
-   *  final copy is taken. */
-  onTranscriptSettled: () => void
-  /** The settled turn's environment is kept for a keyed continuation (`holdOnSettle`). */
-  onHeld: () => void
 }
 
 export interface ProviderInvocationEnd {

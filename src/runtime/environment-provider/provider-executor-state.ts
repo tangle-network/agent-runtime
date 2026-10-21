@@ -36,24 +36,18 @@ export class ProviderExecutorState {
   retained: RetainedRunHandle | undefined
   pending = false
   /**
-   * The child's own harness transcript, read out of the environment while it was still live.
+   * The child's harness transcript, read out of the live environment. It is held HERE, not only in
+   * the settled result, because the children an operator most wants to read never produce one: a
+   * throwing stream has no artifact to carry it (#1244). The scope pulls it after `execute`
+   * resolves OR throws, as it pulls `metered()`.
    *
-   * It is held HERE, on the executor, rather than only inside the settled result, because the
-   * children whose reasoning an operator most wants are the ones that never produce a result:
-   * a stream that throws lands in the `catch` of the invocation with no artifact to ride in
-   * (#1244). The scope pulls this after `execute` resolves OR throws, exactly as it pulls
-   * `metered()`.
-   *
-   * Seeded, never left undefined, so the two absences stay apart: a child killed at admission
-   * never had a box and keeps this seed, while a child whose box was created and then dropped
-   * reports `capture-did-not-run`. Reporting the second as the first would file a child that
-   * reasoned for twenty seconds as one that never ran — which is the #1240 population exactly.
+   * Seeded, never undefined, so two absences stay apart: a child killed at admission keeps the
+   * seed, while one whose box was created and dropped reports `capture-did-not-run` (#1240).
    */
   harnessTranscript: HarnessTranscriptCapture =
     harnessTranscriptUnavailable('execution-never-started')
-  /** The stream destroys the environment on settle by default, so a later `teardown` would issue
-   *  a SECOND delete against a resource that is already gone. That second call is what the
-   *  provider answered 409 to. */
+  /** Set once the stream destroyed the environment: a later `teardown` would issue a SECOND
+   *  delete, which the provider answered 409 to. */
   destroyed = false
   /** Set when the settled turn kept its environment for a keyed continuation; cleared when the
    *  environment is released or handed to the successor node. */
@@ -131,10 +125,8 @@ export interface ProviderExecutorScope {
   readonly retention: RetainedExecutorContext | undefined
   readonly node: ExecutorNodeContext | undefined
   readonly executionId: string
-  readonly placement: { id: string; digest: string } | undefined
   readonly state: ProviderExecutorState
   readonly controller: AbortController
-  readonly managerStop: AbortSignal | undefined
   readonly trace: ReturnType<typeof createPushTraceSource>
   readonly materialization: ReturnType<typeof providerMaterialization>
   readonly mirrors: ReturnType<typeof createProviderCaptureMirrors>

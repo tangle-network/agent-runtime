@@ -40,7 +40,7 @@ export class ProviderTurnObserver {
         }
         continue
       }
-      this.args.noteProviderEvent()
+      this.args.scope.mirrors.noteProviderEvent()
       this.archive.append(event)
       this.text += textFromEnvironmentEvent(event)
       const sandboxEvent = sandboxEventFromEnvironmentEvent(event)

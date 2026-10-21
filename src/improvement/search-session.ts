@@ -6,12 +6,10 @@
  */
 import type { CostLedgerHandle } from '@tangle-network/agent-eval'
 import {
-  type CampaignStorage,
   type MutableSurface,
   type Scenario,
   type SearchArtifactCodec,
   type SearchArtifactRef,
-  type SearchExecutionIdentity,
   type SearchRecorder,
   type SearchUnknown,
   searchNodeId,
@@ -37,15 +35,12 @@ export interface ProfileNode {
   refusal: string | null
 }
 
-/** One search's identity, storage, ledgers and recorder. */
+/** One search's identity, ledgers and recorder. */
 export interface SearchSession<TScenario extends Scenario, TArtifact> {
   readonly method: ImproveSearchMethod
   readonly prepared: PreparedProfileImprovement<TScenario, TArtifact>
-  readonly storage: CampaignStorage
   readonly searchId: string
-  readonly searchDir: string
   readonly costLedger: CostLedgerHandle
-  readonly execution: SearchExecutionIdentity
   readonly recorder: SearchRecorder
 }
 

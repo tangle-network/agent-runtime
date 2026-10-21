@@ -11,7 +11,7 @@ import type {
 } from './coordination-contracts'
 import type { CoordinationEvent } from './coordination-events'
 import { safeJsonText } from './coordination-json'
-import { resolveJsonPointer, workerSettlement } from './coordination-map-routing'
+import { resolveJsonPointer, textBytes, workerSettlement } from './coordination-map-routing'
 import type { ContinuityMode } from './coordination-messages'
 import type {
   GateDecision,
@@ -70,9 +70,9 @@ export function createRouteRouting(deps: RouteDeps) {
     started: undefined,
   }
   return {
-    start: () => start(state),
-    route: (settled: Settled<unknown>, worker: SettledWorker) => route(state, settled, worker),
-    endInDoubt: (node: string, source: string) => endInDoubt(state, node, source),
+    start: start.bind(null, state),
+    route: route.bind(null, state),
+    endInDoubt: endInDoubt.bind(null, state),
   }
 }
 
@@ -112,8 +112,6 @@ type FlowState = RouteDeps & {
 
 type RouteTargets = Extract<RouteOnSettleEdge['to'], { readonly nodes: unknown }>['nodes']
 type CommittedStep = { readonly workerId: string; readonly node: string }
-
-const textBytes = (value: unknown): number => Buffer.byteLength(safeJsonText(value), 'utf8')
 
 const setLive = ({ live }: FlowState, node: string, workerId: string): void => {
   live.set(node, (live.get(node) ?? new Set()).add(workerId))
@@ -247,19 +245,13 @@ const targetName = (to: RouteOnSettleEdge['to']): string =>
         ? `stop:${to.stop}`
         : `finish:${to.finish}`
 
-/** One fired edge: its identity on every traversal row it publishes. */
-type Firing = {
-  readonly edge: RouteOnSettleEdge
-  readonly node: string
-  readonly source: string
-  readonly result: unknown
-  readonly row: {
-    readonly kind: 'traversal'
-    readonly edge: string
-    readonly from: string
-    readonly sourceWorker: string
-  }
-}
+/** One fired edge's identity on every traversal row it publishes. */
+const firedRow = (edge: RouteOnSettleEdge, sourceWorker: string) => ({
+  kind: 'traversal' as const,
+  edge: edge.edge,
+  from: edge.from.join('+'),
+  sourceWorker,
+})
 
 // A node's settle names its worker; a gate's decision names `gate:<id>#<visit>`.
 async function fire(
@@ -271,9 +263,7 @@ async function fire(
 ): Promise<void> {
   const traversal = (state.fired.get(edge.edge) ?? 0) + 1
   state.fired.set(edge.edge, traversal)
-  const from = edge.from.join('+')
-  const row = { kind: 'traversal' as const, edge: edge.edge, from, sourceWorker: source }
-  const firing: Firing = { edge, node, source, result, row }
+  const row = firedRow(edge, source)
   if ('stop' in edge.to) {
     await publish(state, {
       ...row,
@@ -317,13 +307,14 @@ async function fire(
     await decide(state, edge.to.gate, reached)
     return
   }
-  await fireNodes(state, firing, edge.to.nodes, traversal, evidence)
+  await fireNodes(state, edge, { node, source, result }, edge.to.nodes, traversal, evidence)
 }
 
 /** Spawn the nodes a fired edge targets: one, or every branch of a fork. */
 async function fireNodes(
   state: FlowState,
-  { edge, node, source, result, row }: Firing,
+  edge: RouteOnSettleEdge,
+  { node, source, result }: { node: string; source: string; result: unknown },
   targets: RouteTargets,
   traversal: number,
   evidence: Record<string, unknown>,
@@ -352,6 +343,7 @@ async function fireNodes(
       ? { from: { nodes: edge.from }, evidence }
       : { from: { node, result }, evidence }
   const fork = targets.length > 1
+  const row = firedRow(edge, source)
   const committed: CommittedStep[] = []
   for (const target of targets) {
     // A resume edge re-attaches to the target's latest settled session; a target that never

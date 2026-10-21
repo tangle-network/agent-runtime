@@ -68,16 +68,13 @@ export function createMapRouting(deps: MapDeps) {
   }
   return {
     isItem: (workerId: string) => state.mapMembers.get(workerId)?.role === 'item',
-    settleMapMember: (settled: Settled<unknown>, worker: SettledWorker, advance: boolean) =>
-      settleMapMember(state, settled, worker, advance),
-    expandMaps: (settled: Settled<unknown>, worker: SettledWorker) =>
-      expandMaps(state, settled, worker),
-    runMapStep: (step: () => Promise<void>, worker: SettledWorker) =>
-      runMapStep(state, step, worker),
+    settleMapMember: settleMapMember.bind(null, state),
+    expandMaps: expandMaps.bind(null, state),
+    runMapStep: runMapStep.bind(null, state),
   }
 }
 
-const textBytes = (value: unknown): number => Buffer.byteLength(safeJsonText(value), 'utf8')
+export const textBytes = (value: unknown): number => Buffer.byteLength(safeJsonText(value), 'utf8')
 
 async function publishMap(
   { bus }: MapState,

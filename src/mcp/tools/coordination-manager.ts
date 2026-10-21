@@ -1,6 +1,8 @@
+import type { Settled } from '../../runtime'
 import { createEventBus, type EventBus } from '../../runtime/supervise/event-bus'
 import type { InboxReceipt } from '../../runtime/supervise/inbox'
 import { createPeerMailbox, type PeerMailbox } from '../../runtime/supervise/peer-mail'
+import { detachedFrozen } from '../../runtime/supervise/snapshot'
 import type { McpToolDescriptor } from '../server'
 import { createCoordinationAnalysis } from './coordination-analysis'
 import { mountAnalystsTools } from './coordination-analyst-tools'
@@ -14,6 +16,7 @@ import type {
 import { createDownMessages } from './coordination-down-messages'
 import type { CoordinationEvent } from './coordination-events'
 import { mountGraphsTools } from './coordination-graph-tools'
+import { obj, str } from './coordination-input'
 import { createJournalReader } from './coordination-journal-reader'
 import { createLeadIntake } from './coordination-lead-intake'
 import { managerReentryState } from './coordination-manager-reentry'
@@ -27,11 +30,9 @@ import {
 } from './coordination-manager-state'
 import { createManagerWaiting } from './coordination-manager-waiting'
 import { createMapRouting } from './coordination-map-routing'
-import { mountPeerAudit } from './coordination-peer-audit'
 import { createQuestionLedger } from './coordination-question-ledger'
 import { createQuestionTools } from './coordination-question-tools'
 import { createResultTools } from './coordination-result-tools'
-import { createResumeReplay } from './coordination-resume-replay'
 import { createRouteRouting } from './coordination-route-routing'
 import { createSettlementDrain } from './coordination-settlement-drain'
 import { createSpawnAdmission } from './coordination-spawn-admission'
@@ -439,4 +440,114 @@ function registerChildQuestionInbox(
     )
     return { delivered: true, to: `parent manager question ${record.id}` }
   })
+}
+
+/**
+ * Let `observe_agent` and `read_journal` read a peer root's own record when the run enables peer
+ * audit, then register this manager's tools with the peer registry. Mutates the two tools in place.
+ */
+function mountPeerAudit({
+  opts,
+  tools,
+  readJournal,
+}: {
+  readonly opts: CoordinationToolsOptions & {
+    readonly peerAudit: NonNullable<CoordinationToolsOptions['peerAudit']>
+  }
+  readonly tools: McpToolDescriptor[]
+  readonly readJournal: (raw: unknown, trackOwnRead?: boolean) => unknown
+}): void {
+  for (const tool of tools) {
+    if (tool.name !== 'observe_agent' && tool.name !== 'read_journal') continue
+    const ownHandler = tool.handler
+    const name = tool.name
+    const schema = tool.inputSchema as { properties?: Record<string, unknown> }
+    schema.properties = {
+      ...schema.properties,
+      peerId: {
+        type: 'string',
+        description:
+          "Read a peer root's own record, using its workerId from read_mail.peers. Read-only; omit for your own tree.",
+      },
+    }
+    tool.handler = async (raw) => {
+      const args = obj(raw)
+      if (args.peerId === undefined) return ownHandler(raw)
+      const peerId = str(args.peerId, 'peerId')
+      const { peerId: _peerId, ...readArgs } = args
+      return opts.peerAudit?.read(peerId, name, readArgs)
+    }
+  }
+  // A peer read must not claim that this manager has consumed its own journal.
+  opts.peerAudit.register(
+    opts.scope.view.root,
+    tools.map((tool) =>
+      tool.name === 'read_journal'
+        ? { ...tool, handler: async (raw) => readJournal(raw, false) }
+        : tool,
+    ),
+  )
+}
+
+/**
+ * Seed the settled ledger from a resumed scope and own the replay of its events onto the bus.
+ * Replayed reviews remain findings. They cannot enter the completion pool or recursively
+ * trigger another analyst, even when the resumed configuration changes its analyst routes.
+ */
+function createResumeReplay({
+  opts,
+  bus,
+  ledger,
+  analysis,
+  projectSettled,
+}: {
+  readonly opts: CoordinationToolsOptions
+  readonly bus: EventBus<CoordinationEvent>
+  readonly ledger: SettledWorker[]
+  readonly analysis: ReturnType<typeof createCoordinationAnalysis>
+  readonly projectSettled: (settled: Settled<unknown>, resumed?: boolean) => SettledWorker
+}): () => Promise<void> {
+  const { analystRuns, flushedAnalystRuns, analystRunFinding } = analysis
+  const resumedWorkers: SettledWorker[] = []
+  const resumedFindings: CoordinationEvent[] = []
+  for (const s of opts.scope.resume?.settled ?? []) {
+    const analyst = analystRuns.get(s.handle.id)
+    if (analyst) {
+      resumedFindings.push(analystRunFinding(analyst, s))
+      analystRuns.delete(s.handle.id)
+      flushedAnalystRuns.add(s.handle.id)
+      continue
+    }
+    const worker = projectSettled(s, true)
+    resumedWorkers.push(worker)
+    ledger.push(worker)
+  }
+  // A settlement can be durable in the spawn journal while the process dies before the product
+  // observer acknowledges it. Opted-in high-level callers replay those events at least once. Keep
+  // each frozen event object across an in-process retry so EventBus reuses its exact BusRecord.
+  const resumeEvents = opts.replaySettlements
+    ? [
+        ...resumedWorkers.map((worker) =>
+          detachedFrozen<CoordinationEvent>({ type: 'settled', worker }),
+        ),
+        ...resumedFindings,
+      ]
+    : []
+  let resumeEventIndex = 0
+  let readyInFlight: Promise<void> | undefined
+  return (): Promise<void> => {
+    if (resumeEventIndex >= resumeEvents.length) return Promise.resolve()
+    if (readyInFlight) return readyInFlight
+    readyInFlight = (async () => {
+      while (resumeEventIndex < resumeEvents.length) {
+        const event = resumeEvents[resumeEventIndex]
+        if (!event) break
+        await bus.publish(event)
+        resumeEventIndex += 1
+      }
+    })().finally(() => {
+      readyInFlight = undefined
+    })
+    return readyInFlight
+  }
 }

@@ -1,12 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import { isAbsolute, relative, resolve as resolveHostPath } from 'node:path'
-import type {
-  AgentCandidateEffectiveMemory,
-  AgentCandidateExecutionLimits,
-  AgentCandidateModelAccessNetwork,
-  AgentCandidateResolvedModel,
-} from '@tangle-network/agent-interface'
 import {
+  type AgentCandidateEffectiveMemory,
+  type AgentCandidateExecutionLimits,
+  type AgentCandidateResolvedModel,
   agentCandidateBenchmarkSuiteSchema,
   agentCandidateBenchmarkTaskSchema,
   agentCandidateContainerSchema,
@@ -15,8 +12,10 @@ import {
   agentCandidateRunCellSchema,
   agentCandidateTaskOutcomeSpecSchema,
   agentCandidateWorkspaceSnapshotEvidenceSchema,
+  type Sha256Digest,
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
+import { errorMessage } from '../runtime/util'
 import { readVerifiedArtifact, verifyWorkspaceSnapshotArtifacts } from './artifacts'
 import {
   candidateCleanupDeadline,
@@ -30,8 +29,7 @@ import { isWellFormedUnicode } from './exact-object'
 import { assertAgentCandidateExecutionRoots, executionPathsOverlap } from './execution-roots'
 import { candidateExecutionOwnerWindowMs } from './execution-window'
 import { candidateKnowledgeExecutionPaths, prepareAgentCandidateKnowledge } from './knowledge'
-import { usdToNanos } from './model-settlement'
-import { cleanupFailedPreparation } from './prepare-cleanup'
+import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import {
   candidateTraceBindings,
   executionPlanMaterial,
@@ -658,18 +656,7 @@ async function prepareMemory(
 }
 
 function validateProtectedModelReservation(
-  reservation: {
-    preparationId: string
-    digest: string
-    expiresAtMs: number
-    enforcedLimits: {
-      maxModelCalls: number
-      maxInputTokens: number
-      maxOutputTokens: number
-      maxCostUsd: number
-    }
-    network: AgentCandidateModelAccessNetwork
-  },
+  reservation: ModelReservation,
   expectedLimits: AgentCandidateExecutionLimits,
   preparationId: string,
   expiresAtMs: number,
@@ -688,5 +675,87 @@ function validateProtectedModelReservation(
   const network = agentCandidateModelAccessNetworkSchema.parse(reservation.network)
   if (network.mode !== expectedNetworkMode) {
     throw new Error('protected model reservation has the wrong network policy for its call limit')
+  }
+}
+
+/** The reservations a preparation holds, as far as it got. */
+interface HeldPreparationAccess {
+  readonly task: AgentCandidateTaskExecution
+  readonly ports: AgentCandidateExecutionPorts
+  readonly preparationId: string
+  readonly cleanupTimeoutMs: number
+  readonly modelGrantDigest: Sha256Digest
+  readonly resolvedModel: AgentCandidateResolvedModel
+  /** The isolated memory reservation, once prepared. */
+  readonly memory?: { accessDigest: Sha256Digest | undefined; effectiveNamespace: string }
+}
+
+/**
+ * Close the isolated memory and settle the model grant of a preparation that failed. Throws a
+ * combined error, with `cause` set to the preparation's own, when a cleanup fails too.
+ */
+async function cleanupFailedPreparation(
+  held: HeldPreparationAccess,
+  error: unknown,
+): Promise<void> {
+  const { task, ports, preparationId, resolvedModel } = held
+  const cleanupDeadlineAtMs = candidateCleanupDeadline(held.cleanupTimeoutMs)
+  const cleanup: Array<Promise<unknown>> = []
+  if (held.memory !== undefined) {
+    const { accessDigest, effectiveNamespace } = held.memory
+    if (!accessDigest) throw new Error('isolated memory preparation is missing access identity')
+    cleanup.push(
+      withinCandidateCleanupDeadline(
+        async () => {
+          const closed = await ports.memory.close({
+            executionId: task.executionId,
+            preparationId,
+            accessDigest,
+            effectiveNamespace,
+            reason: 'preparation-failed',
+          })
+          if (closed.closed !== true || Object.keys(closed).some((key) => key !== 'closed')) {
+            throw new Error('failed preparation did not close isolated memory access')
+          }
+        },
+        cleanupDeadlineAtMs,
+        'failed preparation memory cleanup',
+      ),
+    )
+  }
+  cleanup.push(
+    withinCandidateCleanupDeadline(
+      async () => {
+        const settlement = sealAgentCandidateModelSettlement(
+          await ports.models.settleGrant({
+            executionId: task.executionId,
+            preparationId,
+            grantDigest: held.modelGrantDigest,
+            resolved: resolvedModel,
+            reason: 'preparation-failed',
+          }),
+          {
+            preparationId,
+            grantDigest: held.modelGrantDigest,
+            model: resolvedModel.model,
+          },
+        )
+        if (settlement.usage.modelCalls !== 0) {
+          throw new Error('failed preparation unexpectedly contains model calls')
+        }
+      },
+      cleanupDeadlineAtMs,
+      'failed preparation model cleanup',
+    ),
+  )
+  const cleanupResults = await Promise.allSettled(cleanup)
+  const cleanupErrors = cleanupResults
+    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map((result) => result.reason)
+  if (cleanupErrors.length > 0) {
+    throw new Error(
+      `candidate preparation failed and protected access cleanup failed: ${cleanupErrors.map(errorMessage).join('; ')}`,
+      { cause: error },
+    )
   }
 }

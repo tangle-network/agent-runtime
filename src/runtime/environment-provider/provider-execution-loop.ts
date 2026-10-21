@@ -10,7 +10,6 @@ import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import type { Spend, UsageEvent } from '../supervise/types'
 import { unavailablePauseMs } from '../supervise/upstream-unavailable'
 import { sleep } from '../util'
-import { destroyExecutorEnvironment } from './provider-environment-teardown'
 import type { ProviderExecutorScope } from './provider-executor-state'
 import {
   type ProviderInvocationEnd,
@@ -67,9 +66,10 @@ function invocationArgs(
   executionStartedAt: number,
   continued: boolean,
 ): StreamProviderExecutorArgs {
-  const { state, options, provider, node, mirrors, nativeControl } = scope
+  const { state, options, provider, node, nativeControl } = scope
   return {
     provider,
+    scope,
     profile: scope.profile,
     createProfile: scope.createProfile,
     task: invocation.task,
@@ -84,15 +84,11 @@ function invocationArgs(
     executionStartedAt,
     mayContinue:
       options.unavailablePause !== false && invocation.retention?.continueInvocation !== undefined,
-    managerStopped: () => scope.managerStop?.aborted === true,
     onRetained: (handle) => {
       state.retained = handle
       state.workspaceControlRef = freezeControlRef(handle.controlRef)
       state.providerSessionId = state.workspaceControlRef.sessionId
       nativeControl.cancelRetainedOnManagerStop(handle)
-    },
-    onPending: (value) => {
-      state.pending = value
     },
     onEnvironment: (env) => {
       if (!continued) return adoptEnvironment(scope, env)
@@ -105,19 +101,6 @@ function invocationArgs(
       }
       state.environment = env
     },
-    onArtifact: (next) => {
-      state.artifact = next
-    },
-    onProviderSessionId: (id) => {
-      state.providerSessionId = id
-    },
-    onHarnessTranscript: (next) => {
-      state.harnessTranscript = next
-    },
-    onTranscriptSettled: () => state.settleTranscript(),
-    onUnsettledFailure: () => {
-      state.workspacePreservationRequired = true
-    },
     onPublishedSnapshot: (snapshot) => {
       state.workspacePublishedSnapshot = snapshot
       if (
@@ -129,20 +112,12 @@ function invocationArgs(
       }
     },
     captureWorkspace: (next, outcome) => captureExecutorWorkspace(scope, next, outcome),
-    startNativeMirror: mirrors.startNativeMirror,
-    noteProviderEvent: mirrors.noteProviderEvent,
-    stopEndedHarness: nativeControl.stopEndedHarness,
-    finishNativeMirror: mirrors.finishNativeMirror,
     workspaceControlRef: () => state.workspaceControlRef,
     workspaceProvenance: () => state.workspaceProvenance,
     workspaceCoverage: () => ({
       complete: state.workspaceCoverageComplete,
       incompleteReason: state.workspaceIncompleteReason,
     }),
-    destroyEnvironment: (cleanupSignal) => destroyExecutorEnvironment(scope, cleanupSignal),
-    onHeld: () => {
-      state.holdingForContinuation = true
-    },
   }
 }
 

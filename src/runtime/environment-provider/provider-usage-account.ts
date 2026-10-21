@@ -23,8 +23,7 @@ export class ProviderUsageAccount {
   private sawCostEstimate = false
   private pendingUnpricedWork = false
   private pendingEstimate: number | undefined
-  /** The model id a usage receipt reported, when it reported one. Only a catalog can price a run
-   *  the provider never billed, and only a model id can address a catalog. */
+  /** The model id a usage receipt reported: the only key a catalog can price an unbilled run by. */
   private observedModel: string | undefined
 
   constructor(
@@ -59,15 +58,11 @@ export class ProviderUsageAccount {
    */
   *settleUnpricedWork(): Iterable<UsageEvent> {
     if (!this.pendingUnpricedWork) return
-    // A provider that reports tokens and no dollars used to settle a bare `$0`, so a sandbox-
-    // rooted run that certainly spent money reported a dollar total of zero with no estimate at
-    // all. The catalog answers what the provider WOULD bill, so the amount rides `usdEstimated`
-    // and `usdKnown` stays false below: a price is not a receipt and must never become one.
-    //
-    // Priced only when NO dollars reached the channel for this execution. `tokens` is the
-    // execution's cumulative total, not the unresolved remainder, so pricing it alongside any
-    // receipt — billed or already marked unknown — would charge the same tokens twice. A
-    // partially billed execution therefore keeps its unresolved part unknown, which is true.
+    // A provider reporting tokens and no dollars used to settle a bare `$0`. The catalog says what
+    // it WOULD bill, so the amount rides `usdEstimated` and `usdKnown` stays false: a price is not
+    // a receipt. Priced only when NO dollars reached the channel, because `tokens` is the
+    // execution's cumulative total and pricing it beside any receipt would charge them twice; a
+    // partially billed execution keeps its unresolved part unknown.
     const estimated = this.pendingEstimate ?? (this.usd === 0 ? this.catalogPrice() : undefined)
     const estimate = estimated ?? 0
     this.sawUnknownCostReceipt = true
@@ -85,8 +80,8 @@ export class ProviderUsageAccount {
     }
   }
 
-  /** This invocation's spend, and the execution's: a continuation adds its earlier invocations'. */
-  spend(started: number): { spent: Spend; executionSpent: Spend } {
+  /** The execution's spend: this invocation's, plus its earlier invocations' for a continuation. */
+  spend(started: number): Spend {
     const spent: Spend = {
       iterations: 1,
       tokens: this.tokens,
@@ -103,24 +98,19 @@ export class ProviderUsageAccount {
       ms: Date.now() - started,
     }
     const { carried } = this.args
-    const executionSpent: Spend =
-      carried === undefined
-        ? spent
-        : {
-            ...addSpend(carried, { ...spent, iterations: 0 }),
-            ms: Date.now() - this.args.executionStartedAt,
-          }
-    return { spent, executionSpent }
+    return carried === undefined
+      ? spent
+      : {
+          ...addSpend(carried, { ...spent, iterations: 0 }),
+          ms: Date.now() - this.args.executionStartedAt,
+        }
   }
 
   /**
-   * The catalog price of this execution's whole token total, under the first model id the catalog
-   * knows. Undefined when none prices, so an unpriced model settles with no estimate at all rather
-   * than a zero one — absence says "nothing could be priced", a zero would say "priced at nothing".
-   *
-   * Candidates run most specific first: the id a usage receipt reported, then the turn's own
-   * model, then the profile's. A provider that selected its own default declares no profile model,
-   * so a reported id is then the only one a catalog can match.
+   * The catalog price of the execution's whole token total under the first model id the catalog
+   * knows, or undefined: absence says "nothing could be priced", a zero would say "priced at
+   * nothing". Candidates run most specific first: the id a receipt reported, the turn's model,
+   * the profile's (a provider on its own default declares none, so a reported id is the only match).
    */
   private catalogPrice(): number | undefined {
     const { tokens } = this
@@ -154,8 +144,7 @@ export class ProviderUsageAccount {
 
   private *credit(receipt: UsageReceipt, event?: SandboxEvent): Iterable<UsageEvent> {
     if (receipt === undefined) return
-    // A receipt that named no model is stamped with the worker's name, which is not a model id and
-    // prices nothing. Only a different value is evidence of what the provider actually served.
+    // A receipt naming no model is stamped with the worker's name, which prices nothing.
     if (receipt.model !== this.worker) this.observedModel = receipt.model
     const hasTokens = receipt.tokensIn !== undefined || receipt.tokensOut !== undefined
     if (

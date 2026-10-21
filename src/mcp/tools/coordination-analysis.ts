@@ -85,17 +85,13 @@ export function createCoordinationAnalysis(deps: AnalysisDeps) {
     analystRuns,
     flushedAnalystRuns: state.flushedAnalystRuns,
     analystRunFinding,
-    spawnAnalystRun: (route: AnalyzeOnSettleRoute, worker: SettledWorker) =>
-      spawnAnalystRun(state, route, worker),
-    deliverRoutedFinding: (route: AnalyzeOnSettleRoute, findings: AnalystLensOutput | unknown) =>
-      deliverRoutedFinding(state, route, findings),
-    analystRunContext: (kind: string, sourceWorker: string) =>
-      analystRunContext(opts, kind, sourceWorker),
-    finishAnalysis: ((input) =>
-      finishAnalysis(state, input)) satisfies CoordinationTools['finishAnalysis'],
+    spawnAnalystRun: spawnAnalystRun.bind(null, state),
+    deliverRoutedFinding: deliverRoutedFinding.bind(null, state),
+    analystRunContext: analystRunContext.bind(null, opts),
+    finishAnalysis: finishAnalysis.bind(null, state) satisfies CoordinationTools['finishAnalysis'],
     definedAnalysts: state.definedAnalysts,
-    analystMenu: () => analystMenu(state),
-    defineAnalyst: (raw: unknown) => defineAnalyst(state, raw),
+    analystMenu: analystMenu.bind(null, state),
+    defineAnalyst: defineAnalyst.bind(null, state),
     isFinishing: () => state.finishing,
   }
 }

@@ -3,14 +3,12 @@
  * the materialization receipt, and the trace bindings that tie a run back to them.
  */
 
-import type {
-  AgentCandidateConfigValue,
-  AgentCandidateExecutionPlanEvidence,
-  AgentCandidateExecutionPlanMaterial,
-  AgentCandidateMaterializationReceipt,
-  AgentCandidateResolvedModel,
-} from '@tangle-network/agent-interface'
 import {
+  type AgentCandidateConfigValue,
+  type AgentCandidateExecutionPlanEvidence,
+  type AgentCandidateExecutionPlanMaterial,
+  type AgentCandidateMaterializationReceipt,
+  type AgentCandidateResolvedModel,
   agentCandidateExecutionPlanEvidenceSchema,
   agentCandidateExecutionPlanMaterialSchema,
   agentCandidateMaterializationReceiptSchema,

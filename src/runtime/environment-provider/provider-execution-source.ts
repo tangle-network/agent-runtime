@@ -208,7 +208,7 @@ async function retainedExecution(
     if (admission.phase === 'dispatched') proof.executionAdmitted = true
     await retention.onAdmission(admission)
     proof.admitted = true
-    args.onPending(true)
+    args.scope.state.pending = true
   }
   const { material, restore, turnId } = retainedDispatchMaterial(
     args,
@@ -224,7 +224,7 @@ async function retainedExecution(
     })
     proof.executionAdmitted = true
     args.onRetained(handle)
-    args.onPending(true)
+    args.scope.state.pending = true
     const environment = await args.provider.get?.(handle.controlRef.environmentId)
     if (!environment) throw new Error('retained provider environment is unavailable')
     if (restore !== undefined && !args.recovering) {

@@ -228,18 +228,12 @@ async function stopExecutor(
   try {
     const stopped = await withinCandidateCleanupDeadline(
       (cleanupSignal) =>
-        executor.stop(
-          {
-            executionId: request.executionId,
-            executionPlanDigest: request.executionPlan.value.digest,
-          },
-          {
-            traceStore,
-            reason,
-            signal: cleanupSignal,
-            deadlineAtMs: cleanupDeadlineAtMs,
-          },
-        ),
+        executor.stop(executionTarget(request), {
+          traceStore,
+          reason,
+          signal: cleanupSignal,
+          deadlineAtMs: cleanupDeadlineAtMs,
+        }),
       cleanupDeadlineAtMs,
       'candidate process termination',
     )
@@ -262,16 +256,7 @@ async function captureFinalEvidence(
       finalCapture: sealAgentCandidateExecutorFinalCapture(
         await withinCandidateCleanupDeadline(
           (cleanupSignal) =>
-            executor.capture(
-              {
-                executionId: request.executionId,
-                executionPlanDigest: request.executionPlan.value.digest,
-              },
-              {
-                traceStore,
-                signal: cleanupSignal,
-              },
-            ),
+            executor.capture(executionTarget(request), { traceStore, signal: cleanupSignal }),
           cleanupDeadlineAtMs,
           'candidate final evidence capture',
         ),
@@ -290,37 +275,27 @@ async function disposalFailure(
   cleanupDeadlineAtMs: number,
 ): Promise<unknown> {
   try {
-    await disposeExecutor(executor, request, cleanupDeadlineAtMs)
+    const dispose = executor.dispose
+    if (!dispose) return undefined
+    const disposed = await withinCandidateCleanupDeadline(
+      (cleanupSignal) =>
+        dispose.call(executor, executionTarget(request), { signal: cleanupSignal }),
+      cleanupDeadlineAtMs,
+      'candidate execution resource disposal',
+    )
+    if (disposed?.disposed !== true || Object.keys(disposed).some((key) => key !== 'disposed')) {
+      throw new Error('candidate executor did not acknowledge resource disposal')
+    }
     return undefined
   } catch (error) {
     return error
   }
 }
 
-async function disposeExecutor(
-  executor: AgentCandidateExecutorPort,
-  request: AgentCandidateExecutorRequest,
-  cleanupDeadlineAtMs: number,
-): Promise<void> {
-  const dispose = executor.dispose
-  if (!dispose) return
-  const disposed = await withinCandidateCleanupDeadline(
-    (cleanupSignal) =>
-      dispose.call(
-        executor,
-        {
-          executionId: request.executionId,
-          executionPlanDigest: request.executionPlan.value.digest,
-        },
-        { signal: cleanupSignal },
-      ),
-    cleanupDeadlineAtMs,
-    'candidate execution resource disposal',
-  )
-  if (disposed?.disposed !== true || Object.keys(disposed).some((key) => key !== 'disposed')) {
-    throw new Error('candidate executor did not acknowledge resource disposal')
-  }
-}
+const executionTarget = (request: AgentCandidateExecutorRequest) => ({
+  executionId: request.executionId,
+  executionPlanDigest: request.executionPlan.value.digest,
+})
 
 class CandidateExecutionDeadlineError extends Error {
   constructor(timeoutMs: number) {
