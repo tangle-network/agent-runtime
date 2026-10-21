@@ -1,0 +1,180 @@
+import { appendSpawnEvents } from '../../durable/spawn-journal/journal-store'
+import { RuntimeRunStateError } from '../../errors'
+import { RunCancellationReason } from './abortable'
+import { type BudgetPool, createBudgetPool } from './budget'
+import { newExecutionAttemptId } from './materialization'
+import { prepareScopeResume, type ScopeResumeState } from './recover-executors'
+import {
+  assertResumeContract,
+  changesRootProfile,
+  recordRootReentered,
+  recordRootSegment,
+  rootExecutionBindingReceipt,
+  rootMaterializationReceipt,
+  rootStartedAtMs,
+} from './supervisor-root-contract'
+import type { SpawnEvent, SupervisorOpts } from './types'
+
+/** The run's durable tree as this process opened it: resumed from its journal, or begun fresh. */
+export interface OpenedRunTree {
+  readonly rootAttemptId: string
+  readonly runStartedAt: string
+  /** The prior journal events; on a resume, the events the recovered scope starts from. */
+  readonly prior: SpawnEvent[] | undefined
+  readonly resumeFrom: ScopeResumeState | undefined
+  readonly pool: BudgetPool
+  /** The instant terminal wall-clock `ms` measures from. A resumed run anchors to the ORIGINAL
+   *  root instant (the same anchor the absolute deadline uses), so its duration spans processes. */
+  readonly runEpochMs: number
+}
+
+export async function openRunTree(opts: SupervisorOpts, now: () => number): Promise<OpenedRunTree> {
+  const rootAttemptId = newExecutionAttemptId(opts.runId)
+  // One instant owns both the fresh pool's absolute deadline and its durable root records. Capture
+  // it before any asynchronous journal work so a slow begin cannot extend the run on restart.
+  const runStartedAtMs = now()
+  const runStartedAt = new Date(runStartedAtMs).toISOString()
+
+  // RESUME-FIRST (opt-in via `opts.resume`): read any prior journal tree for this runId BEFORE
+  // beginning a fresh one. A non-empty tree means a prior run for this runId already committed
+  // work (it crashed mid-flight, or this is an explicit resume), so rehydrate it instead of
+  // starting over. An empty/absent tree — and every run that did NOT opt in — takes the fresh
+  // path unchanged. This wires the already-built+tested resume primitives
+  // (`replaySpawnTree`/`materializeTreeView`); the journal/blob store decide durability.
+  const existing = await opts.journal.loadTree(opts.runId)
+  if (opts.resume !== true && existing !== undefined) {
+    throw new RuntimeRunStateError(
+      `supervisor: runId '${opts.runId}' already exists; pass resume: true to continue it or use a new runId`,
+    )
+  }
+  const prior = opts.resume === true ? existing : undefined
+  const resuming = prior !== undefined && prior.length > 0
+  const opened =
+    resuming && prior !== undefined
+      ? await resumeRunTree(opts, prior, now, runStartedAt, rootAttemptId)
+      : await beginRunTree(opts, existing, prior, runStartedAtMs, runStartedAt, rootAttemptId)
+  const stableRootReceipt = resuming
+    ? opened.prior?.find(
+        (event): event is Extract<SpawnEvent, { kind: 'materialized' }> =>
+          event.kind === 'materialized' && event.id === opts.runId,
+      )?.receipt
+    : rootMaterializationReceipt(opts)
+  if (stableRootReceipt !== undefined) {
+    const rootBinding = rootExecutionBindingReceipt(opts, stableRootReceipt, rootAttemptId)
+    if (rootBinding !== undefined) {
+      await opts.journal.appendEvent(opts.runId, {
+        kind: 'execution-bound',
+        id: opts.runId,
+        binding: rootBinding,
+        seq: 0,
+        at: runStartedAt,
+      })
+    }
+  }
+  return opened
+}
+
+async function resumeRunTree(
+  opts: SupervisorOpts,
+  prior: SpawnEvent[],
+  now: () => number,
+  runStartedAt: string,
+  rootAttemptId: string,
+): Promise<OpenedRunTree> {
+  const rootEvent = assertResumeContract(prior, opts)
+  const runEpochMs = rootStartedAtMs(rootEvent)
+  const recoveryController = new AbortController()
+  const abortRecovery = () => recoveryController.abort(opts.signal?.reason)
+  if (opts.signal?.aborted) abortRecovery()
+  else opts.signal?.addEventListener('abort', abortRecovery, { once: true })
+  // The execution deadline forbids new work, not recovery of committed evidence.
+  // Restore the tree first so an expired run reaches the normal deadline settlement
+  // and teardown path. Caller cancellation still interrupts reconciliation.
+  let restored: Awaited<ReturnType<typeof prepareScopeResume>>
+  try {
+    // A run cancelled before this entry settles from its journal and starts nothing:
+    // queens21-h22-tree4-20261018a's resume threw on the aborted recovery, and the next one
+    // re-ran its work to budget exhaustion before the cancel applied.
+    const cancelledAtEntry =
+      opts.signal?.aborted === true && opts.signal.reason instanceof RunCancellationReason
+    restored = await prepareScopeResume(
+      opts,
+      prior,
+      recoveryController.signal,
+      now,
+      opts.runId,
+      cancelledAtEntry,
+    )
+  } finally {
+    opts.signal?.removeEventListener('abort', abortRecovery)
+  }
+  const resumeFrom = restored.resumeFrom
+  const events = [...resumeFrom.events]
+  const pool = createBudgetPool(opts.budget, runEpochMs, restored.poolRestore)
+  await recordRootSegment(opts, events, runStartedAt, false)
+  await recordRootReentered(opts, resumeFrom, runStartedAt)
+  return { rootAttemptId, runStartedAt, prior: events, resumeFrom, pool, runEpochMs }
+}
+
+async function beginRunTree(
+  opts: SupervisorOpts,
+  existing: SpawnEvent[] | undefined,
+  prior: SpawnEvent[] | undefined,
+  runStartedAtMs: number,
+  runStartedAt: string,
+  rootAttemptId: string,
+): Promise<OpenedRunTree> {
+  if (opts.rootSegment !== undefined && changesRootProfile(opts.rootSegment)) {
+    throw new RuntimeRunStateError(
+      `supervisor: run '${opts.runId}' has no recorded root to change the model or harness of; a new run takes them from its profile`,
+    )
+  }
+  const pool = createBudgetPool(opts.budget, runStartedAtMs)
+  // Fresh run: begin the tree and journal the root as its own `spawned` node (parent-less, the
+  // spawn-ordinal-0 marker), so a journal-based reader — `trajectoryReport`, `replaySpawnTree`,
+  // `materializeTreeView` — can reconstruct the WHOLE realized tree from a real run, not only
+  // hand-built journals. The root is never `scope.spawn`ed (the supervisor runs `act` directly),
+  // so without this the root node is absent and `trajectoryReport` fails its `nodes.has(root)`
+  // invariant. The uniqueness guard skips `spawned` events (only the cursor namespace must be
+  // unique), so sharing ordinal 0 with the first child's spawn is not a collision; replay ignores
+  // `spawned` events for settlement reconstruction, so the replayed `Settled[]` is unchanged.
+  // A crash may have committed only beginTree. It owns no root yet, but beginning it
+  // again with a different timestamp would reject a valid empty durable run.
+  if (existing === undefined) await opts.journal.beginTree(opts.runId, runStartedAt)
+  const rootReceipt = rootMaterializationReceipt(opts)
+  const rootRuntime = opts.rootMaterialization?.runtime ?? 'inline'
+  // The root records publish as ONE grouped record where the store supports it, so a SQL
+  // context's fenced head advances once for the whole initialization.
+  const rootEvents: SpawnEvent[] = [
+    {
+      kind: 'spawned',
+      id: opts.runId,
+      label: 'root',
+      budget: opts.budget,
+      runtime: rootRuntime,
+      ...(opts.reservationPolicy ? { recursiveAdmission: { policy: opts.reservationPolicy } } : {}),
+      ...(opts.rootIdentity ? { identity: opts.rootIdentity } : {}),
+      seq: 0,
+      at: runStartedAt,
+    },
+  ]
+  if (rootReceipt !== undefined) {
+    rootEvents.push({
+      kind: 'materialized',
+      id: opts.runId,
+      receipt: rootReceipt,
+      seq: 0,
+      at: runStartedAt,
+    })
+  }
+  await appendSpawnEvents(opts.journal, opts.runId, rootEvents)
+  await recordRootSegment(opts, [], runStartedAt, true)
+  return {
+    rootAttemptId,
+    runStartedAt,
+    prior,
+    resumeFrom: undefined,
+    pool,
+    runEpochMs: runStartedAtMs,
+  }
+}
