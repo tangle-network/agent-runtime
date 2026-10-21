@@ -3,88 +3,69 @@
  * over them.
  *
  * The author knows the dimensions up front — risk, cost, fit — so each is a differently-profiled
- * worker node, one `delegates` edge apiece, capped at one traversal. A `synthesis` analyst NODE
- * watches all three and reports to the root.
+ * worker node, and each is an `entry` of a flow graph: Runtime starts all three at once. A join
+ * (`from` lists the three dimensions) starts the `synthesis` node once every dimension has settled,
+ * with each dimension's result as evidence, so one synthesis reads all three and its result is the
+ * recommendation: one dimension that does not support shipping turns `ship` into `hold`. The
+ * deliverable accepts only a recommendation whose basis covers every dimension, so a single
+ * dimension's raw output can never be the result. No root joins anything.
  *
- * An analyst fires on EACH matching settle, so the synthesis agent runs three times, once over each
- * dimension's output, and the root joins the three findings into the recommendation it delivers
- * through `submit_result`: one dimension that does not support shipping turns `ship` into `hold`.
- * The deliverable accepts only a recommendation whose basis covers every dimension, so a single
- * dimension's raw output can never be the result. A single synthesis agent over all three outputs
- * needs a barrier first; that form is `isolated-writers-integrate.ts` (a delegated integrator
- * spawned after the last settle).
- *
- * Fully offline (reactive brain + leaf seam). Run:  pnpm tsx examples/graphs/static-fanout-synthesize.ts
+ * Fully offline (leaf seam, no brain). Run:  pnpm tsx examples/graphs/static-fanout-synthesize.ts
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { type AgentGraph, promptHandle } from '@tangle-network/agent-runtime/kernel'
-import { type RunGraphTestOptions, runGraphWithTestBrain } from '../../src/testing'
 import {
-  DECIDING_ROOT_TOOLS,
-  driverNode,
-  findingsOf,
-  leafSeam,
-  printLedger,
-  reactiveBrain,
-  submitTurn,
-  workerNode,
-} from './shared'
+  type AgentGraph,
+  promptHandle,
+  type RunGraphOptions,
+  runGraph,
+} from '@tangle-network/agent-runtime/kernel'
+import { leafSeam, printLedger, workerNode } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
-const report = promptHandle('analyzes/findings-report/v1')
 
 export const DIMENSIONS = ['risk', 'cost', 'fit'] as const
 type Dimension = (typeof DIMENSIONS)[number]
 type Level = 'low' | 'medium' | 'high'
 
-/** One synthesis finding: the dimension it read, and whether that dimension supports shipping. */
+/** One dimension's reading: its level, and whether that level supports shipping. */
 export interface DimensionSynthesis {
   readonly dimension: Dimension
   readonly level: Level
   readonly supportsShipping: boolean
 }
 
-/** What the root delivers: the joined synthesis. */
+/** What the synthesis settles, and so what the run delivers under `synthesis`. */
 export interface Recommendation {
   readonly recommendation: 'ship' | 'hold'
   readonly basis: ReadonlyArray<DimensionSynthesis>
 }
 
+/** The synthesis reads every dimension's result from the join's evidence in its own task. */
+function synthesize(task: unknown): Recommendation {
+  const evidence = (task as { evidence?: Partial<Record<Dimension, { level: Level }>> }).evidence
+  const basis = DIMENSIONS.flatMap((dimension) => {
+    const level = evidence?.[dimension]?.level
+    return level === undefined ? [] : [{ dimension, level, supportsShipping: level !== 'high' }]
+  })
+  return { recommendation: basis.every((b) => b.supportsShipping) ? 'ship' : 'hold', basis }
+}
+
 export function staticFanoutSynthesize(
   levels: Readonly<Record<Dimension, Level>> = { risk: 'low', cost: 'medium', fit: 'low' },
-): { graph: AgentGraph; opts: RunGraphTestOptions } {
-  // ── The topology: plain data ──
+): { graph: AgentGraph; opts: RunGraphOptions } {
+  // ── The topology: plain data — three entries, one join ──
   const graph: AgentGraph = {
     nodes: [
-      driverNode(
-        'lead',
-        'Fan out over the fixed dimensions, then answer from the synthesis.',
-        DECIDING_ROOT_TOOLS,
-      ),
       ...DIMENSIONS.map((d) => workerNode(d, `Assess the ${d} dimension.`)),
       workerNode('synthesis', 'Synthesize the dimension evidence into one recommendation.'),
     ],
-    edges: [
-      ...DIMENSIONS.map((d) => ({
-        kind: 'delegates' as const,
-        from: 'lead',
-        to: d,
-        directive: brief,
-        maxTraversals: 1,
-      })),
-      {
-        kind: 'analyzes',
-        analyst: 'synthesis',
-        over: [...DIMENSIONS],
-        to: 'lead',
-        directive: report,
-      },
-    ],
+    entry: DIMENSIONS.map((d) => ({ node: d, task: `assess ${d}` })),
+    edges: [{ kind: 'routes', from: [...DIMENSIONS], to: 'synthesis', directive: brief }],
     deliverable: {
       describe: 'a recommendation whose basis covers every dimension',
       check: (out) => {
-        const r = out as Partial<Recommendation> | undefined
+        const r = (out as { synthesis?: Partial<Recommendation> } | undefined)?.synthesis
         const covered = new Set((r?.basis ?? []).map((b) => b.dimension))
         return (
           (r?.recommendation === 'ship' || r?.recommendation === 'hold') &&
@@ -96,46 +77,17 @@ export function staticFanoutSynthesize(
   }
 
   const received: AgentProfile[] = []
-  const opts: RunGraphTestOptions = {
+  const opts: RunGraphOptions = {
     runId: 'fan',
     workerSlots: 3,
-    wake: { debounceMs: 0 },
     makeLeafAgent: leafSeam(received, {
       ...Object.fromEntries(
         DIMENSIONS.map((d) => [
           d,
-          { withTrace: true, shots: [{ out: { dimension: d, level: levels[d] }, valid: true }] },
+          { shots: [{ out: { dimension: d, level: levels[d] }, valid: true }] },
         ]),
       ),
-      // The synthesis reads the dimension output its task carried and judges that one dimension.
-      synthesis: {
-        shots: [
-          {
-            fromSource: (source: unknown): DimensionSynthesis => {
-              const { dimension, level } = source as { dimension: Dimension; level: Level }
-              return { dimension, level, supportsShipping: level !== 'high' }
-            },
-            valid: true,
-          },
-        ],
-      },
-    }),
-    brain: reactiveBrain((events, call, results) => {
-      if (call === 0) {
-        // All three dimensions in ONE driver turn — the fan-out is the data, not a helper.
-        return {
-          toolCalls: DIMENSIONS.map((d) => ({
-            name: 'spawn_worker',
-            arguments: { profile: { name: d }, task: `assess ${d}` },
-          })),
-        }
-      }
-      const syntheses = findingsOf(events, 'synthesis').map(
-        (f) => f.findings as unknown as DimensionSynthesis,
-      )
-      if (syntheses.length < DIMENSIONS.length) return { content: 'waiting for the synthesis' }
-      const recommendation = syntheses.every((s) => s.supportsShipping) ? 'ship' : 'hold'
-      return submitTurn(results, call, { recommendation, basis: syntheses })
+      synthesis: { shots: [{ fromTask: synthesize, valid: true }] },
     }),
   }
   return { graph, opts }
@@ -143,7 +95,7 @@ export function staticFanoutSynthesize(
 
 export async function main(): Promise<void> {
   const { graph, opts } = staticFanoutSynthesize()
-  const res = await runGraphWithTestBrain(graph, opts)
+  const res = await runGraph(graph, opts)
   printLedger('static-fanout-synthesize', res)
 }
 

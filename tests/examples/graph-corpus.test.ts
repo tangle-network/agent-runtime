@@ -4,16 +4,17 @@
  * README catalog); each test asserts the ledger rows that make its pattern true, through the
  * example's exported factory and the shipped `runGraph` path (`runGraphWithTestBrain` for a graph
  * whose root is driven by a scripted brain). Nothing is mocked below the leaf seam and the driver
- * brain; a flow graph (role-chain, conditional-skip, loop-until-dry, proof-gate, dependency-waves)
- * has no brain.
+ * brain; a flow graph (static-fanout-synthesize, per-item-pipeline, role-chain,
+ * isolated-writers-integrate, conditional-skip, loop-until-dry, proof-gate, dependency-waves) has
+ * no brain.
  *
- *   static-fanout-synthesize   3 delegates (one per dimension) + 3 analyzes rows into the root;
- *                              result.out is the joined synthesis, and it flips with one dimension
- *   per-item-pipeline          one verify row per finder settle; a publisher spawns BEFORE the
- *                              last verify (no barrier, or the run would deadlock)
+ *   static-fanout-synthesize   3 dimension entries joined into one synthesis; result.out is the
+ *                              recommendation over all three, and it flips with one dimension
+ *   per-item-pipeline          a maps edge runs find -> verify -> publish per item; a publisher
+ *                              spawns BEFORE the last verify (no barrier, or the run would deadlock)
  *   role-chain                 scout, builder, reviewer in order from routes edges, each task
  *                              carrying the stage before's exact result; result.out is the review
- *   isolated-writers-integrate three writers, then the integrator
+ *   isolated-writers-integrate three writer entries, then a join starts the integrator
  *   discovered-fanout-reduce   4 traversals on ONE edge, then the reducer; peak live readers equals
  *                              workerSlots (2, and 4 in the control)
  *   skeptic-majority           3 analyzes rows per settle; result.out keeps the claim on 2 of 3 and
@@ -64,29 +65,23 @@ const delivered = (res: GraphResult): unknown => {
 }
 
 describe('examples/graphs corpus — every pattern runs offline with a truthful ledger', () => {
-  it('static-fanout-synthesize: one traversal per dimension, and the root delivers the joined synthesis', async () => {
+  it('static-fanout-synthesize: three entries, one join, and the synthesis is the recommendation', async () => {
     const { graph, opts } = staticFanoutSynthesize()
-    const res = await runGraphWithTestBrain(graph, opts)
+    const res = await runGraph(graph, opts)
 
     expect(res.result.kind).toBe('winner')
-    expect(delegatesOf(res).map((r) => [r.edge, r.traversal, r.outcome])).toEqual([
-      ['delegates:lead->risk', 1, 'delivered'],
-      ['delegates:lead->cost', 1, 'delivered'],
-      ['delegates:lead->fit', 1, 'delivered'],
+    // The three dimensions start together; the join starts the synthesis once, after all three.
+    expect(routesOf(res).map((r) => [r.edge, r.outcome])).toEqual([
+      ['routes:entry->risk', 'delivered'],
+      ['routes:entry->cost', 'delivered'],
+      ['routes:entry->fit', 'delivered'],
+      ['routes:risk+cost+fit#1->synthesis', 'delivered'],
     ])
-    // The synthesis analyst fires once per settle: three traversals, each delivered to the root,
-    // each naming the dimension worker it read.
-    const found = analyzesOf(res)
-    expect(found.map((r) => [r.edge, r.to, r.outcome])).toEqual(
-      [1, 2, 3].map(() => ['analyzes:synthesis:risk+cost+fit->lead', 'lead', 'delivered']),
-    )
-    expect(found.map((r) => r.traversal)).toEqual([1, 2, 3])
-    expect(new Set(found.map((r) => r.workerId))).toEqual(
-      new Set(delegatesOf(res).map((r) => r.workerId)),
-    )
+    expect(delegatesOf(res)).toEqual([])
+    expect(analyzesOf(res)).toEqual([])
     expect(res.exhaustedEdges).toEqual([])
-    // The result is the synthesis the root joined, one finding per dimension.
-    const out = delivered(res) as Recommendation
+    // The result is the synthesis over every dimension's settled result.
+    const out = (delivered(res) as { synthesis: Recommendation }).synthesis
     expect(out.recommendation).toBe('ship')
     expect(out.basis.map((b) => b.dimension).sort()).toEqual([...DIMENSIONS].sort())
     expect(out.basis.find((b) => b.dimension === 'cost')).toMatchObject({
@@ -96,28 +91,38 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
 
     // The control: one high-risk dimension, read by the synthesis, turns the delivery to hold.
     const risky = staticFanoutSynthesize({ risk: 'high', cost: 'medium', fit: 'low' })
-    const held = await runGraphWithTestBrain(risky.graph, risky.opts)
-    expect((delivered(held) as Recommendation).recommendation).toBe('hold')
+    const held = await runGraph(risky.graph, risky.opts)
+    expect((delivered(held) as { synthesis: Recommendation }).synthesis.recommendation).toBe('hold')
   })
 
   it('per-item-pipeline: a publisher spawns before the last verification, so there is no barrier', async () => {
-    const { graph, opts } = perItemPipeline()
-    const res = await runGraphWithTestBrain(graph, opts)
+    const { graph, opts, spawns, settles } = perItemPipeline()
+    const res = await runGraph(graph, opts)
 
     expect(res.result.kind).toBe('winner')
-    expect(edgesOf(res, 'delegates:lead->finder').map((r) => r.outcome)).toEqual(
-      Array(3).fill('delivered'),
-    )
-    const verifies = edgesOf(res, 'analyzes:verifier:finder->lead')
-    expect(verifies.map((r) => r.outcome)).toEqual(Array(3).fill('delivered'))
-    // Items a and b verified, c did not: two publishers, not three.
-    expect(edgesOf(res, 'delegates:lead->publisher')).toHaveLength(2)
-    // The third finder cannot settle until a publisher exists, so the first publisher spawn is
-    // ledgered before the third verification. A barriered pipeline would never get here.
-    const at = (row: unknown) => res.ledger.indexOf(row as (typeof res.ledger)[number])
-    const firstPublisher = edgesOf(res, 'delegates:lead->publisher')[0]
-    expect(at(firstPublisher)).toBeLessThan(at(verifies[2]))
-    expect(at(firstPublisher)).toBeGreaterThan(at(verifies[0]))
+    // Items a and b verified, c did not: three finders, three verifiers, two publishers.
+    const count = (node: string) => spawns().filter((n) => n === node).length
+    expect([count('finder'), count('verifier'), count('publisher')]).toEqual([3, 3, 2])
+    // The third finder cannot settle until a publisher exists, so the first publisher spawns
+    // before the third verification and after the first. A barriered pipeline would never get here.
+    const verifiers = spawns().flatMap((n, i) => (n === 'verifier' ? [i] : []))
+    const firstPublisher = spawns().indexOf('publisher')
+    expect(firstPublisher).toBeLessThan(verifiers[2]!)
+    expect(firstPublisher).toBeGreaterThan(verifiers[0]!)
+    // Each item settles its own stages in order: find, verify, then publish only when it held.
+    const settledAt = (stage: string) => settles().indexOf(stage)
+    for (const item of ['a', 'b']) {
+      expect(settledAt(`finder:${item}`)).toBeLessThan(settledAt(`verifier:${item}`))
+      expect(settledAt(`verifier:${item}`)).toBeLessThan(settledAt(`publisher:${item}`))
+    }
+    expect(settledAt('finder:c')).toBeLessThan(settledAt('verifier:c'))
+    expect(settledAt('publisher:c')).toBe(-1)
+    expect(settles()).toHaveLength(8)
+    // The report joins the items once, after every item's stages settled.
+    expect(spawns().filter((n) => n === 'report')).toHaveLength(1)
+    expect(spawns().at(-1)).toBe('report')
+    expect(delivered(res)).toEqual({ report: { published: ['a', 'b'] } })
+    expect(delegatesOf(res)).toEqual([])
     expect(res.exhaustedEdges).toEqual([])
   })
 
@@ -153,18 +158,19 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
     expect(JSON.stringify(alt.tasks().builder)).not.toContain(JSON.stringify(STAGE_OUT.scout))
   })
 
-  it('isolated-writers-integrate: three writer traversals, then the integrator', async () => {
+  it('isolated-writers-integrate: three writer entries, then the integrator after the last', async () => {
     const { graph, opts } = isolatedWritersIntegrate()
-    const res = await runGraphWithTestBrain(graph, opts)
+    const res = await runGraph(graph, opts)
 
     expect(res.result.kind).toBe('winner')
-    if (res.result.kind === 'winner') expect(res.result.out).toEqual({ merged: 3 })
-    expect(delegatesOf(res).map((r) => [r.edge, r.outcome, r.workerId])).toEqual([
-      ['delegates:lead->writer-auth', 'delivered', 'iso:s0'],
-      ['delegates:lead->writer-api', 'delivered', 'iso:s1'],
-      ['delegates:lead->writer-ui', 'delivered', 'iso:s2'],
-      ['delegates:lead->integrator', 'delivered', 'iso:s3'],
+    expect(delivered(res)).toEqual({ integrator: { merged: 3 } })
+    expect(routesOf(res).map((r) => [r.edge, r.outcome, r.workerId])).toEqual([
+      ['routes:entry->writer-auth', 'delivered', 'iso:s0'],
+      ['routes:entry->writer-api', 'delivered', 'iso:s1'],
+      ['routes:entry->writer-ui', 'delivered', 'iso:s2'],
+      ['routes:writer-auth+writer-api+writer-ui#1->integrator', 'delivered', 'iso:s3'],
     ])
+    expect(delegatesOf(res)).toEqual([])
     expect(analyzesOf(res)).toEqual([])
   })
 

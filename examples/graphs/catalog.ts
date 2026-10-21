@@ -7,7 +7,8 @@
  *
  *   1. `graphSignature` reduces a graph to its topology with the incidental numbers bucketed away:
  *      node count by role (one or many), each edge's kind, continuity and destination role, each
- *      analyst's form (node or lens), and whether an edge DECLARES repetition (an explicit cap
+ *      analyst's form (node or lens), each maps item's form (a node's role, or the signature of
+ *      its nested graph), and whether an edge DECLARES repetition (an explicit cap
  *      above one) — not the exact cap, not the width, not the model provider, not the root's
  *      non-spawn grants, not any wording. Two graphs with equal signatures are the same topology.
  *   2. For graphs with equal signatures, `ledgerShape` runs each example's offline scenarios and
@@ -29,6 +30,7 @@
 import {
   type AgentGraph,
   type GraphResult,
+  type GraphTopology,
   type RunGraphOptions,
   runGraph,
 } from '@tangle-network/agent-runtime/kernel'
@@ -102,7 +104,10 @@ export const catalog: readonly CatalogGraph[] = [
   },
   one('per-item-pipeline', perItemPipeline),
   one('role-chain', roleChain),
-  one('isolated-writers-integrate', isolatedWritersIntegrate),
+  one('isolated-writers-integrate', isolatedWritersIntegrate, {
+    name: 'static-fanout-synthesize',
+    why: 'the same parallel entries joined into one node: what it adds is that each writer is its own node, so on the sandbox backend its own box replaces a git worktree, not a topology',
+  }),
   one('discovered-fanout-reduce', discoveredFanoutReduce),
   {
     file: 'skeptic-majority',
@@ -163,7 +168,7 @@ type Role = 'root' | 'worker' | 'analyst-node' | 'nested-supervisor'
 
 /** Who each node is in the graph: the root, a worker, an analyst node, or a nested supervisor. A
  *  flow graph has no root. */
-export function rolesOf(graph: AgentGraph): (id: string) => Role {
+export function rolesOf(graph: GraphTopology): (id: string) => Role {
   const delegates = graph.edges.filter((e) => e.kind === 'delegates')
   const delegated = new Set(delegates.map((e) => e.to))
   const root =
@@ -198,7 +203,7 @@ const repeats = (e: { maxTraversals?: number }): string =>
 
 /** The topology of one graph as a string, incidental numbers bucketed away: equal strings mean
  *  the same shape. */
-export function graphSignature(graph: AgentGraph): string {
+export function graphSignature(graph: GraphTopology): string {
   const role = rolesOf(graph)
   const nodes = new Set(graph.nodes.map((n) => n.id))
   // A flow graph's topology is its entries and its routes: each edge's source (one node or a
@@ -240,6 +245,16 @@ export function graphSignature(graph: AgentGraph): string {
         e.kind === 'analyzes'
           ? [
               `${nodes.has(e.analyst) ? 'node' : 'lens'}|over=${width(e.over.length)}|to=${role(e.to)}|${repeats(e)}`,
+            ]
+          : [],
+      ),
+    ),
+    // A maps item is one node or a nested graph, which is fingerprinted as its own topology.
+    maps: bucketed(
+      graph.edges.flatMap((e) =>
+        e.kind === 'maps'
+          ? [
+              `${e.graph === undefined ? role(e.to ?? '') : graphSignature(e.graph)}|join=${role(e.join)}|${e.onItemFailure}`,
             ]
           : [],
       ),
