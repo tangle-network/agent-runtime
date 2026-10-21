@@ -808,7 +808,7 @@ export function createFlowRun() {
     if (unrouted !== undefined) return { kind: 'unrouted', unrouted }
     if (stopped === undefined) return { kind: 'result', result }
     // A stop edge names its own reason; a down settle is `all-children-down`. A caller's abort, an
-    // exhausted pool or a cancellation stays the reason it already is.
+    // exhausted pool, a deadline or a cancellation stays the reason it already is.
     const replaceable =
       result.kind === 'no-winner' &&
       (result.reason === 'no-result-selected' ||

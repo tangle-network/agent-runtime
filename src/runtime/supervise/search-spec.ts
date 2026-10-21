@@ -384,8 +384,8 @@ export interface SearchSpecInputs {
   /** The completion check. Every spec's run has one: the continuation is sent back by it. */
   readonly deliverable: DeliverableSpec<unknown>
   /** No re-entry starts at or after this instant (epoch ms or ISO 8601). It is the run's time
-   *  bound, not design, so two runs of one spec share a digest. */
-  readonly deadline: number | string
+   *  bound, not design, so two runs of one spec share a digest. Absent: no clock ends the run. */
+  readonly deadline?: number | string
   /** The continuation note's words, and the problem's reference result for `evaluate.bar: 'on'`. */
   readonly continuation: Pick<ContinuationPolicy, 'profile' | 'reference' | 'append'>
   /** Profiles the root spawns by name (`registry.profiles`). For select `self`, the peers:
@@ -509,7 +509,7 @@ export function compileSearchSpec(raw: SearchSpec, inputs: SearchSpecInputs): Co
     correlation: Object.freeze({ ...correlation, [SEARCH_SPEC_CORRELATION_KEY]: digest }),
   })
   const continuation: ContinuationPolicy = {
-    deadline: inputs.deadline,
+    ...(inputs.deadline === undefined ? {} : { deadline: inputs.deadline }),
     maxBarren: spec.stop.maxBarren,
     profile: inputs.continuation.profile,
     failures: spec.evaluate.feedback,

@@ -17,10 +17,10 @@
  *    `submit_result`, runs when a turn ends without an accepted result, scores the finished run,
  *    and ranks versions. A check that could not run gives no verdict ({@link CheckUnavailableError}),
  *    and the loop pauses instead of blaming the director.
- *  - ONE RESEND RULE. {@link ContinuationPolicy} is required for a manager with a check. It holds a
- *    deadline and `maxBarren`, the re-entered turns in a row that may end without progress before
- *    each further continuation waits a barren pause. There
- *    is no re-prompt count and no default: a retry default in source is a research decision.
+ *  - ONE RESEND RULE. {@link ContinuationPolicy} is required for a manager with a check. It holds
+ *    `maxBarren`, the re-entered turns in a row that may end without progress before
+ *    each further continuation waits a barren pause, and an optional deadline.
+ *    There is no re-prompt count and no default: a retry default in source is a research decision.
  *  - ONE NOTE. {@link composeContinuationNote} writes it. Runtime owns the facts and their order;
  *    the {@link ContinuationProfile} owns every instruction word, so an optimizer can change the
  *    words without touching code. A play may append a section, never remove or rewrite one.
@@ -114,16 +114,17 @@ export interface CheckRead {
  *
  * Required for an external manager with a check: Runtime supplies no default, because a retry
  * default in source is a research decision the record must make. There is no re-prompt count.
- * The loop re-enters until the check passes or a bound ends it: this deadline, the budget, or
- * cancellation. After `maxBarren` turns in a row without progress, each further continuation
+ * The loop re-enters until the check passes or a bound ends it: cancellation, the budget, or
+ * this deadline when one is set. After `maxBarren` turns in a row without progress, each further continuation
  * waits a barren pause first (5 minutes, doubling to 60) and is journaled `barren-pause`; a
  * barren streak never ends the run. A tool `report_blocked` shows
  * really failed is recorded and the loop goes on: a blocked tool is not a terminal condition.
  * Progress means the check's best composite rose, an accepted result, or a worker that delivered.
  */
 export interface ContinuationPolicy {
-  /** No re-entry starts at or after this instant: epoch ms, or an ISO 8601 time. */
-  readonly deadline: number | string
+  /** No re-entry starts at or after this instant: epoch ms, or an ISO 8601 time. Absent: no clock
+   *  ends the run; it ends when its check passes, on cancellation, or on a spent budget. */
+  readonly deadline?: number | string
   /** Re-entered turns in a row that may end without progress before each further continuation
    *  waits a barren pause. Minimum 1. The evidence for 2: repair loses most of its effect within
    *  two or three attempts, and a fresh start at the same budget scored higher (Debugging Decay
@@ -165,14 +166,21 @@ export interface ContinuationPolicy {
   readonly session?: 'native' | 'fresh'
 }
 
-/** Resolve and check a policy before any compute. Returns the deadline in epoch ms. */
-export function admitContinuationPolicy(policy: ContinuationPolicy, context: string): number {
+/** Resolve and check a policy before any compute. Returns the deadline in epoch ms, or undefined
+ *  when the policy sets none. */
+export function admitContinuationPolicy(
+  policy: ContinuationPolicy,
+  context: string,
+): number | undefined {
   if (typeof policy !== 'object' || policy === null) {
     throw new ValidationError(`${context}: continuation must be an object`)
   }
   const deadlineMs =
     typeof policy.deadline === 'string' ? Date.parse(policy.deadline) : policy.deadline
-  if (typeof deadlineMs !== 'number' || !Number.isFinite(deadlineMs) || deadlineMs <= 0) {
+  if (
+    deadlineMs !== undefined &&
+    (typeof deadlineMs !== 'number' || !Number.isFinite(deadlineMs) || deadlineMs <= 0)
+  ) {
     throw new ValidationError(
       `${context}: continuation.deadline must be a finite time (epoch ms or ISO 8601)`,
     )

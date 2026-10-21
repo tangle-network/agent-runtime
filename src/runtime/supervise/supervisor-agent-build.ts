@@ -892,11 +892,13 @@ export function buildSupervisorAgent(
               },
             },
             ...(deps.driverRetry ? { policy: deps.driverRetry } : {}),
-            ...(continuation !== undefined && keeper !== undefined && continuationDeadlineMs
+            ...(continuation !== undefined && keeper !== undefined
               ? {
                   continuation: {
                     maxBarren: continuation.maxBarren,
-                    deadlineMs: continuationDeadlineMs,
+                    ...(continuationDeadlineMs === undefined
+                      ? {}
+                      : { deadlineMs: continuationDeadlineMs }),
                     compose: (context) => (keeper as ContinuationKeeper).compose(context),
                     // A run the coordination server closed ended on purpose — the manager's own
                     // `stop` (served only without a check), or a progress stop rule that aborted

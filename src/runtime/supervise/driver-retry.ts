@@ -266,8 +266,9 @@ export interface DriverContinuationPolicy {
   /** Re-entered drives in a row that may complete without progress before each further
    *  continuation waits {@link barrenPauseMs}. Minimum 1. */
   readonly maxBarren: number
-  /** Epoch ms at or after which no continuation starts. */
-  readonly deadlineMs: number
+  /** Epoch ms at or after which no continuation starts. Absent: no clock bounds the
+   *  continuations; the check, cancellation and the budget do. */
+  readonly deadlineMs?: number
   /** Write the continuation note for this re-entry. */
   readonly compose: (context: ContinuationContext) => Promise<string>
   /** True when the run is already closed (the manager's own `stop`, a progress stop rule): a
@@ -443,8 +444,9 @@ async function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
 /**
  * Run the driver until it completes WITH ITS CONTRACT MET, or until the budget, the deadline, an
  * abort, a terminal error, or a ceiling stops it. Transient failures are retried. A drive that
- * returns with its completion check unmet is re-entered with Runtime's continuation note until the
- * continuation's deadline, pausing first once `maxBarren` turns in a row made no progress. Throws
+ * returns with its completion check unmet is re-entered with Runtime's continuation note until a
+ * bound ends it (cancellation, the budget, or a deadline when one is set), pausing first once
+ * `maxBarren` turns in a row made no progress. Throws
  * `DriverAttemptsExhaustedError` (cause = the last real failure) when a FAILURE ends the loop; a
  * completed drive returns, met contract or not, because deciding what an undelivered run is worth
  * belongs to the finalizer, not to this loop.
@@ -466,9 +468,12 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
 
   const continuation = run.continuation
   if (continuation !== undefined) {
-    if (!Number.isFinite(continuation.deadlineMs) || continuation.deadlineMs <= 0) {
+    if (
+      continuation.deadlineMs !== undefined &&
+      (!Number.isFinite(continuation.deadlineMs) || continuation.deadlineMs <= 0)
+    ) {
       throw new ValidationError(
-        'runDriverWithRetry: a continuation needs a finite positive deadline',
+        'runDriverWithRetry: continuation.deadlineMs, when set, must be a finite positive deadline',
       )
     }
     if (!Number.isInteger(continuation.maxBarren) || continuation.maxBarren < 1) {
@@ -539,7 +544,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     const bounds = (): DriverRepromptRefusal | undefined => {
       if (policy.closed()) return 'closed'
       if (run.signal.aborted) return 'aborted'
-      if (now() >= policy.deadlineMs) return 'deadline'
+      if (policy.deadlineMs !== undefined && now() >= policy.deadlineMs) return 'deadline'
       const byBudget = budgetStop(run.budget(), now())
       return byBudget === 'deadline' || byBudget === 'budget-exhausted' ? byBudget : undefined
     }
@@ -552,7 +557,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       const pausedAt = now()
       const budgetDeadline = run.budget().deadlineMs
       const until = Math.min(
-        policy.deadlineMs,
+        policy.deadlineMs ?? Number.POSITIVE_INFINITY,
         budgetDeadline > 0 ? budgetDeadline : Number.POSITIVE_INFINITY,
       )
       const pauseMs = Math.max(
@@ -732,9 +737,15 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
             }
           : undefined
       const stop = ((): DriverAttemptStop | undefined => {
+        // An aborted run failed because it was stopped. `classifyDriverFailure` calls every
+        // failure after an abort terminal (do not retry); reading that first labelled 61 of 62
+        // `terminal-error` runs measured 2026-10-21, each one a deadline cut mid-turn. An abort at
+        // or after the budget deadline is the deadline; any other is a cancellation.
+        if (run.signal.aborted) {
+          return budgetStop(run.budget(), failedAt) === 'deadline' ? 'deadline' : 'aborted'
+        }
         if (classification === 'terminal') return 'terminal-error'
         if (!retryEnabled) return 'retry-disabled'
-        if (run.signal.aborted) return 'aborted'
         const byBudget = budgetStop(run.budget(), failedAt)
         if (byBudget) return byBudget
         // The same failed box twice with nothing gained: the outage window below would retry it
