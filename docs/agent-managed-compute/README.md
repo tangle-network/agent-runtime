@@ -100,8 +100,8 @@ This table tracks the existing documents that materially overlap this plan.
 | Capability | Current status | Evidence |
 |---|---|---|
 | Agent calls coordination actions through real HTTP MCP | Implemented in one process | `tests/kernel/coordination-mcp.test.ts` |
-| Driver dynamically spawns, waits for, and selects children | Implemented | `tests/kernel/coordination-driver.test.ts` |
-| Recursive driver starts another driver | Implemented | `tests/kernel/coordination-driver.test.ts` |
+| Driver dynamically spawns, waits for, and selects children | Implemented | `tests/runtime/resume-aware-driver.test.ts`: scripted brain, real coordinator kill/restart and journal files; surviving child selection is checked. |
+| Recursive driver starts another driver | Implemented | `src/runtime/supervise/driver-executor.ts`; `tests/kernel/nested-coordination-durability.test.ts` exercises nested managers through real HTTP MCP and files with scripted harnesses. |
 | Shared budget and depth limits across a tree | Implemented | `src/runtime/supervise/budget.ts`, `src/runtime/supervise/scope.ts` |
 | Provider-neutral compute adapter | Implemented | `src/runtime/environment-provider.ts` |
 | One-shot delegation restart recovery | Partially implemented | `src/mcp/task-queue.ts` |

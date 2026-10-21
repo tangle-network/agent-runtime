@@ -1,7 +1,7 @@
 # Agent-Managed Compute Audit (2026-07-18)
 
 > This is a dated audit record, not the current package manifest.
-> Check `package.json` and the generated API docs for the release in your checkout.
+> Check `package.json`, the generated API docs, the current [`driverAgent` source](../../src/runtime/supervise/driver-brain-agent.ts) and [status summary](README.md#status-summary) for the release in your checkout.
 > Findings 1, 3, 4, 10, 11 and 12 are closed: supervised trees resume from their journal, the coordination MCP authenticates,
 > the coordination side-log is durable, the fenced SQL context is the multi-process owner, `ConversationJournal` was deleted,
 > and `tests/durability/` kills real processes. Finding 5 is narrowed to `SpawnJournal` plus delegation status.

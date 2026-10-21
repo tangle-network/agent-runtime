@@ -490,7 +490,7 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
   and `canonical-api.md` §1.5): a supervisor's intelligence is *writing full
   AgentProfiles for its children*. The coordination toolbox `spawn_worker` carries the
   child profile (`src/mcp/tools/coordination.ts`).
-- The in-process driver brain is `driverAgent` (`supervise/coordination-driver.ts`) running the owned tool-loop executor `routerToolsInlineExecutor` (`supervise/runtime.ts`).
+- The in-process driver brain is `driverAgent` (`src/runtime/supervise/driver-brain-agent.ts`) running the owned tool-loop executor `routerToolsInlineExecutor` (`src/runtime/supervise/router-tools-executor.ts`).
   A driver/supervisor's brain is driven from its `AgentProfile`: prompt + model for the deliberately narrow in-process router arm, or the complete materialized profile for an external-harness arm.
 - **REAL** — `supervise(profile, task, { backend })` validates and freezes every authored child profile before budget reservation, applies shared security plus optional product authorization, and preserves the authorized profile through execution (`supervise/supervise.ts`).
   A child that declares `tools.agent_runtime_coordination_spawn_worker: true` recursively becomes another supervisor over the same budget; every other child resolves to a leaf.
