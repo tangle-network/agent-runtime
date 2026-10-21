@@ -11,17 +11,25 @@ import type {
 import type { CoordinationEvent } from './coordination-events'
 import { safeJsonText } from './coordination-json'
 import type { MapOnSettleRoute, MapTraversalEvent } from './coordination-map-contracts'
+import { admitRuntimeSpawn } from './coordination-runtime-spawn'
 
 export function createMapRouting({
   opts,
   bus,
   admitSpawn,
-  profileNameByWorker,
+  nodeOf,
+  settleCommitted,
+  endInDoubt,
 }: {
   readonly opts: CoordinationToolsOptions
   readonly bus: EventBus<CoordinationEvent>
   readonly admitSpawn: (input: SpawnAdmission) => Promise<unknown>
-  readonly profileNameByWorker: Map<string, string>
+  /** The node a worker of this manager runs, by profile name. */
+  readonly nodeOf: (workerId: string) => string | undefined
+  /** Run a committed spawn's journaled settle through the live settle path. */
+  readonly settleCommitted: (workerId: string, node: string) => Promise<void>
+  /** End a flow whose map spawn is in doubt twice, at the node and source worker named. */
+  readonly endInDoubt: (node: string, source: string) => Promise<void>
 }) {
   // ── Map routes: fan-out over a run-time list, then one join ──
   // A map's items and its join are runtime spawns, like analyst runs: each takes the admission a
@@ -31,6 +39,9 @@ export function createMapRouting({
   interface MapExpansion {
     readonly route: MapOnSettleRoute
     readonly sourceWorker: string
+    /** The source node's 1-based done-settle count: its spawns' keys are
+     *  `map:<edge>#<expansion>:<index>` and `map:<edge>#<expansion>:join`. */
+    readonly expansion: number
     readonly items: ReadonlyArray<unknown>
     readonly settlements: Array<WorkerSettlement | undefined>
     /** The next index to start. */
@@ -61,6 +72,10 @@ export function createMapRouting({
     if (capacity === undefined || capacity.freeSlots === null) return undefined
     return capacity.working + capacity.freeSlots
   }
+  // A started spawn is a map member until it settles. A committed one (its key's done settlement
+  // is on disk from a prior process) settles at once through the live settle path, so a restarted
+  // manager re-expanding a map runs only the items with no done settlement, then the join once.
+  // A spawn in doubt twice is refused, and ends a flow.
   const startMapSpawn = async (
     expansion: MapExpansion,
     role: 'item' | 'join',
@@ -71,40 +86,36 @@ export function createMapRouting({
     const { route } = expansion
     const name =
       typeof profile.name === 'string' && profile.name.length > 0 ? profile.name : 'worker'
-    let response: unknown
-    try {
-      response = await admitSpawn({
-        profile,
-        args: {
-          label: index === undefined ? name : `${name}#${index}`,
-          ...(role === 'item' && route.itemBudget !== undefined
-            ? { budget: route.itemBudget }
-            : {}),
-        },
-        task,
-        key: undefined,
-        continuity: { continuity: 'fresh' },
-        successorOf: undefined,
-        preflightProfile: () =>
-          opts.resolveSpawnProfile ? detachedFrozen(opts.resolveSpawnProfile(profile)) : profile,
-        resourcesFromPath: [],
-        defaultLabel: name,
-        map: Object.freeze({ edge: route.edge, role, ...(index === undefined ? {} : { index }) }),
-      })
-    } catch (error) {
-      return { refused: errMessage(error) }
+    const spawned = await admitRuntimeSpawn(admitSpawn, {
+      profile,
+      args: {
+        label: index === undefined ? name : `${name}#${index}`,
+        ...(role === 'item' && route.itemBudget !== undefined ? { budget: route.itemBudget } : {}),
+      },
+      task,
+      key: `map:${route.edge}#${expansion.expansion}:${index ?? 'join'}`,
+      continuity: { continuity: 'fresh' },
+      successorOf: undefined,
+      preflightProfile: () =>
+        opts.resolveSpawnProfile ? detachedFrozen(opts.resolveSpawnProfile(profile)) : profile,
+      resourcesFromPath: [],
+      defaultLabel: name,
+      map: Object.freeze({ edge: route.edge, role, ...(index === undefined ? {} : { index }) }),
+    })
+    if ('inDoubt' in spawned) {
+      await endInDoubt(name, expansion.sourceWorker)
+      return { refused: `in-doubt:${name}` }
     }
-    const started = response as { readonly workerId?: unknown; readonly reason?: unknown }
-    if (typeof started.workerId === 'string') {
-      mapMembers.set(started.workerId, {
-        expansion,
-        role,
-        ...(index === undefined ? {} : { index }),
-        bytes: textBytes(task),
-      })
-      return { workerId: started.workerId }
-    }
-    return { refused: typeof started.reason === 'string' ? started.reason : 'spawn refused' }
+    if ('refused' in spawned) return spawned
+    mapMembers.set(spawned.workerId, {
+      expansion,
+      role,
+      ...(index === undefined ? {} : { index }),
+      bytes: textBytes(task),
+    })
+    if (role === 'item') expansion.inFlight += 1
+    if (spawned.committed) await settleCommitted(spawned.workerId, name)
+    return { workerId: spawned.workerId }
   }
   // A graph item starts the way `run_graph` starts a graph: the run prepares the same root profile.
   const mapItemProfile = async (
@@ -126,10 +137,7 @@ export function createMapRouting({
       'refused' in resolved
         ? resolved
         : await startMapSpawn(expansion, 'item', resolved.profile, expansion.items[index], index)
-    if ('workerId' in started) {
-      expansion.inFlight += 1
-      return
-    }
+    if ('workerId' in started) return
     const reason = `item spawn refused: ${started.refused}`
     expansion.settlements[index] = { outcome: 'unpropagated', reason }
     if (route.onItemFailure === 'all-or-refuse') expansion.stopped = true
@@ -266,10 +274,40 @@ export function createMapRouting({
       await finishMap(expansion, 'not started: the manager stopped before this map finished')
     }
   }
+  // The expansion number of a source's done settle. A settle a prior process committed keeps the
+  // number it had there (its rank among the resumed done settles of that node), so a replay
+  // re-derives the keys that process journaled. A new settle counts on past every prior settle and
+  // every journaled expansion: a root-driven graph replays no prior settle, and its driver may
+  // label a worker other than by its node.
+  const liveExpansions = new Map<string, number>()
+  const expansionOf = (source: string, workerId: string): number => {
+    const resume = opts.scope.resume
+    const labels = new Map(resume?.view.nodes.map((node) => [node.id, node.label]) ?? [])
+    const prior = (resume?.settled ?? [])
+      .filter((s) => s.kind === 'done' && labels.get(s.handle.id) === source)
+      .map((s) => s.handle.id)
+    const rank = prior.indexOf(workerId)
+    if (rank >= 0) return rank + 1
+    let journaled = 0
+    for (const route of mapRoutes) {
+      if (route.from !== source) continue
+      const prefix = `key:map:${route.edge}#`
+      for (const node of resume?.view.nodes ?? []) {
+        if (!node.assignmentId?.startsWith(prefix)) continue
+        const n = Number.parseInt(node.assignmentId.slice(prefix.length), 10)
+        if (Number.isSafeInteger(n)) journaled = Math.max(journaled, n)
+      }
+    }
+    const live = (liveExpansions.get(source) ?? 0) + 1
+    liveExpansions.set(source, live)
+    return Math.max(prior.length, journaled) + live
+  }
   // A source settled `done`: expand every map that names it.
   const expandMaps = async (settled: Settled<unknown>, worker: SettledWorker): Promise<void> => {
     if (settled.kind !== 'done' || mapRoutes.length === 0) return
-    const name = profileNameByWorker.get(worker.id)
+    const name = nodeOf(worker.id)
+    if (name === undefined || !mapRoutes.some((route) => route.from === name)) return
+    const expansion = expansionOf(name, worker.id)
     for (const route of mapRoutes) {
       if (route.from !== name) continue
       const refuse = (reason: string): Promise<void> =>
@@ -325,6 +363,7 @@ export function createMapRouting({
       await pumpMap({
         route,
         sourceWorker: worker.id,
+        expansion,
         items: detachedFrozen(items),
         settlements: [],
         next: 0,

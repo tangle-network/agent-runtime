@@ -199,11 +199,49 @@ Use `runDir` for a file-backed run, or `runContext: await createFencedSqlRunCont
 
 Passing `journal`, `blobs` and `resume` directly is an advanced test seam, not a second recommended path. No consumer outside Runtime uses it.
 
+## Flow graph resume
+
+A flow graph (an `AgentGraph` with `entry`) has no brain to re-drive it after a restart. Runtime's route walker replays it from its spawn journal: the restarted manager walks the graph again from its entries, under the same keys.
+
+Every spawn the walker or a map starts is keyed:
+
+| Spawn | Key |
+|---|---|
+| Entry | `route:entry:<node>` |
+| Routes edge | `route:<edge id>#<traversal>`, plus `:<node>` for each node of a fork |
+| Map item | `map:<edge id>#<expansion>:<index>` |
+| Map join | `map:<edge id>#<expansion>:join` |
+
+`expansion` is the source node's 1-based done-settle count. A settle a prior process committed keeps its number, so a replay re-derives the keys that process journaled.
+
+Map keys apply to every graph with a `maps` edge, root-driven graphs included. A root-driven graph replays no prior settle, so a new expansion there numbers past every prior settle of its source and every journaled expansion of its edges.
+
+Each keyed spawn resolves in one of four ways:
+- **Committed.** The key's done settlement is on disk. Nothing runs. Admission returns `resumed: 'completed'`, and the walker runs the journaled result through the live settle path at once: route matching, the map member, map expansion and gates. No settlement drain ever carries a resumed settlement, so the walker never waits for one. Each worker passes the settle hooks once.
+- **Retried.** The prior attempt is proven dead (an `inline` runtime, or a terminal down receipt). The step runs again under its own key.
+- **In doubt.** The prior attempt started with no terminal receipt. The step is re-admitted once under `<key>#2`, the replacement key the `spawn_worker` contract names. If `<key>#2` is in doubt too, the flow ends with `GraphResult.stopped.reason` `in-doubt:<node>`.
+- **New.** Nothing is journaled for the key, and the step runs.
+
+A gate decision journaled before the kill is replayed without calling `decideGate`. A gate that was reached but not decided is asked again under the same visit number.
+
+Limits:
+- Replayed traversal rows are journaled again by the resumed process. Gate decision rows are the exception: a replayed decision rides the result ledger only.
+- A replayed committed step is never a resume target. A `continuity: 'resume'` edge whose prior node settled in a dead process starts its target fresh.
+- A journal written before map spawns were keyed holds unkeyed map rows. They match no key, so a flow resumed from such a journal runs those map items again.
+
+`tests/durability/graph-kill-resume.test.ts` proves this in real OS processes with `tests/helpers/durability/flow-conformance-graph.ts`: entry, a two-item map and its join, a builder–review repair loop, a gate, and a terminal verifier. Each case is SIGKILLed at a mid-step instant or a settle boundary of the reference run, or inside the gate's decision. Then:
+- the resumed run wins with the reference output;
+- each step settles done once, with builder and review settling twice because of the authored repair;
+- the resumed process runs exactly the keyed steps that had no done settlement, each once;
+- a map killed between its source's settle and its join re-expands, runs only its unsettled items, and runs its join once;
+- `decideGate` is asked again only when its decision was not journaled, and one decision row results.
+
 ## Conformance matrix
 
 | Failure | Proven by | Setting |
 |---|---|---|
 | Coordinator killed before or after dispatch, mid-turn, before or after commit, before or after an effect | Runtime `tests/durability/sql-run-context.test.ts` and the `runDir` graph kill matrix | Real OS processes; synthetic retained provider |
+| Flow graph killed mid-step, at a settle boundary, between a map's source settle and its join, or before or after a gate decision is journaled | Runtime `tests/durability/graph-kill-resume.test.ts`, flow matrix | Real OS processes; inline leaves |
 | Two contenders, a stale owner (SIGSTOP, then SIGCONT), lease expiry and takeover | Runtime fenced SQL suite | Real OS processes, SQLite |
 | A manager turn left pending by a capacity refusal, a lost reply, a crash at any retained boundary, or an execution the provider can no longer resolve | Runtime `tests/durability/retained-owner-pending-invariants.test.ts` (seeded sequences) and `tests/kernel/supervise-retained-owner-pending.test.ts` | Production provider executor, owner journal and driver retry; durable synthetic provider |
 | Kill during a session resume | Harness conformance case 8 kills the CLI during a resume turn, and the session continues. In the `host-loss` restore scenario, a coordinator is killed during recovery, before the director's session resumes; the next coordinator resumes that same session. Runtime `tests/durability/session-reattach.test.ts` covers kills mid-session with re-attach | Real Claude Code, Codex, OpenCode and Pi; end to end; synthetic sessions |

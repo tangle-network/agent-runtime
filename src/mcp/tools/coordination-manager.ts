@@ -272,18 +272,29 @@ export function createCoordinationToolsForManager(
     return seqs
   }
 
+  // Committed runtime spawns of a prior process, by node. They stay out of `profileNameByWorker`,
+  // so they are never resume targets, but their replayed settles route and expand as live ones do.
+  const committedNodes = new Map<string, string>()
+  const nodeOf = (id: string) => profileNameByWorker.get(id) ?? committedNodes.get(id)
+  const settleCommitted = (id: string, node: string): Promise<void> => {
+    committedNodes.set(id, node)
+    return settlements.settleCommitted(id)
+  }
   const maps = createMapRouting({
     opts,
     bus,
     admitSpawn: (input) => admitSpawn(input),
-    profileNameByWorker,
+    nodeOf,
+    settleCommitted,
+    endInDoubt: (node, source) => routes.endInDoubt(node, source),
   })
   const routes = createRouteRouting({
     opts,
     bus,
     admitSpawn: (input) => admitSpawn(input),
     resolveContinuity,
-    profileNameByWorker,
+    nodeOf,
+    settleCommitted,
     stop: (why) => {
       stopped = true
       reason = why

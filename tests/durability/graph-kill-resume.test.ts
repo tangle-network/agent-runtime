@@ -20,6 +20,15 @@
  *   5. the journal stays resume-contract clean — one root `spawned`, at most one root
  *      `materialized`, root bindings under distinct attempt ids, unique cursor seqs (the
  *      2026-08-11 autopsy's duplicate-root-record signature must stay absent).
+ *
+ * The flow graph (`flow-conformance-graph.ts`) has no brain to re-drive it: the route walker
+ * replays it from the spawn journal. Its matrix is every mid-step instant and every settle boundary
+ * of its reference run, plus the instant inside the gate's decision, and its contract per case:
+ * the same output; one done settle per execution (builder and review twice, for the authored
+ * repair); phase 2 runs exactly the keyed steps with no done settlement at the kill, each once, so
+ * a map killed between its source's settle and its join re-expands, runs only its unsettled items
+ * and its join once; the same spawn keys as the reference; and one gate decision, asked again only
+ * when it was not journaled before the kill.
  */
 
 import { spawn } from 'node:child_process'
@@ -40,8 +49,16 @@ import {
   referenceLabels,
   WORKER_NODES,
 } from '../helpers/durability/conformance-graph'
+import {
+  FLOW_RUN_ID,
+  FLOW_SETTLES_BY_LABEL,
+  type FlowChildReport,
+  readGateCalls,
+} from '../helpers/durability/flow-conformance-graph'
 
 const childScript = new URL('../helpers/durability/graph-child.ts', import.meta.url).pathname
+const flowChildScript = new URL('../helpers/durability/flow-graph-child.ts', import.meta.url)
+  .pathname
 
 interface PhaseExit {
   readonly code: number | null
@@ -50,11 +67,16 @@ interface PhaseExit {
   readonly stderr: string
 }
 
-async function runPhase(dir: string, phase: '1' | '2', killAt?: string): Promise<PhaseExit> {
+async function runPhase(
+  dir: string,
+  phase: '1' | '2',
+  killAt?: string,
+  script = childScript,
+): Promise<PhaseExit> {
   return await new Promise<PhaseExit>((resolvePhase, rejectPhase) => {
     const child = spawn(
       process.execPath,
-      ['--import', 'tsx', childScript, dir, phase, ...(phase === '1' ? [killAt ?? '-'] : [])],
+      ['--import', 'tsx', script, dir, phase, ...(phase === '1' ? [killAt ?? '-'] : [])],
       { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] },
     )
     let stdout = ''
@@ -70,14 +92,14 @@ async function runPhase(dir: string, phase: '1' | '2', killAt?: string): Promise
   })
 }
 
-function parseReport(stdout: string): GraphChildReport {
+function parseReport<Report = GraphChildReport>(stdout: string): Report {
   const line = stdout
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l.startsWith('{'))
     .pop()
   if (line === undefined) throw new Error(`child printed no report line: ${stdout.slice(0, 500)}`)
-  return JSON.parse(line) as GraphChildReport
+  return JSON.parse(line) as Report
 }
 
 function expectJournalClean(final: JournalAudit): void {
@@ -214,6 +236,129 @@ describe('runGraph kill-and-resume conformance (file run context)', () => {
       const settled = await readSettleRecord(dir)
       expect(settled?.kind).toBe('winner')
       expect(settled?.tree.root).toBe(RUN_ID)
+      expect(existsSync(join(dir, RUN_DIRECTORY_LOCK_FILE))).toBe(false)
+    },
+  )
+})
+
+// ── The flow graph: the route walker replays it from the spawn journal ──────────────────────
+
+/** The spawn key of every keyed child whose done settlement is in the journal. */
+function committedKeys(final: JournalAudit): Set<string> {
+  const keyById = new Map<string, string>()
+  for (const e of final.events) {
+    if (e.kind === 'spawned' && e.key !== undefined) keyById.set(e.id, e.key)
+  }
+  const keys = new Set<string>()
+  for (const e of final.events) {
+    const key = keyById.get(e.id)
+    if (e.kind === 'settled' && e.status === 'done' && key !== undefined) keys.add(key)
+  }
+  return keys
+}
+
+const gateDecisionRows = (final: JournalAudit): number =>
+  final.events.filter((e) => e.kind === 'edge' && e.gate !== undefined).length
+
+const flowReferenceDir = await mkdtemp(join(tmpdir(), 'flow-kill-resume-ref-'))
+const flowReferenceExit = await runPhase(flowReferenceDir, '1', undefined, flowChildScript)
+if (flowReferenceExit.code !== 0) {
+  throw new Error(`flow reference run failed: ${flowReferenceExit.stderr}`)
+}
+const flowReference = parseReport<FlowChildReport>(flowReferenceExit.stdout)
+const flowReferenceJournal = await auditSpawnJournal(flowReferenceDir, FLOW_RUN_ID)
+const flowCases: string[] = referenceLabels(flowReferenceDir, '1')
+await rm(flowReferenceDir, { recursive: true, force: true })
+const flowKeys = flowReference.exec.map((step) => step.key)
+const mapSourceKey = 'route:entry:surveyor'
+const mapJoinKey = flowKeys.find((key) => key.startsWith('map:') && key.endsWith(':join'))
+const mapItemKeys = flowKeys.filter((key) => key.startsWith('map:') && !key.endsWith(':join'))
+
+describe('flow graph kill-and-resume conformance (route walker replays the journal)', () => {
+  let dir: string
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'flow-kill-resume-'))
+  })
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  afterAll(() => {
+    console.log(
+      `flow kill-and-resume case matrix (${flowCases.length} labels): ${flowCases.join(', ')}`,
+    )
+  })
+
+  it('the reference run wins after one repair and one gate decision, with keyed map spawns', () => {
+    expect(flowReference.kind).toBe('winner')
+    expect(flowReference.out).toEqual({ verifier: { verified: true, build: 2 } })
+    expect(flowReference.decisionRows).toBe(1)
+    expect(flowReferenceJournal.settledDoneByLabel).toEqual(FLOW_SETTLES_BY_LABEL)
+    expect(new Set(flowKeys).size).toBe(flowKeys.length)
+    expect(mapItemKeys).toEqual([
+      'map:maps:surveyor->scout->collate#1:0',
+      'map:maps:surveyor->scout->collate#1:1',
+    ])
+    expect(mapJoinKey).toBe('map:maps:surveyor->scout->collate#1:join')
+    expect(flowCases.some((label) => label.startsWith('settled:'))).toBe(true)
+    expect(flowCases.some((label) => label.endsWith(':mid'))).toBe(true)
+    expect(flowCases).toContain('gate:ship:asked')
+  })
+
+  it.each(flowCases.map((label) => [label] as const))(
+    'SIGKILL at %s → the walker resumes to the reference output and reruns no committed step',
+    { timeout: 120_000 },
+    async (label: string) => {
+      const killed = await runPhase(dir, '1', label, flowChildScript)
+      expect(killed.signal, `phase 1 should die by SIGKILL, got code=${killed.code}`).toBe(
+        'SIGKILL',
+      )
+      expect(await readFile(join(dir, 'killed.log'), 'utf8')).toBe(`${label}\n`)
+      const atKill = await auditSpawnJournal(dir, FLOW_RUN_ID)
+      const committed = committedKeys(atKill)
+      const decidedAtKill = gateDecisionRows(atKill) > 0
+
+      const resumed = await runPhase(dir, '2', undefined, flowChildScript)
+      expect(resumed.code, `phase 2 stderr: ${resumed.stderr}`).toBe(0)
+      const report = parseReport<FlowChildReport>(resumed.stdout)
+
+      // The resumed run wins with exactly the reference output.
+      expect(report.kind).toBe('winner')
+      expect(report.stopped).toBeUndefined()
+      expect(report.out).toEqual(flowReference.out)
+
+      // Every execution settled done exactly once across both processes, under the reference keys.
+      const final = await auditSpawnJournal(dir, FLOW_RUN_ID)
+      expect(final.settledDoneByLabel).toEqual(FLOW_SETTLES_BY_LABEL)
+      expect(final.spawnedKeysByLabel).toEqual(flowReferenceJournal.spawnedKeysByLabel)
+      expect(committedKeys(final)).toEqual(new Set(flowKeys))
+
+      // Phase 2 ran exactly the steps with no done settlement at the kill, each once: no
+      // committed step ran again, and nothing was lost.
+      const rerun = report.exec.map((step) => step.key)
+      expect(rerun.filter((key) => committed.has(key))).toEqual([])
+      expect([...rerun].sort()).toEqual(flowKeys.filter((key) => !committed.has(key)).sort())
+
+      // Killed after the map source settled and before its join: the map re-expanded, ran only
+      // its unsettled items, and ran its join once.
+      if (committed.has(mapSourceKey) && mapJoinKey !== undefined && !committed.has(mapJoinKey)) {
+        expect(rerun.filter((key) => key === mapJoinKey)).toHaveLength(1)
+        expect(rerun.filter((key) => mapItemKeys.includes(key)).sort()).toEqual(
+          mapItemKeys.filter((key) => !committed.has(key)),
+        )
+      }
+
+      // One gate decision: asked again only when it was not journaled before the kill.
+      const asked = readGateCalls(dir).filter((call) => call.phase === '2')
+      expect(asked).toHaveLength(decidedAtKill ? 0 : 1)
+      expect(report.decisionRows).toBe(1)
+      expect(gateDecisionRows(final)).toBe(1)
+
+      expect(final.rootSpawned).toBe(1)
+      expect(final.duplicateCursorSeqs).toEqual([])
+      const settled = await readSettleRecord(dir)
+      expect(settled?.kind).toBe('winner')
+      expect(settled?.tree.root).toBe(FLOW_RUN_ID)
       expect(existsSync(join(dir, RUN_DIRECTORY_LOCK_FILE))).toBe(false)
     },
   )

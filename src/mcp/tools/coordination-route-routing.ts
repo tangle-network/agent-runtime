@@ -21,6 +21,7 @@ import type {
   RouteSpawnMarker,
   RouteWhen,
 } from './coordination-route-contracts'
+import { admitRuntimeSpawn, type RuntimeSpawnOutcome } from './coordination-runtime-spawn'
 
 /**
  * The flow scheduler of one manager: entry and route spawns are runtime spawns, like map items.
@@ -29,13 +30,21 @@ import type {
  * on each settle beside the map expansion and fires at most one edge leaving the settled node; that
  * edge may start several nodes at once (a fork), or wait for several sources (a join). An edge into
  * a gate awaits `decideGate`, and the decision `{ choice, by }` is routed as the gate's result.
+ *
+ * Every spawn is keyed, so a restarted manager replays the flow from its spawn journal by walking
+ * it again from its entries: a key whose done settlement is on disk comes back committed, and its
+ * result takes the live settle path at once through `settleCommitted` (routes, maps, gates); an
+ * in-doubt key is re-admitted once under `<key>#2`, and a second in-doubt ends the flow as
+ * `in-doubt:<node>`. The walk re-derives every key a prior process used, because each one counts
+ * traversals and settles that the replay repeats in the same order.
  */
 export function createRouteRouting({
   opts,
   bus,
   admitSpawn,
   resolveContinuity,
-  profileNameByWorker,
+  nodeOf,
+  settleCommitted,
   stop,
 }: {
   readonly opts: CoordinationToolsOptions
@@ -46,7 +55,10 @@ export function createRouteRouting({
     profileName: string | undefined,
     key: string | undefined,
   ) => ResolvedContinuity
-  readonly profileNameByWorker: ReadonlyMap<string, string>
+  /** The node a worker of this manager runs, by profile name. */
+  readonly nodeOf: (workerId: string) => string | undefined
+  /** Run a committed spawn's journaled settle through the live settle path. */
+  readonly settleCommitted: (workerId: string, node: string) => Promise<void>
   /** End the manager: the flow spawns nothing more and the manager takes no further turn. */
   readonly stop: (reason: string) => void
 }) {
@@ -91,33 +103,41 @@ export function createRouteRouting({
     task: unknown,
     key: string,
     continuity: Exclude<ResolvedContinuity, { readonly error: string }>,
-  ): Promise<{ readonly workerId: string } | { readonly refused: string }> => {
-    let response: unknown
-    try {
-      response = await admitSpawn({
-        profile,
-        args: { label: marker.node },
-        task,
-        key,
-        continuity,
-        successorOf: undefined,
-        preflightProfile: () =>
-          opts.resolveSpawnProfile ? detachedFrozen(opts.resolveSpawnProfile(profile)) : profile,
-        resourcesFromPath: [],
-        defaultLabel: marker.node,
-        route: Object.freeze({ ...marker }),
-      })
-    } catch (error) {
-      return { refused: errMessage(error) }
-    }
-    const started = response as { readonly workerId?: unknown; readonly reason?: unknown }
-    if (typeof started.workerId === 'string') return { workerId: started.workerId }
-    return { refused: typeof started.reason === 'string' ? started.reason : 'spawn refused' }
+  ): Promise<RuntimeSpawnOutcome> => {
+    const spawned = await admitRuntimeSpawn(admitSpawn, {
+      profile,
+      args: { label: marker.node },
+      task,
+      key,
+      continuity,
+      successorOf: undefined,
+      preflightProfile: () =>
+        opts.resolveSpawnProfile ? detachedFrozen(opts.resolveSpawnProfile(profile)) : profile,
+      resourcesFromPath: [],
+      defaultLabel: marker.node,
+      route: Object.freeze({ ...marker }),
+    })
+    // A committed spawn is no running worker: a later route into its node is not `target-live`.
+    if ('workerId' in spawned && !spawned.committed) setLive(marker.node, spawned.workerId)
+    return spawned
   }
+  // A spawn whose key is in doubt twice: the flow cannot tell whether that step is still running,
+  // so it ends. A manager with no flow (a map of a root-driven graph) records the refusal only.
+  const endInDoubt = async (node: string, source: string): Promise<void> => {
+    if (flow === undefined || ended) return
+    await end(
+      { kind: 'stopped', at: node, workerId: source, reason: `in-doubt:${node}` },
+      `flow in-doubt:${node}`,
+    )
+  }
+  const refusal = (spawned: RuntimeSpawnOutcome): string =>
+    'refused' in spawned ? spawned.refused : 'in-doubt'
 
-  // Every entry at once, each with its own task, under its own key.
+  // Every entry at once, each with its own task, under its own key. Committed entries settle once
+  // every entry is spawned, the order in which their live settles would arrive at the earliest.
   const start = (): Promise<void> => {
     started ??= (async () => {
+      const committed: Array<{ readonly workerId: string; readonly node: string }> = []
       for (const entry of flow?.entries ?? []) {
         const spawned = await spawnNode(
           { edge: entry.edge, node: entry.node },
@@ -126,7 +146,13 @@ export function createRouteRouting({
           entry.key,
           { continuity: 'fresh' },
         )
-        if ('workerId' in spawned) setLive(entry.node, spawned.workerId)
+        if ('inDoubt' in spawned) {
+          await endInDoubt(entry.node, 'entry')
+          return
+        }
+        if ('workerId' in spawned && spawned.committed) {
+          committed.push({ workerId: spawned.workerId, node: entry.node })
+        }
         await publish({
           kind: 'traversal',
           edge: entry.edge,
@@ -137,8 +163,12 @@ export function createRouteRouting({
           bytes: 'workerId' in spawned ? textBytes(entry.task) : 0,
           ...('workerId' in spawned
             ? { workerId: spawned.workerId }
-            : { reason: `entry spawn refused: ${spawned.refused}` }),
+            : { reason: `entry spawn refused: ${refusal(spawned)}` }),
         })
+      }
+      for (const step of committed) {
+        if (ended) return
+        await settleCommitted(step.workerId, step.node)
       }
     })()
     return started
@@ -237,6 +267,7 @@ export function createRouteRouting({
     }
     const task = { from: { node, result }, evidence }
     const fork = edge.to.nodes.length > 1
+    const committed: Array<{ readonly workerId: string; readonly node: string }> = []
     for (const target of edge.to.nodes) {
       // A resume edge re-attaches to the target's latest settled session; a target that never
       // settled starts fresh, as a delegates edge's declared resume does.
@@ -260,7 +291,13 @@ export function createRouteRouting({
                 : `route:${edge.edge}#${traversal}`,
               continuity,
             )
-      if ('workerId' in spawned) setLive(target.node, spawned.workerId)
+      if ('inDoubt' in spawned) {
+        await endInDoubt(target.node, source)
+        return
+      }
+      if ('workerId' in spawned && spawned.committed) {
+        committed.push({ workerId: spawned.workerId, node: target.node })
+      }
       await publish({
         ...row,
         to: target.node,
@@ -269,14 +306,19 @@ export function createRouteRouting({
         bytes: 'workerId' in spawned ? textBytes(task) : 0,
         ...('workerId' in spawned
           ? { workerId: spawned.workerId }
-          : { reason: `route spawn refused: ${spawned.refused}` }),
+          : { reason: `route spawn refused: ${refusal(spawned)}` }),
       })
+    }
+    // A committed target settles after every target of a fork is spawned, as live settles would.
+    for (const step of committed) {
+      if (ended) return
+      await settleCommitted(step.workerId, step.node)
     }
   }
 
   const routeSettle = async (settled: Settled<unknown>, worker: SettledWorker): Promise<void> => {
     if (ended) return
-    const node = profileNameByWorker.get(worker.id)
+    const node = nodeOf(worker.id)
     if (node === undefined || !flowNodes.has(node)) return
     live.get(node)?.delete(worker.id)
     const settlement = workerSettlement(settled, worker)
@@ -438,7 +480,7 @@ export function createRouteRouting({
       await end(
         {
           kind: 'stopped',
-          at: profileNameByWorker.get(worker.id) ?? worker.id,
+          at: nodeOf(worker.id) ?? worker.id,
           workerId: worker.id,
           reason: `route-step-failed: ${errMessage(error)}`,
         },
@@ -447,7 +489,7 @@ export function createRouteRouting({
     }
   }
 
-  return { start, route }
+  return { start, route, endInDoubt }
 }
 
 /** The caller's decision, checked against the gate's choices, or why it is not one. */
