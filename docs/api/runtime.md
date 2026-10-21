@@ -22054,6 +22054,16 @@ A graph as stored: every axis serializable; the check re-bound at replay.
 
 > `readonly` `optional` **checkRef?**: `string`
 
+##### entry?
+
+> `readonly` `optional` **entry?**: readonly `object`[]
+
+A flow graph's entry and gates; absent for any other graph.
+
+##### gates?
+
+> `readonly` `optional` **gates?**: readonly [`GraphGate`](#graphgate)[]
+
 ***
 
 ### GraphRunRecord
@@ -38866,8 +38876,8 @@ Nodes whose latest usable result rides the target's task.
 > `readonly` `optional` **maxTraversals?**: `number`
 
 Traversals beyond this are skipped (ledgered `unpropagated`) and matching continues with
- the next edge. Default [defaultEdgeTraversalCap](#defaultedgetraversalcap). A routes cycle needs at least one
- edge that sets it.
+ the next edge. Default [defaultEdgeTraversalCap](#defaultedgetraversalcap). Every routes cycle, each subcycle
+ included, must cross an edge that sets it.
 
 ###### continuity?
 
@@ -44677,7 +44687,9 @@ readonly `object`[]
 
 > **graphDigest**(`graph`): `string`
 
-Digest of the exact graph (nodes + edges + budget + deliverable describe).
+Digest of the exact graph (nodes + edges + budget + deliverable describe, and a flow graph's
+ entry and gates). An absent key is not serialized, so a graph without `entry` keeps the digest
+ it had before flow graphs were stored.
 
 #### Parameters
 

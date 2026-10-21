@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.337.2` and `@tangle-network/agent-eval@0.215.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.338.0` and `@tangle-network/agent-eval@0.215.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -614,7 +614,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1132 exports.
 | `gateOnDeliverable` | function | Wrap an `Executor` so its settlement `valid` reflects the deliverable check, not the |
 | `gitWorkspace` | function | A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, commit produced changes (conflict-aware), and read `head` — hooks disabled, identity pinned. |
 | `graphDesignerExtraTools` | function | The designer's three tools over one registry. Record-every-run is enforced |
-| `graphDigest` | function | Digest of the exact graph (nodes + edges + budget + deliverable describe). |
+| `graphDigest` | function | Digest of the exact graph (nodes + edges + budget + deliverable describe, and a flow graph's |
 | `graphFromStored` | function | Rehydrate a stored graph into a runnable one. The check comes from the |
 | `graphRegistry` | function | Open (or lazily create) a registry rooted at a workspace directory. The |
 | `graphRunsFor` | function | Records for one task shape, newest last. |

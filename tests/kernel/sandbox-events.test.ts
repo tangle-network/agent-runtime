@@ -381,64 +381,6 @@ describe('sandboxEventServedBackend — a request is not a receipt', () => {
   })
 })
 
-describe('mapSandboxToolEvent — a liveness frame is not a tool call', () => {
-  // The sidecar's shape, measured 2026-10-05 on a claude-code root: one real call, then a
-  // heartbeat every 5 s and one slow notice while it runs, each with its own numeric event id.
-  const call = {
-    type: 'message.part.updated',
-    id: '518',
-    data: {
-      part: {
-        type: 'tool',
-        callID: 'toolu_01Sz',
-        tool: 'mcp__agent-runtime-coordination__await_event',
-        state: { status: 'running', input: { max: 5 } },
-      },
-    },
-  } as unknown as SandboxEvent
-  const liveness = ['tool-heartbeat', 'tool-slow', 'tool-heartbeat'].map(
-    (type, index) =>
-      ({
-        type,
-        id: String(519 + index),
-        data: {
-          toolName: 'mcp__agent-runtime-coordination__await_event',
-          partId: 'prt_1',
-          elapsedMs: 5_000 * (index + 1),
-          thresholdMs: 10_000,
-        },
-      }) as unknown as SandboxEvent,
-  )
-})
-
-describe('mapSandboxToolEvent — codex tool items', () => {
-  // The sidecar's codex shape, read from archived Discovery turns on 2026-10-15: every tool is an
-  // `item.*` event inside `raw`, and 83 of 83 codex turns projected no tool call before this.
-  const item = (phase: string, fields: Record<string, unknown>) =>
-    ({
-      type: 'raw',
-      data: { type: 'raw', backend: 'codex', event: { type: phase, item: fields } },
-    }) as unknown as SandboxEvent
-  const mcp = {
-    id: 'item_1',
-    type: 'mcp_tool_call',
-    server: 'agent-runtime-coordination',
-    tool: 'read_journal',
-    arguments: { sinceRow: 0 },
-    result: null,
-    error: null,
-    status: 'in_progress',
-  }
-  const command = {
-    id: 'item_2',
-    type: 'command_execution',
-    command: 'npm test',
-    aggregated_output: '',
-    exit_code: null,
-    status: 'in_progress',
-  }
-})
-
 describe('SandboxUsageLedger settled usage projection', () => {
   it('uses one deduplicated credit pass and returns a detached last-turn snapshot', () => {
     const ledger = createSandboxUsageLedger()
