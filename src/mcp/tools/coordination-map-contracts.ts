@@ -14,8 +14,10 @@ export type MapItemFailurePolicy = 'all-or-refuse' | 'settled-subset'
  *
  * Every step publishes a `map` event. Item settlements are recorded but not queued, so the
  * manager is woken by the join's settlement, or by a `map` event when the map was refused or its
- * join could not run. Map state is process-local, like analyst-run lineage: a restarted manager
- * does not re-expand a map whose source settled in a prior process.
+ * join could not run. Items and the join are keyed `map:<edge>#<expansion>:<index>` and
+ * `map:<edge>#<expansion>:join`, where expansion is the source node's 1-based done-settle count. A
+ * flow's restarted manager replays its source's committed settle, so the map re-expands under the
+ * same keys: an item or join whose done settlement is on disk returns it without running.
  */
 export interface MapOnSettleRoute {
   /** Stable edge identity carried on every `map` event. */

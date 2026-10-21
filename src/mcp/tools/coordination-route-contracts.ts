@@ -100,9 +100,10 @@ export interface RouteEntry {
  * no decision. Every spawn goes through the admission a `spawn_worker` call takes, carrying the
  * runtime-authored {@link RouteSpawnMarker}, so the pool, the pre-flight and node pinning judge it.
  *
- * Plain data, like a map route: flow state is process-local, and a restarted manager does not
- * replay the traversals of a prior process. A gate decision is the exception: the decider replays a
- * journaled decision instead of asking the caller again.
+ * Plain data, like a map route. Every spawn is keyed, so a restarted manager replays the flow from
+ * its spawn journal: it walks the flow again from its entries, a key whose done settlement is on
+ * disk returns that result without running, and the decider replays a journaled gate decision
+ * instead of asking the caller again.
  */
 export interface RouteFlow {
   readonly entries: ReadonlyArray<RouteEntry>
