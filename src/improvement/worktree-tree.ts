@@ -71,3 +71,38 @@ function git(cwd: string, args: string[], indexFile?: string): string {
   }
   return result.stdout.trim()
 }
+
+export function worktreeChangedPaths(worktreePath: string): string[] {
+  const result = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
+    cwd: worktreePath,
+    encoding: 'utf-8',
+  })
+  if (result.error) {
+    throw new Error(
+      `agenticGenerator: git status failed to spawn in ${worktreePath}: ${result.error.message}`,
+    )
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `agenticGenerator: git status exited ${result.status} in ${worktreePath}: ${result.stderr.trim()}`,
+    )
+  }
+  const records = result.stdout.split('\0')
+  const paths: string[] = []
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i]
+    if (!record) continue
+    paths.push(record.slice(3))
+    // Rename and copy entries have a second NUL-delimited path without a status prefix.
+    if (record[0] === 'R' || record[1] === 'R' || record[0] === 'C' || record[1] === 'C') {
+      const source = records[++i]
+      if (!source) {
+        throw new Error(
+          `agenticGenerator: git status omitted a rename/copy path in ${worktreePath}`,
+        )
+      }
+      paths.push(source)
+    }
+  }
+  return paths
+}
