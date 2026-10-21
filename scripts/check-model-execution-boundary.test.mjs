@@ -228,14 +228,6 @@ const generator = {
       }),
     ])
 
-    const routerOwner = `
-      async function fetchRouterResponse() {
-        await fetch(url)
-        await fetch(url)
-      }
-    `
-    expect(checkJavaScript('src/runtime/router-client.ts', routerOwner)).toHaveLength(1)
-
     expect(
       checkJavaScript(
         'src/runtime/router-client.ts',

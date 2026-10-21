@@ -17,7 +17,7 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { RouterTransportConfig } from '../../runtime/router-client'
+import type { RouterTransportConfig } from '../../runtime/router-http-transport'
 import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
 import { type DelegateOptions, delegate } from '../../runtime/supervise/delegate'
 import type { ExecutorConfig } from '../../runtime/supervise/runtime'

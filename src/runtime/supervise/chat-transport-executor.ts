@@ -16,7 +16,7 @@ import type {
   WorkerResumeContext,
   WorkerSpawnContext,
 } from '../../mcp/tools/coordination'
-import type { ToolSpec } from '../router-client'
+import type { ToolSpec } from '../router-request-body'
 import { type DeliverableSpec, gateOnDeliverable, mapExecutorResult } from './completion-gate'
 import { assertExecutableAgentProfile } from './model-policy'
 import { createExecutor, type RouterToolsSeam } from './runtime'

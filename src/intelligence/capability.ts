@@ -6,7 +6,7 @@
  */
 
 import type { AgentProfileMcpServer } from '@tangle-network/agent-interface'
-import type { ToolSpec } from '../runtime/router-client'
+import type { ToolSpec } from '../runtime/router-request-body'
 import type { CertifiedArtifact, CertifiedProfile, CertifiedPromptSurface } from './delivery'
 
 // ── AXIS 1 — INTERFACE (CLOSED) ────────────────────────────────────────────────

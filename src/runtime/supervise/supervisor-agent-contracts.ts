@@ -18,7 +18,7 @@ import type {
 } from '../../mcp/tools/coordination'
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
-import type { RouterTransportConfig } from '../router-client'
+import type { RouterTransportConfig } from '../router-http-transport'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
 import type { ContinuationPolicy } from './continuation'

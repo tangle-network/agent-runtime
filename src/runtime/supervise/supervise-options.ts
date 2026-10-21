@@ -19,7 +19,7 @@ import type {
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import type { RuntimeHooks } from '../../runtime-hooks'
-import type { RouterTransportConfig } from '../router-client'
+import type { RouterTransportConfig } from '../router-http-transport'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
 import type { ContinuationPolicy } from './continuation'

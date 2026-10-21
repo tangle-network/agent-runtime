@@ -517,7 +517,8 @@ export type {
 // Router requests are an internal transport adapter. Public execution always enters through an
 // exact AgentProfile (`createExecutor` + `streamAgentTurn`); callers may configure only the
 // endpoint/auth transport used by that path.
-export type { RouterResponseReceipt, RouterRouting, RouterTransportConfig } from './router-client'
+export type { RouterResponseReceipt, RouterTransportConfig } from './router-http-transport'
+export type { RouterRouting, ToolSpec } from './router-request-body'
 export {
   type BenchmarkCell,
   type BenchmarkConfig,
@@ -1149,7 +1150,6 @@ export {
   type SandboxLeafOut,
   type SandboxOutputMarker,
   type SandboxSeam,
-  type ToolSpec,
 } from './supervise/runtime'
 // The STEERABLE sandbox worker: one box, one server-side session, many turns — so a steer has a
 // turn boundary to be folded into and the default cloud worker becomes correctable mid-flight.

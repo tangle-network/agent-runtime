@@ -1,5 +1,7 @@
 import { ValidationError } from '../../errors'
-import { type RouterRouting, type RouterTransportConfig, routerBrain } from '../router-client'
+import { routerBrain } from '../router-client'
+import type { RouterTransportConfig } from '../router-http-transport'
+import type { RouterRouting } from '../router-request-body'
 import type { ToolLoopChat } from '../tool-loop'
 import { assertCoordinationTransport } from './coordination-mcp'
 import { enforceTokenLimits, profileModelExecutionSettings } from './model-policy'

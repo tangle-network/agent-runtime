@@ -95,7 +95,7 @@ const lowLevelModelCallOwners = new Map([
 // whole-file exemption.
 const ownedModelFetchAllowances = new Map([
   [
-    'src/runtime/router-client.ts',
+    'src/runtime/router-http-transport.ts',
     new Map([['fetchRouterResponse', 1]]),
   ],
 ])

@@ -6,7 +6,7 @@ import {
   normalizeAnalyzeOnSettle,
 } from '../../mcp/tools/coordination'
 import { safeJsonText } from '../../mcp/tools/coordination-json'
-import type { ToolSpec } from '../router-client'
+import type { ToolSpec } from '../router-request-body'
 import {
   runBrainLoop,
   type ToolLoopCallContext,
