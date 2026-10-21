@@ -230,6 +230,7 @@ class EvaluatorGitIsolationTest(unittest.TestCase):
             f"PYTHONPATH={bench_root}",
             *(f"{name}={value}" for name, value in _CLEAN_GIT_ENV.items()),
             sys.executable,
+            "-B",
             Path(__file__).resolve(),
             "--isolated-case",
         ]
