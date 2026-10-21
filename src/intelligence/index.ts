@@ -3,9 +3,9 @@
  * Tangle Intelligence SDK — trace capture plus reviewable improvement.
  *
  * The client keeps live-agent trace delivery best-effort. The separate
- * improvement-cycle exports analyze completed traces, run a signed baseline
- * versus candidate experiment, bind review to its result, and activate only
- * the exact measured candidate.
+ * improvement-cycle exports analyze completed traces and run a signed baseline
+ * versus candidate experiment. Activation exports bind review to its result
+ * and activate only the exact measured candidate.
  *
  *   1. OBSERVE — wrap a generic agent and export one trace span per call to
  *      Tangle Intelligence, swallowing every export failure so a live agent
@@ -73,16 +73,25 @@ export type {
   AgentImprovementActivationTransitionInput,
   AgentProfileImprovementActivationOperation,
   AgentProfileImprovementActivationTargetPlan,
+  CreateAgentImprovementActivationOptions,
   CreateAgentImprovementActivationResultOptions,
+  CreateAgentImprovementProposalOptions,
   ExecuteAgentImprovementActivationInput,
   ExecuteAgentImprovementActivationOptions,
   ProfileImprovementActivationTransitionInput,
+  ReviewAgentImprovementInput,
   SealedCandidateActivationTransitionInput,
 } from './activation'
 export {
+  createAgentImprovementActivation,
   createAgentImprovementActivationResult,
+  createAgentImprovementProposal,
   executeAgentImprovementActivation,
+  reviewAgentImprovementProposal,
+  verifyAgentImprovementActivation,
   verifyAgentImprovementActivationResult,
+  verifyAgentImprovementProposal,
+  verifyAgentImprovementReview,
 } from './activation'
 export type {
   AgentProfileCandidateMeasurementExecutor,
@@ -167,31 +176,22 @@ export type {
   AgentProfileImprovementBenchmark,
   AgentProfileImprovementExecutor,
   AgentProfileImprovementMethodOptions,
-  CreateAgentImprovementActivationOptions,
-  CreateAgentImprovementProposalOptions,
   ExecuteAgentCandidateExperimentCellOptions,
   ProposeAgentImprovementOptions,
   ProposeAgentImprovementResult,
   ProposeAgentProfileImprovementOptions,
   ProposeAgentProfileImprovementResult,
-  ReviewAgentImprovementInput,
   RunAgentCandidateExperimentOptions,
   RunAgentCandidateExperimentResult,
   VerifyCandidateExecutionEvidenceOptions,
 } from './improvement-cycle'
 export {
   AgentCandidateExperimentCellExecutionError,
-  createAgentImprovementActivation,
   createAgentImprovementMeasuredComparison,
-  createAgentImprovementProposal,
   executeAgentCandidateExperimentCell,
   proposeAgentImprovement,
   proposeAgentProfileImprovement,
-  reviewAgentImprovementProposal,
   runAgentCandidateExperiment,
-  verifyAgentImprovementActivation,
-  verifyAgentImprovementProposal,
-  verifyAgentImprovementReview,
   verifyCandidateExecutionEvidence,
 } from './improvement-cycle'
 export type {

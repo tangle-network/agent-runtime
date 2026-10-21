@@ -3,13 +3,13 @@ import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/
 import type { BackendType } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
 import {
-  type ProviderWorkspaceCaptureReceipt,
   placedProviderExecutor,
   providerAsExecutor,
-  providerAsSandboxClient,
-  resolveAgentEnvironmentProvider,
-} from '../environment-provider'
+} from '../environment-provider/provider-executor-admission'
+import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
+import { providerAsSandboxClient } from '../environment-provider/provider-sandbox-adapter'
 import { selectProviderPlacement } from '../provider-placement'
+import type { ProviderWorkspaceCaptureReceipt } from '../provider-workspace-retention'
 import { type BridgeSeam, validateBridgeModelCredential } from './bridge-config'
 import { bridgeExecutor } from './bridge-executor'
 import { cliInPlaceExecutor, cliWorktreeExecutor } from './cli-executor-factories'

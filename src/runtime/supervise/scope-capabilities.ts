@@ -1,5 +1,5 @@
 import { ValidationError } from '../../errors'
-import type { DriverAttemptRecord } from './driver-retry'
+import type { DriverAttemptRecord } from './driver-attempt-evidence'
 import type { TeamProgress } from './progress'
 import {
   releaseScopeRetainedOwnerEnvironment,

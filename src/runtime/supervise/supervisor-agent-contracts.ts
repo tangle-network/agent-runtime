@@ -21,12 +21,8 @@ import type { DeliverableSpec } from './completion-gate'
 import type { ContinuationPolicy } from './continuation'
 import type { PriorCoordination } from './coordination-log'
 import type { CoordinationTransportOptions } from './coordination-mcp'
-import type {
-  DriverAttemptRecord,
-  DriverContinuationRecord,
-  DriverReentry,
-  DriverRetryPolicy,
-} from './driver-retry'
+import type { DriverAttemptRecord, DriverContinuationRecord } from './driver-attempt-evidence'
+import type { DriverReentry, DriverRetryPolicy } from './driver-retry'
 import type { BusRecord } from './event-bus'
 import type { SupervisorFinalizer } from './finalizer'
 import type { PeerMailLimits } from './peer-mail'

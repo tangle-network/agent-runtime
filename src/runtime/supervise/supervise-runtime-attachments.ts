@@ -1,7 +1,7 @@
 import type { AgentProfile, AgentProfileMcpServer } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type { WorkerSpawnContext } from '../../mcp/tools/coordination-contracts'
-import { resolveAgentEnvironmentProvider } from '../environment-provider'
+import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
 import { bridgeRuntimeAttachmentsKey, type ExecutorConfig } from './runtime'
 
 /**

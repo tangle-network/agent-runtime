@@ -36,7 +36,7 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
 │ round-synchronous           │            │ reactive keystone (canonical)   │
 │ driver.plan → decide        │            │ Agent.act spawns into a Scope   │
 │ (most benches drive this)   │            │ conserved budget ⇒ equal-k      │
-│ run-loop.ts                 │            │ supervise/{scope,supervisor}.ts │
+│ agent-rounds.ts                 │            │ supervise/{scope,supervisor}.ts │
 └─────────────────────────────┘            └─────────────────────────────────┘
                 └────────── same Executor port underneath ──────────┘
 ```

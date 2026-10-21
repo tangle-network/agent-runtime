@@ -16,12 +16,14 @@ Best-of-k selection + self-repair, grounded ONLY on task-visible checks (shown e
 
 Every positive cell captures ≥93% of the pass@k bound. Selection is 85–92% of the effect; repair is a small always-positive increment. Prompt-diversity per slot is a paired null (+0.6pp). Independently verified: 1,968/1,968 regrade cells, 328/328 selection replays, 0 hidden-test leaks.
 
+Historical standalone rigs: [HumanEval](https://github.com/tangle-network/agent-runtime/blob/934014fda0c5736080ffafec357b1d58c0d73e81/bench/src/hev-structural.mts) and [MBPP](https://github.com/tangle-network/agent-runtime/blob/934014fda0c5736080ffafec357b1d58c0d73e81/bench/src/mbpp-structural.mts). Runtime owns the maintained implementation.
+
 ## The finding that shapes the design
 
 The runtime already owns five of the six pieces:
 1. best-of-k + repair strategy family — `src/runtime/strategy.ts` `sample`/`refine`/`sampleThenRefine` (:755/:760/:1003), authored via `defineStrategy` (:834)
-2. jailed check execution — `createVerifierEnvironment` (`src/runtime/verifier-environment.ts:68`), agent-eval `testJudge`/`runJudgeFleet`, `@tangle-network/sandbox` — retire the bench rigs' bespoke `docker run` jails
-3. selection + audit — `defaultSelectWinner` + `SelectionReceipt` (`src/runtime/run-loop.ts:1131`, `types.ts:160`)
+2. jailed check execution — `createVerifierEnvironment` (`src/runtime/verifier-environment.ts:68`), agent-eval `testJudge`/`runJudgeFleet`, `@tangle-network/sandbox` — replaces the retired bench rigs' bespoke `docker run` jails
+3. selection + audit — `defaultSelectWinner` + `SelectionReceipt` (`src/runtime/round-selection.ts`, `types.ts:160`)
 4. visible/hidden firewall as typed field routing — agent-eval `FieldDestination`: `develop-against` (the visible-check source) vs `grading-only`, with `assertNoHiddenLeak` + `gradeOnHidden`
 5. config/knob plumbing — `budget` on runBenchmark/runAgentic/superviseSurface; `directives.ts` for slot prefixes
 
@@ -30,7 +32,7 @@ The ONLY net-new seam: **the model authors its own visible checks** (`CheckSourc
 ## Design (no caller changes)
 
 New module `src/runtime/structural-rollout.ts`:
-- `CheckSource<Task>` — `generate(task, ctx) → VisibleCheck[]` from agent-visible/develop-against fields only. Default impl lifted from the proven `bench/src/hev-structural.mts generateTests` (:282) with the MBPP lesson baked in: **official shown examples outrank model-authored guesses in scoring** (guesses are 17–70% wrong depending on model × spec richness; unweighted they can flip selection negative).
+- `CheckSource<Task>` — `generate(task, ctx) → VisibleCheck[]` from agent-visible/develop-against fields only. Default impl lifted from the proven [historical HumanEval rig’s `generateTests`](https://github.com/tangle-network/agent-runtime/blob/934014fda0c5736080ffafec357b1d58c0d73e81/bench/src/hev-structural.mts#L282) with the MBPP lesson baked in: **official shown examples outrank model-authored guesses in scoring** (guesses are 17–70% wrong depending on model × spec richness; unweighted they can flip selection negative).
 - `CheckRunner` — `run(candidate, checks, ctx) → { passed, total, failureOutput }`, backend = sandbox exec / agent-eval `testJudge`, result shaped to `SurfaceScore`.
 - `structuralRollout({ policy, checkSource, checkRunner }) → Strategy` — a fourth member of the sample/refine family via `defineStrategy`; argmax by weighted visible score, ≤`repairRounds` repair shots steered by `failureOutput`, keep-best-by-score. Emits `SelectionReceipt`s.
 - `StructuralRolloutPolicy { k, repairRounds, testgen, diverse?, temperature? }` — promoted from the rig env vars; later an optimizable surface for `improve()`.

@@ -1,13 +1,11 @@
+import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import type { runLocalHarness } from '../../mcp/local-harness-process'
 import type { GitRunner } from '../../mcp/worktree'
 import type { WorktreeCheckRunner } from '../../mcp/worktree-harness'
 import type { CodeModeStore, CodeModeToolContext, CodeModeToolsOptions } from '../code-mode'
-import type {
-  AgentEnvironmentProvider,
-  AgentEnvironmentProviderRegistry,
-  ProviderExecutorOptions,
-  ProviderWorkspaceCaptureReceipt,
-} from '../environment-provider'
+import type { ProviderExecutorOptions } from '../environment-provider/provider-executor-admission'
+import type { AgentEnvironmentProviderRegistry } from '../environment-provider/provider-registry'
+import type { ProviderWorkspaceCaptureReceipt } from '../provider-workspace-retention'
 import type { RouterResponseReceipt } from '../router-http-transport'
 import type { RouterConfig, RouterRouting, ToolSpec } from '../router-request-body'
 import type { SandboxLeafOut } from '../sandbox-executor-output'

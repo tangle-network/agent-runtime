@@ -131,3 +131,36 @@ export function profileImprovementMetadata(
     ? attachOptimizationActivationReceipt(merged, optimizationReceipt)
     : immutableCandidateValue(merged)
 }
+
+export interface ImprovementSearchAccounting {
+  costUsd: number
+  durationMs: number
+}
+
+export function completeImprovementSearchAccounting(
+  analysis: ImprovementSearchAccounting,
+  improvement: {
+    cost: {
+      totalCostUsd: number
+      accountingComplete: boolean
+      incompleteReasons: readonly string[]
+    }
+    durationMs: number
+  },
+): { searchCostUsd: number; searchDurationMs: number } {
+  if (!improvement.cost.accountingComplete) {
+    throw new Error(
+      `agent improvement optimization cost is incomplete: ${improvement.cost.incompleteReasons.join(', ') || 'unspecified'}`,
+    )
+  }
+  if (!Number.isFinite(improvement.cost.totalCostUsd) || improvement.cost.totalCostUsd < 0) {
+    throw new Error('agent improvement optimization cost must be finite and non-negative')
+  }
+  if (!Number.isFinite(improvement.durationMs) || improvement.durationMs < 0) {
+    throw new Error('agent improvement optimization duration must be finite and non-negative')
+  }
+  return {
+    searchCostUsd: analysis.costUsd + improvement.cost.totalCostUsd,
+    searchDurationMs: analysis.durationMs + improvement.durationMs,
+  }
+}

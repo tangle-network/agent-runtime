@@ -23,7 +23,7 @@
  */
 
 import { ValidationError } from '../../errors'
-import { defaultSelectWinner } from '../run-loop'
+import { defaultSelectWinner } from '../iteration-result'
 import { type DispatchUnit, rollingDispatch } from '../supervise/dispatch'
 import { settledToIteration } from '../supervise/scope'
 import type { Agent, Scope, Settled } from '../supervise/types'

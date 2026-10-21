@@ -1,5 +1,6 @@
 import { AgentTurnResultSchema } from '@tangle-network/agent-interface'
 import { z } from 'zod'
+import { jsonContentText } from '../json-content-hash'
 import { fnv1a32Hex } from '../util'
 import type { ExecutorResult } from './types'
 
@@ -104,11 +105,6 @@ export function executorFailureInfra(failure: ExecutorFailure): true | undefined
 /** Preserve deterministic result pointers across built-in executors and replay.
  * FNV-1a is an identity convention here, not a cryptographic integrity check. */
 export function contentRef(prefix: string, value: unknown): string {
-  let str: string
-  try {
-    str = JSON.stringify(value) ?? String(value)
-  } catch {
-    str = String(value)
-  }
+  const str = jsonContentText(value)
   return `${prefix}:${fnv1a32Hex(str)}`
 }

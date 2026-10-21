@@ -14,10 +14,10 @@ import {
 } from '../../src/candidate-execution'
 import { sha256Bytes } from '../../src/candidate-execution/digest'
 import {
-  LEAF_CONTINUATION_TASK,
   type ProviderExecutorOptions,
   providerAsExecutor,
-} from '../../src/runtime/environment-provider'
+} from '../../src/runtime/environment-provider/provider-executor-admission'
+import { LEAF_CONTINUATION_TASK } from '../../src/runtime/environment-provider/provider-executor-lifecycle'
 import type {
   ProviderWorkspaceCaptureResult,
   ProviderWorkspaceRetentionContext,

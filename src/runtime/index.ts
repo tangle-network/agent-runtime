@@ -18,6 +18,29 @@
 export { type AnalystFinding, computeFindingId, makeFinding } from '@tangle-network/agent-eval'
 // One-stop import: portable profile plus Sandbox execution types Runtime consumers need.
 export type { AgentProfile } from '@tangle-network/agent-interface'
+export type {
+  AgentEnvironment,
+  AgentEnvironmentCapabilities,
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+  AgentEnvironmentQuery,
+  AgentEnvironmentStatus,
+  AgentEnvironmentSummary,
+  AgentProfileRef,
+  AgentSession,
+  AgentSessionRef,
+  AgentSessionStatus,
+  AgentTurnResult,
+  CheckpointRef,
+  CheckpointRequest,
+  CreateAgentEnvironmentInput,
+  ExecRequest,
+  ExecResult,
+  ForkRequest,
+  PlacementInfo,
+  ResourceRequest,
+  WorkspaceRequest,
+} from '@tangle-network/agent-interface/environment-provider'
 export type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 export { assertProfileMaterializes } from '../agent/profile-materialization'
 export { contentAddress } from '../durable/content-address'
@@ -106,6 +129,7 @@ export type { WorktreeCheckRunner, WorktreeHarnessResult } from './../mcp/worktr
 // exporter that caller cannot pass to `SupervisorOpts.otel` — the recorder above would have had
 // nowhere to write without standing up an OTLP collector first.
 export { createOpenInferenceFileExporter, createOtelExporter } from '../otel-export'
+export { type RunAgentRoundsOptions, runAgentRounds } from './agent-rounds'
 // The best-so-far / AUC / plateau math, extracted so the LIVE progress-based stop rules
 // (`supervise/stop-rules`) decide from the SAME numbers the post-run report grades them by.
 export * from './anytime'
@@ -151,50 +175,21 @@ export {
   type LeaderboardSpec,
 } from './define-leaderboard'
 export {
-  type AgentEnvironment,
-  type AgentEnvironmentCapabilities,
-  type AgentEnvironmentEvent,
-  type AgentEnvironmentProvider,
-  type AgentEnvironmentProviderRef,
-  type AgentEnvironmentProviderRegistry,
-  type AgentEnvironmentQuery,
-  type AgentEnvironmentStatus,
-  type AgentEnvironmentSummary,
-  type AgentProfileRef,
-  type AgentSession,
-  type AgentSessionRef,
-  type AgentSessionStatus,
-  type AgentTurnResult,
-  type CheckpointRef,
-  type CheckpointRequest,
-  type CreateAgentEnvironmentInput,
-  type CreateTangleSandboxExactProcessProviderOptions,
-  createAgentEnvironmentProviderRegistry,
-  createTangleSandboxExactProcessProvider,
-  type ExecRequest,
-  type ExecResult,
-  type ForkRequest,
-  type PlacementInfo,
-  type ProviderAsSandboxClientOptions,
-  type ProviderCheckpointCaptureContext,
   type ProviderExecutorOptions,
   type ProviderLeafOut,
-  type ProviderNativeCapturePhase,
-  type ProviderPlacement,
   type ProviderPromptOptions,
-  type ProviderWorkspaceAttemptProvenance,
-  type ProviderWorkspaceCaptureProvenance,
-  type ProviderWorkspaceCaptureReceipt,
-  type ProviderWorkspaceCaptureResult,
-  type ProviderWorkspaceEntryMetadata,
-  type ProviderWorkspaceRetentionContext,
-  type ProviderWorkspaceRetentionPort,
   providerAsExecutor,
-  providerAsSandboxClient,
-  type ResourceRequest,
+} from './environment-provider/provider-executor-admission'
+export {
+  type AgentEnvironmentProviderRef,
+  type AgentEnvironmentProviderRegistry,
+  createAgentEnvironmentProviderRegistry,
   resolveAgentEnvironmentProvider,
-  type WorkspaceRequest,
-} from './environment-provider'
+} from './environment-provider/provider-registry'
+export {
+  type ProviderAsSandboxClientOptions,
+  providerAsSandboxClient,
+} from './environment-provider/provider-sandbox-adapter'
 export {
   type RuntimeFailureCause,
   type RuntimeFailureCode,
@@ -250,6 +245,15 @@ export * from './in-process-sandbox-client'
 // The one pseudo-box adapter: any non-box Executor → a SandboxClient for runAgentRounds.
 export { inlineSandboxClient } from './inline-sandbox-client'
 export * from './isolated-checker'
+// `runAgentRounds` is the multi-agent fanout/vote/refine kernel over many sandbox sessions.
+// It is distinct from `runToolLoop`/`streamToolLoop`, which execute one chat turn and fold
+// tool results back into that same conversation.
+export {
+  defaultSelectWinner,
+  isTerminalDecision,
+  TERMINAL_DECISIONS,
+  type TerminalDecision,
+} from './iteration-result'
 // API-key provisioning for adopted external MCP servers: secrets ride the
 // profile by NAME only; a KeyProvider resolves values at materialize time.
 export * from './key-provider'
@@ -333,6 +337,18 @@ export * from './private-cas'
 // Agent-eval integrations (judges, optimizers) use this exact-profile adapter instead of opening
 // a second provider path. It lowers one AgentProfile through createExecutor + streamAgentTurn.
 export { profileChatClient, profileOptimizerModelCall } from './profile-chat-client'
+export type { ProviderPlacement } from './provider-placement'
+export type {
+  ProviderCheckpointCaptureContext,
+  ProviderNativeCapturePhase,
+  ProviderWorkspaceAttemptProvenance,
+  ProviderWorkspaceCaptureProvenance,
+  ProviderWorkspaceCaptureReceipt,
+  ProviderWorkspaceCaptureResult,
+  ProviderWorkspaceEntryMetadata,
+  ProviderWorkspaceRetentionContext,
+  ProviderWorkspaceRetentionPort,
+} from './provider-workspace-retention'
 export * from './resolve-sandbox-client'
 export * from './retained-interactive'
 export * from './retained-interactive-control'
@@ -360,32 +376,16 @@ export {
   printBenchmarkReport,
   runBenchmark,
 } from './run-benchmark'
-// `runAgentRounds` is the multi-agent fanout/vote/refine kernel over many sandbox sessions.
-// It is distinct from `runToolLoop`/`streamToolLoop`, which execute one chat turn and fold
-// tool results back into that same conversation.
-export {
-  defaultSelectWinner,
-  isTerminalDecision,
-  type RunAgentRoundsOptions,
-  runAgentRounds,
-  TERMINAL_DECISIONS,
-  type TerminalDecision,
-} from './run-loop'
 // The product-facing backend selector: one call picks sandbox/bridge/router transport.
 export * from './s3-private-cas-store'
 export { type AcquireOptions, acquireSandbox } from './sandbox-acquire'
 export {
   assertSandboxServedModel,
-  createSandboxToolPartState,
   createSandboxUsageLedger,
   extractLlmCallEvent,
-  mapSandboxEvent,
-  mapSandboxToolEvent,
   type SandboxServedBackend,
-  type SandboxToolPartState,
   type SandboxUsageLedger,
   sandboxEventServedBackend,
-  sandboxProgressEvents,
   sumSandboxUsage,
 } from './sandbox-events'
 export {
@@ -395,6 +395,13 @@ export {
   SandboxEvidenceRetentionError,
   type SandboxEvidenceRetentionPort,
 } from './sandbox-evidence-retention'
+export {
+  createSandboxToolPartState,
+  mapSandboxEvent,
+  mapSandboxToolEvent,
+  type SandboxToolPartState,
+  sandboxProgressEvents,
+} from './sandbox-executor-output'
 export {
   type BranchCapableBox,
   createSandboxLineage,
@@ -407,18 +414,20 @@ export * from './sandbox-run'
 export {
   DEFAULT_SHARED_BOX_RESOURCES,
   DEFAULT_SHARED_BOX_WORKERS,
-  ROUTER_CLIENT_HEADER,
   type SharedBoxCloseReceipt,
-  type SharedBoxHandle,
   type SharedBoxPlacement,
   type SharedBoxPlacementOptions,
-  type SharedBoxProcess,
   type SharedBoxStats,
   type SharedWorkerIdentity,
   sharedBoxPlacement,
+} from './shared-box'
+export {
+  ROUTER_CLIENT_HEADER,
+  type SharedBoxHandle,
+  type SharedBoxProcess,
   sharedBoxRefusal,
   sharedWorkerClientName,
-} from './shared-box'
+} from './shared-box-worker'
 // Same-host stdio MCP: the ONE spawn+handshake connection (shared by the serve
 // verifier and the live consumers) + the profile.mcp materializer.
 export * from './stdio-mcp-client'
@@ -426,12 +435,37 @@ export * from './stdio-mcp-client'
 // budget is spent to beat its check. Built-ins `sample`/`refine`; author your own with
 // `defineStrategy` (compose shot() + critique(), zero Supervisor ceremony); compare
 // with runBenchmark. The depth/breadth drivers are the reference implementations.
-export * from './strategy'
+export {
+  type AgenticOptions,
+  type AgenticRunResult,
+  type AgenticSurface,
+  type AgenticTask,
+  type AgenticTool,
+  type ArtifactHandle,
+  breadthStrategy,
+  type CorpusReadbackOptions,
+  depthStrategy,
+  type RunAgenticOptions,
+  refine,
+  runAgentic,
+  type StrategyMessage,
+  type StrategyShotResult,
+  type SurfaceScore,
+  sample,
+} from './strategy'
 export {
   type AuthoredStrategy,
   type AuthorStrategyOptions,
+  adaptiveRefine,
   assertStrategyContract,
   authorStrategy,
+  defineStrategy,
+  type ShotSpec,
+  type Strategy,
+  type StrategyArtifacts,
+  type StrategyCtx,
+  type StrategyResult,
+  sampleThenRefine,
   strategyAuthorContract,
   strategyAuthorSystemPrompt,
 } from './strategy-author'
@@ -565,20 +599,19 @@ export {
   type DriverAttemptRecord,
   type DriverAttemptStop,
   DriverAttemptsExhaustedError,
-  // The pool readout a continuation is composed against.
-  type DriverBudgetReadout,
   type DriverContinuationRecord,
-  type DriverContractState,
-  // The third answer beside transient and terminal: the upstream was out of capacity, so the
-  // driver pauses instead of failing. The signal reader lets a consumer classify its own records.
   type DriverFailureClass,
   type DriverLoopRecord,
-  type DriverProgressMark,
-  type DriverReentry,
   type DriverRepromptRefusal,
-  type DriverRetryPolicy,
   summarizeDriverAttempts,
   upstreamUnavailableSignal,
+} from './supervise/driver-attempt-evidence'
+export type {
+  DriverBudgetReadout,
+  DriverContractState,
+  DriverProgressMark,
+  DriverReentry,
+  DriverRetryPolicy,
 } from './supervise/driver-retry'
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
@@ -941,6 +974,10 @@ export * from './supervise/worktree-fanout'
 export * from './supervise-analysts'
 export * from './surface-diff'
 export type { SandboxControlClient } from './tangle-sandbox-exact-process-provider'
+export {
+  type CreateTangleSandboxExactProcessProviderOptions,
+  createTangleSandboxExactProcessProvider,
+} from './tangle-sandbox-exact-process-provider'
 
 export * from './task-queue'
 // Profile-owned supervisor configuration. The raw driver constructor lives only under `/testing`;

@@ -22,9 +22,9 @@ import {
   type AgenticTask,
   refine,
   runAgentic,
-  type Strategy,
   sample,
 } from './strategy'
+import type { Strategy } from './strategy-author'
 import { armDeadlineTimer } from './supervise/deadline'
 import { concreteModelId } from './supervise/model-policy'
 

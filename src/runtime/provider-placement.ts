@@ -1,7 +1,10 @@
 import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type { CreateAgentEnvironmentInput } from '@tangle-network/agent-interface/environment-provider'
 import { ValidationError } from '../errors'
-import type { ProviderExecutorOptions, ProviderPromptOptions } from './environment-provider'
+import type {
+  ProviderExecutorOptions,
+  ProviderPromptOptions,
+} from './environment-provider/provider-executor-admission'
 import { concreteProfileModel } from './supervise/model-policy'
 import { detachedSnapshot } from './supervise/snapshot'
 

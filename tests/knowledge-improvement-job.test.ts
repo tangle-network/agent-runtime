@@ -17,13 +17,13 @@ import {
 } from '@tangle-network/agent-knowledge'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createAgentCandidateWorkspacePort } from '../src/candidate-execution/workspace-archive-local'
-import { executeAgentImprovementActivation } from '../src/intelligence/activation'
 import {
   createAgentImprovementActivation,
   createAgentImprovementProposal,
+  executeAgentImprovementActivation,
   reviewAgentImprovementProposal,
-  runAgentCandidateExperiment,
-} from '../src/intelligence/improvement-cycle'
+} from '../src/intelligence/activation'
+import { runAgentCandidateExperiment } from '../src/intelligence/improvement-cycle'
 import {
   buildKnowledgeImprovementExperimentBundles,
   createKnowledgeImprovementActivationExecutor,

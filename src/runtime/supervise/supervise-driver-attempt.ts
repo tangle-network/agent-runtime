@@ -5,7 +5,7 @@ import { COORDINATION_CLIENT_TOOL_TIMEOUT_MS } from '../../mcp/tools/coordinatio
 import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
-import { HarnessTurnFailedError } from './driver-retry'
+import { HarnessTurnFailedError } from './driver-attempt-evidence'
 import { errMessage } from './error-message'
 import { executorFailure } from './executor-outcome'
 import {

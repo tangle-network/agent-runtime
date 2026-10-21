@@ -7,7 +7,7 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { expect, it } from 'vitest'
-import { providerAsExecutor } from '../../src/runtime/environment-provider'
+import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
 import { driverAgent } from '../../src/runtime/supervise/driver-brain-agent'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'

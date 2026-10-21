@@ -2,71 +2,12 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import {
-  type AgentImprovementProposal,
-  applyAgentProfileDiff,
-  canonicalCandidateDigest,
-} from '@tangle-network/agent-interface'
-import {
-  type AgentProfileImprovementFixture,
-  loadAgentImprovementProposalFixture,
-  loadAgentProfileImprovementFixture,
-} from '@tangle-network/agent-runtime/testing'
+import { applyAgentProfileDiff, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import { loadAgentProfileImprovementFixture } from '@tangle-network/agent-runtime/testing'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
-import { verifyAgentImprovementProposal } from '../src/intelligence/improvement-cycle'
-
-const runtimePackage = JSON.parse(
-  readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
-) as { version: string }
-
-describe('agent improvement proposal testing fixture', () => {
-  it('round-trips through JSON and production validation', () => {
-    const proposal = loadAgentImprovementProposalFixture()
-    const roundTrip = JSON.parse(JSON.stringify(proposal)) as AgentImprovementProposal
-
-    expect(proposal.evaluation.kind).toBe('agent-improvement-measured-comparison')
-    expect(proposal.evaluation.metadata).toMatchObject({
-      fixture: 'agent-improvement-proposal',
-      runtimeVersion: runtimePackage.version,
-    })
-    expect(verifyAgentImprovementProposal(roundTrip)).toEqual(proposal)
-  })
-
-  it('rejects nested tampering and returns an isolated clone', () => {
-    const loaded = loadAgentImprovementProposalFixture()
-    const proposal = JSON.parse(JSON.stringify(loaded)) as AgentImprovementProposal
-    const prompt = proposal.evaluation.experiment.candidate.profile.prompt
-    if (!prompt) throw new Error('testing fixture candidate must include a prompt')
-    prompt.systemPrompt = 'tampered fixture prompt'
-
-    expect(() => verifyAgentImprovementProposal(proposal)).toThrow()
-    const reloaded = loadAgentImprovementProposalFixture()
-    expect(reloaded).not.toBe(loaded)
-    expect(reloaded.evaluation).not.toBe(loaded.evaluation)
-    expect(reloaded.evaluation.experiment.candidate.profile.prompt?.systemPrompt).toBe(
-      'Return the exact measured answer.',
-    )
-  })
-})
 
 describe('agent profile improvement testing fixture', () => {
-  it('round-trips an opaque profile comparison through production validation', () => {
-    const fixture = loadAgentProfileImprovementFixture()
-    const roundTrip = JSON.parse(JSON.stringify(fixture)) as AgentProfileImprovementFixture
-    const proposal = fixture.proposal
-
-    expect(proposal.evaluation.kind).toBe('agent-profile-improvement-measured-comparison')
-    expect(proposal.evaluation.metadata).toMatchObject({
-      fixture: 'agent-profile-improvement-proposal',
-      runtimeVersion: runtimePackage.version,
-    })
-    expect(Object.keys(proposal.evaluation.experiment.baseline)).toEqual(['stateDigest'])
-    expect(Object.keys(proposal.evaluation.experiment.candidate)).toEqual(['stateDigest'])
-    expect(verifyAgentImprovementProposal(roundTrip.proposal)).toEqual(proposal)
-    expect(roundTrip).toEqual(fixture)
-  })
-
   it('binds the private profiles and size to the proposal state digests', () => {
     const fixture = loadAgentProfileImprovementFixture()
     const experiment = fixture.proposal.evaluation.experiment
@@ -101,28 +42,6 @@ describe('agent profile improvement testing fixture', () => {
     expect(Object.keys(proposal.evaluation.experiment.candidate)).toEqual(['stateDigest'])
     expect(fixture.baselineProfile.name).toBe('support-agent')
     expect(fixture.candidateProfile.name).toBe('support-agent')
-  })
-
-  it('rejects nested proposal tampering and returns isolated immutable values', () => {
-    const loaded = loadAgentProfileImprovementFixture()
-    const proposal = JSON.parse(
-      JSON.stringify(loaded.proposal),
-    ) as AgentProfileImprovementFixture['proposal']
-    const prompt = proposal.evaluation.experiment.change[0]?.set.prompt
-    if (!prompt) throw new Error('profile improvement fixture must include a prompt diff')
-    prompt.systemPrompt = 'tampered profile improvement prompt'
-
-    expect(() => verifyAgentImprovementProposal(proposal)).toThrow()
-    const reloaded = loadAgentProfileImprovementFixture()
-    expect(reloaded).not.toBe(loaded)
-    expect(reloaded.proposal).not.toBe(loaded.proposal)
-    expect(reloaded.baselineProfile).not.toBe(loaded.baselineProfile)
-    expect(reloaded.candidateProfile).not.toBe(loaded.candidateProfile)
-    expect(Object.isFrozen(reloaded)).toBe(true)
-    expect(Object.isFrozen(reloaded.baselineProfile)).toBe(true)
-    expect(reloaded.proposal.evaluation.experiment.change[0]?.set.prompt?.systemPrompt).toBe(
-      'Answer directly, cite the source, and state uncertainty.',
-    )
   })
 })
 

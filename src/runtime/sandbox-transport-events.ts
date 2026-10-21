@@ -1,6 +1,37 @@
+/** Canonical Sandbox/provider wire-envelope decoding and transport identity. */
+
 import { CanonicalStreamEventSchema, type StreamEvent } from '@tangle-network/agent-interface'
+import type { SandboxEvent } from '@tangle-network/sandbox'
 import { isRecord } from '../record-value'
 import { assertRuntimeTimestamp } from './timestamps'
+
+export const CANONICAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'child-task',
+  'message.part.updated',
+  'tool-heartbeat',
+  'tool-slow',
+  'model-processing',
+  'status',
+  'warning',
+  'raw',
+  'session.updated',
+  'interaction',
+  'interaction.cancel',
+  'plan.submitted',
+])
+
+/** Decode one known Agent Interface event from a Sandbox event. */
+export function canonicalStreamEventFromSandboxEvent(event: SandboxEvent): StreamEvent | undefined {
+  if (!event || typeof event !== 'object') return undefined
+  const type = String(event.type ?? '')
+  const data =
+    event.data && typeof event.data === 'object'
+      ? (event.data as Record<string, unknown>)
+      : ({} as Record<string, unknown>)
+  const normalized = data.normalized
+  if (normalized === undefined && !CANONICAL_STREAM_EVENT_TYPES.has(type)) return undefined
+  return parseCanonicalTransportEvent(type, data, normalized, 'sandbox')
+}
 
 /**
  * Transport type whose payload is the harness's OWN event, passed through verbatim.

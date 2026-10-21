@@ -30,7 +30,8 @@ import {
 } from '@tangle-network/agent-eval/ledger-core'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { contentAddress } from '../../durable/content-address'
-import { createSandboxToolPartState, mapSandboxToolEvent } from '../sandbox-events'
+import { createSandboxToolPartState, mapSandboxToolEvent } from '../sandbox-executor-output'
+
 import type { ResultBlobStore, TraceRootReceipt } from './types'
 
 /** Schema identifier of a stored {@link TraceRootArtifact}. */

@@ -8,7 +8,7 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/in-memory-spawn-stores'
-import { providerAsExecutor } from '../../src/runtime/environment-provider'
+import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
 import {
   type RetainedExecutorContext,
   retainedExecutorSeamKey,

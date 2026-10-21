@@ -74,16 +74,11 @@ import {
 } from '../improvement/search-executor'
 import type { RuntimeHooks } from '../runtime-hooks'
 import { type BenchmarkConfig, type Environment, preflightModels } from './run-benchmark'
-import {
-  type AgenticOptions,
-  type AgenticTask,
-  refine,
-  runAgentic,
-  type Strategy,
-} from './strategy'
+import { type AgenticOptions, type AgenticTask, refine, runAgentic } from './strategy'
 import {
   loadAuthoredStrategy,
   requestStrategySource,
+  type Strategy,
   type StrategyAuthorTurn,
   strategyAuthorContract,
 } from './strategy-author'

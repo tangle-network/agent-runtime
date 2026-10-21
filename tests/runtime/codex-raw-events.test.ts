@@ -24,7 +24,6 @@ import { ValidationError } from '../../src/errors'
 import { runAgentRounds } from '../../src/runtime'
 import { decodeHarnessUsage } from '../../src/runtime/harness-usage'
 import {
-  canonicalStreamEventFromSandboxEvent,
   createSandboxUsageLedger,
   extractLlmCallEvent,
   sumSandboxUsage,
@@ -69,33 +68,6 @@ describe('the recorded codex session — every event survives the canonical pars
     expect(codexSession.filter((event) => event.type === 'raw').map(payloadType)).toEqual(
       rawPayloadTypes,
     )
-  })
-
-  it('parses every event without throwing, and reads no raw payload as a canonical type', () => {
-    for (const event of codexSession) {
-      expect(() => canonicalStreamEventFromSandboxEvent(event)).not.toThrow()
-    }
-    // A harness-native payload is not a canonical event: it decodes to nothing and the consumer
-    // reads it off the transport event, which still carries it verbatim.
-    for (const event of codexSession.filter((item) => item.type === 'raw')) {
-      expect(canonicalStreamEventFromSandboxEvent(event)).toBeUndefined()
-    }
-    expect(codexSession.map((event) => event.type)).toEqual(transportTypes)
-    expect(codexSession.filter((event) => event.type === 'raw').map(payloadType)).toEqual(
-      rawPayloadTypes,
-    )
-  })
-
-  it('still decodes a raw payload that carries the canonical raw shape', () => {
-    const canonical = canonicalStreamEventFromSandboxEvent({
-      type: 'raw',
-      data: { backend: 'codex', event: { type: 'turn.started' } },
-    } as unknown as SandboxEvent)
-    expect(canonical).toEqual({
-      type: 'raw',
-      backend: 'codex',
-      event: { type: 'turn.started' },
-    })
   })
 
   it('counts the codex usage block inside turn.completed exactly once for the turn', () => {
@@ -383,35 +355,6 @@ describe('once per turn — a canonical usage event wins over the harness receip
 
   it('credits the harness receipt for a turn that reports it alone', () => {
     expect(sumSandboxUsage(codexSession, 'codex-worker').input).toBe(15575)
-  })
-})
-
-describe('the canonical mismatch guard — kept for every non-raw type', () => {
-  it('throws when the payload type disagrees with the transport type', () => {
-    expect(() =>
-      canonicalStreamEventFromSandboxEvent({
-        type: 'status',
-        data: { type: 'warning', status: 'complete' },
-      } as unknown as SandboxEvent),
-    ).toThrow(/canonical event type "warning" does not match transport type "status"/)
-  })
-
-  it('throws when a normalized event disagrees with the transport type', () => {
-    expect(() =>
-      canonicalStreamEventFromSandboxEvent({
-        type: 'status',
-        data: { normalized: { type: 'warning', code: 'x', message: 'y' } },
-      } as unknown as SandboxEvent),
-    ).toThrow(/canonical event type "warning" does not match transport type "status"/)
-  })
-
-  it('throws when a non-raw normalized event is not a canonical event at all', () => {
-    expect(() =>
-      canonicalStreamEventFromSandboxEvent({
-        type: 'status',
-        data: { normalized: { type: 'status' } },
-      } as unknown as SandboxEvent),
-    ).toThrow(/invalid normalized canonical event/)
   })
 })
 

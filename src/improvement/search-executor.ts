@@ -73,11 +73,11 @@ import {
 } from '../otel-export'
 import {
   DEFAULT_SHARED_BOX_WORKERS,
-  isTransientSandboxFailure,
   type SharedBoxPlacement,
   type SharedBoxPlacementOptions,
   sharedBoxPlacement,
 } from '../runtime/shared-box'
+import { isTransientSandboxFailure } from '../runtime/shared-box-retry'
 import type { BudgetPool, ReservationTicket } from '../runtime/supervise/budget'
 import type { Spend } from '../runtime/supervise/types'
 import { openSlotGroup, type SlotGroup, type WorkerSlots } from '../runtime/supervise/worker-slots'

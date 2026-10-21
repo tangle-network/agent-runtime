@@ -14,7 +14,7 @@ import { replaySpawnTree } from '../../durable/spawn-journal/replay'
 import { materializeTreeView } from '../../durable/spawn-journal/tree-view'
 import { BackendTransportError, ValidationError } from '../../errors'
 import { priceTokens } from '../../pricing/router-prices'
-import { classifyDriverFailure } from './driver-retry'
+import { classifyDriverFailure } from './driver-attempt-evidence'
 import {
   runtimeOwnedExecutorMaterialization,
   runtimeOwnedExecutorProviderEvidence,

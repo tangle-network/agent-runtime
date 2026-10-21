@@ -42,7 +42,7 @@ import {
   createProtectedExactProcessCandidateExperimentExecutor,
   exactProcessCandidateExperimentExecutionSupport,
 } from '../src/intelligence/exact-process-candidate'
-import { createAgentEnvironmentProviderRegistry } from '../src/runtime/environment-provider'
+import { createAgentEnvironmentProviderRegistry } from '../src/runtime/environment-provider/provider-registry'
 import {
   candidateSha,
   cleanupCandidateFixtures,

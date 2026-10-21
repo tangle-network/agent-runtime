@@ -9,7 +9,7 @@ import {
 
 import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
 import { applyExactAgentProfileDiff, parseExactAgentProfile } from '../candidate-execution/profile'
-import { verifyAgentImprovementProposal } from '../intelligence/improvement-cycle'
+import { verifyAgentImprovementProposal } from '../intelligence/activation'
 import canonicalAgentImprovementProposalFixture from './fixtures/agent-improvement-proposal.json'
 import canonicalAgentProfileImprovementProposalFixture from './fixtures/agent-profile-improvement-proposal.json'
 import canonicalAgentProfileImprovementStateFixture from './fixtures/agent-profile-improvement-state.json'

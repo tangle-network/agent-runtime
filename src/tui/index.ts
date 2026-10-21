@@ -32,14 +32,16 @@ export {
 } from '../runtime/supervise/provision-supervisor'
 export { renderTopOnce, runTopApp, type TopAppOptions } from './top-app'
 export {
-  type BudgetStats,
-  type Distribution,
-  loadTopSnapshot,
   type RenderedTopFrame,
   type RenderOptions,
   type RenderTarget,
   renderTopFrame,
   renderTopFrameWithLayout,
+} from './top-frame'
+export {
+  type BudgetStats,
+  type Distribution,
+  loadTopSnapshot,
   type SpendStats,
   type SupervisorBase,
   type SupervisorTotals,
@@ -51,4 +53,4 @@ export {
   type TopSnapshotDiagnosticReason,
   type TopSnapshotDiagnosticSource,
   type WorkerView,
-} from './top-model'
+} from './top-snapshot'

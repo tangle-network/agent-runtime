@@ -94,7 +94,7 @@ Only a claim about process transfer requires a corresponding comparison in new d
 - `src/runtime/observe.ts` and `src/runtime/personify/corpus.ts`: trace-derived recommendations and persistent records.
 - `src/mcp/tools/coordination-manager.ts`: agent-driven observation, delegation, and steering.
 - `src/candidate-execution/`: execution of exact candidate combinations.
-- `src/intelligence/improvement-cycle.ts`: measured proposals and adoption preparation.
+- `src/intelligence/improvement-cycle.ts` owns measurement; `src/intelligence/activation.ts` owns proposal, review and activation records.
 - [Learning audit](./research/learning-system-audit-2026-09-05.md): cross-package source references, regression evidence, and research comparison.
 
 The [earlier interpretation](https://github.com/tangle-network/agent-runtime/blob/a16d8a3b91481b140cb552e373d5bde98b34af05/docs/architecture-interpretations.md) records the original critique and its subsequent corrections.

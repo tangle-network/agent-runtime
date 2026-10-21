@@ -11,7 +11,7 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 
 | Term | Canonical meaning | Anchor | Not |
 |---|---|---|---|
-| **Iteration** | ONE `driver.plan → dispatch → output.parse → validator.validate → driver.decide` cycle. The kernel's official accounting unit; trace events are `loop.iteration.*`. | `types.ts:119` (`Iteration`), `run-loop.ts` (the loop body) | not a "rollout" (that's what happens *inside* it); not a "turn" |
+| **Iteration** | ONE `driver.plan → dispatch → output.parse → validator.validate → driver.decide` cycle. The kernel's official accounting unit; trace events are `loop.iteration.*`. | `types.ts:119` (`Iteration`), `agent-rounds.ts` (the loop body) | not a "rollout" (that's what happens *inside* it); not a "turn" |
 | **Round** | Informal synonym for **iteration**. **Avoid — say "iteration".** | docstrings only | — |
 | **Rollout** | ONE agent execution in a box: one `streamPrompt` (or one executor `execute`) producing an answer/patch/artifact. The **worker's** unit, nested *inside* one iteration. | `sandbox-run.ts:30` ("a SINGLE rollout") | NOT the driver↔worker round (that's an iteration); a fanout iteration contains N rollouts |
 | **Attempt** | A rollout as the steer/analyst sees it (its output + verdict + trace). Same event, steer-side view. | `bench/src/sandbox-run.ts:39` (`SteerHistory`) | — |
@@ -24,7 +24,7 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 | Term | Meaning | Anchor |
 |---|---|---|
 | **Driver** | Owns topology. `plan(task, history) → Task[]` (1 = refine, N = fanout, 0 = stop) and `decide(history) → Decision`. The authority on what runs next. **Live and central.** | `types.ts:138` |
-| **Worker** | The agent run dispatched within an iteration (round-robin over `agentRuns`). "worker box", "finished worker". **Live term.** | `run-loop.ts:88,107` (`AgentRunSpec` `types.ts:67`) |
+| **Worker** | The agent run dispatched within an iteration (round-robin over `agentRuns`). "worker box", "finished worker". **Live term.** | `agent-rounds.ts:88,107` (`AgentRunSpec` `types.ts:67`) |
 | **Validator** | Owns scoring: `validate(output, ctx) → Verdict {valid, score}`. The judge. Selector ≠ judge: the driver selects, the validator judges. `ctx.box` is the iteration's LIVE sandbox, so a check can execute commands in the container it scores; a supervised worker gets one through `SandboxSeam.validator`. | `types.ts:52` |
 | **OutputAdapter** | Owns event-stream decode: `parse(events) → Output`. | `types.ts:105` |
 | **Analyst** | An `Agent.act` over the trace that returns a steer (never reads the verdict — the steer firewall). `llmAnalyst` (one router call); a strategy reads it via `ctx.critique`. | `bench/src/sandbox-run.ts:58` (`llmAnalyst`); firewall `personify/analyst.ts` (`assertTraceDerivedFindings`) |
@@ -63,7 +63,7 @@ The shape grows by LLM decision through the **coordination toolbox** over a live
 | **BudgetPool / ReservationTicket** | The **conserved reservation pool**: each spawn *reserves* against the root then settles to actual `Spend`. This is what makes **equal-compute hold by construction** (the anti-confound invariant for the gate). | `supervise/budget.ts:48,29` |
 | **UsageEvent** | The normalized usage increment every executor emits, so the pool meters all runtimes identically. | `supervise/types.ts:120` |
 | **Bridge turn receipt** | The usage cli-bridge counts for itself: it runs every harness against a scoped-loopback endpoint it owns and publishes what passed through it on the turn's materialization receipt, as `inference.observation.usage` with the prompt-cache split. Harness-agnostic by construction, because the proxy reads provider requests and not a CLI's own events. The bridge executor credits it only for a turn whose stream carried no usage frame, so a turn is charged once. | `supervise/runtime.ts` (`readBridgeReceiptTokens`) |
-| `runAgentRounds`'s budget | Only `maxIterations` (count) + `maxConcurrency` (in-flight cap) + per-`Iteration` cost aggregation. The rigorous reservation pool is the keystone's, not `runAgentRounds`'s. | `run-loop.ts:88` |
+| `runAgentRounds`'s budget | Only `maxIterations` (count) + `maxConcurrency` (in-flight cap) + per-`Iteration` cost aggregation. The rigorous reservation pool is the keystone's, not `runAgentRounds`'s. | `agent-rounds.ts:88` |
 
 ## Agent-to-agent
 

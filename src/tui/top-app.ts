@@ -1,6 +1,6 @@
 /**
  * The interactive side of the supervisor-run TUI: a keypress/mouse loop over the frames
- * `./top-model` renders, plus the operator controls that write back to the run — steer a live
+ * `./top-frame` renders, plus the operator controls that write back to the run — steer a live
  * worker, cancel one worker, and request cancellation of a whole run.
  *
  * The controls go through the owned run layout: steers via `writeWorkerSteer` (the durable inbox
@@ -20,12 +20,8 @@ import { resolve } from 'node:path'
 import { emitKeypressEvents } from 'node:readline'
 import { cancelRun } from '../runtime/supervise/run-cancellation'
 import { cancelWorker, writeWorkerSteer } from '../runtime/supervise/run-layout'
-import {
-  loadTopSnapshot,
-  type RenderTarget,
-  renderTopFrameWithLayout,
-  type TopSnapshot,
-} from './top-model'
+import { type RenderTarget, renderTopFrameWithLayout } from './top-frame'
+import { loadTopSnapshot, type TopSnapshot } from './top-snapshot'
 
 interface UiState {
   root: string

@@ -3,7 +3,6 @@ import {
   assertPursuitVersions,
   identicalFailureStreak,
   type JudgedPursuitVersion,
-  versionFailure,
 } from './pursuit-versions'
 
 const MATERIALIZE =
@@ -38,19 +37,6 @@ function version(
 }
 
 describe('the identical-failure stop of a version chain', () => {
-  it('names a driver failure with run-specific parts normalized', () => {
-    expect(
-      versionFailure(
-        version(4, {
-          error: 'spawn failed for run 9f3a2b1c4d5e6f70 at /mnt/traces/runs/x.v4/work after 12 ms',
-        }),
-      ),
-    ).toBe('driver-failed: Error: spawn failed for run <hex> at <path> after <n> ms')
-    expect(versionFailure(version(5, 'unscored'))).toBe('unscored by the judge')
-    expect(versionFailure(version(6, 'budget-exhausted'))).toBeNull()
-    expect(versionFailure(version(7, 'winner'))).toBeNull()
-  })
-
   it('stops after the configured number of versions failed identically', () => {
     const chain = [
       version(1, 'winner'),

@@ -477,7 +477,7 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
   The roles are the *same* atom; a node is a "driver" only because its tools spawn children.
   A child whose `act` calls `scope.spawn` is a driver too, with its **own sub-scope** (depth+1, bounded by `maxDepth` + a partition of the same root total) — recursion isn't a feature, it's the absence of a base case (`supervise/supervisor.ts`, `supervise/scope.ts`).
 - **REAL** — the **leaf** at the bottom is where a real coding harness runs, opaque and
-  self-parallelizing internally; the `runAgentRounds` kernel (`src/runtime/run-loop.ts`) is
+  self-parallelizing internally; the `runAgentRounds` kernel (`src/runtime/agent-rounds.ts`) is
   composed as one leaf execution backend. Everything above it is the same `act`/`Scope`
   atom, observable as one lifecycle stream (`scope.spawn`/settle →
   `agent.spawn`/`agent.child`).

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
-import { type RunAgentRoundsOptions, runAgentRounds } from '../run-loop'
+import { type RunAgentRoundsOptions, runAgentRounds } from '../agent-rounds'
 import {
   type SandboxLeafOut,
   type SandboxOutputMarker,

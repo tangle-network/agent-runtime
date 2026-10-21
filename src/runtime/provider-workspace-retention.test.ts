@@ -25,19 +25,19 @@ import {
 } from '../candidate-execution'
 import { sha256Bytes } from '../candidate-execution/digest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/in-memory-spawn-stores'
+import { runAgentRounds } from './agent-rounds'
 import {
   type ProviderLeafOut,
-  type ProviderWorkspaceRetentionContext,
   providerAsExecutor,
-  providerAsSandboxClient,
-} from './environment-provider'
+} from './environment-provider/provider-executor-admission'
+import { providerAsSandboxClient } from './environment-provider/provider-sandbox-adapter'
+import type { ProviderWorkspaceRetentionContext } from './provider-workspace-retention'
 import {
   captureProviderWorkspaceSnapshot,
   type ProviderWorkspaceCaptureReceipt,
   type ProviderWorkspaceRetentionPort,
 } from './provider-workspace-retention'
 import type { RetainedRunAdmission } from './retained-run-types'
-import { runAgentRounds } from './run-loop'
 import { captureBeforeDestroy } from './sandbox-evidence-retention'
 import { createBudgetPool } from './supervise/budget'
 import type { RetainedExecutorContext } from './supervise/retained-executor'

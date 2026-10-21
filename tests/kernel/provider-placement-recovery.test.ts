@@ -10,13 +10,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   type ProviderExecutorOptions,
   providerAsExecutor,
-} from '../../src/runtime/environment-provider'
+} from '../../src/runtime/environment-provider/provider-executor-admission'
 import {
   type ProviderPlacement,
   selectProviderPlacement,
 } from '../../src/runtime/provider-placement'
 import type { RetainedRunAdmission } from '../../src/runtime/retained-run-types'
-import { classifyDriverFailure } from '../../src/runtime/supervise/driver-retry'
+import { classifyDriverFailure } from '../../src/runtime/supervise/driver-attempt-evidence'
 import {
   type RetainedExecutorContext,
   retainedExecutorSeamKey,

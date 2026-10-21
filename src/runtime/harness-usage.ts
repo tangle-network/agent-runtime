@@ -23,6 +23,7 @@
 import type { HarnessType } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
+import { recordValue as plainRecord } from '../record-value'
 
 /**
  * Codex's `turn.completed` usage record, validated.
@@ -235,12 +236,6 @@ export function decodeHarnessUsage(
     if (usage !== undefined) return usage
   }
   return undefined
-}
-
-function plainRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
 }
 
 function naturalNumber(value: unknown, field: string, label: string): number {

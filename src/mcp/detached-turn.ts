@@ -37,7 +37,7 @@
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
 import type { AgentRunSpec, LoopTraceEmitter, LoopTraceEvent, SandboxClient } from '../runtime'
-import { createSandboxForSpec } from '../runtime/run-loop'
+import { createSandboxForSpec } from '../runtime/iteration-sandboxes'
 import { deleteBoxSafe, sleep, throwAbort, throwIfAborted } from '../runtime/util'
 import type { DelegationRecord, DelegationResumeDriver, DelegationResumeTick } from './task-queue'
 import type { DelegationProgress, DelegationResultPayload } from './types'

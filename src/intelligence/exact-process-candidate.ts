@@ -20,8 +20,8 @@ import { AGENT_CANDIDATE_EXECUTION_SUPPORT } from '../candidate-execution/verify
 import type {
   AgentEnvironmentProviderRef,
   AgentEnvironmentProviderRegistry,
-} from '../runtime/environment-provider'
-import { resolveAgentEnvironmentProvider } from '../runtime/environment-provider'
+} from '../runtime/environment-provider/provider-registry'
+import { resolveAgentEnvironmentProvider } from '../runtime/environment-provider/provider-registry'
 import {
   type AgentCandidateExperimentCellPlacement,
   executeAgentCandidateExperimentCell,
