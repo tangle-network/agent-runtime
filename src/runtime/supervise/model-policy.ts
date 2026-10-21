@@ -25,7 +25,7 @@ export function concreteModelId(model: string | undefined): string | undefined {
 }
 
 /** Whether a model value delegates selection to the chosen execution system. */
-export function isHarnessNativeModel(model: string | undefined): boolean {
+function isHarnessNativeModel(model: string | undefined): boolean {
   return model?.trim() === HARNESS_NATIVE_MODEL
 }
 
@@ -129,7 +129,7 @@ export interface TokenLimitDecision {
 }
 
 /** The execution paths that lower a profile into a provider request. */
-export type ModelExecutionPath = 'router' | 'bridge' | 'sandbox' | 'provider'
+type ModelExecutionPath = 'router' | 'bridge' | 'sandbox' | 'provider'
 
 /** Generation and loop controls that may affect one model execution. */
 export interface ProfileModelExecutionSettings {
@@ -313,7 +313,7 @@ function profileCodeModeSettings(
  * these fields, but a profile can reach an executor without a parse, so the same rules are
  * enforced here: positive integers, and no single ceiling above the total.
  */
-export function profileTokenLimits(
+function profileTokenLimits(
   profile: Pick<AgentProfile, 'model'>,
   context: string,
 ): ProfileTokenLimits {

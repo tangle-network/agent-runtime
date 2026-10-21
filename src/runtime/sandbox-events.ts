@@ -188,9 +188,9 @@ function firstString(...values: unknown[]): string | undefined {
  * text was never lifted, so a backend whose terminal frame carries that type produced a run that
  * was billed and recorded no answer.
  */
-export const sandboxTerminalEventTypes = ['message.completed', 'result', 'final', 'done'] as const
+const sandboxTerminalEventTypes = ['message.completed', 'result', 'final', 'done'] as const
 
-export type SandboxTerminalEventType = (typeof sandboxTerminalEventTypes)[number]
+type SandboxTerminalEventType = (typeof sandboxTerminalEventTypes)[number]
 
 const terminalTypes: ReadonlySet<string> = new Set<string>(sandboxTerminalEventTypes)
 

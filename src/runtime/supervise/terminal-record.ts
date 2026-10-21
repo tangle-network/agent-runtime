@@ -105,7 +105,7 @@ export function terminalDownEvent(
 }
 
 /** What the observer evidence needs from the node beyond its settlement. */
-export type SettledEvidenceSubject = {
+type SettledEvidenceSubject = {
   readonly runtime: NodeSnapshot['runtime']
   readonly startedAt: number
   readonly providerModel?: ProviderModelExecutionEvidence

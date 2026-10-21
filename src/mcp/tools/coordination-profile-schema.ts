@@ -21,7 +21,7 @@ import type { SuperviseProfileEntry } from './coordination-contracts'
  * Rebuilds rather than mutates: the canonical conversion output must stay untouched for callers
  * that compare against it.
  */
-export const stripKeyCodecArtifacts = (node: unknown): unknown => {
+const stripKeyCodecArtifacts = (node: unknown): unknown => {
   if (Array.isArray(node)) return node.map(stripKeyCodecArtifacts)
   if (!node || typeof node !== 'object') return node
   return Object.fromEntries(
@@ -35,7 +35,7 @@ export const stripKeyCodecArtifacts = (node: unknown): unknown => {
  *  description a model can act on (what it is, what a child typically sets), and — for the two
  *  fields whose canonical sub-tree dwarfs the rest of the tool surface — the BRIEF schema published
  *  in place of that sub-tree. */
-export interface PublishedProfileField {
+interface PublishedProfileField {
   readonly name: string
   readonly description: string
   readonly brief?: Record<string, unknown>
@@ -54,7 +54,7 @@ export interface PublishedProfileField {
  *  is fenced there and nowhere else. `mcp` (2663 bytes) and `resources` (3122 bytes) are the two a
  *  parent is least likely to author inline and were together 85% of the published cost, so they
  *  carry a brief shape plus a description naming the full form instead of the canonical sub-tree. */
-export const spawnProfileFields: readonly PublishedProfileField[] = [
+const spawnProfileFields: readonly PublishedProfileField[] = [
   {
     name: 'name',
     description:
@@ -166,7 +166,7 @@ export const spawnProfileFields: readonly PublishedProfileField[] = [
  *
  * @internal exported for the drift and degradation tests; not part of the package's public API.
  */
-export function deriveSpawnProfileArg(
+function deriveSpawnProfileArg(
   canonicalProperties: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
   const published: Array<[string, unknown]> = []
@@ -190,12 +190,7 @@ export function deriveSpawnProfileArg(
   }
 }
 
-/** The canonical field names this module publishes, in published order — the drift test's input.
- *
- * @internal */
-export const spawnProfileFieldNames: readonly string[] = spawnProfileFields.map((f) => f.name)
-
-export let spawnProfileArgCache: Record<string, unknown> | undefined
+let spawnProfileArgCache: Record<string, unknown> | undefined
 
 /** The published `profile` shape, computed on FIRST tool-definition access and memoized — not at
  *  module load. The conversion walks the whole canonical profile tree, and the strip walk rebuilds

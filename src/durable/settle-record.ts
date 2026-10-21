@@ -66,7 +66,7 @@ export class SettledRunDirectoryError extends Error {
 }
 
 /** A result member whose JSON form would misstate it. */
-export class UnrecordableSettleValueError extends TypeError {
+class UnrecordableSettleValueError extends TypeError {
   readonly path: string
 
   constructor(path: string, kind: string) {

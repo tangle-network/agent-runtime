@@ -713,7 +713,7 @@ export interface StreamProviderExecutorArgs {
   onHeld: () => void
 }
 
-export interface ProviderInvocationEnd {
+interface ProviderInvocationEnd {
   /** The upstream refused the turn for capacity, and the environment was kept to continue in. */
   readonly unavailable?: { readonly signal: string; readonly cause: string }
   /** The execution's spend so far, this invocation included. */

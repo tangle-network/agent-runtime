@@ -407,7 +407,7 @@ export async function submitAgentImprovementProposal(
  *  is delivered here so it actually reaches the agent — never bucketed into a
  *  type the fold then silently skips. The resolver reuses this exact set so its
  *  `promptAdditions` slot matches the folded prompt byte-for-byte. */
-export const promptFoldTypes = ['prompt-surface', 'skill', 'instructions'] as const
+const promptFoldTypes = ['prompt-surface', 'skill', 'instructions'] as const
 
 /**
  * Fold the certified prompt surface (and any certified prompt-folding artifacts:

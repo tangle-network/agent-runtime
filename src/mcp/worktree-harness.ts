@@ -91,7 +91,7 @@ export interface WorktreeProfileMaterializationReceipt {
 }
 
 /** Pure, pre-execution identity for the exact profile workspace plan this module later applies. */
-export interface WorktreeProfileExecutionPlan {
+interface WorktreeProfileExecutionPlan {
   readonly workspacePlanDigest: string
   readonly harness: HarnessId
   readonly resourceInstructions: WorktreeProfileMaterializationReceipt['resourceInstructions']
@@ -158,7 +158,7 @@ export type WorktreeCheckRunner = (opts: {
 }) => Promise<{ exitCode: number | null; output: string }>
 
 /** @experimental */
-export interface RunWorktreeHarnessOptions {
+interface RunWorktreeHarnessOptions {
   /** Absolute path to the git checkout the worktree is cut from. */
   repoRoot: string
   /**
@@ -338,7 +338,7 @@ export async function runWorktreeHarness(
 }
 
 /** @experimental */
-export interface RunInPlaceHarnessOptions {
+interface RunInPlaceHarnessOptions {
   /** Absolute path to the EXISTING directory the harness edits. The caller owns its lifecycle. */
   workspacePath: string
   /**

@@ -17,7 +17,6 @@ import type {
   AnalystRunEvent,
   AnalystRunInputs,
   AnalystRunResult,
-  AnalystRunSummary,
   CostLedgerHandle,
   FindingsDiff,
 } from '@tangle-network/agent-eval'
@@ -165,9 +164,6 @@ export interface FindingsStoreLike {
   loadRun(runId: string): ReadonlyArray<AnalystFinding & { run_id: string }>
   append(runId: string, findings: ReadonlyArray<AnalystFinding>): Promise<void>
 }
-
-/** Re-export so consumers can type per-analyst summaries from the loop result. */
-export type { AnalystRunSummary }
 
 /**
  * Narrow the `AnalystRegistryLike` further when we need streaming: the

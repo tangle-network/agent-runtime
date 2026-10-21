@@ -207,7 +207,7 @@ export async function upsertCommittedJsonLine<T>(
 }
 
 /** FileHandle.write may legally make a short write. Loop until every byte is appended. */
-export async function writeAllBytes(
+async function writeAllBytes(
   handle: Pick<FileHandle, 'write'>,
   value: string | Uint8Array,
 ): Promise<void> {

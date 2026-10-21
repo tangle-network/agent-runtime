@@ -120,11 +120,11 @@ export const flowRootProfile: AgentProfile = Object.freeze({
 }) as AgentProfile
 
 /** The nodes a routes edge starts: one, every node of a fork, or none for a stop or finish. */
-export const routeTargets = (to: RoutesEdge['to']): ReadonlyArray<NodeId> =>
+const routeTargets = (to: RoutesEdge['to']): ReadonlyArray<NodeId> =>
   typeof to === 'string' ? [to] : Array.isArray(to) ? to : []
 
 /** The sources a routes edge waits for: one, or every member of a join. */
-export const routeSources = (from: RoutesEdge['from']): ReadonlyArray<NodeId> =>
+const routeSources = (from: RoutesEdge['from']): ReadonlyArray<NodeId> =>
   typeof from === 'string' ? [from] : from
 
 const routeTargetName = (to: RoutesEdge['to']): string => {
@@ -762,7 +762,7 @@ export function flowOfSubtask(
 }
 
 /** How a flow ended, read from its `route` events. */
-export type FlowConclusion =
+type FlowConclusion =
   | {
       readonly kind: 'result'
       readonly result: SupervisedResult<unknown>

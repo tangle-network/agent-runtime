@@ -23,7 +23,7 @@ export interface ServerSentEventOptions {
 }
 
 /** @stable */
-export function encodeServerSentEvent(data: unknown, options: ServerSentEventOptions = {}): string {
+function encodeServerSentEvent(data: unknown, options: ServerSentEventOptions = {}): string {
   const lines: string[] = []
   if (options.id) lines.push(`id: ${stripNewlines(options.id)}`)
   if (options.event) lines.push(`event: ${stripNewlines(options.event)}`)

@@ -63,7 +63,7 @@ export interface CandidateGenerator {
   }>
 }
 
-export interface ImprovementDriverOptions {
+interface ImprovementDriverOptions {
   worktree: WorktreeAdapter
   generator: CandidateGenerator
   /** Root ref for first-generation/direct callers. Default `main`.

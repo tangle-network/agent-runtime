@@ -159,7 +159,7 @@ const execFileAsync = promisify(execFile)
  * `undefined` when the host cannot report one: the pid is gone, there is no `/proc` and no
  * `ps`, or the platform is Windows.
  */
-export async function readProcessStart(pid: number): Promise<string | undefined> {
+async function readProcessStart(pid: number): Promise<string | undefined> {
   if (!Number.isInteger(pid) || pid <= 0 || process.platform === 'win32') return undefined
   if (process.platform === 'linux') {
     let stat: string

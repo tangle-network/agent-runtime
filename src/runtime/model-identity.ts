@@ -13,7 +13,7 @@ interface ModelIdentityParts {
   readonly snapshotKind?: SnapshotKind
 }
 
-export interface CanonicalObservedModelParts {
+interface CanonicalObservedModelParts {
   readonly base: string
   readonly snapshot?: string
   readonly snapshotKind?: SnapshotKind

@@ -170,7 +170,7 @@ export class AgentCandidateExperimentCellExecutionError extends Error {
   }
 }
 
-export type CreateAgentImprovementMeasuredComparisonOptions = CompareCandidateExperimentOptions
+type CreateAgentImprovementMeasuredComparisonOptions = CompareCandidateExperimentOptions
 
 export type AgentImprovementAnalysisOptions = Omit<
   RunAnalystLoopOpts,

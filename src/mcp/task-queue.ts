@@ -829,20 +829,11 @@ function canonicalize(value: unknown): unknown {
 // Re-exports re-used by the feedback-store + handler glue. Kept local so
 // consumers of the queue don't have to import from `./types` separately.
 export type {
-  DelegateCodeArgs,
-  DelegateCodeResult,
-  DelegateFeedbackArgs,
-  DelegateFeedbackResult,
-  DelegateResearchArgs,
-  DelegateResearchResult,
   DelegateUiAuditArgs,
-  DelegateUiAuditConfig,
   DelegateUiAuditResult,
-  DelegateUiAuditRoute,
   DelegationError,
   DelegationFeedbackSnapshot,
   DelegationHistoryArgs,
-  DelegationHistoryEntry,
   DelegationHistoryResult,
   DelegationProfile,
   DelegationProgress,
@@ -850,5 +841,4 @@ export type {
   DelegationStatus,
   DelegationStatusArgs,
   DelegationStatusResult,
-  UiAuditorDelegationOutput,
 } from './types'

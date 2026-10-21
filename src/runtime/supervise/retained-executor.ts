@@ -254,7 +254,7 @@ export const DISPATCH_NOT_ADMITTED_CODE = 'DISPATCH_NOT_ADMITTED'
  * retried as a lost transport. The same codes at another status may be transient and are not
  * read here.
  */
-export const PROVISIONING_REFUSAL_CODES: ReadonlySet<string> = new Set([
+const PROVISIONING_REFUSAL_CODES: ReadonlySet<string> = new Set([
   'PROFILE_FILE_MOUNT_OUTSIDE_ROOTS',
   'PROFILE_FILES_MATERIALIZE_FAILED',
 ])
@@ -306,7 +306,7 @@ function readString(value: object, key: string): string | undefined {
  * When the cause arose relative to admission. A read wrapper, an event-stream failure and the
  * scope's own retained branch are all post-admission; only the bare admission path is not.
  */
-export type RetainedPendingPhase = 'admission' | 'execution'
+type RetainedPendingPhase = 'admission' | 'execution'
 
 // Preserve the specific admission evidence across local wrappers without adding a public cause
 // category. An unsupported route observed later cannot settle an already admitted execution.
@@ -499,7 +499,7 @@ export function leafContinuationExecutionId(nodeId: string, inputSeq: number): s
   return `${nodeId}:input:${inputSeq}`
 }
 
-export interface RetainedExecutorPreparation {
+interface RetainedExecutorPreparation {
   readonly spawned: Extract<SpawnEvent, { kind: 'spawned' }>
   readonly profile: AgentProfile
   readonly task: unknown

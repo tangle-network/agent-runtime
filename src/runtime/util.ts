@@ -142,7 +142,7 @@ export function zeroTokenUsage(): LoopTokenUsage {
  * `usdEstimated: 0`, which would read as "this runtime checked and priced none" on a path that
  * never prices at all.
  */
-export function usdEstimatedOf(...spends: ReadonlyArray<{ usdEstimated?: number }>): {
+function usdEstimatedOf(...spends: ReadonlyArray<{ usdEstimated?: number }>): {
   usdEstimated?: number
 } {
   let total = 0
@@ -384,13 +384,13 @@ function classifiedTotal(usage: Partial<LoopTokenUsage>, cacheRead: number): num
  * an open record: both the typed `PromptCacheUsage` and the open `promptCache` an `llm_call` carries
  * satisfy it, and each value is validated before it is credited.
  */
-export interface PromptCacheCounters {
+interface PromptCacheCounters {
   readonly readTokens?: unknown
   readonly writeTokens?: unknown
 }
 
 /** The prompt-cache token classes of one observation, as `LoopTokenUsage` members. */
-export type PromptCacheTokenClasses = Pick<
+type PromptCacheTokenClasses = Pick<
   LoopTokenUsage,
   'freshInput' | 'cacheRead' | 'cacheWrite' | 'cacheBreakdownKnown'
 >

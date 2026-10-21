@@ -6,7 +6,7 @@ import {
   type ProtectedTraceIdentity,
 } from './protected-redaction'
 
-export interface ProtectedAgentCandidateTraceAccess {
+interface ProtectedAgentCandidateTraceAccess {
   readonly store: TraceStore
   closeWrites(): Promise<void>
   identity(trace: ProtectedTraceIdentity): ProtectedTraceIdentity

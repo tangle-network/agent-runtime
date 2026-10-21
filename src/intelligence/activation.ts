@@ -677,7 +677,7 @@ export function verifyAgentImprovementProposal(input: unknown): AgentImprovement
 }
 
 /** Return a sealed bundle experiment; ordinary profile changes need a product-owned executor. */
-export function requireSealedCandidateExperiment(
+function requireSealedCandidateExperiment(
   proposal: AgentImprovementProposal,
 ): AgentCandidateExperiment {
   if (proposal.evaluation.kind !== 'agent-improvement-measured-comparison') {

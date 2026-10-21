@@ -72,7 +72,7 @@ export type ToolLoopChat = (
 
 /** Optional per-loop concerns the metered/steerable call sites attach. The loop is one copy;
  *  the budget/deadline bound, the inbox flush, and the metering hook in HERE — not as forks. */
-export interface ToolLoopHooks {
+interface ToolLoopHooks {
   /** Run before each inference turn (e.g. flush queued steers into `messages`). */
   beforeTurn?(turn: number, messages: ToolLoopMessageRecord[]): void | Promise<void>
   /** Stop predicate, rechecked after awaited preparation before spending on inference. */
@@ -165,7 +165,7 @@ async function maybeCompact(
   return true
 }
 
-export interface RouterToolLoopResult {
+interface RouterToolLoopResult {
   /** Present only in code mode; retain through the caller's existing run/session store. */
   codeModeStore?: CodeModeStore
   /** Exact model-visible presentation, distinct from the underlying capability grant. */
@@ -186,7 +186,7 @@ export interface RouterToolLoopResult {
 
 /** Resolve one tool-loop turn limit. Zero removes only the turn-count cap; abort, time, and
  * resource budgets remain available to callers. */
-export function resolveToolLoopMaxTurns(
+function resolveToolLoopMaxTurns(
   value: number | undefined,
   fallback: number,
   context = 'tool loop',

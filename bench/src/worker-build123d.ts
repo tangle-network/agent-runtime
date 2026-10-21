@@ -23,8 +23,6 @@ import { DEFAULT_BUILD123D_DIRECTIVE } from './directives'
 import { runRefineLoop } from './refine-loop'
 import { runBenchRouterTurn } from './router-turn'
 
-export { DEFAULT_BUILD123D_DIRECTIVE } from './directives'
-
 const execFileAsync = promisify(execFile)
 
 export const CGB_VENV_PY = process.env.CADGENBENCH_VENV ?? '/tmp/cgb-venv/bin/python'
@@ -53,7 +51,7 @@ function cheatSheet(): string {
   return _cheat
 }
 
-export interface Build123dConfig {
+interface Build123dConfig {
   routerBaseUrl: string
   routerKey: string
   model: string
@@ -62,7 +60,7 @@ export interface Build123dConfig {
   directive?: string
 }
 
-export interface Build123dShot {
+interface Build123dShot {
   /** The produced STEP text (the artifact the CADGenBench scorer grades). */
   artifact: string
   /** The Python source the agent wrote. */
@@ -72,81 +70,4 @@ export interface Build123dShot {
   ok: boolean
   built: boolean
   detail?: string
-}
-
-/** Author a build123d script via the router, execute it in the CADGenBench venv,
- *  read back output.step. Refine on execution error / missing STEP. */
-export async function solveBuild123dLocal(task: BenchTask, cfg: Build123dConfig): Promise<Build123dShot> {
-  const rounds = Math.max(1, cfg.rounds ?? 2)
-  const directive = cfg.directive ?? DEFAULT_BUILD123D_DIRECTIVE
-  const sys = `${directive}\n\nbuild123d API reference:\n${cheatSheet()}`
-  const trace: Span[] = []
-  const runId = `cadgenbench-${task.id}`
-  let ts = Date.now()
-  const tick = () => (ts += 1)
-  const usage = { input: 0, output: 0 }
-  // Carried across rounds in closures (the round Artifact is the Python source; the
-  // STEP text + built flag + lastErr persist outside the loop). usage is REAL.
-  let step = ''
-  let built = false
-  let lastErr = ''
-
-  trace.push({ spanId: 's-brief', runId, kind: 'llm', name: 'brief', model: cfg.model, messages: [{ role: 'user', content: task.prompt }], startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
-
-  // Migrated onto runRefineLoop: the mkdtemp scratch dir is the Ctx; built (STEP
-  // produced) is the early-stop, modeled as a judge so default-decide stops the
-  // loop. The round-2+ steer carries lastErr + the prior source verbatim.
-  const res = await runRefineLoop<string, string>({
-    rounds,
-    setup: () => mkdtemp(join(tmpdir(), 'b123d-')),
-    prompt: (round, history) =>
-      round === 1
-        ? task.prompt
-        : `Your previous build123d script failed:\n${lastErr}\n\nPrevious script:\n${history[history.length - 1]?.artifact ?? ''}\n\nFix it so it runs in python and writes a valid output.step. Brief:\n${task.prompt}`,
-    runShot: async (user, round, dir) => {
-      const scriptPath = join(dir, 'build.py')
-      const stepPath = join(dir, 'output.step')
-      const turn = await runBenchRouterTurn(
-        {
-          routerBaseUrl: cfg.routerBaseUrl,
-          routerKey: cfg.routerKey,
-          profile: {
-            name: 'build123d-worker',
-            model: { provider: 'tangle-router', default: cfg.model },
-            prompt: { systemPrompt: sys },
-          },
-        },
-        user,
-      )
-      const content = turn.finalText
-      if (turn.usage.tokensKnown !== false) {
-        usage.input += turn.usage.input
-        usage.output += turn.usage.output
-      }
-      const source = extractPy(content)
-      trace.push({ spanId: `s-author-${round}`, runId, kind: 'llm', name: `author r${round}`, model: cfg.model, messages: [{ role: 'user', content: round === 1 ? task.prompt : 'refine' }], output: content.slice(0, 600), startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
-      trace.push({ spanId: `s-write-${round}`, runId, kind: 'tool', name: 'write_file', toolName: 'create_file', args: { path: 'build.py', content: source }, startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
-
-      await writeFile(scriptPath, source)
-      const run = await runLocal(CGB_VENV_PY, [scriptPath], dir)
-      const got = existsSync(stepPath) ? await readFile(stepPath, 'utf8').catch(() => '') : ''
-      built = got.includes('ISO-10303-21') && got.length > 200
-      lastErr = built ? '' : `${run.stdout}\n${run.stderr}`.trim().slice(-800) || 'no output.step written'
-      if (built) step = got
-      trace.push({ spanId: `s-exec-${round}`, runId, kind: 'tool', name: `build123d r${round}`, toolName: 'shell.exec', args: 'python build.py', result: (built ? 'wrote output.step' : lastErr).slice(0, 1500), startedAt: tick(), endedAt: tick(), status: built ? 'ok' : 'error', error: built ? undefined : `exit ${run.code}` } as Span)
-      return { artifact: source }
-    },
-    judge: async () => ({ valid: built }),
-    teardown: (dir) => rm(dir, { recursive: true, force: true }).then(() => {}, () => {}),
-  })
-
-  return {
-    artifact: step,
-    source: res.final.artifact,
-    trace,
-    usage,
-    ok: res.final.artifact.trim().length > 0,
-    built,
-    detail: built ? 'exported output.step' : `did not produce a STEP in ${rounds} rounds${lastErr ? `; last: ${lastErr.slice(0, 140)}` : ''}`,
-  }
 }

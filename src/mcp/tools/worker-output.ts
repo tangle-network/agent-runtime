@@ -99,7 +99,7 @@ function readEncodedWorkerOutput(
   }
 }
 
-export type WorkerOutputReader = (
+type WorkerOutputReader = (
   outRef: string | undefined,
   options: ReturnType<typeof workerOutputReadOptions>,
 ) => Promise<Record<string, unknown>>

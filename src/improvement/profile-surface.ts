@@ -23,7 +23,7 @@ import {
   structuralRolloutPolicyFromProfile,
 } from './rollout-policy'
 
-export interface PreparedProfileSurface {
+interface PreparedProfileSurface {
   surface: MutableSurface
   value: unknown
 }

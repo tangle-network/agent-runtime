@@ -1,9 +1,8 @@
 /**
  * The ONE pseudo-box adapter: present any one-shot `Executor` (router / bridge /
  * BYO) as a `SandboxClient` so the round-synchronous `runAgentRounds` can drive it
- * without each call site re-faking a box. This is the single shell that
- * `bench/src/router-executor.ts`, generate-eval's old `bridgeSandboxClient`, and
- * the search-bench bridge transport were each re-implementing.
+ * without each call site re-faking a box. This is the single shell
+ * every router, bridge and BYO executor call site shares.
  *
  * It is deliberately for NON-box executors only — a real sandbox harness already
  * IS a `SandboxClient` (boxes, sessions, fs, fork are real there). Here each

@@ -15,29 +15,14 @@
  */
 
 export { createProfileExecutionBackend } from '../runtime/profile-execution-backend'
-export {
-  type BackendCallPolicy,
-  type CircuitBreakerConfig,
-  CircuitBreakerState,
-  CircuitOpenError,
-  computeBackoff,
-  DeadlineExceededError,
-  defaultIsRetryable,
-  makePerAttemptSignal,
-  type RetryableErrorPredicate,
-  type RetryBackoff,
+export type {
+  BackendCallPolicy,
+  CircuitBreakerConfig,
+  RetryableErrorPredicate,
+  RetryBackoff,
 } from './call-policy'
 export { createConversationBackend } from './conversation-backend'
 export { defineConversation } from './define-conversation'
-export {
-  buildForwardHeaders,
-  DEFAULT_MAX_FORWARD_DEPTH,
-  FORWARD_HEADERS,
-  type ForwardHeaderName,
-  isDepthExceeded,
-  type PropagatedHeaders,
-  readDepth,
-} from './headers'
 export { runConversation, runConversationStream } from './run-conversation'
 export {
   type PersonaConversationResult,
@@ -47,7 +32,6 @@ export {
   runPersonaConversation,
   runPersonaDispatch,
 } from './run-persona'
-export { slugifySpeaker, turnId } from './turn-id'
 export type {
   AuthSource,
   Conversation,

@@ -33,7 +33,7 @@ import { recordValue as plainRecord } from '../record-value'
  * omits it, and an absent counter must stay absent rather than become a zero that claims the
  * provider measured no cache write.
  */
-export interface CodexUsageRecord {
+interface CodexUsageRecord {
   /** Total prompt tokens for the turn, the cached ones included. */
   readonly inputTokens: number
   /** The part of `inputTokens` the provider served from its prompt cache. */
@@ -125,7 +125,7 @@ export interface HarnessUsage {
  * A decoder throws `ValidationError` when the event IS the harness's usage carrier and its
  * numbers cannot be read.
  */
-export type HarnessUsageDecoder = (event: SandboxEvent) => HarnessUsage | undefined
+type HarnessUsageDecoder = (event: SandboxEvent) => HarnessUsage | undefined
 
 /** Names the wire record every codex decode error is reported against. */
 const codexUsageContext = 'codex turn.completed'

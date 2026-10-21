@@ -397,7 +397,7 @@ export function createMapRouting({
 /** What one settle delivered. A settle is usable (`delivered`) when it settled `done`, its
  *  deliverable check did not reject it, and its result is defined; maps and routes both read
  *  results through this one rule. */
-export interface WorkerSettlement {
+interface WorkerSettlement {
   readonly outcome: 'delivered' | 'empty' | 'failed' | 'unpropagated'
   readonly result?: unknown
   readonly reason?: string

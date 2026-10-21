@@ -50,7 +50,7 @@ export function readPromptOptions(
 
 /** Per-prompt keys that choose the instrument: which harness runs the turn, on which credential,
  *  as which model. Checked in this order, so a value carrying both names the first one. */
-export type InstrumentPromptKey = 'backend' | 'model'
+type InstrumentPromptKey = 'backend' | 'model'
 
 const instrumentPromptKeys: readonly InstrumentPromptKey[] = ['backend', 'model']
 

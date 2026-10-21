@@ -182,7 +182,7 @@ export interface RawUsage {
   prompt_cache?: unknown
 }
 
-export function readPromptCache(raw: unknown): PromptCacheUsage | undefined {
+function readPromptCache(raw: unknown): PromptCacheUsage | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const o = raw as Record<string, unknown>
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)

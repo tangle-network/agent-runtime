@@ -42,7 +42,7 @@ export interface CoderOutput {
 }
 
 /** @experimental Inputs for one authored coder run on the sandbox-session path. */
-export interface CoderRunSpecOptions {
+interface CoderRunSpecOptions {
   /** Caller-authored exact worker identity. It is the sole harness/provider/model authority. */
   profile: AgentProfile
   /** Stable name for `AgentRunSpec.name`. Default = `profile.name`. */
@@ -64,7 +64,7 @@ export function coderRunSpec(options: CoderRunSpecOptions): AgentRunSpec<CoderTa
 export const coderOutputAdapter: OutputAdapter<CoderOutput> = { parse: parseCoderEvents }
 
 /** @experimental */
-export interface MultiHarnessCoderFanoutOptions {
+interface MultiHarnessCoderFanoutOptions {
   /** Exact worker identities, one per parallel agent. Must contain at least one profile. */
   profiles: ReadonlyArray<AgentProfile>
 }

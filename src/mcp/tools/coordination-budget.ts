@@ -50,7 +50,7 @@ export const spawnBudgetArg = {
   },
 }
 
-export function budgetField(channel: ReservationShortfall['channel']): string {
+function budgetField(channel: ReservationShortfall['channel']): string {
   return channel.startsWith('resource:')
     ? `resources.${channel.slice('resource:'.length)}.limit`
     : BUDGET_FIELD[channel as 'tokens' | 'iterations' | 'usd']
@@ -59,7 +59,7 @@ export function budgetField(channel: ReservationShortfall['channel']): string {
 /** One clause per short channel. Iterations can be requested at exactly `free`: a driver's own
  *  turns charge none. Tokens and dollars cannot: the driver's next turn is metered from the same
  *  pool before its retry reaches admission, so the clause says to leave room. */
-export function shortfallClause(shortfall: ReservationShortfall): string {
+function shortfallClause(shortfall: ReservationShortfall): string {
   const { channel, requested, free } = shortfall
   const field = budgetField(channel)
   if (shortfall.closedByUnknownSpend === true) {

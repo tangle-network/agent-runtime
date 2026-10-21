@@ -86,7 +86,7 @@ export function continuedEnvironment(
 }
 
 /** What the owner's next invocation continues, read before it starts. */
-export type RetainedOwnerEnvironmentState =
+type RetainedOwnerEnvironmentState =
   /** No environment was admitted yet, or the owner is not a retained provider owner. */
   | { readonly state: 'none' }
   /** The provider still holds the environment the next invocation continues in. */

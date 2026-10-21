@@ -18,13 +18,7 @@ import { createInterface, type Interface as ReadlineInterface } from 'node:readl
 import { ValidationError } from '../errors'
 import type { JsonRpcMessage, JsonRpcResponse, McpToolDescriptor, McpTransport } from './protocol'
 
-export type {
-  JsonRpcMessage,
-  JsonRpcResponse,
-  McpToolAnnotations,
-  McpToolDescriptor,
-  McpTransport,
-} from './protocol'
+export type { JsonRpcMessage, JsonRpcResponse, McpToolDescriptor, McpTransport } from './protocol'
 
 export const PROTOCOL_VERSION = '2024-11-05'
 

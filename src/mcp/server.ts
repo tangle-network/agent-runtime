@@ -60,7 +60,7 @@ import {
 } from './tools/delegation-status'
 import type { TraceContext } from './trace-propagation'
 
-export type { JsonRpcMessage, JsonRpcResponse, McpToolDescriptor, McpTransport } from './protocol'
+export type { JsonRpcResponse, McpToolDescriptor } from './protocol'
 
 /** @experimental */
 export interface McpServerOptions {

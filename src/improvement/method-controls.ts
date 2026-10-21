@@ -3,7 +3,7 @@ import type { ImproveCandidateValidationInput } from './improve-types'
 
 const methodRuntimeControls = Symbol('agent-runtime.improvement.method-runtime-controls')
 
-export interface MethodRuntimeControls {
+interface MethodRuntimeControls {
   costAttribution: 'optimizer-run'
   validateCandidate: (input: ImproveCandidateValidationInput) => void
 }

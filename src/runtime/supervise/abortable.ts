@@ -62,7 +62,7 @@ export function signalAbortError(signal: AbortSignal, fallback: string): Error {
 }
 
 /** A downstream abort linked to one or more upstream signals. */
-export interface LinkedAbort {
+interface LinkedAbort {
   /** Fires when any source fires, or when {@link LinkedAbort.abort} is called. */
   readonly signal: AbortSignal
   /** Abort this link on its own (teardown, cancellation), carrying `reason`. */

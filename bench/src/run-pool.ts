@@ -13,7 +13,7 @@
  * the item's position), not completion order.
  */
 
-export interface PoolOutcome<T, R> {
+interface PoolOutcome<T, R> {
   index: number
   item: T
   ok: boolean

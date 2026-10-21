@@ -291,7 +291,7 @@ async function owePendingEvidence(
 }
 
 /** How capture retries of owed evidence back off, measured on the run's clock. */
-export const EVIDENCE_RETRY_BACKOFF_MS = { initial: 30_000, max: 5 * 60_000 } as const
+const EVIDENCE_RETRY_BACKOFF_MS = { initial: 30_000, max: 5 * 60_000 } as const
 /** How often the retry loop reads the run's clock. Reading it costs no provider call. */
 const EVIDENCE_RETRY_TICK_MS = 1_000
 

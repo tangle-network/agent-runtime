@@ -36,7 +36,7 @@ import { ConfigError } from '../errors'
 import type { ImproveCost, SearchPromotion } from './improve-types'
 
 /** What Runtime decided about a closed search. */
-export interface SearchShipDecision {
+interface SearchShipDecision {
   decision: 'ship' | 'hold'
   /** The claim's reason, the Runtime rule that held a statistical ship, and any
    * cost bound the decision relied on. */

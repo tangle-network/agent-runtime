@@ -9,7 +9,7 @@ export interface SandboxOutcomeCarrier {
 }
 
 /** Runtime's terminal projection of the public Sandbox outcome contract. */
-export interface SandboxOutcomeProjection {
+interface SandboxOutcomeProjection {
   status: AgentTaskStatus
   reason: string
   verdict: DefaultVerdict

@@ -136,7 +136,7 @@ export async function scanMaterializedWorkspaceManifest(
  * ignores them, and each carries its source's modification time, so a digest that covered them
  * would change when a program was merely run and could not be reproduced from any checkout.
  */
-export interface WorkspaceCaptureOptions extends WorkspaceScanOptions {
+interface WorkspaceCaptureOptions extends WorkspaceScanOptions {
   readonly skipPythonBytecode?: boolean
 }
 

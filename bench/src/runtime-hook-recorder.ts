@@ -32,7 +32,7 @@ export interface BenchRuntimeDecisionPoint {
   metadata?: Record<string, unknown>
 }
 
-export interface BenchRuntimeHooks {
+interface BenchRuntimeHooks {
   onEvent?: (
     event: BenchRuntimeHookEvent,
     context: { signal?: AbortSignal },
@@ -43,7 +43,7 @@ export interface BenchRuntimeHooks {
   ) => void | Promise<void>
 }
 
-export interface RuntimeHookRecorder {
+interface RuntimeHookRecorder {
   readonly events: BenchRuntimeHookEvent[]
   readonly decisionPoints: BenchRuntimeDecisionPoint[]
   readonly hooks: BenchRuntimeHooks

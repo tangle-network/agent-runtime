@@ -20,8 +20,6 @@ import { DEFAULT_BLENDER_DIRECTIVE } from './directives'
 import { runRefineLoop } from './refine-loop'
 import { runBenchRouterTurn } from './router-turn'
 
-export { DEFAULT_BLENDER_DIRECTIVE } from './directives'
-
 const execFileAsync = promisify(execFile)
 
 async function runLocal(cmd: string, args: string[], cwd: string, timeoutMs = 180_000): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -113,7 +111,7 @@ export async function renderBpy(script: string, opts: { views?: number } = {}): 
   }
 }
 
-export interface BlenderLocalConfig {
+interface BlenderLocalConfig {
   routerBaseUrl: string
   routerKey: string
   model: string
@@ -124,7 +122,7 @@ export interface BlenderLocalConfig {
   directive?: string
 }
 
-export interface BlenderShot {
+interface BlenderShot {
   /** The bpy script the agent wrote — the artifact. */
   artifact: string
   /** Rendered view PNGs as data URIs (the images the criteria judge scores). */
@@ -135,106 +133,4 @@ export interface BlenderShot {
   /** True if the script executed and produced at least one mesh. */
   built: boolean
   detail?: string
-}
-
-/**
- * Author a bpy script for the task via the router, execute + render it headless
- * in Blender, refine on execution errors across rounds. Returns the script, the
- * rendered views, a screenshot-rich trace, and real token usage.
- */
-export async function solveBlenderLocal(task: BenchTask, cfg: BlenderLocalConfig): Promise<BlenderShot> {
-  const rounds = Math.max(1, cfg.rounds ?? 2)
-  const views = Math.max(1, cfg.views ?? 4)
-  const directive = cfg.directive ?? DEFAULT_BLENDER_DIRECTIVE
-  const trace: Span[] = []
-  const runId = `cadbench-${task.id}`
-  let ts = Date.now()
-  const tick = () => (ts += 1)
-  const usage = { input: 0, output: 0 }
-  // Carried across rounds in closures (the round Artifact is the bpy script; the
-  // render PNGs + built flag + lastErr persist outside the loop). usage is REAL.
-  let renders: string[] = []
-  let built = false
-  let lastErr = ''
-
-  trace.push({ spanId: 's-brief', runId, kind: 'llm', name: 'brief', model: cfg.model, messages: [{ role: 'user', content: task.prompt }], startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
-
-  // Migrated onto runRefineLoop: the mkdtemp dir (with the runner.py written once
-  // in setup) is the Ctx; built (RENDER_DONE + ≥1 collected view) is the early-stop,
-  // modeled as a judge so default-decide stops the loop. The round-2+ steer carries
-  // lastErr + the prior script verbatim.
-  const res = await runRefineLoop<string, string>({
-    rounds,
-    setup: async () => {
-      const dir = await mkdtemp(join(tmpdir(), 'blender-'))
-      await writeFile(join(dir, 'runner.py'), RUNNER_PY)
-      return dir
-    },
-    prompt: (round, history) =>
-      round === 1
-        ? task.prompt
-        : `Your previous bpy script failed:\n${lastErr}\n\nPrevious script:\n${history[history.length - 1]?.artifact ?? ''}\n\nFix it so it runs under \`blender --background --python\` and builds the object as mesh(es). Brief:\n${task.prompt}`,
-    runShot: async (user, round, dir) => {
-      const runnerPath = join(dir, 'runner.py')
-      const scriptPath = join(dir, 'model.py')
-      const turn = await runBenchRouterTurn(
-        {
-          routerBaseUrl: cfg.routerBaseUrl,
-          routerKey: cfg.routerKey,
-          profile: {
-            name: 'blender-worker',
-            harness: 'cli-base',
-            model: {
-              provider: 'tangle-router',
-              default: cfg.model,
-              metadata: { temperature: 0.3 },
-            },
-            prompt: { systemPrompt: directive },
-          },
-        },
-        user,
-      )
-      const content = turn.finalText
-      if (turn.usage.tokensKnown !== false) {
-        usage.input += turn.usage.input
-        usage.output += turn.usage.output
-      }
-      const script = extractPy(content)
-      trace.push({ spanId: `s-author-${round}`, runId, kind: 'llm', name: `author r${round}`, model: cfg.model, messages: [{ role: 'user', content: round === 1 ? task.prompt : 'refine' }], output: content.slice(0, 600), startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
-      trace.push({ spanId: `s-write-${round}`, runId, kind: 'tool', name: 'write_file', toolName: 'create_file', args: { path: 'model.py', content: script }, startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
-
-      await writeFile(scriptPath, script)
-      const run = await runLocal('xvfb-run', ['-a', 'blender', '--background', '--python', runnerPath, '--', scriptPath, dir, String(views)], dir)
-      const out = `${run.stdout}\n${run.stderr}`
-      built = /RENDER_DONE/.test(out)
-      lastErr = built ? '' : (/(AGENT_SCRIPT_ERROR:.*|NO_MESH)/.exec(out)?.[0] ?? out.trim().slice(-800))
-      trace.push({ spanId: `s-blender-${round}`, runId, kind: 'tool', name: `blender r${round}`, toolName: 'shell.exec', args: 'blender --background --python runner.py model.py', result: (built ? 'RENDER_DONE' : lastErr).slice(0, 1500), startedAt: tick(), endedAt: tick(), status: built ? 'ok' : 'error', error: built ? undefined : `exit ${run.code}` } as Span)
-
-      if (built) {
-        const collected: string[] = []
-        for (let v = 0; v < views; v++) {
-          const buf = await readFile(join(dir, `view_${v}.png`)).catch(() => undefined)
-          if (buf) collected.push(`data:image/png;base64,${buf.toString('base64')}`)
-        }
-        renders = collected
-        // first view carries the screen span (run-capsule reveal)
-        trace.push({ spanId: `s-render-${round}`, runId, kind: 'tool', name: 'render', toolName: 'render.screenshot', args: { action: 'rendered model', url: 'view_0.png' }, attributes: collected[0] ? { screenshot: collected[0] } : {}, startedAt: tick(), endedAt: tick(), status: collected.length ? 'ok' : 'error', error: collected.length ? undefined : 'render produced no image' } as Span)
-        built = collected.length > 0
-      }
-      return { artifact: script }
-    },
-    judge: async () => ({ valid: built }),
-    teardown: (dir) => rm(dir, { recursive: true, force: true }).then(() => {}, () => {}),
-  })
-
-  const script = res.final.artifact
-  return {
-    artifact: script,
-    renders,
-    trace,
-    usage,
-    ok: script.trim().length > 0,
-    built,
-    detail: built ? `built + rendered ${renders.length} views` : `did not build in ${rounds} rounds${lastErr ? `; last: ${lastErr.slice(0, 140)}` : ''}`,
-  }
 }

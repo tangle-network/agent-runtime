@@ -18,7 +18,7 @@
 import type { AttemptRecord, BenchRunRecord } from './corpus'
 
 /** Picks one of `outputs` by index, using the candidate text only. Never the verdict. */
-export type Selector = (outputs: string[]) => number
+type Selector = (outputs: string[]) => number
 
 /** Normalize a short free-text answer so equivalent answers cluster: lowercase,
  *  trim, collapse whitespace, strip surrounding quotes/punctuation, drop a leading
@@ -86,7 +86,7 @@ export function verifierGroundedSelect(passCounts: ReadonlyArray<number>): numbe
 }
 
 /** One instance's offline selector outcome, all derived from stored verdicts. */
-export interface SelectorOutcome {
+interface SelectorOutcome {
   /** usable candidates (attempts with a non-empty output) */
   k: number
   /** the picked attempt's stored verdict — selector@k for this instance */
@@ -124,7 +124,7 @@ export function scoreSelectorOnRun(record: BenchRunRecord, select: Selector): Se
   }
 }
 
-export interface SelectorReport {
+interface SelectorReport {
   /** scoreable instances */
   n: number
   selectorRate: number
@@ -200,7 +200,7 @@ const scoredAttempts = (record: BenchRunRecord): AttemptRecord[] =>
   record.attempts.filter((a) => typeof a.score === 'number' && Number.isFinite(a.score))
 
 /** One instance's verifier-grounded outcome on the continuous graded reward. */
-export interface VerifierSelectorOutcome {
+interface VerifierSelectorOutcome {
   k: number
   /** reward of the argmax-score pick (== max score) — what a deployable best-of-k ships */
   selectorReward: number
@@ -281,7 +281,7 @@ export function bootstrapDeltaCI(
   }
 }
 
-export interface VerifierSelectorReport {
+interface VerifierSelectorReport {
   /** scoreable instances */
   n: number
   selectorReward: number

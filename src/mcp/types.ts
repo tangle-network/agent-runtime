@@ -13,7 +13,6 @@
  * @experimental
  */
 
-import type { CoderTask } from '../profiles/coder'
 import type { ResearchSource } from '../profiles/researcher'
 import type { UiFinding, UiLens } from '../profiles/ui-auditor/substrate'
 import type { DelegationTraceSpan } from './delegation-trace'
@@ -320,4 +319,4 @@ export interface DelegationHistoryResult {
  *
  * @experimental
  */
-export type { CoderOutput, CoderTask }
+export type { CoderOutput }

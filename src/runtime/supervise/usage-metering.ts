@@ -15,7 +15,7 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
 }
 
 /** Running accounting totals folded from `UsageEvent`s. */
-export interface UsageTotals {
+interface UsageTotals {
   resources?: Spend['resources']
   tokens: LoopTokenUsage
   tokensKnown: boolean

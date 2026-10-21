@@ -125,7 +125,7 @@ export function createPreparedCandidateExecution(
   return prepared
 }
 
-export function getPreparedCandidateState(
+function getPreparedCandidateState(
   prepared: PreparedAgentCandidateExecution,
 ): PreparedCandidateState {
   const state = stateByExecution.get(prepared)

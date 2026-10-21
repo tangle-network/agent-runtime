@@ -48,7 +48,6 @@ export {
   assertNoReservedCoordinationMcpAlias,
   declaredRuntimeToolNames,
   ownSubmissionDeliverable,
-  resolveSupervisorModelId,
   resolveSupervisorProfile,
   runtimeToolDeclarationError,
 } from './supervisor-agent-profile'

@@ -514,7 +514,7 @@ type RoutesEdge = Extract<GraphEdge, { kind: 'routes' }>
 export type GraphSubtaskTopology = GraphTopology
 
 /** A validated `run_graph` graph, ready to spawn. */
-export interface PreparedGraphSubtask {
+interface PreparedGraphSubtask {
   /** The root node's pinned profile with the graph brief, carrying the topology as Runtime-only
    *  metadata so the kernel rebuilds the same graph layer on a fresh spawn and on recovery. */
   readonly profile: AgentProfile

@@ -33,44 +33,6 @@ const DIVERSE_STRATEGY_LENSES: ReadonlyArray<string> = [
   'Name the most plausible WRONG answer and the trap that makes it tempting. Rule it out, then commit to the answer that survives.',
 ]
 
-/** Compose the k diverse strategies for a run: each = an approach lens layered on the
- *  (optionally GEPA-learned) shared base. Returns exactly `k` distinct strategy prefixes
- *  (lenses cycle if k exceeds the lens count, but each carries its index so prompts differ). */
-export function composeStrategies(base: string, k: number): string[] {
-  const lenses = DIVERSE_STRATEGY_LENSES
-  return Array.from({ length: k }, (_, i) => {
-    const lens = lenses[i % lenses.length] as string
-    const tag = i < lenses.length ? '' : ` (variant ${Math.floor(i / lenses.length) + 1})`
-    return `${lens}${tag}\n\n${base}`
-  })
-}
-
-/** Research (local opencode, model-knowledge) refine directive — hand-written. */
-export const DEFAULT_RESEARCH_REFINE_DIRECTIVE =
-  'Double-check it for a specific factual or reasoning error. If it is correct, restate the SAME answer unchanged. Change it ONLY if you identify a concrete, specific error — do not change a correct answer. End with the FINAL ANSWER line.'
-
-/** Sandbox research (live web/market sources) refine directive — hand-written. */
-export const DEFAULT_SANDBOX_REFINE_DIRECTIVE =
-  'Double-check it: re-verify the figure against live sources and the requested units/precision/tolerance. If it is correct, restate the SAME final answer unchanged. Change it ONLY if you find a concrete error in the value or the source. End with the explicit final answer.'
-
-/** GEPA-learned sandbox refine directive (bycd31l10, +7.1pp held-out vs the
- *  hand-written one on the GEPA run, n=8/noisy). Separates the verification note
- *  from the verbatim-preserved final answer, fixing the blank-reply failure mode. */
-export const GEPA_LEARNED_DIRECTIVE =
-  'Double-check it: re-verify the fact/value against a reliable, citable source. Provide a brief Verification note naming the source you used (link or title); this note is not part of the final answer. Confirm the requested units/precision/tolerance exactly. If the prior answer is correct, copy the SAME final answer text verbatim with identical formatting—do not add or remove words. Change it ONLY if you find a concrete error in the value or in the cited source; in that case, briefly describe the specific error in the Verification note and provide the corrected value with the requested units/precision/tolerance. If you cannot verify, state that in the Verification note, but do not alter or omit the final answer. Always place the final answer as the last line of your reply, containing only the answer text.'
-
-/** OpenSCAD authoring directive (CAD design) — the GEPA-optimizable system prompt.
- *  Minimal on purpose: states the contract (compile, source-only) but not HOW to
- *  satisfy the geometric spec, leaving headroom for the optimizer. */
-export const DEFAULT_CAD_DIRECTIVE =
-  'You are an expert OpenSCAD engineer. Output ONLY valid OpenSCAD source — no prose, no markdown fences. The model MUST compile with `openscad -o out.stl model.scad`. Match the brief as closely as you can.'
-
-/** OpenSCAD authoring directive for the SANDBOX path (solveCadRefine) — a terser
- *  variant of DEFAULT_CAD_DIRECTIVE (no "match the brief" tail). Kept distinct
- *  rather than unified to preserve that path's exact prompt. */
-export const DEFAULT_CAD_SANDBOX_DIRECTIVE =
-  'You are an expert OpenSCAD engineer. Output ONLY valid OpenSCAD source — no prose, no markdown fences. The model must compile with `openscad -o out.stl model.scad`.'
-
 /** Blender bpy authoring directive (BlenderLLM/CADBench) — the GEPA-optimizable
  *  system prompt. States the contract (runs headless, builds mesh(es) at origin,
  *  no cameras/lights) but not how to satisfy the criteria. */

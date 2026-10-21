@@ -28,7 +28,7 @@ import {
 import { Sandbox } from '@tangle-network/sandbox'
 import { makeSearchExecutor, webSearchTool } from './search-tool'
 
-export interface ResolveBenchClientOptions {
+interface ResolveBenchClientOptions {
   /** The selector (the `BACKEND` env value): `router` = off-box; anything else = in-box Sandbox. */
   backend: string
   routerBaseUrl: string

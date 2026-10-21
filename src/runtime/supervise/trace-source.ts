@@ -82,7 +82,7 @@ export function toToolSpan(input: ToolStepInput, runId: string, seq: number, at:
 /** Decode one harness message part into a tool step, or `undefined` if it is not a (completed) tool
  *  call. ONE adapter per harness family — each owns its real wire shape; the flow downstream is
  *  identical. Add a harness = add a decoder + register it; no other code changes. */
-export type ToolPartDecoder = (part: Record<string, unknown>) => ToolStepInput | undefined
+type ToolPartDecoder = (part: Record<string, unknown>) => ToolStepInput | undefined
 
 const obj = (v: unknown): Record<string, unknown> | undefined =>
   v && typeof v === 'object' ? (v as Record<string, unknown>) : undefined
@@ -94,7 +94,7 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v 
  *  `ToolState` union drives the status mapping, so a status that adc adds/renames is a compile error
  *  here, not a silent miss. The same call streams pending→running→terminal; only a terminal state
  *  (`completed` / `error` / `failed`) is a finished call. */
-export const decodeOpencodePart: ToolPartDecoder = (raw) => {
+const decodeOpencodePart: ToolPartDecoder = (raw) => {
   if (str(raw.type)?.toLowerCase() !== 'tool' || !str(raw.tool)) return undefined
   const part = raw as Partial<ToolPart>
   const state = obj(part.state) as ToolState | undefined
@@ -113,7 +113,7 @@ export const decodeOpencodePart: ToolPartDecoder = (raw) => {
  *  name|tool, input }` content block. CONFIRMED against the cli-bridge's authoritative parsers
  *  (claude.ts reads `block.type==='tool_use', block.id, block.name, block.input`; kimi.ts adds the
  *  `tool_use_id`/`tool` fallbacks) — the canonical readers of these harnesses' real native output. */
-export const decodeAnthropicPart: ToolPartDecoder = (p) => {
+const decodeAnthropicPart: ToolPartDecoder = (p) => {
   if (str(p.type)?.toLowerCase() !== 'tool_use') return undefined
   const name = str(p.name) ?? str(p.tool)
   if (!name) return undefined
@@ -151,14 +151,14 @@ export const decodeOpenAiPart: ToolPartDecoder = (p) => {
  *  top-level OpenAI `tool_calls` entry (cli-bridge `kimi.ts` surfaces each from a different part of
  *  the wire). A decoder that reads only one of them drops half of a kimi worker's tool calls, and
  *  drops them silently: the trace simply reports fewer calls. */
-export const decodeKimiPart: ToolPartDecoder = (p) => decodeAnthropicPart(p) ?? decodeOpenAiPart(p)
+const decodeKimiPart: ToolPartDecoder = (p) => decodeAnthropicPart(p) ?? decodeOpenAiPart(p)
 
 /** The harness → decoder registry. Add a harness by adding one entry.
  *
  *  Keyed by `HarnessType`, the vocabulary the `harness` argument is actually drawn from, so a key
  *  no caller can produce does not compile. `codex` is registered although the bridge's `codex.ts`
  *  never yields `tool_calls`; the entry states which family it would belong to. */
-export const toolPartDecoders: Partial<Record<HarnessType, ToolPartDecoder>> = {
+const toolPartDecoders: Partial<Record<HarnessType, ToolPartDecoder>> = {
   opencode: decodeOpencodePart,
   'claude-code': decodeAnthropicPart,
   codex: decodeOpenAiPart,
@@ -227,7 +227,7 @@ export function createPushTraceSource(opts: { runId?: string; now?: () => number
  *  part list and decodes the tool calls; `subscribe`, when given, streams parts live for online
  *  detection. The caller supplies how to get parts (e.g. `box.session(id).messages()` flat-mapped to
  *  parts) — keeping this module free of any substrate SDK. */
-export function createPartsTraceSource(opts: {
+function createPartsTraceSource(opts: {
   collectParts: () => Promise<ReadonlyArray<unknown>>
   subscribeParts?: (onPart: (part: unknown) => void) => () => void
   /** The harness whose decoder to use (e.g. 'opencode'); omit to try every registered adapter. */

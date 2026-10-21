@@ -168,7 +168,7 @@ export interface StrategyAuthorTurn {
 
 /** What an author wrote: the fenced module, or null when no reply carried one, and every
  *  authoring turn that ran (the primary, then the fallback when the primary failed). */
-export interface StrategySource {
+interface StrategySource {
   code: string | null
   turns: StrategyAuthorTurn[]
 }

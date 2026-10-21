@@ -42,7 +42,7 @@ interface Invocation {
 }
 
 /** The answer for a call whose handler is still running when its fence elapses. */
-export interface ToolCallReceipt {
+interface ToolCallReceipt {
   readonly running: true
   readonly receipt: string
   readonly tool: string
@@ -51,7 +51,7 @@ export interface ToolCallReceipt {
 }
 
 /** Where a receipted call's outcome goes: the manager's inbox (`CoordinationTools`). */
-export interface ToolReceiptSink {
+interface ToolReceiptSink {
   openToolReceipt(tool: string): string
   settleToolReceipt(
     receipt: string,
@@ -61,7 +61,7 @@ export interface ToolReceiptSink {
   ): Promise<void>
 }
 
-export interface SingleFlightTools {
+interface SingleFlightTools {
   readonly tools: ReadonlyArray<McpToolDescriptor>
   /** Invocations still running with no call waiting on them: work that outlived its request. The
    *  transport charges these against its concurrency limit until they settle. */

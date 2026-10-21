@@ -67,7 +67,7 @@ export interface SolveTask {
 
 /** What `benchSolverRegistry` needs to build a solve-and-grade leaf. The router config is the
  *  cheapest leaf (one chat completion, no box); the adapter supplies the deployable judge. */
-export interface BenchSolverOptions {
+interface BenchSolverOptions {
   readonly adapter: BenchmarkAdapter
   readonly routerBaseUrl: string
   readonly routerKey: string
@@ -107,7 +107,7 @@ function extractArtifact(adapter: BenchmarkAdapter, content: string): string {
  * tokens but still one iteration (never a fabricated priced cost). Fail-loud: a router non-2xx or
  * a judge throw rejects the leaf (the scope types it into a `down` settlement — never a silent 0).
  */
-export function benchSolveLeaf(opts: BenchSolverOptions, spec: AgentSpec, ctx: ExecutorContext): Executor<unknown> {
+function benchSolveLeaf(opts: BenchSolverOptions, spec: AgentSpec, ctx: ExecutorContext): Executor<unknown> {
   const inner = createExecutor({
     backend: 'router',
     routerBaseUrl: opts.routerBaseUrl,
@@ -138,7 +138,7 @@ export function benchSolveLeaf(opts: BenchSolverOptions, spec: AgentSpec, ctx: E
  * spec; a shared BYO executor instance would race on its single result slot. `register` throws:
  * this registry serves exactly one runtime (the bench solve leaf), by intent.
  */
-export function benchSolverRegistry(opts: BenchSolverOptions): ExecutorRegistry {
+function benchSolverRegistry(opts: BenchSolverOptions): ExecutorRegistry {
   return {
     register(): void {
       throw new Error('benchSolverRegistry: register is unsupported (single bench-router runtime)')
@@ -155,7 +155,7 @@ export function benchSolverRegistry(opts: BenchSolverOptions): ExecutorRegistry 
 /** Build the solver `Persona` from the developer's exact `AgentProfile` + a solve-and-grade
  *  registry. The profile still declares its execution identity; `AgentSpec.harness: null` only
  *  says that the supplied registry owns placement instead of a built-in executor. */
-export function defineSolverPersona(
+function defineSolverPersona(
   profile: AgentProfile,
   registry: ExecutorRegistry,
   name = 'gate-solver',
@@ -183,7 +183,7 @@ function solveFanout(strategies: ReadonlyArray<string>, instance: BenchTask): Co
   })
 }
 
-export interface RunGateOptions {
+interface RunGateOptions {
   readonly adapter: BenchmarkAdapter
   /** The ONE specificity: who the solver is (prompt / model / tools). */
   readonly profile: AgentProfile
@@ -213,7 +213,7 @@ export interface RunGateOptions {
 /** One arm's aggregate over the n instances. `errored` = runs that ended `no-winner` for an
  *  infra reason (budget/abort) — excluded from the resolve denominator, like an infra-errored
  *  cell. A genuine all-children-down counts as not-resolved (a real failure, kept in n). */
-export interface GateArmResult {
+interface GateArmResult {
   readonly label: string
   readonly n: number
   readonly resolved: number
@@ -229,7 +229,7 @@ export interface GateArmResult {
   readonly sampleBlocker?: string
 }
 
-export interface GateReport {
+interface GateReport {
   readonly benchmark: string
   readonly k: number
   readonly n: number

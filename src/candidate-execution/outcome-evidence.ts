@@ -54,7 +54,7 @@ export type PersistedAgentCandidateModelSettlement = AgentCandidateModelSettleme
   artifact: AgentCandidateArtifactRef
 }
 
-export type PersistedAgentCandidateBenchmarkResult = AgentCandidateBenchmarkResultEvidence & {
+type PersistedAgentCandidateBenchmarkResult = AgentCandidateBenchmarkResultEvidence & {
   artifact: AgentCandidateArtifactRef
 }
 

@@ -206,7 +206,7 @@ export function buildRunRecordFromAttempts(
  *  the substrate. `commitSha` is required: a canonical `BenchRunRecord` is a
  *  reproducibility artifact and must name the code that produced it — the
  *  bridge will not invent one. */
-export interface CorpusProjectionOpts {
+interface CorpusProjectionOpts {
   commitSha: string
   /** Defaults to the record's `benchmark`. */
   experimentId?: string
@@ -224,12 +224,12 @@ export interface CorpusProjectionOpts {
 }
 
 /** One attempt that could not become a canonical record, with the reason. */
-export interface UnmappableAttempt {
+interface UnmappableAttempt {
   round: number
   reason: string
 }
 
-export interface CorpusProjection {
+interface CorpusProjection {
   records: CorpusRecord[]
   /** Attempts dropped because they lacked the canonical-mandatory signal
    *  (measured economics / an output). The caller decides whether a non-empty

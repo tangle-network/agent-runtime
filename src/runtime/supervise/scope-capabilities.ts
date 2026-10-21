@@ -27,10 +27,7 @@ type RuntimeOwnedProviderMeter = (
 /** Runtime-owned provider evidence is written through this private scope capability. */
 export const runtimeOwnedProviderMeters = new WeakMap<object, RuntimeOwnedProviderMeter>()
 /** What {@link recordScopeOwnerPause} journals, less the fields the scope supplies. */
-export type ScopeOwnerPause = Omit<
-  Extract<SpawnEvent, { kind: 'paused' }>,
-  'kind' | 'id' | 'seq' | 'at'
->
+type ScopeOwnerPause = Omit<Extract<SpawnEvent, { kind: 'paused' }>, 'kind' | 'id' | 'seq' | 'at'>
 export const pauseRecorders = new WeakMap<object, (pause: ScopeOwnerPause) => Promise<void>>()
 export const driverAttemptRecorders = new WeakMap<
   object,

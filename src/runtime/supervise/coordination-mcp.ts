@@ -239,7 +239,7 @@ const RESPONSE_FENCE_CAP_MS = 45_000
  * `requestTimeoutMs`, with the other half left for body transfer, admission, and serialization,
  * and at most {@link RESPONSE_FENCE_CAP_MS}.
  */
-export function coordinationResponseFenceMs(requestTimeoutMs: number): number {
+function coordinationResponseFenceMs(requestTimeoutMs: number): number {
   return Math.max(1, Math.min(RESPONSE_FENCE_CAP_MS, Math.floor(requestTimeoutMs / 2)))
 }
 

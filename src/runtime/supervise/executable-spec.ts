@@ -24,7 +24,7 @@ export function executableAgentProfileSnapshot(raw: unknown, context: string): A
  * profile still parses and still digests into the node's identity; it is simply not obliged to
  * claim a model that nothing runs. A graph script node is the canonical case.
  */
-export function authoredAgentProfileSnapshot(raw: unknown, context: string): AgentProfile {
+function authoredAgentProfileSnapshot(raw: unknown, context: string): AgentProfile {
   const input = detachedSnapshot(raw, `${context}: AgentProfile input`)
   const profile = agentProfileSchema.parse(input)
   return detachedSnapshot(profile, `${context}: parsed AgentProfile`)

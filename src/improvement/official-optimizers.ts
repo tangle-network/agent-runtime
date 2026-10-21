@@ -454,7 +454,7 @@ function redactJudgeScore(score: JudgeScore, redactor: Redactor): JudgeScore {
   }
 }
 
-export function optimizerRedactionPolicyRef(
+function optimizerRedactionPolicyRef(
   redact: Redactor | false | undefined,
   builtInIdentity: unknown = defaultRedactorIdentityMaterial(),
 ): string {

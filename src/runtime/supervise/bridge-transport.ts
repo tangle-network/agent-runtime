@@ -109,7 +109,7 @@ function bridgeGet(
   })
 }
 
-export interface BridgeModelRouteRefusal {
+interface BridgeModelRouteRefusal {
   readonly detail: string
   readonly retryable: boolean
   readonly status?: number

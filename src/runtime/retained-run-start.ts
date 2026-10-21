@@ -790,7 +790,7 @@ export async function reconnectRetainedRun(
   )
 }
 
-export async function assertRetainedCapabilities(
+async function assertRetainedCapabilities(
   provider: AgentEnvironmentProvider,
 ): Promise<AgentEnvironmentCapabilities> {
   const capabilities = AgentEnvironmentCapabilitiesSchema.parse(await provider.capabilities())
@@ -805,7 +805,7 @@ export async function assertRetainedCapabilities(
  * the provider document because that provider claims the same guarantee for
  * every environment it creates.
  */
-export function retainedCapabilitiesForEnvironment(
+function retainedCapabilitiesForEnvironment(
   providerName: string,
   providerCapabilities: AgentEnvironmentCapabilities,
   environment: AgentEnvironment,

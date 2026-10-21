@@ -87,7 +87,7 @@ export function definePersona<D = unknown>(input: DefinePersonaInput<D>): Person
  * profile. The shape never touches the registry — resolution stays single-sourced in the
  * scope/registry the supervisor owns.
  */
-export function createShapeContext<D>(
+function createShapeContext<D>(
   persona: Persona<D>,
   budget: ShapeBudget,
   analyst?: ScopeAnalyst<D>,

@@ -25,12 +25,10 @@
  */
 
 export type { DefaultVerdict } from '@tangle-network/agent-eval'
-export type { LoopTokenUsage } from '../types'
 export type {
   Budget,
   BudgetOverspend,
   BudgetViolation,
-  ResourceLimit,
   ResourceSpend,
   Spend,
   SpendChannel,
@@ -44,7 +42,6 @@ export type {
   ResumedWork,
   Scope,
   UnconfirmedTeardown,
-  WidenGate,
 } from './contracts/agent-scope'
 export type {
   ExecutorProgressEvent,
@@ -59,10 +56,8 @@ export type {
   ExecutorMaterialization,
   ExecutorNodeContext,
   MaterializedExecutionIdentity,
-  MaterializedModelIdentity,
   NodeExecutionIdentity,
   ProfileMaterializationReceipt,
-  RootMaterialization,
   UnknownMaterializationReason,
 } from './contracts/execution-identity'
 export type {
@@ -79,7 +74,6 @@ export type {
   ExecutorCancellation,
   ExecutorCancellationRequest,
   ExecutorResult,
-  ExecutorTeardownWarning,
   HeldEnvironment,
   HeldForContinuation,
   HeldRelease,
@@ -87,7 +81,6 @@ export type {
   WorkerInteractiveSession,
   WorkerInteractiveUnavailableReason,
   WorkerTraceEvidence,
-  WorkerTraceUnavailableReason,
 } from './contracts/executor-port'
 export type {
   Handle,
@@ -129,4 +122,4 @@ export type {
   RootStreamReceipt,
   SupervisedResult,
 } from './contracts/supervisor-result'
-export type { EvidencePendingEvent, RetainedPendingCause } from './retained-executor'
+export type { RetainedPendingCause } from './retained-executor'

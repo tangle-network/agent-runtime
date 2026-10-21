@@ -26,7 +26,7 @@ import {
 } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 
-export interface DurableFileOptions {
+interface DurableFileOptions {
   readonly mode?: number
 }
 
@@ -75,7 +75,7 @@ export function syncDurableDirectory(directoryPath: string): void {
 }
 
 /** Fsync one durable file after its contents reach stable storage. */
-export function syncDurableFile(filePath: string, exactMode?: number): void {
+function syncDurableFile(filePath: string, exactMode?: number): void {
   const fd = openSync(filePath, 'r')
   try {
     if (exactMode !== undefined && process.platform !== 'win32') fchmodSync(fd, exactMode)
@@ -188,7 +188,7 @@ function writeExclusiveDurableFile(
   syncDurableFile(filePath, exactMode ? options.mode : undefined)
 }
 
-export function isAlreadyExistsError(error: unknown): boolean {
+function isAlreadyExistsError(error: unknown): boolean {
   return (
     error !== null &&
     typeof error === 'object' &&

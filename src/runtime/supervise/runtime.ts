@@ -4,10 +4,8 @@ export type { SandboxLeafOut, SandboxOutputMarker } from '../sandbox-executor-ou
 export type { BridgeHarnessStore, BridgeModelCredential, BridgeSeam } from './bridge-config'
 export { bridgeRuntimeAttachmentsKey, bridgeStopSignalKey } from './bridge-config'
 export { bridgeExecutor } from './bridge-executor'
-export type { BridgeModelRouteRefusal } from './bridge-transport'
 export { bridgeAdmissionRefusal, bridgeModelRouteRefusal } from './bridge-transport'
 export { cliInPlaceExecutor, cliWorktreeExecutor } from './cli-executor-factories'
-export { cliExecutor } from './cli-process-executor'
 export type { ExecutorConfig } from './executor-config'
 export {
   bindReusableExecutorExecutionId,
@@ -28,7 +26,3 @@ export type {
   RouterToolsSeam,
   SandboxSeam,
 } from './runtime-seams'
-export { sandboxExecutor } from './sandbox-leaf-executor'
-// Re-export the verdict + spend surface so a consumer importing the runtime
-// built-ins gets the budget vocabulary from one place.
-export type { DefaultVerdict, Executor, ExecutorResult, Spend, UsageEvent } from './types'
