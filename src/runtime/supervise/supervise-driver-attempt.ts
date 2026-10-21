@@ -4,7 +4,6 @@ import { RuntimeRunStateError, ValidationError } from '../../errors'
 import { COORDINATION_CLIENT_TOOL_TIMEOUT_MS } from '../../mcp/tools/coordination-request-context'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util'
-import { meterUsageEvent, newUsageTotals, spendFromUsageTotals } from './budget'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { HarnessTurnFailedError } from './driver-retry'
 import { errMessage } from './error-message'
@@ -72,6 +71,7 @@ import type {
   Spend,
   UsageEvent,
 } from './types'
+import { meterUsageEvent, newUsageTotals, spendFromUsageTotals } from './usage-metering'
 
 function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
   return (

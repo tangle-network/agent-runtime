@@ -2,7 +2,6 @@ import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
 import type { RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { chargedTokens } from '../util'
-import { assertValidSpend } from './budget'
 import { executorFailureReason } from './executor-outcome'
 import {
   executorEvidenceWriter,
@@ -14,6 +13,7 @@ import {
 import { DEFAULT_BUDGET_STOP_HOLD_MS } from './scope-capabilities'
 import type { LiveChild, ScopeArgs } from './scope-contract'
 import { detachedSnapshot } from './snapshot'
+import { assertValidSpend } from './spend-validation'
 import type { TraceRootWriter } from './trace-root'
 import type { Budget, NodeExecutionIdentity, NodeId, SpawnOpts, Spend } from './types'
 
