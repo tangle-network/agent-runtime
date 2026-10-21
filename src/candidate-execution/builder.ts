@@ -40,7 +40,7 @@ export type AgentCandidateProfileSource =
     }
 
 /** The only accepted path from an agent-eval code candidate to executable bytes. */
-interface AgentCandidateCodeSurfaceSource {
+export interface AgentCandidateCodeSurfaceSource {
   kind: 'code-surface'
   surface: CodeSurface
   repository: AgentCandidateGitHubRepository

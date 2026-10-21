@@ -49,7 +49,7 @@ export interface FactJudge {
 }
 
 /** @experimental */
-interface KbGateResult {
+export interface KbGateResult {
   accepted: boolean
   /** Name of the judge that vetoed; undefined when accepted. */
   vetoedBy?: string

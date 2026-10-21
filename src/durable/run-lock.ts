@@ -31,7 +31,7 @@ import { isNoEntError } from './jsonl-file'
 export const RUN_DIRECTORY_LOCK_FILE = 'supervise.lock'
 
 /** What the lock file records about its holder. */
-interface RunDirectoryLockHolder {
+export interface RunDirectoryLockHolder {
   readonly pid: number
   /** ISO instant the holder took the lock. */
   readonly startedAt: string
@@ -44,7 +44,7 @@ interface RunDirectoryLockHolder {
 }
 
 /** A held lock. `release()` removes the file; it is safe to call more than once. */
-interface RunDirectoryLock extends RunDirectoryLockHolder {
+export interface RunDirectoryLock extends RunDirectoryLockHolder {
   readonly path: string
   release(): Promise<void>
 }
@@ -120,7 +120,7 @@ export async function readRunDirectoryLock(
 }
 
 /** What {@link runDirectoryHolderIsLive} proved about a run directory's recorded holder. */
-interface RunDirectoryHolderLiveness {
+export interface RunDirectoryHolderLiveness {
   /** True only while the process that took the lock is still the process that holds the pid. */
   readonly live: boolean
   /** The holder the lock file names. Absent when no lock file names one, which reads as not live. */

@@ -261,7 +261,7 @@ function slugify(s: string): string {
  * a misconfigured manifest fails at startup (not at the first finding
  * the loop produces 20 minutes later).
  */
-interface SurfaceValidationIssue {
+export interface SurfaceValidationIssue {
   surface: keyof AgentSurfaces
   path: string
   reason: 'missing' | 'not-directory' | 'not-file'

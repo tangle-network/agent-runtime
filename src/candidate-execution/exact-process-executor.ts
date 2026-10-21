@@ -54,7 +54,7 @@ interface ExactProcessRunState {
   }
 }
 
-interface ExactProcessCandidateExecutorOptions {
+export interface ExactProcessCandidateExecutorOptions {
   provider: AgentEnvironmentProvider
   resources: AgentExactProcessResources
   provisionTimeoutMs?: number

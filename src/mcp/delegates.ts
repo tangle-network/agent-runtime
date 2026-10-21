@@ -133,7 +133,7 @@ export type DetachedWinnerSelection =
   | 'first-approved'
 
 /** @experimental */
-interface DetachedSessionDelegateOptions {
+export interface DetachedSessionDelegateOptions {
   /**
    * Execution placement. Pass a {@link DelegationExecutor} (sibling or fleet)
    * to control where worker iterations land. `sandboxClient` is a

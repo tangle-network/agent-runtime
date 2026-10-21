@@ -231,7 +231,7 @@ function toOpenInferenceLine(span: OtelSpan): Record<string, unknown> {
  * `maxQueueSize`. Every span ends in exactly one of `written` or `dropped`: a non-2xx response, a
  * network error, a timeout, an OTLP `partialSuccess.rejectedSpans` count and a full queue each count
  * as drops and set `lastError`. Nothing here throws into the caller's run; `flush()` reports the
- * loss, the same rule {@link createOpenInferenceFileExporter} follows.
+ * loss, the same rule `createOpenInferenceFileExporter` follows.
  */
 export function createOtelExporter(config?: OtelExportConfig): OtelExporter | undefined {
   const resolvedEndpoint =

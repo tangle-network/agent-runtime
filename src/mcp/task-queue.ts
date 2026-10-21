@@ -109,7 +109,7 @@ export interface DelegationRecord {
 }
 
 /** @stable */
-interface SubmitInput<Args extends DelegationArgs> {
+export interface SubmitInput<Args extends DelegationArgs> {
   profile: DelegationProfile
   args: Args
   namespace?: string
@@ -131,7 +131,7 @@ interface SubmitInput<Args extends DelegationArgs> {
 }
 
 /** @stable Context handed to a `SubmitInput.run` function. */
-interface DelegationRunContext {
+export interface DelegationRunContext {
   signal: AbortSignal
   report(progress: DelegationProgress): void
   /** The `detachedSessionRef` recorded at submit, when one was supplied. */
@@ -157,7 +157,7 @@ interface DelegationRunContext {
 }
 
 /** @stable */
-interface SubmitOutput {
+export interface SubmitOutput {
   taskId: string
   /** True when a prior matching `idempotencyKey` returned an existing record. */
   reused: boolean
@@ -203,7 +203,7 @@ export interface DelegationResumeDriver {
 }
 
 /** @stable */
-interface DelegationTaskQueueOptions {
+export interface DelegationTaskQueueOptions {
   /** ID generator override; default `randomTaskId`. */
   generateId?: () => string
   /** Clock override; default `() => new Date().toISOString()`. */

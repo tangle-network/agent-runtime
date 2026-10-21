@@ -6,88 +6,7 @@
 
 # profiles
 
-**`Experimental`**
-
-Authored `AgentProfile` presets (the §1.5 author-the-profile DATA) for common agent roles, each
-with a pure task-to-prompt formatter. The substrate materializes a profile into a harness
-invocation; "is it delivered" is a `DeliverableSpec`, not a bundled validator.
-
 ## Interfaces
-
-### CoderTask
-
-**`Experimental`**
-
-The per-task inputs `coderTaskToPrompt` renders + the worktree gate enforces.
-
-#### Properties
-
-##### goal
-
-> **goal**: `string`
-
-**`Experimental`**
-
-What the agent must accomplish. Free-form prose.
-
-##### repoRoot
-
-> **repoRoot**: `string`
-
-**`Experimental`**
-
-Absolute path inside the sandbox where the repo lives.
-
-##### baseBranch?
-
-> `optional` **baseBranch?**: `string`
-
-**`Experimental`**
-
-Default `main`. The branch the agent diffs against.
-
-##### testCmd?
-
-> `optional` **testCmd?**: `string`
-
-**`Experimental`**
-
-Default `pnpm test --run`.
-
-##### typecheckCmd?
-
-> `optional` **typecheckCmd?**: `string`
-
-**`Experimental`**
-
-Default `pnpm typecheck`.
-
-##### contextFiles?
-
-> `optional` **contextFiles?**: `string`[]
-
-**`Experimental`**
-
-Files the agent may inspect for context. Surfaced verbatim in the prompt.
-
-##### forbiddenPaths?
-
-> `optional` **forbiddenPaths?**: `string`[]
-
-**`Experimental`**
-
-Paths the agent must not touch. The mechanical gate hard-fails on any match.
-Use glob-free literal path prefixes for unambiguous enforcement.
-
-##### maxDiffLines?
-
-> `optional` **maxDiffLines?**: `number`
-
-**`Experimental`**
-
-Default 400. Hard cap; the gate hard-fails when exceeded.
-
-***
 
 ### ResearchTask
 
@@ -359,41 +278,7 @@ Below this floor, citation_density scores < 1 and the item set is gated.
 
 ***
 
-### MultiHarnessResearcherFanoutOptions
-
-**`Experimental`**
-
-#### Properties
-
-##### profiles
-
-> **profiles**: readonly `AgentProfile`[]
-
-**`Experimental`**
-
-Exact execution profiles, one per parallel researcher.
-
-##### citationDensityMin?
-
-> `optional` **citationDensityMin?**: `number`
-
-**`Experimental`**
-
-Default citation density floor for the shared validator.
-
-##### task?
-
-> `optional` **task?**: [`ResearchTask`](#researchtask)
-
-**`Experimental`**
-
-Optional task — narrows the validator's namespace check.
-
-***
-
 ### UiFindingScreenshot
-
-**`Experimental`**
 
 Pointer to a screenshot referenced by a finding (workspace-relative path).
 
@@ -403,25 +288,17 @@ Pointer to a screenshot referenced by a finding (workspace-relative path).
 
 > **path**: `string`
 
-**`Experimental`**
-
 ##### viewport?
 
 > `optional` **viewport?**: `string`
-
-**`Experimental`**
 
 ##### label?
 
 > `optional` **label?**: `string`
 
-**`Experimental`**
-
 ***
 
 ### UiFinding
-
-**`Experimental`**
 
 A single UI audit finding — the unit of work a contributor can act on.
 
@@ -435,33 +312,23 @@ lens, missing title, etc.
 
 > `optional` **id?**: `number`
 
-**`Experimental`**
-
 Monotonic id assigned by the writer when persisting. Optional in-transit.
 
 ##### title
 
 > **title**: `string`
 
-**`Experimental`**
-
 ##### lens
 
 > **lens**: [`UiLens`](#uilens)
-
-**`Experimental`**
 
 ##### severity
 
 > **severity**: [`UiFindingSeverity`](#uifindingseverity)
 
-**`Experimental`**
-
 ##### route
 
 > **route**: `string`
-
-**`Experimental`**
 
 Logical route the finding was observed on (e.g. `home`, `checkout-step-2`).
 
@@ -469,15 +336,11 @@ Logical route the finding was observed on (e.g. `home`, `checkout-step-2`).
 
 > `optional` **url?**: `string`
 
-**`Experimental`**
-
 Fully qualified URL the finding was observed at.
 
 ##### viewport?
 
 > `optional` **viewport?**: `string`
-
-**`Experimental`**
 
 Viewport string the offending capture was taken at (e.g. `1280x800`).
 
@@ -485,15 +348,11 @@ Viewport string the offending capture was taken at (e.g. `1280x800`).
 
 > `optional` **selector?**: `string`
 
-**`Experimental`**
-
 CSS selector pinning the offending element, when one can be identified.
 
 ##### observation
 
 > **observation**: `string`
-
-**`Experimental`**
 
 1–3 sentences describing what the screenshot shows that is wrong.
 
@@ -501,15 +360,11 @@ CSS selector pinning the offending element, when one can be identified.
 
 > **impact**: `string`
 
-**`Experimental`**
-
 Who is affected and how.
 
 ##### suggestedFix
 
 > **suggestedFix**: `string`
-
-**`Experimental`**
 
 A specific change a contributor could apply without asking back.
 
@@ -517,15 +372,11 @@ A specific change a contributor could apply without asking back.
 
 > `optional` **reproSteps?**: `string`
 
-**`Experimental`**
-
 Optional explicit reproduction steps. Writer synthesizes from route/url/selector when omitted.
 
 ##### tags?
 
 > `optional` **tags?**: readonly `string`[]
-
-**`Experimental`**
 
 Free-form tags.
 
@@ -533,23 +384,17 @@ Free-form tags.
 
 > **screenshots**: readonly [`UiFindingScreenshot`](#uifindingscreenshot)[]
 
-**`Experimental`**
-
 Screenshot references — must be non-empty for actionable findings.
 
 ##### similarTo?
 
 > `optional` **similarTo?**: readonly `number`[]
 
-**`Experimental`**
-
 Cross-references to similar findings already on file, by id.
 
 ##### createdAt?
 
 > `optional` **createdAt?**: `string`
-
-**`Experimental`**
 
 ISO-8601 creation timestamp set by the writer when persisted.
 
@@ -822,8 +667,6 @@ these — the caller decides.
 
 > **UiLens** = `"consistency"` \| `"hierarchy"` \| `"layout"` \| `"ux-flow"` \| `"duplication"` \| `"accessibility"` \| `"responsive"` \| `"states"` \| `"content"` \| `"interaction"` \| `"performance-perceived"` \| `"other"`
 
-**`Experimental`**
-
 Canonical audit lenses. Each lens scopes a finding to a single class of
 problem so a single audit pass can iterate them without pile-on findings
 under a generic label.
@@ -833,8 +676,6 @@ under a generic label.
 ### UiFindingSeverity
 
 > **UiFindingSeverity** = `"low"` \| `"med"` \| `"high"` \| `"critical"`
-
-**`Experimental`**
 
 Severity scale.
   - `critical` — blocks a core task or is an accessibility blocker.
@@ -862,47 +703,7 @@ Cross-lens rules injected into every UI audit iteration: finding quality standar
 
 Per-lens auditor briefs: concrete signals to look for and cross-lens distinctions to respect.
 
-***
-
-### UI\_LENSES
-
-> `const` **UI\_LENSES**: readonly [`UiLens`](#uilens)[]
-
-**`Experimental`**
-
-Frozen tuple of lenses for validation + iteration.
-
-***
-
-### UI\_FINDING\_SEVERITIES
-
-> `const` **UI\_FINDING\_SEVERITIES**: readonly [`UiFindingSeverity`](#uifindingseverity)[]
-
-**`Experimental`**
-
-Frozen severity tuple, ordered worst → least bad for sort/report.
-
 ## Functions
-
-### coderTaskToPrompt()
-
-> **coderTaskToPrompt**(`task`): `string`
-
-**`Experimental`**
-
-Render a `CoderTask` into the per-task instruction handed to the coder profile.
-
-#### Parameters
-
-##### task
-
-[`CoderTask`](#codertask)
-
-#### Returns
-
-`string`
-
-***
 
 ### researcherProfile()
 
@@ -951,88 +752,6 @@ Build a source-grounded researcher profile with output parsing and validation.
 ##### agentRunSpec
 
 > **agentRunSpec**: [`AgentRunSpec`](runtime.md#agentrunspec)\<[`ResearchTask`](#researchtask)\>
-
-***
-
-### multiHarnessResearcherFanout()
-
-> **multiHarnessResearcherFanout**(`options`): `object`
-
-**`Experimental`**
-
-Build a fanout topology over multiple harnesses. The kernel round-robins
-`agentRuns` across the N parallel iterations and the `FanoutVote` driver
-picks the highest-scoring valid output.
-
-#### Parameters
-
-##### options
-
-[`MultiHarnessResearcherFanoutOptions`](#multiharnessresearcherfanoutoptions)
-
-#### Returns
-
-`object`
-
-##### agentRuns
-
-> **agentRuns**: [`AgentRunSpec`](runtime.md#agentrunspec)\<[`ResearchTask`](#researchtask)\>[]
-
-##### output
-
-> **output**: [`OutputAdapter`](runtime.md#outputadapter)\<[`ResearchOutput`](#researchoutput)\>
-
-##### validator
-
-> **validator**: [`Validator`](runtime.md#validator-4)\<[`ResearchOutput`](#researchoutput)\>
-
-##### driver
-
-> **driver**: [`Driver`](runtime.md#driver-2)\<[`ResearchTask`](#researchtask), [`ResearchOutput`](#researchoutput), `"done"`\>
-
-***
-
-### createResearcherValidator()
-
-> **createResearcherValidator**(`task`, `config?`): [`Validator`](runtime.md#validator-4)\<[`ResearchOutput`](#researchoutput)\>
-
-**`Experimental`**
-
-Build a validator that closes over a specific `ResearchTask`'s constraints.
-
-Checks in order:
-  1. Items must be non-empty.
-  2. Every item carries `evidence.length >= 1`.
-  3. Every item + proposedWrite is scoped to `task.knowledgeNamespace`
-     (hard-fail on any namespace mismatch — defence in depth for the
-     multi-tenant invariant).
-  4. Citation density (citations with quote / items) >= floor.
-
-Aggregate score:
-  0.4 · citation_density
-+ 0.2 · source_diversity (distinct sources / max(items, 1))
-+ 0.2 · recency_match (mean fraction within `recencyWindow`)
-+ 0.2 · (1 − gaps/maxGaps), maxGaps = max(items, 1)
-
-#### Parameters
-
-##### task
-
-[`ResearchTask`](#researchtask)
-
-##### config?
-
-###### citationDensityMin?
-
-`number`
-
-###### namespaceCheck?
-
-`boolean`
-
-#### Returns
-
-[`Validator`](runtime.md#validator-4)\<[`ResearchOutput`](#researchoutput)\>
 
 ***
 

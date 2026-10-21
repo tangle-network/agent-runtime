@@ -39,7 +39,7 @@ export const analystToolGroupNames = [
 export type AnalystToolGroupName = (typeof analystToolGroupNames)[number]
 
 /** Bounds on the recursive investigation a defined analyst may run. Each field is optional and is
- *  clamped to {@link ANALYST_DEFINITION_BOUNDS}; omitted fields take the engine's own default. */
+ *  clamped to `ANALYST_DEFINITION_BOUNDS`; omitted fields take the engine's own default. */
 export interface AuthoredAnalystLimits {
   readonly maxIterations?: number
   readonly maxLlmCalls?: number
@@ -147,7 +147,7 @@ export interface AnalystRegistry {
    * run started. Present = `define_analyst` is mounted; absent = the menu is fixed (the status quo).
    *
    * The coordination layer validates and bounds the definition first (see
-   * {@link ANALYST_DEFINITION_BOUNDS}) and refuses a duplicate id, so an implementation receives
+   * `ANALYST_DEFINITION_BOUNDS`) and refuses a duplicate id, so an implementation receives
    * only well-formed, in-bounds definitions. It returns the {@link AnalystKind} the lens is now
    * reachable as; `run_analyst` must resolve that id immediately afterwards. THROWING is the
    * refusal channel — an unavailable model seat, a policy that forbids authored lenses — and the

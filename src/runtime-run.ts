@@ -87,7 +87,7 @@ export interface RuntimeRunPersistenceAdapter {
 }
 
 /** @stable */
-interface RuntimeRunOptions {
+export interface RuntimeRunOptions {
   workspaceId: string
   sessionId?: string
   agentId?: string

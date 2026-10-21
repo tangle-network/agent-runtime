@@ -6,19 +6,32 @@
  */
 export {
   aesGcmContentCodecFromEnv,
+  type ContentCodecOptions,
   createAesGcmContentCodec,
   openWorkspaceBytes,
   SEALED_CONTENT_PREFIX,
   sealWorkspaceBytes,
+  type WorkspaceCodecContext,
   WorkspaceCodecError,
+  type WorkspaceContentCodec,
   withContentCodec,
 } from './codec'
-export { runWorkspaceStoreContract, workspaceStoreContractCases } from './contract'
+export {
+  type MakeWorkspaceStore,
+  runWorkspaceStoreContract,
+  type WorkspaceStoreContractCase,
+  type WorkspaceStoreContractOptions,
+  type WorkspaceStoreContractResult,
+  workspaceStoreContractCases,
+} from './contract'
 export {
   captureHarnessMemory,
   HARNESS_MEMORY_BEGIN,
+  type HarnessIngestResult,
   type HarnessNativeFiles,
+  type HarnessProvenance,
   ingestHarnessMemories,
+  type MemoryDivergence,
   memoryDivergence,
   parseHarnessActor,
   projectHarnessMemory,
@@ -33,6 +46,7 @@ export {
   type WorkspaceDeleteInput,
   type WorkspaceEntry,
   type WorkspaceEntryKind,
+  type WorkspaceEntryScope,
   type WorkspacePutInput,
   type WorkspaceStore,
   type WorkspaceTombstone,
@@ -41,8 +55,13 @@ export {
   createFileTools,
   createMemoryTools,
   defaultMemoryPolicy,
+  type MemoryPolicy,
   readTurnMemories,
   renderPinnedMemory,
   type WorkspaceAccess,
+  type WorkspacePolicyDecision,
   type WorkspaceRole,
+  type WorkspaceToolContext,
+  type WorkspaceToolDefinition,
+  type WorkspaceTurn,
 } from './tools'

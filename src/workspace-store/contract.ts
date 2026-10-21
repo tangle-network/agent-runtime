@@ -21,21 +21,21 @@ import {
   type WorkspaceTurn,
 } from './tools'
 
-interface WorkspaceStoreContractCase {
+export interface WorkspaceStoreContractCase {
   readonly name: string
   run(): Promise<void>
 }
 
-interface WorkspaceStoreContractResult {
+export interface WorkspaceStoreContractResult {
   readonly name: string
   readonly passed: boolean
   readonly error?: string
 }
 
 /** Make a fresh, empty store for one case. */
-type MakeWorkspaceStore = () => WorkspaceStore | Promise<WorkspaceStore>
+export type MakeWorkspaceStore = () => WorkspaceStore | Promise<WorkspaceStore>
 
-interface WorkspaceStoreContractOptions {
+export interface WorkspaceStoreContractOptions {
   /** Also check `operationId` replay; for a store that sets `idempotentOperations`. */
   readonly idempotentOperations?: boolean
 }

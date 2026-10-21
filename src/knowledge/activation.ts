@@ -22,14 +22,14 @@ import {
   createAgentImprovementActivationResult,
 } from '../intelligence/activation'
 
-interface CreateKnowledgeImprovementActivationExecutorOptions
+export interface CreateKnowledgeImprovementActivationExecutorOptions
   extends Omit<PromoteKnowledgeCandidateOptions, 'root' | 'candidate'> {
   root: string
   identity: string
   results: AgentImprovementActivationResultStore
 }
 
-interface KnowledgeImprovementActivationExecutor {
+export interface KnowledgeImprovementActivationExecutor {
   transition: AgentImprovementActivationTransition
   reconcile: AgentImprovementActivationReconciliation
 }

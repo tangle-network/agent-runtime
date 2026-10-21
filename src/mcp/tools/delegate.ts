@@ -91,14 +91,14 @@ function validateDelegateArgs(raw: unknown): DelegateArgs {
 
 /** The synchronous result the `delegate` tool returns to the calling agent: the delivered output (or
  *  the no-winner reason) PLUS the conserved spend of the whole delegation. */
-type DelegateResult =
+export type DelegateResult =
   | { status: 'winner'; out: unknown; outRef: string; spentTotal: Spend }
   | { status: 'no-winner'; reason: string; error?: DelegateError; spentTotal: Spend }
 
 /** What killed a delegation, projected for the calling agent: the rejection's name and message.
  *  `reason` is a four-word code (`driver-failed`), and a code alone is not diagnosable — the
  *  supervisor attaches the rejection to the result precisely so a caller can read it. */
-interface DelegateError {
+export interface DelegateError {
   name: string
   message: string
 }

@@ -23,7 +23,7 @@ export interface PlatformAuthClientOptions {
   fetchImpl?: typeof fetch
 }
 
-interface AuthorizeUrlOptions {
+export interface AuthorizeUrlOptions {
   /** Required CSRF token; the consumer verifies it on the callback. */
   state: string
   /**
@@ -37,7 +37,7 @@ interface AuthorizeUrlOptions {
   email?: string
 }
 
-interface ExchangeCodeResult {
+export interface ExchangeCodeResult {
   apiKey: string
   emailVerified: true
   user: {

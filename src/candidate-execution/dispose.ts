@@ -7,7 +7,7 @@ import {
 } from './prepared-state'
 import type { PreparedAgentCandidateExecution } from './types'
 
-interface DisposePreparedAgentCandidateOptions {
+export interface DisposePreparedAgentCandidateOptions {
   cleanupTimeoutMs?: number
 }
 

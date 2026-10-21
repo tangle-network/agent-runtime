@@ -36,7 +36,7 @@ import {
 
 /** Per-persona profile-merge slots applied over the base profile (§1.5: the caller authors the
  *  per-persona profile). Each slot overlays the base; an absent slot leaves the base untouched. */
-interface SandboxActComposeOverrides {
+export interface SandboxActComposeOverrides {
   /** Replace the base profile's system prompt (e.g. a workspace-augmented prompt). */
   systemPrompt?: string
   /** Extra file mounts layered after the base profile's `resources.files`. */
@@ -49,7 +49,7 @@ interface SandboxActComposeOverrides {
   mcpConnections?: Record<string, AgentProfileMcpServer>
 }
 
-interface CreateSandboxActOptions<TPersona, TRunOutput> {
+export interface CreateSandboxActOptions<TPersona, TRunOutput> {
   /** Canonical agent profile — the same one the prod chat turn uses. */
   baseProfile: AgentProfile
   /** Sandbox client used to boot the per-run sandbox. */

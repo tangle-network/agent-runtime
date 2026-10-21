@@ -117,10 +117,6 @@ not allow: `persist()` before `complete()`, `complete()` twice, etc.
 
 - `AgentEvalError`
 
-#### Extended by
-
-- [`DriverAttemptsExhaustedError`](runtime.md#driverattemptsexhaustederror)
-
 #### Constructors
 
 ##### Constructor
@@ -146,392 +142,6 @@ not allow: `persist()` before `complete()`, `complete()` twice, etc.
 ###### Overrides
 
 `AgentEvalError.constructor`
-
-***
-
-### PlannerError
-
-**`Stable`**
-
-The dynamic-loop planner returned an unusable topology move — the LLM emitted
-no parseable envelope, an unknown `kind`, or a structurally-invalid move
-(e.g. a fanout with zero tasks). This is a structural failure of the
-agent-authored topology, not a config mistake: the planner ran but its output
-cannot drive the kernel. Carries `validation` so cross-package handlers can
-pattern-match without importing the runtime. Fail loud — never substitute a
-default move, or the loop silently runs a topology nobody chose.
-
-#### Extends
-
-- `AgentEvalError`
-
-#### Constructors
-
-##### Constructor
-
-> **new PlannerError**(`message`, `options?`): [`PlannerError`](#plannererror)
-
-###### Parameters
-
-###### message
-
-`string`
-
-###### options?
-
-###### cause?
-
-`unknown`
-
-###### Returns
-
-[`PlannerError`](#plannererror)
-
-###### Overrides
-
-`AgentEvalError.constructor`
-
-***
-
-### RetainedRunAdmissionError
-
-**`Stable`**
-
-The caller could not persist one detached-run recovery record.
-
-#### Extends
-
-- `RetainedAdmissionError`\<[`RetainedRunAdmission`](runtime.md#retainedrunadmission)\>
-
-#### Constructors
-
-##### Constructor
-
-> **new RetainedRunAdmissionError**(`admission`, `options?`): [`RetainedRunAdmissionError`](#retainedrunadmissionerror)
-
-###### Parameters
-
-###### admission
-
-[`RetainedRunAdmission`](runtime.md#retainedrunadmission)
-
-###### options?
-
-###### cause?
-
-`unknown`
-
-###### Returns
-
-[`RetainedRunAdmissionError`](#retainedrunadmissionerror)
-
-###### Inherited from
-
-`RetainedAdmissionError<RetainedRunAdmission>.constructor`
-
-#### Properties
-
-##### phase
-
-> `readonly` **phase**: `"environment"` \| `"intent"` \| `"dispatched"`
-
-###### Inherited from
-
-`RetainedAdmissionError.phase`
-
-##### admission
-
-> `readonly` **admission**: [`RetainedRunAdmission`](runtime.md#retainedrunadmission)
-
-The exact record the hook failed to persist, for direct recovery.
-
-###### Inherited from
-
-`RetainedAdmissionError.admission`
-
-***
-
-### RetainedInteractiveAdmissionError
-
-**`Stable`**
-
-The caller could not persist one exact interactive-process recovery record.
-
-#### Extends
-
-- `RetainedAdmissionError`\<[`RetainedInteractiveAdmission`](runtime.md#retainedinteractiveadmission)\>
-
-#### Constructors
-
-##### Constructor
-
-> **new RetainedInteractiveAdmissionError**(`admission`, `options?`): [`RetainedInteractiveAdmissionError`](#retainedinteractiveadmissionerror)
-
-###### Parameters
-
-###### admission
-
-[`RetainedInteractiveAdmission`](runtime.md#retainedinteractiveadmission)
-
-###### options?
-
-###### cause?
-
-`unknown`
-
-###### Returns
-
-[`RetainedInteractiveAdmissionError`](#retainedinteractiveadmissionerror)
-
-###### Inherited from
-
-`RetainedAdmissionError<RetainedInteractiveAdmission>.constructor`
-
-#### Properties
-
-##### phase
-
-> `readonly` **phase**: `"interactive_intent"` \| `"interactive_environment"` \| `"interactive_started"`
-
-###### Inherited from
-
-`RetainedAdmissionError.phase`
-
-##### admission
-
-> `readonly` **admission**: [`RetainedInteractiveAdmission`](runtime.md#retainedinteractiveadmission)
-
-The exact record the hook failed to persist, for direct recovery.
-
-###### Inherited from
-
-`RetainedAdmissionError.admission`
-
-***
-
-### RetainedInteractiveBindingError
-
-**`Stable`**
-
-A provider returned a valid interactive reference that does not bind to the
-exact start request, or returned data that could not be parsed as one.
-
-The requested start and any valid provider reference are detached snapshots.
-Malformed provider data is never copied into the error, so the error remains
-safe to persist while the environment remains available for orphan cleanup.
-
-#### Extends
-
-- `AgentEvalError`
-
-#### Constructors
-
-##### Constructor
-
-> **new RetainedInteractiveBindingError**(`requested`, `returned`, `options?`): [`RetainedInteractiveBindingError`](#retainedinteractivebindingerror)
-
-###### Parameters
-
-###### requested
-
-###### returned
-
-###### ref?
-
-\{ \}
-
-###### status?
-
-\{ \} \| \{ \} \| \{ \}
-
-###### options?
-
-###### cause?
-
-`unknown`
-
-###### Returns
-
-[`RetainedInteractiveBindingError`](#retainedinteractivebindingerror)
-
-###### Overrides
-
-`AgentEvalError.constructor`
-
-#### Properties
-
-##### requested
-
-> `readonly` **requested**: `object`
-
-The exact native-process start request sent to the provider.
-
-##### returned
-
-> `readonly` **returned**: `object`
-
-The valid provider data, when the provider returned a parseable value.
-
-###### ref?
-
-> `readonly` `optional` **ref?**: `object`
-
-###### status?
-
-> `readonly` `optional` **status?**: \{ \} \| \{ \} \| \{ \}
-
-***
-
-### RetainedRunDispatchBindingError
-
-**`Stable`**
-
-A retained dispatch answered with coordinates that do not bind to the
-identity the runtime requested, or failed exact verification. The
-environment-phase admission is already durable at this point, so its
-coordinates plus the provider reference carried here are the manual
-recovery path. The environment is intentionally kept. Carries
-`backend_integrity` because the provider violated its dispatch contract.
-
-#### Extends
-
-- `AgentEvalError`
-
-#### Constructors
-
-##### Constructor
-
-> **new RetainedRunDispatchBindingError**(`requested`, `returned`, `options?`): [`RetainedRunDispatchBindingError`](#retainedrundispatchbindingerror)
-
-###### Parameters
-
-###### requested
-
-###### provider
-
-`string`
-
-###### environmentId
-
-`string`
-
-###### sessionId
-
-`string`
-
-###### executionId
-
-`string`
-
-###### returned
-
-###### id?
-
-`string`
-
-###### provider?
-
-`string`
-
-###### controlRef?
-
-`unknown`
-
-###### options?
-
-###### cause?
-
-`unknown`
-
-###### Returns
-
-[`RetainedRunDispatchBindingError`](#retainedrundispatchbindingerror)
-
-###### Overrides
-
-`AgentEvalError.constructor`
-
-#### Properties
-
-##### requested
-
-> `readonly` **requested**: `object`
-
-The coordinates the runtime sent with the dispatch.
-
-###### provider
-
-> `readonly` **provider**: `string`
-
-###### environmentId
-
-> `readonly` **environmentId**: `string`
-
-###### sessionId
-
-> `readonly` **sessionId**: `string`
-
-###### executionId
-
-> `readonly` **executionId**: `string`
-
-##### returned
-
-> `readonly` **returned**: `object`
-
-The loose reference the provider actually returned, for triage.
-
-###### id?
-
-> `readonly` `optional` **id?**: `string`
-
-###### provider?
-
-> `readonly` `optional` **provider?**: `string`
-
-###### controlRef?
-
-> `readonly` `optional` **controlRef?**: `unknown`
-
-***
-
-### OfficialOptimizerUnavailableError
-
-Missing optional Python dependencies for an official optimizer.
-
-#### Extends
-
-- `ConfigError`
-
-#### Constructors
-
-##### Constructor
-
-> **new OfficialOptimizerUnavailableError**(`optimizer`, `cause`): [`OfficialOptimizerUnavailableError`](#officialoptimizerunavailableerror)
-
-###### Parameters
-
-###### optimizer
-
-`"gepa"` \| `"skillopt"`
-
-###### cause
-
-`unknown`
-
-###### Returns
-
-[`OfficialOptimizerUnavailableError`](#officialoptimizerunavailableerror)
-
-###### Overrides
-
-`ConfigError.constructor`
-
-#### Properties
-
-##### optimizer
-
-> `readonly` **optimizer**: `"gepa"` \| `"skillopt"`
 
 ***
 
@@ -1358,130 +968,6 @@ so trace stitching survives nested orchestration.
 
 ***
 
-### SqlAdapter
-
-Minimal SQL driver shape. Implementations forward to whichever client the
-deployment already uses; agent-runtime takes no opinion on which.
-
-Parameter placeholders MUST be `?` (positional). All adapters listed in the
-file header accept this convention.
-
-#### Methods
-
-##### exec()
-
-> **exec**(`sql`, `params?`): `Promise`\<\{ `rowsAffected`: `number`; \}\>
-
-Execute a write statement (INSERT/UPDATE/DELETE/DDL).
-
-###### Parameters
-
-###### sql
-
-`string`
-
-###### params?
-
-readonly `unknown`[]
-
-###### Returns
-
-`Promise`\<\{ `rowsAffected`: `number`; \}\>
-
-##### query()
-
-> **query**\<`TRow`\>(`sql`, `params?`): `Promise`\<`TRow`[]\>
-
-Execute a read statement (SELECT). Returns rows as plain objects.
-
-###### Type Parameters
-
-###### TRow
-
-`TRow` = `Record`\<`string`, `unknown`\>
-
-###### Parameters
-
-###### sql
-
-`string`
-
-###### params?
-
-readonly `unknown`[]
-
-###### Returns
-
-`Promise`\<`TRow`[]\>
-
-***
-
-### D1DatabaseLike
-
-Structural type matching the surface of `D1Database` we depend on, so the
-SDK never imports `@cloudflare/workers-types`. Consumers pass their real
-`D1Database` from `env.DB` and TS structural compatibility lines it up.
-
-#### Methods
-
-##### prepare()
-
-> **prepare**(`sql`): [`D1StmtLike`](#d1stmtlike)
-
-###### Parameters
-
-###### sql
-
-`string`
-
-###### Returns
-
-[`D1StmtLike`](#d1stmtlike)
-
-***
-
-### D1StmtLike
-
-#### Methods
-
-##### bind()
-
-> **bind**(...`params`): [`D1StmtLike`](#d1stmtlike)
-
-###### Parameters
-
-###### params
-
-...`unknown`[]
-
-###### Returns
-
-[`D1StmtLike`](#d1stmtlike)
-
-##### run()
-
-> **run**(): `Promise`\<`unknown`\>
-
-###### Returns
-
-`Promise`\<`unknown`\>
-
-##### all()
-
-> **all**\<`TRow`\>(): `Promise`\<\{ `results?`: `TRow`[]; \}\>
-
-###### Type Parameters
-
-###### TRow
-
-`TRow` = `unknown`
-
-###### Returns
-
-`Promise`\<\{ `results?`: `TRow`[]; \}\>
-
-***
-
 ### VerifyResult
 
 Outcome of verifying a candidate worktree.
@@ -1749,18 +1235,6 @@ Test seam — inject the worktree-dirty check (defaults to `git status`).
 ###### Returns
 
 `boolean`
-
-***
-
-### BuildPromptFindingsInput
-
-Evidence supplied to a generated tool or MCP build instruction.
-
-#### Properties
-
-##### findings
-
-> **findings**: readonly `ProposalFinding`[]
 
 ***
 
@@ -2425,7 +1899,7 @@ Full search and final-test spend.
 
 ###### Inherited from
 
-`ImproveResultBase.cost`
+[`ImproveSearchResult`](#improvesearchresult).[`cost`](#cost-1)
 
 ##### durationMs
 
@@ -2435,7 +1909,7 @@ Full wall-clock duration.
 
 ###### Inherited from
 
-`ImproveResultBase.durationMs`
+[`ImproveSearchResult`](#improvesearchresult).[`durationMs`](#durationms-3)
 
 ##### generationsExplored?
 
@@ -2445,7 +1919,7 @@ Number of generations explored by Runtime's code path.
 
 ###### Inherited from
 
-`ImproveResultBase.generationsExplored`
+[`ImproveSearchResult`](#improvesearchresult).[`generationsExplored`](#generationsexplored-1)
 
 ##### mode
 
@@ -2568,7 +2042,7 @@ Full search and final-test spend.
 
 ###### Inherited from
 
-`ImproveResultBase.cost`
+[`ImproveSearchResult`](#improvesearchresult).[`cost`](#cost-1)
 
 ##### durationMs
 
@@ -2578,7 +2052,7 @@ Full wall-clock duration.
 
 ###### Inherited from
 
-`ImproveResultBase.durationMs`
+[`ImproveSearchResult`](#improvesearchresult).[`durationMs`](#durationms-3)
 
 ##### generationsExplored?
 
@@ -2588,7 +2062,7 @@ Number of generations explored by Runtime's code path.
 
 ###### Inherited from
 
-`ImproveResultBase.generationsExplored`
+[`ImproveSearchResult`](#improvesearchresult).[`generationsExplored`](#generationsexplored-1)
 
 ##### mode
 
@@ -2771,7 +2245,7 @@ Full search and final-test spend.
 
 ###### Inherited from
 
-[`ImproveMethodResult`](#improvemethodresult).[`cost`](#cost)
+`ImproveResultBase.cost`
 
 ##### durationMs
 
@@ -2781,7 +2255,7 @@ Full wall-clock duration.
 
 ###### Inherited from
 
-[`ImproveMethodResult`](#improvemethodresult).[`durationMs`](#durationms-2)
+`ImproveResultBase.durationMs`
 
 ##### lineage
 
@@ -2801,7 +2275,7 @@ Number of generations explored by Runtime's code path.
 
 ###### Inherited from
 
-[`ImproveMethodResult`](#improvemethodresult).[`generationsExplored`](#generationsexplored)
+`ImproveResultBase.generationsExplored`
 
 ##### mode
 
@@ -2913,40 +2387,6 @@ Receipt attribution phase supplied alongside `costLedger`.
 ###### Returns
 
 `Promise`\<\{ `applied`: `boolean`; `summary`: `string`; `label?`: `string`; `rationale?`: `string`; \}\>
-
-***
-
-### McpServeSpec
-
-#### Properties
-
-##### command
-
-> **command**: `string`
-
-Command that starts the built MCP server in the worktree (stdio transport).
-
-##### args?
-
-> `optional` **args?**: `string`[]
-
-##### env?
-
-> `optional` **env?**: `Record`\<`string`, `string`\>
-
-Extra env for the server process (merged over `process.env`).
-
-##### timeoutMs?
-
-> `optional` **timeoutMs?**: `number`
-
-Handshake timeout (ms). Default 30s.
-
-##### minTools?
-
-> `optional` **minTools?**: `number`
-
-Minimum tools the server must expose to pass. Default 1.
 
 ***
 
@@ -3169,49 +2609,6 @@ Train the bound profile with a separately pinned trainer and serving execution i
 ###### Returns
 
 `Promise`\<[`ImproveMethodResult`](#improvemethodresult)\>
-
-***
-
-### RawTraceDistillerOptions
-
-#### Properties
-
-##### runDir?
-
-> `optional` **runDir?**: `string`
-
-Anchor the emitted paths at this run root instead of the generation `runDir`
- the loop passes in. Normally unset — each call points at that generation's
- own directory (`input.runDir`). Pass an absolute path when you construct the
- producer ahead of the loop and want a fixed anchor (e.g. a test fixture).
-
-##### maxCandidates?
-
-> `optional` **maxCandidates?**: `number`
-
-Max candidates to surface trace paths for, worst-scoring first. Default 12.
-
-##### maxCellsPerCandidate?
-
-> `optional` **maxCellsPerCandidate?**: `number`
-
-Max failing cells to enumerate per candidate before collapsing the rest into
- an "ls the candidate dir" pointer. Default 8.
-
-##### maxFilesPerCell?
-
-> `optional` **maxFilesPerCell?**: `number`
-
-Max concrete file paths to list per cell (the agent can always `ls` the dir
- for the rest). Default 24.
-
-##### fallbackFindings?
-
-> `optional` **fallbackFindings?**: readonly `ProposalFinding`[]
-
-Findings to fall back to when the generation had NO failing cells, so a
- clean round never wipes the proposer's steering context. Mirrors the default
- distiller's static-seed fallback. Default: a single instruction finding.
 
 ***
 
@@ -3891,38 +3288,6 @@ Recorded as the ledger's process name. Default `search`.
 
 ***
 
-### TrainingDatasetDocument
-
-#### Properties
-
-##### version
-
-> **version**: `1`
-
-##### format
-
-> **format**: `"sft"` \| `"dpo"` \| `"grpo"`
-
-##### rows
-
-> **rows**: `object`[]
-
-Existing Eval export rows, without rewriting their payloads. Include every exposed partition.
-
-###### task
-
-> **task**: `AgentTrainingTask`
-
-###### partition
-
-> **partition**: `"train"` \| `"validation"`
-
-###### data
-
-> **data**: `unknown`
-
-***
-
 ### ProfileTrainerRequest
 
 #### Properties
@@ -4147,6 +3512,40 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ***
 
+### AgentImprovementActivationResultStore
+
+#### Methods
+
+##### load()
+
+> **load**(`idempotencyKey`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### idempotencyKey
+
+`` `sha256:${string}` ``
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### putIfAbsent()
+
+> **putIfAbsent**(`result`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### result
+
+`AgentImprovementActivationResult`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
 ### CreateKnowledgeImprovementActivationExecutorOptions
 
 #### Extends
@@ -4165,7 +3564,7 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ##### results
 
-> **results**: [`AgentImprovementActivationResultStore`](intelligence.md#agentimprovementactivationresultstore)
+> **results**: [`AgentImprovementActivationResultStore`](#agentimprovementactivationresultstore)
 
 ***
 
@@ -4175,11 +3574,11 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ##### transition
 
-> **transition**: [`AgentImprovementActivationTransition`](intelligence.md#agentimprovementactivationtransition)
+> **transition**: [`AgentImprovementActivationTransition`](#agentimprovementactivationtransition)
 
 ##### reconcile
 
-> **reconcile**: [`AgentImprovementActivationReconciliation`](intelligence.md#agentimprovementactivationreconciliation)
+> **reconcile**: [`AgentImprovementActivationReconciliation`](#agentimprovementactivationreconciliation)
 
 ***
 
@@ -4193,7 +3592,7 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-11)
+> **budget**: [`Budget`](runtime.md#budget-10)
 
 ##### readinessCheck?
 
@@ -4377,36 +3776,6 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ***
 
-### AgentKnowledgeReadinessCheckOptions
-
-#### Properties
-
-##### goal
-
-> **goal**: `string`
-
-##### readinessSpecs?
-
-> `optional` **readinessSpecs?**: readonly `KnowledgeReadinessSpec`[]
-
-##### readinessTaskId?
-
-> `optional` **readinessTaskId?**: `string`
-
-##### readiness?
-
-> `optional` **readiness?**: `Omit`\<`BuildEvalKnowledgeBundleOptions`, `"taskId"` \| `"index"` \| `"specs"`\>
-
-##### strict?
-
-> `optional` **strict?**: `boolean`
-
-##### kbQuality?
-
-> `optional` **kbQuality?**: `KnowledgeBaseQualityOptions`
-
-***
-
 ### KnowledgeReadinessCheckInput
 
 #### Properties
@@ -4430,475 +3799,6 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 ##### readiness?
 
 > `optional` **readiness?**: `unknown`
-
-***
-
-### SupervisedKnowledgeUpdateInput
-
-#### Properties
-
-##### goal?
-
-> `optional` **goal?**: `string`
-
-##### root?
-
-> `optional` **root?**: `string`
-
-##### candidateRoot?
-
-> `optional` **candidateRoot?**: `string`
-
-##### findings?
-
-> `optional` **findings?**: readonly `unknown`[]
-
-##### metadata?
-
-> `optional` **metadata?**: `Record`\<`string`, `unknown`\>
-
-***
-
-### SupervisedKnowledgeUpdateResult
-
-#### Properties
-
-##### applied
-
-> **applied**: `boolean`
-
-##### summary
-
-> **summary**: `string`
-
-##### supervised
-
-> **supervised**: [`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>
-
-##### metadata
-
-> **metadata**: `NonNullable`\<`RagKnowledgeUpdateResult`\[`"metadata"`\]\>
-
-***
-
-### SupervisedKnowledgeUpdateOptions
-
-#### Properties
-
-##### root
-
-> **root**: `string`
-
-##### goal
-
-> **goal**: `string`
-
-##### readiness
-
-> **readiness**: [`KnowledgeReadinessCheck`](#knowledgereadinesscheck)
-
-##### readinessSpecs?
-
-> `optional` **readinessSpecs?**: readonly `unknown`[]
-
-##### readinessTaskId?
-
-> `optional` **readinessTaskId?**: `string`
-
-##### readinessOptions?
-
-> `optional` **readinessOptions?**: `unknown`
-
-##### findings?
-
-> `optional` **findings?**: readonly `unknown`[]
-
-##### metadata?
-
-> `optional` **metadata?**: `Record`\<`string`, `unknown`\>
-
-##### budget
-
-> **budget**: [`Budget`](runtime.md#budget-11)
-
-##### backend?
-
-> `optional` **backend?**: [`ExecutorConfig`](runtime.md#executorconfig)
-
-##### makeWorkerAgent?
-
-> `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
-
-##### supervisorProfile
-
-> **supervisorProfile**: `AgentProfile`
-
-Caller-owned exact supervisor harness/provider/model identity.
-
-##### superviseOptions?
-
-> `optional` **superviseOptions?**: `Partial`\<`Omit`\<[`SuperviseOptions`](runtime.md#superviseoptions), `"budget"` \| `"backend"` \| `"deliverable"` \| `"allowedModels"` \| `"makeWorkerAgent"`\>\>
-
-##### allowedModels?
-
-> `optional` **allowedModels?**: readonly `string`[]
-
-##### runSupervised?
-
-> `optional` **runSupervised?**: (`profile`, `task`, `opts`) => `Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>\>
-
-###### Parameters
-
-###### profile
-
-`AgentProfile`
-
-###### task
-
-`unknown`
-
-###### opts
-
-[`SuperviseOptions`](runtime.md#superviseoptions)
-
-###### Returns
-
-`Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>\>
-
-***
-
-### DelegatedLoopResult
-
-**`Experimental`**
-
-Uniform result — never throws from a registered runner; a
- thrown engine becomes `{ ok: false, error }` so a routine can record + move on.
-
-#### Type Parameters
-
-##### T
-
-`T` = `unknown`
-
-#### Properties
-
-##### mode
-
-> **mode**: `"code"` \| `"review"` \| `"research"` \| `"audit"` \| `"self-improve"`
-
-**`Experimental`**
-
-##### ok
-
-> **ok**: `boolean`
-
-**`Experimental`**
-
-##### output?
-
-> `optional` **output?**: `T`
-
-**`Experimental`**
-
-##### error?
-
-> `optional` **error?**: `string`
-
-**`Experimental`**
-
-##### durationMs
-
-> **durationMs**: `number`
-
-**`Experimental`**
-
-***
-
-### RunDelegatedLoopOptions
-
-**`Experimental`**
-
-#### Properties
-
-##### signal?
-
-> `optional` **signal?**: `AbortSignal`
-
-**`Experimental`**
-
-##### now?
-
-> `optional` **now?**: () => `number`
-
-**`Experimental`**
-
-Clock override for deterministic tests.
-
-###### Returns
-
-`number`
-
-***
-
-### WorktreeLoopRunnerOptions
-
-**`Experimental`**
-
-Options for the local-repo `code` runner over the GENERIC recursive path.
-
-#### Properties
-
-##### rootProfile
-
-> **rootProfile**: `AgentProfile`
-
-**`Experimental`**
-
-Exact profile carried by the personified root that owns this fanout.
-
-##### repoRoot
-
-> **repoRoot**: `string`
-
-**`Experimental`**
-
-Absolute path to the local git checkout each worktree is cut from.
-
-##### taskPrompt
-
-> **taskPrompt**: `string`
-
-**`Experimental`**
-
-The instruction handed to every authored harness (composed under each profile's systemPrompt).
-
-##### harnesses
-
-> **harnesses**: readonly [`AuthoredHarness`](runtime.md#authoredharness)[]
-
-**`Experimental`**
-
-The supervisor-authored harness profiles — one fanout item (one worktree-CLI leaf) each.
-
-##### budget
-
-> **budget**: [`Budget`](runtime.md#budget-11)
-
-**`Experimental`**
-
-Conserved budget pool bounding the fanout (equal-k holds by construction).
-
-##### testCmd?
-
-> `optional` **testCmd?**: `string`
-
-**`Experimental`**
-
-Shell command run in each worktree to derive the tests-PASS signal.
-
-##### typecheckCmd?
-
-> `optional` **typecheckCmd?**: `string`
-
-**`Experimental`**
-
-Shell command run in each worktree to derive the typecheck-PASS signal.
-
-##### require?
-
-> `optional` **require?**: readonly (`"tests"` \| `"typecheck"`)[]
-
-**`Experimental`**
-
-Which verification signals the deliverable REQUIRES present-and-passing (default none).
-
-##### maxDiffLines?
-
-> `optional` **maxDiffLines?**: `number`
-
-**`Experimental`**
-
-Diff-size cap (lines).
-
-##### forbiddenPaths?
-
-> `optional` **forbiddenPaths?**: `string`[]
-
-**`Experimental`**
-
-Literal path prefixes the patch must not touch (the secret-floor is always on regardless).
-
-##### winnerStrategy?
-
-> `optional` **winnerStrategy?**: [`WinnerStrategy`](runtime.md#winnerstrategy)
-
-**`Experimental`**
-
-Winner-selection strategy among gated candidates. Default `highest-score`.
-
-##### runGit?
-
-> `optional` **runGit?**: [`GitRunner`](mcp.md#gitrunner)
-
-**`Experimental`**
-
-Test seams forwarded to the worktree-CLI leaves so the runner drives offline.
-
-##### runHarness?
-
-> `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
-
-**`Experimental`**
-
-**`Experimental`**
-
-Spawn a local coding harness CLI as a subprocess + collect its output.
-
-NOT responsible for parsing the harness's output or extracting a diff —
-the in-process executor's `streamPrompt` orchestrates `git diff` against
-the worktree after this resolves. This function is intentionally narrow:
-spawn, wait, capture, return.
-
-Fails loud — throws when:
-  - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
-  - the harness binary is not on PATH (ENOENT)
-  - the caller signal was already aborted before process launch
-
-Does NOT throw when:
-  - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
-    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
-
-Reproducible Codex additionally requires a terminal usage event. If cancellation
-prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
-returning an incomplete reproducibility receipt.
-
-###### Parameters
-
-###### options
-
-[`RunLocalHarnessOptions`](mcp.md#runlocalharnessoptions)
-
-###### Returns
-
-`Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
-
-##### runCommand?
-
-> `optional` **runCommand?**: [`WorktreeCheckRunner`](#worktreecheckrunner)
-
-**`Experimental`**
-
-***
-
-### VetoedFact
-
-**`Experimental`**
-
-A fact rejected at the KB gate — surfaced, never dropped.
-
-#### Properties
-
-##### candidate
-
-> **candidate**: [`FactCandidate`](mcp.md#factcandidate)
-
-**`Experimental`**
-
-##### vetoedBy?
-
-> `optional` **vetoedBy?**: `string`
-
-**`Experimental`**
-
-##### reason?
-
-> `optional` **reason?**: `string`
-
-**`Experimental`**
-
-***
-
-### ResearchLoopResult
-
-**`Experimental`**
-
-#### Properties
-
-##### accepted
-
-> **accepted**: [`FactCandidate`](mcp.md#factcandidate)[]
-
-**`Experimental`**
-
-Facts that passed the fail-closed gate — safe to write to the KB.
-
-##### vetoed
-
-> **vetoed**: [`VetoedFact`](#vetoedfact)[]
-
-**`Experimental`**
-
-Facts the gate vetoed in the final round — escalate, do not silently drop.
-
-##### rounds
-
-> **rounds**: `number`
-
-**`Experimental`**
-
-Research rounds actually run.
-
-***
-
-### ResearchLoopRunnerOptions
-
-**`Experimental`**
-
-Options for the default `research` runner.
-
-#### Properties
-
-##### research
-
-> **research**: (`round`, `vetoed`) => `Promise`\<[`FactCandidate`](mcp.md#factcandidate)[]\>
-
-**`Experimental`**
-
-The research engine (the consumer's web/doc searcher + extractor). Called
-each round with the prior round's vetoes so it can re-research the gaps.
-Returns fact candidates carrying their grounding (`verbatimPassage` +
-`sourceText`).
-
-###### Parameters
-
-###### round
-
-`number`
-
-###### vetoed
-
-[`VetoedFact`](#vetoedfact)[]
-
-###### Returns
-
-`Promise`\<[`FactCandidate`](mcp.md#factcandidate)[]\>
-
-##### gate?
-
-> `optional` **gate?**: [`CreateKbGateOptions`](mcp.md#createkbgateoptions)
-
-**`Experimental`**
-
-Gate config (extra judges, self-artifact kinds, …). The floor is always on.
-
-##### maxRounds?
-
-> `optional` **maxRounds?**: `number`
-
-**`Experimental`**
-
-Max research rounds (correct-on-veto remediation). Default 1.
 
 ***
 
@@ -5217,182 +4117,6 @@ The most recent failure, when there has been one.
 
 ***
 
-### RuntimeEventOtelOptions
-
-**`Stable`**
-
-#### Extends
-
-- [`RuntimeTelemetryOptions`](#runtimetelemetryoptions)
-
-#### Properties
-
-##### redact?
-
-> `optional` **redact?**: (`value`) => `unknown`
-
-Final customer redactor applied after the schema-aware runtime sanitizer.
-
-###### Parameters
-
-###### value
-
-`unknown`
-
-###### Returns
-
-`unknown`
-
-##### includeInputs?
-
-> `optional` **includeInputs?**: `boolean`
-
-Include raw task inputs. Off by default because task inputs often contain
-customer facts, credentials, source text, or internal IDs.
-
-###### Inherited from
-
-[`RuntimeTelemetryOptions`](#runtimetelemetryoptions).[`includeInputs`](#includeinputs-1)
-
-##### includeRequirementDescriptions?
-
-> `optional` **includeRequirementDescriptions?**: `boolean`
-
-Include requirement descriptions. Secret requirements are always redacted.
-
-###### Inherited from
-
-[`RuntimeTelemetryOptions`](#runtimetelemetryoptions).[`includeRequirementDescriptions`](#includerequirementdescriptions-1)
-
-##### includeEvidenceIds?
-
-> `optional` **includeEvidenceIds?**: `boolean`
-
-Include evidence IDs. Off by default; counts are safer for shared reports.
-
-###### Inherited from
-
-[`RuntimeTelemetryOptions`](#runtimetelemetryoptions).[`includeEvidenceIds`](#includeevidenceids-1)
-
-##### includeUserAnswers?
-
-> `optional` **includeUserAnswers?**: `boolean`
-
-Include user answers from question preflight. Off by default.
-
-###### Inherited from
-
-[`RuntimeTelemetryOptions`](#runtimetelemetryoptions).[`includeUserAnswers`](#includeuseranswers-1)
-
-##### includeControlPayloads?
-
-> `optional` **includeControlPayloads?**: `boolean`
-
-Include action payloads and action results for control steps. Off by default.
-
-###### Inherited from
-
-[`RuntimeTelemetryOptions`](#runtimetelemetryoptions).[`includeControlPayloads`](#includecontrolpayloads-1)
-
-##### includeMetadata?
-
-> `optional` **includeMetadata?**: `boolean`
-
-Include task metadata. Off by default because metadata may carry IDs or policy internals.
-
-###### Inherited from
-
-[`RuntimeTelemetryOptions`](#runtimetelemetryoptions).[`includeMetadata`](#includemetadata-1)
-
-##### includeEvalDetails?
-
-> `optional` **includeEvalDetails?**: `boolean`
-
-Include eval detail/evidence strings. Off by default because validators may echo private input.
-
-###### Inherited from
-
-[`RuntimeTelemetryOptions`](#runtimetelemetryoptions).[`includeEvalDetails`](#includeevaldetails-1)
-
-***
-
-### LoopSpanNode
-
-Sink-neutral node in a reconstructed loop span tree. The root node's
-`parentSpanId` is `undefined` — sinks decide how to parent it (the OTEL
-mapper attaches the inherited delegation span; the delegation journal
-leaves it as the tree root).
-
-#### Properties
-
-##### spanId
-
-> **spanId**: `string`
-
-##### parentSpanId?
-
-> `optional` **parentSpanId?**: `string`
-
-##### name
-
-> **name**: `string`
-
-`'loop'` | `'loop.round'` | `'loop.iteration'`.
-
-##### kind
-
-> **kind**: `"loop"` \| `"round"` \| `"branch"`
-
-Topology level: loop root, plan round, or iteration branch.
-
-##### startMs
-
-> **startMs**: `number`
-
-##### endMs
-
-> **endMs**: `number`
-
-##### attrs
-
-> **attrs**: `Record`\<`string`, `string` \| `number` \| `boolean`\>
-
-##### error
-
-> **error**: `boolean`
-
-True when the iteration carried an error — maps to OTEL status code 2.
-
-***
-
-### RouterTokenPrice
-
-USD per token. A null cache rate means the Router lists none, so those tokens bill at `input`.
-
-#### Properties
-
-##### provider
-
-> `readonly` **provider**: `string`
-
-##### input
-
-> `readonly` **input**: `number`
-
-##### cachedInput
-
-> `readonly` **cachedInput**: `number` \| `null`
-
-##### cacheWrite
-
-> `readonly` **cacheWrite**: `number` \| `null`
-
-##### output
-
-> `readonly` **output**: `number`
-
-***
-
 ### TokenWork
 
 #### Properties
@@ -5493,76 +4217,6 @@ Stable identity for the long-lived objective. One pursuit may contain many runs.
 
 ***
 
-### RuntimeDecisionEvidenceRef
-
-#### Properties
-
-##### source
-
-> **source**: `string`
-
-##### id
-
-> **id**: `string`
-
-##### detail?
-
-> `optional` **detail?**: `string`
-
-##### metadata?
-
-> `optional` **metadata?**: `Record`\<`string`, `unknown`\>
-
-***
-
-### RuntimeDecisionPoint
-
-#### Properties
-
-##### id
-
-> **id**: `string`
-
-##### pursuitId?
-
-> `optional` **pursuitId?**: `string`
-
-Stable identity for the long-lived objective. One pursuit may contain many runs.
-
-##### runId
-
-> **runId**: `string`
-
-##### scenarioId?
-
-> `optional` **scenarioId?**: `string`
-
-##### stepIndex
-
-> **stepIndex**: `number`
-
-##### kind
-
-> **kind**: [`RuntimeDecisionKind`](#runtimedecisionkind)
-
-##### candidateActions
-
-> **candidateActions**: `string`[]
-
-##### context?
-
-> `optional` **context?**: `string`
-
-##### evidence
-
-> **evidence**: [`RuntimeDecisionEvidenceRef`](#runtimedecisionevidenceref)[]
-
-##### metadata?
-
-> `optional` **metadata?**: `Record`\<`string`, `unknown`\>
-
-***
-
 ### RuntimeHookErrorContext
 
 #### Properties
@@ -5589,7 +4243,7 @@ Stable identity for the long-lived objective. One pursuit may contain many runs.
 
 ##### decisionKind?
 
-> `optional` **decisionKind?**: [`RuntimeDecisionKind`](#runtimedecisionkind)
+> `optional` **decisionKind?**: [`RuntimeDecisionKind`](durable.md#runtimedecisionkind)
 
 ***
 
@@ -5636,7 +4290,7 @@ code should keep emitting ordinary lifecycle events as the base layer.
 
 ###### point
 
-[`RuntimeDecisionPoint`](#runtimedecisionpoint)
+[`RuntimeDecisionPoint`](durable.md#runtimedecisionpoint)
 
 ###### context
 
@@ -6077,33 +4731,9 @@ The upstream or provider machine code the failure carried, when it carried one.
 
 ***
 
-### RuntimeFailureContext
-
-What the caller knows about how a failed operation ended.
-
-#### Properties
-
-##### signal?
-
-> `readonly` `optional` **signal?**: `AbortSignal`
-
-The caller's own signal. Aborted means the caller cancelled.
-
-##### deadlineExpired?
-
-> `readonly` `optional` **deadlineExpired?**: `boolean`
-
-The operation's own deadline expired before the caller cancelled it.
-
-***
-
 ### RuntimeTelemetryOptions
 
 **`Stable`**
-
-#### Extended by
-
-- [`RuntimeEventOtelOptions`](#runtimeeventoteloptions)
 
 #### Properties
 
@@ -6801,50 +5431,6 @@ Domain is metadata, not an architectural boundary: tax, legal, gtm, creative, bl
 ###### Returns
 
 `RunRecord`[]
-
-***
-
-### BackendErrorDetail
-
-**`Stable`**
-
-Typed transport / backend failure detail. Carried on `backend_error` and
-`final` events when the backend's stream throws or the upstream HTTP call
-returns a non-success status. Lets consumers (a) distinguish "stream
-completed with no text" from "stream never reached the model" and
-(b) reconstruct the precise upstream signal (status + truncated body) when
-building a `RunRecord.error`.
-
-`body` is truncated to 2 KiB by the backend so an HTML error page from a
-misconfigured proxy never bloats event payloads or logs. Consumers needing
-the full body should inspect the underlying `BackendTransportError.body`
-via a custom `mapEvent` or backend wrapper.
-
-#### Properties
-
-##### kind
-
-> **kind**: `"backend"` \| `"transport"`
-
-`'transport'` — upstream HTTP / network failure with optional status code.
-`'backend'` — the backend's `stream()` generator threw for a non-transport
-reason (e.g. a custom adapter error, sandbox crash).
-
-##### message
-
-> **message**: `string`
-
-##### status?
-
-> `optional` **status?**: `number`
-
-Upstream HTTP status when known. `0` for connection / abort errors.
-
-##### body?
-
-> `optional` **body?**: `string`
-
-Truncated response body (≤2 KiB). Diagnostic only — never machine-parsed.
 
 ***
 
@@ -7929,7 +6515,7 @@ search; resume reuses the campaign's cached cell before trying again.
 
 ##### workerSlots?
 
-> `optional` **workerSlots?**: [`WorkerSlots`](runtime.md#workerslots-6)
+> `optional` **workerSlots?**: [`WorkerSlots`](durable.md#workerslots-2)
 
 Bounds working cells across every search that shares this allocator.
 
@@ -8079,49 +6665,9 @@ the exam runs; this callback controls how its evidence decides promotion.
 
 ***
 
-### ImproveOptions
-
-> **ImproveOptions**\<`TScenario`, `TArtifact`\> = [`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\> \| [`ImproveSearchOptions`](#improvesearchoptions)\<`TScenario`, `TArtifact`\> \| [`ImproveCodeRunOptions`](#improvecoderunoptions)\<`TScenario`, `TArtifact`\>
-
-The canonical improvement API: complete methods for profiles, worktrees for code.
-
-#### Type Parameters
-
-##### TScenario
-
-`TScenario` *extends* `Scenario`
-
-##### TArtifact
-
-`TArtifact`
-
-***
-
 ### ImproveCodeOptions
 
 > **ImproveCodeOptions** = [`ImproveCodeBaseOptions`](#improvecodebaseoptions) & [`ImproveRuntimeCodeGeneratorOptions`](#improveruntimecodegeneratoroptions) \| [`ImproveCustomCodeGeneratorOptions`](#improvecustomcodegeneratoroptions)
-
-***
-
-### ImprovementCandidate
-
-> **ImprovementCandidate** = [`ImprovementProfileCandidate`](#improvementprofilecandidate) \| [`ImprovementCodeCandidate`](#improvementcodecandidate)
-
-***
-
-### ImproveResult
-
-> **ImproveResult**\<`TScenario`, `TArtifact`\> = [`ImproveMethodResult`](#improvemethodresult) \| [`ImproveSearchResult`](#improvesearchresult) \| [`ImproveCodeResult`](#improvecoderesult)\<`TScenario`, `TArtifact`\>
-
-#### Type Parameters
-
-##### TScenario
-
-`TScenario` *extends* `Scenario`
-
-##### TArtifact
-
-`TArtifact`
 
 ***
 
@@ -8330,6 +6876,50 @@ A timed-out managed adapter may still own a remote training job.
 
 ***
 
+### AgentImprovementActivationTransition
+
+> **AgentImprovementActivationTransition** = (`input`) => `Promise`\<`unknown`\>
+
+Product-owned or Runtime-composed transition.
+
+Implementations resolve a stored result for `activation.digest`, compare
+every target, and make the write durably idempotent. Co-located targets store
+the all-or-none write with its result. Other targets throw when result
+storage fails so a retry can reconcile it. Runtime never invokes this write
+function after authorization expires.
+
+#### Parameters
+
+##### input
+
+[`AgentImprovementActivationTransitionInput`](intelligence.md#agentimprovementactivationtransitioninput)
+
+#### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
+### AgentImprovementActivationReconciliation
+
+> **AgentImprovementActivationReconciliation** = (`input`) => `Promise`\<`unknown` \| `undefined`\>
+
+Target-read-only check for a prior exact write.
+It may persist recovered result metadata, but must not change an activation target.
+Return undefined only when no target write can have committed.
+
+#### Parameters
+
+##### input
+
+[`AgentImprovementActivationTransitionInput`](intelligence.md#agentimprovementactivationtransitioninput)
+
+#### Returns
+
+`Promise`\<`unknown` \| `undefined`\>
+
+***
+
 ### KnowledgeReadinessCheckResult
 
 > **KnowledgeReadinessCheckResult** = `boolean` \| \{ `ready`: `boolean`; `summary?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; \}
@@ -8352,30 +6942,6 @@ A timed-out managed adapter may still own a remote training job.
 
 ***
 
-### SupervisedKnowledgeUpdater
-
-> **SupervisedKnowledgeUpdater** = (`input`) => `Promise`\<[`SupervisedKnowledgeUpdateResult`](#supervisedknowledgeupdateresult)\>
-
-#### Parameters
-
-##### input
-
-[`SupervisedKnowledgeUpdateInput`](#supervisedknowledgeupdateinput)
-
-#### Returns
-
-`Promise`\<[`SupervisedKnowledgeUpdateResult`](#supervisedknowledgeupdateresult)\>
-
-***
-
-### DelegatedLoopMode
-
-> **DelegatedLoopMode** = *typeof* [`DELEGATED_LOOP_MODES`](#delegated_loop_modes)\[`number`\]
-
-**`Experimental`**
-
-***
-
 ### DelegatedLoopRunner
 
 > **DelegatedLoopRunner**\<`T`\> = (`signal`) => `Promise`\<`T`\>
@@ -8383,7 +6949,7 @@ A timed-out managed adapter may still own a remote training job.
 **`Experimental`**
 
 A pre-configured loop for one mode. Returns the mode's raw
- output; the dispatcher wraps it in a [DelegatedLoopResult](#delegatedloopresult).
+ output; the dispatcher wraps it in a `DelegatedLoopResult`.
 
 #### Type Parameters
 
@@ -8400,49 +6966,6 @@ A pre-configured loop for one mode. Returns the mode's raw
 #### Returns
 
 `Promise`\<`T`\>
-
-***
-
-### DelegatedLoopRegistry
-
-> **DelegatedLoopRegistry** = `Partial`\<`Record`\<[`DelegatedLoopMode`](#delegatedloopmode), [`DelegatedLoopRunner`](#delegatedlooprunner)\>\>
-
-**`Experimental`**
-
-Mode → configured runner. Partial: only register the modes a
- given product/routine actually uses.
-
-***
-
-### WorktreeCheckRunner
-
-> **WorktreeCheckRunner** = (`opts`) => `Promise`\<\{ `exitCode`: `number` \| `null`; `output`: `string`; \}\>
-
-The single shell-command-in-worktree runner seam (replaces the per-executor copies).
-
-#### Parameters
-
-##### opts
-
-###### command
-
-`string`
-
-###### cwd
-
-`string`
-
-###### timeoutMs
-
-`number`
-
-###### signal?
-
-`AbortSignal`
-
-#### Returns
-
-`Promise`\<\{ `exitCode`: `number` \| `null`; `output`: `string`; \}\>
 
 ***
 
@@ -8472,12 +6995,6 @@ environment and must never be required for agent correctness.
 ### RuntimeHookTarget
 
 > **RuntimeHookTarget** = `"agent.run"` \| `"agent.turn"` \| `"agent.tool_call"` \| `"agent.spawn"` \| `"agent.child"` \| `"agent.plan"` \| `"agent.decision"` \| `string` & `object`
-
-***
-
-### RuntimeDecisionKind
-
-> **RuntimeDecisionKind** = `"continue"` \| `"verify"` \| `"ask"` \| `"retry"` \| `"stop"` \| `"memory-write"` \| `"memory-read"` \| `"tool-select"` \| `"skill-select"` \| `"workflow-select"` \| `"surface-promote"` \| `string` & `object`
 
 ***
 
@@ -8655,7 +7172,7 @@ Agent Interface events that do not belong to Runtime's task vocabulary.
 
 ### RuntimeStreamEvent
 
-> **RuntimeStreamEvent** = [`RuntimeCanonicalStreamEvent`](#runtimecanonicalstreamevent) \| \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; `decision`: [`KnowledgeReadinessDecision`](#knowledgereadinessdecision); `timestamp`: `string`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `timestamp`: `string`; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; `timestamp`: `string`; \} \| \{ `type`: `"session_created"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"session_resumed"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp`: `string`; \} \| \{ `type`: `"text_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"reasoning_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_result"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tools?`: readonly `string`[]; `tokensIn?`: `number`; `tokensOut?`: `number`; `tokensKnown?`: `false`; `tokensUnknownReason?`: `string`; `costUsd?`: `number`; `usdKnown?`: `false`; `estimatedCostUsd?`: `number`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"artifact"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `artifactId`: `string`; `name?`: `string`; `mimeType?`: `string`; `uri?`: `string`; `content?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp?`: `string`; \} \| \{ `type`: `"proposal_created"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `proposalId`: `string`; `title`: `string`; `status?`: `"pending"` \| `"approved"` \| `"rejected"`; `content?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `failure?`: [`RuntimeFailureCause`](#runtimefailurecause); `timestamp`: `string`; \} \| \{ `type`: `"backend_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `failure?`: [`RuntimeFailureCause`](#runtimefailurecause); `timestamp`: `string`; \}
+> **RuntimeStreamEvent** = [`RuntimeCanonicalStreamEvent`](#runtimecanonicalstreamevent) \| \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; `decision`: [`KnowledgeReadinessDecision`](#knowledgereadinessdecision); `timestamp`: `string`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `timestamp`: `string`; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; `timestamp`: `string`; \} \| \{ `type`: `"session_created"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"session_resumed"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp`: `string`; \} \| \{ `type`: `"text_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"reasoning_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_result"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tools?`: readonly `string`[]; `tokensIn?`: `number`; `tokensOut?`: `number`; `tokensKnown?`: `false`; `tokensUnknownReason?`: `string`; `costUsd?`: `number`; `usdKnown?`: `false`; `estimatedCostUsd?`: `number`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"artifact"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `artifactId`: `string`; `name?`: `string`; `mimeType?`: `string`; `uri?`: `string`; `content?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp?`: `string`; \} \| \{ `type`: `"proposal_created"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `proposalId`: `string`; `title`: `string`; `status?`: `"pending"` \| `"approved"` \| `"rejected"`; `content?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](runtime.md#backenderrordetail); `failure?`: [`RuntimeFailureCause`](#runtimefailurecause); `timestamp`: `string`; \} \| \{ `type`: `"backend_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](runtime.md#backenderrordetail); `failure?`: [`RuntimeFailureCause`](#runtimefailurecause); `timestamp`: `string`; \}
 
 **`Stable`**
 
@@ -8879,7 +7396,7 @@ Provider-reported prompt-cache fields; absent fields remain unknown.
 
 ##### Type Literal
 
-\{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `failure?`: [`RuntimeFailureCause`](#runtimefailurecause); `timestamp`: `string`; \}
+\{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](runtime.md#backenderrordetail); `failure?`: [`RuntimeFailureCause`](#runtimefailurecause); `timestamp`: `string`; \}
 
 ###### type
 
@@ -8907,7 +7424,7 @@ Provider-reported prompt-cache fields; absent fields remain unknown.
 
 ###### error?
 
-> `optional` **error?**: [`BackendErrorDetail`](#backenderrordetail)
+> `optional` **error?**: [`BackendErrorDetail`](runtime.md#backenderrordetail)
 
 Typed transport diagnostic. Present when the upstream returned a
 non-success HTTP status or every retry attempt threw. Consumers MUST
@@ -8945,7 +7462,7 @@ The same failure as values: branch on `code` and `owner`, never on `message`.
 
 ##### Type Literal
 
-\{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `failure?`: [`RuntimeFailureCause`](#runtimefailurecause); `timestamp`: `string`; \}
+\{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](runtime.md#backenderrordetail); `failure?`: [`RuntimeFailureCause`](#runtimefailurecause); `timestamp`: `string`; \}
 
 ###### type
 
@@ -8977,7 +7494,7 @@ The same failure as values: branch on `code` and `owner`, never on `message`.
 
 ###### error?
 
-> `optional` **error?**: [`BackendErrorDetail`](#backenderrordetail)
+> `optional` **error?**: [`BackendErrorDetail`](runtime.md#backenderrordetail)
 
 Typed terminal-error diagnostic. Mirrors the `backend_error.error`
 shape so a consumer that only listens for `final` still receives a
@@ -9008,76 +7525,6 @@ instead of matching `reason` or `error.message` text.
 The shared method block every build/author prompt embeds. Domain framing
 (what a tool/MCP/codebase-edit deliverable looks like) wraps around it; this
 is the process itself.
-
-***
-
-### strategyAuthorMethod
-
-> `const` **strategyAuthorMethod**: `string`
-
-The senior authoring process for `authorStrategy` — the same method, shaped
-to the strategy contract (author-blind, conserved budget, one module out).
-
-***
-
-### PROMPT\_INSTRUCTION\_COMPONENT\_PREFIX
-
-> `const` **PROMPT\_INSTRUCTION\_COMPONENT\_PREFIX**: `"prompt.instruction:"` = `'prompt.instruction:'`
-
-Stable component-name prefix used for `profile.prompt.instructions`.
-
-***
-
-### promptInstructionsProfileComponents
-
-> `const` **promptInstructionsProfileComponents**: [`ImproveProfileComponents`](#improveprofilecomponents)
-
-Canonical `ImproveProfileComponents` mapping for the ordered
-`AgentProfile.prompt.instructions` list.
-
-Use it with `surface: 'agent-profile'` when an optimizer should rewrite the
-exact instruction texts without being allowed to change their count, order,
-labels, or any unrelated profile field:
-
-```ts
-await improve(profile, {
-  surface: 'agent-profile',
-  profileComponents: promptInstructionsProfileComponents,
-  // method, scenarios, judge, executionRef, agent, ...
-})
-```
-
-Component names are zero-padded and stable. Runtime's existing component
-materializer requires every candidate to preserve the exact key set and
-verifies that `apply(read(profile))` reproduces the baseline profile. A
-profile with no prompt instructions is refused rather than inventing a
-sentinel instruction that could accidentally ship.
-
-***
-
-### ROLLOUT\_POLICY\_EXTENSION
-
-> `const` **ROLLOUT\_POLICY\_EXTENSION**: `"structural-rollout"` = `'structural-rollout'`
-
-The profile extensions namespace the policy persists under.
-
-***
-
-### RESEARCH\_SUPERVISOR\_SYSTEM\_PROMPT
-
-> `const` **RESEARCH\_SUPERVISOR\_SYSTEM\_PROMPT**: `string`
-
-Standing prompt for a supervisor that grows a shared knowledge base through spawned researchers.
-
-***
-
-### DELEGATED\_LOOP\_MODES
-
-> `const` **DELEGATED\_LOOP\_MODES**: readonly \[`"code"`, `"review"`, `"research"`, `"audit"`, `"self-improve"`\]
-
-**`Experimental`**
-
-All valid delegated-loop mode names — used for validation and CLI surfaces.
 
 ***
 
@@ -9241,30 +7688,6 @@ Optional backend kind label. Defaults to `'conversation'`.
 
 ***
 
-### defineConversation()
-
-> **defineConversation**(`input`): [`Conversation`](#conversation)
-
-Validate and define a conversation before execution.
-
-#### Parameters
-
-##### input
-
-###### participants
-
-[`ConversationParticipant`](#conversationparticipant)[]
-
-###### policy
-
-[`ConversationPolicy`](#conversationpolicy)
-
-#### Returns
-
-[`Conversation`](#conversation)
-
-***
-
 ### runConversation()
 
 > **runConversation**(`conversation`, `options`): `Promise`\<[`ConversationResult`](#conversationresult)\>
@@ -9360,26 +7783,6 @@ axis is the persona, and the runner is the cell. Meters the worker through
 
 ***
 
-### d1ToSqlAdapter()
-
-> **d1ToSqlAdapter**(`db`): [`SqlAdapter`](#sqladapter)
-
-Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1
-consumers don't have to write the wrapper themselves; the runtime never
-imports `@cloudflare/workers-types` directly (peer-style typing).
-
-#### Parameters
-
-##### db
-
-[`D1DatabaseLike`](#d1databaselike)
-
-#### Returns
-
-[`SqlAdapter`](#sqladapter)
-
-***
-
 ### agenticGenerator()
 
 > **agenticGenerator**(`opts`): [`CandidateGenerator`](#candidategenerator)
@@ -9395,27 +7798,6 @@ Full-agentic `CandidateGenerator`: run an exact profiled author inside the exist
 #### Returns
 
 [`CandidateGenerator`](#candidategenerator)
-
-***
-
-### defaultBuildPrompt()
-
-> **defaultBuildPrompt**(`args`): `string`
-
-Turn proposal findings into a concrete coder task —
- the senior scientific-method framing shared with the tool/MCP build prompts.
-
-#### Parameters
-
-##### args
-
-###### findings
-
-readonly `ProposalFinding`[]
-
-#### Returns
-
-`string`
 
 ***
 
@@ -9447,60 +7829,6 @@ A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other
 #### Returns
 
 [`Verifier`](#verifier)
-
-***
-
-### findingLines()
-
-> **findingLines**(`findings`): `string`[]
-
-Render findings as the ranked-evidence block every build prompt ends with.
-
-#### Parameters
-
-##### findings
-
-readonly `ProposalFinding`[]
-
-#### Returns
-
-`string`[]
-
-***
-
-### toolBuildPrompt()
-
-> **toolBuildPrompt**(`args`): `string`
-
-Build the starting instruction for a coder agent tasked with implementing a new tool.
-
-#### Parameters
-
-##### args
-
-[`BuildPromptFindingsInput`](#buildpromptfindingsinput)
-
-#### Returns
-
-`string`
-
-***
-
-### mcpBuildPrompt()
-
-> **mcpBuildPrompt**(`args`): `string`
-
-Build the starting instruction for a coder agent tasked with implementing a new MCP server.
-
-#### Parameters
-
-##### args
-
-[`BuildPromptFindingsInput`](#buildpromptfindingsinput)
-
-#### Returns
-
-`string`
 
 ***
 
@@ -9638,24 +7966,6 @@ Optimize repository code through Runtime's isolated worktree path.
 
 ***
 
-### mcpServeVerifier()
-
-> **mcpServeVerifier**(`spec`): [`Verifier`](#verifier)
-
-Build a `Verifier` that boots a generated MCP server over stdio and checks it exposes tools.
-
-#### Parameters
-
-##### spec
-
-[`McpServeSpec`](#mcpservespec)
-
-#### Returns
-
-[`Verifier`](#verifier)
-
-***
-
 ### officialGepa()
 
 > **officialGepa**\<`TScenario`, `TArtifact`\>(`options`): [`ImproveMethodFactory`](#improvemethodfactory)\<`TScenario`, `TArtifact`\>
@@ -9745,47 +8055,6 @@ profile surface, optimization method, split, gate, and budget option.
 
 ***
 
-### rawTraceDistiller()
-
-> **rawTraceDistiller**\<`TScenario`, `TArtifact`\>(`options?`): (`input`) => `Promise`\<readonly `ProposalFinding`[]\>
-
-Build an `analyzeGeneration` producer that feeds the proposer RAW-TRACE
-FILESYSTEM CONTEXT — paths into the prior generation's real run traces plus a
-grep/cat-to-diagnose instruction — instead of a pre-summarized digest.
-
-Drop-in for `analyzeGeneration` on `improve({ surface: 'code' })`:
-
-  await improve({
-    surface: 'code',
-    findings: seedFindings,
-    code: { repoRoot, profile, executorForWorktree, buildPrompt },
-    runDir: '/abs/run',                 // MUST be a real path — the traces live here
-    analyzeGeneration: rawTraceDistiller(),
-    scenarios, judge, agent,
-  })
-
-#### Type Parameters
-
-##### TScenario
-
-`TScenario` *extends* `Scenario` = `Scenario`
-
-##### TArtifact
-
-`TArtifact` = `unknown`
-
-#### Parameters
-
-##### options?
-
-[`RawTraceDistillerOptions`](#rawtracedistilleroptions) = `{}`
-
-#### Returns
-
-(`input`) => `Promise`\<readonly `ProposalFinding`[]\>
-
-***
-
 ### reflectiveGenerator()
 
 > **reflectiveGenerator**(`opts`): [`CandidateGenerator`](#candidategenerator)
@@ -9819,103 +8088,6 @@ Build the maintained reflective proposer for a profile text surface.
 #### Returns
 
 `SurfaceProposer`\<`ProposalFinding`\>
-
-***
-
-### parseRolloutPolicy()
-
-> **parseRolloutPolicy**(`surface`): [`StructuralRolloutPolicy`](runtime.md#structuralrolloutpolicy) \| `undefined`
-
-Parse a serialized policy surface. Returns `undefined` for non-strings,
-malformed JSON, or values outside the policy invariants. Unknown fields are
-dropped; supported optional fields are preserved.
-
-#### Parameters
-
-##### surface
-
-`MutableSurface`
-
-#### Returns
-
-[`StructuralRolloutPolicy`](runtime.md#structuralrolloutpolicy) \| `undefined`
-
-***
-
-### normalizeRolloutPolicy()
-
-> **normalizeRolloutPolicy**(`raw`): [`StructuralRolloutPolicy`](runtime.md#structuralrolloutpolicy) \| `undefined`
-
-Normalize an untyped policy bag (a parsed surface or a profile extension) into
- a full `StructuralRolloutPolicy`, defaults merged. Returns `undefined` when any
- present dial violates the policy invariants (mirrors `resolvePolicy`: integer
- k ≥ 1, repairRounds ≥ 0, testgen ≥ 0) — a corrupt config must read as "not
- configured", never as a fabricated recipe.
-
-#### Parameters
-
-##### raw
-
-`unknown`
-
-#### Returns
-
-[`StructuralRolloutPolicy`](runtime.md#structuralrolloutpolicy) \| `undefined`
-
-***
-
-### serializeRolloutPolicy()
-
-> **serializeRolloutPolicy**(`policy`): `string`
-
-Stable serialization with fixed field order.
-
-#### Parameters
-
-##### policy
-
-[`StructuralRolloutPolicy`](runtime.md#structuralrolloutpolicy)
-
-#### Returns
-
-`string`
-
-***
-
-### structuralRolloutPolicyFromProfile()
-
-> **structuralRolloutPolicyFromProfile**(`profile`): [`StructuralRolloutPolicy`](runtime.md#structuralrolloutpolicy) \| `undefined`
-
-Read the persisted policy off the profile. `undefined` when the profile does
- not opt into structural rollout.
-
-#### Parameters
-
-##### profile
-
-#### Returns
-
-[`StructuralRolloutPolicy`](runtime.md#structuralrolloutpolicy) \| `undefined`
-
-***
-
-### applyRolloutPolicyToProfile()
-
-> **applyRolloutPolicyToProfile**(`profile`, `policy`): `AgentProfile`
-
-Persist a detached policy under the profile extension without mutating the input.
-
-#### Parameters
-
-##### profile
-
-##### policy
-
-[`StructuralRolloutPolicy`](runtime.md#structuralrolloutpolicy)
-
-#### Returns
-
-`AgentProfile`
 
 ***
 
@@ -10025,25 +8197,6 @@ past `cellUsd`, so `cellUsd` is each cell's hard maximum.
 
 ***
 
-### isSearchEnvironmentFault()
-
-> **isSearchEnvironmentFault**(`error`): `boolean`
-
-Whether an attempt's error is the environment's: a `SearchEnvironmentFault`, or a platform,
- gateway or network failure that a repeated request can change.
-
-#### Parameters
-
-##### error
-
-`unknown`
-
-#### Returns
-
-`boolean`
-
-***
-
 ### searchMethod()
 
 > **searchMethod**(`options`): [`ImproveSearchMethod`](#improvesearchmethod)
@@ -10098,24 +8251,6 @@ Apply or restore one local knowledge candidate through the shared activation con
 
 ***
 
-### createAgentKnowledgeReadinessCheck()
-
-> **createAgentKnowledgeReadinessCheck**(`options`): [`KnowledgeReadinessCheck`](#knowledgereadinesscheck)
-
-Build the default readiness check backed by `@tangle-network/agent-knowledge` validation and scoring.
-
-#### Parameters
-
-##### options
-
-[`AgentKnowledgeReadinessCheckOptions`](#agentknowledgereadinesscheckoptions)
-
-#### Returns
-
-[`KnowledgeReadinessCheck`](#knowledgereadinesscheck)
-
-***
-
 ### runKnowledgeImprovementJob()
 
 > **runKnowledgeImprovementJob**(`options`): `Promise`\<[`KnowledgeImprovementJobResult`](#knowledgeimprovementjobresult)\>
@@ -10156,188 +8291,6 @@ Attach both frozen knowledge inputs to one otherwise-identical bundle pair.
 
 ***
 
-### knowledgeReadinessDeliverable()
-
-> **knowledgeReadinessDeliverable**(`options`): [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>
-
-Build the completion check a supervised KB update uses to stop only when the KB is ready.
-
-#### Parameters
-
-##### options
-
-`Pick`\<[`SupervisedKnowledgeUpdateOptions`](#supervisedknowledgeupdateoptions), `"root"` \| `"goal"` \| `"readiness"` \| `"readinessSpecs"` \| `"readinessTaskId"` \| `"readinessOptions"`\>
-
-#### Returns
-
-[`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>
-
-***
-
-### createSupervisedKnowledgeUpdater()
-
-> **createSupervisedKnowledgeUpdater**(`options`): [`SupervisedKnowledgeUpdater`](#supervisedknowledgeupdater)
-
-Create an `improveKnowledgeBase` update callback backed by runtime supervision.
-
-#### Parameters
-
-##### options
-
-[`SupervisedKnowledgeUpdateOptions`](#supervisedknowledgeupdateoptions)
-
-#### Returns
-
-[`SupervisedKnowledgeUpdater`](#supervisedknowledgeupdater)
-
-***
-
-### runSupervisedKnowledgeUpdate()
-
-> **runSupervisedKnowledgeUpdate**(`options`): `Promise`\<[`SupervisedKnowledgeUpdateResult`](#supervisedknowledgeupdateresult)\>
-
-Run a runtime supervisor that updates one candidate knowledge base and stops on readiness.
-
-#### Parameters
-
-##### options
-
-[`SupervisedKnowledgeUpdateOptions`](#supervisedknowledgeupdateoptions)
-
-#### Returns
-
-`Promise`\<[`SupervisedKnowledgeUpdateResult`](#supervisedknowledgeupdateresult)\>
-
-***
-
-### formatSupervisedKnowledgeTask()
-
-> **formatSupervisedKnowledgeTask**(`options`): `string`
-
-Format the supervisor task with the KB root, readiness requirements, current findings, and metadata.
-
-#### Parameters
-
-##### options
-
-`Pick`\<[`SupervisedKnowledgeUpdateOptions`](#supervisedknowledgeupdateoptions), `"root"` \| `"goal"` \| `"readinessSpecs"` \| `"readinessTaskId"` \| `"findings"` \| `"metadata"`\>
-
-#### Returns
-
-`string`
-
-***
-
-### isDelegatedLoopMode()
-
-> **isDelegatedLoopMode**(`value`): value is "code" \| "review" \| "research" \| "audit" \| "self-improve"
-
-**`Experimental`**
-
-Type guard — returns true when `value` is a valid `DelegatedLoopMode` string.
-
-#### Parameters
-
-##### value
-
-`unknown`
-
-#### Returns
-
-value is "code" \| "review" \| "research" \| "audit" \| "self-improve"
-
-***
-
-### runDelegatedLoop()
-
-> **runDelegatedLoop**\<`T`\>(`mode`, `registry`, `options?`): `Promise`\<[`DelegatedLoopResult`](#delegatedloopresult)\<`T`\>\>
-
-**`Experimental`**
-
-Dispatch a configured loop by mode. Fails loud (throws `ConfigError`) when no
-runner is registered for the mode — a routine pointed at an unwired mode is a
-config bug, not a silent no-op. A runner that throws is captured as
-`{ ok: false }` so unattended runs record the failure rather than crash.
-
-#### Type Parameters
-
-##### T
-
-`T` = `unknown`
-
-#### Parameters
-
-##### mode
-
-`"code"` \| `"review"` \| `"research"` \| `"audit"` \| `"self-improve"`
-
-##### registry
-
-[`DelegatedLoopRegistry`](#delegatedloopregistry)
-
-##### options?
-
-[`RunDelegatedLoopOptions`](#rundelegatedloopoptions) = `{}`
-
-#### Returns
-
-`Promise`\<[`DelegatedLoopResult`](#delegatedloopresult)\<`T`\>\>
-
-***
-
-### worktreeLoopRunner()
-
-> **worktreeLoopRunner**(`options`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<[`WorktreeHarnessResult`](runtime.md#worktreeharnessresult)\>
-
-**`Experimental`**
-
-`code` mode on the GENERIC recursive path: author one `AgentProfile` per harness, run them as a
-`worktreeFanout` (N `createWorktreeCliExecutor` leaves, each `gateOnDeliverable`) through
-`runPersonified` on the keystone Supervisor. The sandbox-session counterpart that drives the in-box
-harness over a `SandboxClient` is `detachedSessionDelegate` (`./mcp/delegates`); here there is no
-`runAgentRounds` driver, no role-coupled delegate — the harness list is the fanout, the gate is
-`patchDelivered`,
-the winner is the shared valid-only selector (NOT `defaultSelectWinner`, whose non-valid fallback
-would surface an ungated patch). Equal-k holds by the conserved budget pool. Returns the winning
-patch artifact, or throws when no candidate is delivered (fail loud, never a vacuous done).
-
-#### Parameters
-
-##### options
-
-[`WorktreeLoopRunnerOptions`](#worktreelooprunneroptions)
-
-#### Returns
-
-[`DelegatedLoopRunner`](#delegatedlooprunner)\<[`WorktreeHarnessResult`](runtime.md#worktreeharnessresult)\>
-
-***
-
-### researchLoopRunner()
-
-> **researchLoopRunner**(`o`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<[`ResearchLoopResult`](#researchloopresult)\>
-
-**`Experimental`**
-
-`research` mode — research-in-a-loop with valid-only KB growth.
-
-Each round: research → gate every candidate (fail-closed; passage MUST be in
-the source) → accept the clean ones → re-research the vetoed ones next round,
-up to `maxRounds`. Vetoed facts in the final round are RETURNED (escalate,
-never silently dropped) so the caller audits vs retries.
-
-#### Parameters
-
-##### o
-
-[`ResearchLoopRunnerOptions`](#researchlooprunneroptions)
-
-#### Returns
-
-[`DelegatedLoopRunner`](#delegatedlooprunner)\<[`ResearchLoopResult`](#researchloopresult)\>
-
-***
-
 ### auditLoopRunner()
 
 > **auditLoopRunner**\<`TProposal`, `TEdit`\>(`options`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\>\>
@@ -10365,45 +8318,6 @@ never silently dropped) so the caller audits vs retries.
 #### Returns
 
 [`DelegatedLoopRunner`](#delegatedlooprunner)\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\>\>
-
-***
-
-### mcpToolsForRuntimeMcp()
-
-> **mcpToolsForRuntimeMcp**(): [`OpenAIChatTool`](#openaichattool)[]
-
-**`Experimental`**
-
-Returns the queue-bound delegation tools projected into OpenAI Chat
-Completions `tools[]` shape. The order is stable: `delegate_feedback`,
-`delegation_status`, `delegation_history`.
-
-#### Returns
-
-[`OpenAIChatTool`](#openaichattool)[]
-
-***
-
-### mcpToolsForRuntimeMcpSubset()
-
-> **mcpToolsForRuntimeMcpSubset**(`names`): [`OpenAIChatTool`](#openaichattool)[]
-
-**`Experimental`**
-
-Subset filter — return only the projected tools whose `function.name`
-appears in `names`. Useful for curated mounts (e.g. only the queue-bound
-delegation tools, omitting `delegate_feedback`). Unknown names are
-silently ignored; pass an empty array to get an empty result.
-
-#### Parameters
-
-##### names
-
-readonly `string`[]
-
-#### Returns
-
-[`OpenAIChatTool`](#openaichattool)[]
 
 ***
 
@@ -10527,40 +8441,6 @@ Injectable catalog loader — overridden in tests.
 
 ***
 
-### createOpenInferenceFileExporter()
-
-> **createOpenInferenceFileExporter**(`filePath`): [`OtelExporter`](#otelexporter)
-
-Create an exporter that APPENDS spans to a local OpenInference-JSONL file, one complete span per
-line, instead of posting them to a collector.
-
-Why this exists beside [createOtelExporter](#createotelexporter): that one needs an OTLP endpoint, so a run on a
-laptop, in CI, or inside a sandbox with no collector emits nothing and its per-turn shape is
-simply lost. The journal records the TREE (who spawned whom, what settled, what it spent); it
-does not record what happened inside a turn. A run whose tree is readable but whose turns are not
-is exactly the state that made an observability gap invisible until someone went looking.
-
-The line shape is the one `@tangle-network/traces` reads (`spans.otlp.jsonl`) and is a standard
-OpenInference representation, so the same file feeds any OpenInference tool with no conversion:
-snake_case identity fields, ISO-8601 times, `parent_span_id` empty at the root, and attributes as
-a plain object rather than OTLP's key/value array.
-
-Appends synchronously per span so a killed process keeps every span it had already finished —
-matching the spawn journal's durability posture, since a trace that only survives a clean exit is
-useless for the runs you most want to look at.
-
-#### Parameters
-
-##### filePath
-
-`string`
-
-#### Returns
-
-[`OtelExporter`](#otelexporter)
-
-***
-
 ### createOtelExporter()
 
 > **createOtelExporter**(`config?`): [`OtelExporter`](#otelexporter) \| `undefined`
@@ -10571,7 +8451,7 @@ One batch is in flight at a time; spans that arrive meanwhile wait in a queue bo
 `maxQueueSize`. Every span ends in exactly one of `written` or `dropped`: a non-2xx response, a
 network error, a timeout, an OTLP `partialSuccess.rejectedSpans` count and a full queue each count
 as drops and set `lastError`. Nothing here throws into the caller's run; `flush()` reports the
-loss, the same rule [createOpenInferenceFileExporter](#createopeninferencefileexporter) follows.
+loss, the same rule `createOpenInferenceFileExporter` follows.
 
 #### Parameters
 
@@ -10625,36 +8505,6 @@ Convert a LoopTraceEvent into an OtelSpan for export.
 
 ***
 
-### buildRuntimeEventOtelSpans()
-
-> **buildRuntimeEventOtelSpans**(`events`, `traceId`, `parentSpanId?`, `options?`): [`OtelSpan`](#otelspan)[]
-
-Convert normalized runtime events into lossless, redacted child spans.
-
-#### Parameters
-
-##### events
-
-readonly [`RuntimeStreamEvent`](#runtimestreamevent)[]
-
-##### traceId
-
-`string`
-
-##### parentSpanId?
-
-`string`
-
-##### options?
-
-[`RuntimeEventOtelOptions`](#runtimeeventoteloptions) = `{}`
-
-#### Returns
-
-[`OtelSpan`](#otelspan)[]
-
-***
-
 ### buildLoopOtelSpans()
 
 > **buildLoopOtelSpans**(`events`, `traceId`, `rootParentSpanId?`, `redact?`): [`OtelSpan`](#otelspan)[]
@@ -10695,54 +8545,6 @@ readonly `object`[]
 #### Returns
 
 [`OtelSpan`](#otelspan)[]
-
-***
-
-### buildLoopSpanNodes()
-
-> **buildLoopSpanNodes**(`events`, `redact?`): [`LoopSpanNode`](#loopspannode)[]
-
-Sink-neutral core behind [buildLoopOtelSpans](#buildloopotelspans): reconstruct the
-loop → round → branch span tree from one run's ordered `LoopTraceEvent`
-stream. Consumed by the OTEL mapper above and by the MCP delegation
-journal's compact trace tee — one topology reconstruction, two sinks.
-Tolerates partial streams (a run that never reached `loop.ended` closes
-at the last observed event's timestamp).
-
-#### Parameters
-
-##### events
-
-readonly `object`[]
-
-##### redact?
-
-(`value`) => `unknown`
-
-#### Returns
-
-[`LoopSpanNode`](#loopspannode)[]
-
-***
-
-### toOtelAttributes()
-
-> **toOtelAttributes**(`record`): [`OtelAttribute`](#otelattribute)[]
-
-Convert a flat record into the OTLP attribute list. Non-finite numbers are DROPPED (an OTLP
-`doubleValue` of `NaN`/`Infinity` is not representable), integers ride as `intValue`. Exported so
-a producer that mints its own `OtelSpan` (the supervisor span recorder) builds attributes exactly
-the way every span in this file does, rather than re-deriving the encoding.
-
-#### Parameters
-
-##### record
-
-`Record`\<`string`, `string` \| `number` \| `boolean`\>
-
-#### Returns
-
-[`OtelAttribute`](#otelattribute)[]
 
 ***
 
@@ -10790,40 +8592,6 @@ Trace-id counterpart of [padSpanId](#padspanid): valid W3C trace ids pass throug
 #### Returns
 
 `string`
-
-***
-
-### generateSpanId()
-
-> **generateSpanId**(): `string`
-
-Mint a fresh 16-hex-character OTLP span id. Exported so a producer that must know a span's id
- BEFORE the span closes (a node opened at spawn and parented by its children) uses this one
- generator instead of a second copy of it.
-
-#### Returns
-
-`string`
-
-***
-
-### routerTokenPrice()
-
-> **routerTokenPrice**(`model`): [`RouterTokenPrice`](#routertokenprice) \| `undefined`
-
-The Router's price for a model id as a harness or provider reports it: exact, then without a
-`@snapshot` suffix, then its last path segment (`openai/gpt-6.1-sol` is `gpt-6.1-sol`), each
-as written and lowercased. Undefined when the Router prices no such model.
-
-#### Parameters
-
-##### model
-
-`string`
-
-#### Returns
-
-[`RouterTokenPrice`](#routertokenprice) \| `undefined`
 
 ***
 
@@ -11008,58 +8776,6 @@ event. Use this to attach N observers to a loop instead of a second event bus.
 
 ***
 
-### notifyRuntimeHookEvent()
-
-> **notifyRuntimeHookEvent**(`hooks`, `event`, `context?`): `void`
-
-Fire `hooks.onEvent`, swallowing sync throws and surfacing async failures to `onError`.
-
-#### Parameters
-
-##### hooks
-
-[`RuntimeHooks`](#runtimehooks) \| `undefined`
-
-##### event
-
-[`RuntimeHookEvent`](#runtimehookevent)
-
-##### context?
-
-[`RuntimeHookContext`](#runtimehookcontext) = `{}`
-
-#### Returns
-
-`void`
-
-***
-
-### notifyRuntimeDecisionPoint()
-
-> **notifyRuntimeDecisionPoint**(`hooks`, `point`, `context?`): `void`
-
-Fire `hooks.onDecisionPoint`, swallowing sync throws and surfacing async failures to `onError`.
-
-#### Parameters
-
-##### hooks
-
-[`RuntimeHooks`](#runtimehooks) \| `undefined`
-
-##### point
-
-[`RuntimeDecisionPoint`](#runtimedecisionpoint)
-
-##### context?
-
-[`RuntimeHookContext`](#runtimehookcontext) = `{}`
-
-#### Returns
-
-`void`
-
-***
-
 ### startRuntimeRun()
 
 > **startRuntimeRun**(`options`): [`RuntimeRunHandle`](#runtimerunhandle)
@@ -11078,66 +8794,6 @@ lifetime; consumers should not share it across requests.
 #### Returns
 
 [`RuntimeRunHandle`](#runtimerunhandle)
-
-***
-
-### runtimeFailureCause()
-
-> **runtimeFailureCause**(`error`, `context?`): [`RuntimeFailureCause`](#runtimefailurecause)
-
-Classify a thrown failure. Pass the caller's signal so a cancellation the caller asked for is
-attributed to the caller even when the provider surfaced it as an ordinary error, and say when
-the operation's own deadline expired so a blown deadline is never reported as a cancellation.
-
-#### Parameters
-
-##### error
-
-`unknown`
-
-##### context?
-
-[`RuntimeFailureContext`](#runtimefailurecontext) = `{}`
-
-#### Returns
-
-[`RuntimeFailureCause`](#runtimefailurecause)
-
-***
-
-### settlementFailureCause()
-
-> **settlementFailureCause**(`down`): [`RuntimeFailureCause`](#runtimefailurecause)
-
-Classify a down settlement from the typed facts Runtime recorded while the cause was still a
-value: the retained cause, the failure classified where the executor threw, then `infra: false`,
-the throw path's statement that the work itself failed. `infra: true` is not an owner: Runtime
-also sets it for cancellations, budget reconcile faults and validation errors, and from the
-platform's failure messages, so a settlement with nothing else typed is `unknown`.
-
-#### Parameters
-
-##### down
-
-###### reason
-
-`string`
-
-###### infra?
-
-`boolean`
-
-###### retainedPendingCause?
-
-[`RetainedPendingCause`](runtime.md#retainedpendingcause-2)
-
-###### failure?
-
-[`RuntimeFailureCause`](#runtimefailurecause)
-
-#### Returns
-
-[`RuntimeFailureCause`](#runtimefailurecause)
 
 ***
 

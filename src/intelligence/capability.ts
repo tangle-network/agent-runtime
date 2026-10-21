@@ -3,13 +3,13 @@ import type { CertifiedArtifact, CertifiedProfile, CertifiedPromptSurface } from
 // ── AXIS 1 — INTERFACE (CLOSED) ────────────────────────────────────────────────
 
 /** A structural JSON Schema object describing a tool's parameters. */
-type JsonSchema = Record<string, unknown>
+export type JsonSchema = Record<string, unknown>
 
 /**
  * What the agent consumes. CLOSED — a new runtime kind NEVER extends this. Each
  * arm maps slot-for-slot onto `AgentProfile` + the host `RouterToolsSeam`.
  */
-type CapabilityInterface =
+export type CapabilityInterface =
   | {
       surface: 'tool'
       name: string
@@ -29,7 +29,7 @@ type CapabilityInterface =
  * Where a capability's bytes live. A leaked manifest carries no live secret and
  * no inlined blob: `github`/`blob` are pointers resolved at provision time.
  */
-type ContentRef =
+export type ContentRef =
   | { kind: 'inline'; content: string }
   | { kind: 'github'; repository?: string; path: string; ref?: string }
   | { kind: 'blob'; uri: string; sha256: string; bytes?: number }
@@ -44,7 +44,7 @@ export interface CredentialRef {
  * manifest; the consumer resolves the live secret per tenant,
  * never inlined here.
  */
-type CapabilityAuth =
+export type CapabilityAuth =
   | { mode: 'none' }
   | { mode: 'tangle-key' }
   | { mode: 'hub-connection'; providerId: string; scopes?: string[] }
@@ -58,7 +58,7 @@ type CapabilityAuth =
  * `image` is the sandbox image tag; `warm`/`idleTtlMs`/`costTag` meter standing
  * cost; `ports` are the inner server's listen ports the host must expose.
  */
-interface HostSpec {
+export interface HostSpec {
   backend: 'sandbox' | 'router' | 'cli'
   image?: string
   ports?: number[]
@@ -71,7 +71,7 @@ interface HostSpec {
  * Describes how a capability is backed.
  * Consumers must admit a binding before executing it.
  */
-type DeliveryBinding =
+export type DeliveryBinding =
   // FILE class — deliver = write bytes (the shipped path).
   | { kind: 'inline'; content: ContentRef }
   | { kind: 'file'; path: string; content: ContentRef; executable?: boolean }
@@ -119,7 +119,7 @@ type DeliveryBindingKind = DeliveryBinding['kind']
  * `iface.name` (display only): collapsing the two flips the fold order for a
  * mix of null-path and non-null-path artifacts.
  */
-interface CertProvenance {
+export interface CertProvenance {
   contentHash: string
   version: number | null
   lift: string | null
@@ -141,7 +141,7 @@ export interface CertifiedCapability {
  * during the migration window (the shipped pull lane still emits it); new
  * capabilities live in `capabilities`.
  */
-interface CapabilityManifest {
+export interface CapabilityManifest {
   target: string
   generatedAt: string
   promptSurface: CertifiedPromptSurface | null

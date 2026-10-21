@@ -36,7 +36,7 @@ export interface PlatformConnection {
 }
 
 /** A connectable provider in the catalog (`/v1/hub/providers`). */
-interface PlatformCatalogProvider {
+export interface PlatformCatalogProvider {
   providerId: string
   title?: string
   authKind?: string
@@ -50,14 +50,14 @@ interface PlatformCatalogProvider {
   [k: string]: unknown
 }
 
-interface CatalogResult {
+export interface CatalogResult {
   providers: PlatformCatalogProvider[]
   /** Count of substrate-bundled connectors behind the catalog. */
   substrateBundled?: number
   [k: string]: unknown
 }
 
-interface StartAuthInput {
+export interface StartAuthInput {
   /** The provider to connect (goes in the URL path). */
   providerId: string
   /** Accepted for interface compatibility; the platform's start endpoint is
@@ -71,7 +71,7 @@ interface StartAuthInput {
   cli?: boolean
 }
 
-interface StartAuthResult {
+export interface StartAuthResult {
   /** The URL to send the user to. Normalized across the platform's two start
    *  branches: github returns `authorizationUrl`, substrate returns
    *  `redirectUrl`. */
@@ -87,7 +87,7 @@ export interface ConnectionHealth {
   error?: { code: string; message: string }
 }
 
-interface ConnectionHealthResult {
+export interface ConnectionHealthResult {
   connection: PlatformConnection
   health: ConnectionHealth
 }
@@ -101,7 +101,7 @@ export interface HealthCheck {
   checkedAt?: string
 }
 
-interface MintTokenInput {
+export interface MintTokenInput {
   /** The hub action the token authorizes (e.g. `slack.chat.postMessage`). */
   actionPath: string
   /** Bind to a specific connection, or … */
@@ -116,14 +116,14 @@ export interface MintTokenResult {
   expiresAt: string
 }
 
-interface ExecInput {
+export interface ExecInput {
   /** The hub action path to execute. */
   path: string
   input?: unknown
   connectionId?: string
 }
 
-interface PlatformHubStatus {
+export interface PlatformHubStatus {
   contract?: unknown
   principal: { kind: string; userId: string; [k: string]: unknown }
   connections: { connectedProviderCount: number; unhealthyProviderCount: number }

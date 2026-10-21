@@ -8,6 +8,195 @@
 
 ## Interfaces
 
+### PeerAuditAccess
+
+Run-owned read routing between sibling managers. It grants no mutation tools.
+
+#### Methods
+
+##### register()
+
+> **register**(`nodeId`, `tools`): `void`
+
+###### Parameters
+
+###### nodeId
+
+`string`
+
+###### tools
+
+readonly [`McpToolDescriptor`](mcp.md#mcptooldescriptor)[]
+
+###### Returns
+
+`void`
+
+##### read()
+
+> **read**(`peerId`, `tool`, `args`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### peerId
+
+`string`
+
+###### tool
+
+`"observe_agent"` \| `"read_journal"`
+
+###### args
+
+`Record`\<`string`, `unknown`\>
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
+### GraphSubtasks
+
+How a run starts an agent graph as ONE subtask of a manager (`run_graph`). `supervise()`
+ supplies it when it owns the worker path: the graph's root node then runs as a nested manager
+ under the graph's node pinning, inside the caller's reservation.
+
+#### Properties
+
+##### prepare
+
+> `readonly` **prepare**: (`input`) => `Promise`\<[`GraphSubtaskPreparation`](#graphsubtaskpreparation)\>
+
+Validate a graph a manager wrote, or load a stored one by digest, and compose the exact root
+ profile the spawn runs. Never throws: a refusal carries its reason.
+
+###### Parameters
+
+###### input
+
+###### graph?
+
+`unknown`
+
+###### graphDigest?
+
+`string`
+
+###### Returns
+
+`Promise`\<[`GraphSubtaskPreparation`](#graphsubtaskpreparation)\>
+
+***
+
+### SpawnRefusal
+
+A pre-flight's refusal: the cause it decided on, and the operator-facing evidence for it.
+
+#### Properties
+
+##### cause
+
+> `readonly` **cause**: [`SpawnRefusalCause`](mcp.md#spawnrefusalcause)
+
+##### detail
+
+> `readonly` **detail**: `string`
+
+Names the exact thing that failed — the unrouted wire id, the admission numbers, the tool.
+
+***
+
+### SpawnPreflightContext
+
+What a pre-flight sees: the authored child profile and the spawn it is being asked to admit.
+
+#### Properties
+
+##### label
+
+> `readonly` **label**: `string`
+
+##### key?
+
+> `readonly` `optional` **key?**: `string`
+
+##### task
+
+> `readonly` **task**: `unknown`
+
+***
+
+### PriorCoordination
+
+Coordination evidence loaded from prior processes of one durable supervised run.
+
+#### Properties
+
+##### ownerId?
+
+> `readonly` `optional` **ownerId?**: `string`
+
+The owner filter used for this replay. Omitted only for the compatibility all-owner read.
+
+##### questions
+
+> `readonly` **questions**: readonly [`QuestionRecord`](runtime.md#questionrecord)[]
+
+Every question the prior process raised, with answer-status folded in, raise order.
+
+##### findings
+
+> `readonly` **findings**: readonly [`AnalystFindingEvent`](runtime.md#analystfindingevent)[]
+
+Every analyst finding the prior process published, publish order.
+
+##### escalations
+
+> `readonly` **escalations**: readonly [`QuestionEscalationRecord`](runtime.md#questionescalationrecord)[]
+
+Every `ask_parent` escalation the prior process made, raise order. An undelivered one names a
+question the run raised that nothing above it received — retained so a resuming operator sees
+it, never auto-redelivered.
+
+##### analystDefinitions
+
+> `readonly` **analystDefinitions**: readonly [`DefinedAnalystRecord`](runtime.md#definedanalystrecord)[]
+
+Every lens the prior process DEFINED at run time, definition order. The exact authored bytes
+and their digest, so an invented lens can be re-registered and any finding it produced can be
+traced to the words that produced it. Re-registration is the owner's decision, never automatic:
+the registry may have changed between processes.
+
+##### continuations
+
+> `readonly` **continuations**: readonly [`ContinuationInstruction`](runtime.md#continuationinstruction)[]
+
+Every authorized continuation, in commit order. These are evidence, never replayed to a new
+worker automatically.
+
+##### deliveryEvidence
+
+> `readonly` **deliveryEvidence**: readonly [`CoordinationDeliveryEvidence`](#coordinationdeliveryevidence)[]
+
+Delivery intent and result records in commit order, linked to receipts by `receiptId`.
+
+##### mail
+
+> `readonly` **mail**: readonly [`PeerMailEvent`](runtime.md#peermailevent)[]
+
+Every peer-mail attempt the prior process made, delivered and refused alike, in commit order.
+Evidence of what siblings told each other; never replayed into a new worker's inbox.
+
+##### records
+
+> `readonly` **records**: readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>[]
+
+Exact source-bus stamps in durable append order. Bus `seq` restarts with each process; append
+order remains the cross-process replay order.
+
+***
+
 ### DriverAgentOptions
 
 #### Properties
@@ -61,17 +250,17 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 
 ##### graphs?
 
-> `readonly` `optional` **graphs?**: [`GraphSubtasks`](mcp.md#graphsubtasks)
+> `readonly` `optional` **graphs?**: [`GraphSubtasks`](#graphsubtasks)
 
 Serve `run_graph` — see `CoordinationToolsOptions.graphs`.
 
 ##### authorizeDownMessage?
 
-> `readonly` `optional` **authorizeDownMessage?**: [`AuthorizeDownMessage`](runtime.md#authorizedownmessage)
+> `readonly` `optional` **authorizeDownMessage?**: [`AuthorizeDownMessage`](#authorizedownmessage)
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-11)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-10)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -113,7 +302,7 @@ The analyst lenses available to the driver. Required for `analyzeOnSettle` (and 
 
 ##### escalateQuestion?
 
-> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](durable.md#escalatequestion-2)
 
 Where an `ask_parent` question goes when it leaves this manager. Omit = `no-parent`.
 
@@ -127,7 +316,7 @@ Receives this manager's intake for questions its child managers raise.
 
 ###### inbox
 
-[`ChildQuestionInbox`](runtime.md#childquestioninbox)
+[`ChildQuestionInbox`](#childquestioninbox)
 
 ###### Returns
 
@@ -135,7 +324,7 @@ Receives this manager's intake for questions its child managers raise.
 
 ##### analyzeOnSettle?
 
-> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](runtime.md#analyzeonsettleroute))[]
+> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](durable.md#analyzeonsettleroute))[]
 
 Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result re-enters as a
  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
@@ -143,7 +332,7 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result 
 
 ##### mapOnSettle?
 
-> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](runtime.md#maponsettleroute)[]
+> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](durable.md#maponsettleroute)[]
 
 Maps expanded when their source worker settles (`CoordinationToolsOptions.mapOnSettle`).
 
@@ -168,11 +357,11 @@ Trusted source refs for this manager’s existing observe_agent capability.
 
 ##### peerAudit?
 
-> `readonly` `optional` **peerAudit?**: [`PeerAuditAccess`](mcp.md#peerauditaccess)
+> `readonly` `optional` **peerAudit?**: [`PeerAuditAccess`](#peerauditaccess)
 
 ##### watchWorkers?
 
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
+> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](durable.md#workerwatchoptions)
 
 Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `finding` the
  moment it loops/error-storms — mid-run evidence to steer on, not a settle-time post-mortem.
@@ -187,14 +376,14 @@ Idle time after which `observe_agent` reports a worker as stalled (a derived rea
 
 ##### wake?
 
-> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](runtime.md#managerwakepolicy)
+> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](durable.md#managerwakepolicy)
 
 How Runtime wakes this driver after a turn that ends with work open. Omit = the defaults in
  `./wake`.
 
 ##### continuityByProfile?
 
-> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](runtime.md#continuitymode)\>\>
+> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](durable.md#continuitymode)\>\>
 
 Default continuity per worker PROFILE NAME — `'resume'` makes spawns of that name re-attach
  to the node's latest settled worker (see
@@ -203,7 +392,7 @@ Default continuity per worker PROFILE NAME — `'resume'` makes spawns of that n
 
 ##### preflightSpawn?
 
-> `readonly` `optional` **preflightSpawn?**: [`SpawnPreflight`](runtime.md#spawnpreflight)
+> `readonly` `optional` **preflightSpawn?**: [`SpawnPreflight`](#spawnpreflight)
 
 OPT-IN async gate run before every spawn mints an assignment or reserves budget. See
  `CoordinationToolsOptions.preflightSpawn`.
@@ -374,7 +563,7 @@ Called once with the rule's reason when a `stopRule` ends the run — so a calle
 
 ##### compaction?
 
-> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](runtime.md#toolloopcompactionoptions)
+> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](durable.md#toolloopcompactionoptions)
 
 Give the driver brain a chapter-lifecycle on its OWN context window. The LLM-brain front doors
  lose to a dumb-Ralph respawn because the brain re-bills its whole coordination transcript every
@@ -415,7 +604,7 @@ Re-publish resume-time settlements through the awaited observer before the first
 
 ##### priorCoordination?
 
-> `readonly` `optional` **priorCoordination?**: [`PriorCoordination`](runtime.md#priorcoordination)
+> `readonly` `optional` **priorCoordination?**: [`PriorCoordination`](#priorcoordination)
 
 Questions, findings, and authorized continuation receipts loaded from a prior process.
  Questions seed the ledger (`list_questions`, blocking-stop policy); all three feed the resume
@@ -644,11 +833,11 @@ The run journal the edge ledger and every spawn/settle ride. Default: in-memory.
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`runId`](runtime.md#runid-15)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`runId`](runtime.md#runid-13)
 
 ##### authorizeMessage?
 
-> `readonly` `optional` **authorizeMessage?**: (`input`) => [`AuthorizedDownMessage`](runtime.md#authorizeddownmessage)
+> `readonly` `optional` **authorizeMessage?**: (`input`) => [`AuthorizedDownMessage`](durable.md#authorizeddownmessage)
 
 Product authority over every steer/answer instruction (the filter seam). `runGraph` observes
  what it CHANGES: a narrowed instruction ledgers its steer traversal as `stripped`.
@@ -657,11 +846,11 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 
 ###### input
 
-[`DownMessageAuthorizationInput`](runtime.md#downmessageauthorizationinput) & `object`
+[`DownMessageAuthorizationInput`](durable.md#downmessageauthorizationinput) & `object`
 
 ###### Returns
 
-[`AuthorizedDownMessage`](runtime.md#authorizeddownmessage)
+[`AuthorizedDownMessage`](durable.md#authorizeddownmessage)
 
 ###### Inherited from
 
@@ -718,7 +907,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-36)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
 
 ##### execution?
 
@@ -733,7 +922,7 @@ digests itself from the exact detached values it executes.
 
 ##### selectSeat?
 
-> `readonly` `optional` **selectSeat?**: [`SelectSeat`](runtime.md#selectseat-1)
+> `readonly` `optional` **selectSeat?**: [`SelectSeat`](durable.md#selectseat-2)
 
 Resolve an authored subscription stage to one eligible seat and a backend pinned to its
 credential reference. The callback may report stage exhaustion with `resumeAt`; Runtime
@@ -741,7 +930,7 @@ advances the authored chain and never writes credentials into its record.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`selectSeat`](runtime.md#selectseat-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`selectSeat`](runtime.md#selectseat-1)
 
 ##### resolveDeliverable?
 
@@ -759,7 +948,7 @@ grants remain refused; the authorized profile is never rewritten after this call
 
 ###### input
 
-[`AuthorizedSpawnContext`](runtime.md#authorizedspawncontext)
+[`AuthorizedSpawnContext`](durable.md#authorizedspawncontext)
 
 ###### Returns
 
@@ -771,7 +960,7 @@ grants remain refused; the authorized profile is never rewritten after this call
 
 ##### coordination?
 
-> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](runtime.md#coordinationtransportoptions)
+> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](durable.md#coordinationtransportoptions)
 
 Where the coordination MCP binds when the supervisor is harness-driven. Omit = an ephemeral
  port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
@@ -855,7 +1044,7 @@ Security policy applied to every manager-authored child profile before budget re
 
 ##### authorizeSpawn?
 
-> `readonly` `optional` **authorizeSpawn?**: (`input`) => [`AuthorizedSpawn`](runtime.md#authorizedspawn)
+> `readonly` `optional` **authorizeSpawn?**: (`input`) => [`AuthorizedSpawn`](durable.md#authorizedspawn)
 
 Product authority over one complete manager-authored spawn. The callback sees the detached,
  immutable profile, task, budget, label, and key together, so approving a profile cannot
@@ -898,7 +1087,7 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 ###### budget
 
-[`Budget`](runtime.md#budget-11)
+[`Budget`](runtime.md#budget-10)
 
 ###### label
 
@@ -937,13 +1126,13 @@ Present only when a flow's entry or routes edge started this spawn — authored 
 
 ###### continuity?
 
-[`ContinuityMode`](runtime.md#continuitymode)
+[`ContinuityMode`](durable.md#continuitymode)
 
 The EFFECTIVE continuity of this spawn, resolved by the coordination layer.
 
 ###### Returns
 
-[`AuthorizedSpawn`](runtime.md#authorizedspawn)
+[`AuthorizedSpawn`](durable.md#authorizedspawn)
 
 ###### Inherited from
 
@@ -1112,7 +1301,7 @@ manager, which runs its turn loop in process.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-4)
 
 ##### childSettleGraceMs?
 
@@ -1156,7 +1345,7 @@ can resume an in-memory run). See `SupervisorOpts.retainedAtSettlement`.
 
 ##### resolveDriveHarness?
 
-> `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](runtime.md#resolvedriveharness-2)
+> `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](durable.md#resolvedriveharness-2)
 
 Resolve one custom external-harness session per trusted manager identity. Use this instead of
 `driveHarness` when recursive managers must be independently steerable.
@@ -1196,9 +1385,9 @@ queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ##### escalateQuestion?
 
-> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](durable.md#escalatequestion-2)
 
-Where an `ask_parent` question goes when it leaves a manager (see [EscalateQuestion](runtime.md#escalatequestion)).
+Where an `ask_parent` question goes when it leaves a manager (see [EscalateQuestion](durable.md#escalatequestion-2)).
 
 Installed on EVERY manager of the run, at every depth, so a driver's escalation reaches the
 product's own inbox — a UI, an operator queue, a human. Omit and every manager reports
@@ -1207,7 +1396,7 @@ listening: the runtime routes no question to a parent by itself.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`escalateQuestion`](runtime.md#escalatequestion-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`escalateQuestion`](runtime.md#escalatequestion-1)
 
 ##### extraTools?
 
@@ -1247,7 +1436,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-11)
+> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-10)
 
 The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
  of the part of the pool children may reserve (the pool less any owner share). A nested
@@ -1271,7 +1460,7 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 ##### deadlineCheckIn?
 
-> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](runtime.md#deadlinecheckin-1)
+> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](durable.md#deadlinecheckin-2)
 
 What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default: a check-in;
  the child is told to save its state and submit what it has, and is stopped only once it then
@@ -1280,7 +1469,7 @@ What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-3)
 
 ##### budgetStopHoldMs?
 
@@ -1296,7 +1485,7 @@ How long a keyed worker whose turn ended over its budget keeps its environment f
 
 ##### workerSlots?
 
-> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-6)
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](durable.md#workerslots-2)
 
 Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
@@ -1310,7 +1499,7 @@ Bound on concurrently WORKING agents across the whole recursive tree: a number, 
 
 ##### watchWorkers?
 
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
+> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](durable.md#workerwatchoptions)
 
 Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
 moment one loops or error-storms — so the supervisor learns it mid-run (in its next wake)
@@ -1337,7 +1526,7 @@ Idle time after which `observe_agent` reports a running worker as `stalled`. A d
 
 ##### wake?
 
-> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](runtime.md#managerwakepolicy)
+> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](durable.md#managerwakepolicy)
 
 How Runtime wakes a manager that ended its turn with work open: the heartbeat, the debounce
  that coalesces events into one wake, and the deadline warning. Omit = the defaults in
@@ -1525,7 +1714,7 @@ Turn cap for the supervisor's OWN loop (BOTH arms). Router arm: inference turns 
 
 ##### compaction?
 
-> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](runtime.md#toolloopcompactionoptions)
+> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](durable.md#toolloopcompactionoptions)
 
 Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER ARM ONLY —
  a harness owns its own context window and its own compaction, so this is refused for a
@@ -1549,7 +1738,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-17)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-16)
 
 ##### allowedModels?
 
@@ -1626,13 +1815,13 @@ Whole-run persistence and ownership. SQL contexts are acquired before replay and
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](runtime.md#budget-11)
+> `readonly` **budget**: [`Budget`](runtime.md#budget-10)
 
 The conserved compute pool for the whole run.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-21)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-20)
 
 ##### rootHandle?
 
@@ -1654,7 +1843,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-36)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
 
 ##### execution?
 
@@ -1679,7 +1868,7 @@ WHERE workers run — derives the worker seam. Provide this OR an explicit `make
 
 ##### selectSeat?
 
-> `readonly` `optional` **selectSeat?**: [`SelectSeat`](runtime.md#selectseat-1)
+> `readonly` `optional` **selectSeat?**: [`SelectSeat`](durable.md#selectseat-2)
 
 Resolve an authored subscription stage to one eligible seat and a backend pinned to its
 credential reference. The callback may report stage exhaustion with `resumeAt`; Runtime
@@ -1687,7 +1876,7 @@ advances the authored chain and never writes credentials into its record.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`selectSeat`](runtime.md#selectseat-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`selectSeat`](runtime.md#selectseat-1)
 
 ##### deliverable?
 
@@ -1718,7 +1907,7 @@ grants remain refused; the authorized profile is never rewritten after this call
 
 ###### input
 
-[`AuthorizedSpawnContext`](runtime.md#authorizedspawncontext)
+[`AuthorizedSpawnContext`](durable.md#authorizedspawncontext)
 
 ###### Returns
 
@@ -1741,7 +1930,7 @@ Name→value tables for the four code-valued options, so a recorded run configur
 
 ##### coordination?
 
-> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](runtime.md#coordinationtransportoptions)
+> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](durable.md#coordinationtransportoptions)
 
 Where the coordination MCP binds when the supervisor is harness-driven. Omit = an ephemeral
  port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
@@ -1866,7 +2055,7 @@ Security policy applied to every manager-authored child profile before budget re
 
 ##### authorizeSpawn?
 
-> `readonly` `optional` **authorizeSpawn?**: (`input`) => [`AuthorizedSpawn`](runtime.md#authorizedspawn)
+> `readonly` `optional` **authorizeSpawn?**: (`input`) => [`AuthorizedSpawn`](durable.md#authorizedspawn)
 
 Product authority over one complete manager-authored spawn. The callback sees the detached,
  immutable profile, task, budget, label, and key together, so approving a profile cannot
@@ -1909,7 +2098,7 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 ###### budget
 
-[`Budget`](runtime.md#budget-11)
+[`Budget`](runtime.md#budget-10)
 
 ###### label
 
@@ -1948,13 +2137,13 @@ Present only when a flow's entry or routes edge started this spawn — authored 
 
 ###### continuity?
 
-[`ContinuityMode`](runtime.md#continuitymode)
+[`ContinuityMode`](durable.md#continuitymode)
 
 The EFFECTIVE continuity of this spawn, resolved by the coordination layer.
 
 ###### Returns
 
-[`AuthorizedSpawn`](runtime.md#authorizedspawn)
+[`AuthorizedSpawn`](durable.md#authorizedspawn)
 
 ###### Inherited from
 
@@ -1962,7 +2151,7 @@ The EFFECTIVE continuity of this spawn, resolved by the coordination layer.
 
 ##### authorizeMessage?
 
-> `readonly` `optional` **authorizeMessage?**: (`input`) => [`AuthorizedDownMessage`](runtime.md#authorizeddownmessage)
+> `readonly` `optional` **authorizeMessage?**: (`input`) => [`AuthorizedDownMessage`](durable.md#authorizeddownmessage)
 
 Product authority over every continuation sent to a live child. When spawn authorization is
 enabled, omitting this refuses steer/answer instructions instead of silently extending the
@@ -1972,11 +2161,11 @@ authorized task. The exact worker identity and detached bytes are recorded befor
 
 ###### input
 
-[`DownMessageAuthorizationInput`](runtime.md#downmessageauthorizationinput) & `object`
+[`DownMessageAuthorizationInput`](durable.md#downmessageauthorizationinput) & `object`
 
 ###### Returns
 
-[`AuthorizedDownMessage`](runtime.md#authorizeddownmessage)
+[`AuthorizedDownMessage`](durable.md#authorizeddownmessage)
 
 ###### Inherited from
 
@@ -2201,7 +2390,7 @@ manager, which runs its turn loop in process.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-4)
 
 ##### childSettleGraceMs?
 
@@ -2245,7 +2434,7 @@ can resume an in-memory run). See `SupervisorOpts.retainedAtSettlement`.
 
 ##### resolveDriveHarness?
 
-> `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](runtime.md#resolvedriveharness-2)
+> `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](durable.md#resolvedriveharness-2)
 
 Resolve one custom external-harness session per trusted manager identity. Use this instead of
 `driveHarness` when recursive managers must be independently steerable.
@@ -2285,9 +2474,9 @@ queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ##### escalateQuestion?
 
-> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](durable.md#escalatequestion-2)
 
-Where an `ask_parent` question goes when it leaves a manager (see [EscalateQuestion](runtime.md#escalatequestion)).
+Where an `ask_parent` question goes when it leaves a manager (see [EscalateQuestion](durable.md#escalatequestion-2)).
 
 Installed on EVERY manager of the run, at every depth, so a driver's escalation reaches the
 product's own inbox — a UI, an operator queue, a human. Omit and every manager reports
@@ -2296,7 +2485,7 @@ listening: the runtime routes no question to a parent by itself.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`escalateQuestion`](runtime.md#escalatequestion-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`escalateQuestion`](runtime.md#escalatequestion-1)
 
 ##### onCoordinationEvent?
 
@@ -2365,7 +2554,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-11)
+> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-10)
 
 The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
  of the part of the pool children may reserve (the pool less any owner share). A nested
@@ -2389,7 +2578,7 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 ##### deadlineCheckIn?
 
-> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](runtime.md#deadlinecheckin-1)
+> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](durable.md#deadlinecheckin-2)
 
 What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default: a check-in;
  the child is told to save its state and submit what it has, and is stopped only once it then
@@ -2398,7 +2587,7 @@ What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-3)
 
 ##### budgetStopHoldMs?
 
@@ -2414,7 +2603,7 @@ How long a keyed worker whose turn ended over its budget keeps its environment f
 
 ##### workerSlots?
 
-> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-6)
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](durable.md#workerslots-2)
 
 Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
@@ -2440,7 +2629,7 @@ Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset �
 
 ##### analyzeOnSettle?
 
-> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](runtime.md#analyzeonsettleroute))[]
+> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](durable.md#analyzeonsettleroute))[]
 
 Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
  the driver receives in its next wake and composes its next steer from. The self-improving UP-leg,
@@ -2453,7 +2642,7 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-ente
 
 ##### mapOnSettle?
 
-> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](runtime.md#maponsettleroute)[]
+> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](durable.md#maponsettleroute)[]
 
 Maps the runtime expands when their source worker settles: fan-out over a list in the
  source's result, then one join. An AgentGraph's `maps` edges set it; see `MapOnSettleRoute`.
@@ -2487,7 +2676,7 @@ Answers each gate visit of `routeFlow`; `runGraph` sets it from `RunGraphOptions
 
 ##### watchWorkers?
 
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
+> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](durable.md#workerwatchoptions)
 
 Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
 moment one loops or error-storms — so the supervisor learns it mid-run (in its next wake)
@@ -2514,7 +2703,7 @@ Idle time after which `observe_agent` reports a running worker as `stalled`. A d
 
 ##### wake?
 
-> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](runtime.md#managerwakepolicy)
+> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](durable.md#managerwakepolicy)
 
 How Runtime wakes a manager that ended its turn with work open: the heartbeat, the debounce
  that coalesces events into one wake, and the deadline warning. Omit = the defaults in
@@ -2526,7 +2715,7 @@ How Runtime wakes a manager that ended its turn with work open: the heartbeat, t
 
 ##### continuityByProfile?
 
-> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](runtime.md#continuitymode)\>\>
+> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](durable.md#continuitymode)\>\>
 
 Default continuity per worker PROFILE NAME: `'resume'` makes each spawn of that name after
  the first re-attach to the node's most recent SETTLED worker — a NEW live worker whose spawn
@@ -2739,7 +2928,7 @@ Turn cap for the supervisor's OWN loop (BOTH arms). Router arm: inference turns 
 
 ##### compaction?
 
-> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](runtime.md#toolloopcompactionoptions)
+> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](durable.md#toolloopcompactionoptions)
 
 Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER ARM ONLY —
  a harness owns its own context window and its own compaction, so this is refused for a
@@ -2759,7 +2948,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-21)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-19)
 
 ##### now?
 
@@ -2771,7 +2960,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-17)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-16)
 
 ##### allowedModels?
 
@@ -2883,7 +3072,7 @@ Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same 
 
 ##### graphs?
 
-> `readonly` `optional` **graphs?**: [`GraphSubtasks`](mcp.md#graphsubtasks)
+> `readonly` `optional` **graphs?**: [`GraphSubtasks`](#graphsubtasks)
 
 Serve `run_graph` (both arms) — see `CoordinationToolsOptions.graphs`.
 
@@ -2893,17 +3082,17 @@ Serve `run_graph` (both arms) — see `CoordinationToolsOptions.graphs`.
 
 ##### authorizeDownMessage?
 
-> `readonly` `optional` **authorizeDownMessage?**: [`AuthorizeDownMessage`](runtime.md#authorizedownmessage)
+> `readonly` `optional` **authorizeDownMessage?**: [`AuthorizeDownMessage`](#authorizedownmessage)
 
 Product authorization for every down-leg continuation to a child.
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`authorizeDownMessage`](runtime.md#authorizedownmessage-1)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`authorizeDownMessage`](runtime.md#authorizedownmessage)
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-11)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-10)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -3095,7 +3284,7 @@ How an EXTERNAL manager with `deliverable` is sent back when its turn ends with 
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`continuation`](runtime.md#continuation-6)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`continuation`](runtime.md#continuation-5)
 
 ##### continuationDir?
 
@@ -3206,14 +3395,14 @@ Analyst lenses available to the driver (both arms). Required for `analyzeOnSettl
 
 ##### escalateQuestion?
 
-> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](durable.md#escalatequestion-2)
 
 Where an `ask_parent` question goes when it leaves this manager. Omit and `ask_parent` reports
  `no-parent` — there is no runtime path that routes a question to a parent by itself.
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`escalateQuestion`](runtime.md#escalatequestion-3)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`escalateQuestion`](runtime.md#escalatequestion-2)
 
 ##### onChildQuestionInbox?
 
@@ -3225,7 +3414,7 @@ Receives this manager's intake for questions its child managers raise.
 
 ###### inbox
 
-[`ChildQuestionInbox`](runtime.md#childquestioninbox)
+[`ChildQuestionInbox`](#childquestioninbox)
 
 ###### Returns
 
@@ -3237,7 +3426,7 @@ Receives this manager's intake for questions its child managers raise.
 
 ##### analyzeOnSettle?
 
-> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](runtime.md#analyzeonsettleroute))[]
+> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](durable.md#analyzeonsettleroute))[]
 
 Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`.
@@ -3248,7 +3437,7 @@ Analyst kinds run on each worker-settle → a `finding` the driver composes its 
 
 ##### mapOnSettle?
 
-> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](runtime.md#maponsettleroute)[]
+> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](durable.md#maponsettleroute)[]
 
 Maps expanded when their source worker settles (both arms). Omit = none.
 
@@ -3288,7 +3477,7 @@ Trusted source refs for this manager’s existing observe_agent capability.
 
 ##### peerAudit?
 
-> `readonly` `optional` **peerAudit?**: [`PeerAuditAccess`](mcp.md#peerauditaccess)
+> `readonly` `optional` **peerAudit?**: [`PeerAuditAccess`](#peerauditaccess)
 
 ###### Inherited from
 
@@ -3296,7 +3485,7 @@ Trusted source refs for this manager’s existing observe_agent capability.
 
 ##### watchWorkers?
 
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
+> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](durable.md#workerwatchoptions)
 
 Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so the driver
  learns a worker is looping mid-run instead of at settle. Omit = no online watching.
@@ -3317,7 +3506,7 @@ Idle time after which `observe_agent` reports a worker as stalled. Omit = runtim
 
 ##### wake?
 
-> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](runtime.md#managerwakepolicy)
+> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](durable.md#managerwakepolicy)
 
 How Runtime wakes this manager after it ends a turn with work open (both arms). Omit = the
  defaults in `./wake`.
@@ -3328,7 +3517,7 @@ How Runtime wakes this manager after it ends a turn with work open (both arms). 
 
 ##### continuityByProfile?
 
-> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](runtime.md#continuitymode)\>\>
+> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](durable.md#continuitymode)\>\>
 
 Default continuity per worker PROFILE NAME (both arms) — `'resume'` re-attaches spawns of
  that name to the node's latest settled worker; `spawn_worker`'s per-call `continuity`
@@ -3391,7 +3580,7 @@ Turn cap for the supervisor's own loop. Router arm: driver inference turns (see
 
 ##### compaction?
 
-> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](runtime.md#toolloopcompactionoptions)
+> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](durable.md#toolloopcompactionoptions)
 
 Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER ARM ONLY; a
  harness-brained supervisor is refused at construction rather than silently ignoring it) — it
@@ -3429,7 +3618,7 @@ Pass-through subscriber for every coordination bus event (both arms) — the sea
 
 ##### priorCoordination?
 
-> `readonly` `optional` **priorCoordination?**: [`PriorCoordination`](runtime.md#priorcoordination)
+> `readonly` `optional` **priorCoordination?**: [`PriorCoordination`](#priorcoordination)
 
 Questions, findings, and authorized continuation receipts loaded from a prior process.
  Router arm: questions seed the ledger and all evidence enters the resume brief. External arm:
@@ -3437,11 +3626,11 @@ Questions, findings, and authorized continuation receipts loaded from a prior pr
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`priorCoordination`](runtime.md#priorcoordination-1)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`priorCoordination`](runtime.md#priorcoordination)
 
 ##### loadPriorCoordination?
 
-> `readonly` `optional` **loadPriorCoordination?**: () => `Promise`\<[`PriorCoordination`](runtime.md#priorcoordination)\>
+> `readonly` `optional` **loadPriorCoordination?**: () => `Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 Deferred owner-scoped replay for a recursive supervisor. Its stable owner is known while the
 parent authorizes the child, but loading remains asynchronous; Runtime calls this before the
@@ -3449,7 +3638,7 @@ nested brain can publish or act on coordination state.
 
 ###### Returns
 
-`Promise`\<[`PriorCoordination`](runtime.md#priorcoordination)\>
+`Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 ###### Inherited from
 
@@ -3468,11 +3657,11 @@ How the settled ledger becomes the run's output (both arms). Default `bestDelive
 
 ##### coordination?
 
-> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](runtime.md#coordinationtransportoptions)
+> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](durable.md#coordinationtransportoptions)
 
 Where the coordination MCP binds (external arm). Omit = an ephemeral loopback port, which is
  unreachable from an off-host harness. A non-loopback host fails closed — see
- [runtime.assertCoordinationBinding](runtime.md#assertcoordinationbinding).
+ `assertCoordinationBinding`.
 
 ###### Inherited from
 
@@ -3480,7 +3669,7 @@ Where the coordination MCP binds (external arm). Omit = an ephemeral loopback po
 
 ##### preflightSpawn?
 
-> `readonly` `optional` **preflightSpawn?**: [`SpawnPreflight`](runtime.md#spawnpreflight)
+> `readonly` `optional` **preflightSpawn?**: [`SpawnPreflight`](#spawnpreflight)
 
 OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
  pre-journal point that may ask the backend a question (does this bridge route the child's
@@ -3669,6 +3858,119 @@ Complete private state for exercising profile activation and restore in consumer
 
 ## Type Aliases
 
+### GraphSubtaskPreparation
+
+> **GraphSubtaskPreparation** = \{ `ok`: `true`; `profile`: `AgentProfile`; `root`: `string`; `nodes`: `ReadonlyArray`\<`string`\>; \} \| \{ `ok`: `false`; `reason`: `string`; \}
+
+A graph a manager asked `run_graph` to run, validated and composed by the run that owns the
+ worker path, or the reason it was refused.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `ok`: `true`; `profile`: `AgentProfile`; `root`: `string`; `nodes`: `ReadonlyArray`\<`string`\>; \}
+
+###### ok
+
+> `readonly` **ok**: `true`
+
+###### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+The exact profile the spawn runs: the root node's pinned profile with the graph brief.
+
+###### root
+
+> `readonly` **root**: `string`
+
+###### nodes
+
+> `readonly` **nodes**: `ReadonlyArray`\<`string`\>
+
+***
+
+##### Type Literal
+
+\{ `ok`: `false`; `reason`: `string`; \}
+
+***
+
+### SpawnPreflight
+
+> **SpawnPreflight** = (`profile`, `context`) => `Promise`\<[`SpawnRefusal`](#spawnrefusal) \| `undefined`\>
+
+The gate `CoordinationToolsOptions.preflightSpawn` installs.
+
+#### Parameters
+
+##### profile
+
+`AgentProfile`
+
+##### context
+
+[`SpawnPreflightContext`](#spawnpreflightcontext)
+
+#### Returns
+
+`Promise`\<[`SpawnRefusal`](#spawnrefusal) \| `undefined`\>
+
+***
+
+### AuthorizeDownMessage
+
+> **AuthorizeDownMessage** = (`input`) => [`AuthorizedDownMessage`](durable.md#authorizeddownmessage)
+
+Product decision over an exact continuation before it is durably recorded or delivered.
+
+#### Parameters
+
+##### input
+
+[`DownMessageAuthorizationInput`](durable.md#downmessageauthorizationinput)
+
+#### Returns
+
+[`AuthorizedDownMessage`](durable.md#authorizeddownmessage)
+
+***
+
+### ChildQuestionInbox
+
+> **ChildQuestionInbox** = (`assignmentId`, `question`) => `Promise`\<[`QuestionEscalationOutcome`](durable.md#questionescalationoutcome)\>
+
+A manager's intake for an `ask_parent` question raised by a worker it spawned that manages work
+of its own. `assignmentId` is the assignment the parent gave that worker. The question joins the
+parent's questions under that worker's id, so the parent's next wake carries it and
+`answer_question` delivers the answer back down to the asker.
+
+#### Parameters
+
+##### assignmentId
+
+`string`
+
+##### question
+
+[`QuestionRecord`](runtime.md#questionrecord)
+
+#### Returns
+
+`Promise`\<[`QuestionEscalationOutcome`](durable.md#questionescalationoutcome)\>
+
+***
+
+### CoordinationDeliveryEvidence
+
+> **CoordinationDeliveryEvidence** = `Extract`\<[`CoordinationEvent`](runtime.md#coordinationevent), \{ `type`: `"delivery-attempt"` \| `"steer"` \| `"answer"`; \}\>
+
+Durable delivery evidence retained in commit order. An attempt without a later event carrying
+the same `receiptId` has an unknown outcome after a crash and is never replayed.
+
+***
+
 ### AgentProfileImprovementProposalFixture
 
 > **AgentProfileImprovementProposalFixture** = `Omit`\<`AgentImprovementProposal`, `"evaluation"`\> & `object`
@@ -3685,7 +3987,7 @@ A proposal produced by Runtime's opaque profile-improvement path.
 
 ### driverAgent()
 
-> **driverAgent**(`opts`): [`Agent`](runtime.md#agent-1)\<`unknown`, `unknown`\>
+> **driverAgent**(`opts`): [`Agent`](runtime.md#agent)\<`unknown`, `unknown`\>
 
 Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
 `driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
@@ -3698,7 +4000,7 @@ Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it
 
 #### Returns
 
-[`Agent`](runtime.md#agent-1)\<`unknown`, `unknown`\>
+[`Agent`](runtime.md#agent)\<`unknown`, `unknown`\>
 
 ***
 
@@ -3753,7 +4055,7 @@ Deterministic scripted-brain path for tests. Not exported from Runtime's main en
 
 ### supervisorAgentWithTestBrain()
 
-> **supervisorAgentWithTestBrain**(`profile`, `deps`): [`Agent`](runtime.md#agent-1)\<`unknown`, `unknown`\>
+> **supervisorAgentWithTestBrain**(`profile`, `deps`): [`Agent`](runtime.md#agent)\<`unknown`, `unknown`\>
 
 Scripted-brain construction for deterministic tests. Not exported from Runtime's main entry.
 
@@ -3769,7 +4071,7 @@ Scripted-brain construction for deterministic tests. Not exported from Runtime's
 
 #### Returns
 
-[`Agent`](runtime.md#agent-1)\<`unknown`, `unknown`\>
+[`Agent`](runtime.md#agent)\<`unknown`, `unknown`\>
 
 ***
 

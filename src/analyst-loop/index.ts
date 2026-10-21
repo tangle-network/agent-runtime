@@ -14,6 +14,12 @@ export type {
   AnalystRegistryLike,
   AnalystRegistryStreamingLike,
   FindingsStoreLike,
+  ImprovementEditBatch,
   ImprovementProposalSource,
+  ImprovementReport,
+  KnowledgeProposalBatch,
   KnowledgeProposalSource,
+  KnowledgeReport,
+  RunAnalystLoopOpts,
+  RunAnalystLoopResult,
 } from './types'

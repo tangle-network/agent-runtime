@@ -20,7 +20,7 @@ import type { SurfaceImprovementEdit } from '../agent/improvement-adapter'
 import type { ImprovementProposalSource } from '../analyst-loop/types'
 import type { CandidateGenerator } from './improvement-driver'
 
-interface ReflectiveGeneratorOptions {
+export interface ReflectiveGeneratorOptions {
   /** Bind proposal reads and paid calls to this candidate's worktree and account. */
   createImprovementProposalSource(
     context: Parameters<CandidateGenerator['generate']>[0],
