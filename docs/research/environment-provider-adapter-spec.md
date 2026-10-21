@@ -56,7 +56,6 @@ one contract without importing the Tangle sandbox SDK.
   - `src/runtime/sandbox-acquire.ts`
   - `src/runtime/sandbox-lineage.ts`
   - `src/runtime/sandbox-events.ts`
-  - `src/runtime/sandbox-capabilities.ts`
   - `src/runtime/inline-sandbox-client.ts`
   - `src/runtime/in-process-sandbox-client.ts`
   - `src/runtime/supervise/runtime.ts`
@@ -75,12 +74,9 @@ one contract without importing the Tangle sandbox SDK.
   - `@tangle-network/agent-provider-computesdk`
   - `@tangle-network/agent-provider-e2b`
   - `@tangle-network/agent-provider-daytona`
-- Bridge execution code in `/home/drew/code/cli-bridge`:
-  - `src/routes/chat-completions.ts`
-  - `src/backends/types.ts`
-  - `src/backends/profile-support.ts`
-  - `src/backends/sandbox.ts`
-  - `src/sessions/store.ts`
+- Bridge execution code in the cli-bridge repository: its chat-completions
+  route, backend types, profile-support, sandbox backend, and session store
+  modules.
 
 Important correction to older research: `AgentProfile` already lives in
 `@tangle-network/agent-interface@0.14.0` and is re-exported by
@@ -166,8 +162,8 @@ materialization steps.
 
 ### Current capabilities are too narrow
 
-`src/runtime/sandbox-capabilities.ts` only asks whether fork can work through
-`criuStatus`. A generic adapter needs feature reporting for:
+The CRIU fork probe that used to answer this was deleted (#1623); the box is
+the one fork capability. A generic adapter needs feature reporting for:
 
 - profile fields it honors
 - live streaming

@@ -341,7 +341,7 @@ export interface ContinuationPanelInput {
   readonly questions: ReadonlyArray<string>
   /**
    * The run's own traces, one per agent and named by its node id: the manager's root stream, when
-   * it is the root, and each settled worker's tool trace (`./run-traces.ts`). The panel runs only
+   * it is the root, and each settled worker's tool trace (`src/runtime/supervise/run-traces.ts`). The panel runs only
    * when the run has recorded a span.
    */
   readonly traces: TraceAnalysisStore

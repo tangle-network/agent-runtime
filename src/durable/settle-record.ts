@@ -126,7 +126,7 @@ export function settleRecordDigest(result: unknown): string {
   return canonicalCandidateDigest(jsonValue(result))
 }
 
-/** Publish `runDir/result.json` once. Throws when a record is already there. */
+/** Publish `result.json` in the run directory once. Throws when a record is already there. */
 export async function writeSettleRecord(runDir: string, result: unknown): Promise<string> {
   const path = resolve(runDir, SETTLE_RECORD_FILE)
   if (!publishExclusiveDurableFile(path, settleRecordJson(result))) {
@@ -135,7 +135,7 @@ export async function writeSettleRecord(runDir: string, result: unknown): Promis
   return path
 }
 
-/** Replace `runDir/failure.json` with the most recent throw. */
+/** Replace `failure.json` in the run directory with the most recent throw. */
 export async function writeFailureRecord(
   runDir: string,
   record: DurableFailureRecord,

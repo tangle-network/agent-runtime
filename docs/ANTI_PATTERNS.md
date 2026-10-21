@@ -45,7 +45,7 @@ itself.
 ## Re-Running Settled Measurements
 
 Do not re-open a settled experiment because it is emotionally attractive. Read
-`.evolve/current.json`, `memory/`, and the dated controlled-result notes before
+the untracked `.evolve` run record, `memory/`, and the dated controlled-result notes before
 launching a new run. A new experiment must name the changed axis and why the old
 result no longer answers it.
 

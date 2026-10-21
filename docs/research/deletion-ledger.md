@@ -28,7 +28,7 @@ The "dead recursion fences" (`strategy.ts:494`, `persona.ts:102`) are **NOT dead
 
 ## Pass 2 — doc consolidation (2026-06-15): `docs/research/` 28 → 14
 
-Retired 14 design-research docs whose content is now **shipped code, in `.evolve/current.json`, or self-declared subsumed/retracted.** Durable conclusions live in the SSOT (`rsi-atom-masterplan.md`), `architecture.md`, and the evidence ledger (`.evolve/current.json` + memory). Inbound links fixed (top index `docs/README.md`, `harvest-corpus.ts` comment → `.evolve/current.json`, the two gated belief specs, `optimization-space.md`'s suite links). **Kept** the canonical-referenced maps (`optimization-space.md`, `leapfrog-program.md` — the freshly-dated spine still links them), the SSOT, the two gated belief specs, the postmortem guardrail, the build-lists, the product-direction maps, and the 3 agent-lab tombstones.
+Retired 14 design-research docs whose content is now **shipped code, in the untracked `.evolve` run record, or self-declared subsumed/retracted.** Durable conclusions live in the SSOT (`rsi-atom-masterplan.md`), `architecture.md`, and the evidence ledger (the untracked `.evolve` run record + memory). Inbound links fixed (top index `docs/README.md`, `harvest-corpus.ts` comment → the untracked `.evolve` run record, the two gated belief specs, `optimization-space.md`'s suite links). **Kept** the canonical-referenced maps (`optimization-space.md`, `leapfrog-program.md` — the freshly-dated spine still links them), the SSOT, the two gated belief specs, the postmortem guardrail, the build-lists, the product-direction maps, and the 3 agent-lab tombstones.
 
 | Retired | Why |
 |---|---|
@@ -46,4 +46,4 @@ Retired 14 design-research docs whose content is now **shipped code, in `.evolve
 
 Gates re-verified: no broken markdown links into the 14 from any kept/canonical doc or `src/`; only prose/comment *concept* mentions remain in the two gated belief specs (acceptable — the concepts stand).
 
-See [atom-compression-plan.md](./atom-compression-plan.md) for the full build-list these feed.
+See [atom-compression-plan.md](../archive/atom-compression-plan.md) for the full build-list these feed.

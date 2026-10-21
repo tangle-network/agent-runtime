@@ -151,7 +151,7 @@ This table is judgment-only: it maps an intent to the ONE primitive to reach for
 
 ### "A loop" is not one thing: read this before reaching for one
 
-A general "loop" primitive is the single most common modelling error in this repo; it has produced a `defineLoop` facade **twice** (see [`research/loop-facade-postmortem.md`](./research/loop-facade-postmortem.md)). "Iterate agents toward a goal" splits on **one question: is the structure FIXED (you write the shape, it's code) or DYNAMIC (a model decides the shape at runtime)?** How many agents (1 vs N) is *orthogonal*: every shape below is 1..N agents, so "two agents (proposer→verifier)" is not special, it's a 2-stage chain.
+A general "loop" primitive is the single most common modelling error in this repo; it has produced a `defineLoop` facade **twice** (see [`archive/loop-facade-postmortem.md`](./archive/loop-facade-postmortem.md)). "Iterate agents toward a goal" splits on **one question: is the structure FIXED (you write the shape, it's code) or DYNAMIC (a model decides the shape at runtime)?** How many agents (1 vs N) is *orthogonal*: every shape below is 1..N agents, so "two agents (proposer→verifier)" is not special, it's a 2-stage chain.
 
 **FIXED shape → a combinator you compose:**
 

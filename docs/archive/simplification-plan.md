@@ -1,3 +1,5 @@
+> History, 2026-10-21: describes a design or plan that no longer matches the code. Do not use it as current guidance; see [canonical-api.md](../canonical-api.md) and [architecture.md](../architecture.md).
+
 # agent-runtime simplification plan
 
 > Historical record only.
@@ -103,17 +105,17 @@ The entries below preserve earlier decisions and rejected designs.
 | File/module | Action | Completion criterion |
 |---|---|---|
 | `supervise/router-driver-chat.ts` (`DriverChat`/`routerDriverChat`) | **DELETE** | brain is profile-driven; backend inferred. Build green without it. |
-| `supervise/coordination-driver.ts` loop (161-211) · `supervise/runtime.ts` routerToolsInlineExecutor (337-452) · `router-client.ts` routerToolLoop (207) | **COLLAPSE → ONE** `runToolLoop` | one metered tool-loop; KEEP the turn-metering (it's how equal-k holds); both call sites become thin adapters. ~150 dup lines gone. |
+| `supervise/coordination-driver.ts` loop (161-211) · `src/runtime/supervise/runtime.ts` routerToolsInlineExecutor (337-452) · `router-client.ts` routerToolLoop (207) | **COLLAPSE → ONE** `runToolLoop` | one metered tool-loop; KEEP the turn-metering (it's how equal-k holds); both call sites become thin adapters. ~150 dup lines gone. |
 | `run-loop.ts` (the round-synchronous kernel) | **INTERNALIZE** | public substrate = Scope/Supervisor; runLoop is an internal leaf executor. |
 | `strategy.ts` (`depthStrategy`/`breadthStrategy`/`sample`/`refine`/`runAgentic`) | **KEEP + RENAME** | depth/breadth are *Strategy*, not *Driver*. |
 | `supervise/` leaked internals: `driverChild`, `driverExecutorFactory`, `driverRuntime`, `isDriverSpec`, `withDriverExecutor`, the `*Seam` types, `SpawnJournal`/`FileSpawnJournal`/`InMemorySpawnJournal`, `nestedScopeSeamKey`, `ExecutorFactory` | **INTERNALIZE** | not exported from any public subpath. |
 | `improvement/` (6 files) | **INTERNALIZE behind `improve()`** | one verb; engines private. |
 | `analyst-loop/` (4 files) | **INTERNALIZE** | auto-on-settle. |
-| `conversation/run-persona.ts` (`runPersonaConversation`) | **KEEP + RENAME → `evaluateWithUser`** | weld `haltOn` to the persona's DONE oracle (currently caps on maxTurns only). |
+| `src/conversation/run-persona.ts` (`runPersonaConversation`) | **KEEP + RENAME → `evaluateWithUser`** | weld `haltOn` to the persona's DONE oracle (currently caps on maxTurns only). |
 | `conversation/` (other 16) | **AUDIT** | keep multi-turn chat; internalize the rest. |
 | `mcp/` (22) | **KEEP** | coordination (`serveCoordinationMcp`) + delegation. |
 | `durable/` (`handleChatTurn`) | **KEEP** | the product chat-turn primitive = `run` for a leaf turn. |
-| `runtime/supervise/coordination-mcp.ts` (`analyzeOnSettle`) | **KEEP + make UNIFORM** | analyst fires on settle at EVERY layer (worker/driver/loop), not just worker. |
+| `src/runtime/supervise/coordination-mcp.ts` (`analyzeOnSettle`) | **KEEP + make UNIFORM** | analyst fires on settle at EVERY layer (worker/driver/loop), not just worker. |
 | compute: `ComputeGovernor` | **KEEP + ROUTE workloads through it** | the benchmark grind runs on the governed fleet, not a host-local Docker. |
 
 ---

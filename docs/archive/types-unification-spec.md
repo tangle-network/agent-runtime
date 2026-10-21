@@ -1,3 +1,5 @@
+> History, 2026-10-21: describes a design or plan that no longer matches the code. Do not use it as current guidance; see [canonical-api.md](../canonical-api.md) and [architecture.md](../architecture.md).
+
 # Agent type unification — migration spec
 
 Goal: one harness- and sandbox-neutral home for the **native** agent/trace vocabulary, so that

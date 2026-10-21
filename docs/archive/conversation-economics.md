@@ -169,5 +169,5 @@ The simplest way to verify a configuration: inspect the propagated headers your 
 ## Related
 
 - [agent-bus-protocol.md](../agent-bus-protocol.md) — the wire-level header contract this builds on.
-- [durability-adapters.md](../durability-adapters.md) — how to persist the resulting conversations across crashes.
+- [durability.md](../durability.md) — how to persist the resulting conversations across crashes.
 - `src/conversation/types.ts` — full `AuthSource` and `ConversationDriveState` definitions.

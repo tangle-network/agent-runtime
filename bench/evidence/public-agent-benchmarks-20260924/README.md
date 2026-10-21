@@ -19,7 +19,7 @@ The Terminal agent events do not retain per-request served-model headers, so exa
 
 The SWE runner used Runtime `runAgentic`, a jailed read/edit/run surface, and the official `swebench` 4.1.0 Docker evaluator.
 Runtime checked every reported model against `glm-5.3` and rejected earlier `glm-5.2` requests that returned `glm-5.3`.
-The patch changed only `astropy/modeling/separable.py`, applied cleanly to base commit `d16bfe05a744909de4b27f5875fe0d4ed41ce607`, and passed the [official task report](swe/astropy__astropy-12907/official-task-report.json).
+The patch changed only the astropy `separable.py` module, applied cleanly to base commit `d16bfe05a744909de4b27f5875fe0d4ed41ce607`, and passed the [official task report](swe/astropy__astropy-12907/official-task-report.json).
 Nine requested local `run` calls were unavailable because their task image was not cached.
 The agent still produced the [504-byte patch](swe/astropy__astropy-12907/patch.diff); the evaluator ran its own tests later.
 
@@ -28,7 +28,7 @@ The agent still produced the [504-byte patch](swe/astropy__astropy-12907/patch.d
 Terminal-Bench used cached `terminal-bench-core==0.1.1` tasks.
 The `hello-world` task and verifier SHA-256 values were `b123145ce3aa927dc82e99c6239ff32e856c9ccdf6f1b007889061337590a2df` and `e8d9b4ed8cd78114534c2caa569cfa09752b122115c7d084b467f9a55a3eaf48`.
 The `fix-permissions` values were `d0d7b59d874b40fb7b4689a38734da75bd4c13715f435222578eae24d4bfbfc3` and `b4f18fa4d580f603f2c1f1e7d5b92c3cdb5c91e3d51427ed45c3633de5d10f2e`.
-These hashes identify each `task.yaml` and `tests/test_outputs.py` in the cached dataset.
+These hashes identify each `task.yaml` and the task's `test_outputs.py` in the cached dataset.
 
 The `hello-world` grader checked file existence and exact content with a final newline.
 It did not enforce the task's separate instruction to create no other files.

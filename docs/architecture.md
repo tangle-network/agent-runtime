@@ -6,12 +6,12 @@
 >
 > This doc is the single spine that unifies
 > `docs/learning-flywheel.md` (the theory + the moat) and
-> `@tangle-network/agent-eval` `docs/design/self-improvement-engine.md` (the
+> the `@tangle-network/agent-eval` design docs (the
 > optimization-time engine). Where this conflicts with another doc, **this
 > wins**. If you are an agent in another repo building a new benchmark: **read
 > §1, §6, §9 — you only write an adapter, never a new loop.**
 >
-> **Live status and every measured number live in `.evolve/current.json` and the
+> **Live status and every measured number live in the untracked `.evolve` run record and the
 > memory ledger — this doc is timeless mechanism.** The coherence stress-test + the
 > Gate-A definition: [architecture-interpretations.md](./architecture-interpretations.md);
 > the dependency-ordered build plan: [agent-managed-compute/roadmap.md](./agent-managed-compute/roadmap.md); the evidence
@@ -161,7 +161,7 @@ trace-fed driver beat a blind same-compute baseline under a non-oracle selector 
 compute* (**Gate A**, defined in
 [architecture-interpretations.md §5](./architecture-interpretations.md)) — is a separate,
 narrower diagnostic governed by the experiment scope in §9.
-Live results for both gates: `.evolve/current.json` + the memory ledger.
+Live results for both gates: the untracked `.evolve` run record + the memory ledger.
 
 ---
 
@@ -298,7 +298,7 @@ The mechanisms below are experiment options; an earlier option winning is not a 
    FinSearchComp is a **negative control only** (its LLM judge is non-deployable and its
    one-shot artifact structurally cannot exhibit continuation — the rung-0 "steering loses"
    result is bench-specific, not domain-general). Status: see the ledger
-   (`.evolve/current.json`).
+   (the untracked `.evolve` run record).
 2. **Give the driver execution access through `sandbox-agent` (auto-research).**
 3. **GEPA** the driver/analyst `context`+prompts, held-out gated.
 4. **Composition lift** — `fork`/coordinator/nested (driver-of-drivers).
@@ -346,7 +346,7 @@ sequential steer used sparingly.
 
 ## 11. Empirical status — lives in the ledger
 
-Keep measured results in the dated evidence records and the active state in `.evolve/current.json`.
+Keep measured results in the dated evidence records and the active state in the untracked `.evolve` run record.
 Interpret each result against its exact tasks, implementation, information, resources, and stopping rule.
 A result for stateless retrieval, code generation, or one stateful benchmark does not establish a universal domain boundary.
 A within-run comparison does not decide the value of repeated domain learning or evaluation engineering.
@@ -414,13 +414,13 @@ Prompt tokens the provider never classified are charged in full, and `cacheBreak
 The classes come from the provider, not from an estimate.
 `sandbox-events.ts` reads the prompt-cache counters off each usage-bearing event into the `PromptCacheUsage` vocabulary (`readTokens`, `writeTokens`, `missTokens`), which is the vocabulary the router and driver paths already speak.
 It accepts every wire spelling the sandbox, cli-bridge, Anthropic, OpenAI, and DeepSeek paths use, and it forwards an unrecognized provider field verbatim beside the canonical names.
-`promptCacheTokenClasses` in `runtime/util.ts` then turns one report into spend classes: a read and a write that fit inside `input` give a complete partition, one counter alone gives that counter plus `cacheBreakdownKnown: false`, and an overflowing claim gives the marker alone.
+`promptCacheTokenClasses` in `src/runtime/util.ts` then turns one report into spend classes: a read and a write that fit inside `input` give a complete partition, one counter alone gives that counter plus `cacheBreakdownKnown: false`, and an overflowing claim gives the marker alone.
 A counter the provider did not report stays absent.
 A zero would assert the provider measured no cache, which is a different fact from a provider that reported nothing.
 
 The dollar channel keeps a receipt and a price apart.
 A provider receipt is a dollar figure the provider billed; cli-bridge sends one only with `cost_known: true` and `provider-receipt` or `billing-receipt` provenance, and the claude harness reports one for the whole `claude -p` invocation.
-A turn that carries NO receipt is priced from the Router's catalog (`priceTokens` in `src/pricing/router-prices.ts`, a copy of tangle-router `pricing/researched-provider-prices.json` that `scripts/sync-router-prices.mjs` generates) against that turn's own token counts, because a zero there reads as a measured free turn and made a fleet-wide dollar total report `$0` on runs that certainly spent money.
+A turn that carries NO receipt is priced from the Router's catalog (`priceTokens` in `src/pricing/router-prices.ts`, a copy of the tangle-router researched provider price catalog that `scripts/sync-router-prices.mjs` generates) against that turn's own token counts, because a zero there reads as a measured free turn and made a fleet-wide dollar total report `$0` on runs that certainly spent money.
 Runtime keeps no other price table: a run's API-equivalent cost and the Router's charge for the same tokens use the same rates.
 The priced part is carried in `Spend.usdEstimated`, so `usd - usdEstimated` is what a provider is known to have billed, and it is admitted only with `usdKnown: false` — a catalog price approximates what a provider would bill and never measures what it did.
 An unpriced model contributes no dollars and leaves the turn unknown rather than free.
@@ -430,7 +430,7 @@ A dollar cap is unaffected — `observe` and `reconcile` still refuse unknown do
 
 Two facts make this the whole game:
 - `spawn` **reserves** from one root total and refunds the unspent remainder on settle.
-  A nested driver partitions only its reserved allocation, then reconciles the whole subtree once, so `Σk(treatment) ≡ Σk(blind)` by construction — no arm can buy more compute (`supervise/budget.ts`).
+  A nested driver partitions only its reserved allocation, then reconciles the whole subtree once, so `Σk(treatment) ≡ Σk(blind)` by construction — no arm can buy more compute (`src/runtime/supervise/budget.ts`).
 - `next()` is the only path that consumes a child's terminal result.
   Live observation is explicit and read-only through `progress` and `traceSource`; neither can manufacture a settlement.
   `interactive(nodeId)` is the in-process write-capable live edge: it returns the exact process that child runs in when its executor holds an interactive session, and a named reason otherwise, so a headless worker is never presented as an attachable terminal.
@@ -470,12 +470,12 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
                     (leaf) OR spawn children (driver/supervisor).
 
    budget: ONE conserved pool reserved across the whole tree
-           → equal-compute holds at EVERY depth (`supervise/budget.ts`)
+           → equal-compute holds at EVERY depth (`src/runtime/supervise/budget.ts`)
 ```
 
 - **REAL** — one recursive `Agent` node, not two types: `Agent.act(task, scope)` in `src/runtime/supervise/types.ts:49`.
   The roles are the *same* atom; a node is a "driver" only because its tools spawn children.
-  A child whose `act` calls `scope.spawn` is a driver too, with its **own sub-scope** (depth+1, bounded by `maxDepth` + a partition of the same root total) — recursion isn't a feature, it's the absence of a base case (`supervise/supervisor.ts`, `supervise/scope.ts`).
+  A child whose `act` calls `scope.spawn` is a driver too, with its **own sub-scope** (depth+1, bounded by `maxDepth` + a partition of the same root total) — recursion isn't a feature, it's the absence of a base case (`src/runtime/supervise/supervisor.ts`, `src/runtime/supervise/scope.ts`).
 - **REAL** — the **leaf** at the bottom is where a real coding harness runs, opaque and
   self-parallelizing internally; the `runAgentRounds` kernel (`src/runtime/run-loop.ts`) is
   composed as one leaf execution backend. Everything above it is the same `act`/`Scope`
@@ -483,7 +483,7 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
   `agent.spawn`/`agent.child`).
 - **REAL** — every node materializes in its backend (`router`, `router-tools`, `bridge`,
   `cli`, `cli-worktree`, `provider`, `sandbox`) via the one backend-as-data factory
-  `createExecutor({ backend })` (`src/runtime/supervise/runtime.ts:4735`). A name outside
+  `createExecutor({ backend })` (`src/runtime/supervise/runtime.ts`). A name outside
   that set is refused there by `ValidationError`. The profile says what it is; the executor
   says where it runs.
 - **REAL** — the supervisor **authoring** child profiles is the AgentProfile law (§1,
@@ -492,14 +492,14 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
   child profile (`src/mcp/tools/coordination-worker-tools.ts`).
 - The in-process driver brain is `driverAgent` (`src/runtime/supervise/driver-brain-agent.ts`) running the owned tool-loop executor `routerToolsInlineExecutor` (`src/runtime/supervise/router-tools-executor.ts`).
   A driver/supervisor's brain is driven from its `AgentProfile`: prompt + model for the deliberately narrow in-process router arm, or the complete materialized profile for an external-harness arm.
-- **REAL** — `supervise(profile, task, { backend })` validates and freezes every authored child profile before budget reservation, applies shared security plus optional product authorization, and preserves the authorized profile through execution (`supervise/supervise.ts`).
+- **REAL** — `supervise(profile, task, { backend })` validates and freezes every authored child profile before budget reservation, applies shared security plus optional product authorization, and preserves the authorized profile through execution (`src/runtime/supervise/supervise.ts`).
   A child that declares `tools.agent_runtime_coordination_spawn_worker: true` recursively becomes another supervisor over the same budget; every other child resolves to a leaf.
 - **REAL** — a local external-harness supervisor runs automatically through a `bridge` `driverBackend ?? backend` that mounts the live coordination MCP under one reserved alias.
   The endpoint travels as a runtime attachment beside the AgentProfile (`runtime_attachments.mcp` on the cli-bridge request), never inside it, so a rebound ephemeral port cannot move the profile digest a durable bridge session is bound to.
   cli-bridge must advertise `capabilities.runtimeAttachments.mcp`; a bridge that does not is refused before the first paid turn.
-  Its own tools, resources, MCP servers, hooks, subagents, permissions, modes, prompt, and model remain profile data sent to that backend (`supervise/supervise.ts`, `supervise/runtime.ts`).
+  Its own tools, resources, MCP servers, hooks, subagents, permissions, modes, prompt, and model remain profile data sent to that backend (`src/runtime/supervise/supervise.ts`, `src/runtime/supervise/runtime.ts`).
   A pre-execution `materialized` journal event binds the authored-profile, effective-profile, and platform-attachment digests to the node that ran.
-- **REAL** — a cli-bridge worker is observable mid-run: `bridgeExecutor.progress()` reports its live turn count, tool activity, queued steers, and what it derived about the caller's declaration, and `bridgeExecutor.traceSource()` feeds the online detectors and the settle-time analysts (`supervise/runtime.ts`).
+- **REAL** — a cli-bridge worker is observable mid-run: `bridgeExecutor.progress()` reports its live turn count, tool activity, queued steers, and what it derived about the caller's declaration, and `bridgeExecutor.traceSource()` feeds the online detectors and the settle-time analysts (`src/runtime/supervise/runtime.ts`).
   Its bridge-side run state (`GET /v1/runs/:id`) is refreshed OUT OF BAND — a read schedules the fetch and never awaits it — so an observability read can neither block nor fail a live run.
 - **LIMIT** — a bridge worker's tool spans are INSTANTS with no status: the OpenAI-shaped `tool_calls` wire reports the model's decision to call a tool and never reports the call finishing, so no duration or outcome exists to read.
   A harness whose native protocol reports tool completion could carry true durations; this wire does not.
@@ -668,19 +668,19 @@ out of the recursion, so there is no "driver-of-driver" special case.
             └───────────────┘  into its own next decision
 ```
 
-- **REAL** — the single up pipe: `createEventBus` (`supervise/event-bus.ts`). Child→parent
+- **REAL** — the single up pipe: `createEventBus` (`src/runtime/supervise/event-bus.ts`). Child→parent
   rides ONE channel — settled outputs, `ask_parent` questions, and trace-analyst `finding`s
   are all `CoordinationEvent` kinds; priority-queued (a blocking question jumps the queue),
   ties FIFO by `seq`.
 - **REAL** — analysts auto-fire on settle: `analyzeOnSettle` runs trace analysts when a node
   settles `done` and **re-enters each result as a `finding` on the same bus**
-  (`supervise/coordination-mcp.ts`). So "run an analyst after every rollout and send it up"
+  (`src/runtime/supervise/coordination-mcp.ts`). So "run an analyst after every rollout and send it up"
   is built — for workers, and because every node is the same atom, the mechanism is uniform
   across layers.
 - **REAL** — the analysis itself is substrate- and harness-agnostic: `TraceSource` turns a
   rollout's tool calls into agent-eval `ToolSpan`s from EITHER an owned loop OR a sandbox
   box; online `watchTrace` and on-settle `analyzeTrace` both fold them
-  (`supervise/trace-source.ts`, `supervise/trajectory-recorder.ts:27`).
+  (`src/runtime/supervise/trace-source.ts`, `src/runtime/supervise/trajectory-recorder.ts`).
 - **GAP** — `analyzeOnSettle` firing at the *driver* and *loop* settle (not only worker
   settle) is not yet uniform. The atom supports it; the wiring should be made uniform so
   "ANY LAYER, ANY SUBLOOP" is literally one rule.
@@ -729,7 +729,7 @@ within-run column splits into in-flight and across-round).
 
 - **REAL** — the event bus is transport-agnostic *on purpose*: same box → the in-process
   queue; cross box → the SAME publish/pull/subscribe surface backed by a durable mailbox on
-  the parent's box (`supervise/event-bus.ts`). The data structure is already shaped for
+  the parent's box (`src/runtime/supervise/event-bus.ts`). The data structure is already shaped for
   durability.
 - **REAL** — `supervise(..., { runDir, runId })` restores committed settlements, exact profile/task/candidate identity, measured spend, pending waits, and the original absolute deadline from the file-backed stores.
   The coordination log restores prior questions, findings, and authorized instruction receipts; the in-process router receives all three in its resume brief, while an external manager receives prior questions and the other evidence remains in the durable log.

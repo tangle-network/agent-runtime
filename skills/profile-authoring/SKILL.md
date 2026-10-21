@@ -25,7 +25,7 @@ Start from a profile that already ran (in a Discovery play, `inputs/profile-exam
 | `prompt` | The role in `instructions[0]`, the procedure after it. No `systemPrompt`: it replaces the harness's own guidance (17,730 characters on Codex), and Discovery refuses one under 4,000 characters. No `appendSystemPrompt` on Codex or Gemini. |
 | `resources` | `failOnError: true`. Hand each file by path, `{"path": "<mount>", "resource": {"kind": "inline", "name": "<name>", "path": "<file in your workspace>"}}`: Runtime reads the bytes (UTF-8, at most 4 MiB). Never retype a file into `content`: a manager that did delivered 5 wrong characters in 24,008. |
 
-Native tool ids (agent-container `packages/agent-profile-materialize/src/control-maps.ts` and `execution-controls.ts`; matching ignores case and all but letters, digits and `_`):
+Native tool ids (agent-container's `agent-profile-materialize` package (`control-maps` and `execution-controls`); matching ignores case and all but letters, digits and `_`):
 
 | Harness | Accepted | Refused |
 |---|---|---|
@@ -35,7 +35,7 @@ Native tool ids (agent-container `packages/agent-profile-materialize/src/control
 | pi | names in Pi's own registry: read, bash, edit, write (glob becomes find, shell becomes bash); a named tool Pi lacks ends the session | names Pi lacks |
 | any other | no `tools` and no `permissions` | every entry |
 
-A harness's own subagent runs outside Runtime: no journal row, no reservation from the shared budget, no grade. Turn native subagents on when the agent needs internal throughput (split and merge, maker and critic, best of N) and separate Runtime identity, budget and grading are unnecessary; their work counts only through the delivered artifact. Use Runtime spawn (`agent_runtime_coordination_spawn_worker`) when a child needs its own record, budget or check. agent-dev-container maps these tools in `packages/agent-profile-materialize/src/control-maps.ts`.
+A harness's own subagent runs outside Runtime: no journal row, no reservation from the shared budget, no grade. Turn native subagents on when the agent needs internal throughput (split and merge, maker and critic, best of N) and separate Runtime identity, budget and grading are unnecessary; their work counts only through the delivered artifact. Use Runtime spawn (`agent_runtime_coordination_spawn_worker`) when a child needs its own record, budget or check. agent-dev-container maps these tools in its `agent-profile-materialize` package (`control-maps`).
 
 Runtime keys (agent-runtime `src/runtime/supervise/provider-visible-profile.ts`; verbs from `coordinationVerbNames` in `src/mcp/tools/coordination-events.ts`):
 
