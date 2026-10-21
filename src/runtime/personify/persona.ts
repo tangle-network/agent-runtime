@@ -19,7 +19,7 @@
  * @stable
  */
 
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
+import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/in-memory-spawn-stores'
 import { ValidationError } from '../../errors'
 import { withDriverExecutor } from '../supervise/driver-executor'
 import { executableAgentSpecSnapshot } from '../supervise/executable-spec'

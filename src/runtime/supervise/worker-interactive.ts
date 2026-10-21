@@ -7,7 +7,8 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
-import { FileSpawnJournal, loadSpawnForest } from '../../durable/spawn-journal'
+import { FileSpawnJournal } from '../../durable/spawn-journal/journal-store'
+import { loadSpawnForest } from '../../durable/spawn-journal/spawn-forest'
 import type { AgentEnvironmentProviderRegistry } from '../environment-provider'
 import { reconnectRetainedInteractiveRun } from '../retained-interactive'
 import { assertNoSymlinkDescendant, publishExclusiveDurableFile } from './durable-file'

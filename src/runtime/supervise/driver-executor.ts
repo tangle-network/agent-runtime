@@ -37,7 +37,8 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { contentAddress, ownedTreeRootSpawn } from '../../durable/spawn-journal'
+import { contentAddress } from '../../durable/content-address'
+import { ownedTreeRootSpawn } from '../../durable/spawn-journal/spawn-forest'
 import { ValidationError } from '../../errors'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { addSpend, zeroSpend } from '../util'

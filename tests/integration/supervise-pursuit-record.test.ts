@@ -26,7 +26,8 @@ import {
   settleRecordDigest,
   settleRecordJson,
 } from '../../src/durable/settle-record'
-import { closesCursorSlot, FileSpawnJournal } from '../../src/durable/spawn-journal'
+import { closesCursorSlot } from '../../src/durable/spawn-journal/event-index'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { SupervisePursuitError, supervisePursuit } from '../../src/durable/supervise-pursuit'
 import type { WorkerSpawnContext } from '../../src/mcp/tools/coordination-contracts'
 import { providerAsExecutor } from '../../src/runtime/environment-provider'

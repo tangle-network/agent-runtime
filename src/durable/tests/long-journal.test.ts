@@ -6,7 +6,7 @@ import type { SpawnEvent } from '../../runtime/supervise/types'
 import type { RuntimeHookEvent } from '../../runtime-hooks'
 import { composeRuntimeHooks } from '../../runtime-hooks'
 import { FileObserverJournal } from '../observer-journal'
-import { FileSpawnJournal } from '../spawn-journal'
+import { FileSpawnJournal } from '../spawn-journal/journal-store'
 
 const io = vi.hoisted(() => ({ reads: 0, failSync: false }))
 vi.mock('node:fs/promises', async (original) => {

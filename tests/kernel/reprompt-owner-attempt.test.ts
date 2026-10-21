@@ -3,7 +3,10 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import {
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../src/durable/in-memory-spawn-stores'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import {
   recordScopeOwnerMaterialization,

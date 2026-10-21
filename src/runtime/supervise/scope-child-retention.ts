@@ -1,4 +1,4 @@
-import { contentAddress } from '../../durable/spawn-journal'
+import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
 import type { RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { chargedTokens } from '../util'

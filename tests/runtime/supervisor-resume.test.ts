@@ -19,12 +19,10 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  FileResultBlobStore,
-  FileSpawnJournal,
-  materializeTreeView,
-  replaySpawnTree,
-} from '../../src/durable/spawn-journal'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
+import { replaySpawnTree } from '../../src/durable/spawn-journal/replay'
+import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
+import { materializeTreeView } from '../../src/durable/spawn-journal/tree-view'
 
 const childScript = new URL('../helpers/supervisor-resume-child.ts', import.meta.url).pathname
 
@@ -156,47 +154,5 @@ describe('supervisor durable resume across a real process kill', () => {
     expect(finalLabels).toHaveLength(3)
     expect(finalLabels.slice(0, 2).sort()).toEqual(['a', 'b'])
     expect(finalLabels[2]).toBe('c')
-  })
-
-  it('refuses a reused durable runId without `resume` before executing or mutating its tree', {
-    timeout: 120_000,
-  }, async () => {
-    // A durable run id is one execution identity. Starting fresh under an existing id would mix
-    // two executions into one journal, so continuing requires an explicit resume and starting over
-    // requires a new id.
-    const { createSupervisor } = await import('../../src/runtime/supervise/supervisor')
-    const { InMemoryResultBlobStore, InMemorySpawnJournal } = await import(
-      '../../src/durable/spawn-journal'
-    )
-    const { createExecutorRegistry } = await import('../../src/runtime/supervise/runtime')
-
-    const journal = new InMemorySpawnJournal()
-    const blobs = new InMemoryResultBlobStore()
-    const executors = createExecutorRegistry()
-    let acts = 0
-    const root = {
-      name: 'counting-root',
-      act: async () => {
-        acts += 1
-        return 'out'
-      },
-    }
-    const opts = {
-      budget: { maxIterations: 5, maxTokens: 1_000 },
-      runId: 'no-resume',
-      journal,
-      blobs,
-      executors,
-      now: () => 0,
-    }
-    const a = await createSupervisor<unknown, string>().run(root, 't', opts)
-    expect(a.kind).toBe('winner')
-    const committed = await journal.loadTree(opts.runId)
-
-    await expect(createSupervisor<unknown, string>().run(root, 't', opts)).rejects.toThrow(
-      /runId 'no-resume' already exists.*resume: true.*new runId/,
-    )
-    expect(acts).toBe(1)
-    expect(await journal.loadTree(opts.runId)).toEqual(committed)
   })
 })

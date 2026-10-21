@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { expect, it } from 'vitest'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import {
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../src/durable/in-memory-spawn-stores'
 import { FileCoordinationLog } from '../../src/runtime/supervise/coordination-log'
 import type { DriverAgentOptions } from '../../src/runtime/supervise/driver-agent-options'
 import { driverAgent } from '../../src/runtime/supervise/driver-brain-agent'

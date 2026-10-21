@@ -19,7 +19,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { FileSpawnJournal } from '../../src/durable/spawn-journal'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 
 type Shape = 'silent-first' | 'streams-first'

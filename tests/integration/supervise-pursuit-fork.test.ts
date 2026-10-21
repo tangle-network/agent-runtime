@@ -10,7 +10,7 @@ import {
 } from '@tangle-network/agent-interface'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { RUN_FORK_CORRELATION_KEYS } from '../../src/durable/run-fork'
-import { FileSpawnJournal } from '../../src/durable/spawn-journal'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { supervisePursuit } from '../../src/durable/supervise-pursuit'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type {

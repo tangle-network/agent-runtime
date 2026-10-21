@@ -38,11 +38,9 @@ import type {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FileObserverJournal } from '../../src/durable/observer-journal'
 import { projectPursuit } from '../../src/durable/observer-projection'
-import {
-  closesCursorSlot,
-  materializeTreeView,
-  replaySpawnTree,
-} from '../../src/durable/spawn-journal'
+import { closesCursorSlot } from '../../src/durable/spawn-journal/event-index'
+import { replaySpawnTree } from '../../src/durable/spawn-journal/replay'
+import { materializeTreeView } from '../../src/durable/spawn-journal/tree-view'
 import { providerAsExecutor } from '../../src/runtime/environment-provider'
 import { harnessTranscriptArtifact } from '../../src/runtime/harness-transcript'
 import { driverChild } from '../../src/runtime/supervise/driver-executor'

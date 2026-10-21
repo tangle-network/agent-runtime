@@ -11,7 +11,7 @@ import {
 } from '../../runtime/supervise/root-stream'
 import { parseCommittedJsonLines, readCommittedJsonLines } from '../jsonl-file'
 import { FileObserverJournal } from '../observer-journal'
-import { FileSpawnJournal } from '../spawn-journal'
+import { FileSpawnJournal } from '../spawn-journal/journal-store'
 import { discoverDurableSupervisionRun } from '../supervision-discovery'
 
 vi.mock('node:fs/promises', async (load) => {

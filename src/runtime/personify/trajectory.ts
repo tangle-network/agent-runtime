@@ -23,7 +23,7 @@
  * @experimental
  */
 
-import { insideCursorNamespace } from '../../durable/spawn-journal'
+import { insideCursorNamespace } from '../../durable/spawn-journal/event-index'
 import type {
   DefaultVerdict,
   NodeId,

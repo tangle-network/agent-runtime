@@ -7,7 +7,10 @@ import { sha256DigestSchema } from '@tangle-network/agent-interface'
 import { createKnowledgeTools, createRunScopedStores } from '@tangle-network/agent-knowledge'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import {
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../src/durable/in-memory-spawn-stores'
 import type { AwaitWakeInput } from '../../src/mcp/tools/coordination-events'
 import type { CheckVerdict } from '../../src/runtime/supervise/continuation'
 import { coordinationHttpHandler } from '../../src/runtime/supervise/coordination-http'

@@ -6,7 +6,7 @@
 import type { ToolSpan } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
-import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import { InMemorySpawnJournal } from '../../src/durable/in-memory-spawn-stores'
 import type {
   MakeWorkerAgent,
   WorkerSpawnContext,

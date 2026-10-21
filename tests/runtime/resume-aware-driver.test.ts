@@ -15,7 +15,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { FileSpawnJournal } from '../../src/durable/spawn-journal'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import type { Spend } from '../../src/runtime/supervise/types'
 
 const childScript = new URL('../helpers/resume-driver-child.ts', import.meta.url).pathname

@@ -9,12 +9,9 @@ import {
   type ReasoningEffort,
 } from '@tangle-network/agent-interface'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  InMemoryResultBlobStore,
-  InMemorySpawnJournal,
-  materializeTreeView,
-  replaySpawnTree,
-} from '../../durable/spawn-journal'
+import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/in-memory-spawn-stores'
+import { replaySpawnTree } from '../../durable/spawn-journal/replay'
+import { materializeTreeView } from '../../durable/spawn-journal/tree-view'
 import { BackendTransportError, ValidationError } from '../../errors'
 import { priceTokens } from '../../pricing/router-prices'
 import { spendFromUsageEvents } from './budget'

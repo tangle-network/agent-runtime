@@ -23,7 +23,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { contentAddress } from '../../durable/spawn-journal'
+import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
 import { LOCAL_HARNESSES, type LocalHarness } from '../../mcp/local-harness-invocation'
 import type { runLocalHarness } from '../../mcp/local-harness-process'
