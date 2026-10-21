@@ -55,7 +55,7 @@ import {
   type StrategyAuthorTurn,
   strategyAuthorContract,
 } from './strategy-author'
-import { openStrategyCellExecutor, shareText } from './strategy-evolution-cells'
+import { openStrategyCellExecutor, type StrategyNode, shareText } from './strategy-evolution-cells'
 import {
   type EvolutionPlan,
   planStrategyEvolution,
@@ -549,13 +549,8 @@ function compare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
-/** A search node: the caller's root, or an authored module and why admission refused it. */
-export type StrategyNode =
-  | { kind: 'root'; name: string }
-  | { kind: 'authored'; name: string | null; code: string; refusal: string | null }
-
 /** How the ledger stores a node's artifact and reads it back. */
-export function strategyNodeCodec(root: Strategy): SearchArtifactCodec<StrategyNode> {
+function strategyNodeCodec(root: Strategy): SearchArtifactCodec<StrategyNode> {
   const rootNode: StrategyNode = { kind: 'root', name: root.name }
   return {
     node(rec, node) {
@@ -592,7 +587,7 @@ export function strategyNodeCodec(root: Strategy): SearchArtifactCodec<StrategyN
 }
 
 /** Resolve a node to its runnable strategy; an authored module loads once per source. */
-export function strategyLoader(
+function strategyLoader(
   root: Strategy,
   modulesDir: string,
 ): (node: StrategyNode) => Promise<Strategy> {
@@ -609,7 +604,7 @@ export function strategyLoader(
 }
 
 /** Report names: each node's strategy name, suffixed `~<ordinal>` when an earlier node has it. */
-export function strategyNames(
+function strategyNames(
   state: SearchStateView,
   recorder: SearchRecorder,
   codec: SearchArtifactCodec<StrategyNode>,

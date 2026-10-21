@@ -23,8 +23,12 @@ import {
 import type { Environment } from './run-benchmark'
 import { runAgentic } from './strategy'
 import type { Strategy } from './strategy-author'
-import type { StrategyEvolutionConfig, StrategyNode } from './strategy-evolution'
+import type { StrategyEvolutionConfig } from './strategy-evolution'
 import type { EvolutionPlan } from './strategy-evolution-plan'
+/** A search node: the caller's root, or an authored module and why admission refused it. */
+export type StrategyNode =
+  | { kind: 'root'; name: string }
+  | { kind: 'authored'; name: string | null; code: string; refusal: string | null }
 
 /**
  * Cells run in this process on one dedicated lane of Runtime's search executor, which
