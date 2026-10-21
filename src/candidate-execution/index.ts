@@ -6,8 +6,8 @@
  * @experimental
  */
 
-export { candidateWorkspaceManifest, scanMaterializedWorkspaceManifest } from './artifacts'
-export { type BuildAgentCandidateBundleInput, buildAgentCandidateBundle } from './builder'
+export { candidateWorkspaceManifest } from './artifacts'
+export { buildAgentCandidateBundle } from './builder'
 export { sealAgentCandidateBundle } from './bundle'
 export type { AgentCandidateExecutionClaimStore } from './claim'
 export { FileAgentCandidateExecutionClaimStore } from './claim-file-store'
@@ -20,9 +20,7 @@ export {
   applyExactAgentProfileDiff,
   assertCandidateProfileBinding,
   freezeGenericAgentCandidateProfile,
-  omitUndefinedObjectFields,
   parseExactAgentProfileDiff,
-  parseExactCandidateProfile,
 } from './profile'
 export {
   type RunProtectedAgentCandidateModelGrantOptions,
@@ -33,7 +31,6 @@ export {
   createProtectedAgentCandidateModelPort,
 } from './protected-model-port'
 export type {
-  AgentCandidateArtifactPort,
   AgentCandidateBenchmarkGraderPort,
   AgentCandidateExecutionPorts,
   AgentCandidateExecutorPort,
@@ -69,4 +66,3 @@ export {
   captureAgentWorkspaceSnapshot,
   materializeAgentWorkspaceSnapshot,
 } from './workspace-transfer'
-export { describeWorkspaceTree, seedWorkspaceTree } from './workspace-tree'

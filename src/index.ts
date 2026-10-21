@@ -43,7 +43,6 @@ export {
   ConfigError,
   JudgeError,
   NotFoundError,
-  RuntimeRunStateError,
   ValidationError,
 } from './errors'
 // ── Improvement (self-improvement surfaces) ──────────────────────────
@@ -129,7 +128,7 @@ export { priceTokens, ROUTER_PRICE_SOURCE, type TokenWork } from './pricing/rout
 // ── Readiness ─────────────────────────────────────────────────────────
 export { decideKnowledgeReadiness } from './readiness'
 // ── Run loop ─────────────────────────────────────────────────────────
-export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
+export { runAgentTask, runAgentTaskStream } from './run'
 export {
   isolatedCheckBoxEvidenceSchema,
   isolatedCheckResultSchema,
@@ -149,9 +148,7 @@ export type {
 export {
   createRuntimeEventCollector,
   createRuntimeStreamEventCollector,
-  sanitizeAgentRuntimeEvent,
   sanitizeKnowledgeReadinessReport,
-  sanitizeRuntimeStreamEvent,
 } from './sanitize'
 // ── Sessions ──────────────────────────────────────────────────────────
 export { InMemoryRuntimeSessionStore } from './sessions'

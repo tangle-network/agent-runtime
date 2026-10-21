@@ -57,7 +57,7 @@ export interface PlacementRecord {
  * Platform's `agent.run` action, the first consumer; an app's chat turn usually
  * declares none of them.
  */
-export interface PlacementRequirements {
+interface PlacementRequirements {
   /** A pinned harness. Always runs in the sandbox. */
   harness?: string
   /** A model other than the profile's own needs the sandbox to choose between them. */
@@ -85,7 +85,7 @@ export interface PlacementRequirements {
 }
 
 /** Which tiers this deployment has wired. */
-export interface PlacementContext {
+interface PlacementContext {
   interactive: boolean
   inferenceAvailable: boolean
   loopAvailable: boolean
@@ -96,7 +96,7 @@ export interface PlacementContext {
 /** Profile axes a tier may count as covered when their declared value grants nothing. */
 export type VacuousAxis = 'permissions'
 
-export interface PlaceExecutionInput {
+interface PlaceExecutionInput {
   requirements?: PlacementRequirements
   /** The RESOLVED profile: a named profile is read before the decision. */
   profile?: AgentProfile | object
@@ -128,7 +128,7 @@ export class PlacementRefusedError extends Error {
  * The profile axes `inference` and `loop` carry: identity, prompt, model controls and
  * metadata. No harness, native tools, files, MCP, subagents, hooks or modes.
  */
-export const loopTierProfileMaterialization: ProfileMaterializationContract = {
+const loopTierProfileMaterialization: ProfileMaterializationContract = {
   name: 'placement-loop-tier',
   axes: [
     'name',
@@ -323,21 +323,6 @@ function profileDefaultModel(profile: object | undefined): unknown {
   return (profile as { model?: { default?: unknown } } | undefined)?.model?.default
 }
 
-/** Options for {@link sandboxOnlyRequirements}. */
-interface SandboxOnlyRequirementsOptions extends LoopProfileRefusalOptions {
-  requirements?: PlacementRequirements
-  profile?: AgentProfile | object
-  interactive: boolean
-}
-
-/**
- * Every declared requirement only a sandbox can meet. A caller resuming work in the
- * loop it began in checks this is empty before it continues there.
- */
-export function sandboxOnlyRequirements(options: SandboxOnlyRequirementsOptions): string[] {
-  return sandboxRequirements({ ...options, requirements: options.requirements ?? {} })
-}
-
 /** Tools the work grants, each of which the loop can hold. */
 function toolRequirements(cfg: PlacementRequirements): string[] {
   const tools: string[] = []
@@ -470,30 +455,4 @@ function declaredAxes(profile: object): AgentProfileMaterializationAxis[] {
     }
   }
   return axes
-}
-
-/** The record for a tier the author named: nothing was chosen or refused. */
-export function authoredPlacement(chosen: ExecutionTier): PlacementRecord {
-  return {
-    chosen,
-    policy: PLACEMENT_POLICY,
-    reason: `authored placement: ${chosen}`,
-    coveredAxes: [],
-    rejected: [],
-  }
-}
-
-/**
- * The record for work that resumes under the tier it began with. A retry reuses the
- * recorded tier and never re-decides, so one turn never runs on two tiers; a caller
- * resuming on `loop` first checks {@link sandboxOnlyRequirements} is empty.
- */
-export function resumedPlacement(chosen: ExecutionTier): PlacementRecord {
-  return {
-    chosen,
-    policy: PLACEMENT_POLICY,
-    reason: `resumed under the placement it began with: ${chosen}`,
-    coveredAxes: [],
-    rejected: [],
-  }
 }

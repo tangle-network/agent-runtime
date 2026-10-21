@@ -367,7 +367,7 @@ export * from './supervise/in-place-cli-executor'
 // The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
 // leases it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt),
 // and answers each sender `consumed` or `failed`.
-export { createInbox, type Inbox } from './supervise/inbox'
+export type { Inbox } from './supervise/inbox'
 /** Provider-backed native interactive workers. Runtime owns admission and control identity; the
  * provider owns the environment and process. */
 export * from './supervise/interactive-worker'
@@ -511,13 +511,7 @@ export {
 } from './supervise/trace-root'
 // The substrate-agnostic trace source: a worker's tool calls as agent-eval `ToolSpan`s, from an
 // OWNED loop (push) OR a sandbox box session (message parts). The common currency for both analysts.
-export {
-  createPushTraceSource,
-  decodeToolPart,
-  type SessionTraceBox,
-  sandboxSessionTraceSource,
-  type TraceSource,
-} from './supervise/trace-source'
+export { createPushTraceSource, type TraceSource } from './supervise/trace-source'
 // The SETTLE-time analyzer: collect a TraceSource's spans and run agent-eval's published batch
 // analyzers (buildTrajectory / stuckLoopView / toolWasteView) — the post-hoc half.
 export { analyzeTrace } from './supervise/trajectory-recorder'

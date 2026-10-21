@@ -15,33 +15,14 @@ export type {
   JudgeConfig,
   RubricDimension,
 } from './define-agent'
-export {
-  AgentManifestError,
-  collectAgentRun,
-  defineAgent,
-  unimplementedAgentRun,
-} from './define-agent'
+export { AgentManifestError, defineAgent, unimplementedAgentRun } from './define-agent'
 export type {
   DraftPatchInput,
   DraftPatchOutput,
   SurfaceImprovementEdit,
 } from './improvement-adapter'
 export { createSurfaceImprovementProposer } from './improvement-adapter'
-export {
-  assertProfileMaterialization,
-  assertProfileMaterializes,
-  controlProfileMaterialization,
-  defineProfileMaterializationContract,
-  fullProfileMaterialization,
-  profileMaterializationAxes,
-  promptControlProfileMaterialization,
-  promptModelProfileMaterialization,
-  promptOnlyProfileMaterialization,
-  promptResourceProfileMaterialization,
-  sandboxActProfileMaterialization,
-  validateProfileMaterialization,
-  worktreeCliProfileMaterialization,
-} from './profile-materialization'
+export { assertProfileMaterializes } from './profile-materialization'
 export { createSandboxAct } from './sandbox-act'
 export type { AgentSurfaces } from './surfaces'
 export { renderSurfaceIssues, validateSurfaces } from './surfaces'
