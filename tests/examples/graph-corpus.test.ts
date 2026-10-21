@@ -96,7 +96,7 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
   })
 
   it('per-item-pipeline: a publisher spawns before the last verification, so there is no barrier', async () => {
-    const { graph, opts, spawns } = perItemPipeline()
+    const { graph, opts, spawns, settles } = perItemPipeline()
     const res = await runGraph(graph, opts)
 
     expect(res.result.kind).toBe('winner')
@@ -109,7 +109,17 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
     const firstPublisher = spawns().indexOf('publisher')
     expect(firstPublisher).toBeLessThan(verifiers[2]!)
     expect(firstPublisher).toBeGreaterThan(verifiers[0]!)
-    // The report joins the items after every item settled.
+    // Each item settles its own stages in order: find, verify, then publish only when it held.
+    const settledAt = (stage: string) => settles().indexOf(stage)
+    for (const item of ['a', 'b']) {
+      expect(settledAt(`finder:${item}`)).toBeLessThan(settledAt(`verifier:${item}`))
+      expect(settledAt(`verifier:${item}`)).toBeLessThan(settledAt(`publisher:${item}`))
+    }
+    expect(settledAt('finder:c')).toBeLessThan(settledAt('verifier:c'))
+    expect(settledAt('publisher:c')).toBe(-1)
+    expect(settles()).toHaveLength(8)
+    // The report joins the items once, after every item's stages settled.
+    expect(spawns().filter((n) => n === 'report')).toHaveLength(1)
     expect(spawns().at(-1)).toBe('report')
     expect(delivered(res)).toEqual({ report: { published: ['a', 'b'] } })
     expect(delegatesOf(res)).toEqual([])

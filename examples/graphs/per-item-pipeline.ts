@@ -50,6 +50,7 @@ export function perItemPipeline(): {
   graph: AgentGraph
   opts: RunGraphOptions
   spawns: () => readonly string[]
+  settles: () => readonly string[]
 } {
   // ── One item's pipeline: plain data ──
   const item: GraphTopology = {
@@ -106,7 +107,16 @@ export function perItemPipeline(): {
     publisherSpawned = resolve
   })
   const spawns: string[] = []
+  // Each stage settle as `node:item`, in settle order: what proves every item's own stage order.
+  const settles: string[] = []
+  const settle =
+    (node: string, of: (task: unknown) => string, out: (task: unknown) => unknown) =>
+    (task: unknown): unknown => {
+      settles.push(`${node}:${of(task)}`)
+      return out(task)
+    }
   const received: AgentProfile[] = []
+  const finds = settle('finder', String, (task) => ({ item: task }))
   const opts: RunGraphOptions = {
     runId: 'pipe',
     workerSlots: 4,
@@ -117,22 +127,30 @@ export function perItemPipeline(): {
         // A finder's task is its item.
         finder: {
           shots: [
-            { fromTask: (task) => ({ item: task }), valid: true },
-            { fromTask: (task) => ({ item: task }), valid: true },
-            { fromTask: (task) => ({ item: task }), valid: true, after: () => firstPublisher },
+            { fromTask: finds, valid: true },
+            { fromTask: finds, valid: true },
+            { fromTask: finds, valid: true, after: () => firstPublisher },
           ],
         },
         // The third item does not hold up.
         verifier: {
           shots: [
             {
-              fromTask: (task) => ({ item: foundItem(task), ok: foundItem(task) !== 'c' }),
+              fromTask: settle('verifier', foundItem, (task) => ({
+                item: foundItem(task),
+                ok: foundItem(task) !== 'c',
+              })),
               valid: true,
             },
           ],
         },
         publisher: {
-          shots: [{ fromTask: (task) => ({ published: foundItem(task) }), valid: true }],
+          shots: [
+            {
+              fromTask: settle('publisher', foundItem, (task) => ({ published: foundItem(task) })),
+              valid: true,
+            },
+          ],
         },
         report: { shots: [{ fromTask: publishedIn, valid: true }] },
       },
@@ -144,7 +162,7 @@ export function perItemPipeline(): {
       },
     ),
   }
-  return { graph, opts, spawns: () => spawns }
+  return { graph, opts, spawns: () => spawns, settles: () => settles }
 }
 
 export async function main(): Promise<void> {
