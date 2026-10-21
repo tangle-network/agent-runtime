@@ -23,6 +23,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { FINAL_ANSWER_SENTINEL, parseFinalAnswer } from './rag-shared'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 const execFileAsync = promisify(execFile)
@@ -33,7 +34,6 @@ const FIXTURES = join(BENCH_ROOT, 'fixtures', 'hotpotqa.json')
 const DATASET = 'hotpotqa/hotpot_qa'
 const DATASET_CONFIG = 'distractor'
 const DATASET_SPLIT = 'validation'
-const FINAL_ANSWER_SENTINEL = 'FINAL ANSWER:'
 
 /** Default F1 pass threshold; HotpotQA's leaderboard reports EM and F1 separately. */
 const DEFAULT_F1_PASS = 0.6
@@ -83,7 +83,7 @@ const ARTICLES = new Set(['a', 'an', 'the'])
  * drop articles (a/an/the), collapse whitespace. Token comparisons run on the
  * output of this exactly as the published evaluator does.
  */
-export function normalizeAnswer(input: string): string {
+export function normalizeHotpotAnswer(input: string): string {
   const lower = input.toLowerCase()
   // strip punctuation: keep word chars + whitespace only
   const noPunct = lower.replace(/[^\w\s]/g, ' ')
@@ -96,13 +96,13 @@ export function normalizeAnswer(input: string): string {
 
 /** Normalized-token list (the F1 bag-of-tokens unit). */
 function answerTokens(input: string): string[] {
-  const n = normalizeAnswer(input)
+  const n = normalizeHotpotAnswer(input)
   return n.length === 0 ? [] : n.split(' ')
 }
 
 /** Exact match on the normalized strings. */
 export function exactMatch(prediction: string, gold: string): boolean {
-  return normalizeAnswer(prediction) === normalizeAnswer(gold)
+  return normalizeHotpotAnswer(prediction) === normalizeHotpotAnswer(gold)
 }
 
 /**
@@ -111,7 +111,7 @@ export function exactMatch(prediction: string, gold: string): boolean {
  * yes/no/noanswer and empty bags: if either side is empty, F1 is 1 only when both
  * are empty, else 0.
  */
-export function tokenF1(prediction: string, gold: string): number {
+export function hotpotTokenF1(prediction: string, gold: string): number {
   const predTokens = answerTokens(prediction)
   const goldTokens = answerTokens(gold)
   if (predTokens.length === 0 || goldTokens.length === 0) {
@@ -142,26 +142,6 @@ function f1PassThreshold(): number {
     throw new Error(`HOTPOTQA_F1_PASS must be a number in [0,1], got ${JSON.stringify(raw)}`)
   }
   return v
-}
-
-/**
- * Parse the worker artifact into the final answer string.
- * Order: the `FINAL ANSWER:` sentinel first (deterministic-extraction discipline);
- * fall back to the trimmed last non-empty line. Returns '' when nothing is
- * parseable (fail-closed — never guess), which judge() counts as resolved=false.
- */
-export function parseFinalAnswer(artifact: string): string {
-  const lines = artifact.split(/\r?\n/)
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const line = lines[i] ?? ''
-    const idx = line.toUpperCase().indexOf(FINAL_ANSWER_SENTINEL)
-    if (idx !== -1) return line.slice(idx + FINAL_ANSWER_SENTINEL.length).trim()
-  }
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const t = (lines[i] ?? '').trim()
-    if (t.length > 0) return t
-  }
-  return ''
 }
 
 function rowToTask(row: HotpotRow): BenchTask {
@@ -292,13 +272,13 @@ print(json.dumps(out))
             reason: 'no parseable answer',
             em: false,
             f1: 0,
-            normalizedGold: normalizeAnswer(meta.gold),
+            normalizedGold: normalizeHotpotAnswer(meta.gold),
           }),
         }
       }
 
       const em = exactMatch(finalAnswer, meta.gold)
-      const f1 = tokenF1(finalAnswer, meta.gold)
+      const f1 = hotpotTokenF1(finalAnswer, meta.gold)
       const threshold = f1PassThreshold()
       const resolved = em || f1 >= threshold
       return {
@@ -308,8 +288,8 @@ print(json.dumps(out))
           em,
           f1,
           threshold,
-          normalizedAnswer: normalizeAnswer(finalAnswer),
-          normalizedGold: normalizeAnswer(meta.gold),
+          normalizedAnswer: normalizeHotpotAnswer(finalAnswer),
+          normalizedGold: normalizeHotpotAnswer(meta.gold),
           type: meta.type,
           level: meta.level,
           supportingFacts: meta.supportingFacts,

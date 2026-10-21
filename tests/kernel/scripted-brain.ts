@@ -1,7 +1,7 @@
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 
 /** A scripted driver turn in the easy-to-write form (parsed tool args). */
-export interface ScriptedTurn {
+export interface ScriptedDriverTurn {
   content?: string
   toolCalls?: Array<{ id?: string; name: string; arguments: Record<string, unknown> }>
   usage?: { input: number; output: number }
@@ -13,8 +13,8 @@ export interface ScriptedTurn {
 /** Build a scripted `ToolLoopChat` brain from a fixed turn sequence: converts parsed tool args to
  *  the raw-string form the canonical loop parses, records the messages each turn saw, and advances
  *  through the turns (repeating the last). The offline seam the driver's unit tests use. */
-export function scriptedBrain(
-  turns: ScriptedTurn[],
+export function scriptedDriverBrain(
+  turns: ScriptedDriverTurn[],
   seen?: Array<ReadonlyArray<Record<string, unknown>>>,
 ): ToolLoopChat {
   let i = 0
@@ -41,7 +41,7 @@ export function scriptedBrain(
 }
 
 /** The events a woken driver received: the JSON lines of the newest wake input in `messages`. */
-export function wakeEvents(
+export function driverWakeEvents(
   messages: ReadonlyArray<Record<string, unknown>>,
 ): Array<Record<string, unknown>> {
   const wake = [...messages]

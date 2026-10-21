@@ -4,7 +4,7 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type { RetainedInteractiveRunHandle } from './retained-interactive-types'
-import { abortError } from './retained-run-binding'
+import { abortError } from './util'
 
 const MAX_GENERATION_CONFLICTS = 8
 

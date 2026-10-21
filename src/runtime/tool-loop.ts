@@ -165,7 +165,7 @@ async function maybeCompact(
   return true
 }
 
-export interface ToolLoopResult {
+export interface RouterToolLoopResult {
   /** Present only in code mode; retain through the caller's existing run/session store. */
   codeModeStore?: CodeModeStore
   /** Exact model-visible presentation, distinct from the underlying capability grant. */
@@ -218,7 +218,7 @@ export async function runBrainLoop(opts: {
   /** Bound the loop's own context window in place (the chapter-close a dumb-Ralph respawn gets for
    *  free). Off by default — when unset the conversation accumulates exactly as before. */
   compaction?: ToolLoopCompaction
-}): Promise<ToolLoopResult> {
+}): Promise<RouterToolLoopResult> {
   const maxTurns = resolveToolLoopMaxTurns(opts.maxTurns, 4, 'runBrainLoop')
   const messages: ToolLoopMessageRecord[] = [...opts.initialMessages]
   let toolCalls = 0

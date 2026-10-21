@@ -23,7 +23,7 @@ import {
 } from '../../src/runtime/supervise/supervisor-agent'
 
 /** Route deterministic source tests through the explicit test-only brain entry. */
-export function supervise(
+export function superviseForTest(
   profile: SupervisorProfile,
   task: unknown,
   options: SuperviseOptions | SuperviseTestOptions,
@@ -34,14 +34,14 @@ export function supervise(
 }
 
 /** Route deterministic graph tests through the explicit test-only brain entry. */
-export function runGraph(graph: AgentGraph, options: RunGraphOptions | RunGraphTestOptions) {
+export function runGraphForTest(graph: AgentGraph, options: RunGraphOptions | RunGraphTestOptions) {
   return 'brain' in options
     ? runGraphWithTestBrain(graph, options)
     : runProfileGraph(graph, options)
 }
 
 /** Route deterministic supervisor construction through the explicit test-only brain entry. */
-export function supervisorAgent(
+export function supervisorAgentForTest(
   profile: SupervisorProfile,
   deps: SupervisorAgentDeps | SupervisorAgentTestDeps,
 ) {

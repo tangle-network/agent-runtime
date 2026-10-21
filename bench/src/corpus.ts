@@ -27,7 +27,7 @@ import type { BenchRuntimeDecisionPoint, BenchRuntimeHookEvent } from './runtime
  *  path). A worker that reports no usage (e.g. a raw opencode-stdout shot)
  *  OMITS them — it never writes a fabricated `0`. Absence means "unmeasured",
  *  which is honest and lets the canonical bridge below refuse to forge a
- *  RunRecord with phantom economics. (no-fallback: a silent `0` cost reads as a
+ *  BenchRunRecord with phantom economics. (no-fallback: a silent `0` cost reads as a
  *  free run downstream, which is a lie the gate would then act on.) */
 export interface AttemptRecord {
   round: number
@@ -49,7 +49,7 @@ export interface AttemptRecord {
 }
 
 /** One controller-run over a single benchmark instance under one condition. */
-export interface RunRecord {
+export interface BenchRunRecord {
   ts: string
   benchmark: string
   instanceId: string
@@ -63,7 +63,7 @@ export interface RunRecord {
   attempts: AttemptRecord[]
   infraError: boolean
   /** Canonical-pairing provenance (optional; writers set when known). These are
-   *  what let a bench record project onto the substrate's `RunRecord` so it can
+   *  what let a bench record project onto the substrate's `BenchRunRecord` so it can
    *  pair across sweeps and feed `analyzeRuns`/`HeldOutGate`/the RL exporters. */
   seed?: number
   splitTag?: RunSplitTag
@@ -106,7 +106,7 @@ function summarizeAttempt<Task, Output>(iter: Iteration<Task, Output>): AttemptR
   }
 }
 
-/** Build a RunRecord from a runAgentRounds result. `now` injected for determinism in tests. */
+/** Build a BenchRunRecord from a runAgentRounds result. `now` injected for determinism in tests. */
 export function buildRunRecord<Task, Output>(args: {
   benchmark: string
   instanceId: string
@@ -123,7 +123,7 @@ export function buildRunRecord<Task, Output>(args: {
   commitSha?: string
   runtimeEvents?: BenchRuntimeHookEvent[]
   runtimeDecisionPoints?: BenchRuntimeDecisionPoint[]
-}): RunRecord {
+}): BenchRunRecord {
   const attempts = args.iterations.map(summarizeAttempt)
   return {
     ts: (args.now ? args.now() : new Date()).toISOString(),
@@ -148,7 +148,7 @@ export function buildRunRecord<Task, Output>(args: {
 }
 
 /**
- * Build a RunRecord from a hand-assembled `AttemptRecord[]` (the gate runners'
+ * Build a BenchRunRecord from a hand-assembled `AttemptRecord[]` (the gate runners'
  * shape — they score attempts directly rather than carrying `Iteration`s).
  *
  * The three run-level verdicts derive from the attempts by default:
@@ -177,7 +177,7 @@ export function buildRunRecordFromAttempts(
     runtimeEvents?: BenchRuntimeHookEvent[]
     runtimeDecisionPoints?: BenchRuntimeDecisionPoint[]
   },
-): RunRecord {
+): BenchRunRecord {
   const anyScored = attempts.some((a) => a.score !== undefined)
   const anyValid = attempts.some((a) => a.valid !== undefined)
   return {
@@ -203,7 +203,7 @@ export function buildRunRecordFromAttempts(
 }
 
 /** Run-level provenance the caller asserts when projecting a bench record onto
- *  the substrate. `commitSha` is required: a canonical `RunRecord` is a
+ *  the substrate. `commitSha` is required: a canonical `BenchRunRecord` is a
  *  reproducibility artifact and must name the code that produced it — the
  *  bridge will not invent one. */
 export interface CorpusProjectionOpts {
@@ -250,7 +250,7 @@ export interface CorpusProjection {
  * measured `runAgentRounds`/sandbox path can, which is the correct, honest constraint.
  */
 export async function benchRecordToCorpusRecords(
-  rec: RunRecord,
+  rec: BenchRunRecord,
   opts: CorpusProjectionOpts,
 ): Promise<CorpusProjection> {
   const records: CorpusRecord[] = []
@@ -304,14 +304,14 @@ export async function benchRecordToCorpusRecords(
     }
     try {
       // Validate for the assertion (throws on a malformed record) but keep the
-      // CorpusRecord superset — the validator returns a RunRecord and may drop
+      // CorpusRecord superset — the validator returns a BenchRunRecord and may drop
       // the `prompt`/`completion` extras the RL exporters want.
       validateRunRecord(candidate)
       records.push(candidate)
     } catch (err) {
       unmappable.push({
         round: a.round,
-        reason: `invalid RunRecord: ${err instanceof Error ? err.message : String(err)}`,
+        reason: `invalid BenchRunRecord: ${err instanceof Error ? err.message : String(err)}`,
       })
     }
   }
@@ -319,8 +319,8 @@ export async function benchRecordToCorpusRecords(
   return { records, unmappable }
 }
 
-/** Append one RunRecord to the durable corpus (creating the dir if needed). */
-export async function appendRunRecord(corpusPath: string, record: RunRecord): Promise<void> {
+/** Append one BenchRunRecord to the durable corpus (creating the dir if needed). */
+export async function appendRunRecord(corpusPath: string, record: BenchRunRecord): Promise<void> {
   // Fail loud on a real mkdir failure (EACCES, disk-full): recursive:true is
   // idempotent when the dir already exists, so this throws ONLY on genuine errors
   // — a silent swallow just made the append fail later with a confusing message.

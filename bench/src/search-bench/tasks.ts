@@ -40,7 +40,7 @@ export interface SearchTask {
 const ANSWER_CONTRACT =
   'Answer with the exact code/identifiers requested. Cite the source URL(s) you used. Be precise — exact method, option, and import names matter.'
 
-export function taskToPrompt(task: SearchTask): string {
+export function searchTaskPrompt(task: SearchTask): string {
   return `${task.prompt}\n\n${ANSWER_CONTRACT}`
 }
 

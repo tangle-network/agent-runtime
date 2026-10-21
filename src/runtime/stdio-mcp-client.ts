@@ -97,7 +97,7 @@ export interface StdioMcpServerSpec {
  *  Graders (the serve verifier) must rethrow this instead of scoring it. */
 export class McpSpawnFault extends Error {}
 
-export interface McpToolDescriptor {
+export interface McpListedTool {
   name: string
   description?: string
   inputSchema?: unknown
@@ -105,7 +105,7 @@ export interface McpToolDescriptor {
 
 export interface StdioMcpConnection {
   /** The tools the server exposed at connect time (`tools/list`). */
-  readonly tools: readonly McpToolDescriptor[]
+  readonly tools: readonly McpListedTool[]
   /** `tools/call` → the result's text content. A JSON-RPC error / `isError`
    *  result becomes an `ERROR: …` string (the agent's outcome); a dead
    *  transport or timeout throws (an infra fault). */
@@ -277,7 +277,7 @@ export async function connectStdioMcp(spec: StdioMcpServerSpec): Promise<StdioMc
       throw new Error(
         redactReason(`tools/list errored: ${JSON.stringify(list.error)}${stderrTail()}`),
       )
-    const rawTools = (list.result as { tools?: McpToolDescriptor[] } | undefined)?.tools
+    const rawTools = (list.result as { tools?: McpListedTool[] } | undefined)?.tools
     if (!Array.isArray(rawTools))
       throw new Error(`tools/list result has no tools array${stderrTail()}`)
     const tools = redactProtectedValue(rawTools, protectedValues).value

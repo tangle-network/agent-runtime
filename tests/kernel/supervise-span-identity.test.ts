@@ -22,8 +22,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { createOpenInferenceFileExporter } from '../../src/otel-export'
 import type { SpawnEvent } from '../../src/runtime/supervise/contracts/spawn-journal'
-import { supervise } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 type Spawned = Extract<SpawnEvent, { kind: 'spawned' }>
@@ -65,7 +65,7 @@ describe('a supervised run says who acted on every span', () => {
 
   async function run(): Promise<{ spans: ExportedSpan[]; spawned: Spawned[] }> {
     const spansPath = join(runDir, 'spans.otlp.jsonl')
-    const result = await supervise(
+    const result = await superviseForTest(
       testAgentProfile('root', {
         harness: 'cli-base',
         prompt: { systemPrompt: 'drive the worker' },
@@ -77,7 +77,7 @@ describe('a supervised run says who acted on every span', () => {
         runId: RUN_ID,
         runDir,
         backend: { backend: 'sandbox', sandboxClient: fakeSandboxClient() },
-        brain: scriptedBrain([
+        brain: scriptedDriverBrain([
           {
             toolCalls: [{ name: 'spawn_worker', arguments: { profile: WORKER, task: 'go' } }],
             usage: { input: 10, output: 5 },

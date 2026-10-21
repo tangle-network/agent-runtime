@@ -22,8 +22,8 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
-import { supervise } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
@@ -108,7 +108,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     const workerLive = new Promise<void>((resolve) => {
       markLive = resolve
     })
-    const script = scriptedBrain([
+    const script = scriptedDriverBrain([
       { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }] },
       { content: 'waiting for the worker' },
       { content: 'done' },
@@ -126,7 +126,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       return script(messages, tools, context)
     }
 
-    const result = await supervise(rootProfile(), 'solve it', {
+    const result = await superviseForTest(rootProfile(), 'solve it', {
       budget,
       makeWorkerAgent: () => hangingLeaf('w', () => markLive?.()),
       runId: 'cancel-run',
@@ -151,7 +151,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
 
   it('cancellation on the final router turn preserves already delivered child evidence', async () => {
     const dir = await runDir()
-    const script = scriptedBrain([
+    const script = scriptedDriverBrain([
       { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }] },
       { content: 'waiting for the worker' },
       { content: 'done' },
@@ -169,7 +169,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       return script(messages, tools, context)
     }
 
-    const result = await supervise(rootProfile(), 'solve it', {
+    const result = await superviseForTest(rootProfile(), 'solve it', {
       budget,
       makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
       runId: 'late-run',
@@ -193,7 +193,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     const finalized = new Promise<void>((resolve) => {
       finalize = resolve
     })
-    const pending = supervise(rootProfile(), 'solve it', {
+    const pending = superviseForTest(rootProfile(), 'solve it', {
       budget,
       runId: 'router-drain',
       runDir: dir,
@@ -202,7 +202,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       makeWorkerAgent: () => hangingLeaf('w'),
       // The turn cap ends the director with its child live: a turn that ends earlier would wait.
       maxTurns: 2,
-      brain: scriptedBrain([
+      brain: scriptedDriverBrain([
         {
           toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }],
         },
@@ -234,7 +234,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     const dir = await runDir()
     cancelRun(dir, 'pre-start', { source: 'operator', deadlineMs: 0, operator: 'alice' })
     let turns = 0
-    const result = await supervise(rootProfile(), 'stop', {
+    const result = await superviseForTest(rootProfile(), 'stop', {
       budget,
       runDir: dir,
       runId: 'queued-start',
@@ -264,7 +264,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     const live = new Promise<void>((resolve) => {
       entered = resolve
     })
-    const pending = supervise(rootProfile(), 'stop', {
+    const pending = superviseForTest(rootProfile(), 'stop', {
       budget,
       runDir: dir,
       runId: 'long-turn',
@@ -287,14 +287,14 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     const live = new Promise<void>((resolve) => {
       started = resolve
     })
-    const pending = supervise(rootProfile(), 'stop', {
+    const pending = superviseForTest(rootProfile(), 'stop', {
       budget,
       runDir: dir,
       runId: 'unconfirmed',
       // The leaf never confirms, so a short retry window ends where one attempt used to.
       teardownConfirmMs: 30,
       makeWorkerAgent: () => hangingLeaf('w', started, false),
-      brain: scriptedBrain([
+      brain: scriptedDriverBrain([
         {
           toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }],
         },
@@ -314,12 +314,12 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
 
   it('a request written after the run ended is never answered as success', async () => {
     const dir = await runDir()
-    const script = scriptedBrain([
+    const script = scriptedDriverBrain([
       { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }] },
       { content: 'waiting for the worker' },
       { content: 'done' },
     ])
-    const result = await supervise(rootProfile(), 'solve it', {
+    const result = await superviseForTest(rootProfile(), 'solve it', {
       budget,
       makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
       runId: 'over-run',
@@ -358,7 +358,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     const workerLive = new Promise<void>((resolve) => {
       markLive = resolve
     })
-    const script = scriptedBrain([
+    const script = scriptedDriverBrain([
       { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }] },
       { content: 'waiting for the worker' },
       { content: 'done' },
@@ -367,7 +367,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       await Promise.race([workerLive, sleep(50)])
       return script(messages, tools, context)
     }
-    const result = await supervise(rootProfile(), 'solve it', {
+    const result = await superviseForTest(rootProfile(), 'solve it', {
       budget,
       makeWorkerAgent: () => hangingLeaf('w', () => markLive?.()),
       runId: 'tui-run',

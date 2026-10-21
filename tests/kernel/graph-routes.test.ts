@@ -31,8 +31,8 @@ import {
 } from '@tangle-network/agent-runtime/kernel'
 import { describe, expect, it } from 'vitest'
 import { journaledGateDecider } from '../../src/runtime/supervise/graph-flow'
-import { supervise } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const brief = promptHandle('delegates/worker-brief/v1')
@@ -812,7 +812,7 @@ describe('flow graphs — a flow inside a maps item and a run_graph subtask', ()
         },
       ],
     }
-    await supervise(director, 'write a haiku through a flow graph', {
+    await superviseForTest(director, 'write a haiku through a flow graph', {
       runId: 'rg-flow',
       journal,
       budget: { maxIterations: 100, maxTokens: 200_000 },
@@ -821,7 +821,7 @@ describe('flow graphs — a flow inside a maps item and a run_graph subtask', ()
         { draft: [{ out: { haiku: 'old pond' } }], review: [{ out: { approved: true } }] },
         spawns,
       ),
-      brain: scriptedBrain([
+      brain: scriptedDriverBrain([
         {
           toolCalls: [
             {

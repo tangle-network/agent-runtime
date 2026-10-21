@@ -14,7 +14,7 @@
  * a box) runs through the gate (`runGate`) with a sandbox-backed executor; this
  * file is the flat, non-agentic search-RAG baseline.
  *
- * Each shot's answer is graded by the bench judge; writes one corpus RunRecord/task
+ * Each shot's answer is graded by the bench judge; writes one corpus BenchRunRecord/task
  * tagged `search:<provider>` + `model` so the leaderboard slices by arm. Fault-isolated
  * (a flaky call → a NO-ANSWER attempt, never a throw).
  *
@@ -25,7 +25,7 @@
  */
 
 import { ADAPTERS } from './adapters'
-import { type AttemptRecord, appendRunRecord, type RunRecord } from './corpus'
+import { type AttemptRecord, appendRunRecord, type BenchRunRecord } from './corpus'
 import { runResearchShot, type ShotCfg } from './research-shot'
 import { runPool } from './run-pool'
 
@@ -75,7 +75,7 @@ async function main(): Promise<void> {
   })
   const shotOf = (id: string, i: number) => shots.find((o) => o.value?.taskId === id && o.value?.attempt === i)?.value
 
-  // Phase 2 — judge via the bench's OWN judge; write one RunRecord/task (the shared corpus).
+  // Phase 2 — judge via the bench's OWN judge; write one BenchRunRecord/task (the shared corpus).
   console.log(`\n▶ phase 2: judging via ${adapter.name} judge → ${corpusPath}`)
   let scoredTasks = 0
   for (const task of tasks) {
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
       })
     }
     if (attempts.some((a) => a.score !== undefined)) scoredTasks += 1
-    const record: RunRecord = {
+    const record: BenchRunRecord = {
       ts: new Date().toISOString(),
       benchmark: adapter.name,
       instanceId: task.id,

@@ -43,8 +43,8 @@ import type {
   Scope,
   SupervisorOpts,
 } from '../../src/runtime/supervise/types'
-import { supervise } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
+import { superviseForTest } from '../helpers/runtime-with-test-brain'
+import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -493,7 +493,7 @@ describe('the sandbox arm carries the context onto the box itself', () => {
 describe('supervise({ backend, otel }) stamps its workers too', () => {
   async function superviseOnce(exporter?: OtelExporter, runDir?: string) {
     const fake = fakeSandboxClient()
-    const result = await supervise(
+    const result = await superviseForTest(
       testAgentProfile('root', {
         harness: 'cli-base',
         prompt: { systemPrompt: 'drive the worker' },
@@ -504,7 +504,7 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
         budget: { maxIterations: 100, maxTokens: 100_000 },
         runId: 'front-door',
         backend: { backend: 'sandbox', sandboxClient: fake.client },
-        brain: scriptedBrain([
+        brain: scriptedDriverBrain([
           {
             toolCalls: [
               {
