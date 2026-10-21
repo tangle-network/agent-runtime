@@ -1,18 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
-  captureHarnessMemory,
   createInMemoryWorkspaceStore,
+  readTurnMemories,
+  type WorkspaceRole,
+  type WorkspaceStore,
+} from '../../src/workspace-store'
+import {
+  captureHarnessMemory,
   HARNESS_MEMORY_BEGIN,
   type HarnessNativeFiles,
   ingestHarnessMemories,
   memoryDivergence,
   parseHarnessActor,
   projectHarnessMemory,
-  readTurnMemories,
   renderHarnessMemory,
-  type WorkspaceRole,
-  type WorkspaceStore,
-} from '../../src/workspace-store'
+} from '../../src/workspace-store/harness'
 
 // Native memory locations per harness, as a host lays them out in a box.
 const NATIVE: Record<string, string[]> = {

@@ -14,11 +14,11 @@ import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 import {
   agentCandidateProfileAsAgentProfile,
   assertCandidateProfileBinding,
-  type BuildAgentCandidateBundleInput,
   buildAgentCandidateBundle,
   sealAgentCandidateBundle,
   verifyAgentCandidateBundle,
 } from '../src/candidate-execution'
+import type { BuildAgentCandidateBundleInput } from '../src/candidate-execution/builder'
 import {
   candidateSha,
   cleanupCandidateFixtures,

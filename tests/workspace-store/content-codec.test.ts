@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
-  aesGcmContentCodecFromEnv,
-  createAesGcmContentCodec,
   createInMemoryWorkspaceStore,
   createMemoryTools,
-  openWorkspaceBytes,
   runWorkspaceStoreContract,
+  workspaceStoreContractCases,
+} from '../../src/workspace-store'
+import {
+  aesGcmContentCodecFromEnv,
+  createAesGcmContentCodec,
+  openWorkspaceBytes,
   SEALED_CONTENT_PREFIX,
   sealWorkspaceBytes,
   WorkspaceCodecError,
   withContentCodec,
-  workspaceStoreContractCases,
-} from '../../src/workspace-store'
+} from '../../src/workspace-store/codec'
 
 const key = (fill: number) => btoa(String.fromCharCode(...new Uint8Array(32).fill(fill)))
 const K1 = key(1)

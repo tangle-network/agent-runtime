@@ -3,6 +3,7 @@ import {
   type AgentProfile,
   AGENT_PROFILE_MATERIALIZATION_AXES as CANONICAL_AXES,
   changedAgentProfileAxes,
+  profileMaterializationAxes,
 } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
@@ -10,7 +11,6 @@ import {
   controlProfileMaterialization,
   defineProfileMaterializationContract,
   fullProfileMaterialization,
-  profileMaterializationAxes,
   promptControlProfileMaterialization,
   promptModelProfileMaterialization,
   promptOnlyProfileMaterialization,
@@ -18,7 +18,7 @@ import {
   sandboxActProfileMaterialization,
   validateProfileMaterialization,
   worktreeCliProfileMaterialization,
-} from '../src/agent'
+} from '../src/agent/profile-materialization'
 import { buildBackendOptions } from '../src/runtime/sandbox-backend'
 
 describe('canonical axis set', () => {

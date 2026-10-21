@@ -181,16 +181,21 @@ Import from `@tangle-network/agent-runtime/tool-loop` — 13 exports.
 
 ### Execution placement — cheapest tier a profile allows, edge-safe
 
-Import from `@tangle-network/agent-runtime/placement` — 6 exports.
+Import from `@tangle-network/agent-runtime/placement` — 10 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `placeExecution` | function | Choose where work runs: the cheapest tier every declared requirement allows. |
+| `loopTierProfileMaterialization` | const | The profile axes `inference` and `loop` carry: identity, prompt, model controls and |
 | `PLACEMENT_POLICY` | const | The policy version every {@link PlacementRecord} carries. |
 | `PlacementRefusedError` | class | No tier can meet every declared requirement. Raised before any spend. |
+| `PlacementContext` | interface | Which tiers this deployment has wired. |
 | `PlacementRecord` | interface | What was chosen, under which policy, why, and why each other tier was refused. |
+| `PlacementRequirements` | interface | The declared requirements of the work, beside its profile. Field names follow |
 | `ExecutionTier` | type | Where one unit of agent work runs, cheapest first. |
 | `VacuousAxis` | type | Profile axes a tier may count as covered when their declared value grants nothing. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `PlaceExecutionInput`.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 

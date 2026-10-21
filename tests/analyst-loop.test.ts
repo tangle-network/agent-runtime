@@ -7,14 +7,13 @@ import {
 } from '@tangle-network/agent-eval'
 import { describe, expect, it, vi } from 'vitest'
 import type {
-  AnalystLoopEvent,
   AnalystRegistryLike,
-  AnalystRegistryStreamingLike,
   FindingsStoreLike,
   ImprovementProposalSource,
   KnowledgeProposalSource,
 } from '../src/analyst-loop'
 import { runAnalystLoop } from '../src/analyst-loop'
+import type { AnalystLoopEvent, AnalystRegistryStreamingLike } from '../src/analyst-loop/types'
 
 function f(id: string, analystId: string, partial: Partial<AnalystFinding> = {}): AnalystFinding {
   return {

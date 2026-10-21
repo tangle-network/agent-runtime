@@ -7,7 +7,6 @@ import {
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  type AgentProfileImprovementActivationOperation,
   agentImprovementProfileSurfaceDigest,
   createAgentImprovementActivation,
   createAgentImprovementActivationResult,
@@ -17,6 +16,7 @@ import {
   prepareAgentImprovementProfileActivation,
   reviewAgentImprovementProposal,
 } from '../src/intelligence'
+import type { AgentProfileImprovementActivationOperation } from '../src/intelligence/activation'
 import { improvementFinding } from './helpers/improvement-method-fixture'
 import { createProfileImprovementFixture } from './helpers/profile-improvement-fixture'
 

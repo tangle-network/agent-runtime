@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { analyzeTrace, createPushTraceSource } from '../../src/runtime'
 import {
-  analyzeTrace,
-  createPushTraceSource,
   decodeToolPart,
   type SessionTraceBox,
   sandboxSessionTraceSource,
-} from '../../src/runtime'
+} from '../../src/runtime/supervise/trace-source'
 
 describe('decodeToolPart — validated against the LIVE opencode shape', () => {
   it('decodes a real opencode tool part (tool=name string, state.input, state.status, callID)', () => {

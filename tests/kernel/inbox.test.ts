@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type AgentSpec, createBudgetPool, createExecutor, createInbox } from '../../src/runtime'
+import { type AgentSpec, createBudgetPool, createExecutor } from '../../src/runtime'
+import { createInbox } from '../../src/runtime/supervise/inbox'
 import { testAgentProfile } from './test-agent-profile'
 
 describe('worker inbox (down-leg receive end)', () => {

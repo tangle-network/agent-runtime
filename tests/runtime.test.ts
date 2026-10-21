@@ -5,7 +5,6 @@ import {
   type AgentBackendInput,
   type AgentExecutionBackend,
   type AgentTaskSpec,
-  applyRunRecordDefaults,
   type ControlEvalResult,
   createIterableBackend,
   createRuntimeEventCollector,
@@ -18,9 +17,9 @@ import {
   readinessServerSentEvent,
   runAgentTask,
   runAgentTaskStream,
-  sanitizeAgentRuntimeEvent,
-  sanitizeRuntimeStreamEvent,
 } from '../src/index'
+import { applyRunRecordDefaults } from '../src/run'
+import { sanitizeAgentRuntimeEvent, sanitizeRuntimeStreamEvent } from '../src/sanitize'
 
 interface State {
   count: number

@@ -3,11 +3,8 @@ import { chmod, mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/p
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  captureAgentCandidateWorkspace,
-  describeWorkspaceTree,
-  seedWorkspaceTree,
-} from '../src/candidate-execution'
+import { captureAgentCandidateWorkspace } from '../src/candidate-execution'
+import { describeWorkspaceTree, seedWorkspaceTree } from '../src/candidate-execution/workspace-tree'
 
 vi.mock('node:fs/promises', { spy: true })
 

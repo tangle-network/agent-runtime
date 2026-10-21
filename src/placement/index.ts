@@ -57,7 +57,7 @@ export interface PlacementRecord {
  * Platform's `agent.run` action, the first consumer; an app's chat turn usually
  * declares none of them.
  */
-interface PlacementRequirements {
+export interface PlacementRequirements {
   /** A pinned harness. Always runs in the sandbox. */
   harness?: string
   /** A model other than the profile's own needs the sandbox to choose between them. */
@@ -85,7 +85,7 @@ interface PlacementRequirements {
 }
 
 /** Which tiers this deployment has wired. */
-interface PlacementContext {
+export interface PlacementContext {
   interactive: boolean
   inferenceAvailable: boolean
   loopAvailable: boolean
@@ -96,7 +96,7 @@ interface PlacementContext {
 /** Profile axes a tier may count as covered when their declared value grants nothing. */
 export type VacuousAxis = 'permissions'
 
-interface PlaceExecutionInput {
+export interface PlaceExecutionInput {
   requirements?: PlacementRequirements
   /** The RESOLVED profile: a named profile is read before the decision. */
   profile?: AgentProfile | object
@@ -128,7 +128,7 @@ export class PlacementRefusedError extends Error {
  * The profile axes `inference` and `loop` carry: identity, prompt, model controls and
  * metadata. No harness, native tools, files, MCP, subagents, hooks or modes.
  */
-const loopTierProfileMaterialization: ProfileMaterializationContract = {
+export const loopTierProfileMaterialization: ProfileMaterializationContract = {
   name: 'placement-loop-tier',
   axes: [
     'name',

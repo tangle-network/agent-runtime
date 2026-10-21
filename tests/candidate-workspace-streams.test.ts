@@ -4,14 +4,14 @@ import { join } from 'node:path'
 import { pack } from 'tar-stream'
 import { afterEach, expect, it } from 'vitest'
 import {
-  type AgentCandidateArtifactPort,
   captureAgentCandidateWorkspace,
   captureAgentCandidateWorkspaceToArtifacts,
   materializeAgentCandidateWorkspaceFromArtifacts,
-  scanMaterializedWorkspaceManifest,
   verifyAgentCandidateWorkspaceArtifacts,
 } from '../src/candidate-execution'
 import { putStreamVerifiedBy } from '../src/candidate-execution/artifact-streams'
+import { scanMaterializedWorkspaceManifest } from '../src/candidate-execution/artifacts'
+import type { AgentCandidateArtifactPort } from '../src/candidate-execution/types'
 import { createPrivateCasArtifactPort } from '../src/runtime/private-cas'
 
 const roots: string[] = []
