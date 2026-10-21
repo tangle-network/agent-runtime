@@ -10,7 +10,7 @@ export type MapItemFailurePolicy = 'all-or-refuse' | 'settled-subset'
  * is the item's task — at most `concurrency` at a time. Once every item settled it starts `join`
  * with the ordered results. Items and the join go through the same admission a `spawn_worker` call
  * takes (pre-flight, budget reservation from the conserved pool, `makeWorkerAgent`), carrying the
- * runtime-authored {@link WorkerSpawnContext.map} marker, so no manager turn is spent on them.
+ * runtime-authored `WorkerSpawnContext.map` marker, so no manager turn is spent on them.
  *
  * Every step publishes a `map` event. Item settlements are recorded but not queued, so the
  * manager is woken by the join's settlement, or by a `map` event when the map was refused or its

@@ -39,7 +39,7 @@ type WorkspaceFile = AgentCandidateWorkspaceManifestMaterial['files'][number]
  */
 const CAPTURE_FILES_AT_ONCE = 64
 
-interface CaptureAgentCandidateWorkspaceToArtifactsOptions {
+export interface CaptureAgentCandidateWorkspaceToArtifactsOptions {
   limits?: Partial<AgentCandidateWorkspaceArchiveLimits>
   /**
    * Root-relative files or directories to leave out of the capture, each by its exact path. A
@@ -227,7 +227,7 @@ export async function verifyAgentCandidateWorkspaceTree(
   return material
 }
 
-interface AgentCandidateWorkspaceArtifactsOptions {
+export interface AgentCandidateWorkspaceArtifactsOptions {
   role: 'task' | 'candidate' | 'knowledge' | 'memory'
   snapshot: AgentCandidateWorkspaceSnapshotEvidence
   artifacts: AgentCandidateArtifactPort

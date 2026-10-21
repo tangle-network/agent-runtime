@@ -663,7 +663,7 @@ Human-readable run path, e.g. `createSandboxAct` or `prompt-only-message`.
 
 ##### axes
 
-> **axes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
+> **axes**: readonly [`AgentProfileMaterializationAxis`](placement.md#agentprofilematerializationaxis)[]
 
 Profile axes this run path actually carries into execution.
 
@@ -681,7 +681,7 @@ One changed AgentProfile axis that would be dropped by a run path.
 
 ##### axis
 
-> **axis**: [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)
+> **axis**: [`AgentProfileMaterializationAxis`](placement.md#agentprofilematerializationaxis)
 
 ##### reason
 
@@ -689,7 +689,7 @@ One changed AgentProfile axis that would be dropped by a run path.
 
 ##### supportedAxes
 
-> **supportedAxes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
+> **supportedAxes**: readonly [`AgentProfileMaterializationAxis`](placement.md#agentprofilematerializationaxis)[]
 
 ***
 
@@ -705,7 +705,7 @@ Input for declaring a run path's profile-axis support.
 
 ##### axes
 
-> **axes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
+> **axes**: readonly [`AgentProfileMaterializationAxis`](placement.md#agentprofilematerializationaxis)[]
 
 ***
 
@@ -725,7 +725,7 @@ Input for checking a candidate diff against a run path.
 
 ##### changedAxes
 
-> **changedAxes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
+> **changedAxes**: readonly [`AgentProfileMaterializationAxis`](placement.md#agentprofilematerializationaxis)[]
 
 ***
 
@@ -749,7 +749,7 @@ Input for throwing on dropped profile axes.
 
 ##### changedAxes
 
-> **changedAxes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
+> **changedAxes**: readonly [`AgentProfileMaterializationAxis`](placement.md#agentprofilematerializationaxis)[]
 
 ###### Inherited from
 
@@ -881,7 +881,7 @@ Sandbox-SDK overrides forwarded to `createSandboxForSpec`.
 
 ##### requiredProfileAxes?
 
-> `optional` **requiredProfileAxes?**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
+> `optional` **requiredProfileAxes?**: readonly [`AgentProfileMaterializationAxis`](placement.md#agentprofilematerializationaxis)[]
 
 Optional changed axes the caller expects this path to carry.
 
@@ -1091,20 +1091,6 @@ the loop produces 20 minutes later).
 ##### reason
 
 > **reason**: `"missing"` \| `"not-directory"` \| `"not-file"`
-
-## Type Aliases
-
-### KnownAgentProfileMaterializationAxis
-
-> **KnownAgentProfileMaterializationAxis** = `CanonicalAgentProfileMaterializationAxis`
-
-***
-
-### AgentProfileMaterializationAxis
-
-> **AgentProfileMaterializationAxis** = [`KnownAgentProfileMaterializationAxis`](#knownagentprofilematerializationaxis) \| `` `custom:${string}` ``
-
-AgentProfile axis name, with `custom:<name>` reserved for caller-owned extensions.
 
 ## Variables
 
@@ -1395,28 +1381,6 @@ readonly (`"mcp"` \| `"extensions"`)[]
 
 ***
 
-### renderProfileMaterializationIssues()
-
-> **renderProfileMaterializationIssues**(`issues`, `context?`): `string`
-
-Format profile-axis drop issues into a concise operator-facing error.
-
-#### Parameters
-
-##### issues
-
-readonly [`ProfileMaterializationIssue`](#profilematerializationissue)[]
-
-##### context?
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
 ### createSandboxAct()
 
 > **createSandboxAct**\<`TPersona`, `TRunOutput`\>(`options`): (`persona`, `ctx`) => [`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
@@ -1445,46 +1409,6 @@ resolves only after the iterator drains.
 #### Returns
 
 (`persona`, `ctx`) => [`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
-
-***
-
-### resolveSubjectPath()
-
-> **resolveSubjectPath**(`subject`, `surfaces`, `repoRoot`): [`ResolvedSurface`](#resolvedsurface) \| `null`
-
-Resolve a parsed `FindingSubject` to the file path the substrate
-should edit (or create) on disk.
-
-Returns `null` when:
-  - the subject targets a surface the agent didn't declare
-    (e.g. `rag:*` when `surfaces.rag` is undefined), OR
-  - the subject is a `cluster` (failure-mode emits these as evidence,
-    not actionable mutations — they don't route to a file).
-
-Returns a `ResolvedSurface` with `intent: 'create-new'` when the
-subject names a path that doesn't yet exist (e.g. a new wiki page).
-The caller chooses whether to honour the create — for tightly-managed
-surfaces like `systemPrompt` it's usually a contract violation
-(the analyst named a section that doesn't exist); for `knowledge`
-it's the whole point.
-
-#### Parameters
-
-##### subject
-
-`FindingSubject`
-
-##### surfaces
-
-[`AgentSurfaces`](#agentsurfaces)
-
-##### repoRoot
-
-`string`
-
-#### Returns
-
-[`ResolvedSurface`](#resolvedsurface) \| `null`
 
 ***
 

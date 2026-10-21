@@ -123,7 +123,7 @@ export interface AgentCandidateExperimentCellPlacement {
   execution: ExecutePreparedAgentCandidateOptions
 }
 
-interface RunAgentCandidateExperimentOptions
+export interface RunAgentCandidateExperimentOptions
   extends Omit<
     CompareCandidateExperimentOptions,
     'experiment' | 'measurements' | 'measurement' | 'preparation'
@@ -140,13 +140,13 @@ interface RunAgentCandidateExperimentOptions
   signal?: AbortSignal
 }
 
-interface RunAgentCandidateExperimentResult {
+export interface RunAgentCandidateExperimentResult {
   experiment: AgentCandidateExperiment
   measurements: AgentCandidateExperimentMeasurement[]
   evaluation: AgentImprovementMeasuredComparison
 }
 
-interface ExecuteAgentCandidateExperimentCellOptions
+export interface ExecuteAgentCandidateExperimentCellOptions
   extends CandidateExperimentExecutionInput,
     AgentCandidateExperimentCellPlacement {}
 
@@ -172,7 +172,7 @@ class AgentCandidateExperimentCellExecutionError extends Error {
 
 type CreateAgentImprovementMeasuredComparisonOptions = CompareCandidateExperimentOptions
 
-type AgentImprovementAnalysisOptions = Omit<
+export type AgentImprovementAnalysisOptions = Omit<
   RunAnalystLoopOpts,
   | 'runId'
   | 'inputs'
@@ -191,7 +191,7 @@ type WithProposalFindings<T> = T extends unknown
   ? Omit<T, 'findings'> & { findings?: readonly ProposalFinding[] }
   : never
 
-interface ProposeAgentImprovementOptions<TScenario extends Scenario, TArtifact> {
+export interface ProposeAgentImprovementOptions<TScenario extends Scenario, TArtifact> {
   runId: string
   profile: AgentProfile
   analysis: AgentImprovementAnalysisOptions
@@ -214,7 +214,7 @@ export type AgentImprovementExperimentMaterial = Omit<
   'candidateLineage'
 >
 
-interface ProposeAgentImprovementResult<TScenario extends Scenario, TArtifact> {
+export interface ProposeAgentImprovementResult<TScenario extends Scenario, TArtifact> {
   analysis: RunAnalystLoopResult
   improvement: ImproveResult<TScenario, TArtifact>
   experiment: AgentCandidateExperiment
@@ -234,7 +234,7 @@ export interface AgentProfileImprovementBenchmark {
  * One product execution adapter shared by optimizer search and exact profile
  * measurement. `executionRef` must identify both operations and their closure.
  */
-interface AgentProfileImprovementExecutor<TScenario extends Scenario, TArtifact> {
+export interface AgentProfileImprovementExecutor<TScenario extends Scenario, TArtifact> {
   executionRef: AgentProfileImprovementExecutionRef
   optimize: ImproveMethodOptions<TScenario, TArtifact>['agent']
   measure(
@@ -243,7 +243,7 @@ interface AgentProfileImprovementExecutor<TScenario extends Scenario, TArtifact>
 }
 
 /** The portable profile changes that the measured-profile contract permits. */
-type AgentProfileImprovementMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
+export type AgentProfileImprovementMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
   ImproveMethodOptions<TScenario, TArtifact>,
   'agent' | 'executionRef' | 'findings' | 'surface'
 > & {

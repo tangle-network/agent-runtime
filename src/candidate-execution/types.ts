@@ -226,7 +226,7 @@ export type AgentCandidateProtectedModelSettlementCall = AgentCandidateModelSett
   accountedInputTokens: number
 }
 
-interface AgentCandidateMemoryResetResult {
+export interface AgentCandidateMemoryResetResult {
   preparationId: string
   accessDigest: Sha256Digest
   expiresAtMs: number

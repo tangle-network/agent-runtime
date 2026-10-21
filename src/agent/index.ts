@@ -10,8 +10,11 @@
 
 export type {
   AgentManifest,
+  AgentRubric,
   AgentRunContext,
   AgentRunInvocation,
+  AgentRuntime,
+  AnalystConfig,
   JudgeConfig,
   RubricDimension,
 } from './define-agent'
@@ -22,26 +25,36 @@ export {
   unimplementedAgentRun,
 } from './define-agent'
 export type {
+  CreateSurfaceImprovementProposerOptions,
   DraftPatchInput,
   DraftPatchOutput,
   SurfaceImprovementEdit,
 } from './improvement-adapter'
 export { createSurfaceImprovementProposer } from './improvement-adapter'
 export {
+  type AssertProfileMaterializationOptions,
   assertProfileMaterialization,
   assertProfileMaterializes,
   controlProfileMaterialization,
+  type DefineProfileMaterializationContractOptions,
   defineProfileMaterializationContract,
   fullProfileMaterialization,
+  type ProfileMaterializationContract,
+  type ProfileMaterializationIssue,
   profileMaterializationAxes,
   promptControlProfileMaterialization,
   promptModelProfileMaterialization,
   promptOnlyProfileMaterialization,
   promptResourceProfileMaterialization,
   sandboxActProfileMaterialization,
+  type ValidateProfileMaterializationOptions,
   validateProfileMaterialization,
   worktreeCliProfileMaterialization,
 } from './profile-materialization'
-export { createSandboxAct } from './sandbox-act'
-export type { AgentSurfaces } from './surfaces'
+export {
+  type CreateSandboxActOptions,
+  createSandboxAct,
+  type SandboxActComposeOverrides,
+} from './sandbox-act'
+export type { AgentSurfaces, ResolvedSurface, SurfaceValidationIssue } from './surfaces'
 export { renderSurfaceIssues, validateSurfaces } from './surfaces'

@@ -6,258 +6,7 @@
 
 # mcp
 
-`@tangle-network/agent-runtime/mcp` — Stdio MCP server exposing the
-delegation tools to sandbox coding-harness agents: the generic `delegate`
-(one intent → a supervisor that authors + drives its own worker, returns the
-delivered output with its cost), plus the queue-bound `delegate_feedback`,
-`delegation_status`, and `delegation_history`. `delegate_ui_audit` is served
-when a `uiAuditorDelegate` is wired.
-
-Mount the server inside a product agent's sandbox via
-`agent-runtime-mcp` (the bin) or wire it into a custom Node entry
-point with `createMcpServer({ ... })`.
-
 ## Classes
-
-### CodexExecutionDiagnosticError
-
-Thrown when reproducible Codex exits without one valid terminal usage event.
-
-#### Extends
-
-- `Error`
-
-#### Constructors
-
-##### Constructor
-
-> **new CodexExecutionDiagnosticError**(`reason`, `diagnostic`, `cause?`): [`CodexExecutionDiagnosticError`](#codexexecutiondiagnosticerror)
-
-###### Parameters
-
-###### reason
-
-`string`
-
-###### diagnostic
-
-[`CodexExecutionFailureDiagnostic`](#codexexecutionfailurediagnostic)
-
-###### cause?
-
-`unknown`
-
-###### Returns
-
-[`CodexExecutionDiagnosticError`](#codexexecutiondiagnosticerror)
-
-###### Overrides
-
-`Error.constructor`
-
-#### Properties
-
-##### code
-
-> `readonly` **code**: `"CODEX_EXECUTION_DIAGNOSTIC"` = `'CODEX_EXECUTION_DIAGNOSTIC'`
-
-##### reason
-
-> `readonly` **reason**: `string`
-
-##### diagnostic
-
-> `readonly` **diagnostic**: [`CodexExecutionFailureDiagnostic`](#codexexecutionfailurediagnostic)
-
-***
-
-### DelegationStateCorruptError
-
-**`Stable`**
-
-The persisted delegation state exists but cannot be parsed into
-records. Fail loud: silently starting empty over a corrupt journal
-would erase delegation history and re-run idempotent work. Opt into
-recovery explicitly via `FileDelegationStoreOptions.recoverCorrupt`
-(the bin maps `AGENT_RUNTIME_DELEGATION_STATE_RECOVER=1` onto it),
-which archives the corrupt file and starts fresh.
-
-#### Extends
-
-- `AgentEvalError`
-
-#### Constructors
-
-##### Constructor
-
-> **new DelegationStateCorruptError**(`message`, `options?`): [`DelegationStateCorruptError`](#delegationstatecorrupterror)
-
-###### Parameters
-
-###### message
-
-`string`
-
-###### options?
-
-###### cause?
-
-`unknown`
-
-###### Returns
-
-[`DelegationStateCorruptError`](#delegationstatecorrupterror)
-
-###### Overrides
-
-`AgentEvalError.constructor`
-
-***
-
-### DelegationPersistenceError
-
-**`Stable`**
-
-A delegation-store read or write failed (filesystem error, store
-called before `loadAll`, ...). Once the queue observes one, it stops
-accepting new submissions — accepting work it cannot journal would
-silently demote durable mode to in-memory mode.
-
-#### Extends
-
-- `AgentEvalError`
-
-#### Constructors
-
-##### Constructor
-
-> **new DelegationPersistenceError**(`message`, `options?`): [`DelegationPersistenceError`](#delegationpersistenceerror)
-
-###### Parameters
-
-###### message
-
-`string`
-
-###### options?
-
-###### cause?
-
-`unknown`
-
-###### Returns
-
-[`DelegationPersistenceError`](#delegationpersistenceerror)
-
-###### Overrides
-
-`AgentEvalError.constructor`
-
-***
-
-### InMemoryDelegationStore
-
-**`Stable`**
-
-In-memory `DelegationStore` — suitable for single-process use and tests.
-
-#### Implements
-
-- [`DelegationStore`](#delegationstore)
-
-#### Constructors
-
-##### Constructor
-
-> **new InMemoryDelegationStore**(): [`InMemoryDelegationStore`](#inmemorydelegationstore)
-
-###### Returns
-
-[`InMemoryDelegationStore`](#inmemorydelegationstore)
-
-#### Methods
-
-##### loadAll()
-
-> **loadAll**(): `Promise`\<[`DelegationRecord`](#delegationrecord)[]\>
-
-Read every persisted record. Called once, by
-`DelegationTaskQueue.restore`, before any write. A missing backing
-file is an empty store; an unparseable one throws
-`DelegationStateCorruptError`.
-
-###### Returns
-
-`Promise`\<[`DelegationRecord`](#delegationrecord)[]\>
-
-###### Implementation of
-
-[`DelegationStore`](#delegationstore).[`loadAll`](#loadall)
-
-##### upsert()
-
-> **upsert**(`record`): `Promise`\<`void`\>
-
-Insert or replace the record keyed by `record.taskId`.
-
-###### Parameters
-
-###### record
-
-[`DelegationRecord`](#delegationrecord)
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`DelegationStore`](#delegationstore).[`upsert`](#upsert)
-
-##### lookupIdempotencyKey()
-
-> **lookupIdempotencyKey**(`key`): `Promise`\<`string` \| `undefined`\>
-
-Resolve an idempotency key to the taskId that claimed it, if any.
-The queue serves submit-time dedupe from its rehydrated in-memory
-index; this read exists for consumers that share a store across
-processes without holding the full record set.
-
-###### Parameters
-
-###### key
-
-`string`
-
-###### Returns
-
-`Promise`\<`string` \| `undefined`\>
-
-###### Implementation of
-
-[`DelegationStore`](#delegationstore).[`lookupIdempotencyKey`](#lookupidempotencykey)
-
-##### remove()
-
-> **remove**(`taskIds`): `Promise`\<`void`\>
-
-Delete the named records — the retention-cap eviction path.
-
-###### Parameters
-
-###### taskIds
-
-readonly `string`[]
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`DelegationStore`](#delegationstore).[`remove`](#remove)
-
-***
 
 ### FileDelegationStore
 
@@ -374,77 +123,6 @@ readonly `string`[]
 ###### Implementation of
 
 [`DelegationStore`](#delegationstore).[`remove`](#remove)
-
-***
-
-### InMemoryFeedbackStore
-
-**`Stable`**
-
-In-memory `FeedbackStore` — suitable for single-process use and tests.
-
-#### Implements
-
-- [`FeedbackStore`](#feedbackstore)
-
-#### Constructors
-
-##### Constructor
-
-> **new InMemoryFeedbackStore**(): [`InMemoryFeedbackStore`](#inmemoryfeedbackstore)
-
-###### Returns
-
-[`InMemoryFeedbackStore`](#inmemoryfeedbackstore)
-
-#### Methods
-
-##### put()
-
-> **put**(`event`): `Promise`\<`void`\>
-
-Append a new event. Never dedupes — every rating is its own event.
-
-###### Parameters
-
-###### event
-
-[`FeedbackEvent`](#feedbackevent)
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`FeedbackStore`](#feedbackstore).[`put`](#put)
-
-##### list()
-
-> **list**(`filter?`): `Promise`\<[`FeedbackEvent`](#feedbackevent)[]\>
-
-List events filtered by `namespace`. When `namespace` is omitted, list
-across all namespaces. Returns events in insertion order.
-
-###### Parameters
-
-###### filter?
-
-###### namespace?
-
-`string`
-
-###### refersToRef?
-
-`string`
-
-###### Returns
-
-`Promise`\<[`FeedbackEvent`](#feedbackevent)[]\>
-
-###### Implementation of
-
-[`FeedbackStore`](#feedbackstore).[`list`](#list)
 
 ***
 
@@ -631,248 +309,6 @@ Test-only — number of in-flight (non-terminal) records.
 `number`
 
 ## Interfaces
-
-### CodexExecutionFailureDiagnostic
-
-Bounded, credential-redacted process context attached when reproducible Codex output fails
-validation. The process still fails closed; this only preserves enough evidence to diagnose it.
-
-#### Properties
-
-##### exitCode
-
-> **exitCode**: `number` \| `null`
-
-##### killedBySignal
-
-> **killedBySignal**: `Signals` \| `null`
-
-##### timedOut
-
-> **timedOut**: `boolean`
-
-##### aborted?
-
-> `optional` **aborted?**: `boolean`
-
-##### durationMs
-
-> **durationMs**: `number`
-
-##### stdout
-
-> **stdout**: `string`
-
-##### stderr
-
-> **stderr**: `string`
-
-##### stdoutTruncated
-
-> **stdoutTruncated**: `boolean`
-
-##### stderrTruncated
-
-> **stderrTruncated**: `boolean`
-
-***
-
-### CodexExecutionEvidence
-
-Zero-model-call evidence for the exact Codex process about to run.
-
-#### Properties
-
-##### cliVersion
-
-> **cliVersion**: `string`
-
-##### executableSha256
-
-> **executableSha256**: `string`
-
-##### requestedPromptSha256
-
-> **requestedPromptSha256**: `string`
-
-SHA-256 of the exact composed prompt argument proved present in the rendered prompt.
-
-##### effectivePromptSha256
-
-> **effectivePromptSha256**: `string`
-
-##### nonPromptArgsSha256
-
-> **nonPromptArgsSha256**: `string`
-
-##### controlledConfigSha256
-
-> **controlledConfigSha256**: `string`
-
-##### readDeniedPaths
-
-> **readDeniedPaths**: `string`[]
-
-Sorted normalized paths compiled into the permission profile.
-
-##### readDeniedPathsSha256
-
-> **readDeniedPathsSha256**: `string`
-
-##### readDeniedPathCount
-
-> **readDeniedPathCount**: `number`
-
-##### policy
-
-> **policy**: [`CodexExecutionPolicy`](#codexexecutionpolicy)
-
-***
-
-### CodexExecutionPolicy
-
-Isolation settings asserted before a reproducible Codex run is allowed to start.
-
-#### Properties
-
-##### sessionPersistence
-
-> **sessionPersistence**: `"ephemeral"`
-
-##### userConfig
-
-> **userConfig**: `false`
-
-##### rules
-
-> **rules**: `false`
-
-##### projectInstructions
-
-> **projectInstructions**: `false`
-
-##### skillInstructions
-
-> **skillInstructions**: `false`
-
-##### appInstructions
-
-> **appInstructions**: `false`
-
-##### toolSuggestions
-
-> **toolSuggestions**: `false`
-
-##### multiAgentInstructions
-
-> **multiAgentInstructions**: `false`
-
-##### sandbox
-
-> **sandbox**: `"workspace-write"`
-
-##### permissionProfile
-
-> **permissionProfile**: `"agent_runtime_reproducible"`
-
-##### approvalPolicy
-
-> **approvalPolicy**: `"never"`
-
-##### shellNetwork
-
-> **shellNetwork**: `false`
-
-##### webSearch
-
-> **webSearch**: `false`
-
-##### serviceTier
-
-> **serviceTier**: `"default"`
-
-##### shellEnvironment
-
-> **shellEnvironment**: `"core-filtered"`
-
-##### loginShell
-
-> **loginShell**: `false`
-
-##### credentialsReadable
-
-> **credentialsReadable**: `false`
-
-##### hostHomeReadable
-
-> **hostHomeReadable**: `false`
-
-##### procEnvironment
-
-> **procEnvironment**: `"private-sanitized"`
-
-##### sensitiveEnvironmentNamesVisible
-
-> **sensitiveEnvironmentNamesVisible**: `false`
-
-##### parentRepoRead
-
-> **parentRepoRead**: `false`
-
-##### gitMetadata
-
-> **gitMetadata**: `false`
-
-##### temporaryDirectory
-
-> **temporaryDirectory**: `"workspace-private"`
-
-##### stagedExecutable
-
-> **stagedExecutable**: `"static-elf-read-only"`
-
-##### callerReadDeniedPaths
-
-> **callerReadDeniedPaths**: `"enforced"`
-
-##### containerSockets
-
-> **containerSockets**: `false`
-
-***
-
-### CodexTokenUsage
-
-Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event.
-
-`cachedInputTokens` is a part of `inputTokens` and `reasoningOutputTokens` is a part of
-`outputTokens`; neither adds to the total it describes. `cacheWriteInputTokens` is optional
-because the codex CLI reports it and a provider-normalized capture omits it, and an absent
-counter must stay absent rather than become a zero that claims no cache write was measured.
-
-#### Properties
-
-##### inputTokens
-
-> **inputTokens**: `number`
-
-##### cachedInputTokens
-
-> **cachedInputTokens**: `number`
-
-##### outputTokens
-
-> **outputTokens**: `number`
-
-##### reasoningOutputTokens
-
-> **reasoningOutputTokens**: `number`
-
-##### cacheWriteInputTokens?
-
-> `optional` **cacheWriteInputTokens?**: `number`
-
-***
 
 ### DelegateRunCtx
 
@@ -1086,42 +522,6 @@ Wall-clock cap (ms) forwarded to `driveTurn` for detached turns.
 
 ***
 
-### SettleDetachedCoderTurnOptions
-
-**`Experimental`**
-
-#### Properties
-
-##### task
-
-> **task**: [`CoderTask`](profiles.md#codertask)
-
-**`Experimental`**
-
-##### sessionId
-
-> **sessionId**: `string`
-
-**`Experimental`**
-
-Session id of the detached turn — used as the synthesized event id.
-
-##### signal
-
-> **signal**: `AbortSignal`
-
-**`Experimental`**
-
-##### reviewer?
-
-> `optional` **reviewer?**: [`CoderReviewer`](#coderreviewer)
-
-**`Experimental`**
-
-Same gate as the streaming path: an unapproved candidate cannot win.
-
-***
-
 ### DelegationStore
 
 **`Stable`**
@@ -1191,6 +591,21 @@ readonly `string`[]
 ###### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### DelegationPersistenceError
+
+**`Stable`**
+
+A delegation-store read or write failed (filesystem error, store
+called before `loadAll`, ...). Once the queue observes one, it stops
+accepting new submissions — accepting work it cannot journal would
+silently demote durable mode to in-memory mode.
+
+#### Extends
+
+- `AgentEvalError`
 
 ***
 
@@ -1278,87 +693,6 @@ Topology level: loop root, plan round, or iteration branch.
 
 ***
 
-### DelegationTraceCaps
-
-**`Experimental`**
-
-#### Properties
-
-##### maxSpans?
-
-> `optional` **maxSpans?**: `number`
-
-**`Experimental`**
-
-Default [DELEGATION\_TRACE\_MAX\_SPANS](#delegation_trace_max_spans).
-
-##### maxBytes?
-
-> `optional` **maxBytes?**: `number`
-
-**`Experimental`**
-
-Default [DELEGATION\_TRACE\_MAX\_BYTES](#delegation_trace_max_bytes). Approximate — measured as the
- sum of per-span `JSON.stringify` lengths.
-
-***
-
-### CappedDelegationTrace
-
-**`Experimental`**
-
-#### Properties
-
-##### trace
-
-> **trace**: [`DelegationTraceSpan`](#delegationtracespan)[]
-
-**`Experimental`**
-
-##### truncated
-
-> **truncated**: `boolean`
-
-**`Experimental`**
-
-True when oldest spans were dropped to honor the caps.
-
-***
-
-### DelegationTraceCollector
-
-**`Experimental`**
-
-Per-delegation trace collector. Buffers `LoopTraceEvent`s per runId
-(mirroring the OTEL emitter's buffering) and hands the derived compact
-spans to `onSpans` when a run reaches `loop.ended`. `settle()` drains runs
-that never ended — a hard-aborted loop still leaves its partial tree in the
-journal, unlike the OTEL path which drops it.
-
-#### Properties
-
-##### emitter
-
-> **emitter**: [`LoopTraceEmitter`](runtime.md#looptraceemitter)
-
-**`Experimental`**
-
-#### Methods
-
-##### settle()
-
-> **settle**(): `void`
-
-**`Experimental`**
-
-Flush buffered events of runs that never reached `loop.ended`.
-
-###### Returns
-
-`void`
-
-***
-
 ### CoderOutput
 
 **`Experimental`**
@@ -1436,91 +770,6 @@ Unified diff (`git diff <base>..HEAD`).
 **`Experimental`**
 
 Optional reviewer commentary surfaced by the agent.
-
-***
-
-### DriveTurnCapableBox
-
-**`Experimental`**
-
-The box surface detached turns need. `SandboxInstance`
-(`@tangle-network/sandbox` >= 0.6) satisfies it structurally; tests pass
-in-memory fakes. `_sessionCancel` is the SDK's remote-cancellation surface —
-optional here because older SDKs / fakes may not expose it; when present it
-is invoked on abort so the remote run actually stops.
-
-#### Methods
-
-##### driveTurn()
-
-> **driveTurn**(`message`, `opts`): `Promise`\<[`DriveTurnTick`](#driveturntick)\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### message
-
-`string`
-
-###### opts
-
-###### sessionId
-
-`string`
-
-###### turnId?
-
-`string`
-
-###### wallCapMs?
-
-`number`
-
-###### Returns
-
-`Promise`\<[`DriveTurnTick`](#driveturntick)\>
-
-##### \_sessionCancel()?
-
-> `optional` **\_sessionCancel**(`id`): `Promise`\<`void`\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### id
-
-`string`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-***
-
-### DetachedSessionRefParts
-
-**`Experimental`**
-
-Decoded `DelegationRecord.detachedSessionRef`. `sandboxId` is absent between
-submit and box acquisition — a record restored in that window is not
-resumable (there is no box to resume on) and the resume driver fails it
-loud rather than dispatching onto a guessed box.
-
-#### Properties
-
-##### sessionId
-
-> **sessionId**: `string`
-
-**`Experimental`**
-
-##### sandboxId?
-
-> `optional` **sandboxId?**: `string`
-
-**`Experimental`**
 
 ***
 
@@ -1669,103 +918,6 @@ a restart can resolve the box again.
 ###### Returns
 
 `void`
-
-***
-
-### DetachedTurnResumeDriverOptions
-
-**`Experimental`**
-
-#### Properties
-
-##### intervalMs?
-
-> `optional` **intervalMs?**: `number`
-
-**`Experimental`**
-
-Delay between `running` ticks (ms). Default 5000.
-
-##### wallCapMs?
-
-> `optional` **wallCapMs?**: `number`
-
-**`Experimental`**
-
-Wall-clock cap forwarded to `driveTurn` on every tick.
-
-#### Methods
-
-##### resolveSandbox()
-
-> **resolveSandbox**(`sandboxId`): `Promise`\<[`DriveTurnCapableBox`](#driveturncapablebox)\>
-
-**`Experimental`**
-
-Resolve the live box owning a detached session. The bin wires this to the
-sandbox client's `get(sandboxId)`; throw when the box no longer exists —
-a thrown tick settles the record as failed, which is the truth.
-
-###### Parameters
-
-###### sandboxId
-
-`string`
-
-###### Returns
-
-`Promise`\<[`DriveTurnCapableBox`](#driveturncapablebox)\>
-
-##### buildMessage()
-
-> **buildMessage**(`record`): `string`
-
-**`Experimental`**
-
-Rebuild the turn prompt from the persisted record. Only consumed by
-`driveTurn`'s dispatch leg — i.e. when the previous process died after
-binding the box but before the session was dispatched. Must reproduce the
-prompt the delegate would have sent.
-
-###### Parameters
-
-###### record
-
-[`DelegationRecord`](#delegationrecord)
-
-###### Returns
-
-`string`
-
-##### settleOutput()
-
-> **settleOutput**(`turn`, `record`, `ctx`): [`CoderOutput`](#coderoutput) \| [`UiAuditorDelegationOutput`](#uiauditordelegationoutput) \| [`ResearchOutputShape`](#researchoutputshape) \| `Promise`\<[`CoderOutput`](#coderoutput) \| [`UiAuditorDelegationOutput`](#uiauditordelegationoutput) \| [`ResearchOutputShape`](#researchoutputshape)\>
-
-**`Experimental`**
-
-Map a completed turn onto the delegation's typed output payload (parse +
-validate per profile). Throw when the resumed result does not pass the
-profile's gate — the queue settles the record as failed with that error.
-
-###### Parameters
-
-###### turn
-
-[`DetachedTurn`](#detachedturn)
-
-###### record
-
-[`DelegationRecord`](#delegationrecord)
-
-###### ctx
-
-###### signal
-
-`AbortSignal`
-
-###### Returns
-
-[`CoderOutput`](#coderoutput) \| [`UiAuditorDelegationOutput`](#uiauditordelegationoutput) \| [`ResearchOutputShape`](#researchoutputshape) \| `Promise`\<[`CoderOutput`](#coderoutput) \| [`UiAuditorDelegationOutput`](#uiauditordelegationoutput) \| [`ResearchOutputShape`](#researchoutputshape)\>
 
 ***
 
@@ -2001,122 +1153,6 @@ across all namespaces. Returns events in insertion order.
 
 ***
 
-### HubIntegrationClient
-
-The subset of `PlatformHubClient` this module needs — mocks plug in here.
-
-#### Methods
-
-##### listConnections()
-
-> **listConnections**(): `Promise`\<[`PlatformConnection`](platform.md#platformconnection)[]\>
-
-###### Returns
-
-`Promise`\<[`PlatformConnection`](platform.md#platformconnection)[]\>
-
-##### exec()
-
-> **exec**(`input`): `Promise`\<`unknown`\>
-
-###### Parameters
-
-###### input
-
-###### path
-
-`string`
-
-###### input?
-
-`unknown`
-
-###### connectionId?
-
-`string`
-
-###### Returns
-
-`Promise`\<`unknown`\>
-
-***
-
-### HubIntegrationToolsOptions
-
-#### Extended by
-
-- [`CreateHubIntegrationToolServerOptions`](#createhubintegrationtoolserveroptions)
-
-#### Properties
-
-##### client
-
-> **client**: [`HubIntegrationClient`](#hubintegrationclient)
-
-##### providers?
-
-> `optional` **providers?**: readonly `string`[]
-
-Provider kinds to expose. Defaults to `HUB_DATA_PROVIDER_KINDS`.
-
-##### includeUnhealthy?
-
-> `optional` **includeUnhealthy?**: `boolean`
-
-Also serve connections whose last health probe failed. Default false.
-
-***
-
-### CreateHubIntegrationToolServerOptions
-
-#### Extends
-
-- [`HubIntegrationToolsOptions`](#hubintegrationtoolsoptions)
-
-#### Properties
-
-##### client
-
-> **client**: [`HubIntegrationClient`](#hubintegrationclient)
-
-###### Inherited from
-
-[`HubIntegrationToolsOptions`](#hubintegrationtoolsoptions).[`client`](#client-3)
-
-##### providers?
-
-> `optional` **providers?**: readonly `string`[]
-
-Provider kinds to expose. Defaults to `HUB_DATA_PROVIDER_KINDS`.
-
-###### Inherited from
-
-[`HubIntegrationToolsOptions`](#hubintegrationtoolsoptions).[`providers`](#providers)
-
-##### includeUnhealthy?
-
-> `optional` **includeUnhealthy?**: `boolean`
-
-Also serve connections whose last health probe failed. Default false.
-
-###### Inherited from
-
-[`HubIntegrationToolsOptions`](#hubintegrationtoolsoptions).[`includeUnhealthy`](#includeunhealthy)
-
-##### serverName?
-
-> `optional` **serverName?**: `string`
-
-Server display name surfaced via `initialize`. Default 'agent-hub-integrations'.
-
-##### serverVersion?
-
-> `optional` **serverVersion?**: `string`
-
-Server version surfaced via `initialize`. Default '0'.
-
-***
-
 ### InProcessExecutorOptions
 
 **`Experimental`**
@@ -2165,7 +1201,7 @@ Wall-clock cap per test/typecheck subprocess (ms). Default 2min.
 
 ##### runGit?
 
-> `optional` **runGit?**: [`GitRunner`](#gitrunner)
+> `optional` **runGit?**: [`GitRunner`](runtime.md#gitrunner)
 
 **`Experimental`**
 
@@ -2173,7 +1209,7 @@ Test seam — override the git runner used by the worktree helpers.
 
 ##### runHarness?
 
-> `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](#localharnessresult)\>
+> `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](runtime.md#localharnessresult)\>
 
 **`Experimental`**
 
@@ -2210,7 +1246,7 @@ returning an incomplete reproducibility receipt.
 
 ###### Returns
 
-`Promise`\<[`LocalHarnessResult`](#localharnessresult)\>
+`Promise`\<[`LocalHarnessResult`](runtime.md#localharnessresult)\>
 
 ##### runPostCheck?
 
@@ -2238,78 +1274,6 @@ Test seam — override the post-check runner (defaults to a `sh -c` spawn). A th
 ###### Returns
 
 `Promise`\<\{ `exitCode`: `number`; `stdout`: `string`; `stderr`: `string`; \}\>
-
-***
-
-### InProcessExecutorDescribePlacement
-
-**`Experimental`**
-
-#### Extends
-
-- [`LoopSandboxPlacement`](runtime.md#loopsandboxplacement)
-
-#### Properties
-
-##### worktreePath?
-
-> `optional` **worktreePath?**: `string`
-
-**`Experimental`**
-
-Worktree path in the parent sandbox's filesystem (set so traces correlate to on-disk artifacts).
-
-##### harness?
-
-> `optional` **harness?**: [`LocalHarness`](#localharness)
-
-**`Experimental`**
-
-Which harness handled this delegation.
-
-##### kind
-
-> **kind**: `"sibling"` \| `"fleet"` \| `"in-process"`
-
-**`Experimental`**
-
-`in-process` is a local harness CLI in the caller's own process tree — no sandbox, no fleet.
- It is a placement in its own right so a cost or latency breakdown split by placement does not
- count local runs in the sandbox bucket.
-
-###### Inherited from
-
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-20)
-
-##### sandboxId?
-
-> `optional` **sandboxId?**: `string`
-
-**`Experimental`**
-
-###### Inherited from
-
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`sandboxId`](runtime.md#sandboxid-1)
-
-##### fleetId?
-
-> `optional` **fleetId?**: `string`
-
-**`Experimental`**
-
-###### Inherited from
-
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`fleetId`](runtime.md#fleetid)
-
-##### machineId?
-
-> `optional` **machineId?**: `string`
-
-**`Experimental`**
-
-###### Inherited from
-
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`machineId`](runtime.md#machineid)
 
 ***
 
@@ -2651,222 +1615,6 @@ Test seam for locating the native Codex executable before it is staged in the wo
 ###### Returns
 
 `Promise`\<`string`\>
-
-***
-
-### LocalHarnessResult
-
-**`Experimental`**
-
-#### Properties
-
-##### exitCode
-
-> **exitCode**: `number` \| `null`
-
-**`Experimental`**
-
-OS exit code. `null` when killed before exit.
-
-##### stdout
-
-> **stdout**: `string`
-
-**`Experimental`**
-
-Concatenated stdout.
-
-##### stderr
-
-> **stderr**: `string`
-
-**`Experimental`**
-
-Concatenated stderr.
-
-##### killedBySignal
-
-> **killedBySignal**: `Signals` \| `null`
-
-**`Experimental`**
-
-Set when the process exited via signal (timeout / abort).
-
-##### durationMs
-
-> **durationMs**: `number`
-
-**`Experimental`**
-
-Wall-clock duration ms (spawn → exit).
-
-##### timedOut
-
-> **timedOut**: `boolean`
-
-**`Experimental`**
-
-Set when timeoutMs elapsed before exit.
-
-##### aborted?
-
-> `optional` **aborted?**: `boolean`
-
-**`Experimental`**
-
-Set when the caller's AbortSignal fired before this result settled.
-Optional so injected runners and stored results from older releases remain valid.
-
-##### usage?
-
-> `optional` **usage?**: [`CodexTokenUsage`](#codextokenusage)
-
-**`Experimental`**
-
-Present for a reproducible Codex run; parsed from the real terminal JSONL event.
-
-##### evidence?
-
-> `optional` **evidence?**: [`CodexExecutionEvidence`](#codexexecutionevidence)
-
-**`Experimental`**
-
-Present for reproducible Codex runs; generated and checked before model execution.
-
-***
-
-### MemoryItem
-
-One row of agent memory: a crisp lesson/fact with provenance.
-
-#### Properties
-
-##### id
-
-> **id**: `string`
-
-Stable id (content-hash by convention; see `memoryArtifactFromLessons`).
-
-##### text
-
-> **text**: `string`
-
-The lesson itself — one imperative or observation the agent should recall.
-
-##### tags?
-
-> `optional` **tags?**: `string`[]
-
-Optional retrieval tags, matched by `memory_search` alongside the text.
-
-##### source?
-
-> `optional` **source?**: `string`
-
-Provenance: the finding / trace / curation pass this row came from.
-
-***
-
-### AgentMemorySpec
-
-The `memory` artifact payload — HOW a profile's memory is stored and served:
-
-  - `store: 'file'` — served by the in-repo memory bin
-    (`agent-runtime-memory-mcp`, src/mcp/memory-bin.ts): rows load from
-    `path` (a JSON array or JSONL file of `MemoryItem`) and/or the inline
-    `items` seed (inline wins on id collision). At least one of
-    `path`/`items` is required.
-  - `store: 'mcp'`  — an EXTERNAL, already-runnable MCP server that exposes
-    the memory tools itself; `server` is required and mounts verbatim.
-
-`logPath` makes the served memory append one JSONL row per `memory_search`
-— the retrieval log a holdout estimator reads (see module doc).
-
-#### Properties
-
-##### store
-
-> **store**: `"mcp"` \| `"file"`
-
-##### path?
-
-> `optional` **path?**: `string`
-
-`store:'file'` — host path to the durable row store (JSON array or JSONL).
-
-##### items?
-
-> `optional` **items?**: [`MemoryItem`](#memoryitem)[]
-
-Inline seed rows, served alongside (and winning over) `path` rows.
-
-##### server?
-
-> `optional` **server?**: `AgentProfileMcpServer`
-
-`store:'mcp'` — the external server that already serves memory tools.
-
-##### logPath?
-
-> `optional` **logPath?**: `string`
-
-JSONL retrieval log: one row per `memory_search` (ts, query, k, returned).
-
-***
-
-### CreateMemoryToolServerOptions
-
-#### Properties
-
-##### items
-
-> **items**: readonly [`MemoryItem`](#memoryitem)[]
-
-The rows to serve. MUST be non-empty (an empty memory is never served).
-
-##### serverName?
-
-> `optional` **serverName?**: `string`
-
-Server display name surfaced via `initialize`. Default 'agent-memory'.
-
-##### serverVersion?
-
-> `optional` **serverVersion?**: `string`
-
-Server version surfaced via `initialize`. Default '0'.
-
-##### defaultK?
-
-> `optional` **defaultK?**: `number`
-
-Default result count for `memory_search`. Default 5.
-
-##### logPath?
-
-> `optional` **logPath?**: `string`
-
-Append one JSONL row per `memory_search` (the retrieval-holdout seam).
-
-***
-
-### ResolvedMemoryEnv
-
-What the memory bin resolved from its environment.
-
-#### Properties
-
-##### items
-
-> **items**: [`MemoryItem`](#memoryitem)[]
-
-##### serverName?
-
-> `optional` **serverName?**: `string`
-
-##### logPath?
-
-> `optional` **logPath?**: `string`
 
 ***
 
@@ -3742,228 +2490,6 @@ Stop a `serve` call. Subsequent requests are rejected.
 
 ***
 
-### AnalystDefinitionIssue
-
-One rejected field of an authored analyst definition: which field, and what is wrong with it.
-
-#### Properties
-
-##### path
-
-> `readonly` **path**: `string`
-
-##### message
-
-> `readonly` **message**: `string`
-
-***
-
-### SettledWorker
-
-A worker whose settlement reached the manager's inbox.
-
-#### Properties
-
-##### id
-
-> `readonly` **id**: `string`
-
-##### status
-
-> `readonly` **status**: `"done"` \| `"down"`
-
-##### assignmentId?
-
-> `readonly` `optional` **assignmentId?**: `string`
-
-Stable manager-scoped assignment, including deterministic unkeyed siblings.
-
-##### identity?
-
-> `readonly` `optional` **identity?**: [`NodeExecutionIdentity`](runtime.md#nodeexecutionidentity)
-
-Exact profile/task/candidate identity authorized for this node.
-
-##### modelSubstitution?
-
-> `readonly` `optional` **modelSubstitution?**: [`SpawnModelSubstitution`](runtime.md#spawnmodelsubstitution)
-
-The model this worker ran when authorization replaced the one its manager authored.
-
-##### modelWarning?
-
-> `readonly` `optional` **modelWarning?**: `string`
-
-##### materialization?
-
-> `readonly` `optional` **materialization?**: [`ProfileMaterializationReceipt`](runtime.md#profilematerializationreceipt)
-
-Stable effective execution plan, or an explicit unknown receipt.
-
-##### executionBindings?
-
-> `readonly` `optional` **executionBindings?**: readonly [`ExecutionBindingReceipt`](runtime.md#executionbindingreceipt)[]
-
-Backend bindings for each attempt, in durable oldest-first order.
-
-##### spent?
-
-> `readonly` `optional` **spent?**: [`Spend`](runtime.md#spend-1)
-
-Conserved spend. Missing means unavailable; unknown accounting remains explicitly unknown.
-
-##### score?
-
-> `readonly` `optional` **score?**: `number`
-
-##### valid?
-
-> `readonly` `optional` **valid?**: `boolean`
-
-##### outRef?
-
-> `readonly` `optional` **outRef?**: `string`
-
-##### reason?
-
-> `readonly` `optional` **reason?**: `string`
-
-##### failure?
-
-> `readonly` `optional` **failure?**: [`RuntimeFailureCause`](index.md#runtimefailurecause)
-
-Why a `down` worker failed, as values: branch on `code` and `owner`, never on `reason`.
-
-##### budgetViolation?
-
-> `readonly` `optional` **budgetViolation?**: [`BudgetViolation`](runtime.md#budgetviolation-2)
-
-Present when the worker's measured spend exceeded its reservation. The pool already charged
- the true spend; a `done` worker's output is still its result.
-
-##### budgetStop?
-
-> `readonly` `optional` **budgetStop?**: `string`
-
-The same overspend for a reader: `tokens 235,857 of 42,000; deadline 3,857 s of 2,400 s`. A
- `done` worker with it was stopped by its budget at a turn boundary, not finished with its
- task.
-
-##### budgetStopNext?
-
-> `readonly` `optional` **budgetStopNext?**: `string`
-
-With `budgetStop` on a keyed worker: how to continue its session or release it.
-
-##### trace
-
-> `readonly` **trace**: [`WorkerTraceEvidence`](runtime.md#workertraceevidence)
-
-Structured tool-call evidence, never the worker's final prose.
-
-##### resumed?
-
-> `readonly` `optional` **resumed?**: `boolean`
-
-True when projected from a prior process of the same durable run.
-
-##### settledAt?
-
-> `readonly` `optional` **settledAt?**: `number`
-
-Epoch ms from the durable terminal record — the resolution a progress-based stop rule needs
- to answer "how long since anything landed?" without inventing a timestamp at read time.
-
-##### subtree?
-
-> `readonly` `optional` **subtree?**: [`SubtreeSummary`](runtime.md#subtreesummary)
-
-Present when this worker led workers of its own: its team's counts and its own direct
- children's results, each readable in full through `observe_agent({ outRef })`.
-
-***
-
-### PeerAuditAccess
-
-Run-owned read routing between sibling managers. It grants no mutation tools.
-
-#### Methods
-
-##### register()
-
-> **register**(`nodeId`, `tools`): `void`
-
-###### Parameters
-
-###### nodeId
-
-`string`
-
-###### tools
-
-readonly [`McpToolDescriptor`](#mcptooldescriptor)[]
-
-###### Returns
-
-`void`
-
-##### read()
-
-> **read**(`peerId`, `tool`, `args`): `Promise`\<`unknown`\>
-
-###### Parameters
-
-###### peerId
-
-`string`
-
-###### tool
-
-`"observe_agent"` \| `"read_journal"`
-
-###### args
-
-`Record`\<`string`, `unknown`\>
-
-###### Returns
-
-`Promise`\<`unknown`\>
-
-***
-
-### GraphSubtasks
-
-How a run starts an agent graph as ONE subtask of a manager (`run_graph`). `supervise()`
- supplies it when it owns the worker path: the graph's root node then runs as a nested manager
- under the graph's node pinning, inside the caller's reservation.
-
-#### Properties
-
-##### prepare
-
-> `readonly` **prepare**: (`input`) => `Promise`\<[`GraphSubtaskPreparation`](#graphsubtaskpreparation)\>
-
-Validate a graph a manager wrote, or load a stored one by digest, and compose the exact root
- profile the spawn runs. Never throws: a refusal carries its reason.
-
-###### Parameters
-
-###### input
-
-###### graph?
-
-`unknown`
-
-###### graphDigest?
-
-`string`
-
-###### Returns
-
-`Promise`\<[`GraphSubtaskPreparation`](#graphsubtaskpreparation)\>
-
-***
-
 ### CoordinationToolsOptions
 
 #### Properties
@@ -3974,7 +2500,7 @@ Validate a graph a manager wrote, or load a stored one by digest, and compose th
 
 ##### peerAudit?
 
-> `readonly` `optional` **peerAudit?**: [`PeerAuditAccess`](#peerauditaccess)
+> `readonly` `optional` **peerAudit?**: [`PeerAuditAccess`](testing.md#peerauditaccess)
 
 ##### blobs
 
@@ -3992,11 +2518,11 @@ Trusted immutable source refs this manager may read using its granted observe_ag
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-11)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-10)
 
 ##### graphs?
 
-> `readonly` `optional` **graphs?**: [`GraphSubtasks`](#graphsubtasks)
+> `readonly` `optional` **graphs?**: [`GraphSubtasks`](testing.md#graphsubtasks)
 
 Serve `run_graph`, which starts an agent graph as one subtask under this manager's conserved
  pool. Present only when the run's worker path pins graph nodes; absent, the verb is not
@@ -4077,36 +2603,36 @@ Re-publish resumed settlements through the awaited observer before the driver st
 
 ##### authorizeDownMessage?
 
-> `readonly` `optional` **authorizeDownMessage?**: [`AuthorizeDownMessage`](runtime.md#authorizedownmessage)
+> `readonly` `optional` **authorizeDownMessage?**: [`AuthorizeDownMessage`](testing.md#authorizedownmessage)
 
 Authorize each continuation against the exact worker identity. The returned instruction is
 detached, recorded durably through `onEvent`, and only then delivered.
 
 ##### questionPolicy?
 
-> `readonly` `optional` **questionPolicy?**: [`QuestionPolicy`](#questionpolicy-1)
+> `readonly` `optional` **questionPolicy?**: [`QuestionPolicy`](runtime.md#questionpolicy)
 
 ##### analyzeOnSettle?
 
-> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](runtime.md#analyzeonsettleroute))[]
+> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](durable.md#analyzeonsettleroute))[]
 
 Analyst lenses run AUTOMATICALLY when a worker settles `done` (the analyst-on-settle hook).
  A bare string names a lens whose findings go to THE DRIVER: published as a `finding` event on
  the bus — pass-through to subscribers and queued for the driver's next wake. An
- [AnalyzeOnSettleRoute](runtime.md#analyzeonsettleroute) generalizes the DESTINATION: findings can be delivered to a
+ [AnalyzeOnSettleRoute](durable.md#analyzeonsettleroute) generalizes the DESTINATION: findings can be delivered to a
  named live WORKER (wrapped in the route's directive, through the same authorized steer
  machinery a driver steer uses) instead of being hardwired to the spawning driver, and `over`
  restricts which settled workers feed the lens. A route carrying `agent` generalizes the
  ANALYST itself: a tool-equipped agent spawned as a worker whose settle output is the
- findings (see [AnalyzeOnSettleRoute.agent](runtime.md#agent)). Omit/empty = no auto-analysis (default;
+ findings (see [AnalyzeOnSettleRoute.agent](durable.md#agent)). Omit/empty = no auto-analysis (default;
  the driver can still run lenses on demand via `run_analyst`). Lens routes require
  `analysts`; agent routes do not.
 
 ##### mapOnSettle?
 
-> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](runtime.md#maponsettleroute)[]
+> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](durable.md#maponsettleroute)[]
 
-Maps expanded by the runtime when their source settles (see [MapOnSettleRoute](runtime.md#maponsettleroute)). Omit =
+Maps expanded by the runtime when their source settles (see [MapOnSettleRoute](durable.md#maponsettleroute)). Omit =
  none.
 
 ##### routeFlow?
@@ -4126,7 +2652,7 @@ Answers each visit to a gate of `routeFlow`. The route step awaits it, bounded b
 
 ##### watchWorkers?
 
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
+> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](durable.md#workerwatchoptions)
 
 OPT-IN: run the ONLINE detector panel over each spawned worker's live tool trace and raise a
 `finding` on the bus the moment a detector fires — so the driver learns "this worker is
@@ -4149,7 +2675,7 @@ killed or retried. Omit = the runtime default.
 
 ##### priorQuestions?
 
-> `readonly` `optional` **priorQuestions?**: readonly [`QuestionRecord`](#questionrecord)[]
+> `readonly` `optional` **priorQuestions?**: readonly [`QuestionRecord`](runtime.md#questionrecord)[]
 
 Questions carried over from a prior process of the SAME run (a durable coordination log a
 resuming caller replays). Seeded into the question ledger verbatim — `list_questions` shows
@@ -4158,7 +2684,7 @@ Omit/empty = fresh ledger (every run that is not a resume).
 
 ##### continuityByProfile?
 
-> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](runtime.md#continuitymode)\>\>
+> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](durable.md#continuitymode)\>\>
 
 Default continuity per PROFILE NAME (the stable node identity a graph pins). A name mapping
 to `'resume'` makes its spawns re-attach to the node's most recent settled worker whenever
@@ -4185,14 +2711,14 @@ capability is minted (the status quo: a worker is reachable only by its parent).
 
 ##### preflightSpawn?
 
-> `readonly` `optional` **preflightSpawn?**: [`SpawnPreflight`](runtime.md#spawnpreflight)
+> `readonly` `optional` **preflightSpawn?**: [`SpawnPreflight`](testing.md#spawnpreflight)
 
 OPT-IN async gate run on every spawn BEFORE an assignment is minted, budget is reserved, or
 `Scope.spawn` is called — the one pre-journal point where a network question may be asked.
 
 `Scope.spawn` and `MakeWorkerAgent` are synchronous, so a check that needs the backend's
 answer (does this bridge route the child's wire id; is it already at admission capacity)
-cannot live there. Returning a [SpawnRefusal](runtime.md#spawnrefusal) refuses the spawn as a tool result: no
+cannot live there. Returning a [SpawnRefusal](testing.md#spawnrefusal) refuses the spawn as a tool result: no
 assignment, no reservation, no journal entry, no worker — and the refusal is counted on
 [CoordinationTools.stats](#stats) so a gate that never refuses is visible as such.
 
@@ -4273,9 +2799,9 @@ are on its box, not on this host. Omit and `spawnResourceRoot` applies as before
 
 ##### escalateQuestion?
 
-> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](durable.md#escalatequestion-2)
 
-OPT-IN parent channel for `ask_parent`. See [EscalateQuestion](runtime.md#escalatequestion).
+OPT-IN parent channel for `ask_parent`. See [EscalateQuestion](durable.md#escalatequestion-2).
 
 Omit and this manager is treated as the TOP of its question chain: `ask_parent` still raises and
 journals the question, and answers `escalated: false, outcome: 'no-parent'` so the manager knows
@@ -4285,14 +2811,14 @@ it must decide the question itself rather than wait.
 
 > `readonly` `optional` **onChildQuestionInbox?**: (`inbox`) => `void`
 
-Receives this manager's [ChildQuestionInbox](runtime.md#childquestioninbox) once its tools exist, so Runtime can route
+Receives this manager's [ChildQuestionInbox](testing.md#childquestioninbox) once its tools exist, so Runtime can route
  a child manager's `ask_parent` here.
 
 ###### Parameters
 
 ###### inbox
 
-[`ChildQuestionInbox`](runtime.md#childquestioninbox)
+[`ChildQuestionInbox`](testing.md#childquestioninbox)
 
 ###### Returns
 
@@ -4371,6 +2897,50 @@ processes; this option only restores what the manager is allowed to believe it a
 
 ***
 
+### CoordinationStats
+
+Bus throughput plus the pre-flight's own refusal ledger.
+
+#### Extends
+
+- [`BusStats`](runtime.md#busstats)
+
+#### Properties
+
+##### preflight?
+
+> `readonly` `optional` **preflight?**: `Readonly`\<`Record`\<[`SpawnRefusalCause`](#spawnrefusalcause), `number`\>\>
+
+One counter per refusal cause, present only when a pre-flight is installed.
+
+##### published
+
+> `readonly` **published**: `number`
+
+###### Inherited from
+
+[`BusStats`](runtime.md#busstats).[`published`](runtime.md#published)
+
+##### pulled
+
+> `readonly` **pulled**: `number`
+
+###### Inherited from
+
+[`BusStats`](runtime.md#busstats).[`pulled`](runtime.md#pulled)
+
+##### byKind
+
+> `readonly` **byKind**: `Readonly`\<`Record`\<`string`, `number`\>\>
+
+Count published per event `type`.
+
+###### Inherited from
+
+[`BusStats`](runtime.md#busstats).[`byKind`](runtime.md#bykind)
+
+***
+
 ### CoordinationTools
 
 The supervisor-side toolbox returned by [createCoordinationTools](#createcoordinationtools): the MCP tool
@@ -4433,19 +3003,19 @@ The first result whose injected independent check passed, if the driver submitte
 
 ##### settled()
 
-> **settled**(): readonly [`SettledWorker`](#settledworker)[]
+> **settled**(): readonly [`SettledWorker`](runtime.md#settledworker)[]
 
 ###### Returns
 
-readonly [`SettledWorker`](#settledworker)[]
+readonly [`SettledWorker`](runtime.md#settledworker)[]
 
 ##### questions()
 
-> **questions**(): readonly [`QuestionRecord`](#questionrecord)[]
+> **questions**(): readonly [`QuestionRecord`](runtime.md#questionrecord)[]
 
 ###### Returns
 
-readonly [`QuestionRecord`](#questionrecord)[]
+readonly [`QuestionRecord`](runtime.md#questionrecord)[]
 
 ##### escalations()
 
@@ -4483,16 +3053,16 @@ readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#c
 
 ##### stats()
 
-> **stats**(): [`CoordinationStats`](runtime.md#coordinationstats)
+> **stats**(): [`CoordinationStats`](#coordinationstats)
 
 Bus throughput counters (published / pulled / by-kind) for live dashboards, plus one
- counter per [SpawnRefusalCause](runtime.md#spawnrefusalcause) the pre-flight refused. `preflight` is present
+ counter per [SpawnRefusalCause](#spawnrefusalcause) the pre-flight refused. `preflight` is present
  whenever `preflightSpawn` is installed, with every cause at 0 until one fires — a gate that
  never refuses has to be readable as such.
 
 ###### Returns
 
-[`CoordinationStats`](runtime.md#coordinationstats)
+[`CoordinationStats`](#coordinationstats)
 
 ##### raiseFinding()
 
@@ -4653,7 +3223,7 @@ True while this manager has work it must hear back about: a worker running, a re
 
 ##### awaitWake()
 
-> **awaitWake**(`input`): `Promise`\<[`ManagerWake`](runtime.md#managerwake) \| `undefined`\>
+> **awaitWake**(`input`): `Promise`\<[`ManagerWake`](#managerwake) \| `undefined`\>
 
 Wait, with no model turn, until something reaches this manager's inbox, the heartbeat
  elapses, or the deadline warning comes due; then deliver everything that arrived. Undefined
@@ -4663,11 +3233,11 @@ Wait, with no model turn, until something reaches this manager's inbox, the hear
 
 ###### input
 
-[`AwaitWakeInput`](runtime.md#awaitwakeinput)
+[`AwaitWakeInput`](#awaitwakeinput)
 
 ###### Returns
 
-`Promise`\<[`ManagerWake`](runtime.md#managerwake) \| `undefined`\>
+`Promise`\<[`ManagerWake`](#managerwake) \| `undefined`\>
 
 ##### awaitSettlement()
 
@@ -4757,18 +3327,18 @@ The run state a re-entered manager is told, read from this coordinator's own rec
 
 ##### checkReads()
 
-> **checkReads**(): readonly [`CheckRead`](runtime.md#checkread)[]
+> **checkReads**(): readonly [`CheckRead`](#checkread)[]
 
 Every time this manager's completion check ran, oldest first: each `submit_result`, and each
  turn end the manager recorded through [CoordinationTools.recordCheckRead](#recordcheckread).
 
 ###### Returns
 
-readonly [`CheckRead`](runtime.md#checkread)[]
+readonly [`CheckRead`](#checkread)[]
 
 ##### recordCheckRead()
 
-> **recordCheckRead**(`read`): [`CheckRead`](runtime.md#checkread)
+> **recordCheckRead**(`read`): [`CheckRead`](#checkread)
 
 Record a check read that happened outside `submit_result`, such as a turn end.
 
@@ -4790,7 +3360,7 @@ Record a check read that happened outside `submit_result`, such as a turn end.
 
 ###### Returns
 
-[`CheckRead`](runtime.md#checkread)
+[`CheckRead`](#checkread)
 
 ##### blocked()
 
@@ -4802,6 +3372,102 @@ Every `report_blocked` whose probe failed too, in report order. A blocked tool i
 ###### Returns
 
 readonly [`BlockedToolReport`](runtime.md#blockedtoolreport)[]
+
+***
+
+### AwaitWakeInput
+
+What a manager waits for, from `awaitWake`.
+
+#### Properties
+
+##### attempt?
+
+> `readonly` `optional` **attempt?**: `number`
+
+The driver attempt the wake will start: its deliveries are acknowledged when that turn
+ completes, and named again on re-entry when it fails. Omit for the current attempt.
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+##### heartbeatMs
+
+> `readonly` **heartbeatMs**: `number`
+
+Wake with no event after this long, so a waiting manager can reconsider.
+
+##### quietWhileProgressing?
+
+> `readonly` `optional` **quietWhileProgressing?**: `boolean`
+
+The wake starts a model turn: a heartbeat that finds every live worker progressing is
+ re-armed instead of returned. A caller that uses the heartbeat as a poll bound omits it.
+
+##### debounceMs
+
+> `readonly` **debounceMs**: `number`
+
+After the first event, wait this long for more and deliver them together.
+
+##### deadlineAt?
+
+> `readonly` `optional` **deadlineAt?**: `number`
+
+Epoch ms of a deadline warning: wake once then, with or without an event.
+
+##### alsoWakeOn?
+
+> `readonly` `optional` **alsoWakeOn?**: `Promise`\<`unknown`\>
+
+Something outside the bus that also ends the wait, such as a delivery to the manager's own
+ inbox.
+
+***
+
+### ManagerWake
+
+One wake of a manager that ended its turn with work open.
+
+#### Properties
+
+##### reason
+
+> `readonly` **reason**: `"deadline"` \| `"events"` \| `"heartbeat"`
+
+`events`: something reached the inbox. `heartbeat`: the heartbeat elapsed with nothing new.
+ `deadline`: the deadline warning came due.
+
+##### events
+
+> `readonly` **events**: readonly `Record`\<`string`, `unknown`\> & `object`[]
+
+Everything that reached the inbox since the last turn, in bus order.
+
+##### live
+
+> `readonly` **live**: readonly `Record`\<`string`, `unknown`\>[]
+
+Workers still running.
+
+##### freeSlots
+
+> `readonly` **freeSlots**: `number` \| `null`
+
+How many more workers can start now; `null` when uncapped.
+
+##### idleMs
+
+> `readonly` **idleMs**: `number`
+
+How long the manager waited, with no model turn, before this wake.
+
+##### quietHeartbeats?
+
+> `readonly` `optional` **quietHeartbeats?**: `number`
+
+Heartbeats that elapsed with every live worker still progressing, and woke no turn.
 
 ***
 
@@ -4823,7 +3489,7 @@ readonly [`BlockedToolReport`](runtime.md#blockedtoolreport)[]
 
 #### Extended by
 
-- [`QuestionRecord`](#questionrecord)
+- [`QuestionRecord`](runtime.md#questionrecord)
 
 #### Properties
 
@@ -4854,168 +3520,6 @@ readonly [`BlockedToolReport`](runtime.md#blockedtoolreport)[]
 ##### options?
 
 > `readonly` `optional` **options?**: readonly [`QuestionOption`](#questionoption)[]
-
-***
-
-### QuestionRecord
-
-#### Extends
-
-- [`Question`](#question)
-
-#### Properties
-
-##### id
-
-> `readonly` **id**: `string`
-
-###### Inherited from
-
-[`Question`](#question).[`id`](#id-5)
-
-##### from
-
-> `readonly` **from**: `string`
-
-###### Inherited from
-
-[`Question`](#question).[`from`](#from)
-
-##### level
-
-> `readonly` **level**: [`QuestionLevel`](#questionlevel)
-
-###### Inherited from
-
-[`Question`](#question).[`level`](#level)
-
-##### question
-
-> `readonly` **question**: `string`
-
-###### Inherited from
-
-[`Question`](#question).[`question`](#question-1)
-
-##### reason
-
-> `readonly` **reason**: `string`
-
-###### Inherited from
-
-[`Question`](#question).[`reason`](#reason-4)
-
-##### urgency
-
-> `readonly` **urgency**: [`QuestionUrgency`](#questionurgency)
-
-###### Inherited from
-
-[`Question`](#question).[`urgency`](#urgency)
-
-##### options?
-
-> `readonly` `optional` **options?**: readonly [`QuestionOption`](#questionoption)[]
-
-###### Inherited from
-
-[`Question`](#question).[`options`](#options)
-
-##### status
-
-> `readonly` **status**: `"deferred"` \| `"open"` \| `"answered"` \| `"escalated"`
-
-##### decision?
-
-> `readonly` `optional` **decision?**: [`QuestionDecision`](#questiondecision)
-
-##### openedAt
-
-> `readonly` **openedAt**: `number`
-
-***
-
-### DelegateFeedbackHandlerOptions
-
-**`Stable`**
-
-#### Properties
-
-##### queue
-
-> **queue**: [`DelegationTaskQueue`](#delegationtaskqueue)
-
-##### store
-
-> **store**: [`FeedbackStore`](#feedbackstore)
-
-##### generateId?
-
-> `optional` **generateId?**: () => `string`
-
-###### Returns
-
-`string`
-
-##### now?
-
-> `optional` **now?**: () => `string`
-
-###### Returns
-
-`string`
-
-***
-
-### DelegateUiAuditHandlerOptions
-
-**`Experimental`**
-
-#### Properties
-
-##### queue
-
-> **queue**: [`DelegationTaskQueue`](#delegationtaskqueue)
-
-**`Experimental`**
-
-##### delegate
-
-> **delegate**: [`UiAuditorDelegate`](#uiauditordelegate)
-
-**`Experimental`**
-
-##### estimateDurationMs?
-
-> `optional` **estimateDurationMs?**: (`args`) => `number`
-
-**`Experimental`**
-
-###### Parameters
-
-###### args
-
-[`DelegateUiAuditArgs`](#delegateuiauditargs)
-
-###### Returns
-
-`number`
-
-***
-
-### DelegateArgs
-
-Parsed `delegate` tool arguments.
-
-#### Properties
-
-##### intent
-
-> **intent**: `string`
-
-##### runId?
-
-> `optional` **runId?**: `string`
 
 ***
 
@@ -5072,30 +3576,6 @@ The completion oracle the authored workers settle against (settled ⟺ delivered
 > `optional` **allowedModels?**: readonly `string`[]
 
 Restrict the run to this subset of models.
-
-***
-
-### DelegationHistoryHandlerOptions
-
-**`Stable`**
-
-#### Properties
-
-##### queue
-
-> **queue**: [`DelegationTaskQueue`](#delegationtaskqueue)
-
-***
-
-### DelegationStatusHandlerOptions
-
-**`Stable`**
-
-#### Properties
-
-##### queue
-
-> **queue**: [`DelegationTaskQueue`](#delegationtaskqueue)
 
 ***
 
@@ -5295,28 +3775,6 @@ Multi-tenant scope (customer-id, workspace-id).
 
 ***
 
-### DelegateCodeResult
-
-**`Experimental`**
-
-#### Properties
-
-##### taskId
-
-> **taskId**: `string`
-
-**`Experimental`**
-
-##### estimatedDurationMs?
-
-> `optional` **estimatedDurationMs?**: `number`
-
-**`Experimental`**
-
-Best-effort hint — coder loops can take minutes-to-hours.
-
-***
-
 ### DelegateResearchConfig
 
 **`Experimental`**
@@ -5395,26 +3853,6 @@ Best-effort hint — coder loops can take minutes-to-hours.
 
 ***
 
-### DelegateResearchResult
-
-**`Experimental`**
-
-#### Properties
-
-##### taskId
-
-> **taskId**: `string`
-
-**`Experimental`**
-
-##### estimatedDurationMs?
-
-> `optional` **estimatedDurationMs?**: `number`
-
-**`Experimental`**
-
-***
-
 ### FeedbackRefersTo
 
 **`Experimental`**
@@ -5462,91 +3900,6 @@ For `'delegation'`, this is the taskId.
 > **notes**: `string`
 
 **`Experimental`**
-
-***
-
-### DelegateFeedbackArgs
-
-**`Experimental`**
-
-#### Properties
-
-##### refersTo
-
-> **refersTo**: [`FeedbackRefersTo`](#feedbackrefersto)
-
-**`Experimental`**
-
-##### rating
-
-> **rating**: [`FeedbackRating`](#feedbackrating)
-
-**`Experimental`**
-
-##### by
-
-> **by**: `"agent"` \| `"user"` \| `"downstream-judge"`
-
-**`Experimental`**
-
-##### capturedAt?
-
-> `optional` **capturedAt?**: `string`
-
-**`Experimental`**
-
-ISO timestamp; defaults to server clock when omitted.
-
-##### namespace?
-
-> `optional` **namespace?**: `string`
-
-**`Experimental`**
-
-***
-
-### DelegateFeedbackResult
-
-**`Experimental`**
-
-#### Properties
-
-##### recorded
-
-> **recorded**: `true`
-
-**`Experimental`**
-
-##### id
-
-> **id**: `string`
-
-**`Experimental`**
-
-***
-
-### DelegationStatusArgs
-
-**`Experimental`**
-
-#### Properties
-
-##### taskId
-
-> **taskId**: `string`
-
-**`Experimental`**
-
-##### includeTrace?
-
-> `optional` **includeTrace?**: `boolean`
-
-**`Experimental`**
-
-Return the delegation's compact loop-trace span tree alongside the
-status. Default false — status polls stay light; opt in when you need
-the topology (which iterations ran, where they were placed, what each
-cost) rather than just the state machine.
 
 ***
 
@@ -5742,26 +4095,6 @@ Multi-tenant scope.
 ##### config?
 
 > `optional` **config?**: [`DelegateUiAuditConfig`](#delegateuiauditconfig)
-
-**`Experimental`**
-
-***
-
-### DelegateUiAuditResult
-
-**`Experimental`**
-
-#### Properties
-
-##### taskId
-
-> **taskId**: `string`
-
-**`Experimental`**
-
-##### estimatedDurationMs?
-
-> `optional` **estimatedDurationMs?**: `number`
 
 **`Experimental`**
 
@@ -6068,57 +4401,21 @@ Inherited trace identity recorded at submit — join key into the caller's trace
 
 ***
 
-### DelegationHistoryResult
+### CoderTask
 
 **`Experimental`**
+
+The per-task inputs `coderTaskToPrompt` renders + the worktree gate enforces.
 
 #### Properties
 
-##### delegations
+##### goal
 
-> **delegations**: [`DelegationHistoryEntry`](#delegationhistoryentry)[]
-
-**`Experimental`**
-
-***
-
-### WorktreeHandle
+> **goal**: `string`
 
 **`Experimental`**
 
-#### Properties
-
-##### path
-
-> **path**: `string`
-
-**`Experimental`**
-
-Absolute path to the worktree directory.
-
-##### baseSha
-
-> **baseSha**: `string`
-
-**`Experimental`**
-
-SHA the worktree was created at.
-
-##### branch
-
-> **branch**: `string`
-
-**`Experimental`**
-
-Branch name created for this worktree (typically `delegate/<runId>`).
-
-***
-
-### CreateWorktreeOptions
-
-**`Experimental`**
-
-#### Properties
+What the agent must accomplish. Free-form prose.
 
 ##### repoRoot
 
@@ -6126,149 +4423,100 @@ Branch name created for this worktree (typically `delegate/<runId>`).
 
 **`Experimental`**
 
-Absolute path to the main git checkout.
+Absolute path inside the sandbox where the repo lives.
 
-##### runId
+##### baseBranch?
 
-> **runId**: `string`
-
-**`Experimental`**
-
-Unique id for the worktree path + branch. Use the delegation run id.
-
-##### variantsDir?
-
-> `optional` **variantsDir?**: `string`
+> `optional` **baseBranch?**: `string`
 
 **`Experimental`**
 
-Parent directory the worktree lives under. Defaults to `.agent-worktrees`.
+Default `main`. The branch the agent diffs against.
 
-##### baseRef?
+##### testCmd?
 
-> `optional` **baseRef?**: `string`
-
-**`Experimental`**
-
-Override the base ref (default `HEAD`).
-
-##### runGit?
-
-> `optional` **runGit?**: [`GitRunner`](#gitrunner)
+> `optional` **testCmd?**: `string`
 
 **`Experimental`**
 
-Test seam — inject a custom git runner.
+Default `pnpm test --run`.
+
+##### typecheckCmd?
+
+> `optional` **typecheckCmd?**: `string`
+
+**`Experimental`**
+
+Default `pnpm typecheck`.
+
+##### contextFiles?
+
+> `optional` **contextFiles?**: `string`[]
+
+**`Experimental`**
+
+Files the agent may inspect for context. Surfaced verbatim in the prompt.
+
+##### forbiddenPaths?
+
+> `optional` **forbiddenPaths?**: `string`[]
+
+**`Experimental`**
+
+Paths the agent must not touch. The mechanical gate hard-fails on any match.
+Use glob-free literal path prefixes for unambiguous enforcement.
+
+##### maxDiffLines?
+
+> `optional` **maxDiffLines?**: `number`
+
+**`Experimental`**
+
+Default 400. Hard cap; the gate hard-fails when exceeded.
 
 ***
 
-### DiffOptions
+### CheckRead
 
-**`Experimental`**
-
-#### Properties
-
-##### worktree
-
-> **worktree**: [`WorktreeHandle`](#worktreehandle)
-
-**`Experimental`**
-
-Worktree to diff.
-
-##### baseRef?
-
-> `optional` **baseRef?**: `string`
-
-**`Experimental`**
-
-What to compare against. Default `worktree.baseSha`.
-
-##### excludePaths?
-
-> `optional` **excludePaths?**: readonly `string`[]
-
-**`Experimental`**
-
-Repository-relative input paths to omit from the captured worker patch.
-Paths are passed to Git with literal exclusion magic, so profile-provided
-`*`, `?`, `[` and `:` characters can never expand into broader pathspecs.
-
-##### runGit?
-
-> `optional` **runGit?**: [`GitRunner`](#gitrunner)
-
-**`Experimental`**
-
-Test seam.
-
-***
-
-### DiffResult
-
-**`Experimental`**
+One time the check ran inside the run, whatever started it.
 
 #### Properties
 
-##### patch
+##### read
 
-> **patch**: `string`
+> `readonly` **read**: `number`
 
-**`Experimental`**
+1-based count of check reads in this manager, the unavailable ones included.
 
-##### stats
+##### attempt
 
-> **stats**: `object`
+> `readonly` **attempt**: `number`
 
-**`Experimental`**
+The driver attempt the read belongs to.
 
-###### filesChanged
+##### at
 
-> **filesChanged**: `number`
+> `readonly` **at**: `number`
 
-###### insertions
+Epoch ms.
 
-> **insertions**: `number`
+##### source
 
-###### deletions
+> `readonly` **source**: `"submit"` \| `"turn-end"`
 
-> **deletions**: `number`
+`submit`: a `submit_result` call. `turn-end`: the turn ended with no accepted result.
 
-***
+##### verdict?
 
-### RemoveWorktreeOptions
+> `readonly` `optional` **verdict?**: [`CheckVerdict`](runtime.md#checkverdict)
 
-**`Experimental`**
+Absent when the check could not run.
 
-#### Properties
+##### unavailable?
 
-##### worktree
+> `readonly` `optional` **unavailable?**: `string`
 
-> **worktree**: [`WorktreeHandle`](#worktreehandle)
-
-**`Experimental`**
-
-##### repoRoot
-
-> **repoRoot**: `string`
-
-**`Experimental`**
-
-##### force?
-
-> `optional` **force?**: `boolean`
-
-**`Experimental`**
-
-Force removal even if dirty (default true; the loser of a fanout has uncommitted changes).
-
-##### runGit?
-
-> `optional` **runGit?**: [`GitRunner`](#gitrunner)
-
-**`Experimental`**
-
-Test seam.
+Why the check could not run.
 
 ## Type Aliases
 
@@ -6344,7 +4592,7 @@ judge, a `pnpm review` command, anything returning a `CoderReview`.
 
 ##### task
 
-[`CoderTask`](profiles.md#codertask)
+[`CoderTask`](#codertask)
 
 ##### ctx
 
@@ -6369,26 +4617,6 @@ sandbox-session path. The base strategies (`highest-score` / `smallest-diff` /
 `first-approved`) delegate to the shared `selectValidWinner`; `highest-readiness` is the
 reviewer-only strategy this path keeps that the generic selector does not express. Default
 `highest-score`.
-
-***
-
-### DriveTurnTick
-
-> **DriveTurnTick** = \{ `state`: `"completed"`; `text`: `string`; `result`: `Record`\<`string`, `unknown`\>; \} \| \{ `state`: `"running"`; `startedAt?`: `Date`; `elapsedMs?`: `number`; \} \| \{ `state`: `"failed"`; `error`: `string`; \}
-
-**`Experimental`**
-
-Structural mirror of the sandbox SDK's `TurnDriveResult` (>= 0.6).
-Discriminated on `state`; `failed` is terminal and deterministic per the
-SDK contract — re-invoking with the same ids returns the same outcome.
-
-***
-
-### SourcedHarness
-
-> **SourcedHarness** = keyof *typeof* [`harnessNativeTools`](#harnessnativetools)
-
-A harness with a sourced native tool list.
 
 ***
 
@@ -6427,48 +4655,11 @@ after `intervalMs`; `completed` / `failed` settle the record.
 
 ***
 
-### AnalystToolGroupName
+### SpawnRefusalCause
 
-> **AnalystToolGroupName** = *typeof* [`analystToolGroupNames`](#analysttoolgroupnames)\[`number`\]
+> **SpawnRefusalCause** = `"model-route"` \| `"bridge-full"` \| `"unmountable-tool"` \| `"unprovisionable-profile"`
 
-***
-
-### GraphSubtaskPreparation
-
-> **GraphSubtaskPreparation** = \{ `ok`: `true`; `profile`: `AgentProfile`; `root`: `string`; `nodes`: `ReadonlyArray`\<`string`\>; \} \| \{ `ok`: `false`; `reason`: `string`; \}
-
-A graph a manager asked `run_graph` to run, validated and composed by the run that owns the
- worker path, or the reason it was refused.
-
-#### Union Members
-
-##### Type Literal
-
-\{ `ok`: `true`; `profile`: `AgentProfile`; `root`: `string`; `nodes`: `ReadonlyArray`\<`string`\>; \}
-
-###### ok
-
-> `readonly` **ok**: `true`
-
-###### profile
-
-> `readonly` **profile**: `AgentProfile`
-
-The exact profile the spawn runs: the root node's pinned profile with the graph brief.
-
-###### root
-
-> `readonly` **root**: `string`
-
-###### nodes
-
-> `readonly` **nodes**: `ReadonlyArray`\<`string`\>
-
-***
-
-##### Type Literal
-
-\{ `ok`: `false`; `reason`: `string`; \}
+Why a pre-flight refused a spawn. Each cause is a distinct, separately countable decision.
 
 ***
 
@@ -6481,24 +4672,6 @@ The exact profile the spawn runs: the root node's pinned profile with the graph 
 ### QuestionUrgency
 
 > **QuestionUrgency** = `"continue-without"` \| `"blocks-step"` \| `"blocks-run"`
-
-***
-
-### QuestionEscalationTarget
-
-> **QuestionEscalationTarget** = *typeof* [`questionEscalationTargets`](#questionescalationtargets)\[`number`\]
-
-***
-
-### QuestionDecision
-
-> **QuestionDecision** = \{ `kind`: `"answer"`; `answer`: `string`; `by`: `string`; \} \| \{ `kind`: `"defer"`; `reason`: `string`; \} \| \{ `kind`: `"escalate"`; `to`: [`QuestionEscalationTarget`](#questionescalationtarget); `reason`: `string`; \}
-
-***
-
-### QuestionPolicy
-
-> **QuestionPolicy** = `"auto"` \| `"mustDecide"` \| `"bubble"` \| `"failClosed"`
 
 ***
 
@@ -6520,14 +4693,6 @@ The synchronous result the `delegate` tool returns to the calling agent: the del
 ### ResolveSpawnResourcePathsResult
 
 > **ResolveSpawnResourcePathsResult** = \{ `ok`: `true`; `profile`: `unknown`; `resolved`: readonly [`ResolvedSpawnResourcePath`](#resolvedspawnresourcepath)[]; \} \| \{ `ok`: `false`; `at`: `string`; `reason`: `string`; \}
-
-***
-
-### DelegationProfile
-
-> **DelegationProfile** = *typeof* [`delegationProfiles`](#delegationprofiles)\[`number`\]
-
-**`Experimental`**
 
 ***
 
@@ -6557,102 +4722,7 @@ The MCP wire carries it as JSON either way.
 
 **`Experimental`**
 
-***
-
-### GitRunner
-
-> **GitRunner** = (`args`, `opts`) => `object`
-
-Pluggable git runner (sync) — replaceable in tests.
-
-#### Parameters
-
-##### args
-
-`ReadonlyArray`\<`string`\>
-
-##### opts
-
-###### cwd
-
-`string`
-
-#### Returns
-
-`object`
-
-##### stdout
-
-> **stdout**: `string`
-
-##### stderr
-
-> **stderr**: `string`
-
-##### exitCode
-
-> **exitCode**: `number`
-
 ## Variables
-
-### DELEGATION\_TRACE\_MAX\_SPANS
-
-> `const` **DELEGATION\_TRACE\_MAX\_SPANS**: `512` = `512`
-
-**`Experimental`**
-
-Default cap on spans retained per delegation record.
-
-***
-
-### DELEGATION\_TRACE\_MAX\_BYTES
-
-> `const` **DELEGATION\_TRACE\_MAX\_BYTES**: `number`
-
-**`Experimental`**
-
-Default cap on the serialized trace payload per record, in bytes.
-
-***
-
-### harnessNativeTools
-
-> `const` **harnessNativeTools**: `object`
-
-Sourced native sub-agent tool names, keyed by the same `HarnessType` vocabulary the rest of the
-runtime draws harness names from, so a harness the interface renames is a compile error here.
-
-#### Type Declaration
-
-##### codex
-
-> `readonly` **codex**: readonly \[`"spawn_agent"`, `"send_input"`, `"resume_agent"`, `"close_agent"`, `"list_agents"`, `"wait_agent"`, `"send_message"`, `"interrupt_agent"`, `"followup_task"`\]
-
-##### claude-code
-
-> `readonly` **claude-code**: readonly \[`"Agent"`, `"Task"`, `"SendMessage"`, `"TaskStop"`, `"KillAgent"`\]
-
-##### opencode
-
-> `readonly` **opencode**: readonly \[`"task"`\]
-
-***
-
-### sourcedHarnesses
-
-> `const` **sourcedHarnesses**: readonly (`"opencode"` \| `"claude-code"` \| `"codex"`)[]
-
-The harnesses this registry has a sourced list for.
-
-***
-
-### HUB\_DATA\_PROVIDER\_KINDS
-
-> `const` **HUB\_DATA\_PROVIDER\_KINDS**: readonly `string`[]
-
-The substrate data providers whose Hub adapters become agent tools.
-
-***
 
 ### LOCAL\_HARNESSES
 
@@ -6661,873 +4731,7 @@ The substrate data providers whose Hub adapters become agent tools.
 Every local harness, in table order — the one list `AGENT_RUNTIME_LOCAL_HARNESSES` and any
  other harness enumeration reads, so adding a row above is the only edit a new harness needs.
 
-***
-
-### DEFAULT\_LOCAL\_HARNESS
-
-> `const` **DEFAULT\_LOCAL\_HARNESS**: [`LocalHarness`](#localharness) = `'claude-code'`
-
-The harness a caller gets when it expresses no preference. A composition-root default, not a
- capability claim: one constant so the several entry points cannot drift apart.
-
-***
-
-### MEMORY\_FILE\_ENV
-
-> `const` **MEMORY\_FILE\_ENV**: `"AGENT_MEMORY_FILE"` = `'AGENT_MEMORY_FILE'`
-
-Env var naming the durable row store file the memory bin loads (the
- `memoryMcpServer` ↔ memory-bin contract).
-
-***
-
-### MEMORY\_ITEMS\_ENV
-
-> `const` **MEMORY\_ITEMS\_ENV**: `"AGENT_MEMORY_ITEMS"` = `'AGENT_MEMORY_ITEMS'`
-
-Env var carrying inline JSON `MemoryItem` rows (win over file rows on id).
-
-***
-
-### MEMORY\_LOG\_ENV
-
-> `const` **MEMORY\_LOG\_ENV**: `"AGENT_MEMORY_LOG"` = `'AGENT_MEMORY_LOG'`
-
-Env var naming the JSONL retrieval log (one row per `memory_search`).
-
-***
-
-### MEMORY\_NAME\_ENV
-
-> `const` **MEMORY\_NAME\_ENV**: `"AGENT_MEMORY_NAME"` = `'AGENT_MEMORY_NAME'`
-
-Env var overriding the served display name (default 'agent-memory').
-
-***
-
-### SUPPORTED\_PROTOCOL\_VERSIONS
-
-> `const` **SUPPORTED\_PROTOCOL\_VERSIONS**: readonly `string`[]
-
-Protocol versions this server speaks, newest first. `initialize` answers with
-the client's requested version when it is listed here, and otherwise with
-`PROTOCOL_VERSION` (2024-11-05), which every client that speaks 2024-11-05 accepts.
-
-***
-
-### analystToolGroupNames
-
-> `const` **analystToolGroupNames**: readonly \[`"all"`, `"discovery"`, `"discoveryAndRead"`, `"discoveryAndSearch"`, `"targeted"`, `"singleTrace"`\]
-
-The trace-tool sets a DEFINED analyst may ask for — the exact group names agent-eval's
-`buildTraceToolsForGroup` accepts, restated here so the `define_analyst` JSON Schema can
-enumerate them for the model that writes one. Named, not free-form, because the group is the
-lens's cost ceiling: `all` grants seven trace tools, `discovery` grants three and no deep reads.
-A name eval does not know throws at registration, which is where the two lists are held together.
-
-***
-
-### ANALYST\_DEFINITION\_BOUNDS
-
-> `const` **ANALYST\_DEFINITION\_BOUNDS**: `Readonly`\<\{ `idPattern`: `RegExp`; `maxDescriptionChars`: `300`; `maxAreaChars`: `64`; `maxQuestionChars`: `1000`; `maxInstructionsChars`: `20000`; `maxModelChars`: `128`; `maxIterations`: `24`; `maxLlmCalls`: `16`; `maxToolCalls`: `96`; `maxOutputChars`: `20000`; `maxEvidenceCitations`: `10`; `maxDefinitionsPerManager`: `8`; \}\>
-
-Every bound `define_analyst` enforces before a definition reaches a registry.
-
- MOTIVE, stated as numbers, because a fence whose motive cannot be stated is over-engineering:
- a defined lens spends real model calls from the run's own account on every settle it is routed
- over, and its `instructions` are re-sent on every one of them. So the two fields that multiply
- — `instructions` bytes and `maxLlmCalls` — are the ones with hard ceilings, and the ceilings are
- twice agent-eval's own defaults (`maxIterations` 12, `maxLlmCalls` 8, `maxToolCalls` 48,
- `maxOutputChars` 10_000): enough headroom for a deeper question than the shipped lenses ask,
- not enough for one definition to become the dominant cost of a run.
-
-***
-
-### downMessageRefusalReasons
-
-> `const` **downMessageRefusalReasons**: `Readonly`\<`Record`\<[`DownMessageDeliveryOutcome`](runtime.md#downmessagedeliveryoutcome), `string`\>\>
-
-Why one parent→child delivery did not land, in the words the MANAGER needs.
-
-`DownMessageDeliveryOutcome` is the machine code; this is the sentence beside it. A code alone
-left the manager to guess whether to retry, spawn, or give up — `already-settled` and
-`scope-stopped` look alike and need opposite moves. Every refusal a coordination verb returns
-carries a sentence like these, because the manager cannot see the state that produced it.
-
-***
-
-### questionEscalationTargets
-
-> `const` **questionEscalationTargets**: readonly \[`"parent"`, `"user"`\]
-
-Where a question this driver cannot answer goes next. `answer_question` accepts these and
- nothing else, so the decision type states them and nothing else.
-
-***
-
-### DELEGATE\_FEEDBACK\_TOOL\_NAME
-
-> `const` **DELEGATE\_FEEDBACK\_TOOL\_NAME**: `"delegate_feedback"` = `'delegate_feedback'`
-
-**`Stable`**
-
-MCP tool name for the `delegate_feedback` feedback-recording tool.
-
-***
-
-### DELEGATE\_FEEDBACK\_DESCRIPTION
-
-> `const` **DELEGATE\_FEEDBACK\_DESCRIPTION**: `string`
-
-**`Stable`**
-
-Human-readable description of the `delegate_feedback` MCP tool, injected into the tool manifest.
-
-***
-
-### DELEGATE\_FEEDBACK\_INPUT\_SCHEMA
-
-> `const` **DELEGATE\_FEEDBACK\_INPUT\_SCHEMA**: `object`
-
-**`Stable`**
-
-JSON Schema for `delegate_feedback` tool arguments (`refersTo`, `rating`, `by`, optional fields).
-
-#### Type Declaration
-
-##### type
-
-> `readonly` **type**: `"object"` = `'object'`
-
-##### properties
-
-> `readonly` **properties**: `object`
-
-###### properties.refersTo
-
-> `readonly` **refersTo**: `object`
-
-###### properties.refersTo.type
-
-> `readonly` **type**: `"object"` = `'object'`
-
-###### properties.refersTo.properties
-
-> `readonly` **properties**: `object`
-
-###### properties.refersTo.properties.kind
-
-> `readonly` **kind**: `object`
-
-###### properties.refersTo.properties.kind.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.refersTo.properties.kind.enum
-
-> `readonly` **enum**: readonly \[`"delegation"`, `"artifact"`, `"outcome"`\]
-
-###### properties.refersTo.properties.ref
-
-> `readonly` **ref**: `object`
-
-###### properties.refersTo.properties.ref.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.refersTo.required
-
-> `readonly` **required**: readonly \[`"kind"`, `"ref"`\]
-
-###### properties.refersTo.additionalProperties
-
-> `readonly` **additionalProperties**: `false` = `false`
-
-###### properties.rating
-
-> `readonly` **rating**: `object`
-
-###### properties.rating.type
-
-> `readonly` **type**: `"object"` = `'object'`
-
-###### properties.rating.properties
-
-> `readonly` **properties**: `object`
-
-###### properties.rating.properties.score
-
-> `readonly` **score**: `object`
-
-###### properties.rating.properties.score.type
-
-> `readonly` **type**: `"number"` = `'number'`
-
-###### properties.rating.properties.score.minimum
-
-> `readonly` **minimum**: `0` = `0`
-
-###### properties.rating.properties.score.maximum
-
-> `readonly` **maximum**: `1` = `1`
-
-###### properties.rating.properties.label
-
-> `readonly` **label**: `object`
-
-###### properties.rating.properties.label.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.rating.properties.label.enum
-
-> `readonly` **enum**: readonly \[`"good"`, `"bad"`, `"neutral"`, `"mixed"`\]
-
-###### properties.rating.properties.notes
-
-> `readonly` **notes**: `object`
-
-###### properties.rating.properties.notes.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.rating.required
-
-> `readonly` **required**: readonly \[`"score"`, `"notes"`\]
-
-###### properties.rating.additionalProperties
-
-> `readonly` **additionalProperties**: `false` = `false`
-
-###### properties.by
-
-> `readonly` **by**: `object`
-
-###### properties.by.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.by.enum
-
-> `readonly` **enum**: readonly \[`"agent"`, `"user"`, `"downstream-judge"`\]
-
-###### properties.capturedAt
-
-> `readonly` **capturedAt**: `object`
-
-###### properties.capturedAt.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.namespace
-
-> `readonly` **namespace**: `object`
-
-###### properties.namespace.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-##### required
-
-> `readonly` **required**: readonly \[`"refersTo"`, `"rating"`, `"by"`\]
-
-##### additionalProperties
-
-> `readonly` **additionalProperties**: `false` = `false`
-
-***
-
-### DELEGATE\_UI\_AUDIT\_TOOL\_NAME
-
-> `const` **DELEGATE\_UI\_AUDIT\_TOOL\_NAME**: `"delegate_ui_audit"` = `'delegate_ui_audit'`
-
-**`Experimental`**
-
-MCP tool name for the `delegate_ui_audit` async kickoff tool.
-
-***
-
-### DELEGATE\_UI\_AUDIT\_DESCRIPTION
-
-> `const` **DELEGATE\_UI\_AUDIT\_DESCRIPTION**: `string`
-
-**`Experimental`**
-
-Human-readable description of the `delegate_ui_audit` MCP tool, injected into the tool manifest.
-
-***
-
-### DELEGATE\_UI\_AUDIT\_INPUT\_SCHEMA
-
-> `const` **DELEGATE\_UI\_AUDIT\_INPUT\_SCHEMA**: `object`
-
-**`Experimental`**
-
-JSON Schema for `delegate_ui_audit` tool arguments (`workspaceDir`, `routes`, optional config).
-
-#### Type Declaration
-
-##### type
-
-> `readonly` **type**: `"object"` = `'object'`
-
-##### properties
-
-> `readonly` **properties**: `object`
-
-###### properties.workspaceDir
-
-> `readonly` **workspaceDir**: `object`
-
-###### properties.workspaceDir.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.workspaceDir.description
-
-> `readonly` **description**: `"Absolute path for the audit workspace."` = `'Absolute path for the audit workspace.'`
-
-###### properties.routes
-
-> `readonly` **routes**: `object`
-
-###### properties.routes.type
-
-> `readonly` **type**: `"array"` = `'array'`
-
-###### properties.routes.items
-
-> `readonly` **items**: `object` = `ROUTE_SCHEMA`
-
-###### properties.routes.items.type
-
-> `readonly` **type**: `"object"` = `'object'`
-
-###### properties.routes.items.properties
-
-> `readonly` **properties**: `object`
-
-###### properties.routes.items.properties.name
-
-> `readonly` **name**: `object`
-
-###### properties.routes.items.properties.name.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.routes.items.properties.name.description
-
-> `readonly` **description**: `"Stable route name (used in screenshot filenames)."` = `'Stable route name (used in screenshot filenames).'`
-
-###### properties.routes.items.properties.url
-
-> `readonly` **url**: `object`
-
-###### properties.routes.items.properties.url.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.routes.items.properties.url.description
-
-> `readonly` **description**: `"Fully-qualified URL."` = `'Fully-qualified URL.'`
-
-###### properties.routes.items.properties.viewports
-
-> `readonly` **viewports**: `object`
-
-###### properties.routes.items.properties.viewports.type
-
-> `readonly` **type**: `"array"` = `'array'`
-
-###### properties.routes.items.properties.viewports.items
-
-> `readonly` **items**: `object` = `VIEWPORT_SCHEMA`
-
-###### properties.routes.items.properties.viewports.items.type
-
-> `readonly` **type**: `"object"` = `'object'`
-
-###### properties.routes.items.properties.viewports.items.properties
-
-> `readonly` **properties**: `object`
-
-###### properties.routes.items.properties.viewports.items.properties.width
-
-> `readonly` **width**: `object`
-
-###### properties.routes.items.properties.viewports.items.properties.width.type
-
-> `readonly` **type**: `"integer"` = `'integer'`
-
-###### properties.routes.items.properties.viewports.items.properties.width.minimum
-
-> `readonly` **minimum**: `1` = `1`
-
-###### properties.routes.items.properties.viewports.items.properties.height
-
-> `readonly` **height**: `object`
-
-###### properties.routes.items.properties.viewports.items.properties.height.type
-
-> `readonly` **type**: `"integer"` = `'integer'`
-
-###### properties.routes.items.properties.viewports.items.properties.height.minimum
-
-> `readonly` **minimum**: `1` = `1`
-
-###### properties.routes.items.properties.viewports.items.required
-
-> `readonly` **required**: readonly \[`"width"`, `"height"`\]
-
-###### properties.routes.items.properties.viewports.items.additionalProperties
-
-> `readonly` **additionalProperties**: `false` = `false`
-
-###### properties.routes.items.properties.viewports.description
-
-> `readonly` **description**: `"Viewports to capture at. Default [{1280, 800}]."` = `'Viewports to capture at. Default [{1280, 800}].'`
-
-###### properties.routes.items.properties.fullPage
-
-> `readonly` **fullPage**: `object`
-
-###### properties.routes.items.properties.fullPage.type
-
-> `readonly` **type**: `"boolean"` = `'boolean'`
-
-###### properties.routes.items.properties.waitFor
-
-> `readonly` **waitFor**: `object`
-
-###### properties.routes.items.properties.waitFor.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.routes.items.properties.waitFor.description
-
-> `readonly` **description**: `"CSS selector to wait for before capturing."` = `'CSS selector to wait for before capturing.'`
-
-###### properties.routes.items.required
-
-> `readonly` **required**: readonly \[`"name"`, `"url"`\]
-
-###### properties.routes.items.additionalProperties
-
-> `readonly` **additionalProperties**: `false` = `false`
-
-###### properties.routes.minItems
-
-> `readonly` **minItems**: `1` = `1`
-
-###### properties.namespace
-
-> `readonly` **namespace**: `object`
-
-###### properties.namespace.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.namespace.description
-
-> `readonly` **description**: `"Multi-tenant scope."` = `'Multi-tenant scope.'`
-
-###### properties.config
-
-> `readonly` **config**: `object`
-
-###### properties.config.type
-
-> `readonly` **type**: `"object"` = `'object'`
-
-###### properties.config.properties
-
-> `readonly` **properties**: `object`
-
-###### properties.config.properties.lenses
-
-> `readonly` **lenses**: `object`
-
-###### properties.config.properties.lenses.type
-
-> `readonly` **type**: `"array"` = `'array'`
-
-###### properties.config.properties.lenses.items
-
-> `readonly` **items**: `object`
-
-###### properties.config.properties.lenses.items.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.config.properties.lenses.items.enum
-
-> `readonly` **enum**: readonly [`UiLens`](profiles.md#uilens)[]
-
-###### properties.config.properties.lenses.description
-
-> `readonly` **description**: "Lenses to iterate. Default: every lens except \"other\"." = `'Lenses to iterate. Default: every lens except "other".'`
-
-###### properties.config.properties.maxIterations
-
-> `readonly` **maxIterations**: `object`
-
-###### properties.config.properties.maxIterations.type
-
-> `readonly` **type**: `"integer"` = `'integer'`
-
-###### properties.config.properties.maxIterations.minimum
-
-> `readonly` **minimum**: `1` = `1`
-
-###### properties.config.properties.maxConcurrency
-
-> `readonly` **maxConcurrency**: `object`
-
-###### properties.config.properties.maxConcurrency.type
-
-> `readonly` **type**: `"integer"` = `'integer'`
-
-###### properties.config.properties.maxConcurrency.minimum
-
-> `readonly` **minimum**: `1` = `1`
-
-###### properties.config.properties.productContext
-
-> `readonly` **productContext**: `object`
-
-###### properties.config.properties.productContext.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.config.additionalProperties
-
-> `readonly` **additionalProperties**: `false` = `false`
-
-##### required
-
-> `readonly` **required**: readonly \[`"workspaceDir"`, `"routes"`\]
-
-##### additionalProperties
-
-> `readonly` **additionalProperties**: `false` = `false`
-
-***
-
-### DELEGATE\_TOOL\_NAME
-
-> `const` **DELEGATE\_TOOL\_NAME**: `"delegate"` = `'delegate'`
-
-**`Stable`**
-
-MCP tool name for the `delegate` generic-delegation tool.
-
-***
-
-### DELEGATE\_DESCRIPTION
-
-> `const` **DELEGATE\_DESCRIPTION**: `string`
-
-**`Stable`**
-
-Human-readable description of the `delegate` MCP tool, injected into the tool manifest.
-
-***
-
-### DELEGATE\_INPUT\_SCHEMA
-
-> `const` **DELEGATE\_INPUT\_SCHEMA**: `object`
-
-**`Stable`**
-
-JSON Schema for `delegate` tool arguments (`intent` + optional trace id).
-
-#### Type Declaration
-
-##### type
-
-> `readonly` **type**: `"object"` = `'object'`
-
-##### properties
-
-> `readonly` **properties**: `object`
-
-###### properties.intent
-
-> `readonly` **intent**: `object`
-
-###### properties.intent.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.intent.description
-
-> `readonly` **description**: `"What you want accomplished, as an outcome. The supervisor authors the worker."` = `'What you want accomplished, as an outcome. The supervisor authors the worker.'`
-
-###### properties.runId
-
-> `readonly` **runId**: `object`
-
-###### properties.runId.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.runId.description
-
-> `readonly` **description**: `"Optional trace-correlation id for this delegation."` = `'Optional trace-correlation id for this delegation.'`
-
-##### required
-
-> `readonly` **required**: readonly \[`"intent"`\]
-
-##### additionalProperties
-
-> `readonly` **additionalProperties**: `false` = `false`
-
-***
-
-### DELEGATION\_HISTORY\_TOOL\_NAME
-
-> `const` **DELEGATION\_HISTORY\_TOOL\_NAME**: `"delegation_history"` = `'delegation_history'`
-
-**`Stable`**
-
-MCP tool name for the `delegation_history` read-past-delegations tool.
-
-***
-
-### DELEGATION\_HISTORY\_DESCRIPTION
-
-> `const` **DELEGATION\_HISTORY\_DESCRIPTION**: `string`
-
-**`Stable`**
-
-Human-readable description of the `delegation_history` MCP tool, injected into the tool manifest.
-
-***
-
-### DELEGATION\_HISTORY\_INPUT\_SCHEMA
-
-> `const` **DELEGATION\_HISTORY\_INPUT\_SCHEMA**: `object`
-
-**`Stable`**
-
-JSON Schema for `delegation_history` tool arguments (optional `namespace`, `profile`, `since`, `limit`).
-
-#### Type Declaration
-
-##### type
-
-> `readonly` **type**: `"object"` = `'object'`
-
-##### properties
-
-> `readonly` **properties**: `object`
-
-###### properties.namespace
-
-> `readonly` **namespace**: `object`
-
-###### properties.namespace.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.profile
-
-> `readonly` **profile**: `object`
-
-###### properties.profile.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.profile.enum
-
-> `readonly` **enum**: readonly \[`"coder"`, `"researcher"`, `"ui-auditor"`\] = `delegationProfiles`
-
-###### properties.since
-
-> `readonly` **since**: `object`
-
-###### properties.since.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.since.description
-
-> `readonly` **description**: `"ISO datetime — earliest startedAt to include."` = `'ISO datetime — earliest startedAt to include.'`
-
-###### properties.limit
-
-> `readonly` **limit**: `object`
-
-###### properties.limit.type
-
-> `readonly` **type**: `"integer"` = `'integer'`
-
-###### properties.limit.minimum
-
-> `readonly` **minimum**: `1` = `1`
-
-###### properties.limit.maximum
-
-> `readonly` **maximum**: `500` = `500`
-
-##### additionalProperties
-
-> `readonly` **additionalProperties**: `false` = `false`
-
-***
-
-### DELEGATION\_STATUS\_TOOL\_NAME
-
-> `const` **DELEGATION\_STATUS\_TOOL\_NAME**: `"delegation_status"` = `'delegation_status'`
-
-**`Stable`**
-
-MCP tool name for the `delegation_status` synchronous-poll tool.
-
-***
-
-### DELEGATION\_STATUS\_DESCRIPTION
-
-> `const` **DELEGATION\_STATUS\_DESCRIPTION**: `string`
-
-**`Stable`**
-
-Human-readable description of the `delegation_status` MCP tool, injected into the tool manifest.
-
-***
-
-### DELEGATION\_STATUS\_INPUT\_SCHEMA
-
-> `const` **DELEGATION\_STATUS\_INPUT\_SCHEMA**: `object`
-
-**`Stable`**
-
-JSON Schema for `delegation_status` tool arguments (`taskId` + optional `includeTrace`).
-
-#### Type Declaration
-
-##### type
-
-> `readonly` **type**: `"object"` = `'object'`
-
-##### properties
-
-> `readonly` **properties**: `object`
-
-###### properties.taskId
-
-> `readonly` **taskId**: `object`
-
-###### properties.taskId.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.taskId.description
-
-> `readonly` **description**: `"Returned by delegate_ui_audit."` = `'Returned by delegate_ui_audit.'`
-
-###### properties.includeTrace
-
-> `readonly` **includeTrace**: `object`
-
-###### properties.includeTrace.type
-
-> `readonly` **type**: `"boolean"` = `'boolean'`
-
-###### properties.includeTrace.description
-
-> `readonly` **description**: `"Also return the journaled loop-trace span tree for this delegation. Default false."` = `'Also return the journaled loop-trace span tree for this delegation. Default false.'`
-
-##### required
-
-> `readonly` **required**: readonly \[`"taskId"`\]
-
-##### additionalProperties
-
-> `readonly` **additionalProperties**: `false` = `false`
-
-***
-
-### SPAWN\_RESOURCE\_PATH\_MAX\_BYTES
-
-> `const` **SPAWN\_RESOURCE\_PATH\_MAX\_BYTES**: `number`
-
-Inline resources a manager hands a child by PATH instead of by content.
-
-The canonical profile schema knows two resource kinds, `inline` (a content string) and `github`.
-A manager that wants a child to receive a data file therefore had one way to do it: emit the
-bytes inside its own `spawn` tool call. That is a transcription by a language model, and it does
-not survive size. Measured 2026-09-12 (discovery-lab `mech-interp-foundations-glm2-b-20260912b`):
-a 29,144-character base64 payload on the manager's disk reached three children as 15,928
-characters with 11 substitutions, and a fourth child received the literal placeholder the
-manager meant to replace. Seven blind-check attempts across two runs delivered no data.
-
-`{ kind: 'inline', name, path }` lets the coordination server be the transport: it reads the
-file from the manager's workspace, fills `content`, and the profile that reaches the schema,
-the journal, and the provider is an ordinary inline resource. Nothing downstream changes; the
-model's output stops carrying the bytes.
-
-Where the bytes come from is a [SpawnResourceReader](#spawnresourcereader-1), and there are two:
- - a HOST DIRECTORY, for a manager whose driver runs on this host (a loopback bridge with a
-   `cwd`), read through the descriptor-identity checks below;
- - the manager's OWN EXECUTION ENVIRONMENT, for a manager inside a provider sandbox, read
-   through the environment's `read()`. The coordination server cannot see a sandbox filesystem,
-   but the provider that created the sandbox can, and it is already in hand.
-
-The second reader exists because the first one's absence was not a refusal a manager could
-work around. Measured 2026-09-17 (discovery-lab `mech-interp-foundations-sandbox-a-20260917h`):
-a sandbox-rooted director, refused by path, fell back to emitting its files as content and got
-5 characters wrong in 24,008, destroying 3 of 7 files including its instrument and both
-drivers. At that rate 20 KB of mounts all arrive intact about 2% of the time, and gzip makes it
-worse by turning one wrong character into total loss. Four consecutive runs in that lane lost
-their research children to this. There is no encoding that fixes a transcription channel; the
-only fix is a channel with no model in it.
-
-Fail-closed rules, each with the reason a manager needs to fix its call:
- - no reader available → refused (neither a host directory nor an environment with `read`)
- - absolute path or `..` escape → refused by both readers; a symlink that resolves outside the
-   root → refused by the host reader (the environment reader delegates containment to the
-   provider, which serves only the sandbox's own workspace)
- - not a regular file → refused
- - over [SPAWN\_RESOURCE\_PATH\_MAX\_BYTES](#spawn_resource_path_max_bytes) → refused naming the bound
- - bytes that are not valid UTF-8 → refused; `content` is a string, so binary data is encoded
-   (base64) by the manager first, exactly as it would be for a content resource
-
-***
-
-### delegationProfiles
-
-> `const` **delegationProfiles**: readonly \[`"coder"`, `"researcher"`, `"ui-auditor"`\]
-
-**`Experimental`**
-
-Every delegation profile a queued record can carry. One owner: the tool schemas and validators
-that filter on a profile read this list, so a profile added here cannot be one a tool refuses.
-
 ## Functions
-
-### parseCodexTokenUsage()
-
-> **parseCodexTokenUsage**(`stdout`): [`CodexTokenUsage`](#codextokenusage)
-
-Parse and validate the one terminal usage event emitted by `codex exec --json`.
-
-The JSONL framing is this surface's own; the usage RECORD is read by `parseCodexUsageRecord`,
-the one codex usage reader the sandbox decoder also calls, so both surfaces hold the same field
-policy and the same two cross-field invariants.
-
-#### Parameters
-
-##### stdout
-
-`string`
-
-#### Returns
-
-[`CodexTokenUsage`](#codextokenusage)
-
-***
 
 ### detachedSessionDelegate()
 
@@ -7561,134 +4765,6 @@ behind `MCP_ENABLE_DETACHED_RESUME`.
 
 ***
 
-### coderTaskFromArgs()
-
-> **coderTaskFromArgs**(`args`): [`CoderTask`](profiles.md#codertask)
-
-**`Experimental`**
-
-Canonical `DelegateCodeArgs` → `CoderTask` mapping — the single source for
-the delegate's live dispatch AND the resume driver's settle/message
-rebuilding, so a resumed record reproduces exactly the task the original
-process dispatched.
-
-#### Parameters
-
-##### args
-
-[`DelegateCodeArgs`](#delegatecodeargs)
-
-#### Returns
-
-[`CoderTask`](profiles.md#codertask)
-
-***
-
-### settleDetachedCoderTurn()
-
-> **settleDetachedCoderTurn**(`turn`, `options`): `Promise`\<[`CoderOutput`](#coderoutput)\>
-
-**`Experimental`**
-
-Settle a completed detached coder turn through the same gate the streaming
-path applies: parse the terminal payload with the coder output adapter,
-run the mechanical validator (tests/typecheck/forbidden/diff/no-op/secrets),
-then the optional reviewer. Throws when nothing survives — a resumed or
-detached run must not return an unvalidated patch.
-
-SCOPE NOTE (detached/resume): the detached `driveTurn`-tick + cross-restart resume path is
-bound to the `runAgentRounds` + sandbox-session substrate. The recursive `Scope`/worktree-CLI leaf has
-journal→replay but no driveTurn-over-a-detached-sandbox-session equivalent yet, so resume is NOT
-advertised on the generic `worktreeFanout` path. This helper (with `coderTaskFromArgs` and
-`createDetachedTurnResumeDriver`) stays as the resume seam `bin.ts` wires for in-flight records.
-
-#### Parameters
-
-##### turn
-
-[`DetachedTurn`](#detachedturn)
-
-##### options
-
-[`SettleDetachedCoderTurnOptions`](#settledetachedcoderturnoptions)
-
-#### Returns
-
-`Promise`\<[`CoderOutput`](#coderoutput)\>
-
-***
-
-### buildDelegationTraceSpans()
-
-> **buildDelegationTraceSpans**(`events`): [`DelegationTraceSpan`](#delegationtracespan)[]
-
-**`Experimental`**
-
-Derive the compact span tree for ONE loop run from its buffered
-`LoopTraceEvent` stream. Same reconstruction as the OTEL exporter
-([buildLoopSpanNodes](index.md#buildloopspannodes)); tolerates partial streams.
-
-#### Parameters
-
-##### events
-
-readonly [`LoopTraceEvent`](runtime.md#looptraceevent)[]
-
-#### Returns
-
-[`DelegationTraceSpan`](#delegationtracespan)[]
-
-***
-
-### capDelegationTrace()
-
-> **capDelegationTrace**(`spans`, `caps?`): [`CappedDelegationTrace`](#cappeddelegationtrace)
-
-**`Experimental`**
-
-Enforce the trace caps over an ordered (oldest-first) span list. Drops the
-OLDEST spans first and reports `truncated: true` when anything was dropped;
-the newest span always survives, so a non-empty input never caps to empty.
-Dropping a parent may orphan surviving children's `parentSpanId` references
-— acceptable for the flat journal shape; consumers treat unresolved parents
-as roots.
-
-#### Parameters
-
-##### spans
-
-readonly [`DelegationTraceSpan`](#delegationtracespan)[]
-
-##### caps?
-
-[`DelegationTraceCaps`](#delegationtracecaps)
-
-#### Returns
-
-[`CappedDelegationTrace`](#cappeddelegationtrace)
-
-***
-
-### createDelegationTraceCollector()
-
-> **createDelegationTraceCollector**(`onSpans`): [`DelegationTraceCollector`](#delegationtracecollector)
-
-**`Experimental`**
-
-Build a `DelegationTraceCollector` that buffers loop-trace events and converts them to spans on settle.
-
-#### Parameters
-
-##### onSpans
-
-(`spans`) => `void`
-
-#### Returns
-
-[`DelegationTraceCollector`](#delegationtracecollector)
-
-***
-
 ### composeLoopTraceEmitters()
 
 > **composeLoopTraceEmitters**(...`emitters`): [`LoopTraceEmitter`](runtime.md#looptraceemitter) \| `undefined`
@@ -7709,75 +4785,6 @@ so callers keep the kernel's "no emitter, no events" fast path.
 #### Returns
 
 [`LoopTraceEmitter`](runtime.md#looptraceemitter) \| `undefined`
-
-***
-
-### formatDetachedSessionRef()
-
-> **formatDetachedSessionRef**(`parts`): `string`
-
-**`Experimental`**
-
-Encode ref parts into the JSON-safe string stored on the record:
-`session=<id>` before the box exists, `sandbox=<id>;session=<id>` once
-bound. Ids must not contain the `;`/`=` delimiters.
-
-#### Parameters
-
-##### parts
-
-[`DetachedSessionRefParts`](#detachedsessionrefparts)
-
-#### Returns
-
-`string`
-
-***
-
-### parseDetachedSessionRef()
-
-> **parseDetachedSessionRef**(`raw`): [`DetachedSessionRefParts`](#detachedsessionrefparts)
-
-**`Experimental`**
-
-Parse a `detachedSessionRef` string back to parts; throws `ValidationError` on malformed input.
-
-#### Parameters
-
-##### raw
-
-`string`
-
-#### Returns
-
-[`DetachedSessionRefParts`](#detachedsessionrefparts)
-
-***
-
-### detachedTurnEvents()
-
-> **detachedTurnEvents**(`sessionId`, `turn`): `SandboxEvent`[]
-
-**`Experimental`**
-
-Synthesize the terminal event array a detached turn settles through. Shaped
-so the existing event-stream output adapters (coder, researcher) parse it:
-`data.result` for adapters that read a structured terminal record, `data.text`
-for adapters that scan assistant text for the fenced result block.
-
-#### Parameters
-
-##### sessionId
-
-`string`
-
-##### turn
-
-[`DetachedTurn`](#detachedturn)
-
-#### Returns
-
-`SandboxEvent`[]
 
 ***
 
@@ -7803,41 +4810,6 @@ teardown, which is exactly the case the resume driver re-attaches to.
 #### Returns
 
 `Promise`\<[`DetachedTurn`](#detachedturn)\>
-
-***
-
-### createDetachedTurnResumeDriver()
-
-> **createDetachedTurnResumeDriver**(`options`): [`DelegationResumeDriver`](#delegationresumedriver)
-
-**`Experimental`**
-
-Build the `driveTurn`-backed [DelegationResumeDriver](#delegationresumedriver). Each `tick()`
-is one settle/poll/dispatch pass:
-
-  - ref without a sandbox binding → `failed` (`DetachedSessionUnboundError`):
-    the previous process died before a box existed; there is nothing to resume.
-  - `driveTurn` `completed` → `settleOutput` → `completed` tick.
-  - `running` → progress via `ctx.report`, `running` tick (queue re-ticks
-    after `intervalMs`).
-  - `failed` → `failed` tick (`DetachedTurnFailedError`) — terminal per the
-    SDK's deterministic-failure contract.
-
-Abort: the queue stops ticking once `cancel()` flips the record, so remote
-cancellation is hooked onto `ctx.signal` (once per task) and fires
-`_sessionCancel` when the SDK surface exposes it. The driver never deletes
-boxes — it cannot know whether `sandboxId` is a disposable sibling or a
-fleet machine, and destroying a fleet machine would be unrecoverable.
-
-#### Parameters
-
-##### options
-
-[`DetachedTurnResumeDriverOptions`](#detachedturnresumedriveroptions)
-
-#### Returns
-
-[`DelegationResumeDriver`](#delegationresumedriver)
 
 ***
 
@@ -7888,27 +4860,6 @@ cross-sandbox copy step.
 
 ***
 
-### eventToSnapshot()
-
-> **eventToSnapshot**(`event`): [`DelegationFeedbackSnapshot`](#delegationfeedbacksnapshot)
-
-**`Stable`**
-
-Project a `FeedbackEvent` down to the snapshot shape carried on
-`delegation_history` entries.
-
-#### Parameters
-
-##### event
-
-[`FeedbackEvent`](#feedbackevent)
-
-#### Returns
-
-[`DelegationFeedbackSnapshot`](#delegationfeedbacksnapshot)
-
-***
-
 ### harnessNativeToolNames()
 
 > **harnessNativeToolNames**(`harness`): readonly `string`[] \| `undefined`
@@ -7946,48 +4897,6 @@ harness's exact casing, so `task` and `Task` are one collision, not two distinct
 #### Returns
 
 readonly (`"opencode"` \| `"claude-code"` \| `"codex"`)[]
-
-***
-
-### hubIntegrationTools()
-
-> **hubIntegrationTools**(`options`): `Promise`\<[`McpToolDescriptor`](#mcptooldescriptor)[]\>
-
-One router tool per active Hub connection to a data provider. The tool
-handler never holds provider credentials — it execs through the Hub, which
-enforces the per-user action policy and writes the audit record.
-
-#### Parameters
-
-##### options
-
-[`HubIntegrationToolsOptions`](#hubintegrationtoolsoptions)
-
-#### Returns
-
-`Promise`\<[`McpToolDescriptor`](#mcptooldescriptor)[]\>
-
-***
-
-### createHubIntegrationToolServer()
-
-> **createHubIntegrationToolServer**(`options`): `Promise`\<[`StdioToolServer`](#stdiotoolserver)\>
-
-Build the hub integration MCP server on the shared stdio JSON-RPC core —
-the same wire protocol every in-repo MCP server speaks. Serves zero tools
-when the caller has no active data-provider connections (a session without
-connections simply gets no database tools, mirroring the memory server's
-"no artifact, no server" discipline).
-
-#### Parameters
-
-##### options
-
-[`CreateHubIntegrationToolServerOptions`](#createhubintegrationtoolserveroptions)
-
-#### Returns
-
-`Promise`\<[`StdioToolServer`](#stdiotoolserver)\>
 
 ***
 
@@ -8040,129 +4949,6 @@ then any consumer judges, returning on the first veto.
 
 ***
 
-### localHarnessExecutable()
-
-> **localHarnessExecutable**(`harness`): `string`
-
-The CLI binary a harness id runs. The two are NOT the same string (`claude-code` runs `claude`),
- so anything spawning a harness — a version probe, a login check — reads it from here rather than
- passing the harness id as a command.
-
-#### Parameters
-
-##### harness
-
-[`LocalHarness`](#localharness)
-
-#### Returns
-
-`string`
-
-***
-
-### harnessSupportsReasoningEffort()
-
-> **harnessSupportsReasoningEffort**(`harness`, `reasoningEffort`): `boolean`
-
-Whether the harness's native control can express this reasoning effort. Admission checks read
-this so a profile the invocation would later refuse is rejected BEFORE any workspace state is
-created, against the same table that emits the argv.
-
-#### Parameters
-
-##### harness
-
-[`LocalHarness`](#localharness)
-
-##### reasoningEffort
-
-`"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
-
-#### Returns
-
-`boolean`
-
-***
-
-### createMemoryToolServer()
-
-> **createMemoryToolServer**(`opts`): [`StdioToolServer`](#stdiotoolserver)
-
-Build the memory MCP server: `memory_search` (lexical top-k over the rows)
-and `memory_get` (one row by id) on the generic stdio JSON-RPC core.
-
-#### Parameters
-
-##### opts
-
-[`CreateMemoryToolServerOptions`](#creatememorytoolserveroptions)
-
-#### Returns
-
-[`StdioToolServer`](#stdiotoolserver)
-
-***
-
-### parseMemoryItems()
-
-> **parseMemoryItems**(`value`, `source`): [`MemoryItem`](#memoryitem)[]
-
-Coerce an untrusted JSON array into validated `MemoryItem` rows.
-
-#### Parameters
-
-##### value
-
-`unknown`
-
-##### source
-
-`string`
-
-#### Returns
-
-[`MemoryItem`](#memoryitem)[]
-
-***
-
-### readMemoryItemsFile()
-
-> **readMemoryItemsFile**(`path`): [`MemoryItem`](#memoryitem)[]
-
-Read a memory store file: a JSON array, or JSONL (one `MemoryItem` per line).
-
-#### Parameters
-
-##### path
-
-`string`
-
-#### Returns
-
-[`MemoryItem`](#memoryitem)[]
-
-***
-
-### resolveMemoryFromEnv()
-
-> **resolveMemoryFromEnv**(`env`): [`ResolvedMemoryEnv`](#resolvedmemoryenv)
-
-Resolve the bin's memory from `AGENT_MEMORY_FILE` (durable store) and/or
-`AGENT_MEMORY_ITEMS` (inline JSON rows; wins on id collision). Zero rows is
-a boot FAILURE, matching the fail-closed materialization discipline.
-
-#### Parameters
-
-##### env
-
-`Record`\<`string`, `string` \| `undefined`\>
-
-#### Returns
-
-[`ResolvedMemoryEnv`](#resolvedmemoryenv)
-
-***
-
 ### createMcpServer()
 
 > **createMcpServer**(`options?`): [`McpServer`](#mcpserver)
@@ -8180,77 +4966,6 @@ Stdio JSON-RPC MCP server exposing the delegation tools (`delegate`, `delegate_f
 #### Returns
 
 [`McpServer`](#mcpserver)
-
-***
-
-### createInProcessTransport()
-
-> **createInProcessTransport**(): `object`
-
-**`Experimental`**
-
-In-process pair of `Readable` + `Writable` streams suitable for driving
-`server.serve(...)` from a test. Returns the agent-side stream (the
-client writes to it) and the server-side stream (the test reads from it).
-
-#### Returns
-
-`object`
-
-##### transport
-
-> **transport**: [`McpTransport`](#mcptransport)
-
-##### clientWrite()
-
-> **clientWrite**(`line`): `void`
-
-###### Parameters
-
-###### line
-
-`string`
-
-###### Returns
-
-`void`
-
-##### clientClose()
-
-> **clientClose**(): `void`
-
-###### Returns
-
-`void`
-
-##### readServer()
-
-> **readServer**(): `Promise`\<[`JsonRpcResponse`](#jsonrpcresponse)[]\>
-
-###### Returns
-
-`Promise`\<[`JsonRpcResponse`](#jsonrpcresponse)[]\>
-
-***
-
-### hashIdempotencyInput()
-
-> **hashIdempotencyInput**(`value`): `string`
-
-**`Stable`**
-
-Best-effort stable hash for use as `idempotencyKey`. Not cryptographic;
-collisions only affect dedupe, never correctness.
-
-#### Parameters
-
-##### value
-
-`unknown`
-
-#### Returns
-
-`string`
 
 ***
 
@@ -8272,29 +4987,6 @@ Build the generic stdio JSON-RPC tool server.
 
 ***
 
-### parseAuthoredAnalystDefinition()
-
-> **parseAuthoredAnalystDefinition**(`raw`): \{ `definition`: [`AuthoredAnalystDefinition`](runtime.md#authoredanalystdefinition); \} \| \{ `issues`: readonly [`AnalystDefinitionIssue`](#analystdefinitionissue)[]; \}
-
-Validate and BOUND one `define_analyst` argument.
-
-Every reason is collected, never short-circuited: a manager re-authoring from a partial list of
-complaints spends a turn per complaint. Numeric limits are CLAMPED rather than rejected — asking
-for 200 tool calls is a mis-estimate, not a malformed definition, and the accepted value is
-returned so the manager reads the ceiling it actually got.
-
-#### Parameters
-
-##### raw
-
-`unknown`
-
-#### Returns
-
-\{ `definition`: [`AuthoredAnalystDefinition`](runtime.md#authoredanalystdefinition); \} \| \{ `issues`: readonly [`AnalystDefinitionIssue`](#analystdefinitionissue)[]; \}
-
-***
-
 ### createCoordinationTools()
 
 > **createCoordinationTools**(`opts`): [`CoordinationTools`](#coordinationtools)
@@ -8310,106 +5002,6 @@ Build the driver's MCP tools over a live scope.
 #### Returns
 
 [`CoordinationTools`](#coordinationtools)
-
-***
-
-### validateDelegateFeedbackArgs()
-
-> **validateDelegateFeedbackArgs**(`raw`): [`DelegateFeedbackArgs`](#delegatefeedbackargs)
-
-**`Stable`**
-
-Parse and validate raw MCP tool input into typed `DelegateFeedbackArgs`; throws `TypeError` on bad input.
-
-#### Parameters
-
-##### raw
-
-`unknown`
-
-#### Returns
-
-[`DelegateFeedbackArgs`](#delegatefeedbackargs)
-
-***
-
-### createDelegateFeedbackHandler()
-
-> **createDelegateFeedbackHandler**(`options`): (`raw`) => `Promise`\<[`DelegateFeedbackResult`](#delegatefeedbackresult)\>
-
-**`Stable`**
-
-Build the MCP tool handler that persists feedback events and attaches them to delegation records.
-
-#### Parameters
-
-##### options
-
-[`DelegateFeedbackHandlerOptions`](#delegatefeedbackhandleroptions)
-
-#### Returns
-
-(`raw`) => `Promise`\<[`DelegateFeedbackResult`](#delegatefeedbackresult)\>
-
-***
-
-### validateDelegateUiAuditArgs()
-
-> **validateDelegateUiAuditArgs**(`raw`): [`DelegateUiAuditArgs`](#delegateuiauditargs)
-
-**`Experimental`**
-
-Parse and validate raw MCP tool input into typed `DelegateUiAuditArgs`; throws `TypeError` on bad input.
-
-#### Parameters
-
-##### raw
-
-`unknown`
-
-#### Returns
-
-[`DelegateUiAuditArgs`](#delegateuiauditargs)
-
-***
-
-### createDelegateUiAuditHandler()
-
-> **createDelegateUiAuditHandler**(`options`): (`raw`) => `Promise`\<[`DelegateUiAuditResult`](#delegateuiauditresult)\>
-
-**`Experimental`**
-
-Build the MCP tool handler that validates input, deduplicates via idempotency key, and enqueues a UI audit.
-
-#### Parameters
-
-##### options
-
-[`DelegateUiAuditHandlerOptions`](#delegateuiaudithandleroptions)
-
-#### Returns
-
-(`raw`) => `Promise`\<[`DelegateUiAuditResult`](#delegateuiauditresult)\>
-
-***
-
-### validateDelegateArgs()
-
-> **validateDelegateArgs**(`raw`): [`DelegateArgs`](#delegateargs)
-
-**`Stable`**
-
-Parse and validate raw MCP tool input into typed `DelegateArgs`; throws `TypeError` on bad input.
-
-#### Parameters
-
-##### raw
-
-`unknown`
-
-#### Returns
-
-[`DelegateArgs`](#delegateargs)
 
 ***
 
@@ -8430,104 +5022,6 @@ delivered output with its conserved cost.
 #### Returns
 
 (`raw`) => `Promise`\<[`DelegateResult`](#delegateresult)\>
-
-***
-
-### validateDelegationHistoryArgs()
-
-> **validateDelegationHistoryArgs**(`raw`): [`DelegationHistoryArgs`](#delegationhistoryargs)
-
-**`Stable`**
-
-Parse and validate raw MCP tool input into typed `DelegationHistoryArgs`; throws `TypeError` on bad input.
-
-#### Parameters
-
-##### raw
-
-`unknown`
-
-#### Returns
-
-[`DelegationHistoryArgs`](#delegationhistoryargs)
-
-***
-
-### createDelegationHistoryHandler()
-
-> **createDelegationHistoryHandler**(`options`): (`raw`) => `Promise`\<[`DelegationHistoryResult`](#delegationhistoryresult)\>
-
-**`Stable`**
-
-Build the MCP tool handler that reads filtered past delegations from a `DelegationTaskQueue`.
-
-#### Parameters
-
-##### options
-
-[`DelegationHistoryHandlerOptions`](#delegationhistoryhandleroptions)
-
-#### Returns
-
-(`raw`) => `Promise`\<[`DelegationHistoryResult`](#delegationhistoryresult)\>
-
-***
-
-### validateDelegationStatusArgs()
-
-> **validateDelegationStatusArgs**(`raw`): [`DelegationStatusArgs`](#delegationstatusargs)
-
-**`Stable`**
-
-Parse and validate raw MCP tool input into typed `DelegationStatusArgs`; throws `TypeError` on bad input.
-
-#### Parameters
-
-##### raw
-
-`unknown`
-
-#### Returns
-
-[`DelegationStatusArgs`](#delegationstatusargs)
-
-***
-
-### createDelegationStatusHandler()
-
-> **createDelegationStatusHandler**(`options`): (`raw`) => `Promise`\<[`DelegationStatusResult`](#delegationstatusresult)\>
-
-**`Stable`**
-
-Build the MCP tool handler that polls a `DelegationTaskQueue` for task status.
-
-#### Parameters
-
-##### options
-
-[`DelegationStatusHandlerOptions`](#delegationstatushandleroptions)
-
-#### Returns
-
-(`raw`) => `Promise`\<[`DelegationStatusResult`](#delegationstatusresult)\>
-
-***
-
-### hostDirectoryReader()
-
-> **hostDirectoryReader**(`root`): [`SpawnResourceReader`](#spawnresourcereader-1)
-
-The host-directory reader: a manager whose workspace is a directory this process can open.
-
-#### Parameters
-
-##### root
-
-`string`
-
-#### Returns
-
-[`SpawnResourceReader`](#spawnresourcereader-1)
 
 ***
 
@@ -8639,185 +5133,11 @@ Returns both the emitter and the optional exporter handle for shutdown.
 
 > **context**: [`TraceContext`](#tracecontext-2)
 
-***
-
-### traceContextToEnv()
-
-> **traceContextToEnv**(`ctx`): `Record`\<`string`, `string`\>
-
-Build env vars to pass to a child subprocess so it inherits the current trace context.
-
-Writes BOTH conventions (see the module doc): `TRACEPARENT` carries the W3C-hex ids — mapped
-through the exporter's own `padTraceId`/`padSpanId` (dashed hex passes through dash-stripped, a
-human id is derived through the contract's `deriveHexId`), the SAME normalization every emitted
-span uses, so both spellings and the parent's own spans all name ONE trace — and the legacy
-pair carries the caller's ids verbatim. `TRACEPARENT` needs a parent span id by grammar; when
-the context has none, the legacy pair still propagates the trace id alone.
-
-#### Parameters
-
-##### ctx
-
-[`TraceContext`](#tracecontext-2)
-
-#### Returns
-
-`Record`\<`string`, `string`\>
-
-***
-
-### mergeTraceEnv()
-
-> **mergeTraceEnv**(`ambient`, `traceEnv`, `overrides?`): `Record`\<`string`, `string` \| `undefined`\>
-
-Merge a spawned child's environment from lowest to highest precedence — ambient env, the
-recorder's stamped trace env, the caller's own overrides — while keeping the ONE cross-key
-invariant a plain spread cannot: `TRACEPARENT` and the legacy pair must name the SAME trace.
-A caller override that declares `TRACE_ID` / `PARENT_SPAN_ID` without its own `TRACEPARENT`
-would otherwise keep the recorder's W3C wire — the child would join the caller's trace on the
-legacy pair and the RECORDER's on the standard one. The dual-write is performed on the
-caller's behalf: the merged `TRACEPARENT` is rebuilt from the merged legacy pair through the
-same [traceContextToEnv](#tracecontexttoenv) derivation (`deriveHexId` for human ids), or dropped when no
-parent span id survives the merge (the W3C grammar requires one).
-
-#### Parameters
-
-##### ambient
-
-`Record`\<`string`, `string` \| `undefined`\>
-
-##### traceEnv
-
-`Record`\<`string`, `string`\>
-
-##### overrides?
-
-`Record`\<`string`, `string`\>
-
-#### Returns
-
-`Record`\<`string`, `string` \| `undefined`\>
-
-***
-
-### createWorktree()
-
-> **createWorktree**(`options`): `Promise`\<[`WorktreeHandle`](#worktreehandle)\>
-
-**`Experimental`**
-
-Checkout a fresh git worktree for a delegation run on a new branch under `variantsDir`.
-
-#### Parameters
-
-##### options
-
-[`CreateWorktreeOptions`](#createworktreeoptions)
-
-#### Returns
-
-`Promise`\<[`WorktreeHandle`](#worktreehandle)\>
-
-***
-
-### captureWorktreeDiff()
-
-> **captureWorktreeDiff**(`options`): `Promise`\<[`DiffResult`](#diffresult)\>
-
-**`Experimental`**
-
-Stage worker changes and return the diff + shortstat, excluding declared input paths.
-
-#### Parameters
-
-##### options
-
-[`DiffOptions`](#diffoptions)
-
-#### Returns
-
-`Promise`\<[`DiffResult`](#diffresult)\>
-
-***
-
-### removeWorktree()
-
-> **removeWorktree**(`options`): `Promise`\<`void`\>
-
-**`Experimental`**
-
-Remove a git worktree and delete its branch. Already-removed paths are harmless; every other
-Git failure rejects so callers cannot report a worktree as destroyed when cleanup failed.
-
-#### Parameters
-
-##### options
-
-[`RemoveWorktreeOptions`](#removeworktreeoptions)
-
-#### Returns
-
-`Promise`\<`void`\>
-
 ## References
-
-### mcpToolsForRuntimeMcp
-
-Re-exports [mcpToolsForRuntimeMcp](index.md#mcptoolsforruntimemcp)
-
-***
-
-### mcpToolsForRuntimeMcpSubset
-
-Re-exports [mcpToolsForRuntimeMcpSubset](index.md#mcptoolsforruntimemcpsubset)
-
-***
-
-### AnalystAssignmentRecord
-
-Re-exports [AnalystAssignmentRecord](runtime.md#analystassignmentrecord)
-
-***
-
-### AnalystFindingEvent
-
-Re-exports [AnalystFindingEvent](runtime.md#analystfindingevent)
-
-***
-
-### AnalystKind
-
-Re-exports [AnalystKind](runtime.md#analystkind)
-
-***
 
 ### AnalystRegistry
 
 Re-exports [AnalystRegistry](runtime.md#analystregistry)
-
-***
-
-### AnalystRunContext
-
-Re-exports [AnalystRunContext](runtime.md#analystruncontext)
-
-***
-
-### AuthoredAnalystDefinition
-
-Re-exports [AuthoredAnalystDefinition](runtime.md#authoredanalystdefinition)
-
-***
-
-### AuthoredAnalystLimits
-
-Re-exports [AuthoredAnalystLimits](runtime.md#authoredanalystlimits)
-
-***
-
-### DefinedAnalystRecord
-
-Re-exports [DefinedAnalystRecord](runtime.md#definedanalystrecord)
 
 ***
 
@@ -8833,120 +5153,6 @@ Re-exports [WorkerSpawnContext](runtime.md#workerspawncontext)
 
 ***
 
-### AwaitWakeInput
-
-Re-exports [AwaitWakeInput](runtime.md#awaitwakeinput)
-
-***
-
 ### CoordinationEvent
 
 Re-exports [CoordinationEvent](runtime.md#coordinationevent)
-
-***
-
-### EventAcknowledgement
-
-Re-exports [EventAcknowledgement](runtime.md#eventacknowledgement)
-
-***
-
-### LeadMessage
-
-Re-exports [LeadMessage](runtime.md#leadmessage)
-
-***
-
-### ManagerReentryState
-
-Re-exports [ManagerReentryState](runtime.md#managerreentrystate)
-
-***
-
-### ManagerWake
-
-Re-exports [ManagerWake](runtime.md#managerwake)
-
-***
-
-### ToolOutcomeEvent
-
-Re-exports [ToolOutcomeEvent](runtime.md#tooloutcomeevent)
-
-***
-
-### WorkerWatchOptions
-
-Re-exports [WorkerWatchOptions](runtime.md#workerwatchoptions)
-
-***
-
-### AuthorizeDownMessage
-
-Re-exports [AuthorizeDownMessage](runtime.md#authorizedownmessage)
-
-***
-
-### AuthorizedDownMessage
-
-Re-exports [AuthorizedDownMessage](runtime.md#authorizeddownmessage)
-
-***
-
-### ContinuationInstruction
-
-Re-exports [ContinuationInstruction](runtime.md#continuationinstruction)
-
-***
-
-### DownMessageAuthorizationInput
-
-Re-exports [DownMessageAuthorizationInput](runtime.md#downmessageauthorizationinput)
-
-***
-
-### DownMessageDeliveryAttempt
-
-Re-exports [DownMessageDeliveryAttempt](runtime.md#downmessagedeliveryattempt)
-
-***
-
-### DownMessageDeliveryOutcome
-
-Re-exports [DownMessageDeliveryOutcome](runtime.md#downmessagedeliveryoutcome)
-
-***
-
-### DownMessageEvent
-
-Re-exports [DownMessageEvent](runtime.md#downmessageevent)
-
-***
-
-### ChildQuestionInbox
-
-Re-exports [ChildQuestionInbox](runtime.md#childquestioninbox)
-
-***
-
-### EscalateQuestion
-
-Re-exports [EscalateQuestion](runtime.md#escalatequestion)
-
-***
-
-### QuestionEscalationOutcome
-
-Re-exports [QuestionEscalationOutcome](runtime.md#questionescalationoutcome)
-
-***
-
-### QuestionEscalationRecord
-
-Re-exports [QuestionEscalationRecord](runtime.md#questionescalationrecord)
-
-***
-
-### ResearchSource
-
-Re-exports [ResearchSource](profiles.md#researchsource)

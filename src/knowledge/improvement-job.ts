@@ -38,7 +38,7 @@ import {
   type SupervisedKnowledgeUpdateOptions,
 } from './supervised-update'
 
-interface RunKnowledgeImprovementJobOptions
+export interface RunKnowledgeImprovementJobOptions
   extends Omit<KnowledgeImprovementOptions, 'updateKnowledge'> {
   budget: Budget
   readinessCheck?: KnowledgeReadinessCheck
@@ -61,7 +61,7 @@ interface RunKnowledgeImprovementJobOptions
   onMeasurement?: (measurement: KnowledgeImprovementJobMeasurement) => Promise<void> | void
 }
 
-interface KnowledgeImprovementJobMeasurement {
+export interface KnowledgeImprovementJobMeasurement {
   startedAt: string
   finishedAt: string
   durationMs: number
@@ -77,14 +77,14 @@ interface KnowledgeImprovementJobMeasurement {
   }
 }
 
-interface KnowledgeImprovementJobResult {
+export interface KnowledgeImprovementJobResult {
   improvement: KnowledgeImprovementResult
   knowledge?: KnowledgeImprovementCandidatePair
   measurement: KnowledgeImprovementJobMeasurement
   blocked: boolean
 }
 
-interface KnowledgeImprovementCandidatePair {
+export interface KnowledgeImprovementCandidatePair {
   reference: AgentCandidateKnowledge['candidate']
   stateScope?: AgentCandidateKnowledge['stateScope']
   evaluation: AgentCandidateCapturedArtifact
@@ -92,7 +92,7 @@ interface KnowledgeImprovementCandidatePair {
   candidate: AgentCandidateKnowledge['snapshot']
 }
 
-interface KnowledgeImprovementExperimentBundles {
+export interface KnowledgeImprovementExperimentBundles {
   baseline: AgentCandidateBundle
   candidate: AgentCandidateBundle
 }

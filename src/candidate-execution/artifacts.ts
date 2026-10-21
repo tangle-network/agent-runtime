@@ -65,7 +65,7 @@ export async function verifyWorkspaceSnapshotArtifacts(
 }
 
 /** The per-scan caps a bounded capture applies. */
-interface WorkspaceScanLimits {
+export interface WorkspaceScanLimits {
   readonly maxFiles: number
   readonly maxFileBytes: number
   readonly maxTotalFileBytes: number
@@ -75,7 +75,7 @@ interface WorkspaceScanLimits {
 export class WorkspaceScanLimitError extends Error {}
 
 /** What a workspace scan reads and how it records a file's permission bits. */
-interface WorkspaceScanOptions {
+export interface WorkspaceScanOptions {
   readonly signal?: AbortSignal
   readonly ignoredProtectedRootEntries?: readonly ('.git' | '.sidecar')[]
   /**

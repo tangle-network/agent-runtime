@@ -25,7 +25,7 @@ import {
   isAgentProfileMeasuredSurface,
 } from './improvement-surfaces'
 
-type AgentImprovementProfileActivationTarget = Omit<
+export type AgentImprovementProfileActivationTarget = Omit<
   AgentImprovementActivationTargetPlan,
   'surface'
 > & {
@@ -39,16 +39,19 @@ type AgentProfileImprovementTransitionTarget = Omit<
   surface: AgentProfileMeasuredSurface
 }
 
-type AgentImprovementProfileTargetState = Omit<AgentImprovementActivationTargetState, 'surface'> & {
+export type AgentImprovementProfileTargetState = Omit<
+  AgentImprovementActivationTargetState,
+  'surface'
+> & {
   surface: AgentProfileMeasuredSurface
 }
 
-type AgentImprovementProfileTargetTransition = Omit<
+export type AgentImprovementProfileTargetTransition = Omit<
   AgentImprovementActivationTargetTransition,
   'surface'
 > & { surface: AgentProfileMeasuredSurface }
 
-interface AgentImprovementProfileReplacement {
+export interface AgentImprovementProfileReplacement {
   identity: string
   profile: AgentProfile
 }
@@ -63,7 +66,7 @@ export type AgentImprovementProfileStateDigest = (
   input: AgentImprovementProfileStateDigestInput,
 ) => Sha256Digest
 
-interface AgentImprovementProfileStateResolverInput {
+export interface AgentImprovementProfileStateResolverInput {
   identity: string
   stateDigest: Sha256Digest
 }
@@ -73,7 +76,7 @@ export type AgentImprovementProfileStateResolver = (
   input: AgentImprovementProfileStateResolverInput,
 ) => AgentProfile | undefined
 
-type AgentImprovementProfileActivationInput =
+export type AgentImprovementProfileActivationInput =
   | {
       currentByIdentity: ReadonlyMap<string, AgentProfile>
       targets: readonly [
@@ -88,7 +91,7 @@ type AgentImprovementProfileActivationInput =
       resolveState?: AgentImprovementProfileStateResolver
     }
 
-type AgentImprovementProfileActivationPreparation =
+export type AgentImprovementProfileActivationPreparation =
   | {
       status: 'missing'
       identities: readonly string[]

@@ -145,7 +145,7 @@ function outside(native: string): string {
 }
 
 /** Where a captured memory came from. */
-interface HarnessProvenance {
+export interface HarnessProvenance {
   readonly harness: string
   readonly turnId: string
   readonly memberId: string
@@ -160,13 +160,13 @@ function harnessActor({ harness, turnId, memberId }: HarnessProvenance): string 
   return actor
 }
 
-/** Read the harness, turn, and member provenance encoded by {@link harnessActor}. */
+/** Read the harness, turn, and member provenance encoded by `harnessActor`. */
 export function parseHarnessActor(actor: string): HarnessProvenance | null {
   const match = ACTOR.exec(actor)
   return match ? { harness: match[1]!, turnId: match[2]!, memberId: match[3]! } : null
 }
 
-interface HarnessIngestResult {
+export interface HarnessIngestResult {
   readonly saved: WorkspaceEntry[]
   /** Facts already in the store, by normalized text. */
   readonly duplicates: string[]
@@ -230,7 +230,7 @@ export async function ingestHarnessMemories(
   return { saved, duplicates, refused }
 }
 
-interface MemoryDivergence {
+export interface MemoryDivergence {
   /** Sum of the counts below; 0 means every native copy agrees with the store. */
   readonly total: number
   /** Store memories the turn sees that a native file's generated block omits. */

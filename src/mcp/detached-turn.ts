@@ -164,7 +164,7 @@ export function detachedTurnEvents(sessionId: string, turn: DetachedTurn): Sandb
 }
 
 /** @experimental */
-interface RunDetachedTurnOptions {
+export interface RunDetachedTurnOptions {
   /** Sandbox client used to acquire the box (the delegate's executor client). */
   client: SandboxClient
   /** Profile + overrides for box acquisition — same spec the streaming path uses. */

@@ -486,16 +486,6 @@ RFC 8628 pending/slow_down handling, expiry, cancellation and timeout backoff.
 
 ### PlatformAuthClientOptions
 
-`@tangle-network/agent-runtime/platform` — typed server-side clients
-for the Tangle platform's cross-site SSO bridge and integrations
-hub. Apps consume these to avoid rolling their own OAuth, session,
-and connection storage.
-
-See:
-  - [PlatformAuthClient](#platformauthclient) for the cross-site "Login with Tangle" API-key exchange (the classic mode; OIDC is the newer one — both are live)
-  - [PlatformOidcClient](#platformoidcclient) for standard OIDC authorization code + PKCE and device grants
-  - [PlatformHubClient](#platformhubclient) for the `/v1/hub/*` surface
-
 #### Properties
 
 ##### baseUrl

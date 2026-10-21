@@ -324,7 +324,7 @@ function profileDefaultModel(profile: object | undefined): unknown {
 }
 
 /** Options for {@link sandboxOnlyRequirements}. */
-interface SandboxOnlyRequirementsOptions extends LoopProfileRefusalOptions {
+export interface SandboxOnlyRequirementsOptions extends LoopProfileRefusalOptions {
   requirements?: PlacementRequirements
   profile?: AgentProfile | object
   interactive: boolean
@@ -497,3 +497,7 @@ export function resumedPlacement(chosen: ExecutionTier): PlacementRecord {
     rejected: [],
   }
 }
+export type {
+  AgentProfileMaterializationAxis,
+  KnownAgentProfileMaterializationAxis,
+} from '../agent/profile-materialization'

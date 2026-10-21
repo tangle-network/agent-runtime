@@ -55,7 +55,7 @@ export interface SurfaceImprovementEdit {
   severity: AnalystFinding['severity']
 }
 
-interface CreateSurfaceImprovementProposerOptions {
+export interface CreateSurfaceImprovementProposerOptions {
   surfaces: AgentSurfaces
   repoRoot: string
   /**

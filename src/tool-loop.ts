@@ -113,7 +113,7 @@ function toolResultMessage(call: ToolLoopCall, content: string): ToolLoopMessage
  * payload: a free-text `message`, a monotonic `progress` count with an optional
  * `total`, and any structured `data` the caller's UI understands.
  */
-interface ToolProgressUpdate {
+export interface ToolProgressUpdate {
   message?: string
   progress?: number
   total?: number
@@ -121,7 +121,7 @@ interface ToolProgressUpdate {
 }
 
 /** What the loop hands a running tool besides its call. */
-interface ToolCallContext {
+export interface ToolCallContext {
   /**
    * Report progress while the call runs. The streaming loop yields each update as a
    * `tool_progress` step, in order, before the call's `tool_result`; updates sent after

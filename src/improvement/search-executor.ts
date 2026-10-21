@@ -101,7 +101,7 @@ export interface SearchLane extends KernelSearchLane {
 }
 
 /** Options every lane builder takes. */
-interface SearchLaneOptions {
+export interface SearchLaneOptions {
   name?: string
   recoverReceipt?: SearchLane['recoverReceipt']
 }
@@ -111,7 +111,7 @@ function laneReceipts(options: SearchLaneOptions): Pick<SearchLane, 'recoverRece
 }
 
 /** A lane of workers packed into shared Sandbox boxes. Close `placement` when the run settles. */
-interface SharedBoxSearchLane extends SearchLane {
+export interface SharedBoxSearchLane extends SearchLane {
   readonly kind: 'shared-box'
   readonly placement: SharedBoxPlacement
 }

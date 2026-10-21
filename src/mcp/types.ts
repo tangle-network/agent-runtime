@@ -169,7 +169,7 @@ export interface UiAuditorDelegationOutput {
 }
 
 /** @experimental */
-type UiAuditLensFilter = readonly UiLens[]
+export type UiAuditLensFilter = readonly UiLens[]
 
 /** Optional per-route capture spec the agent surfaces over the wire. */
 export interface DelegateUiAuditRoute {

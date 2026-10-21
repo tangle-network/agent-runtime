@@ -16,10 +16,7 @@ import canonicalAgentProfileImprovementStateFixture from './fixtures/agent-profi
 
 export type { DriverAgentOptions } from '../runtime/supervise/driver-agent-options'
 export { driverAgent } from '../runtime/supervise/driver-brain-agent'
-export {
-  type RunGraphTestOptions,
-  runGraphWithTestBrain,
-} from '../runtime/supervise/graph'
+export { type RunGraphTestOptions, runGraphWithTestBrain } from '../runtime/supervise/graph'
 export { superviseWithTestBrain } from '../runtime/supervise/supervise'
 export { supervisorAgentWithTestBrain } from '../runtime/supervise/supervisor-agent'
 export type { ToolLoopCallContext, ToolLoopChat } from '../runtime/tool-loop'
@@ -132,3 +129,20 @@ function profileStateDigest(
 ): ReturnType<typeof canonicalCandidateDigest> {
   return canonicalCandidateDigest({ definition: profile, recommendedSize })
 }
+
+export type {
+  GraphSubtaskPreparation,
+  GraphSubtasks,
+  PeerAuditAccess,
+  SpawnPreflight,
+  SpawnPreflightContext,
+  SpawnRefusal,
+} from '../mcp/tools/coordination-contracts'
+export type { AuthorizeDownMessage } from '../mcp/tools/coordination-messages'
+export type { ChildQuestionInbox } from '../mcp/tools/coordination-questions'
+export type {
+  CoordinationDeliveryEvidence,
+  PriorCoordination,
+} from '../runtime/supervise/coordination-log'
+export type { SuperviseTestOptions } from '../runtime/supervise/supervise-options'
+export type { SupervisorAgentTestDeps } from '../runtime/supervise/supervisor-agent-contracts'

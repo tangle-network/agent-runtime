@@ -64,7 +64,7 @@ What was chosen, under which policy, why, and why each other tier was refused.
 
 ##### coveredAxes
 
-> **coveredAxes**: [`AgentProfileMaterializationAxis`](agent.md#agentprofilematerializationaxis)[]
+> **coveredAxes**: [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
 
 The profile's declared materialization axes the chosen tier carries. A tier that
 cannot carry a declared axis is rejected, so on a fresh decision this is every
@@ -239,33 +239,13 @@ the skills then keep the work in the sandbox.
 
 ***
 
-### LoopProfileRefusalOptions
-
-Options for [loopProfileRefusal](#loopprofilerefusal).
-
-#### Extended by
-
-- [`SandboxOnlyRequirementsOptions`](#sandboxonlyrequirementsoptions)
-
-#### Properties
-
-##### vacuousAxes?
-
-> `optional` **vacuousAxes?**: readonly `"permissions"`[]
-
-##### inlineSkills?
-
-> `optional` **inlineSkills?**: `boolean`
-
-***
-
 ### SandboxOnlyRequirementsOptions
 
 Options for [sandboxOnlyRequirements](#sandboxonlyrequirements).
 
 #### Extends
 
-- [`LoopProfileRefusalOptions`](#loopprofilerefusaloptions)
+- `LoopProfileRefusalOptions`
 
 #### Properties
 
@@ -275,7 +255,7 @@ Options for [sandboxOnlyRequirements](#sandboxonlyrequirements).
 
 ###### Inherited from
 
-[`LoopProfileRefusalOptions`](#loopprofilerefusaloptions).[`vacuousAxes`](#vacuousaxes-1)
+`LoopProfileRefusalOptions.vacuousAxes`
 
 ##### inlineSkills?
 
@@ -283,7 +263,7 @@ Options for [sandboxOnlyRequirements](#sandboxonlyrequirements).
 
 ###### Inherited from
 
-[`LoopProfileRefusalOptions`](#loopprofilerefusaloptions).[`inlineSkills`](#inlineskills-1)
+`LoopProfileRefusalOptions.inlineSkills`
 
 ##### requirements?
 
@@ -298,6 +278,20 @@ Options for [sandboxOnlyRequirements](#sandboxonlyrequirements).
 > **interactive**: `boolean`
 
 ## Type Aliases
+
+### KnownAgentProfileMaterializationAxis
+
+> **KnownAgentProfileMaterializationAxis** = `CanonicalAgentProfileMaterializationAxis`
+
+***
+
+### AgentProfileMaterializationAxis
+
+> **AgentProfileMaterializationAxis** = [`KnownAgentProfileMaterializationAxis`](#knownagentprofilematerializationaxis) \| `` `custom:${string}` ``
+
+AgentProfile axis name, with `custom:<name>` reserved for caller-owned extensions.
+
+***
 
 ### ExecutionTier
 
@@ -331,31 +325,6 @@ The profile axes `inference` and `loop` carry: identity, prompt, model controls 
 metadata. No harness, native tools, files, MCP, subagents, hooks or modes.
 
 ## Functions
-
-### loopProfileRefusal()
-
-> **loopProfileRefusal**(`profile`, `options?`): `string` \| `undefined`
-
-Why `inference` and `loop` cannot run this profile, or undefined when they can.
-A profile that needs a harness, files, harness built-in tools, MCP servers,
-subagents, hooks or modes needs a sandbox; the loop never drops one silently.
-Platform's `workerProfileRefusal`, read through [loopTierProfileMaterialization](#looptierprofilematerialization).
-
-#### Parameters
-
-##### profile
-
-`object`
-
-##### options?
-
-[`LoopProfileRefusalOptions`](#loopprofilerefusaloptions) = `{}`
-
-#### Returns
-
-`string` \| `undefined`
-
-***
 
 ### sandboxOnlyRequirements()
 

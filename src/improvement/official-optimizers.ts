@@ -30,7 +30,7 @@ const skillOptInstall =
   '`python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"`'
 
 /** Runtime context appended to an official optimizer's own configuration. */
-interface OfficialOptimizerContextOptions {
+export interface OfficialOptimizerContextOptions {
   /** Context supplied to the optimizer before Runtime appends the profile surface and findings. */
   background?: string
   /** Include current trace or analyst findings in the optimizer background. Default true. */
@@ -48,12 +48,12 @@ interface OfficialOptimizerContextOptions {
   authorizeSensitiveCandidate?: (input: OfficialSensitiveCandidateInput) => boolean
 }
 
-interface OfficialSensitiveCandidateInput extends ImproveCandidateValidationInput {
+export interface OfficialSensitiveCandidateInput extends ImproveCandidateValidationInput {
   sensitivePaths: readonly string[]
 }
 
 /** Official GEPA configuration plus bounded Runtime findings context. */
-type OfficialGepaOptions<
+export type OfficialGepaOptions<
   TScenario extends { id: string; kind: string },
   TArtifact = unknown,
 > = Omit<
@@ -63,7 +63,7 @@ type OfficialGepaOptions<
   OfficialOptimizerContextOptions
 
 /** Official SkillOpt configuration plus bounded Runtime findings context. */
-type OfficialSkillOptOptions<
+export type OfficialSkillOptOptions<
   TScenario extends { id: string; kind: string },
   TArtifact = unknown,
 > = Omit<

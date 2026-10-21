@@ -93,7 +93,7 @@ journals by `pursuitId` instead of making independent processes share a write he
 
 ###### point
 
-[`RuntimeDecisionPoint`](index.md#runtimedecisionpoint)
+[`RuntimeDecisionPoint`](#runtimedecisionpoint)
 
 ###### Returns
 
@@ -570,7 +570,7 @@ execution order; causal/runtime order remains available on the underlying event.
 
 ##### decision?
 
-> `readonly` `optional` **decision?**: [`RuntimeDecisionPoint`](index.md#runtimedecisionpoint)
+> `readonly` `optional` **decision?**: [`RuntimeDecisionPoint`](#runtimedecisionpoint)
 
 ##### digest
 
@@ -604,7 +604,7 @@ execution order; causal/runtime order remains available on the underlying event.
 
 ###### point
 
-[`RuntimeDecisionPoint`](index.md#runtimedecisionpoint)
+[`RuntimeDecisionPoint`](#runtimedecisionpoint)
 
 ###### Returns
 
@@ -1071,7 +1071,7 @@ Recorded by Runtime on the `agent.child` payload: `'pending'` at a retained chil
 
 ##### retainedPendingCause?
 
-> `readonly` `optional` **retainedPendingCause?**: [`RetainedPendingCause`](runtime.md#retainedpendingcause-2)
+> `readonly` `optional` **retainedPendingCause?**: [`RetainedPendingCause`](#retainedpendingcause-1)
 
 Why a retained child has no accepted result; see `RetainedPendingCause`.
 
@@ -1933,13 +1933,13 @@ Whole-run persistence and ownership. SQL contexts are acquired before replay and
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](runtime.md#budget-11)
+> `readonly` **budget**: [`Budget`](runtime.md#budget-10)
 
 The conserved compute pool for the whole run.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-21)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-20)
 
 ##### rootHandle?
 
@@ -1961,7 +1961,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-36)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
 
 ##### execution?
 
@@ -1986,7 +1986,7 @@ WHERE workers run — derives the worker seam. Provide this OR an explicit `make
 
 ##### selectSeat?
 
-> `readonly` `optional` **selectSeat?**: [`SelectSeat`](runtime.md#selectseat-1)
+> `readonly` `optional` **selectSeat?**: [`SelectSeat`](#selectseat-2)
 
 Resolve an authored subscription stage to one eligible seat and a backend pinned to its
 credential reference. The callback may report stage exhaustion with `resumeAt`; Runtime
@@ -1994,7 +1994,7 @@ advances the authored chain and never writes credentials into its record.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`selectSeat`](runtime.md#selectseat-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`selectSeat`](runtime.md#selectseat-1)
 
 ##### deliverable?
 
@@ -2025,7 +2025,7 @@ grants remain refused; the authorized profile is never rewritten after this call
 
 ###### input
 
-[`AuthorizedSpawnContext`](runtime.md#authorizedspawncontext)
+[`AuthorizedSpawnContext`](#authorizedspawncontext)
 
 ###### Returns
 
@@ -2048,7 +2048,7 @@ Name→value tables for the four code-valued options, so a recorded run configur
 
 ##### coordination?
 
-> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](runtime.md#coordinationtransportoptions)
+> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](#coordinationtransportoptions)
 
 Where the coordination MCP binds when the supervisor is harness-driven. Omit = an ephemeral
  port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
@@ -2173,7 +2173,7 @@ Security policy applied to every manager-authored child profile before budget re
 
 ##### authorizeSpawn?
 
-> `readonly` `optional` **authorizeSpawn?**: (`input`) => [`AuthorizedSpawn`](runtime.md#authorizedspawn)
+> `readonly` `optional` **authorizeSpawn?**: (`input`) => [`AuthorizedSpawn`](#authorizedspawn)
 
 Product authority over one complete manager-authored spawn. The callback sees the detached,
  immutable profile, task, budget, label, and key together, so approving a profile cannot
@@ -2216,7 +2216,7 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 ###### budget
 
-[`Budget`](runtime.md#budget-11)
+[`Budget`](runtime.md#budget-10)
 
 ###### label
 
@@ -2255,13 +2255,13 @@ Present only when a flow's entry or routes edge started this spawn — authored 
 
 ###### continuity?
 
-[`ContinuityMode`](runtime.md#continuitymode)
+[`ContinuityMode`](#continuitymode)
 
 The EFFECTIVE continuity of this spawn, resolved by the coordination layer.
 
 ###### Returns
 
-[`AuthorizedSpawn`](runtime.md#authorizedspawn)
+[`AuthorizedSpawn`](#authorizedspawn)
 
 ###### Inherited from
 
@@ -2269,7 +2269,7 @@ The EFFECTIVE continuity of this spawn, resolved by the coordination layer.
 
 ##### authorizeMessage?
 
-> `readonly` `optional` **authorizeMessage?**: (`input`) => [`AuthorizedDownMessage`](runtime.md#authorizeddownmessage)
+> `readonly` `optional` **authorizeMessage?**: (`input`) => [`AuthorizedDownMessage`](#authorizeddownmessage)
 
 Product authority over every continuation sent to a live child. When spawn authorization is
 enabled, omitting this refuses steer/answer instructions instead of silently extending the
@@ -2279,11 +2279,11 @@ authorized task. The exact worker identity and detached bytes are recorded befor
 
 ###### input
 
-[`DownMessageAuthorizationInput`](runtime.md#downmessageauthorizationinput) & `object`
+[`DownMessageAuthorizationInput`](#downmessageauthorizationinput) & `object`
 
 ###### Returns
 
-[`AuthorizedDownMessage`](runtime.md#authorizeddownmessage)
+[`AuthorizedDownMessage`](#authorizeddownmessage)
 
 ###### Inherited from
 
@@ -2508,7 +2508,7 @@ manager, which runs its turn loop in process.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-4)
 
 ##### childSettleGraceMs?
 
@@ -2537,7 +2537,7 @@ See `SupervisorOpts.teardownConfirmMs`.
 
 ##### resolveDriveHarness?
 
-> `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](runtime.md#resolvedriveharness-2)
+> `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](#resolvedriveharness-2)
 
 Resolve one custom external-harness session per trusted manager identity. Use this instead of
 `driveHarness` when recursive managers must be independently steerable.
@@ -2577,9 +2577,9 @@ queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ##### escalateQuestion?
 
-> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](#escalatequestion-2)
 
-Where an `ask_parent` question goes when it leaves a manager (see [EscalateQuestion](runtime.md#escalatequestion)).
+Where an `ask_parent` question goes when it leaves a manager (see [EscalateQuestion](#escalatequestion-2)).
 
 Installed on EVERY manager of the run, at every depth, so a driver's escalation reaches the
 product's own inbox — a UI, an operator queue, a human. Omit and every manager reports
@@ -2588,7 +2588,7 @@ listening: the runtime routes no question to a parent by itself.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`escalateQuestion`](runtime.md#escalatequestion-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`escalateQuestion`](runtime.md#escalatequestion-1)
 
 ##### onCoordinationEvent?
 
@@ -2657,7 +2657,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-11)
+> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-10)
 
 The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
  of the part of the pool children may reserve (the pool less any owner share). A nested
@@ -2681,7 +2681,7 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 ##### deadlineCheckIn?
 
-> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](runtime.md#deadlinecheckin-1)
+> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](#deadlinecheckin-2)
 
 What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default: a check-in;
  the child is told to save its state and submit what it has, and is stopped only once it then
@@ -2690,7 +2690,7 @@ What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-3)
 
 ##### budgetStopHoldMs?
 
@@ -2706,7 +2706,7 @@ How long a keyed worker whose turn ended over its budget keeps its environment f
 
 ##### workerSlots?
 
-> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-6)
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-2)
 
 Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
@@ -2732,7 +2732,7 @@ Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset �
 
 ##### analyzeOnSettle?
 
-> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](runtime.md#analyzeonsettleroute))[]
+> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](#analyzeonsettleroute))[]
 
 Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
  the driver receives in its next wake and composes its next steer from. The self-improving UP-leg,
@@ -2745,7 +2745,7 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-ente
 
 ##### mapOnSettle?
 
-> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](runtime.md#maponsettleroute)[]
+> `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](#maponsettleroute)[]
 
 Maps the runtime expands when their source worker settles: fan-out over a list in the
  source's result, then one join. An AgentGraph's `maps` edges set it; see `MapOnSettleRoute`.
@@ -2779,7 +2779,7 @@ Answers each gate visit of `routeFlow`; `runGraph` sets it from `RunGraphOptions
 
 ##### watchWorkers?
 
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
+> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](#workerwatchoptions)
 
 Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
 moment one loops or error-storms — so the supervisor learns it mid-run (in its next wake)
@@ -2806,7 +2806,7 @@ Idle time after which `observe_agent` reports a running worker as `stalled`. A d
 
 ##### wake?
 
-> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](runtime.md#managerwakepolicy)
+> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](#managerwakepolicy)
 
 How Runtime wakes a manager that ended its turn with work open: the heartbeat, the debounce
  that coalesces events into one wake, and the deadline warning. Omit = the defaults in
@@ -2818,7 +2818,7 @@ How Runtime wakes a manager that ended its turn with work open: the heartbeat, t
 
 ##### continuityByProfile?
 
-> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](runtime.md#continuitymode)\>\>
+> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](#continuitymode)\>\>
 
 Default continuity per worker PROFILE NAME: `'resume'` makes each spawn of that name after
  the first re-attach to the node's most recent SETTLED worker — a NEW live worker whose spawn
@@ -3000,7 +3000,7 @@ Turn cap for the supervisor's OWN loop (BOTH arms). Router arm: inference turns 
 
 ##### compaction?
 
-> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](runtime.md#toolloopcompactionoptions)
+> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
 Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER ARM ONLY —
  a harness owns its own context window and its own compaction, so this is refused for a
@@ -3020,7 +3020,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-21)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-19)
 
 ##### now?
 
@@ -3032,7 +3032,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-17)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-16)
 
 ##### allowedModels?
 
@@ -3324,11 +3324,11 @@ The run journal the edge ledger and every spawn/settle ride. Default: in-memory.
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`runId`](runtime.md#runid-15)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`runId`](runtime.md#runid-13)
 
 ##### authorizeMessage?
 
-> `readonly` `optional` **authorizeMessage?**: (`input`) => [`AuthorizedDownMessage`](runtime.md#authorizeddownmessage)
+> `readonly` `optional` **authorizeMessage?**: (`input`) => [`AuthorizedDownMessage`](#authorizeddownmessage)
 
 Product authority over every steer/answer instruction (the filter seam). `runGraph` observes
  what it CHANGES: a narrowed instruction ledgers its steer traversal as `stripped`.
@@ -3337,11 +3337,11 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 
 ###### input
 
-[`DownMessageAuthorizationInput`](runtime.md#downmessageauthorizationinput) & `object`
+[`DownMessageAuthorizationInput`](#downmessageauthorizationinput) & `object`
 
 ###### Returns
 
-[`AuthorizedDownMessage`](runtime.md#authorizeddownmessage)
+[`AuthorizedDownMessage`](#authorizeddownmessage)
 
 ###### Inherited from
 
@@ -3377,7 +3377,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-36)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
 
 ##### execution?
 
@@ -3392,7 +3392,7 @@ digests itself from the exact detached values it executes.
 
 ##### selectSeat?
 
-> `readonly` `optional` **selectSeat?**: [`SelectSeat`](runtime.md#selectseat-1)
+> `readonly` `optional` **selectSeat?**: [`SelectSeat`](#selectseat-2)
 
 Resolve an authored subscription stage to one eligible seat and a backend pinned to its
 credential reference. The callback may report stage exhaustion with `resumeAt`; Runtime
@@ -3400,7 +3400,7 @@ advances the authored chain and never writes credentials into its record.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`selectSeat`](runtime.md#selectseat-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`selectSeat`](runtime.md#selectseat-1)
 
 ##### resolveDeliverable?
 
@@ -3418,7 +3418,7 @@ grants remain refused; the authorized profile is never rewritten after this call
 
 ###### input
 
-[`AuthorizedSpawnContext`](runtime.md#authorizedspawncontext)
+[`AuthorizedSpawnContext`](#authorizedspawncontext)
 
 ###### Returns
 
@@ -3430,7 +3430,7 @@ grants remain refused; the authorized profile is never rewritten after this call
 
 ##### coordination?
 
-> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](runtime.md#coordinationtransportoptions)
+> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](#coordinationtransportoptions)
 
 Where the coordination MCP binds when the supervisor is harness-driven. Omit = an ephemeral
  port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
@@ -3514,7 +3514,7 @@ Security policy applied to every manager-authored child profile before budget re
 
 ##### authorizeSpawn?
 
-> `readonly` `optional` **authorizeSpawn?**: (`input`) => [`AuthorizedSpawn`](runtime.md#authorizedspawn)
+> `readonly` `optional` **authorizeSpawn?**: (`input`) => [`AuthorizedSpawn`](#authorizedspawn)
 
 Product authority over one complete manager-authored spawn. The callback sees the detached,
  immutable profile, task, budget, label, and key together, so approving a profile cannot
@@ -3557,7 +3557,7 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 ###### budget
 
-[`Budget`](runtime.md#budget-11)
+[`Budget`](runtime.md#budget-10)
 
 ###### label
 
@@ -3596,13 +3596,13 @@ Present only when a flow's entry or routes edge started this spawn — authored 
 
 ###### continuity?
 
-[`ContinuityMode`](runtime.md#continuitymode)
+[`ContinuityMode`](#continuitymode)
 
 The EFFECTIVE continuity of this spawn, resolved by the coordination layer.
 
 ###### Returns
 
-[`AuthorizedSpawn`](runtime.md#authorizedspawn)
+[`AuthorizedSpawn`](#authorizedspawn)
 
 ###### Inherited from
 
@@ -3771,7 +3771,7 @@ manager, which runs its turn loop in process.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-4)
 
 ##### childSettleGraceMs?
 
@@ -3800,7 +3800,7 @@ See `SupervisorOpts.teardownConfirmMs`.
 
 ##### resolveDriveHarness?
 
-> `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](runtime.md#resolvedriveharness-2)
+> `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](#resolvedriveharness-2)
 
 Resolve one custom external-harness session per trusted manager identity. Use this instead of
 `driveHarness` when recursive managers must be independently steerable.
@@ -3840,9 +3840,9 @@ queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ##### escalateQuestion?
 
-> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](#escalatequestion-2)
 
-Where an `ask_parent` question goes when it leaves a manager (see [EscalateQuestion](runtime.md#escalatequestion)).
+Where an `ask_parent` question goes when it leaves a manager (see [EscalateQuestion](#escalatequestion-2)).
 
 Installed on EVERY manager of the run, at every depth, so a driver's escalation reaches the
 product's own inbox — a UI, an operator queue, a human. Omit and every manager reports
@@ -3851,7 +3851,7 @@ listening: the runtime routes no question to a parent by itself.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`escalateQuestion`](runtime.md#escalatequestion-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`escalateQuestion`](runtime.md#escalatequestion-1)
 
 ##### extraTools?
 
@@ -3891,7 +3891,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-11)
+> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-10)
 
 The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
  of the part of the pool children may reserve (the pool less any owner share). A nested
@@ -3915,7 +3915,7 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 ##### deadlineCheckIn?
 
-> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](runtime.md#deadlinecheckin-1)
+> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](#deadlinecheckin-2)
 
 What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default: a check-in;
  the child is told to save its state and submit what it has, and is stopped only once it then
@@ -3924,7 +3924,7 @@ What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-3)
 
 ##### budgetStopHoldMs?
 
@@ -3940,7 +3940,7 @@ How long a keyed worker whose turn ended over its budget keeps its environment f
 
 ##### workerSlots?
 
-> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-6)
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-2)
 
 Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
@@ -3954,7 +3954,7 @@ Bound on concurrently WORKING agents across the whole recursive tree: a number, 
 
 ##### watchWorkers?
 
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
+> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](#workerwatchoptions)
 
 Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
 moment one loops or error-storms — so the supervisor learns it mid-run (in its next wake)
@@ -3981,7 +3981,7 @@ Idle time after which `observe_agent` reports a running worker as `stalled`. A d
 
 ##### wake?
 
-> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](runtime.md#managerwakepolicy)
+> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](#managerwakepolicy)
 
 How Runtime wakes a manager that ended its turn with work open: the heartbeat, the debounce
  that coalesces events into one wake, and the deadline warning. Omit = the defaults in
@@ -4138,7 +4138,7 @@ Turn cap for the supervisor's OWN loop (BOTH arms). Router arm: inference turns 
 
 ##### compaction?
 
-> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](runtime.md#toolloopcompactionoptions)
+> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
 Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER ARM ONLY —
  a harness owns its own context window and its own compaction, so this is refused for a
@@ -4162,7 +4162,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-17)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-16)
 
 ##### allowedModels?
 
@@ -4276,6 +4276,680 @@ already knowing the root node or coordination run id stored inside it.
 
 > `readonly` **coordinationStreams**: readonly [`DurableCoordinationStreamIdentity`](#durablecoordinationstreamidentity)[]
 
+***
+
+### AnalyzeOnSettleRoute
+
+One analyst-on-settle ROUTE: which lens runs (`kind`), over WHICH settled workers (`over`),
+delivered to WHOM (`to`), wrapped in WHAT standing instruction (`directive`). The generalized
+form of the bare-string entry — a string `k` is exactly `{ kind: k }`: every settle feeds the
+lens and the findings go to the driver via the bus. This is the analyzes-edge of an agent
+graph expressed at the coordination layer; the finding is ALWAYS also published on the bus
+(the audit trail), routing adds delivery, never replaces the record.
+
+#### Properties
+
+##### at?
+
+> `readonly` `optional` **at?**: `"worker"` \| `"manager-end"`
+
+Analyze this manager's final output and settled-child references before it closes.
+Requires an agent route; omitted means each eligible worker settlement.
+
+##### statuses?
+
+> `readonly` `optional` **statuses?**: readonly (`"done"` \| `"down"`)[]
+
+Worker outcomes admitted to this route. Defaults to done; down includes failed attempts.
+
+##### kind
+
+> `readonly` **kind**: `string`
+
+The analyst id: a lens id resolved against the `analysts` registry, or — when `agent` is
+ present — the AGENT analyst's stable identity carried on its finding/steer events (it need
+ not exist in any registry).
+
+##### agent?
+
+> `readonly` `optional` **agent?**: `AgentProfile`
+
+Make this analyst a tool-equipped AGENT instead of a registry lens: on each matching settle
+the runtime spawns this profile as a WORKER through the SAME spawn machinery a driver spawn
+uses (`Scope.spawn` + the run's `makeWorkerAgent` seam) — so its spend reserves from the
+conserved pool, its node is journaled and traced like any worker, and a node-pinning seam
+sees the spawn context marker (`WorkerSpawnContext.analyst`). Its task is `directive` plus
+the settled worker's tool-trace evidence; its settle OUTPUT is the findings, published as a
+`finding` event (same canonicalization) and delivered per `to` exactly like registry-analyst
+findings. A settle that failed publishes `{ analystRunFailed }`; a spawn the pool or fences
+refuse publishes `{ analystSpawnRefused }` — observable, never a silent drop. An agent
+analyst's settlement never enters the settled-worker ledger, never feeds the finalizer, and
+never re-fires the analyst-on-settle hook (no analyst-on-analyst cascade by construction).
+
+##### to?
+
+> `readonly` `optional` **to?**: `string`
+
+Deliver the findings to this live worker, named by its PROFILE NAME (the stable node
+ identity a graph pins) or its spawn label. Omit = the driver (bus only). Delivery goes
+ through the same authorization + steer machinery a driver-authored steer uses and is
+ recorded as a `steer` event carrying `analyst`, so a routed delivery is observable and a
+ failed one (`delivered: false`) is a recorded outcome, never a silent drop.
+
+##### directive?
+
+> `readonly` `optional` **directive?**: `string`
+
+Standing instruction wrapped around the findings on a routed delivery — what the recipient
+ should DO with the analysis. For an AGENT analyst (`agent` set) it is instead the analysis
+ directive handed to the agent as its task; the routed delivery then carries the bare
+ findings, because the directive was already consumed upstream. Omit = the bare findings
+ JSON (and, for an agent analyst, a task of evidence only).
+
+##### over?
+
+> `readonly` `optional` **over?**: readonly `string`[]
+
+Restrict which settled workers feed this lens, by profile name or spawn label. Omit =
+ every settled `done` worker.
+
+***
+
+### WorkerWatchOptions
+
+Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`).
+
+#### Properties
+
+##### detectors?
+
+> `readonly` `optional` **detectors?**: readonly `StreamingDetector`[]
+
+Detector panel; omit for the default stuck-loop + error-streak pair.
+
+##### maxFindingsPerWorker?
+
+> `readonly` `optional` **maxFindingsPerWorker?**: `number`
+
+Raise at most this many findings per worker, so one pathological worker cannot flood the
+ driver's inbox with the same signal every span. Default 3; `<= 0` = unlimited.
+
+***
+
+### MapOnSettleRoute
+
+One map-on-settle ROUTE: the coordination form of an AgentGraph `maps` edge. When a worker whose
+profile name is `from` settles `done`, the runtime resolves `pointer` in its result, refuses
+anything but an array no longer than `maxItems`, and starts one item per element — the element
+is the item's task — at most `concurrency` at a time. Once every item settled it starts `join`
+with the ordered results. Items and the join go through the same admission a `spawn_worker` call
+takes (pre-flight, budget reservation from the conserved pool, `makeWorkerAgent`), carrying the
+runtime-authored `WorkerSpawnContext.map` marker, so no manager turn is spent on them.
+
+Every step publishes a `map` event. Item settlements are recorded but not queued, so the
+manager is woken by the join's settlement, or by a `map` event when the map was refused or its
+join could not run. Items and the join are keyed `map:<edge>#<expansion>:<index>` and
+`map:<edge>#<expansion>:join`, where expansion is the source node's 1-based done-settle count. A
+flow's restarted manager replays its source's committed settle, so the map re-expands under the
+same keys: an item or join whose done settlement is on disk returns it without running.
+
+#### Properties
+
+##### edge
+
+> `readonly` **edge**: `string`
+
+Stable edge identity carried on every `map` event.
+
+##### from
+
+> `readonly` **from**: `string`
+
+The source, by profile name.
+
+##### pointer
+
+> `readonly` **pointer**: `string`
+
+RFC 6901 JSON pointer into the source's settled result.
+
+##### item
+
+> `readonly` **item**: \{ `profile`: `AgentProfile`; \} \| \{ `graph`: `unknown`; \}
+
+What runs per item: a profile (pinned by the run's authority), or a graph started through the
+ `run_graph` path.
+
+##### join
+
+> `readonly` **join**: `AgentProfile`
+
+The node that receives `{ map, source, items, results, failures }`.
+
+##### maxItems
+
+> `readonly` **maxItems**: `number`
+
+##### concurrency
+
+> `readonly` **concurrency**: `number`
+
+##### onItemFailure
+
+> `readonly` **onItemFailure**: [`MapItemFailurePolicy`](runtime.md#mapitemfailurepolicy)
+
+`'all-or-refuse'`: after a failed item no further item starts, running items settle, and the
+ join is refused with the failures listed. `'settled-subset'`: every item runs and the join
+ receives the delivered results with the failures beside them. An item fails when it settles
+ down, when its deliverable check rejects it, when it delivers nothing, or when its spawn is
+ refused.
+
+##### itemBudget?
+
+> `readonly` `optional` **itemBudget?**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+Each item's budget, merged over the per-worker default as `spawn_worker`'s `budget` is.
+
+***
+
+### DownMessageAuthorizationInput
+
+Detached continuation bytes and exact worker identity presented to product authorization before
+Runtime records or delivers a steer/answer.
+
+#### Properties
+
+##### kind
+
+> `readonly` **kind**: `"steer"` \| `"answer"`
+
+##### workerId
+
+> `readonly` **workerId**: `string`
+
+##### workerIdentity
+
+> `readonly` **workerIdentity**: [`NodeExecutionIdentity`](runtime.md#nodeexecutionidentity)
+
+##### instruction
+
+> `readonly` **instruction**: `string`
+
+##### interrupt
+
+> `readonly` **interrupt**: `boolean`
+
+##### questionId?
+
+> `readonly` `optional` **questionId?**: `string`
+
+***
+
+### AuthorizedDownMessage
+
+Product-authorized continuation bytes. Returning a narrowed instruction replaces the proposed
+bytes; throwing refuses delivery.
+
+#### Properties
+
+##### instruction
+
+> `readonly` **instruction**: `string`
+
+***
+
+### RuntimeDecisionEvidenceRef
+
+#### Properties
+
+##### source
+
+> **source**: `string`
+
+##### id
+
+> **id**: `string`
+
+##### detail?
+
+> `optional` **detail?**: `string`
+
+##### metadata?
+
+> `optional` **metadata?**: `Record`\<`string`, `unknown`\>
+
+***
+
+### RuntimeDecisionPoint
+
+#### Properties
+
+##### id
+
+> **id**: `string`
+
+##### pursuitId?
+
+> `optional` **pursuitId?**: `string`
+
+Stable identity for the long-lived objective. One pursuit may contain many runs.
+
+##### runId
+
+> **runId**: `string`
+
+##### scenarioId?
+
+> `optional` **scenarioId?**: `string`
+
+##### stepIndex
+
+> **stepIndex**: `number`
+
+##### kind
+
+> **kind**: [`RuntimeDecisionKind`](#runtimedecisionkind)
+
+##### candidateActions
+
+> **candidateActions**: `string`[]
+
+##### context?
+
+> `optional` **context?**: `string`
+
+##### evidence
+
+> **evidence**: [`RuntimeDecisionEvidenceRef`](#runtimedecisionevidenceref)[]
+
+##### metadata?
+
+> `optional` **metadata?**: `Record`\<`string`, `unknown`\>
+
+***
+
+### CoordinationHttpAudit
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### actorId
+
+> `readonly` **actorId**: `string`
+
+##### outcome
+
+> `readonly` **outcome**: `"completed"` \| `"rejected"` \| `"accepted"` \| `"completed-after-deadline"`
+
+##### status
+
+> `readonly` **status**: `number`
+
+##### action?
+
+> `readonly` `optional` **action?**: `string`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: [`CoordinationRejectReason`](#coordinationrejectreason)
+
+Why a `rejected` request was refused.
+
+***
+
+### CoordinationAuthentication
+
+#### Properties
+
+##### ttlMs?
+
+> `readonly` `optional` **ttlMs?**: `number`
+
+Explicit finite lifetime. Omission binds the credential to the live scope: it is refused once
+ the scope stops or the listener closes. A child's own time box does not stop its scope.
+
+##### signingKeys?
+
+> `readonly` `optional` **signingKeys?**: `object`
+
+Caller-owned secret keys. Keep prior keys to verify unexpired credentials after restart.
+
+###### activeKeyId
+
+> `readonly` **activeKeyId**: `string`
+
+###### keys
+
+> `readonly` **keys**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+***
+
+### CoordinationPublicAddress
+
+#### Properties
+
+##### host
+
+> `readonly` **host**: `string`
+
+##### port
+
+> `readonly` **port**: `number`
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### actorId
+
+> `readonly` **actorId**: `string`
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+Listener lifetime: aborts on close, failed setup, manager cancellation, or deadline.
+
+***
+
+### CoordinationReadAccess
+
+Runtime-only read capability delivered to an operator client, never to the canonical profile.
+
+#### Properties
+
+##### url
+
+> `readonly` **url**: `string`
+
+##### headers
+
+> `readonly` **headers**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+***
+
+### CoordinationTransportOptions
+
+#### Extends
+
+- `CoordinationHttpOptions`
+
+#### Properties
+
+##### maxRequestBytes?
+
+> `readonly` `optional` **maxRequestBytes?**: `number`
+
+###### Inherited from
+
+`CoordinationHttpOptions.maxRequestBytes`
+
+##### requestTimeoutMs?
+
+> `readonly` `optional` **requestTimeoutMs?**: `number`
+
+###### Inherited from
+
+`CoordinationHttpOptions.requestTimeoutMs`
+
+##### maxConcurrentRequests?
+
+> `readonly` `optional` **maxConcurrentRequests?**: `number`
+
+###### Inherited from
+
+`CoordinationHttpOptions.maxConcurrentRequests`
+
+##### requestsPerMinute?
+
+> `readonly` `optional` **requestsPerMinute?**: `number`
+
+###### Inherited from
+
+`CoordinationHttpOptions.requestsPerMinute`
+
+##### allowedOrigins?
+
+> `readonly` `optional` **allowedOrigins?**: readonly `string`[]
+
+Browser origins are refused unless explicitly listed.
+
+###### Inherited from
+
+`CoordinationHttpOptions.allowedOrigins`
+
+##### onAudit?
+
+> `readonly` `optional` **onAudit?**: (`event`) => `void` \| `Promise`\<`void`\>
+
+Audit fields exclude credentials, request bodies, and arbitrary error strings.
+
+###### Parameters
+
+###### event
+
+[`CoordinationHttpAudit`](#coordinationhttpaudit)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+###### Inherited from
+
+`CoordinationHttpOptions.onAudit`
+
+##### onReadReady?
+
+> `readonly` `optional` **onReadReady?**: (`access`) => `void` \| `Promise`\<`void`\>
+
+Publish the read capability before dispatch, so a remote client can observe the first worker.
+
+###### Parameters
+
+###### access
+
+[`CoordinationReadAccess`](#coordinationreadaccess) & `object`
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+##### host?
+
+> `readonly` `optional` **host?**: `string`
+
+##### port?
+
+> `readonly` `optional` **port?**: `number`
+
+##### authentication?
+
+> `readonly` `optional` **authentication?**: `true` \| [`CoordinationAuthentication`](#coordinationauthentication)
+
+Required for remote binds. Each server mints a distinct run/actor credential.
+
+##### publicUrl?
+
+> `readonly` `optional` **publicUrl?**: `string` \| ((`address`) => `string` \| `Promise`\<`string`\>)
+
+Caller-owned reachable endpoint or mapping, awaited before dispatch. Runtime creates no tunnel.
+
+***
+
+### SeatSelectionInput
+
+#### Properties
+
+##### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+##### nodeId
+
+> `readonly` **nodeId**: `string`
+
+##### stage
+
+> `readonly` **stage**: [`SeatStage`](runtime.md#seatstage)
+
+##### stageIndex
+
+> `readonly` **stageIndex**: `number`
+
+##### segmentIndex
+
+> `readonly` **segmentIndex**: `number`
+
+##### excludedSeatIds
+
+> `readonly` **excludedSeatIds**: readonly `string`[]
+
+##### previous?
+
+> `readonly` `optional` **previous?**: `Pick`\<[`SeatSegment`](runtime.md#seatsegment), `"harness"` \| `"provider"` \| `"model"` \| `"seat"`\>
+
+##### retainedEnvironmentId?
+
+> `readonly` `optional` **retainedEnvironmentId?**: `string`
+
+Last admitted environment without a confirmed destroy receipt. Check live capability before reuse.
+
+##### requiresNativeTurnGrant
+
+> `readonly` **requiresNativeTurnGrant**: `boolean`
+
+This selection must grant a different credential on the retained native session.
+
+##### resumeSeatId?
+
+> `readonly` `optional` **resumeSeatId?**: `string`
+
+Rebind the exact prior seat after coordinator restart, never choose another implicitly.
+
+***
+
+### AuthorizedSpawn
+
+The product-authorized result for one complete spawn request. Attribution is never accepted
+from the manager itself; it enters only through this trusted callback.
+
+#### Properties
+
+##### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+##### execution?
+
+> `readonly` `optional` **execution?**: [`AgentExecutionRef`](runtime.md#agentexecutionref)
+
+***
+
+### AuthorizedSpawnContext
+
+Exact trusted context after a manager-authored spawn has passed product authorization.
+
+#### Properties
+
+##### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+##### parent
+
+> `readonly` **parent**: `AgentProfile`
+
+##### parentIdentity
+
+> `readonly` **parentIdentity**: [`NodeExecutionIdentity`](runtime.md#nodeexecutionidentity)
+
+##### execution
+
+> `readonly` **execution**: [`NodeExecutionIdentity`](runtime.md#nodeexecutionidentity)
+
+##### parentNodeId
+
+> `readonly` **parentNodeId**: `string`
+
+##### assignmentId
+
+> `readonly` **assignmentId**: `string`
+
+##### task
+
+> `readonly` **task**: `unknown`
+
+##### budget
+
+> `readonly` **budget**: [`Budget`](runtime.md#budget-10)
+
+##### label
+
+> `readonly` **label**: `string`
+
+##### key?
+
+> `readonly` `optional` **key?**: `string`
+
+##### depth
+
+> `readonly` **depth**: `number`
+
+***
+
+### ManagerWakePolicy
+
+How Runtime wakes a manager that ended its turn with work open.
+
+#### Properties
+
+##### heartbeatMs?
+
+> `readonly` `optional` **heartbeatMs?**: `number`
+
+Wake with no event after this long, so a waiting manager can reconsider. Default 15 min.
+
+##### debounceMs?
+
+> `readonly` `optional` **debounceMs?**: `number`
+
+After the first event, wait this long for more and deliver them together. Default 2 s.
+
+##### deadlineWarningMs?
+
+> `readonly` `optional` **deadlineWarningMs?**: `number`
+
+Wake once this long before the deadline and ask for the best result now. Default 15 min.
+
+***
+
+### WorkerSlots
+
+A fleet-wide bound on concurrently working agents, with a queue for the spawns past it.
+
+#### Properties
+
+##### max
+
+> `readonly` **max**: `number` \| `undefined`
+
+The bound on working agents, or `undefined` when only the budget bounds concurrency.
+
+##### working
+
+> `readonly` **working**: `number`
+
+Working agents that hold a slot now.
+
+##### queued
+
+> `readonly` **queued**: `number`
+
+Spawns that hold a budget slice and wait for a slot.
+
 ## Type Aliases
 
 ### ObserverRecordKind
@@ -4304,14 +4978,6 @@ rest; `unknown` = nothing priced it, so `usd` is a floor and never the cost.
 
 ***
 
-### PursuitNodePlacement
-
-> **PursuitNodePlacement** = `Readonly`\<`Record`\<`string`, `string` \| `number` \| `boolean` \| `null`\>\>
-
-Where and how a node's execution was placed, read off its execution-binding receipt.
-
-***
-
 ### NextPursuitVersion
 
 > **NextPursuitVersion** = (`input`, `signal`) => `AgentProfileDiff` \| `Promise`\<`AgentProfileDiff`\>
@@ -4331,6 +4997,138 @@ Build the one change the next version applies to `best.profile`. Its `id` must b
 #### Returns
 
 `AgentProfileDiff` \| `Promise`\<`AgentProfileDiff`\>
+
+***
+
+### ContinuityMode
+
+> **ContinuityMode** = `"fresh"` \| `"resume"`
+
+How a spawn CONTINUES a node's prior work: `'fresh'` starts a brand-new session (the default,
+ and the only pre-continuity behavior); `'resume'` re-attaches to the node's most recent
+ SETTLED worker — a NEW live worker is spawned whose spawn context carries the prior worker's
+ identity ([WorkerResumeContext](runtime.md#workerresumecontext)), and the executor seam owns the actual session
+ re-attachment.
+
+***
+
+### QuestionEscalationOutcome
+
+> **QuestionEscalationOutcome** = \{ `delivered`: `true`; `to`: `string`; \} \| \{ `delivered`: `false`; `reason`: `string`; \}
+
+The result of handing a question this manager cannot answer to whatever is above it.
+
+***
+
+### EscalateQuestion
+
+> **EscalateQuestion** = (`question`) => `Promise`\<[`QuestionEscalationOutcome`](#questionescalationoutcome)\> \| [`QuestionEscalationOutcome`](#questionescalationoutcome)
+
+Where a question leaves this manager when `ask_parent` is called.
+
+Absent means NO INBOX IS CONFIGURED above this manager: `ask_parent` then answers `no-parent`
+instead of appearing to succeed. That distinction is the whole point of the seam — a manager that
+escalates a blocking question and reads a bare receipt BLOCKS on an answer nothing is routing to
+it, and a fail-closed stop policy then refuses to let it finish.
+
+`no-parent` is not "the question vanished". It is still published on the bus and journaled, so an
+external answerer watching the run — the coordination MCP's own `answer_question`, an operator
+console, a product observer on `onCoordinationEvent` — can still decide it. What `no-parent` says
+is that the RUNTIME will carry it nowhere by itself, so the manager must not sit and wait.
+
+An implementation returns `{ delivered: true, to }` naming who holds the question now, or
+`{ delivered: false, reason }`. A THROW is also a refusal: its message becomes the reason, so a
+broken parent channel reads as an undelivered escalation, never as a delivered one.
+
+#### Parameters
+
+##### question
+
+[`QuestionRecord`](runtime.md#questionrecord)
+
+#### Returns
+
+`Promise`\<[`QuestionEscalationOutcome`](#questionescalationoutcome)\> \| [`QuestionEscalationOutcome`](#questionescalationoutcome)
+
+***
+
+### RuntimeDecisionKind
+
+> **RuntimeDecisionKind** = `"continue"` \| `"verify"` \| `"ask"` \| `"retry"` \| `"stop"` \| `"memory-write"` \| `"memory-read"` \| `"tool-select"` \| `"skill-select"` \| `"workflow-select"` \| `"surface-promote"` \| `string` & `object`
+
+***
+
+### CoordinationRejectReason
+
+> **CoordinationRejectReason** = `"method-not-allowed"` \| `"unknown-path"` \| `"wrong-host"` \| `"origin-refused"` \| `"listener-closed"` \| `"scope-stopped"` \| `"credential-refused"` \| `"unsupported-content-type"` \| `"body-too-large"` \| `"malformed-request"` \| `"request-limit"` \| `"body-timeout"` \| `"action-timeout"`
+
+Why the coordination boundary refused a request. The refusal's JSON-RPC error body names it, so
+ an agent reads more than a bare status, and its audit event records it.
+
+***
+
+### DeadlineCheckIn
+
+> **DeadlineCheckIn** = `false` \| \{ `idleMs?`: `number`; \}
+
+What a steerable child's own time box does: a check-in, not a kill. At the child's deadline its
+lead's scope delivers `DEADLINE_CHECK_IN_MESSAGE` to the child's inbox and keeps it
+running; the child is stopped (reason `child deadline exceeded`) only once it then makes no
+progress for `idleMs`. The run's own deadline, the budgets and cancellation still stop it at once.
+`false` restores the hard kill at the time box. A child that exposes no inbox cannot be told,
+so it is stopped at its time box as before.
+
+Measured 2026-10-07 on Discovery run terraform-dc-tokens-20261007e-codex1: four of 42 directors
+were killed at the 90-minute boxes their root set, three of them mid-turn, losing 27, 6 and 91
+minutes since their last recorded page, and each successor spent 12 to 19 minutes re-reading
+before its first page.
+
+***
+
+### RetainedPendingCause
+
+> **RetainedPendingCause** = `"unobservable"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"`
+
+Why a retained execution has no accepted terminal result, classified where the cause is still
+a typed value rather than a string in a journal.
+
+One reason string used to cover two situations that call for opposite operator responses
+(#1204): an execution whose status genuinely cannot be determined — refusing to replace it is
+correct, and the operator must reconcile before retrying or pay twice for one turn — and a
+provider that broke its contract, where the reader or provider needs repair before the original
+execution can be reconciled. Six exhibits in three days wore the first name for the second fault.
+
+- `'unobservable'`: the execution may have run and nothing local can say. The safety refusal.
+  Anything unclassifiable lands here, and so does a 4xx, a not-found, or a client deadline hit
+  AFTER admission: the provider cannot resolve what it admitted, which is exactly the case the
+  refusal exists for, not a rejected request.
+- `'provider-contract'`: the provider answered with something its own contract forbids — a
+  `RetainedRunProviderContractError` naming a broken answer (an `*_INVALID`, `*_CHANGED`,
+  `*_DUPLICATE`, `*_MISSING` code), an event bound to another run.
+- `'request-rejected'`: the request itself was refused BEFORE it ran — a schema violation
+  (`ZodError`), an HTTP 4xx at admission, a capacity refusal at admission that carries an
+  upstream capacity `code` and no HTTP status (the account owner's credential command refused a
+  fresh dispatch before the dispatch request existed), an unsupported credential route, or a
+  dispatch that Sandbox did not admit
+  because another execution owns the session or turn. Never named after admission.
+- `'transport'`: the provider or a gateway in front of it failed — an HTTP 5xx, a socket
+  error, a platform service answering with a server error. Status is in doubt only because
+  the transport was.
+- `'nested-recovery'`: a nested manager's own recovery could not be reconstructed. Stated by
+  the thrower, never inferred.
+
+Classification reads the cause's structure — class name, `code`, HTTP `status`, a Zod issue
+list — never its message text, because the provider is not a dependency of this package and
+its messages are not a contract. #1204's exhibit 3 (an event without a stable id) is delivered
+rather than thrown since agent-provider-tangle 1.4.0, so it no longer reaches this path; its
+exhibit 6 is typed as `JsonBoundError` (`code: 'JSON_BOUND_VIOLATION'`) since 1.5.0 and lands
+with the schema violations. A provider still throwing plain `Error`s lands on `'unobservable'`,
+which is the safe side.
+
+One `RetainedRunProviderContractError` is NOT one meaning. The runtime mints it both when the
+provider answered wrongly and when a READ of the provider failed (`RETAINED_RESULT_READ_FAILED`,
+`RETAINED_CONTROL_REF_READ_FAILED`). The second kind is a wrapper: what it wraps decides, in a
+post-admission context, and a wrapper around nothing classifiable is exhibit 4.
 
 ***
 
@@ -4361,6 +5159,98 @@ ISO instant the line was appended, from the run's own clock.
 The 1-based drive attempt of the root that produced it: a driver retry or re-prompt
  re-enters the harness and continues the same file with the next attempt number.
 
+***
+
+### SeatSelection
+
+> **SeatSelection** = \{ `seat`: `string`; `backend`: `Extract`\<[`ExecutorConfig`](runtime.md#executorconfig), \{ `backend`: `"provider"`; \}\>; `nativeTurnGrant?`: `true`; \} \| \{ `resumeAt`: `string`; \}
+
+#### Union Members
+
+##### Type Literal
+
+\{ `seat`: `string`; `backend`: `Extract`\<[`ExecutorConfig`](runtime.md#executorconfig), \{ `backend`: `"provider"`; \}\>; `nativeTurnGrant?`: `true`; \}
+
+###### seat
+
+> `readonly` **seat**: `string`
+
+###### backend
+
+> `readonly` **backend**: `Extract`\<[`ExecutorConfig`](runtime.md#executorconfig), \{ `backend`: `"provider"`; \}\>
+
+###### nativeTurnGrant?
+
+> `readonly` `optional` **nativeTurnGrant?**: `true`
+
+Lab verified that this backend can grant the selected seat on an existing native session.
+
+***
+
+##### Type Literal
+
+\{ `resumeAt`: `string`; \}
+
+***
+
+### SelectSeat
+
+> **SelectSeat** = (`input`) => `Promise`\<[`SeatSelection`](#seatselection)\>
+
+The caller owns account eligibility and credential resolution; Runtime owns the chain order.
+
+#### Parameters
+
+##### input
+
+[`SeatSelectionInput`](#seatselectioninput)
+
+#### Returns
+
+`Promise`\<[`SeatSelection`](#seatselection)\>
+
+***
+
+### DriveHarnessOwnerContext
+
+> **DriveHarnessOwnerContext** = `Omit`\<[`SupervisorNodeContext`](runtime.md#supervisornodecontext), `"nodeId"`\>
+
+Trusted manager identity available before its external harness starts. A product uses this to
+return one independently steerable harness session per recursive manager.
+
+***
+
+### ResolveDriveHarness
+
+> **ResolveDriveHarness** = (`context`) => [`DriveHarness`](runtime.md#driveharness-2)
+
+Resolve an external harness for one exact Runtime-owned manager identity.
+
+#### Parameters
+
+##### context
+
+[`DriveHarnessOwnerContext`](#driveharnessownercontext)
+
+#### Returns
+
+[`DriveHarness`](runtime.md#driveharness-2)
+
+***
+
+### ToolLoopCompactionOptions
+
+> **ToolLoopCompactionOptions** = `Omit`\<[`ToolLoopCompaction`](runtime.md#toolloopcompaction), `"distill"`\> & `object`
+
+Public supervisor-facing compaction config: same knobs as the primitive, but `distill` is optional
+ because the supervisor has a default digest that combines a brain note with live worker state.
+
+#### Type Declaration
+
+##### distill?
+
+> `readonly` `optional` **distill?**: [`ToolLoopCompaction`](runtime.md#toolloopcompaction)\[`"distill"`\]
+
 ## Variables
 
 ### RUN\_FORK\_CORRELATION\_KEYS
@@ -4370,14 +5260,6 @@ The 1-based drive attempt of the root that produced it: a driver retry or re-pro
 The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that
 supplies one is refused. `lineageRootRunId` is the first run of the chain of parents, so the
 spend of every version of one lineage groups under one id.
-
-***
-
-### ROOT\_STREAM\_FILE
-
-> `const` **ROOT\_STREAM\_FILE**: `"root-stream.jsonl"` = `'root-stream.jsonl'`
-
-The root stream: one JSONL line per progress event the root's executor observed.
 
 ## Functions
 
@@ -4452,28 +5334,6 @@ Wire integration:
 #### Throws
 
 `RangeError` when `turnIndex` is invalid or the result exceeds 256 bytes.
-
-***
-
-### verifyObserverRecords()
-
-> **verifyObserverRecords**(`records`, `pursuitId?`): readonly [`ObserverRecord`](#observerrecord)[]
-
-Verify identity, monotonic sequence, payload shape, and the complete digest chain.
-
-#### Parameters
-
-##### records
-
-readonly [`ObserverRecord`](#observerrecord)[]
-
-##### pursuitId?
-
-`string`
-
-#### Returns
-
-readonly [`ObserverRecord`](#observerrecord)[]
 
 ***
 
@@ -4801,9 +5661,3 @@ Every committed line of the root stream, in order, or `undefined` when there is 
 #### Returns
 
 `Promise`\<[`RootStreamRecord`](#rootstreamrecord)[] \| `undefined`\>
-
-## References
-
-### RootStreamReceipt
-
-Re-exports [RootStreamReceipt](runtime.md#rootstreamreceipt)

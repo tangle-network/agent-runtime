@@ -50,7 +50,7 @@ export function isDelegatedLoopMode(value: unknown): value is DelegatedLoopMode 
 }
 
 /** @experimental A pre-configured loop for one mode. Returns the mode's raw
- *  output; the dispatcher wraps it in a {@link DelegatedLoopResult}. */
+ *  output; the dispatcher wraps it in a `DelegatedLoopResult`. */
 export type DelegatedLoopRunner<T = unknown> = (signal: AbortSignal) => Promise<T>
 
 /** @experimental Mode → configured runner. Partial: only register the modes a

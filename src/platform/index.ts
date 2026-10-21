@@ -10,7 +10,18 @@
  *   - {@link PlatformHubClient} for the `/v1/hub/*` surface
  */
 
+export type { AuthorizeUrlOptions, ExchangeCodeResult } from './auth'
 export { PlatformAuthClient, type PlatformAuthClientOptions, PlatformAuthError } from './auth.js'
+export type {
+  CatalogResult,
+  ConnectionHealthResult,
+  ExecInput,
+  MintTokenInput,
+  PlatformCatalogProvider,
+  PlatformHubStatus,
+  StartAuthInput,
+  StartAuthResult,
+} from './integrations'
 export {
   type ConnectionHealth,
   type HealthCheck,
@@ -20,4 +31,12 @@ export {
   type PlatformHubClientOptions,
   PlatformHubError,
 } from './integrations.js'
+export type {
+  OidcAuthorizeUrlOptions,
+  OidcDeviceAuthorization,
+  OidcExchangeResult,
+  OidcTokens,
+  OidcUser,
+  PlatformOidcClientOptions,
+} from './oidc'
 export { createPkcePair, PlatformOidcClient } from './oidc.js'

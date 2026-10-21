@@ -72,117 +72,23 @@ A consumer rejected a binding that its executor does not admit.
 
 > `readonly` **capabilityId**: `string`
 
-***
+## Interfaces
 
-### AgentCandidateExperimentCellExecutionError
-
-A failed baseline or candidate cell with its complete Runtime failure result.
-
-#### Extends
-
-- `Error`
-
-#### Constructors
-
-##### Constructor
-
-> **new AgentCandidateExperimentCellExecutionError**(`finalization`): [`AgentCandidateExperimentCellExecutionError`](#agentcandidateexperimentcellexecutionerror)
-
-###### Parameters
-
-###### finalization
-
-###### succeeded
-
-`false`
-
-###### reason
-
-`string`
-
-###### partial
-
-\{ `executionId`: `string`; `bundleDigest`: `` `sha256:${string}` ``; `executionPlanDigest`: `` `sha256:${string}` ``; `materializationReceiptDigest`: `` `sha256:${string}` ``; `termination?`: `AgentCandidateTermination`; \}
-
-###### partial.executionId
-
-`string`
-
-###### partial.bundleDigest
-
-`` `sha256:${string}` ``
-
-###### partial.executionPlanDigest
-
-`` `sha256:${string}` ``
-
-###### partial.materializationReceiptDigest
-
-`` `sha256:${string}` ``
-
-###### partial.termination?
-
-`AgentCandidateTermination`
-
-###### usage
-
-`AgentCandidateFixedSpend` \| `null`
-
-Independent evaluator-gateway usage, even when execution or trace capture failed.
-
-###### Returns
-
-[`AgentCandidateExperimentCellExecutionError`](#agentcandidateexperimentcellexecutionerror)
-
-###### Overrides
-
-`Error.constructor`
+### PrepareAgentCandidateExecutionOptions
 
 #### Properties
 
-##### finalization
+##### cleanupTimeoutMs?
 
-> `readonly` **finalization**: `object`
+> `optional` **cleanupTimeoutMs?**: `number`
 
-###### succeeded
+##### resultTimeoutMs?
 
-> **succeeded**: `false`
+> `optional` **resultTimeoutMs?**: `number`
 
-###### reason
+Maximum time for task verification, executable grading, and receipt construction.
 
-> **reason**: `string`
-
-###### partial
-
-> **partial**: `object`
-
-###### partial.executionId
-
-> **executionId**: `string`
-
-###### partial.bundleDigest
-
-> **bundleDigest**: `` `sha256:${string}` ``
-
-###### partial.executionPlanDigest
-
-> **executionPlanDigest**: `` `sha256:${string}` ``
-
-###### partial.materializationReceiptDigest
-
-> **materializationReceiptDigest**: `` `sha256:${string}` ``
-
-###### partial.termination?
-
-> `optional` **termination?**: `AgentCandidateTermination`
-
-###### usage
-
-> **usage**: `AgentCandidateFixedSpend` \| `null`
-
-Independent evaluator-gateway usage, even when execution or trace capture failed.
-
-## Interfaces
+***
 
 ### CreateAgentImprovementActivationResultOptions
 
@@ -317,40 +223,6 @@ The product owns the private state lookup and atomic write.
 
 ***
 
-### AgentImprovementActivationResultStore
-
-#### Methods
-
-##### load()
-
-> **load**(`idempotencyKey`): `Promise`\<`unknown`\>
-
-###### Parameters
-
-###### idempotencyKey
-
-`` `sha256:${string}` ``
-
-###### Returns
-
-`Promise`\<`unknown`\>
-
-##### putIfAbsent()
-
-> **putIfAbsent**(`result`): `Promise`\<`unknown`\>
-
-###### Parameters
-
-###### result
-
-`AgentImprovementActivationResult`
-
-###### Returns
-
-`Promise`\<`unknown`\>
-
-***
-
 ### ExecuteAgentImprovementActivationInput
 
 #### Properties
@@ -375,11 +247,11 @@ The product owns the private state lookup and atomic write.
 
 ##### transition
 
-> **transition**: [`AgentImprovementActivationTransition`](#agentimprovementactivationtransition)
+> **transition**: [`AgentImprovementActivationTransition`](index.md#agentimprovementactivationtransition)
 
 ##### reconcile?
 
-> `optional` **reconcile?**: [`AgentImprovementActivationReconciliation`](#agentimprovementactivationreconciliation)
+> `optional` **reconcile?**: [`AgentImprovementActivationReconciliation`](index.md#agentimprovementactivationreconciliation)
 
 ##### now?
 
@@ -773,185 +645,6 @@ capabilities live in `capabilities`.
 
 ***
 
-### ResolvedRetrieval
-
-One retrieval handle. The agent never learns vector vs graph vs index.
-
-#### Properties
-
-##### name
-
-> **name**: `string`
-
-#### Methods
-
-##### retrieve()
-
-> **retrieve**(`query`, `k?`): `Promise`\<`object`[]\>
-
-###### Parameters
-
-###### query
-
-`string`
-
-###### k?
-
-`number`
-
-###### Returns
-
-`Promise`\<`object`[]\>
-
-***
-
-### ResolvedHook
-
-One resolved hook — event + the command/matcher the seam folds into
- `AgentProfile.hooks`.
-
-#### Properties
-
-##### event
-
-> **event**: `string`
-
-##### command
-
-> **command**: `string`
-
-##### matcher?
-
-> `optional` **matcher?**: `string`
-
-***
-
-### ResolvedSubagent
-
-One resolved subagent — folded into `AgentProfile.subagents`.
-
-#### Properties
-
-##### name
-
-> **name**: `string`
-
-##### description?
-
-> `optional` **description?**: `string`
-
-##### prompt?
-
-> `optional` **prompt?**: `string`
-
-***
-
-### ResolvedCapabilitySurface
-
-Materialized capability surfaces supplied by a consumer-owned executor.
-
-#### Properties
-
-##### tools
-
-> **tools**: [`ToolSpec`](runtime.md#toolspec)[]
-
-Host-side tool defs → `RouterToolsSeam.tools` / agent-app `extraTools`.
-
-##### mcpConnections
-
-> **mcpConnections**: `Record`\<`string`, `AgentProfileMcpServer`\>
-
-Sandbox-side tool delivery → `AgentProfile.mcp` / in-proc `createMcpEnvironment`.
-
-##### promptAdditions
-
-> **promptAdditions**: `string`[]
-
-Prompt-context additions, byte-stable-ordered → folded system prompt.
-
-##### files
-
-> **files**: `object`[]
-
-Workspace files → `AgentProfile.resources.files`.
-
-###### path
-
-> **path**: `string`
-
-###### content
-
-> **content**: `string`
-
-###### executable?
-
-> `optional` **executable?**: `boolean`
-
-##### retrieval
-
-> **retrieval**: [`ResolvedRetrieval`](#resolvedretrieval)[]
-
-Uniform retrieval handles.
-
-##### hooks
-
-> **hooks**: [`ResolvedHook`](#resolvedhook)[]
-
-Hooks → `AgentProfile.hooks`.
-
-##### subagents
-
-> **subagents**: [`ResolvedSubagent`](#resolvedsubagent)[]
-
-Subagents → `AgentProfile.subagents`.
-
-##### systemPrompt
-
-> **systemPrompt**: `string`
-
-The folded system prompt — base + the byte-stable prompt additions, exactly
- as `composeCertifiedPrompt` renders the inline/context capabilities.
-
-#### Methods
-
-##### execute()
-
-> **execute**(`name`, `args`, `task`): `Promise`\<`string`\>
-
-Host-side dispatch for a resolved tool. Throws when `name` is unknown so a
- mis-dispatch is loud, never a silent empty string.
-
-###### Parameters
-
-###### name
-
-`string`
-
-###### args
-
-`Record`\<`string`, `unknown`\>
-
-###### task
-
-`unknown`
-
-###### Returns
-
-`Promise`\<`string`\>
-
-##### dispose()
-
-> **dispose**(): `Promise`\<`void`\>
-
-Tear down provisioned hosts (reverse dependency order).
-
-###### Returns
-
-`Promise`\<`void`\>
-
-***
-
 ### CertifiedArtifact
 
 A promoted, certified artifact (one entry in the composed profile).
@@ -1165,57 +858,6 @@ Bearer key. Defaults to `process.env.TANGLE_API_KEY`.
 
 Plane base URL. Defaults to `process.env.TANGLE_INTELLIGENCE_URL` then
  `https://intelligence.tangle.tools`.
-
-##### fetchImpl?
-
-> `optional` **fetchImpl?**: (`input`, `init?`) => `Promise`\<`Response`\>
-
-fetch impl (tests / non-global-fetch runtimes). Defaults to global fetch.
-
-###### Parameters
-
-###### input
-
-`string` \| `URL` \| `Request`
-
-###### init?
-
-`RequestInit`
-
-###### Returns
-
-`Promise`\<`Response`\>
-
-##### timeoutMs?
-
-> `optional` **timeoutMs?**: `number`
-
-Abort the request after this many ms. Default 10000.
-
-***
-
-### SubmitAgentImprovementProposalOptions
-
-Submit a completed measured proposal for product-side review.
-
-#### Properties
-
-##### proposal
-
-> **proposal**: `AgentImprovementProposal`
-
-##### apiKey?
-
-> `optional` **apiKey?**: `string`
-
-Bearer key. Defaults to `process.env.TANGLE_API_KEY`.
-
-##### baseUrl?
-
-> `optional` **baseUrl?**: `string`
-
-Plane base URL. Defaults to `process.env.TANGLE_INTELLIGENCE_URL` then
-`https://intelligence.tangle.tools`.
 
 ##### fetchImpl?
 
@@ -1483,7 +1125,7 @@ Intelligence-class spend ceiling. `0` refuses every intelligence spawn; `null` u
 
 ##### provider
 
-> **provider**: [`AgentEnvironmentProviderRef`](runtime.md#agentenvironmentproviderref)
+> **provider**: [`AgentEnvironmentProviderRef`](#agentenvironmentproviderref)
 
 ##### providerRegistry?
 
@@ -1548,7 +1190,7 @@ metered, and settled by the caller's grant service.
 
 ##### provider
 
-> **provider**: [`AgentEnvironmentProviderRef`](runtime.md#agentenvironmentproviderref)
+> **provider**: [`AgentEnvironmentProviderRef`](#agentenvironmentproviderref)
 
 ###### Inherited from
 
@@ -1632,7 +1274,7 @@ metered, and settled by the caller's grant service.
 
 ###### Inherited from
 
-[`CreateExactProcessCandidateExperimentExecutorOptions`](#createexactprocesscandidateexperimentexecutoroptions).[`cleanupTimeoutMs`](#cleanuptimeoutms)
+[`CreateExactProcessCandidateExperimentExecutorOptions`](#createexactprocesscandidateexperimentexecutoroptions).[`cleanupTimeoutMs`](#cleanuptimeoutms-1)
 
 ##### resultTimeoutMs?
 
@@ -1640,7 +1282,7 @@ metered, and settled by the caller's grant service.
 
 ###### Inherited from
 
-[`CreateExactProcessCandidateExperimentExecutorOptions`](#createexactprocesscandidateexperimentexecutoroptions).[`resultTimeoutMs`](#resulttimeoutms)
+[`CreateExactProcessCandidateExperimentExecutorOptions`](#createexactprocesscandidateexperimentexecutoroptions).[`resultTimeoutMs`](#resulttimeoutms-1)
 
 ##### hostPorts
 
@@ -1690,7 +1332,7 @@ metered, and settled by the caller's grant service.
 
 ##### preparation?
 
-> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](candidate-execution.md#prepareagentcandidateexecutionoptions)
+> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](#prepareagentcandidateexecutionoptions)
 
 ***
 
@@ -1768,7 +1410,7 @@ Runtime's expired-attempt path reuses this port only to stop and dispose.
 
 ###### Inherited from
 
-[`ExactProcessCandidateExperimentExecutor`](#exactprocesscandidateexperimentexecutor).[`execute`](#execute-1)
+[`ExactProcessCandidateExperimentExecutor`](#exactprocesscandidateexperimentexecutor).[`execute`](#execute)
 
 ***
 
@@ -1814,7 +1456,7 @@ Runtime's expired-attempt path reuses this port only to stop and dispose.
 
 ##### preparation?
 
-> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](candidate-execution.md#prepareagentcandidateexecutionoptions)
+> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](#prepareagentcandidateexecutionoptions)
 
 ##### execution
 
@@ -1950,7 +1592,7 @@ Shared account when preparation and held-out work have one customer budget.
 
 ##### preparation?
 
-> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](candidate-execution.md#prepareagentcandidateexecutionoptions)
+> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](#prepareagentcandidateexecutionoptions)
 
 ###### Inherited from
 
@@ -2040,7 +1682,7 @@ Shared account when preparation and held-out work have one customer budget.
 
 ###### improvement
 
-[`ImproveResult`](index.md#improveresult)\<`TScenario`, `TArtifact`\>
+[`ImproveResult`](#improveresult)\<`TScenario`, `TArtifact`\>
 
 ###### Returns
 
@@ -2110,7 +1752,7 @@ Shared account when preparation and held-out work have one customer budget.
 
 ##### improvement
 
-> **improvement**: [`ImproveResult`](index.md#improveresult)\<`TScenario`, `TArtifact`\>
+> **improvement**: [`ImproveResult`](#improveresult)\<`TScenario`, `TArtifact`\>
 
 ##### experiment
 
@@ -2862,53 +2504,6 @@ Span id of an enclosing span the loop root should parent under (e.g. a
 
 ***
 
-### TraceOutcome
-
-The resolved outcome of one traced run, surfaced on the export span and
- available to the caller for downstream billing assertions.
-
-#### Properties
-
-##### runId
-
-> **runId**: `string`
-
-##### traceId
-
-> **traceId**: `string`
-
-##### project
-
-> **project**: `string`
-
-##### effort
-
-> **effort**: [`EffortSettings`](#effortsettings)
-
-The resolved effort settings this run executed under.
-
-##### intelligenceOff
-
-> **intelligenceOff**: `boolean`
-
-True when this run ran as pure passthrough (the OFF floor).
-
-##### success?
-
-> `optional` **success?**: `boolean`
-
-##### score?
-
-> `optional` **score?**: `number`
-
-##### usage
-
-> **usage**: [`UsageSplit`](#usagesplit)
-
-Per-class billing split. `intelligenceUsd` is `0` at the OFF tier.
-
-***
-
 ### IntelligenceClient
 
 The Observe-mode Intelligence client.
@@ -3405,7 +3000,7 @@ Bearer key for the Intelligence ingest. Reads `TANGLE_API_KEY` when omitted.
 
 ###### Inherited from
 
-[`IntelligenceConfig`](#intelligenceconfig).[`apiKey`](#apikey-3)
+[`IntelligenceConfig`](#intelligenceconfig).[`apiKey`](#apikey-2)
 
 ##### effort?
 
@@ -3429,7 +3024,7 @@ key the ingest requires); absent a key, export is a no-op.
 
 ###### Inherited from
 
-[`IntelligenceConfig`](#intelligenceconfig).[`baseUrl`](#baseurl-3)
+[`IntelligenceConfig`](#intelligenceconfig).[`baseUrl`](#baseurl-2)
 
 ##### redact?
 
@@ -3573,6 +3168,22 @@ Notified when a refresh delivers a NEW set of promoted proposals (by
 
 ## Type Aliases
 
+### ImproveResult
+
+> **ImproveResult**\<`TScenario`, `TArtifact`\> = [`ImproveMethodResult`](index.md#improvemethodresult) \| [`ImproveSearchResult`](index.md#improvesearchresult) \| [`ImproveCodeResult`](index.md#improvecoderesult)\<`TScenario`, `TArtifact`\>
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+***
+
 ### AgentProfileImprovementActivationOperation
 
 > **AgentProfileImprovementActivationOperation** = \{ `kind`: `"apply-change"`; `changes`: `AgentProfileImprovementChange`; \} \| \{ `kind`: `"restore-state"`; \}
@@ -3603,50 +3214,6 @@ The product must load its own saved state at `desiredStateDigest`.
 
 ***
 
-### AgentImprovementActivationTransition
-
-> **AgentImprovementActivationTransition** = (`input`) => `Promise`\<`unknown`\>
-
-Product-owned or Runtime-composed transition.
-
-Implementations resolve a stored result for `activation.digest`, compare
-every target, and make the write durably idempotent. Co-located targets store
-the all-or-none write with its result. Other targets throw when result
-storage fails so a retry can reconcile it. Runtime never invokes this write
-function after authorization expires.
-
-#### Parameters
-
-##### input
-
-[`AgentImprovementActivationTransitionInput`](#agentimprovementactivationtransitioninput)
-
-#### Returns
-
-`Promise`\<`unknown`\>
-
-***
-
-### AgentImprovementActivationReconciliation
-
-> **AgentImprovementActivationReconciliation** = (`input`) => `Promise`\<`unknown` \| `undefined`\>
-
-Target-read-only check for a prior exact write.
-It may persist recovered result metadata, but must not change an activation target.
-Return undefined only when no target write can have committed.
-
-#### Parameters
-
-##### input
-
-[`AgentImprovementActivationTransitionInput`](#agentimprovementactivationtransitioninput)
-
-#### Returns
-
-`Promise`\<`unknown` \| `undefined`\>
-
-***
-
 ### AuthoredAgentProfileCandidateLineage
 
 > **AuthoredAgentProfileCandidateLineage** = `Omit`\<`AgentCandidateLineage`, `"source"` \| `"profileDiffIds"`\> & `object`
@@ -3667,14 +3234,6 @@ Runtime derives these from the exact profile change it seals.
 
 ***
 
-### AuthoredAgentProfileDiffOptions
-
-> **AuthoredAgentProfileDiffOptions** = `NonNullable`\<`Parameters`\<*typeof* [`agentImprovementProfileDiffs`](#agentimprovementprofilediffs)\>\[`2`\]\>
-
-Provenance attached while Runtime derives the exact profile diff.
-
-***
-
 ### JsonSchema
 
 > **JsonSchema** = `Record`\<`string`, `unknown`\>
@@ -3689,14 +3248,6 @@ A structural JSON Schema object describing a tool's parameters.
 
 What the agent consumes. CLOSED — a new runtime kind NEVER extends this. Each
 arm maps slot-for-slot onto `AgentProfile` + the host `RouterToolsSeam`.
-
-***
-
-### CapabilitySurface
-
-> **CapabilitySurface** = [`CapabilityInterface`](#capabilityinterface)\[`"surface"`\]
-
-Every interface surface tag supported by the manifest schema.
 
 ***
 
@@ -3728,40 +3279,12 @@ Consumers must admit a binding before executing it.
 
 ***
 
-### DeliveryBindingKind
-
-> **DeliveryBindingKind** = [`DeliveryBinding`](#deliverybinding)\[`"kind"`\]
-
-Every binding kind represented by the manifest schema.
-
-***
-
 ### PullOutcome
 
 > **PullOutcome** = \{ `succeeded`: `true`; `value`: [`CertifiedProfile`](#certifiedprofile); \} \| \{ `succeeded`: `false`; `error`: `string`; `status?`: `number`; \}
 
 Typed outcome for the pull — inspect `succeeded` before `value`. A 404
  (nothing promoted yet) is a normal, non-error `succeeded: false`.
-
-***
-
-### AgentImprovementProposalSubmissionState
-
-> **AgentImprovementProposalSubmissionState** = `"not-sent"` \| `"rejected"` \| `"unconfirmed"`
-
-What Runtime knows about a failed proposal submission.
-`not-sent` means no request began, `rejected` means Intelligence returned a
-definitive 4xx response, and `unconfirmed` means the caller may safely retry
-the same immutable proposal.
-
-***
-
-### SubmitAgentImprovementProposalOutcome
-
-> **SubmitAgentImprovementProposalOutcome** = \{ `succeeded`: `true`; `value`: `AgentImprovementProposal`; `status`: `number`; \} \| \{ `succeeded`: `false`; `submission`: [`AgentImprovementProposalSubmissionState`](#agentimprovementproposalsubmissionstate); `error`: `string`; `status?`: `number`; `code?`: `string`; \}
-
-Typed result for proposal submission. A successful result contains the
-exact immutable proposal Intelligence recorded.
 
 ***
 
@@ -3781,15 +3304,6 @@ The named effort tiers, lowest to highest. `'off'` is the honest floor
 Corpus access an intelligence tier permits. `'off'` reads and writes
  nothing; `'read'` consults the cross-run corpus without contributing;
  `'read-write'` both consults and accumulates.
-
-***
-
-### EffortOverrides
-
-> **EffortOverrides** = `Partial`\<[`EffortSettings`](#effortsettings)\>
-
-Per-field overrides applied on top of a tier preset. Any subset of the
- resolved settings; each provided field wins over the preset.
 
 ***
 
@@ -3855,9 +3369,27 @@ The portable profile changes that the measured-profile contract permits.
 
 ***
 
+### AGENT\_IMPROVEMENT\_PROFILE\_SURFACES
+
+> **AGENT\_IMPROVEMENT\_PROFILE\_SURFACES** = readonly \[`"prompt"`, `"skills"`, `"tools"`, `"mcp"`, `"hooks"`, `"subagents"`\]
+
+Agent improvement surfaces delivered as exact `AgentProfileDiff` replacements.
+
+***
+
 ### AgentImprovementProfileSurface
 
 > **AgentImprovementProfileSurface** = *typeof* [`AGENT_IMPROVEMENT_PROFILE_SURFACES`](#agent_improvement_profile_surfaces)\[`number`\]
+
+***
+
+### AGENT\_PROFILE\_MEASURED\_SURFACES
+
+> **AGENT\_PROFILE\_MEASURED\_SURFACES** = readonly \[`"prompt"`, `"skills"`, `"tools"`, `"mcp"`, `"hooks"`, `"subagents"`, `"agent-profile"`\]
+
+Profile changes eligible for the product-owned measured comparison path.
+The six directly deliverable profile surfaces retain their granular labels;
+any residual profile axis also adds the complete `agent-profile` surface.
 
 ***
 
@@ -4054,41 +3586,23 @@ A redactor maps an arbitrary trace value to a safe-to-export value. Pure;
 
 `unknown`
 
-## Variables
-
-### defaultEffortTier
-
-> `const` **defaultEffortTier**: [`EffortTier`](#efforttier) = `'standard'`
-
-The default tier when a client declares no effort. `'standard'` turns
- intelligence on with sensible knobs; opt down to `'off'`/`'eco'` or up to
- `'thorough'`/`'max'`.
-
 ***
+
+### AgentEnvironmentProviderRef
+
+> **AgentEnvironmentProviderRef** = `AgentEnvironmentProvider` \| `string`
+
+**`Experimental`**
+
+Provider object or registry name accepted by runtime provider adapters.
+
+## Variables
 
 ### exactProcessCandidateExperimentExecutionSupport
 
 > `const` **exactProcessCandidateExperimentExecutionSupport**: `Readonly`\<\{ `outcomes`: readonly \[`"output"`\]; `outputMediaTypes`: readonly \[`"text/*"`, `"application/json"`, `"*+json"`\]; `code`: readonly \[`"disabled"`\]; `memory`: readonly \[`"disabled"`\]; `knowledge`: `true`; `profile`: `Readonly`\<\{ `mcpTransports`: readonly \[`"stdio"`\]; `remoteMcp`: `false`; `tools`: `false`; `permissions`: `false`; `modes`: `false`; `confidential`: `false`; \}\>; `isolation`: `Readonly`\<\{ `freshEnvironment`: `true`; `exactProcess`: `true`; `egress`: readonly \[`"blocked"`, `"strict"`\]; \}\>; \}\>
 
 Candidate surfaces implemented by the neutral exact-process executor.
-
-***
-
-### AGENT\_IMPROVEMENT\_PROFILE\_SURFACES
-
-> `const` **AGENT\_IMPROVEMENT\_PROFILE\_SURFACES**: readonly \[`"prompt"`, `"skills"`, `"tools"`, `"mcp"`, `"hooks"`, `"subagents"`\]
-
-Agent improvement surfaces delivered as exact `AgentProfileDiff` replacements.
-
-***
-
-### AGENT\_PROFILE\_MEASURED\_SURFACES
-
-> `const` **AGENT\_PROFILE\_MEASURED\_SURFACES**: readonly \[`"prompt"`, `"skills"`, `"tools"`, `"mcp"`, `"hooks"`, `"subagents"`, `"agent-profile"`\]
-
-Profile changes eligible for the product-owned measured comparison path.
-The six directly deliverable profile surfaces retain their granular labels;
-any residual profile axis also adds the complete `agent-profile` surface.
 
 ## Functions
 
@@ -4363,46 +3877,6 @@ This delivers the spine against today's wire before the plane changes.
 
 ***
 
-### resolveIntelligenceBaseUrl()
-
-> **resolveIntelligenceBaseUrl**(`baseUrl`): `string`
-
-Resolve the ONE Intelligence base URL — the single knob both the send and
- receive paths derive from. Env fallback: `TANGLE_INTELLIGENCE_URL`.
-
-#### Parameters
-
-##### baseUrl
-
-`string` \| `undefined`
-
-#### Returns
-
-`string`
-
-***
-
-### normalizeCertifiedProfile()
-
-> **normalizeCertifiedProfile**(`raw`): [`CertifiedProfile`](#certifiedprofile)
-
-Deserialize the composed-endpoint response into a `CertifiedProfile`. The
-previously-dropped `agentProfileDiffs`/`capabilities`/`agentProfile` are read
-here so they round-trip to the consumer; a plane that has not yet promoted any
-diffs simply yields empty arrays / a null profile (fail-closed, never a crash).
-
-#### Parameters
-
-##### raw
-
-`unknown`
-
-#### Returns
-
-[`CertifiedProfile`](#certifiedprofile)
-
-***
-
 ### pullCertified()
 
 > **pullCertified**(`opts`): `Promise`\<[`PullOutcome`](#pulloutcome)\>
@@ -4421,28 +3895,6 @@ the normal "nothing promoted yet" signal, carried as `status: 404`.
 #### Returns
 
 `Promise`\<[`PullOutcome`](#pulloutcome)\>
-
-***
-
-### submitAgentImprovementProposal()
-
-> **submitAgentImprovementProposal**(`opts`): `Promise`\<[`SubmitAgentImprovementProposalOutcome`](#submitagentimprovementproposaloutcome)\>
-
-Submit a completed Runtime proposal to Intelligence for product-side review.
-This never runs an experiment, approves a proposal, or applies a candidate.
-A 4xx response is a confirmed `rejected` request. Network failures, timeouts,
-5xx responses, and invalid success responses are `unconfirmed`, so callers
-can retry the same digest because Intelligence stores proposals idempotently.
-
-#### Parameters
-
-##### opts
-
-[`SubmitAgentImprovementProposalOptions`](#submitagentimprovementproposaloptions)
-
-#### Returns
-
-`Promise`\<[`SubmitAgentImprovementProposalOutcome`](#submitagentimprovementproposaloutcome)\>
 
 ***
 
@@ -4645,24 +4097,6 @@ Execute one exact arm, task, repetition, seed, and attempt through Runtime.
 
 ***
 
-### createAgentImprovementMeasuredComparison()
-
-> **createAgentImprovementMeasuredComparison**(`options`): `AgentImprovementMeasuredComparison`
-
-Delegate all statistics and promotion checks to agent-eval's receipt-based comparison.
-
-#### Parameters
-
-##### options
-
-`CompareCandidateExperimentOptions`
-
-#### Returns
-
-`AgentImprovementMeasuredComparison`
-
-***
-
 ### proposeAgentProfileImprovement()
 
 > **proposeAgentProfileImprovement**\<`TScenario`, `TArtifact`\>(`options`): `Promise`\<[`ProposeAgentProfileImprovementResult`](#proposeagentprofileimprovementresult)\>
@@ -4739,36 +4173,6 @@ Recheck one Runtime receipt against its exact signed experiment cell.
 #### Returns
 
 `CandidateExecutionEvidence`
-
-***
-
-### buildAgentImprovementActivationTargets()
-
-> **buildAgentImprovementActivationTargets**(`surfaces`, `experiment`, `intent`, `identities`): \[`AgentImprovementActivationTarget`, `...AgentImprovementActivationTarget[]`\]
-
-Bind caller-owned target identities to the exact source state Runtime measured.
-
-#### Parameters
-
-##### surfaces
-
-readonly (`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"knowledge"` \| `"hooks"` \| `"prompt"` \| `"code"` \| `"agent-profile"` \| `"memory"` \| `"rollout-policy"`)[]
-
-##### experiment
-
-`AgentProfileImprovementExperiment` \| `AgentCandidateExperiment`
-
-##### intent
-
-`AgentImprovementActivationIntent`
-
-##### identities
-
-readonly [`AgentImprovementActivationTargetIdentity`](#agentimprovementactivationtargetidentity)[]
-
-#### Returns
-
-\[`AgentImprovementActivationTarget`, `...AgentImprovementActivationTarget[]`\]
 
 ***
 
@@ -5043,24 +4447,3 @@ on customer input and never mutates it.
 #### Returns
 
 `unknown`
-
-***
-
-### resolveRedactor()
-
-> **resolveRedactor**(`redact`): [`Redactor`](#redactor)
-
-Resolve the redactor a client uses. A caller-supplied hook handles
-domain-specific values first, then the built-in scrubber still removes
-credentials and personal data. Returning `false` is the explicit opt-out for
-already-reviewed public values.
-
-#### Parameters
-
-##### redact
-
-`false` \| [`Redactor`](#redactor) \| `undefined`
-
-#### Returns
-
-[`Redactor`](#redactor)

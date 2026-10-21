@@ -38,7 +38,7 @@ export interface ProfileMaterializationContract {
 }
 
 /** One changed AgentProfile axis that would be dropped by a run path. */
-interface ProfileMaterializationIssue {
+export interface ProfileMaterializationIssue {
   contract: string
   axis: AgentProfileMaterializationAxis
   reason: 'unsupported-axis'
@@ -46,19 +46,19 @@ interface ProfileMaterializationIssue {
 }
 
 /** Input for declaring a run path's profile-axis support. */
-interface DefineProfileMaterializationContractOptions {
+export interface DefineProfileMaterializationContractOptions {
   name: string
   axes: readonly AgentProfileMaterializationAxis[]
 }
 
 /** Input for checking a candidate diff against a run path. */
-interface ValidateProfileMaterializationOptions {
+export interface ValidateProfileMaterializationOptions {
   contract: ProfileMaterializationContract
   changedAxes: readonly AgentProfileMaterializationAxis[]
 }
 
 /** Input for throwing on dropped profile axes. */
-interface AssertProfileMaterializationOptions extends ValidateProfileMaterializationOptions {
+export interface AssertProfileMaterializationOptions extends ValidateProfileMaterializationOptions {
   /** Extra label included in the thrown error, usually the caller or run id. */
   context?: string
 }

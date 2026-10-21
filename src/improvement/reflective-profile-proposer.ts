@@ -51,7 +51,7 @@ export interface ReflectiveProposerReply {
 }
 
 /** One parent, as `evidence` receives it. */
-interface ReflectiveProposerParent {
+export interface ReflectiveProposerParent {
   /** The parent's node; null for a proposal outside a search. */
   readonly nodeId: string | null
   readonly surface: MutableSurface
@@ -59,7 +59,7 @@ interface ReflectiveProposerParent {
   readonly trainCells: readonly SearchScoredCell[]
 }
 
-interface ReflectiveProfileProposerOptions {
+export interface ReflectiveProfileProposerOptions {
   /** Names the proposer in the search's identity and its receipts. Default
    * `reflective-profile`. */
   readonly kind?: string
