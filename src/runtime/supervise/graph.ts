@@ -243,8 +243,8 @@ export type GraphEdge =
       /** Nodes whose latest usable result rides the target's task. */
       readonly evidence?: ReadonlyArray<NodeId>
       /** Traversals beyond this are skipped (ledgered `unpropagated`) and matching continues with
-       *  the next edge. Default {@link defaultEdgeTraversalCap}. A routes cycle needs at least one
-       *  edge that sets it. */
+       *  the next edge. Default {@link defaultEdgeTraversalCap}. Every routes cycle, each subcycle
+       *  included, must cross an edge that sets it. */
       readonly maxTraversals?: number
       /** `'resume'` re-attaches each spawn of the target to its latest settled session. Omit =
        *  `'fresh'`. */

@@ -587,18 +587,22 @@ function validateRoutesEdge(
   }
 }
 
-/** Refuse a routes cycle, self-loops included, in which no edge sets `maxTraversals`: the
- *  default cap would still end it, but only after 32 laps nobody chose. */
+/** Refuse a routes cycle, self-loops included, that crosses no edge setting `maxTraversals`:
+ *  the default cap would still end it, but only after 32 laps nobody chose. A cap on one edge of a
+ *  strongly connected component does not bound a subcycle that avoids it, so the check removes
+ *  every capped edge and refuses any cycle left in what remains. */
 function refuseUncappedRouteCycles(
   routes: ReadonlyArray<RoutesEdge>,
   idOf: ReadonlyMap<RoutesEdge, string>,
 ): void {
-  // Every (edge, source, target) hop; a fork or join is one hop per member pair.
-  const hops = routes.flatMap((edge) =>
-    routeSources(edge.from).flatMap((from) =>
-      routeTargets(edge.to).map((to) => ({ edge, from, to })),
-    ),
-  )
+  // Every uncapped (edge, source, target) hop; a fork or join is one hop per member pair.
+  const hops = routes
+    .filter((edge) => edge.maxTraversals === undefined)
+    .flatMap((edge) =>
+      routeSources(edge.from).flatMap((from) =>
+        routeTargets(edge.to).map((to) => ({ edge, from, to })),
+      ),
+    )
   const next = new Map<NodeId, NodeId[]>()
   for (const hop of hops) next.set(hop.from, [...(next.get(hop.from) ?? []), hop.to])
   // Tarjan's strongly connected components.
@@ -642,12 +646,11 @@ function refuseUncappedRouteCycles(
       ),
     ]
     if (inside.length === 0) continue
-    if (inside.some((edge) => edge.maxTraversals !== undefined)) continue
     throw new ValidationError(
       `runGraph: routes cycle through ${[...component].join(', ')} (${inside
         .map((edge) => idOf.get(edge))
         .join(', ')}) sets no maxTraversals — a repair loop states its own bound; set ` +
-        `maxTraversals on one of its edges (the default cap is ${defaultEdgeTraversalCap})`,
+        `maxTraversals on one of these edges (the default cap is ${defaultEdgeTraversalCap})`,
     )
   }
 }

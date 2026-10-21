@@ -53,6 +53,7 @@ import {
   FLOW_RUN_ID,
   FLOW_SETTLES_BY_LABEL,
   type FlowChildReport,
+  PIPELINE_OUT,
   readGateCalls,
 } from '../helpers/durability/flow-conformance-graph'
 
@@ -72,12 +73,13 @@ async function runPhase(
   phase: '1' | '2',
   killAt?: string,
   script = childScript,
+  env: Readonly<Record<string, string>> = {},
 ): Promise<PhaseExit> {
   return await new Promise<PhaseExit>((resolvePhase, rejectPhase) => {
     const child = spawn(
       process.execPath,
       ['--import', 'tsx', script, dir, phase, ...(phase === '1' ? [killAt ?? '-'] : [])],
-      { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] },
+      { cwd: process.cwd(), env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] },
     )
     let stdout = ''
     let stderr = ''
@@ -272,7 +274,10 @@ await rm(flowReferenceDir, { recursive: true, force: true })
 const flowKeys = flowReference.exec.map((step) => step.key)
 const mapSourceKey = 'route:entry:surveyor'
 const mapJoinKey = flowKeys.find((key) => key.startsWith('map:') && key.endsWith(':join'))
-const mapItemKeys = flowKeys.filter((key) => key.startsWith('map:') && !key.endsWith(':join'))
+// Map items run concurrently, so the reference run may execute them in either order.
+const mapItemKeys = flowKeys
+  .filter((key) => key.startsWith('map:') && !key.endsWith(':join'))
+  .sort()
 
 describe('flow graph kill-and-resume conformance (route walker replays the journal)', () => {
   let dir: string
@@ -362,4 +367,38 @@ describe('flow graph kill-and-resume conformance (route walker replays the journ
       expect(existsSync(join(dir, RUN_DIRECTORY_LOCK_FILE))).toBe(false)
     },
   )
+})
+
+describe('a three-node flow killed right after its entry settles', () => {
+  let dir: string
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'flow-pipeline-resume-'))
+  })
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  // The restart re-settles the committed entry down its outgoing route rather than only
+  // republishing its old settlement, so the pipeline continues instead of returning no result.
+  it('resumes along the entry route and runs only the unfinished nodes', {
+    timeout: 120_000,
+  }, async () => {
+    const env = { FLOW_GRAPH: 'pipeline' }
+    const killed = await runPhase(dir, '1', 'settled:draft', flowChildScript, env)
+    expect(killed.signal, `phase 1 should die by SIGKILL, got code=${killed.code}`).toBe('SIGKILL')
+    const atKill = await auditSpawnJournal(dir, FLOW_RUN_ID)
+    expect(atKill.settledDoneByLabel).toEqual({ draft: 1 })
+
+    const resumed = await runPhase(dir, '2', undefined, flowChildScript, env)
+    expect(resumed.code, `phase 2 stderr: ${resumed.stderr}`).toBe(0)
+    const report = parseReport<FlowChildReport>(resumed.stdout)
+    expect(report.kind).toBe('winner')
+    expect(report.out).toEqual(PIPELINE_OUT)
+    expect(report.exec.map((step) => step.tag)).toEqual(['edit', 'publish'])
+
+    const final = await auditSpawnJournal(dir, FLOW_RUN_ID)
+    expect(final.settledDoneByLabel).toEqual({ draft: 1, edit: 1, publish: 1 })
+    expect(final.rootSpawned).toBe(1)
+    expect((await readSettleRecord(dir))?.kind).toBe('winner')
+  })
 })
