@@ -1150,10 +1150,14 @@
     "./placement": {
       "ExecutionTier": "value c288d0aa71bf",
       "PLACEMENT_POLICY": "value 949b6e34d199",
+      "PlaceExecutionInput": "value 64cff97a79a7",
+      "PlacementContext": "value d43f045e3ed4",
       "PlacementRecord": "value d24dab0c747c",
       "PlacementRefusedError": "value dc70754a5214",
+      "PlacementRequirements": "value 2942f0143f71",
       "VacuousAxis": "value 49072cb03127",
-      "placeExecution": "value 5760b7f318aa"
+      "loopTierProfileMaterialization": "value 373728f5643d",
+      "placeExecution": "value ea2ed1a1499a"
     },
     "./platform": {
       "ConnectionHealth": "type 493ad37ff359",
