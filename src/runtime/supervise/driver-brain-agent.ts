@@ -149,6 +149,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
         ...(opts.mapOnSettle ? { mapOnSettle: opts.mapOnSettle } : {}),
         ...(opts.routeFlow ? { routeFlow: opts.routeFlow } : {}),
+        ...(opts.decideGate ? { decideGate: opts.decideGate } : {}),
         ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
         ...(opts.peerAudit ? { peerAudit: opts.peerAudit } : {}),
         ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),

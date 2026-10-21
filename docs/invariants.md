@@ -66,6 +66,20 @@ Scenario coverage lives in `tests/kernel/graph.test.ts` (`run_graph`),
   sources, and the graph's deliverable alone decides whether it wins.
 - Every entry, traversal, cap skip and refused route spawn is a `routes` row in the edge ledger and
   an `edge` event in the run journal.
+- A gate is a vertex that is not an agent. Reaching it awaits the top-level run's `decideGate` while
+  the process holds the run; the request carries the visit (1-based, per gate per run) and the
+  reaching edge's evidence with its source's result. A choice routes on its one leaving edge, whose
+  `when` matches `/choice`; a `stop` decision ends the run as a `stop` edge does, with
+  `stopped.edge` `gate:<id>`, and its `by` lives only on its ledger row.
+- Each gate decision is exactly one `routes` ledger row `gate:<id>` whose traversal is the visit and
+  whose `gate` carries `by` and the choice or stop reason, plus its journal twin. A visit the journal
+  already holds is replayed without asking the caller and is not journaled again; a visit reached
+  but undecided is asked again under the same visit number.
+- A decision outside the gate's choices, or a `decideGate` that throws, fails the run with no
+  decision row. An undecided gate at the run's deadline ends the run as a down node does, with no
+  decision row; an aborted run records none either.
+- Gates are refused in a maps item's graph and a `run_graph` subtask: only the top-level run has
+  `decideGate`.
 
 Scenario coverage lives in `tests/kernel/graph-routes.test.ts` and the five flow examples in
 `tests/examples/graph-corpus.test.ts`.

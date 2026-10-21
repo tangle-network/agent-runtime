@@ -50,7 +50,7 @@ import type {
   QuestionPolicy,
   QuestionRecord,
 } from './coordination-questions'
-import type { RouteFlow, RouteSpawnMarker } from './coordination-route-contracts'
+import type { DecideGate, RouteFlow, RouteSpawnMarker } from './coordination-route-contracts'
 import type { SpawnResourceReader } from './spawn-resource-paths'
 
 /** A worker whose settlement reached the manager's inbox. */
@@ -276,6 +276,9 @@ export interface CoordinationToolsOptions {
    *  coordination opens and routes every settle of a flow node. Set only by `runGraph` for a graph
    *  with `entry`, whose manager makes no decision of its own. Omit = none. */
   readonly routeFlow?: RouteFlow
+  /** Answers each visit to a gate of `routeFlow`. The route step awaits it, bounded by the run's
+   *  deadline and abort signal. Set by `runGraph` from `RunGraphOptions.decideGate`. */
+  readonly decideGate?: DecideGate
   /**
    * OPT-IN: run the ONLINE detector panel over each spawned worker's live tool trace and raise a
    * `finding` on the bus the moment a detector fires — so the driver learns "this worker is

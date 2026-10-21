@@ -15,6 +15,8 @@ import {
   type EdgeTraversal,
   type Executor,
   type ExecutorResult,
+  type GateDecision,
+  type GateRequest,
   type GraphEdge,
   type GraphNode,
   type GraphResult,
@@ -28,6 +30,7 @@ import {
   type WorkerSpawnContext,
 } from '@tangle-network/agent-runtime/kernel'
 import { describe, expect, it } from 'vitest'
+import { journaledGateDecider } from '../../src/runtime/supervise/graph-flow'
 import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
@@ -1038,5 +1041,334 @@ describe('flow graphs — refusals before compute', () => {
       flow(['a', 'b'], entryA, [routes('a', 'b', { continuity: 'rewind' as unknown as 'fresh' })]),
       /invalid continuity "rewind"/,
     )
+  })
+})
+
+describe('flow graphs — human gates', () => {
+  const review = { id: 'review', question: 'Ship this build?', choices: ['approve', 'reject'] }
+  const choice = (value: string) => ({ when: { pointer: '/choice', equals: value } })
+  const built = { patch: 'keep the trailing comma' }
+  const gated = (
+    exits: ReadonlyArray<GraphEdge>,
+    into: Partial<Extract<GraphEdge, { kind: 'routes' }>> = { evidence: ['build'] },
+  ): AgentGraph => ({
+    ...flow(
+      ['build', 'ship'],
+      [{ node: 'build', task: 'build it' }],
+      [routes('build', 'review', into), ...exits],
+    ),
+    gates: [review],
+  })
+  const shipOrStop = gated([
+    routes('review', 'ship', choice('approve')),
+    routes('review', { stop: 'rejected' }, choice('reject')),
+  ])
+  /** Answers each visit in turn (the last answer repeats) and records what was asked. */
+  const decide = (answers: ReadonlyArray<GateDecision>, asked: GateRequest[]) => {
+    return async (request: GateRequest): Promise<GateDecision> => {
+      asked.push(request)
+      return answers[Math.min(asked.length - 1, answers.length - 1)] as GateDecision
+    }
+  }
+  const gateRows = (ledger: ReadonlyArray<EdgeTraversal>) =>
+    ledger.filter((row) => row.gate !== undefined)
+  const shots = { build: [{ out: built }], ship: [{ out: { shipped: true } }] }
+
+  it('choose approve continues to the next node with the decision as its source', async () => {
+    const asked: GateRequest[] = []
+    const { res, spawns } = await run(shipOrStop, shots, {
+      decideGate: decide([{ kind: 'choose', choice: 'approve', by: 'drew' }], asked),
+    })
+    expect(res.result.kind).toBe('winner')
+    if (res.result.kind === 'winner') expect(res.result.out).toEqual({ ship: { shipped: true } })
+    expect(asked).toEqual([
+      {
+        gate: 'review',
+        visit: 1,
+        question: 'Ship this build?',
+        choices: ['approve', 'reject'],
+        evidence: { build: built },
+      },
+    ])
+    expect(spawns.map((s) => s.node)).toEqual(['build', 'ship'])
+    expect(spawns[1]?.task).toEqual({
+      from: { node: 'review', result: { choice: 'approve', by: 'drew' } },
+      evidence: {},
+    })
+    expect(rows(res.ledger)).toEqual([
+      'routes:entry->build delivered',
+      'routes:build#1->review delivered',
+      'gate:review delivered',
+      'routes:review#1->ship delivered',
+    ])
+  })
+
+  it('choose reject routes to { stop: rejected }', async () => {
+    const { res, spawns } = await run(shipOrStop, shots, {
+      decideGate: decide([{ kind: 'choose', choice: 'reject', by: 'drew' }], []),
+    })
+    expect(res.stopped).toEqual({
+      edge: 'routes:review#2->stop:rejected',
+      at: 'review',
+      workerId: 'gate:review#1',
+      reason: 'rejected',
+    })
+    expect(res.result.kind).toBe('no-winner')
+    if (res.result.kind === 'no-winner') expect(res.result.reason).toBe('stopped')
+    expect(spawns.map((s) => s.node)).toEqual(['build'])
+  })
+
+  it('stop ends the run with the given reason and records who stopped it', async () => {
+    const { res, spawns, journal } = await run(shipOrStop, shots, {
+      decideGate: decide([{ kind: 'stop', reason: 'needs legal sign-off', by: 'legal' }], []),
+    })
+    expect(res.stopped).toEqual({
+      edge: 'gate:review',
+      at: 'review',
+      workerId: 'gate:review#1',
+      reason: 'needs legal sign-off',
+    })
+    expect(res.result.kind).toBe('no-winner')
+    if (res.result.kind === 'no-winner') expect(res.result.reason).toBe('stopped')
+    expect(spawns.map((s) => s.node)).toEqual(['build'])
+    expect(gateRows(res.ledger).map((row) => row.gate)).toEqual([
+      { by: 'legal', stop: 'needs legal sign-off' },
+    ])
+    const events = (await journal.loadTree('flow')) ?? []
+    expect(events.flatMap((e) => (e.kind === 'edge' && e.gate ? [e.gate] : []))).toEqual([
+      { by: 'legal', stop: 'needs legal sign-off' },
+    ])
+  })
+
+  it('asks a gate reached twice with visits 1 and 2, and ledgers one row per visit with its by', async () => {
+    const asked: GateRequest[] = []
+    const loop = gated([
+      routes('review', 'ship', choice('approve')),
+      routes('review', 'build', { ...choice('reject'), maxTraversals: 2 }),
+    ])
+    const { res, spawns, journal } = await run(
+      loop,
+      { build: [{ out: { draft: 1 } }, { out: { draft: 2 } }], ship: [{ out: { shipped: 2 } }] },
+      {
+        decideGate: decide(
+          [
+            { kind: 'choose', choice: 'reject', by: 'reviewer-a' },
+            { kind: 'choose', choice: 'approve', by: 'reviewer-b' },
+          ],
+          asked,
+        ),
+      },
+    )
+    expect(res.result.kind).toBe('winner')
+    expect(asked.map((request) => [request.visit, request.evidence])).toEqual([
+      [1, { build: { draft: 1 } }],
+      [2, { build: { draft: 2 } }],
+    ])
+    expect(spawns.map((s) => s.node)).toEqual(['build', 'build', 'ship'])
+    expect(
+      gateRows(res.ledger).map((row) => [row.edge, row.kind, row.traversal, row.from, row.gate]),
+    ).toEqual([
+      ['gate:review', 'routes', 1, 'review', { by: 'reviewer-a', choice: 'reject' }],
+      ['gate:review', 'routes', 2, 'review', { by: 'reviewer-b', choice: 'approve' }],
+    ])
+    const events = (await journal.loadTree('flow')) ?? []
+    const twins = events.flatMap((e) =>
+      e.kind === 'edge' && e.gate ? [[e.edge.from, e.traversal, e.gate]] : [],
+    )
+    expect(twins).toEqual([
+      ['review', 1, { by: 'reviewer-a', choice: 'reject' }],
+      ['review', 2, { by: 'reviewer-b', choice: 'approve' }],
+    ])
+  })
+
+  it('a finish leaving a gate puts the decision in the output', async () => {
+    const graph = gated([
+      routes('review', { finish: 'approved' }, choice('approve')),
+      routes('review', { stop: 'rejected' }, choice('reject')),
+    ])
+    const { res } = await run(
+      { ...graph, nodes: [node('build')] },
+      { build: [{ out: built }] },
+      { decideGate: decide([{ kind: 'choose', choice: 'approve', by: 'drew' }], []) },
+    )
+    expect(res.result.kind).toBe('winner')
+    if (res.result.kind === 'winner') {
+      expect(res.result.out).toEqual({ review: { choice: 'approve', by: 'drew' } })
+    }
+  })
+
+  // A resumed flow reaching the gate again is unit runtime-flow-durable-resume; this proves the rule
+  // it relies on, over the journal a real run wrote: a journaled visit is replayed, never re-asked.
+  it('replays a journaled decision without asking, and asks an undecided visit again', async () => {
+    const { res, journal } = await run(shipOrStop, shots, {
+      decideGate: decide([{ kind: 'choose', choice: 'approve', by: 'drew' }], []),
+    })
+    expect(res.result.kind).toBe('winner')
+    const asked: GateRequest[] = []
+    const decider = journaledGateDecider(
+      decide([{ kind: 'choose', choice: 'reject', by: 'someone-else' }], asked),
+      journal,
+      'flow',
+    )
+    const request = (visit: number): GateRequest => ({
+      gate: 'review',
+      visit,
+      question: review.question,
+      choices: review.choices,
+      evidence: { build: built },
+    })
+    expect(await decider(request(1))).toEqual({
+      kind: 'choose',
+      choice: 'approve',
+      by: 'drew',
+      replayed: true,
+    })
+    expect(asked).toEqual([])
+    expect(await decider(request(2))).toEqual({
+      kind: 'choose',
+      choice: 'reject',
+      by: 'someone-else',
+    })
+    expect(asked.map((r) => r.visit)).toEqual([2])
+    const events = (await journal.loadTree('flow')) ?? []
+    expect(events.filter((e) => e.kind === 'edge' && e.gate !== undefined).length).toBe(1)
+  })
+
+  it('fails the run with no decision row when decideGate answers outside the choices or throws', async () => {
+    for (const decideGate of [
+      async () => ({ kind: 'choose', choice: 'maybe', by: 'drew' }) as GateDecision,
+      async (): Promise<GateDecision> => {
+        throw new Error('approval service unavailable')
+      },
+    ]) {
+      const { res, spawns } = await run(shipOrStop, shots, { decideGate })
+      expect(res.result.kind).toBe('no-winner')
+      expect(res.stopped?.reason).toMatch(/route-step-failed: .*(not one of|unavailable)/)
+      expect(gateRows(res.ledger)).toEqual([])
+      expect(spawns.map((s) => s.node)).toEqual(['build'])
+    }
+  })
+
+  it('ends an undecided gate at the run deadline with no decision row', async () => {
+    const asked: GateRequest[] = []
+    const { res } = await run({ ...shipOrStop, budget: { ...budget, deadlineMs: 1_500 } }, shots, {
+      decideGate: (request) => {
+        asked.push(request)
+        return new Promise<GateDecision>(() => undefined)
+      },
+    })
+    expect(asked.map((request) => request.visit)).toEqual([1])
+    expect(res.result.kind).toBe('no-winner')
+    expect(gateRows(res.ledger)).toEqual([])
+  })
+
+  describe('refusals before compute', () => {
+    const opts: RunGraphOptions = {
+      makeLeafAgent: leaves({}, []),
+      decideGate: async () => ({ kind: 'stop', reason: 'no', by: 'test' }),
+    }
+    const refuses = (graph: AgentGraph, message: RegExp, extra: Partial<RunGraphOptions> = {}) => {
+      let thrown: unknown
+      try {
+        void runGraph(graph, { ...opts, ...extra })
+      } catch (error) {
+        thrown = error
+      }
+      expect((thrown as Error | undefined)?.name).toBe('ValidationError')
+      expect((thrown as Error).message).toMatch(message)
+    }
+    const exits = [
+      routes('review', 'ship', choice('approve')),
+      routes('review', { stop: 'rejected' }, choice('reject')),
+    ]
+
+    it('refuses a gate id that equals a node id', () => {
+      refuses({ ...gated(exits), gates: [{ ...review, id: 'ship' }] }, /also a node id/)
+    })
+
+    it('refuses a gate with fewer than two choices', () => {
+      refuses(
+        { ...gated([exits[0] as GraphEdge]), gates: [{ ...review, choices: ['approve'] }] },
+        /at least two distinct non-empty choices/,
+      )
+    })
+
+    it('refuses a leaving edge whose equals is not one of the choices', () => {
+      refuses(
+        gated([...exits, routes('review', { stop: 'later' }, choice('defer'))]),
+        /leaves gate 'review' without matching one of its choices/,
+      )
+      refuses(
+        gated([routes('review', 'ship'), exits[1] as GraphEdge]),
+        /leaves gate 'review' without matching/,
+      )
+    })
+
+    it('refuses a choice that has no leaving edge, and a choice with two', () => {
+      refuses(gated([exits[0] as GraphEdge]), /no leaving edge for choice\(s\) reject/)
+      refuses(
+        gated([...exits, routes('review', { finish: 'twice' }, choice('approve'))]),
+        /second edge for choice 'approve'/,
+      )
+    })
+
+    it('refuses gates declared without decideGate, and gates without entry', () => {
+      refuses(gated(exits), /graph.gates needs opts.decideGate/, { decideGate: undefined })
+      const { entry: _entry, ...rooted } = gated(exits)
+      refuses(rooted, /graph.gates needs graph.entry/)
+    })
+
+    it('refuses a gate used as a maps source, or in a fork or join', () => {
+      refuses(
+        gated([
+          ...exits,
+          {
+            kind: 'maps',
+            from: 'review',
+            pointer: '/items',
+            to: 'ship',
+            join: 'build',
+            directive: brief,
+            maxItems: 4,
+            concurrency: 1,
+            onItemFailure: 'all-or-refuse',
+          } as GraphEdge,
+        ]),
+        /expands gate 'review'/,
+      )
+      refuses(
+        { ...gated(exits), edges: [routes('build', ['review', 'ship']), ...exits] },
+        /lists gate 'review' in a fork/,
+      )
+    })
+
+    it('refuses a gate inside a maps item graph or a run_graph subtask', () => {
+      const item: GraphTopology = {
+        nodes: [node('step')],
+        entry: [{ node: 'step', task: { item: true } }],
+        edges: [],
+        gates: [review],
+      }
+      refuses(
+        flow(
+          ['lister', 'joined'],
+          [{ node: 'lister', task: 'list' }],
+          [
+            {
+              kind: 'maps',
+              from: 'lister',
+              pointer: '/items',
+              graph: item,
+              join: 'joined',
+              directive: brief,
+              maxItems: 4,
+              concurrency: 1,
+              onItemFailure: 'all-or-refuse',
+            },
+          ],
+        ),
+        /a maps item's graph or a run_graph subtask has none/,
+      )
+    })
   })
 })

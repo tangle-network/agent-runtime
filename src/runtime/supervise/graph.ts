@@ -65,13 +65,26 @@ import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
 import type { MakeWorkerAgent } from '../../mcp/tools/coordination-contracts'
 import type { MapItemFailurePolicy } from '../../mcp/tools/coordination-map-contracts'
 import type { ContinuityMode } from '../../mcp/tools/coordination-messages'
-import type { RouteWhen } from '../../mcp/tools/coordination-route-contracts'
+import type {
+  GateDecision,
+  GateDecisionRecord,
+  GateRequest,
+  RouteGate,
+  RouteWhen,
+} from '../../mcp/tools/coordination-route-contracts'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { harnessRunsAgent } from '../harness-role'
 import type { ToolLoopChat } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
 import { runtimeFlowBrain } from './flow-brain'
-import { createFlowRun, flowRootProfile, routeFlowOf, validateFlowGraph } from './graph-flow'
+import {
+  createFlowRun,
+  flowRootProfile,
+  GraphRouteError,
+  journaledGateDecider,
+  routeFlowOf,
+  validateFlowGraph,
+} from './graph-flow'
 import {
   createGraphOverlay,
   graphRootProfile,
@@ -91,10 +104,14 @@ import type { Budget, NodeId, ResultBlobStore, SpawnJournal, SupervisedResult } 
 
 export type { MapItemFailurePolicy } from '../../mcp/tools/coordination-map-contracts'
 export type {
+  GateDecision,
+  GateRequest,
   JsonScalar,
+  RouteGate as GraphGate,
   RouteMatch,
   RouteWhen,
 } from '../../mcp/tools/coordination-route-contracts'
+export { GraphRouteError } from './graph-flow'
 export { defaultEdgeTraversalCap } from './graph-overlay'
 
 // ── The algebra ────────────────────────────────────────────────────────────────
@@ -242,6 +259,8 @@ export interface GraphTopology {
   readonly nodes: ReadonlyArray<GraphNode>
   readonly edges: ReadonlyArray<GraphEdge>
   readonly entry?: AgentGraph['entry']
+  /** Refused here: a maps item's graph and a `run_graph` subtask have no `decideGate`. */
+  readonly gates?: AgentGraph['gates']
 }
 
 export interface AgentGraph {
@@ -256,6 +275,11 @@ export interface AgentGraph {
    *  output is `{ [node]: latest usable result }` over its terminal nodes and `finish` sources,
    *  judged by `deliverable`. */
   readonly entry?: ReadonlyArray<{ readonly node: NodeId; readonly task: unknown }>
+  /** Flow-graph vertices that are not agents: a routes edge into one awaits
+   *  `RunGraphOptions.decideGate`, and one edge per choice leaves it, matching
+   *  `{ pointer: '/choice', equals: <choice> }`. A `finish` leaving a gate outputs
+   *  `{ [gate]: { choice, by } }`. */
+  readonly gates?: ReadonlyArray<RouteGate>
 }
 
 // ── The edge ledger ────────────────────────────────────────────────────────────
@@ -294,6 +318,8 @@ export interface EdgeTraversal {
   /** Present on maps rows: the expansion of the source's list, one item by its index, or the
    *  join. */
   readonly map?: { readonly phase: 'expand' | 'item' | 'join'; readonly index?: number }
+  /** Present on a gate's decision row (`gate:<id>`, `traversal` = visit): who decided, and what. */
+  readonly gate?: GateDecisionRecord
 }
 
 /** A delegates edge exhausted its traversal cap and the run produced no winner: the cap, not the
@@ -315,44 +341,6 @@ export class GraphEdgeCapError extends Error {
     )
     this.name = 'GraphEdgeCapError'
     this.exhaustedEdges = exhaustedEdges
-    this.ledger = ledger
-    this.result = result
-  }
-}
-
-/** A flow node's usable settle matched no routes edge leaving it (`unrouted`), or a fired edge named
- *  a node that still had a running worker (`target-live`). The flow spawned nothing more; the full
- *  evidence rides on the error, shaped like {@link GraphEdgeCapError}. */
-export class GraphRouteError extends Error {
-  readonly reason: 'unrouted' | 'target-live'
-  readonly node: NodeId
-  readonly workerId: string
-  readonly ledger: ReadonlyArray<EdgeTraversal>
-  readonly result: SupervisedResult<unknown>
-  constructor(
-    unrouted: {
-      readonly reason: 'unrouted' | 'target-live'
-      readonly node: NodeId
-      readonly workerId: string
-      readonly detail: string
-    },
-    ledger: ReadonlyArray<EdgeTraversal>,
-    result: SupervisedResult<unknown>,
-  ) {
-    super(
-      unrouted.reason === 'target-live'
-        ? `runGraph: flow node '${unrouted.node}' (worker ${unrouted.workerId}) fired a route ` +
-            `into a live target (${unrouted.detail}). Converging branches use a join (a routes ` +
-            'edge whose from lists every branch); the full edge ledger and the supervised ' +
-            'result ride on this error.'
-        : `runGraph: flow node '${unrouted.node}' (worker ${unrouted.workerId}) settled a result ` +
-            `no routes edge matched (${unrouted.detail}). Add a default routes edge or fix the ` +
-            'node; the full edge ledger and the supervised result ride on this error.',
-    )
-    this.name = 'GraphRouteError'
-    this.reason = unrouted.reason
-    this.node = unrouted.node
-    this.workerId = unrouted.workerId
     this.ledger = ledger
     this.result = result
   }
@@ -407,6 +395,8 @@ const GRAPH_TRANSFORMED_SUPERVISE_OPTIONS = [
   'journal',
   'blobs',
   'runId',
+  // Replays a journaled decision before asking the caller.
+  'decideGate',
 ] as const
 
 /** Not reachable from a graph, with the reason. `registry` is a NAME COLLISION, not a policy:
@@ -627,6 +617,9 @@ export interface RunGraphOptions extends Pick<SuperviseOptions, GraphInheritedSu
   /** The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT — needed only for
    *  lens analysts; an analyzes edge naming a graph NODE as its analyst needs no registry. */
   readonly analysts?: AnalystRegistry
+  /** Answers a flow gate while the process holds the run; the wait counts against its deadline.
+   *  ENVIRONMENT, like `analysts`; required when the graph declares gates. */
+  readonly decideGate?: (request: GateRequest) => Promise<GateDecision>
   /** Directive registry. Default: the seeded kernel registry (`kernelPromptRegistry()`).
    *
    *  NOT `SuperviseOptions.registry`, which is the `SuperviseRegistry` name→value table for
@@ -695,6 +688,8 @@ function validateGraph(
     throw new ValidationError('runGraph: graph.budget is mandatory (the conserved pool)')
   }
   if (graph.entry !== undefined) return validateFlowGraph(graph, registry, analysts)
+  if (graph.gates !== undefined)
+    throw new ValidationError('runGraph: graph.gates needs graph.entry')
   return validateGraphTopology(graph.nodes, graph.edges, registry, analysts)
 }
 
@@ -763,6 +758,9 @@ export function assertRunGraphAuthoring(
           'manager: Runtime spawns its entries and traverses its routes edges, and the graph ' +
           "owns the run's output",
       )
+    }
+    if ((graph.gates?.length ?? 0) > 0 && opts.decideGate === undefined) {
+      throw new ValidationError('runGraph: graph.gates needs opts.decideGate to answer them')
     }
     requireLeaves()
     return validated
@@ -926,6 +924,9 @@ export function superviseAgentGraph(
         ? {}
         : {
             routeFlow: routeFlowOf(validated),
+            ...(opts.decideGate && {
+              decideGate: journaledGateDecider(opts.decideGate, journal, runId),
+            }),
             finalizer: flow.finalizer,
             wake: { debounceMs: 0, ...opts.wake },
           }),

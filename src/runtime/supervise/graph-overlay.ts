@@ -32,7 +32,7 @@ import type {
   GraphNode,
   TraversalContinuity,
 } from './graph'
-import type { ValidatedFlow } from './graph-flow'
+import { routeLedgerEntry, type ValidatedFlow } from './graph-flow'
 import { graphSubtaskOf, parseGraphSubtaskTopology, prepareGraphSubtask } from './graph-subtask'
 import { formatPromptHandle, type PromptRegistry } from './prompt-registry'
 import { coordinationProfileToolPrefix, runtimeGraphMetadataKey } from './provider-visible-profile'
@@ -697,6 +697,7 @@ export function createGraphOverlay(
       bytes: entry.bytes,
       ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
       ...(entry.map !== undefined ? { map: entry.map } : {}),
+      ...(entry.gate !== undefined ? { gate: entry.gate } : {}),
       seq: ledgerSeq++,
       at: new Date(now()).toISOString(),
     })
@@ -1039,31 +1040,11 @@ export function createGraphOverlay(
     if (event.type === 'route') {
       const step = event.route
       if (step.kind !== 'traversal') return
-      // An entry row has no routes edge, so it crosses no directive.
-      const edge = flow?.routes.get(step.edge)
       if (step.workerId !== undefined) nodeByWorkerId.set(step.workerId, step.to)
       if (step.reason?.startsWith('traversal-cap-exhausted') === true) exhausted.add(step.edge)
-      record(
-        {
-          edge: step.edge,
-          kind: 'routes',
-          from: step.from,
-          to: step.to,
-          directive: edge === undefined ? '' : formatPromptHandle(edge.directive),
-          outcome: step.outcome,
-          continuity: step.continuity,
-          bytes:
-            step.bytes +
-            (edge !== undefined && step.workerId !== undefined
-              ? byteLength(registry.resolve(edge.directive).text)
-              : 0),
-          ...(step.reason !== undefined ? { reason: step.reason } : {}),
-          ...((step.workerId ?? step.sourceWorker) !== undefined
-            ? { workerId: (step.workerId ?? step.sourceWorker) as string }
-            : {}),
-        },
-        true,
-      )
+      // A replayed gate decision is already journaled: its row rides the result, not the journal.
+      const entry = routeLedgerEntry(step, flow?.routes.get(step.edge), registry)
+      record(entry, step.gate?.replayed !== true)
       return
     }
     if (event.type === 'map') {

@@ -62,6 +62,12 @@ export function parseGraphSubtaskTopology(raw: unknown): GraphSubtaskTopology {
   }
   for (const key of Object.keys(raw)) {
     if (key === 'nodes' || key === 'edges' || key === 'entry') continue
+    if (key === 'gates') {
+      throw new ValidationError(
+        "run_graph: graph.gates — a gate asks the top-level run's decideGate, and a maps " +
+          "item's graph or a run_graph subtask has none; put the gate in the top-level flow",
+      )
+    }
     if (key === 'budget' || key === 'deliverable') {
       throw new ValidationError(
         `run_graph: graph.${key} is not read — pass ${key} as run_graph's own argument`,

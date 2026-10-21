@@ -1,7 +1,7 @@
 /**
  * Flow graphs: an `AgentGraph` with `entry`. Runtime spawns the entries and traverses `routes`
- * edges itself, so a fixed pipeline, a conditional branch, a bounded repair loop and a stop rule
- * run from graph data with no model root and no caller brain.
+ * edges itself, so a fixed pipeline, a conditional branch, a bounded repair loop, a stop rule and a
+ * human gate run from graph data with no model root and no caller brain.
  *
  * This module owns what a flow adds to `runGraph`: every refusal a flow earns before compute, the
  * coordination form of the flow (`RouteFlow`, which the manager's route routing runs), the
@@ -14,13 +14,23 @@ import { ValidationError } from '../../errors'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
 import type { CoordinationEvent } from '../../mcp/tools/coordination-events'
 import type {
+  DecideGate,
   JsonScalar,
   RouteFlow,
+  RouteFlowEvent,
+  RouteGate,
   RouteMatch,
   RouteWhen,
 } from '../../mcp/tools/coordination-route-contracts'
 import type { SupervisorFinalizer } from './finalizer'
-import type { AgentGraph, GraphEdge, GraphNode, GraphResult } from './graph'
+import type {
+  AgentGraph,
+  EdgeTraversal,
+  GraphEdge,
+  GraphNode,
+  GraphResult,
+  RunGraphOptions,
+} from './graph'
 import {
   defaultEdgeTraversalCap,
   edgeId,
@@ -28,9 +38,9 @@ import {
   validateGraphNodes,
   validateMaps,
 } from './graph-overlay'
-import type { PromptRegistry } from './prompt-registry'
+import { formatPromptHandle, type PromptRegistry } from './prompt-registry'
 import { coordinationProfileToolPrefix } from './provider-visible-profile'
-import type { NodeId, SupervisedResult } from './types'
+import type { NodeId, SpawnJournal, SupervisedResult } from './types'
 
 type RoutesEdge = Extract<GraphEdge, { kind: 'routes' }>
 type MapsEdge = Extract<GraphEdge, { kind: 'maps' }>
@@ -53,6 +63,46 @@ export interface ValidatedFlow {
   readonly routed: ReadonlyArray<NodeId>
   /** Routed nodes with no outgoing routes edge and no outgoing maps edge. */
   readonly terminals: ReadonlySet<NodeId>
+  /** Gates by id: vertices a routes edge reaches that ask the caller instead of running an agent. */
+  readonly gates: ReadonlyMap<NodeId, RouteGate>
+}
+
+/** A flow node's usable settle matched no routes edge leaving it (`unrouted`), or a fired edge named
+ *  a node that still had a running worker (`target-live`). The flow spawned nothing more; the full
+ *  evidence rides on the error, shaped like `GraphEdgeCapError`. */
+export class GraphRouteError extends Error {
+  readonly reason: 'unrouted' | 'target-live'
+  readonly node: NodeId
+  readonly workerId: string
+  readonly ledger: ReadonlyArray<EdgeTraversal>
+  readonly result: SupervisedResult<unknown>
+  constructor(
+    unrouted: {
+      readonly reason: 'unrouted' | 'target-live'
+      readonly node: NodeId
+      readonly workerId: string
+      readonly detail: string
+    },
+    ledger: ReadonlyArray<EdgeTraversal>,
+    result: SupervisedResult<unknown>,
+  ) {
+    super(
+      unrouted.reason === 'target-live'
+        ? `runGraph: flow node '${unrouted.node}' (worker ${unrouted.workerId}) fired a route ` +
+            `into a live target (${unrouted.detail}). Converging branches use a join (a routes ` +
+            'edge whose from lists every branch); the full edge ledger and the supervised ' +
+            'result ride on this error.'
+        : `runGraph: flow node '${unrouted.node}' (worker ${unrouted.workerId}) settled a result ` +
+            `no routes edge matched (${unrouted.detail}). Add a default routes edge or fix the ` +
+            'node; the full edge ledger and the supervised result ride on this error.',
+    )
+    this.name = 'GraphRouteError'
+    this.reason = unrouted.reason
+    this.node = unrouted.node
+    this.workerId = unrouted.workerId
+    this.ledger = ledger
+    this.result = result
+  }
 }
 
 /** The name the runtime-owned flow root runs under. It is no node, so it pins nothing. */
@@ -98,7 +148,7 @@ const isPointer = (value: unknown): boolean =>
  * can only end by its routes, its budget, its deadline or its abort signal.
  */
 export function validateFlowGraph(
-  graph: Pick<AgentGraph, 'nodes' | 'edges' | 'entry'>,
+  graph: Pick<AgentGraph, 'nodes' | 'edges' | 'entry' | 'gates'>,
   registry: PromptRegistry,
   analysts: AnalystRegistry | undefined,
 ): ValidatedGraph {
@@ -121,6 +171,11 @@ export function validateFlowGraph(
     return node
   }
   for (const [index, item] of entry.entries()) requireNode(item?.node, `graph.entry[${index}]`)
+  const gates = validateGates(graph.gates, byId)
+  // A routes edge may start at or reach a gate where it names one vertex, never in a fork or join.
+  const requireVertex = (id: unknown, where: string): void => {
+    if (typeof id !== 'string' || !gates.has(id)) requireNode(id, where)
+  }
 
   const routes: RoutesEdge[] = []
   const maps: MapsEdge[] = []
@@ -150,7 +205,7 @@ export function validateFlowGraph(
 
   // Edge ids: the ordinal among the routes edges leaving the same source, 1-based. A join's source
   // is its members, joined by '+'; a fork's target is its nodes, joined by '+'.
-  for (const edge of routes) validateRouteEnds(edge, requireNode)
+  for (const edge of routes) validateRouteEnds(edge, requireNode, requireVertex, gates)
   const routesById = new Map<string, RoutesEdge>()
   const bySource = new Map<string, RoutesEdge[]>()
   const routesFrom = new Map<NodeId, RoutesEdge[]>()
@@ -166,7 +221,10 @@ export function validateFlowGraph(
     idOf.set(edge, id)
     routesById.set(id, edge)
   }
-  for (const edge of routes) validateRoutesEdge(edge, idOf.get(edge) as string, requireNode)
+  for (const edge of routes) {
+    validateRoutesEdge(edge, idOf.get(edge) as string, requireNode, requireVertex, gates)
+  }
+  for (const gate of gates.values()) validateGateExits(gate, routesFrom.get(gate.id) ?? [], idOf)
   for (const [from, leaving] of routesFrom) {
     const join = leaving.find((edge) => routeSources(edge.from).length > 1)
     if (join !== undefined && leaving.length > 1) {
@@ -196,7 +254,17 @@ export function validateFlowGraph(
   const flowNodes = new Map<NodeId, GraphNode>()
   for (const item of entry) flowNodes.set(item.node, byId.get(item.node) as GraphNode)
   for (const edge of routes) {
-    for (const to of routeTargets(edge.to)) flowNodes.set(to, byId.get(to) as GraphNode)
+    for (const to of routeTargets(edge.to)) {
+      if (!gates.has(to)) flowNodes.set(to, byId.get(to) as GraphNode)
+    }
+  }
+  for (const edge of maps) {
+    if (gates.has(edge.from)) {
+      throw new ValidationError(
+        `runGraph: ${edgeId(edge)} expands gate '${edge.from}' — a gate's result is a decision, ` +
+          'not a list; map over the node the gate routes to',
+      )
+    }
   }
   const { mapNodes, mapItemNames } = validateMaps(maps, {
     byId,
@@ -209,7 +277,7 @@ export function validateFlowGraph(
   const joins = new Set(maps.map((edge) => edge.join))
   for (const edge of routes) {
     for (const from of routeSources(edge.from)) {
-      if (!flowNodes.has(from) && !joins.has(from)) {
+      if (!flowNodes.has(from) && !joins.has(from) && !gates.has(from)) {
         throw new ValidationError(
           `runGraph: ${idOf.get(edge)} leaves '${from}', a map item: its settle goes to its ` +
             'map, so a route from it could never fire',
@@ -263,7 +331,7 @@ export function validateFlowGraph(
     for (const edge of maps)
       reach([edge.from], edge.to === undefined ? [edge.join] : [edge.to, edge.join])
   }
-  for (const node of graph.nodes) {
+  for (const node of [...graph.nodes, ...gates.values()]) {
     if (!fromEntry.has(node.id)) {
       throw new ValidationError(
         `runGraph: node '${node.id}' is unreachable from entry — no entry, routes edge or maps ` +
@@ -311,7 +379,89 @@ export function validateFlowGraph(
     maps,
     mapNodes,
     mapItemNames,
-    flow: { entries, routes: routesById, starts, nodes: flowNodes, routed, terminals },
+    flow: { entries, routes: routesById, starts, nodes: flowNodes, routed, terminals, gates },
+  }
+}
+
+/** Refuse a malformed gate: an id that is not its own vertex, a missing question, or fewer than
+ *  two distinct choices. */
+function validateGates(
+  raw: AgentGraph['gates'],
+  byId: ReadonlyMap<NodeId, GraphNode>,
+): ReadonlyMap<NodeId, RouteGate> {
+  const gates = new Map<NodeId, RouteGate>()
+  if (raw === undefined) return gates
+  if (!Array.isArray(raw)) throw new ValidationError('runGraph: graph.gates must be an array')
+  for (const [index, gate] of raw.entries()) {
+    const where = `runGraph: graph.gates[${index}]`
+    const id = (gate as { id?: unknown } | undefined)?.id
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new ValidationError(`${where} needs a non-empty id`)
+    }
+    if (byId.has(id)) {
+      throw new ValidationError(
+        `${where} has id '${id}', which is also a node id — a gate is a vertex of its own, so an ` +
+          'edge naming it must not be able to mean an agent',
+      )
+    }
+    if (gates.has(id)) throw new ValidationError(`${where} repeats gate id '${id}'`)
+    if (typeof gate.question !== 'string' || gate.question.length === 0) {
+      throw new ValidationError(`${where} ('${id}') needs a non-empty question`)
+    }
+    const choices = gate.choices as unknown
+    if (
+      !Array.isArray(choices) ||
+      choices.length < 2 ||
+      !choices.every((choice) => typeof choice === 'string' && choice.length > 0) ||
+      new Set(choices).size !== choices.length
+    ) {
+      throw new ValidationError(
+        `${where} ('${id}') needs at least two distinct non-empty choices — a gate with one ` +
+          'choice asks nothing',
+      )
+    }
+    gates.set(id, { id, question: gate.question, choices: [...choices] as string[] })
+  }
+  return gates
+}
+
+/** The choice an edge leaving a gate matches: `when: { pointer: '/choice', equals: <choice> }`. */
+const gateChoiceOf = (edge: RoutesEdge): unknown => {
+  const when = edge.when as Partial<{ all: unknown; node: unknown; pointer: unknown }> | undefined
+  if (when === undefined || 'all' in when || when.node !== undefined) return undefined
+  return when.pointer === '/choice' && 'equals' in when ? when.equals : undefined
+}
+
+/** Refuse a gate whose leaving edges do not map its choices one to one. */
+function validateGateExits(
+  gate: RouteGate,
+  leaving: ReadonlyArray<RoutesEdge>,
+  idOf: ReadonlyMap<RoutesEdge, string>,
+): void {
+  const routed = new Set<unknown>()
+  for (const edge of leaving) {
+    const choice = gateChoiceOf(edge)
+    if (typeof choice !== 'string' || !gate.choices.includes(choice)) {
+      throw new ValidationError(
+        `runGraph: ${idOf.get(edge)} leaves gate '${gate.id}' without matching one of its ` +
+          `choices (${gate.choices.join(', ')}) — an edge leaving a gate uses ` +
+          "when: { pointer: '/choice', equals: <choice> }",
+      )
+    }
+    if (routed.has(choice)) {
+      throw new ValidationError(
+        `runGraph: ${idOf.get(edge)} is a second edge for choice '${choice}' of gate ` +
+          `'${gate.id}' — each choice has exactly one leaving edge`,
+      )
+    }
+    routed.add(choice)
+  }
+  const unrouted = gate.choices.filter((choice) => !routed.has(choice))
+  if (unrouted.length > 0) {
+    throw new ValidationError(
+      `runGraph: gate '${gate.id}' has no leaving edge for choice(s) ${unrouted.join(', ')} — ` +
+        'a decision the graph cannot route would strand the run',
+    )
   }
 }
 
@@ -319,10 +469,19 @@ export function validateFlowGraph(
 function validateRouteEnds(
   edge: RoutesEdge,
   requireNode: (id: unknown, where: string) => GraphNode,
+  requireVertex: (id: unknown, where: string) => void,
+  gates: ReadonlyMap<NodeId, RouteGate>,
 ): void {
   const where = edgeId(edge)
   const list = (value: unknown, role: 'from' | 'to', kind: 'join' | 'fork'): void => {
     if (!Array.isArray(value)) return
+    const gate = value.find((id) => gates.has(id))
+    if (gate !== undefined) {
+      throw new ValidationError(
+        `runGraph: ${where} lists gate '${gate}' in a ${kind} — a gate is reached and left one ` +
+          'edge at a time',
+      )
+    }
     if (value.length < 2) {
       throw new ValidationError(
         `runGraph: ${where} has a ${kind} with ${value.length} node(s) in ${role} — a ${kind} ` +
@@ -339,7 +498,7 @@ function validateRouteEnds(
     }
   }
   if (Array.isArray(edge.from)) list(edge.from, 'from', 'join')
-  else requireNode(edge.from, where)
+  else requireVertex(edge.from, where)
   list(edge.to, 'to', 'fork')
   if (Array.isArray(edge.from) && edge.when !== undefined) {
     throw new ValidationError(
@@ -353,12 +512,14 @@ function validateRoutesEdge(
   edge: RoutesEdge,
   id: string,
   requireNode: (id: unknown, where: string) => GraphNode,
+  requireVertex: (id: unknown, where: string) => void,
+  gates: ReadonlyMap<NodeId, RouteGate>,
 ): void {
   const refuse = (why: string): never => {
     throw new ValidationError(`runGraph: ${id} ${why}`)
   }
   const to = edge.to as unknown
-  if (typeof to === 'string') requireNode(to, id)
+  if (typeof to === 'string') requireVertex(to, id)
   else if (!Array.isArray(to)) {
     const target = to as { stop?: unknown; finish?: unknown } | null
     const reason = target?.stop ?? target?.finish
@@ -390,6 +551,8 @@ function validateRoutesEdge(
     if (routeTargets(edge.to).length === 0) {
       refuse('carries continuity, but a stop or finish starts no node')
     }
+    if (typeof to === 'string' && gates.has(to))
+      refuse('carries continuity, but a gate is no agent')
   }
   const evidence = edge.evidence ?? []
   if (!Array.isArray(evidence)) refuse('needs evidence as an array of node ids')
@@ -499,9 +662,11 @@ export function routeFlowOf(validated: ValidatedGraph): RouteFlow {
       edge,
       from: routeSources(route.from),
       to:
-        typeof route.to === 'string' || Array.isArray(route.to)
-          ? { nodes: routeTargets(route.to).map((node) => ({ node, profile: profileOf(node) })) }
-          : (route.to as { readonly stop: string } | { readonly finish: string }),
+        typeof route.to === 'string' && flow.gates.has(route.to)
+          ? { gate: route.to }
+          : typeof route.to === 'string' || Array.isArray(route.to)
+            ? { nodes: routeTargets(route.to).map((node) => ({ node, profile: profileOf(node) })) }
+            : (route.to as { readonly stop: string } | { readonly finish: string }),
       ...(route.when === undefined ? {} : { when: route.when }),
       evidence: route.evidence ?? [],
       maxTraversals: route.maxTraversals ?? defaultEdgeTraversalCap,
@@ -509,6 +674,66 @@ export function routeFlowOf(validated: ValidatedGraph): RouteFlow {
     })),
     nodes: flow.routed,
     terminals: [...flow.terminals],
+    ...(flow.gates.size === 0 ? {} : { gates: [...flow.gates.values()] }),
+  }
+}
+
+/** The ledger row of one flow traversal or gate decision. */
+export function routeLedgerEntry(
+  step: Extract<RouteFlowEvent, { kind: 'traversal' }>,
+  edge: RoutesEdge | undefined,
+  registry: PromptRegistry,
+): Omit<EdgeTraversal, 'traversal'> {
+  const source = step.workerId ?? step.sourceWorker
+  const gate = step.gate
+  return {
+    edge: step.edge,
+    kind: 'routes',
+    from: step.from,
+    to: step.to,
+    // An entry row and a gate decision have no routes edge, so they cross no directive.
+    directive: edge === undefined ? '' : formatPromptHandle(edge.directive),
+    outcome: step.outcome,
+    continuity: step.continuity,
+    bytes:
+      step.bytes +
+      (edge !== undefined && step.workerId !== undefined
+        ? Buffer.byteLength(registry.resolve(edge.directive).text, 'utf8')
+        : 0),
+    ...(step.reason !== undefined ? { reason: step.reason } : {}),
+    ...(source !== undefined ? { workerId: source } : {}),
+    ...(gate === undefined
+      ? {}
+      : {
+          gate:
+            'choice' in gate
+              ? { by: gate.by, choice: gate.choice }
+              : { by: gate.by, stop: gate.stop },
+        }),
+  }
+}
+
+/**
+ * The caller's `decideGate` behind the run journal. A decision the journal already holds for this
+ * gate visit is replayed without asking the caller, and marked so its ledger row is not journaled
+ * a second time. A visit with no journaled decision is asked again, under the same visit number.
+ */
+export function journaledGateDecider(
+  decideGate: NonNullable<RunGraphOptions['decideGate']>,
+  journal: SpawnJournal,
+  runId: string,
+): DecideGate {
+  return async (request) => {
+    for (const event of (await journal.loadTree(runId)) ?? []) {
+      // The run's own graph journals without `graph`; a gate decision's row leaves the gate.
+      if (event.kind !== 'edge' || event.graph !== undefined || event.gate === undefined) continue
+      if (event.edge.from !== request.gate || event.traversal !== request.visit) continue
+      const { by } = event.gate
+      return 'choice' in event.gate
+        ? { kind: 'choose', choice: event.gate.choice, by, replayed: true }
+        : { kind: 'stop', reason: event.gate.stop, by, replayed: true }
+    }
+    return decideGate(request)
   }
 }
 

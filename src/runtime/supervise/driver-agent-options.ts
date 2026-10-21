@@ -13,7 +13,7 @@ import type { CoordinationEvent, WorkerWatchOptions } from '../../mcp/tools/coor
 import type { MapOnSettleRoute } from '../../mcp/tools/coordination-map-contracts'
 import type { AuthorizeDownMessage, ContinuityMode } from '../../mcp/tools/coordination-messages'
 import type { ChildQuestionInbox, EscalateQuestion } from '../../mcp/tools/coordination-questions'
-import type { RouteFlow } from '../../mcp/tools/coordination-route-contracts'
+import type { DecideGate, RouteFlow } from '../../mcp/tools/coordination-route-contracts'
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
@@ -70,6 +70,8 @@ export interface DriverAgentOptions {
   /** The flow this manager runs (`CoordinationToolsOptions.routeFlow`). Requires the runtime flow
    *  brain, which makes no model call. */
   readonly routeFlow?: RouteFlow
+  /** Answers the gates of `routeFlow` (`CoordinationToolsOptions.decideGate`). */
+  readonly decideGate?: DecideGate
   /** Trusted source refs for this manager’s existing observe_agent capability. */
   readonly sourceEvidenceRefs?: ReadonlyArray<string>
   readonly peerAudit?: PeerAuditAccess
