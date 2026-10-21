@@ -15319,21 +15319,16 @@ Opaque, single-use reservation handle returned by `reserve` and consumed by
 
 > `readonly` `optional` **usdBudgeted?**: `boolean`
 
-Whether the child's `Budget` actually declared `maxUsd`. `reserved.usd` is `0` for BOTH a
-child that named no dollar ceiling and one that named `$0`, and the two settle differently:
-an undeclared ceiling cannot be exceeded, so the child's real dollars are committed as
-OBSERVED spend, while a declared ceiling of `$0` is a limit whose breach is fail-loud.
-Optional so an externally constructed ticket stays valid; an absent flag is read as
-`true` — the strict, fail-closed reading.
+Whether the child's `Budget` declared `maxUsd`. `reserved.usd` is `0` for both an undeclared
+ceiling (real dollars are committed as OBSERVED spend) and a declared `$0` (a breach is
+fail-loud). An absent flag is read as `true`, the fail-closed reading.
 
 ***
 
 ### ReservationHolder
 
-Who holds a reservation. Recorded at `reserve` and refined through `attribute` once admission
- mints a node id, so a ticket stranded at the join barrier names the work that holds it instead
- of a bare counter. Every field except `stage` is optional: a pool used directly (no `Scope`)
- names nothing, and an unattributable leak must still be reportable.
+Who holds a reservation, recorded at `reserve` and refined through `attribute`, so a ticket
+ stranded at the join barrier names its work. Only `stage` is required.
 
 #### Extended by
 
@@ -15345,8 +15340,7 @@ Who holds a reservation. Recorded at `reserve` and refined through `attribute` o
 
 > `readonly` `optional` **assignment?**: `string`
 
-The manager-scoped assignment identity the caller declared (`SpawnOpts.assignmentId`, else
- its `key`), when it declared one.
+The caller's assignment identity (`SpawnOpts.assignmentId`, else its `key`).
 
 ##### label?
 
@@ -15358,8 +15352,7 @@ The spawn label — the name an operator recognizes in a journal.
 
 > `readonly` `optional` **childId?**: `string`
 
-The spawned node's id, once admission minted one. Absent for a reservation that escaped
- before its child had an identity.
+The spawned node's id, once admission minted one.
 
 ##### stage
 
@@ -15369,8 +15362,7 @@ The spawned node's id, once admission minted one. Absent for a reservation that 
 
 ### LeakedReservation
 
-One reservation still open when a run reached its join barrier — a conserved-pool leak,
- reported with the holder that can be chased rather than only its ticket id.
+One reservation still open at the join barrier — a pool leak, with the holder to chase.
 
 #### Extends
 
@@ -15382,8 +15374,7 @@ One reservation still open when a run reached its join barrier — a conserved-p
 
 > `readonly` `optional` **assignment?**: `string`
 
-The manager-scoped assignment identity the caller declared (`SpawnOpts.assignmentId`, else
- its `key`), when it declared one.
+The caller's assignment identity (`SpawnOpts.assignmentId`, else its `key`).
 
 ###### Inherited from
 
@@ -15403,8 +15394,7 @@ The spawn label — the name an operator recognizes in a journal.
 
 > `readonly` `optional` **childId?**: `string`
 
-The spawned node's id, once admission minted one. Absent for a reservation that escaped
- before its child had an identity.
+The spawned node's id, once admission minted one.
 
 ###### Inherited from
 
@@ -15468,15 +15458,12 @@ Leave this much of each channel free after the reservation.
 
 ### ReservationShortfall
 
-One budget channel a `budget-exhausted` reservation could not fit, with the amounts that
-decided it. A refusal lists every channel that did not fit (`shortfalls`), so shrinking one
-request is not answered by a second refusal on a channel the caller was never told about
-(observed live: a director whose 100-iteration child was refused spent a probe worker to learn
-the pool still admitted 3). `free` is a snapshot: live reservations return to it as their
-workers settle, and a driver's own metered turns draw tokens and dollars from the same pool
-before its next request arrives, so only `iterations` can be requested at exactly `free`.
-`closedByUnknownSpend` means work with unmeasured usage ran under that enforced limit; the
-channel then refuses every reservation for the rest of the run.
+One channel a `budget-exhausted` reservation could not fit. A refusal lists every such channel
+so shrinking one request is not met by a second refusal (a director whose 100-iteration child
+was refused spent a probe worker to learn the pool admitted 3). `free` is a snapshot, and a
+driver's metered turns draw from the same pool, so only `iterations` can be requested at exactly
+`free`. `closedByUnknownSpend`: unmeasured usage ran under that enforced limit, so the channel
+refuses every reservation for the rest of the run.
 
 #### Properties
 
@@ -15532,15 +15519,13 @@ while the public readout remains explicitly unknown.
 
 > **reserve**(`b`, `holder?`, `options?`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); `granted?`: `Promise`\<`void`\>; \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
 
-Atomically reserve a child's full ceiling from the free balance. Fails closed
-({ ok: false }) when the pool can't cover standard or named channels — the
-caller inspects `ok` before `ticket`.
+Atomically reserve a child's full ceiling from the free balance; fails closed
+({ ok: false }) when the pool can't cover standard or named channels.
 
-With `wait`, a request the free balance cannot cover now, but could once the open reservations
-return, is admitted as a WAITING ticket: `granted` resolves when the pool reserves it, and
-rejects with `ReservationWaitRefused` once nothing open could return enough. A waiting
-ticket reserves nothing; reconciling it withdraws it. While any ticket waits, a new waiting
-request queues behind it even when it would fit, so the order of asking is the order of grant.
+With `wait`, a request that could fit once open reservations return is admitted as a WAITING
+ticket: `granted` resolves when reserved and rejects with `ReservationWaitRefused` once
+nothing open could return enough. A waiting ticket reserves nothing; reconciling it withdraws
+it. New waiting requests queue behind existing waiters, so asking order is grant order.
 
 ###### Parameters
 
@@ -15564,10 +15549,8 @@ request queues behind it even when it would fit, so the order of asking is the o
 
 > **attribute**(`ticket`, `holder`): `void`
 
-Name (or rename) who holds an open reservation. Merges into what `reserve` recorded, so a
-caller states only what it just learned — the node id admission minted, or the stage the
-ticket moved to. A settled or unknown ticket is ignored: attribution is leak EVIDENCE, never
-a lifecycle guard, and must not be able to fail a run that is otherwise healthy.
+Name (or rename) who holds an open reservation, merging into what `reserve` recorded. A
+ settled or unknown ticket is ignored: attribution is leak EVIDENCE, never a lifecycle guard.
 
 ###### Parameters
 
@@ -15587,13 +15570,10 @@ a lifecycle guard, and must not be able to fail a run that is otherwise healthy.
 
 > **reconcile**(`ticket`, `spent`): [`BudgetViolation`](#budgetviolation-2) \| `undefined`
 
-Release a reservation: commit the actual `spent`, refund the unspent remainder
-to the free pool. Throws on an unknown or already-reconciled ticket (fail loud —
-a double refund would silently break conservation).
-
-Returns the overspend when measured spend exceeded the reservation, after committing it.
-Throws, also after committing, when the spend cannot be verified: unknown dollar cost under
-a dollar cap, or unknown or overflowing usage of an enforced resource.
+Release a reservation: commit the actual `spent`, refund the remainder. Throws on an unknown
+or already-reconciled ticket (a double refund would break conservation). Returns the
+overspend, after committing it; throws, also after committing, when the spend cannot be
+verified (unknown dollars under a cap, unknown or overflowing enforced-resource usage).
 
 ###### Parameters
 
@@ -15613,9 +15593,7 @@ a dollar cap, or unknown or overflowing usage of an enforced resource.
 
 > **spendFrom**(`events`): `Promise`\<[`Spend`](#spend-1)\>
 
-Fold a normalized `UsageEvent` stream (or array) into a `Spend`. Tokens via
- `addTokenUsage`, usd on its own channel, iterations from `'iteration'` events.
- `ms` is left zero — wall-clock duration is the caller's to record, not the pool's.
+Fold a normalized `UsageEvent` stream (or array) into a `Spend`; `ms` is left zero.
 
 ###### Parameters
 
@@ -15641,16 +15619,12 @@ The current readout, reflecting all outstanding reservations.
 
 > **observe**(`spend`, `options?`): `void`
 
-Record OBSERVED spend that did NOT go through reserve/reconcile — the driver's OWN inference
-(its chat turns), which is real compute but not a spawned child. A direct `free → committed`
-debit, so `total ≡ free + reserved + committed` is preserved: equal-k counts the driver's
-tokens and the in-loop budget guard (`readout().tokensLeft`) sees them. `free` may go negative
-when a run overspends. Unknown enforced resource usage is recorded before throwing.
-Partial increments defer completeness checks until the invocation reports its terminal spend.
-Unknown dollars under a dollar cap are refused, unless `alreadySpent` says the work finished
-with no caller left to refuse; that observation closes dollar admission instead.
-The DURABLE record is the journal's `metered` event (written by `Scope.meter`); this debit
-only makes the live `readout()` reflect driver inference for the in-loop guard.
+Record OBSERVED spend outside reserve/reconcile — the driver's OWN inference. A direct
+`free → committed` debit preserving the invariant; `free` may go negative on overspend.
+Unknown enforced resource usage is recorded before throwing; partial increments defer
+completeness checks until the terminal spend. Unknown dollars under a cap are refused, unless
+`alreadySpent` says the work finished with no caller left to refuse (that closes dollar
+admission instead). The DURABLE record is the journal's `metered` event (`Scope.meter`).
 
 ###### Parameters
 
@@ -15676,9 +15650,7 @@ only makes the live `readout()` reflect driver inference for the in-loop guard.
 
 > **assertNoOpenTickets**(): `void`
 
-Fail loud if any reservation is still open — the conserved-pool leak detector. Called at the
- supervisor's join barrier: once every child has settled, no ticket may remain (a leaked
- reservation would silently break `total ≡ free + reserved + committed`).
+Fail loud if any reservation is still open — the leak detector, called at the join barrier.
 
 ###### Returns
 
@@ -15688,8 +15660,7 @@ Fail loud if any reservation is still open — the conserved-pool leak detector.
 
 > **openReservations**(): readonly [`LeakedReservation`](#leakedreservation)[]
 
-Every reservation still open, with its holder. Empty on a healthy pool. Read at the join
- barrier so a run that failed can REPORT a leak it must not also be destroyed by.
+Every reservation still open, with its holder; lets a failed run REPORT a leak.
 
 ###### Returns
 
@@ -20599,8 +20570,7 @@ Every continuation note this manager was sent, with the check's verdict before a
 
 ### DriverRetryPolicy
 
-How hard the root driver is retried after a transient failure. The defaults retry; a caller
- that wants the pre-#741 behavior sets `enabled: false` and owns the consequence.
+How hard the root driver is retried after a transient failure; `enabled: false` restores pre-#741 behavior.
 
 #### Extends
 
@@ -20618,19 +20588,16 @@ How hard the root driver is retried after a transient failure. The defaults retr
 
 > `readonly` `optional` **maxConsecutiveFailures?**: `number`
 
-Consecutive failures that changed NOTHING (no metered spend, no settlement, no submission)
- before the run gives up. Default 3. A failure that made progress resets the count. Not
- enforced on a transient streak younger than `transientOutageMs`.
+Consecutive failures that changed NOTHING before the run gives up. Default 3; progress resets
+ it; not enforced on a transient streak younger than `transientOutageMs`.
 
 ##### maxAttempts?
 
 > `readonly` `optional` **maxAttempts?**: `number`
 
-Ceiling on failed invocations across this driver run, regardless of progress. Default: no
- ceiling, minimum 1. A failure that made no progress is bounded by `maxConsecutiveFailures`;
- failures that each made progress are bounded by the budget and the deadline, like the work
- they did. Successful continuations do not consume this allowance or reset it, and neither
- does a transient failure inside the outage window.
+Ceiling on failed invocations across this driver run, regardless of progress (default none,
+ minimum 1). Successful continuations and transient failures inside the outage window neither
+ consume nor reset it.
 
 ##### initialBackoffMs?
 
@@ -20648,11 +20615,9 @@ Ceiling on the doubling. Default 30000ms.
 
 > `readonly` `optional` **transientOutageMs?**: `number`
 
-How long a streak of transient failures that spent nothing, settled nothing, and made no
- progress is retried as an infrastructure outage, from the streak's first failure, before
- `maxAttempts` and
- `maxConsecutiveFailures` apply to it. Default 900000ms (15 minutes), longer than a routine
- Platform restart.
+How long a streak of transient failures that spent, settled and progressed nothing is retried
+ as an infrastructure outage before `maxAttempts` and `maxConsecutiveFailures` apply. Default
+ 900000ms (15 minutes), longer than a routine Platform restart.
 
 ##### unavailablePauseMs?
 
@@ -22932,38 +22897,33 @@ Stable input available to key and holder functions.
 
 > `readonly` **runId**: `string`
 
-The supervised run id (`SupervisorOpts.runId`). Roots the trace, identifies the root span, and
-is the parent lookup key for every depth-0 spawn (a root scope's `parentId` IS the run id).
+The supervised run id (`SupervisorOpts.runId`): roots the trace and is the parent key of every depth-0 spawn.
 
 ##### exporter?
 
 > `readonly` `optional` **exporter?**: [`OtelExporter`](index.md#otelexporter)
 
-Bring your own exporter. It is FLUSHED but never shut down by `finish()` — a caller that owns
-the exporter owns its lifecycle. Takes precedence over `exportConfig`.
+Bring your own exporter: FLUSHED but never shut down by `finish()`. Takes precedence over `exportConfig`.
 
 ##### exportConfig?
 
 > `readonly` `optional` **exportConfig?**: [`OtelExportConfig`](index.md#otelexportconfig)
 
-Otherwise build one with [createOtelExporter](index.md#createotelexporter). With no `endpoint` here it reads
-`OTEL_EXPORTER_OTLP_ENDPOINT`, and with neither it resolves to `undefined` — which makes
-[createSupervisorSpanRecorder](#createsupervisorspanrecorder) return `undefined` and the run emit nothing.
+Otherwise built with [createOtelExporter](index.md#createotelexporter); with no endpoint here or in
+ `OTEL_EXPORTER_OTLP_ENDPOINT` the run emits nothing.
 
 ##### traceId?
 
 > `readonly` `optional` **traceId?**: `string`
 
-Trace id (32 hex chars). Pass the caller's own to JOIN an outer trace. Default: derived
-deterministically from `namespace` and `runId`, so a resumed run lands in the SAME trace as the
-process that started it while two copies of one run id in different places never share one.
+Trace id (32 hex chars); pass the caller's to JOIN an outer trace. Default: derived from
+ `namespace` and `runId`, so a resumed run lands in the SAME trace.
 
 ##### namespace?
 
 > `readonly` `optional` **namespace?**: `string`
 
-The run's storage identity. `supervise()` supplies its run namespace: the run context's own,
-or a digest of `runDir` and `runId` for a durable run. Absent, the trace derives from `runId`.
+The run's storage identity (supplied by `supervise()`); absent, the trace derives from `runId`.
 
 ##### parentSpanId?
 
@@ -22987,9 +22947,7 @@ Extra attributes stamped on every span this recorder emits (subject, workspace, 
 
 > `readonly` `optional` **agentIdentity?**: `AgentIdentity`
 
-Who the run's root agent is: stamped on the root span and on the root manager's own turns.
-Every spawned node's span carries its OWN profile instead, from the spawn it opened with, and
-a node's turns carry the node's. `supervise()` derives this from the root profile.
+Who the root agent is, stamped on the root span and the root manager's turns; every node carries its OWN profile.
 
 ##### now?
 
@@ -23047,12 +23005,10 @@ The run's root span id — pass it to a child process to join this trace.
 
 > `readonly` **workerTrace**: [`WorkerTraceResolver`](#workertraceresolver)
 
-The trace context a worker spawned BY node `spawningNodeId` should inherit, so its own spans
-join THIS trace under the span of the node that spawned it. Thread it to a run as
-`SupervisorOpts.workerTrace` (`supervise()` does this whenever it builds a recorder) and the
-`Scope` seeds it onto every child's `ExecutorContext`; a backend with an environment channel
-stamps it with `workerTraceEnv`. An unknown node — one whose span was never opened — resolves
-to the run's root span rather than to nothing, so a worker is never filed outside its own run.
+The trace context a worker spawned BY node `spawningNodeId` inherits, so its spans join THIS
+trace under that node's span. Threaded as `SupervisorOpts.workerTrace` (`supervise()` does
+this) and seeded onto each child's `ExecutorContext`; a backend with an environment channel
+stamps it with `workerTraceEnv`. An unknown node resolves to the root span.
 
 #### Methods
 
@@ -23060,8 +23016,7 @@ to the run's root span rather than to nothing, so a worker is never filed outsid
 
 > **finish**(`outcome?`): `Promise`\<`void`\>
 
-Close the root span (and any node that never settled, marked as such), export, and flush. Safe
-to call twice; never throws — a telemetry failure is not a run failure.
+Close the root span (and any unsettled node, marked), export, flush. Idempotent; never throws.
 
 ###### Parameters
 
@@ -24428,7 +24383,7 @@ paths use, so the runtime has one spelling of the four cancellation states:
 
 ##### path?
 
-> `readonly` `optional` **path?**: `"observer"` \| `"turn-boundary"` \| `"fallback"`
+> `readonly` `optional` **path?**: `"observer"` \| `"fallback"` \| `"turn-boundary"`
 
 Runtime path that issued the cascade.
 
@@ -25590,8 +25545,7 @@ Online observer of each tool step — the seam a `DetectorMonitor` taps to watch
 
 ### SandboxSteeringOptions
 
-Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`). Absent, the
- sandbox executor keeps its historical single-shot `runAgentRounds` composition verbatim.
+Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`); absent, the single-shot composition is kept.
 
 #### Properties
 
@@ -25765,9 +25719,8 @@ readonly [`ProviderWorkspaceCaptureReceipt`](#providerworkspacecapturereceipt)[]
 
 > `readonly` `optional` **traceEnv?**: `Record`\<`string`, `string`\>
 
-Inherited `TRACE_ID` / `PARENT_SPAN_ID` for the box, merged into `CreateSandboxOptions.env` so
-the remote worker's own spans join the supervisor's trace under the spawning node's span.
-Absent when the run records no spans — the create options are then untouched.
+Inherited `TRACE_ID` / `PARENT_SPAN_ID`, merged into `CreateSandboxOptions.env` so the
+ worker's spans join the supervisor's trace. Absent when the run records no spans.
 
 ##### contentRef
 
@@ -33314,12 +33267,9 @@ Where in the spawn lifecycle a reservation was last seen. `admitted` is the wind
 
 > **BudgetReadout** = `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
-Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`,
- `usdLeft`, and `reservedTokens` reflect committed-but-unsettled reservations;
- `deadlineMs` is the ABSOLUTE wall-clock deadline (0 when the root set none).
- `iterationsLeft` is the remaining iteration capacity.
- `usdCapped` distinguishes a real `usdLeft <= 0` exhaustion from an uncapped pool (which always
- reads `usdLeft: 0`) — the in-loop guard needs it to bound a usd-capped driver.
+Post-reservation pool readout — the shape `Scope.budget` exposes. `deadlineMs` is the ABSOLUTE
+ wall-clock deadline (0 when none). `usdCapped` distinguishes a real `usdLeft <= 0` exhaustion
+ from an uncapped pool (which always reads `usdLeft: 0`).
 
 ***
 
@@ -33327,9 +33277,8 @@ Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`
 
 > **ReservationRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"`
 
-Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it
-budgets; `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
-unsatisfiable at any amount and the fix is to budget the root, not to ask for less.
+Why a reservation was refused. `usd-unbudgeted`: the root declared no dollar ceiling, so the
+fix is to budget the root, not to ask for less.
 
 ***
 
@@ -36797,8 +36746,7 @@ How one driver failure is answered.
 
 > **DriverContractState** = `"met"` \| `"unmet"` \| `"none"`
 
-Whether the run's declared completion check has passed. `'none'` means the caller declared no
- check at all — the retry then reads spend and settlements exactly as it always has.
+Whether the declared completion check has passed; `'none'` means the caller declared no check.
 
 ***
 
@@ -36806,11 +36754,9 @@ Whether the run's declared completion check has passed. `'none'` means the calle
 
 > **DriverReentry** = \{ `reason`: `"unmet-contract"`; `steer`: `string`; `continuation`: `number`; `barren?`: \{ `streak`: `number`; `pausedMs`: `number`; \}; \} \| \{ `reason`: `"driver-failure"`; `failure`: `string`; `retry`: `number`; \} \| \{ `reason`: `"wake"`; `input`: `string`; `wake`: `number`; \} \| \{ `reason`: `"upstream-unavailable"`; `signal`: `string`; `pause`: `number`; \} \| \{ `reason`: `"run-reentered"`; `live`: `ReadonlyArray`\<`string`\>; `replaced`: `ReadonlyArray`\<`string`\>; \}
 
-Why the loop is entering the driver again. Absent on the first attempt only.
-
- An `unmet-contract` re-entry carries Runtime's continuation note. A `driver-failure` re-entry
- carries no instruction of its own: the drive that failed may never have read the last one, so
- the caller re-enters with the ORIGINAL task and the run's state, never with the note alone.
+Why the loop is entering the driver again (absent on the first attempt only). An `unmet-contract`
+ re-entry carries Runtime's continuation note; a `driver-failure` re-entry carries none, since
+ the failed drive may never have read the last one: re-enter with the ORIGINAL task and run state.
 
 #### Union Members
 
@@ -36826,8 +36772,7 @@ Why the loop is entering the driver again. Absent on the first attempt only.
 
 > `readonly` **steer**: `string`
 
-The continuation note. Whether it is the whole turn depends on where the drive runs: only
- a backend that proves the same harness session may be re-entered with this text alone.
+The continuation note; the whole turn only on a backend that proves the same harness session.
 
 ###### continuation
 
@@ -36882,8 +36827,7 @@ The failure that ended the previous drive, as recorded.
 
 > `readonly` **reason**: `"wake"`
 
-The previous turn ended with work open, and Runtime woke the manager when something
- happened. Not a continuation: the manager chose to wait, and `input` is what it waited for.
+The previous turn ended with work open and Runtime woke the manager; `input` is what it waited for.
 
 ###### input
 
@@ -36907,9 +36851,7 @@ The wake input: every event since the last turn, or the heartbeat or deadline no
 
 > `readonly` **reason**: `"upstream-unavailable"`
 
-The upstream refused the previous drive for capacity, or the check could not run, and the
- loop paused before this one. Re-entered like a failure, with the original task and the
- run's state.
+The upstream refused the previous drive for capacity (or the check could not run); re-entered like a failure.
 
 ###### signal
 
@@ -36933,9 +36875,7 @@ The code or status that classified the refusal, such as `provider_quota_exhauste
 
 > `readonly` **reason**: `"run-reentered"`
 
-An earlier process drove this run, usually one that stopped without settling it (a host
- reboot, a crash, a killed process), and this is the first drive of the process that
- resumed it.
+An earlier process drove this run and stopped without settling it; the first drive of the resuming process.
 
 ###### live
 
@@ -36947,8 +36887,7 @@ This manager's workers that were open when the previous process stopped.
 
 > `readonly` **replaced**: `ReadonlyArray`\<`string`\>
 
-Of `live`, the workers this process re-placed. The others are gone: they will not
- report, and their unfinished work is lost.
+Of `live`, the workers this process re-placed; the others are gone and their work is lost.
 
 ***
 
@@ -37280,8 +37219,7 @@ Environment fields supplied to every interactive worker after Runtime adds the e
 
 > **SupervisorSpanAttributes** = `Record`\<`string`, `string` \| `number` \| `boolean`\>
 
-OTLP span attribute values. Exported because `SupervisorSpanOptions.attributes` is public and
- a consumer cannot name the type it is asked to supply otherwise.
+OTLP span attribute values; exported because `SupervisorSpanOptions.attributes` is public.
 
 ***
 
@@ -37875,8 +37813,7 @@ Continuity when nothing is proven: compose the full state.
 
 > `const` **DEFAULT\_SANDBOX\_STEERING\_MAX\_TURNS**: `24` = `24`
 
-Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so
- this bounds how many times a supervisor may redirect ONE worker before it must respawn.
+Ceiling on continuation turns (turn 0 is the task, each later turn a folded steer).
 
 ***
 
@@ -37911,10 +37848,8 @@ Capabilities a data-only consumer may require before building an opted-in run. `
 
 > `const` **DEFAULT\_MAX\_DEPTH**: `16` = `16`
 
-The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every
- level draws its slice from the level above, so a tree ends when its slices run out. This
- ceiling only stops a runaway recursion that keeps spawning tiny slices, so it sits well above
- any depth a budget can usefully pay for.
+The default recursion-depth ceiling. The conserved pool bounds depth (every level draws its
+ slice from the one above); this only stops a runaway recursion of tiny slices.
 
 ***
 
@@ -41698,11 +41633,8 @@ Turn a [ProfileRichness](#profilerichness) verdict into a bus-routable `AnalystF
 > **createBudgetPool**(`root`, `runStartedAtMs`, `restore?`): [`BudgetPool`](#budgetpool)
 
 Create a conserved reservation pool from a root `Budget`. `runStartedAtMs` is the WALL-CLOCK
-instant the run's root was recorded, and it is the only input the deadline is derived from:
-`runStartedAtMs + root.deadlineMs`, or `0` when the root declares no deadline. The pool holds no
-clock, so a caller cannot hand it a run-relative one and get a duration back where an instant is
-expected. A resumed pool passes the ORIGINAL root instant, so restart never slides the limit.
-The readout is an absolute instant, not a shrinking remainder.
+instant the root was recorded; the deadline is `runStartedAtMs + root.deadlineMs` (`0` when
+none), an absolute instant. A resumed pool passes the ORIGINAL instant.
 
 #### Parameters
 
@@ -42478,12 +42410,10 @@ not an existing directory throws before the harness launches. `resultArtifact()`
 
 > **workerFromInteractiveProvider**(`provider`, `options?`): [`MakeWorkerAgent`](#makeworkeragent)
 
-Build a `MakeWorkerAgent` that starts one exact provider-owned native TUI per worker.
-
-A Scope supplies the durable admission hook and kernel-minted node attempt. The returned worker
-exposes `interactiveReady`, so Scope writes the exact provider reference before the worker can be
-attached by a different process. `attachWorker` then reconnects that same reference through the
-provider's public `get`/interactive contract.
+Build a `MakeWorkerAgent` that starts one provider-owned native TUI per worker. A Scope supplies
+the durable admission hook and node attempt; the worker exposes `interactiveReady`, so the exact
+provider reference is written before another process can attach, and `attachWorker` reconnects
+it through the provider's public `get`/interactive contract.
 
 #### Parameters
 
@@ -42505,10 +42435,7 @@ provider's public `get`/interactive contract.
 
 > **createSupervisorSpanRecorder**(`opts`): [`SupervisorSpanRecorder`](#supervisorspanrecorder) \| `undefined`
 
-Build the span recorder for one supervised run, or `undefined` when no exporter resolves — the
-off-by-default path. A run that passes no `exporter` and no `exportConfig` never reaches this
-function at all; one that passes an `exportConfig` with no endpoint (and no env endpoint) gets
-`undefined` here, so "configured but unreachable" also costs nothing.
+Build the span recorder for one run, or `undefined` when no exporter resolves (off by default; "configured but unreachable" also costs nothing).
 
 #### Parameters
 
