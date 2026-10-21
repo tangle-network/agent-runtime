@@ -60,12 +60,10 @@ import {
   InMemorySpawnJournal,
 } from '../../durable/spawn-journal'
 import { ConfigError, ValidationError } from '../../errors'
-import type {
-  AnalystRegistry,
-  ContinuityMode,
-  MakeWorkerAgent,
-  MapItemFailurePolicy,
-} from '../../mcp/tools/coordination'
+import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
+import type { MakeWorkerAgent } from '../../mcp/tools/coordination-contracts'
+import type { MapItemFailurePolicy } from '../../mcp/tools/coordination-map-contracts'
+import type { ContinuityMode } from '../../mcp/tools/coordination-messages'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { harnessRunsAgent } from '../harness-role'
 import type { ToolLoopChat } from '../tool-loop'
@@ -86,7 +84,7 @@ import {
 } from './supervise'
 import type { Budget, NodeId, ResultBlobStore, SpawnJournal, SupervisedResult } from './types'
 
-export type { MapItemFailurePolicy } from '../../mcp/tools/coordination'
+export type { MapItemFailurePolicy } from '../../mcp/tools/coordination-map-contracts'
 export { defaultEdgeTraversalCap } from './graph-overlay'
 
 // ── The algebra ────────────────────────────────────────────────────────────────

@@ -105,7 +105,7 @@ import {
   RuntimeRunStateError,
   ValidationError,
 } from '../../errors'
-import type { BlockedToolReport } from '../../mcp/tools/coordination'
+import type { BlockedToolReport } from '../../mcp/tools/coordination-contracts'
 import { sleep } from '../util'
 import {
   CheckUnavailableError,

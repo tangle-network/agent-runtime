@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { ValidationError } from '../../errors'
-import type { ChildQuestionInbox } from '../../mcp/tools/coordination'
+import type { ChildQuestionInbox } from '../../mcp/tools/coordination-questions'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { resolveAgentEnvironmentProvider } from '../environment-provider'
 import { persistHarnessTranscript, readHarnessTranscript } from '../harness-transcript'

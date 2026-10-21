@@ -19,12 +19,14 @@
 import { appendCommittedJsonLine, readCommittedJsonLines } from '../../durable/jsonl-file'
 import type {
   AnalystFindingEvent,
-  ContinuationInstruction,
-  CoordinationEvent,
   DefinedAnalystRecord,
+} from '../../mcp/tools/coordination-analysts'
+import type { CoordinationEvent } from '../../mcp/tools/coordination-events'
+import type { ContinuationInstruction } from '../../mcp/tools/coordination-messages'
+import type {
   QuestionEscalationRecord,
   QuestionRecord,
-} from '../../mcp/tools/coordination'
+} from '../../mcp/tools/coordination-questions'
 import type { BusRecord } from './event-bus'
 import type { PeerMailEvent } from './peer-mail'
 

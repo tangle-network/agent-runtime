@@ -1,4 +1,5 @@
-import { budgetOverspendText, type SettledWorker } from '../../mcp/tools/coordination'
+import { budgetOverspendText } from '../../mcp/tools/coordination-budget'
+import type { SettledWorker } from '../../mcp/tools/coordination-contracts'
 import { chargedTokens } from '../util'
 import type { PriorCoordination } from './coordination-log'
 import type { BudgetViolation, NodeSnapshot, ResumedWork, TreeView } from './types'

@@ -11,14 +11,14 @@ import {
 } from '../../agent/profile-materialization'
 import { ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
+import type { PeerAuditAccess } from '../../mcp/tools/coordination-contracts'
+import type { CoordinationEvent } from '../../mcp/tools/coordination-events'
+import type { AuthorizeDownMessage } from '../../mcp/tools/coordination-messages'
 import type {
-  AuthorizeDownMessage,
   ChildQuestionInbox,
-  CoordinationEvent,
-  PeerAuditAccess,
   QuestionEscalationOutcome,
   QuestionRecord,
-} from '../../mcp/tools/coordination'
+} from '../../mcp/tools/coordination-questions'
 import type { ToolLoopChat } from '../tool-loop'
 import { assertValidBudget } from './budget'
 import type { BusRecord } from './event-bus'

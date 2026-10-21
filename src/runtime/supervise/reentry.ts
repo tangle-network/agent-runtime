@@ -16,7 +16,7 @@
  * became of the workspace. A proven-continuous session gets the unmet items plus what changed.
  */
 
-import type { ManagerReentryState } from '../../mcp/tools/coordination'
+import type { ManagerReentryState } from '../../mcp/tools/coordination-events'
 import type { DriverReentry } from './driver-retry'
 
 /** What the next drive continues, as the drive harness can prove it before the turn starts. */

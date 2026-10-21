@@ -22,7 +22,7 @@ import {
   worktreeCliProfileMaterialization,
 } from '../../agent/profile-materialization'
 import { ValidationError } from '../../errors'
-import { coordinationVerbNames } from '../../mcp/tools/coordination'
+import { coordinationVerbNames } from '../../mcp/tools/coordination-events'
 import { agentHarness, harnessRunsAgent } from '../harness-role'
 import type { ExecutorConfig } from './runtime'
 import {

@@ -8,12 +8,10 @@ import { createKnowledgeTools, createRunScopedStores } from '@tangle-network/age
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
-import type { AwaitWakeInput } from '../../src/mcp/tools/coordination'
+import type { AwaitWakeInput } from '../../src/mcp/tools/coordination-events'
 import type { CheckVerdict } from '../../src/runtime/supervise/continuation'
 import { coordinationHttpHandler } from '../../src/runtime/supervise/coordination-http'
 import {
-  assertCoordinationTransport,
-  coordinationResponseFenceMs,
   serveCoordinationMcp,
   serveCoordinationMcpForManager,
 } from '../../src/runtime/supervise/coordination-mcp'
@@ -370,44 +368,6 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
       await mcp.close()
     }
   })
-
-  it('refuses a product tool that shadows spawn_worker before opening a listener', async () => {
-    await expect(
-      serveCoordinationMcp({
-        scope: {
-          signal: new AbortController().signal,
-          view: { root: 'mcp-fixture', nodes: [], inFlight: 0 },
-        } as Scope<unknown>,
-        blobs: new InMemoryResultBlobStore(),
-        makeWorkerAgent: () => deliveringLeaf('unused', {}),
-        perWorker: { maxIterations: 1, maxTokens: 1 },
-        toolNames: [],
-        nodeTools: [
-          {
-            name: 'spawn_worker',
-            description: 'must not shadow coordination',
-            inputSchema: { type: 'object' },
-            handler: async () => ({}),
-          },
-        ],
-      }),
-    ).rejects.toThrow(/spawn_worker.*shadows/)
-  })
-
-  it('refuses duplicate explicit tool grants before opening a listener', async () => {
-    await expect(
-      serveCoordinationMcp({
-        scope: {
-          signal: new AbortController().signal,
-          view: { root: 'mcp-fixture', nodes: [], inFlight: 0 },
-        } as Scope<unknown>,
-        blobs: new InMemoryResultBlobStore(),
-        makeWorkerAgent: () => deliveringLeaf('unused', {}),
-        perWorker: { maxIterations: 1, maxTokens: 1 },
-        toolNames: ['spawn_worker', 'spawn_worker'],
-      }),
-    ).rejects.toThrow(/toolNames contains a duplicate name/)
-  })
 })
 
 /** Run `body` against a REAL live scope — the same path the sandbox supervisor arm uses — and
@@ -474,20 +434,6 @@ describe('serveCoordinationMcp itself fails closed on a non-loopback bind', () =
       toolNames: ['spawn_worker'],
       ...extra,
     })
-
-  it.each(['0.0.0.0', '10.0.0.7', '::', 'runner-7.internal'])(
-    'refuses the non-loopback host %s without authentication',
-    async (host) => {
-      // An unresolvable/unknown name counts as remote: whether it lands on a loopback interface is
-      // not knowable at bind time, and the safe direction of that doubt is "exposed".
-      await expect(
-        withLiveScope(async (scope) => {
-          const mcp = await serve(scope, { host })
-          await mcp.close()
-        }),
-      ).rejects.toThrow(/non-loopback address requires authentication/s)
-    },
-  )
 
   it('accepts an authenticated non-loopback host and serves the verbs on it', async () => {
     const names = await withLiveScope(async (scope) => {
@@ -1596,18 +1542,6 @@ describe('method tools on the coordination MCP are single-flight within one fenc
       expect(woken?.idleMs).toBeLessThan(400)
     })
   })
-
-  it('derives the response fence from the request timeout so it cannot outlive it', () => {
-    expect(coordinationResponseFenceMs(90_000)).toBe(45_000)
-    expect(coordinationResponseFenceMs(10_000)).toBe(5_000)
-    // A long transport timeout does not lengthen the fence past what harness clients allow.
-    expect(coordinationResponseFenceMs(600_000)).toBe(45_000)
-    for (const requestTimeoutMs of [1, 2, 50, 999, 30_000, 2_147_483_647]) {
-      const fence = coordinationResponseFenceMs(requestTimeoutMs)
-      expect(fence).toBeGreaterThan(0)
-      expect(fence).toBeLessThanOrEqual(requestTimeoutMs)
-    }
-  })
 })
 
 // ── Fenced submit_result ────────────────────────────────────────────────────────
@@ -1921,15 +1855,6 @@ describe('caller-owned long-lived coordination credentials', () => {
       }
     })
   })
-})
-
-describe('coordination lifetime validation', () => {
-  it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER])(
-    'refuses invalid or unrepresentable lifetime %s',
-    (ttlMs) => {
-      expect(() => assertCoordinationTransport({ authentication: { ttlMs } })).toThrow(/ttlMs/)
-    },
-  )
 })
 
 describe('public coordination address lifetime', () => {

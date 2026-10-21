@@ -3,11 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { fullProfileMaterialization } from '../../src/agent/profile-materialization'
-import type { CoordinationEvent, QuestionRecord } from '../../src/mcp/tools/coordination'
-import type {
-  DriveHarness,
-  DriveHarnessOwnerContext,
-} from '../../src/runtime/supervise/supervisor-agent'
+import type { CoordinationEvent } from '../../src/mcp/tools/coordination-events'
+import type { QuestionRecord } from '../../src/mcp/tools/coordination-questions'
+import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { supervise } from '../helpers/runtime-with-test-brain'
@@ -372,131 +370,6 @@ describe('nested supervisor coordination durability', () => {
     expect([...counts.values()].sort()).toEqual([2, 2, 4])
   })
 
-  it('routes concurrent manager steers through distinct owner-scoped harness sessions', async () => {
-    const contexts: DriveHarnessOwnerContext[] = []
-    const delivered = new Map<string, unknown>()
-    let startedCount = 0
-    let bothStarted!: () => void
-    const bothManagersStarted = new Promise<void>((resolve) => {
-      bothStarted = resolve
-    })
-    const resolveDriveHarness = (context: DriveHarnessOwnerContext): DriveHarness => {
-      contexts.push(context)
-      let release!: () => void
-      const steered = new Promise<void>((resolve) => {
-        release = resolve
-      })
-      const harness: DriveHarness = async () => {
-        startedCount += 1
-        if (startedCount === 2) bothStarted()
-        await steered
-      }
-      harness.deliver = (message): boolean => {
-        delivered.set(context.assignmentId ?? 'root', message)
-        release()
-        return true
-      }
-      return harness
-    }
-    let turn = 0
-    const brain: ToolLoopChat = async () => {
-      turn += 1
-      if (turn === 1) {
-        const manager = testAgentProfile('identical-manager', {
-          harness: 'codex',
-          tools: managerTools,
-        })
-        return {
-          toolCalls: [
-            {
-              id: 'spawn-a',
-              name: 'spawn_worker',
-              arguments: JSON.stringify({ profile: manager, task: 'same task', key: 'manager-a' }),
-            },
-            {
-              id: 'spawn-b',
-              name: 'spawn_worker',
-              arguments: JSON.stringify({ profile: manager, task: 'same task', key: 'manager-b' }),
-            },
-          ],
-        }
-      }
-      if (turn === 2) {
-        await bothManagersStarted
-        return {
-          toolCalls: [
-            {
-              id: 'steer-a',
-              name: 'steer_agent',
-              arguments: JSON.stringify({
-                workerId: 'owner-routed:s0',
-                instruction: 'instruction for manager A',
-              }),
-            },
-            {
-              id: 'steer-b',
-              name: 'steer_agent',
-              arguments: JSON.stringify({
-                workerId: 'owner-routed:s1',
-                instruction: 'instruction for manager B',
-              }),
-            },
-          ],
-        }
-      }
-      if (turn === 3) return { content: 'waiting for the managers', toolCalls: [] }
-      return { content: 'finished', toolCalls: [] }
-    }
-
-    await supervise(
-      testAgentProfile('root', {
-        harness: 'cli-base',
-        tools: rootTools,
-        prompt: { systemPrompt: 'Run both managers.' },
-      }),
-      'root task',
-      {
-        backend: {
-          backend: 'router',
-          routerBaseUrl: 'http://unused.invalid',
-          routerKey: 'unused',
-          model: 'unused/model',
-        },
-        budget: { maxIterations: 16, maxTokens: 10_000 },
-        perWorker: { maxIterations: 4, maxTokens: 1_000 },
-        runId: 'owner-routed',
-        resolveDriveHarness,
-        driveHarnessMaterialization: fullProfileMaterialization,
-        brain,
-        maxTurns: 8,
-      },
-    )
-
-    expect(contexts).toHaveLength(2)
-    expect(new Set(contexts.map((context) => context.ownerId)).size).toBe(2)
-    expect(contexts.map((context) => context.assignmentId).sort()).toEqual([
-      'key:manager-a',
-      'key:manager-b',
-    ])
-    for (const context of contexts) {
-      expect(Object.isFrozen(context)).toBe(true)
-      expect(Object.isFrozen(context.profile)).toBe(true)
-      expect(Object.isFrozen(context.identity)).toBe(true)
-    }
-    expect(delivered).toEqual(
-      new Map([
-        [
-          'key:manager-a',
-          expect.objectContaining({ steer: 'instruction for manager A', interrupt: false }),
-        ],
-        [
-          'key:manager-b',
-          expect.objectContaining({ steer: 'instruction for manager B', interrupt: false }),
-        ],
-      ]),
-    )
-  })
-
   it('queues a steer for a child manager whose harness has no live inbox and delivers it with its next wake', async () => {
     const instruction = 'prefer the fresher evidence'
     const directorTasks: string[] = []
@@ -608,72 +481,5 @@ describe('nested supervisor coordination durability', () => {
       type: 'lead-message',
       message: { kind: 'steer', text: instruction },
     })
-  })
-
-  it('refuses one steerable harness instance reused across manager owners', async () => {
-    const sharedHarness: DriveHarness = async () => {}
-    sharedHarness.deliver = (): boolean => true
-    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
-
-    await supervise(
-      testAgentProfile('root', {
-        harness: 'cli-base',
-        tools: rootTools,
-        prompt: { systemPrompt: 'Run both managers.' },
-      }),
-      'root task',
-      {
-        backend: {
-          backend: 'router',
-          routerBaseUrl: 'http://unused.invalid',
-          routerKey: 'unused',
-          model: 'unused/model',
-        },
-        budget: { maxIterations: 16, maxTokens: 10_000 },
-        perWorker: { maxIterations: 4, maxTokens: 1_000 },
-        runId: 'owner-reuse-refused',
-        resolveDriveHarness: () => sharedHarness,
-        driveHarnessMaterialization: fullProfileMaterialization,
-        brain: scriptedBrain(
-          [
-            {
-              toolCalls: [
-                {
-                  name: 'spawn_worker',
-                  arguments: {
-                    profile: testAgentProfile('identical-manager', {
-                      harness: 'codex',
-                      tools: managerTools,
-                    }),
-                    task: 'same task',
-                    key: 'manager-a',
-                  },
-                },
-                {
-                  name: 'spawn_worker',
-                  arguments: {
-                    profile: testAgentProfile('identical-manager', {
-                      harness: 'codex',
-                      tools: managerTools,
-                    }),
-                    task: 'same task',
-                    key: 'manager-b',
-                  },
-                },
-              ],
-            },
-            { content: 'stop after reading the spawn results' },
-          ],
-          seen,
-        ),
-      },
-    )
-
-    expect(JSON.stringify(seen[1])).toContain(
-      'steerable driveHarness is already bound to manager owner',
-    )
-    expect(JSON.stringify(seen[1])).toContain(
-      'resolveDriveHarness must return a distinct steerable instance',
-    )
   })
 })

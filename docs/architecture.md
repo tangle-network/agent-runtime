@@ -438,7 +438,7 @@ Two facts make this the whole game:
   `attachWorker(eventDir, nodeId, { providers })` reloads that reference after restart, verifies the node is still live, and asks the named provider to reconstruct the same process.
   It never derives a provider session from a label, conversation, or native-session hint.
 
-The ask/answer edges of the question/command hierarchy are **built** — `ask_parent` up and `answer_question` down (`src/mcp/tools/coordination.ts`), priority-queued on the event bus.
+The ask/answer edges of the question/command hierarchy are **built** — `ask_parent` up and `answer_question` down (`src/mcp/tools/coordination-question-tools.ts`), priority-queued on the event bus.
 Every steer/answer authorization receipt is committed before delivery and retained as restart evidence, but Runtime never auto-delivers that old instruction to a replacement worker.
 Salience filtering and the cross-box durable mailbox are not built; see **§13.6**.
 
@@ -489,7 +489,7 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
 - **REAL** — the supervisor **authoring** child profiles is the AgentProfile law (§1,
   and `canonical-api.md` §1.5): a supervisor's intelligence is *writing full
   AgentProfiles for its children*. The coordination toolbox `spawn_worker` carries the
-  child profile (`src/mcp/tools/coordination.ts`).
+  child profile (`src/mcp/tools/coordination-worker-tools.ts`).
 - The in-process driver brain is `driverAgent` (`src/runtime/supervise/driver-brain-agent.ts`) running the owned tool-loop executor `routerToolsInlineExecutor` (`src/runtime/supervise/router-tools-executor.ts`).
   A driver/supervisor's brain is driven from its `AgentProfile`: prompt + model for the deliberately narrow in-process router arm, or the complete materialized profile for an external-harness arm.
 - **REAL** — `supervise(profile, task, { backend })` validates and freezes every authored child profile before budget reservation, applies shared security plus optional product authorization, and preserves the authorized profile through execution (`supervise/supervise.ts`).
@@ -517,7 +517,7 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
 ### 13.3 The within-run self-improvement loop (§1's agent-driver, drawn)
 
 The live within-run RSI mechanism is the **agent-driver**: a parent `AgentProfile` driving
-its children via `createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the
+its children via `createCoordinationTools` (`src/mcp/tools/coordination-manager.ts`) over the
 `Scope`/`Supervisor` (`src/runtime/supervise/`). Each round: **diagnose → decide → act →
 settle**, with one firewall that keeps it honest.
 
@@ -624,9 +624,9 @@ A leaf *raises* a question; each parent is a *handler* that either **discharges*
 human is the **top handler**. Local autonomy + global override — a command hierarchy,
 not agent-to-agent messaging.
 
-**Built** (`src/mcp/tools/coordination.ts`, `src/runtime/supervise/event-bus.ts`,
+**Built** (`src/mcp/tools/coordination-manager.ts`, `src/runtime/supervise/event-bus.ts`,
 `src/runtime/supervise/inbox.ts`):
-- `ask_parent` up + `answer_question` down (`src/mcp/tools/coordination.ts`) —
+- `ask_parent` up + `answer_question` down (`src/mcp/tools/coordination-question-tools.ts`) —
   a blocking question rides the ONE typed pipe, **priority-queued** ahead of queued
   settles/findings (the event bus); the answer routes down to the child's inbox.
 - `steer_agent` — the down-leg for any live worker (instruction / correction /

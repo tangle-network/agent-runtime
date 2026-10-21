@@ -1,11 +1,9 @@
 import { RuntimeRunStateError, ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
-import {
-  coordinationVerbNames,
-  createCoordinationTools,
-  normalizeAnalyzeOnSettle,
-} from '../../mcp/tools/coordination'
+import { normalizeAnalyzeOnSettle } from '../../mcp/tools/coordination-analysts'
+import { coordinationVerbNames } from '../../mcp/tools/coordination-events'
 import { safeJsonText } from '../../mcp/tools/coordination-json'
+import { createCoordinationTools } from '../../mcp/tools/coordination-manager'
 import type { ToolSpec } from '../router-request-body'
 import {
   runBrainLoop,

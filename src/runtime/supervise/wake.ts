@@ -16,7 +16,7 @@
  * it can reconsider.
  */
 
-import type { ManagerWake } from '../../mcp/tools/coordination'
+import type { ManagerWake } from '../../mcp/tools/coordination-events'
 
 /** How Runtime wakes a manager that ended its turn with work open. */
 export interface ManagerWakePolicy {

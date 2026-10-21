@@ -1,4 +1,4 @@
-import type { SpawnPreflight } from '../../mcp/tools/coordination'
+import type { SpawnPreflight } from '../../mcp/tools/coordination-contracts'
 import type { AgentEnvironmentProvider } from '../environment-provider'
 import { profileBridgeWireModel } from './model-policy'
 import {

@@ -5,7 +5,7 @@ import {
   SqlRunOwnershipError,
   type SqlRunStoreOptions,
 } from '../../durable/sql-run-store'
-import type { CoordinationEvent } from '../../mcp/tools/coordination'
+import type { CoordinationEvent } from '../../mcp/tools/coordination-events'
 import { type CoordinationOwnerId, foldCoordinationRecords } from './coordination-log'
 import type { BusRecord } from './event-bus'
 import {

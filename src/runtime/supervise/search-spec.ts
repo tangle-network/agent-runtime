@@ -20,7 +20,8 @@ import {
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
-import type { AnalystRegistry, SuperviseProfileEntry } from '../../mcp/tools/coordination'
+import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
+import type { SuperviseProfileEntry } from '../../mcp/tools/coordination-contracts'
 import { harnessRunsAgent } from '../harness-role'
 import type { SharedBoxPlacement } from '../shared-box'
 import type { ToolLoopChat } from '../tool-loop'

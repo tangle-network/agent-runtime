@@ -11,11 +11,8 @@
 import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
-import type {
-  MakeWorkerAgent,
-  WorkerResumeContext,
-  WorkerSpawnContext,
-} from '../../mcp/tools/coordination'
+import type { MakeWorkerAgent, WorkerSpawnContext } from '../../mcp/tools/coordination-contracts'
+import type { WorkerResumeContext } from '../../mcp/tools/coordination-messages'
 import type { ToolSpec } from '../router-request-body'
 import { type DeliverableSpec, gateOnDeliverable, mapExecutorResult } from './completion-gate'
 import { assertExecutableAgentProfile } from './model-policy'

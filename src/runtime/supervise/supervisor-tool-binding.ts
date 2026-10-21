@@ -1,6 +1,7 @@
 import { ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
-import { type CoordinationTools, coordinationVerbNames } from '../../mcp/tools/coordination'
+import type { CoordinationTools } from '../../mcp/tools/coordination-contracts'
+import { coordinationVerbNames } from '../../mcp/tools/coordination-events'
 import { detachedSnapshot } from './snapshot'
 import type {
   CoordinationVerbs,

@@ -24,7 +24,7 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import type { McpToolDescriptor } from '../../mcp/server'
-import { createCoordinationTools } from '../../mcp/tools/coordination'
+import { createCoordinationTools } from '../../mcp/tools/coordination-manager'
 import { sleep } from '../util'
 import { armDeadlineTimer } from './deadline'
 import { createCancelAcknowledger, createSteerAcknowledger } from './driver-control-acknowledgers'

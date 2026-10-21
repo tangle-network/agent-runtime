@@ -122,7 +122,7 @@ A profile with explicit credential intent keeps its dedicated provider.
 ## 4. How a worker is spawned (the mechanics)
 
 ```
-  driver calls  spawn_worker(profile, task, budget)        (mcp/tools/coordination.ts)
+  driver calls  spawn_worker(profile, task, budget)        (mcp/tools/coordination-worker-tools.ts)
         │
         ▼
   scope.spawn(spec, budget)                                (supervise/scope.ts:130)

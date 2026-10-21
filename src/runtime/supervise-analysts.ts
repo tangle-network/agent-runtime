@@ -21,7 +21,7 @@ import type {
   AnalystKind,
   AnalystRegistry,
   AuthoredAnalystDefinition,
-} from '../mcp/tools/coordination'
+} from '../mcp/tools/coordination-analysts'
 import { isTraceAnalysisStore } from './supervise/trace-evidence'
 import type { Spend } from './supervise/types'
 

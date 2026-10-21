@@ -92,7 +92,7 @@ Only a claim about process transfer requires a corresponding comparison in new d
 - `src/runtime/strategy.ts` and `src/runtime/strategy-author.ts`: executable strategies and their authoring contract.
 - `src/runtime/strategy-evolution.ts`: strategy search on Eval's search kernel, whose ledger holds every authored strategy, its lineage, and the claim.
 - `src/runtime/observe.ts` and `src/runtime/personify/corpus.ts`: trace-derived recommendations and persistent records.
-- `src/mcp/tools/coordination.ts`: agent-driven observation, delegation, and steering.
+- `src/mcp/tools/coordination-manager.ts`: agent-driven observation, delegation, and steering.
 - `src/candidate-execution/`: execution of exact candidate combinations.
 - `src/intelligence/improvement-cycle.ts`: measured proposals and adoption preparation.
 - [Learning audit](./research/learning-system-audit-2026-09-05.md): cross-package source references, regression evidence, and research comparison.

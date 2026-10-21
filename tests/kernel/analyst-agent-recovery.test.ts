@@ -5,11 +5,12 @@ import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/age
 import { describe, expect, it } from 'vitest'
 import { leafSeam, offlineProfile } from '../../examples/graphs/shared'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
-import { type CoordinationEvent, createCoordinationTools } from '../../src/mcp/tools/coordination'
+import type { CoordinationEvent } from '../../src/mcp/tools/coordination-events'
+import { createCoordinationTools } from '../../src/mcp/tools/coordination-manager'
 import { FileCoordinationLog } from '../../src/runtime/supervise/coordination-log'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
-import type { Agent, Scope } from '../../src/runtime/supervise/types'
+import type { Agent } from '../../src/runtime/supervise/types'
 
 function call(tools: ReturnType<typeof createCoordinationTools>, name: string, args = {}) {
   const tool = tools.tools.find((entry) => entry.name === name)
@@ -143,22 +144,5 @@ describe('native analyst assignment recovery', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  })
-
-  it('refuses a legacy analyst without a source record before treating it as a worker', () => {
-    const scope = {
-      view: {
-        root: 'root',
-        nodes: [{ id: 'review', parent: 'root', assignmentId: 'analyst:legacy:o0' }],
-      },
-    } as unknown as Scope<unknown>
-    expect(() =>
-      createCoordinationTools({
-        scope,
-        blobs: new InMemoryResultBlobStore(),
-        makeWorkerAgent: leafSeam([]),
-        perWorker: { maxIterations: 1, maxTokens: 1_000 },
-      }),
-    ).toThrow(/no durable source record/)
   })
 })

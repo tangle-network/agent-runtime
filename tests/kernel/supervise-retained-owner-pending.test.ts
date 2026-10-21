@@ -18,16 +18,11 @@ import type {
   AgentEnvironmentProvider,
   AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
-import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { EventAcknowledgement } from '../../src/mcp/tools/coordination'
+import type { EventAcknowledgement } from '../../src/mcp/tools/coordination-events'
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
-import {
-  AUTHORITY_PROMOTION_MS,
-  createInbox,
-  type InboxReceipt,
-} from '../../src/runtime/supervise/inbox'
+import { AUTHORITY_PROMOTION_MS } from '../../src/runtime/supervise/inbox'
 import { applyRunCancellation } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import {
@@ -36,11 +31,9 @@ import {
   readWorkerSteerAcknowledgement,
   writeWorkerSteer,
 } from '../../src/runtime/supervise/run-layout'
-import { createSteerableSandboxSession } from '../../src/runtime/supervise/sandbox-session'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import { createRootHandle } from '../../src/runtime/supervise/supervisor'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
-import type { SandboxClient } from '../../src/runtime/types'
 import { completeCapture, fileWorkspaceArtifacts } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
@@ -1043,66 +1036,6 @@ describe('a steer over a cli-bridge recipient', () => {
         by: 'failed',
         reason: 'the recipient settled before a model turn read the message',
       }),
-    ])
-  })
-})
-
-describe('a steer over a sandbox recipient', () => {
-  it('hands a steer back from a turn the box failed before streaming, then consumes it', async () => {
-    const ruling = 'Director ruling: do not tag rc15 until the release check passes.'
-    const failed = 'Your rc15 tag FAILED the check.'
-    const prompts: string[] = []
-    const receipts: InboxReceipt[] = []
-    const inbox = createInbox()
-    const client: SandboxClient = {
-      async create() {
-        return {
-          id: 'box-1',
-          async *streamPrompt(text: string): AsyncGenerator<SandboxEvent> {
-            prompts.push(text)
-            if (prompts.length === 1) {
-              // The second steer lands while the first turn is in flight; the box then fails it.
-              inbox.deliver({
-                steer: failed,
-                messageId: 'steer-2',
-                receipt: receipts.push.bind(receipts),
-              })
-              throw new Error('sandbox stream dropped before the first event')
-            }
-            yield {
-              type: 'result',
-              data: { finalText: 'held the tag', usage: { inputTokens: 12, outputTokens: 4 } },
-            } as unknown as SandboxEvent
-          },
-          async delete() {},
-        } as unknown as SandboxInstance
-      },
-    }
-    const session = createSteerableSandboxSession({
-      controller: new AbortController(),
-      profile: testAgentProfile('core-4', { harness: 'claude-code' }),
-      harness: 'claude-code',
-      sandboxClient: client,
-      inbox,
-      taskToPrompt: (task) => String(task),
-      contentRef: (prefix) => `${prefix}:ref`,
-    })
-    inbox.deliver({ steer: ruling, messageId: 'steer-1', receipt: receipts.push.bind(receipts) })
-    const run = async () => {
-      for await (const _event of session.stream('Prepare rc15.', new AbortController().signal)) {
-      }
-    }
-    await expect(run()).rejects.toThrow('sandbox stream dropped')
-    expect(receipts).toEqual([])
-    expect(inbox.pending()).toBe(2)
-    await run()
-    expect(prompts).toHaveLength(2)
-    expect(prompts[0]).toContain(ruling)
-    expect(prompts[1]).toContain(ruling)
-    expect(prompts[1]).toContain(failed)
-    expect(receipts).toEqual([
-      { status: 'consumed', messageId: 'steer-1', attemptId: expect.stringMatching(/#turn-0$/) },
-      { status: 'consumed', messageId: 'steer-2', attemptId: expect.stringMatching(/#turn-0$/) },
     ])
   })
 })

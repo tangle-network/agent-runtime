@@ -1,4 +1,4 @@
-import type { CoordinationTools } from '../../mcp/tools/coordination'
+import type { CoordinationTools } from '../../mcp/tools/coordination-contracts'
 import {
   createCancelAcknowledger,
   createSteerAcknowledger,
