@@ -43,4 +43,4 @@ Harnesses wired via cli-bridge: **claude-code** (2.1.177), **codex** (0.139.0), 
   spawn), and whether tool activity surfaces as structured parts or only via the kernel.
 
 ## Files
-`~/code/cli-bridge/src/backends/{claude,codex,opencode}.ts` (invocation), `.../profile-support.ts` (MCP materializers), `.../modes.ts` (byob/hosted-safe gating); `~/code/agent-dev-container` sidecar registry (12 bindings).
+cli-bridge `src/backends/{claude,codex,opencode}.ts` (invocation), its `profile-support` module (MCP materializers) and its `modes` module (byob/hosted-safe gating); `~/code/agent-dev-container` sidecar registry (12 bindings).

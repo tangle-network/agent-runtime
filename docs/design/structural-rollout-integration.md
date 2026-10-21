@@ -1,6 +1,6 @@
 # Structural rollout policy — integration design
 
-Status: design accepted 2026-07-09; measured basis in `supervisor-lab/docs/results/structural-lever-humaneval.md`.
+Status: design accepted 2026-07-09; measured basis in the supervisor-lab structural-lever HumanEval result note.
 
 ## Measured basis
 
@@ -21,9 +21,9 @@ Historical standalone rigs: [HumanEval](https://github.com/tangle-network/agent-
 ## The finding that shapes the design
 
 The runtime already owns five of the six pieces:
-1. best-of-k + repair strategy family — `src/runtime/strategy.ts` `sample`/`refine`/`sampleThenRefine` (:755/:760/:1003), authored via `defineStrategy` (:834)
+1. best-of-k + repair strategy family — `sample`/`refine` in `src/runtime/strategy.ts`; `sampleThenRefine` and the authoring interface `defineStrategy` in `src/runtime/strategy-author.ts`
 2. jailed check execution — `createVerifierEnvironment` (`src/runtime/verifier-environment.ts:68`), agent-eval `testJudge`/`runJudgeFleet`, `@tangle-network/sandbox` — replaces the retired bench rigs' bespoke `docker run` jails
-3. selection + audit — `defaultSelectWinner` + `SelectionReceipt` (`src/runtime/round-selection.ts`, `types.ts:160`)
+3. selection + audit — `defaultSelectWinner` in `src/runtime/iteration-result.ts` and `SelectionReceipt` in `src/runtime/types.ts`
 4. visible/hidden firewall as typed field routing — agent-eval `FieldDestination`: `develop-against` (the visible-check source) vs `grading-only`, with `assertNoHiddenLeak` + `gradeOnHidden`
 5. config/knob plumbing — `budget` on runBenchmark/runAgentic/superviseSurface; `directives.ts` for slot prefixes
 

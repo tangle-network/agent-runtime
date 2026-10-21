@@ -33,7 +33,7 @@ import type { DefaultVerdict, Executor, ExecutorResult, UsageEvent } from './typ
  * was supposed to produce. The check reads the child's output — never the model judging itself.
  *
  * The same check decides a manager's `submit_result`, runs when a manager's turn ends without an
- * accepted result, and supplies the verdict the continuation note reports (`./continuation.ts`).
+ * accepted result, and supplies the verdict the continuation note reports (`src/runtime/supervise/continuation.ts`).
  */
 export interface DeliverableSpec<Out = unknown> {
   /** The deployable check that decides DELIVERED. Return a `CheckVerdict` to report the items it

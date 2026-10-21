@@ -1,3 +1,3 @@
 # The adaptive-computation experiment program (E-series)
 
-Moved to [tangle-network/agent-lab](https://github.com/tangle-network/agent-lab) (private): `docs/adaptive-computation-program.md`, with the experiment runners (`projects/`) and the run archive (`runs/RUNS.md`).
+Moved to [tangle-network/agent-lab](https://github.com/tangle-network/agent-lab) (private): its adaptive-computation-program doc, with the experiment runners and the run archive.

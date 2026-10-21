@@ -16021,7 +16021,7 @@ decides DELIVERED (settles `valid` ⟺ it passes) plus an optional `describe` of
 was supposed to produce. The check reads the child's output — never the model judging itself.
 
 The same check decides a manager's `submit_result`, runs when a manager's turn ends without an
-accepted result, and supplies the verdict the continuation note reports (`./continuation.ts`).
+accepted result, and supplies the verdict the continuation note reports (`src/runtime/supervise/continuation.ts`).
 
 #### Type Parameters
 
@@ -16450,7 +16450,7 @@ The expanded questions, one per atomic question.
 > `readonly` **traces**: `TraceAnalysisStore`
 
 The run's own traces, one per agent and named by its node id: the manager's root stream, when
-it is the root, and each settled worker's tool trace (`./run-traces.ts`). The panel runs only
+it is the root, and each settled worker's tool trace (`src/runtime/supervise/run-traces.ts`). The panel runs only
 when the run has recorded a span.
 
 ##### workers
@@ -19458,7 +19458,7 @@ A continuation is the retry path, not a second loop: same scope, same coordinati
 same live children, and the same budget, deadline, and abort bounds. There is no count: the
 loop ends when the check passes, at this deadline, on the budget, after `maxBarren` turns in
 a row without progress, or on cancellation. A turn that ends, a blocked tool, and a lost
-stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`src/runtime/supervise/continuation.ts`); the
 profile owns its words, and `append` may add a section but never replace one.
 
 Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
@@ -24888,7 +24888,7 @@ A continuation is the retry path, not a second loop: same scope, same coordinati
 same live children, and the same budget, deadline, and abort bounds. There is no count: the
 loop ends when the check passes, at this deadline, on the budget, after `maxBarren` turns in
 a row without progress, or on cancellation. A turn that ends, a blocked tool, and a lost
-stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`src/runtime/supervise/continuation.ts`); the
 profile owns its words, and `append` may add a section but never replace one.
 
 Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
@@ -26284,7 +26284,7 @@ Called once when the external driver loop ends, returned or thrown, with what it
 > `readonly` `optional` **continuation?**: [`ContinuationPolicy`](#continuationpolicy)
 
 How an EXTERNAL manager with `deliverable` is sent back when its turn ends with the check
- unmet: the deadline, `maxBarren`, and the note's profile and switches (`./continuation.ts`).
+ unmet: the deadline, `maxBarren`, and the note's profile and switches (`src/runtime/supervise/continuation.ts`).
  Required with `deliverable` on the external arm, refused without one, and refused for a
  router-brained supervisor, which runs its own turn loop in process. The harness owns its own
  turn loop, so it can end while the run has delivered nothing — 376 of 376 winning
@@ -39545,7 +39545,7 @@ Normalize the two spellings of an analyst-on-settle entry to the route form.
 
 The best-so-far fold — the ONE definition of "how good was the run after k results", shared by
 the post-run anytime report below and by the LIVE progress-based stop rules
-(`supervise/stop-rules.ts`). Given the observed objective per settled result in order, it returns
+(`src/runtime/supervise/stop-rules.ts`). Given the observed objective per settled result in order, it returns
 the running maximum. A result with no objective (`undefined` — it failed, or it was never
 scored) carries the previous best forward rather than resetting it.
 

@@ -283,7 +283,7 @@ export interface SuperviseOptions {
    * same live children, and the same budget, deadline, and abort bounds. There is no count: the
    * loop ends when the check passes, at this deadline, on the budget, after `maxBarren` turns in
    * a row without progress, or on cancellation. A turn that ends, a blocked tool, and a lost
-   * stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+   * stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`src/runtime/supervise/continuation.ts`); the
    * profile owns its words, and `append` may add a section but never replace one.
    *
    * Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to

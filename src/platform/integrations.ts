@@ -6,8 +6,8 @@
  * Auth: the caller supplies a bearer (either the user's API key from
  * cross-site exchange, or a platform service token) on construction.
  *
- * Endpoint contract (authoritative): the platform's `src/lib/hub-contract.ts`
- * + `src/routes/hub.ts`. The platform wraps every response in
+ * Endpoint contract (authoritative): the platform API's hub contract
+ * and hub route (both in agent-container's platform API). The platform wraps every response in
  * `{ success, data }`; non-2xx or `success:false` surfaces as `PlatformHubError`
  * carrying the real upstream status.
  */

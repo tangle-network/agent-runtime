@@ -1,3 +1,5 @@
+> History, 2026-10-21: describes a design or plan that no longer matches the code. Do not use it as current guidance; see [canonical-api.md](../canonical-api.md) and [architecture.md](../architecture.md).
+
 > **Track:** Architecture (research) | **Role:** failure record | **Status:** active guardrail
 
 # Failure 20260608-041142: Loop Facade Ahead Of The Substrate

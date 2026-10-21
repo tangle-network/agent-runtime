@@ -40,10 +40,10 @@ Most of the machinery a "host Prime properly" plan calls for is built. Reuse it.
 | Execution-identity receipts (what exactly ran) | `materialized` journal event (authored/effective profile + platform-attachment digests), `RunProvenance.mounts`, `SelectionReceipt`, usage integrity guard | `src/runtime/supervise/`, `src/runtime/types.ts` |
 | Frozen candidate identity + workspace bytes | `buildAgentCandidateBundle` / `captureAgentCandidateWorkspace` | `src/candidate-execution/` |
 | Improvement governance (train/selection/final-test partitions, review, activation, rollback receipts) | `improve()` + `proposeAgentImprovement` → `reviewAgentImprovementProposal` → activation | `src/improvement/`, `src/intelligence/` |
-| Equal-compute topology comparison + holdout gates | conserved budget pool (`src/runtime/supervise/budget.ts`), `promotionGate`, `pairedLift`, `heldOutGate` | `src/runtime/promotion-gate.ts`, `bench/src/stats.mts`, `@tangle-network/agent-eval` contract |
+| Equal-compute topology comparison + holdout gates | conserved budget pool (`src/runtime/supervise/budget.ts`), `promotionGate`, `pairedLift`, `heldOutGate` | `src/improvement/code-execution.ts`, `bench/src/stats.mts`, `@tangle-network/agent-eval` contract |
 | Harness × model × task matrix | `defineLeaderboard` / `runProfileMatrix` (harness×model axes) | `src/runtime/define-leaderboard.ts`, `@tangle-network/agent-eval` campaign |
 | Harness-agnostic trace normalization | `TraceSource` + the per-harness `toolPartDecoders` registry (add a harness = one validated decoder entry) | `src/runtime/supervise/trace-source.ts` |
-| Uncertain-effect posture after restart | uncertain reservations charged at full declared budget with telemetry explicitly unknown; instruction receipts retained as evidence, never auto-redelivered | `src/runtime/supervise/budget.ts`, `supervise/coordination-mcp.ts` |
+| Uncertain-effect posture after restart | uncertain reservations charged at full declared budget with telemetry explicitly unknown; instruction receipts retained as evidence, never auto-redelivered | `src/runtime/supervise/budget.ts`, `src/runtime/supervise/coordination-mcp.ts` |
 
 ## 3. What Runtime adopts
 
@@ -98,7 +98,7 @@ remain, each gated on evidence rather than releases:
 
 - **A `TopologyAuthority` type.** The fear it answers — Runtime spawns 5 Prime roots,
   each spawns 5 native children, unbounded — is structurally impossible here: a worker's
-  native subagents spend **inside its conserved-budget reservation** (`supervise/budget.ts`),
+  native subagents spend **inside its conserved-budget reservation** (`src/runtime/supervise/budget.ts`),
   so no arm can buy more compute regardless of what the harness does internally. The
   layering doctrine already assigns native orchestration to the harness (layer one) and
   cross-harness composition to Runtime. The three "modes" are expressible today as

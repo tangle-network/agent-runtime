@@ -9,7 +9,7 @@ evidence keeps coming back null-or-marginal, while the region the canon names as
 actual success criterion (the across-run flywheel, Gate B) has **n=0 measurements**.
 
 This doc holds the taxonomy and the canon-compatibility audit. One stress-test doc per
-layer lives beside it (the per-layer notes were retired into `.evolve/current.json`, 2026-06-15).
+layer lives beside it (the per-layer notes were retired into the untracked `.evolve` run record, 2026-06-15).
 
 ## Why axes, not layers
 
@@ -89,7 +89,7 @@ the product (across-run, multi-objective, product-scope) are empty.
 ## Canon-compatibility audit
 
 Checked against `architecture.md`, `learning-flywheel.md`, `eval-substrate.md`,
-`roadmap-rsi.md`, `architecture-interpretations.md`, `.evolve/current.json`.
+`roadmap-rsi.md`, `architecture-interpretations.md`, the untracked `.evolve` run record.
 
 **Compatible / direct alignment:**
 - Across-run = success (architecture §0.5.4: "That across-run curve is RSI, and it is THE
@@ -118,7 +118,7 @@ Checked against `architecture.md`, `learning-flywheel.md`, `eval-substrate.md`,
 - Every gate run to date is single-objective, while architecture §0.5.2–0.5.3 mandates a
   multi-objective vector with per-objective deployable checkers. This is the **largest
   internal inconsistency between practice and canon** — see the layer note.
-- `.evolve/current.json` predates the canonical-loop result and the GEPA verdict; needs a
+- the untracked `.evolve` run record predates the canonical-loop result and the GEPA verdict; needs a
   state refresh (tracked separately from this doc set).
 
 ## The portfolio (what to multi-pursue)

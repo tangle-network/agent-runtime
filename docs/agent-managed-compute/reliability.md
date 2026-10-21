@@ -16,7 +16,7 @@ The pursuit records a failure when storage permits, without creating its termina
 After restoring storage, resume the same run; Runtime does not start a replacement invocation or a local restart loop.
 If retained event observation fails, Runtime reads the exact terminal result before leaving the invocation unresolved.
 An admitted retained stream that ends without a terminal event gets a bounded exact-result read.
-Silence during event observation is bounded from the last event; the same exact-result read follows. `environment-provider.ts` owns both limits.
+Silence during event observation is bounded from the last event; the same exact-result read follows. `src/runtime/environment-provider/provider-execution-source.ts` owns retained event observation and exact-result reconciliation.
 The exact result is terminal authority for the admitted turn; a provider must not resolve it while that turn is still running.
 Runtime starts the exact-result read after the first validated event, or at the next scheduler turn if no event arrives.
 Each pending event read gets one scheduler turn before an exact result can close a quiet subscription; terminal frames do not discard ready trailing evidence.

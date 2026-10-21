@@ -8,7 +8,7 @@
  *   2. Exchange that code for an API key + the user's identity.
  *
  * The platform endpoint contract is documented in
- * `products/platform/api/src/routes/cross-site.ts`. This client only
+ * the cross-site route in agent-container's platform API. This client only
  * speaks HTTP — no SDK weight, no transitive deps.
  */
 

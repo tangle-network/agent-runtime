@@ -151,7 +151,7 @@ This table is judgment-only: it maps an intent to the ONE primitive to reach for
 
 ### "A loop" is not one thing: read this before reaching for one
 
-A general "loop" primitive is the single most common modelling error in this repo; it has produced a `defineLoop` facade **twice** (see [`research/loop-facade-postmortem.md`](./research/loop-facade-postmortem.md)). "Iterate agents toward a goal" splits on **one question: is the structure FIXED (you write the shape, it's code) or DYNAMIC (a model decides the shape at runtime)?** How many agents (1 vs N) is *orthogonal*: every shape below is 1..N agents, so "two agents (proposer→verifier)" is not special, it's a 2-stage chain.
+A general "loop" primitive is the single most common modelling error in this repo; it has produced a `defineLoop` facade **twice** (see [`archive/loop-facade-postmortem.md`](./archive/loop-facade-postmortem.md)). "Iterate agents toward a goal" splits on **one question: is the structure FIXED (you write the shape, it's code) or DYNAMIC (a model decides the shape at runtime)?** How many agents (1 vs N) is *orthogonal*: every shape below is 1..N agents, so "two agents (proposer→verifier)" is not special, it's a 2-stage chain.
 
 **FIXED shape → a combinator you compose:**
 
@@ -551,7 +551,7 @@ Rule of thumb: `delegate` = "I don't care how"; `supervise` = "I authored the dr
 
 | Pattern | Use | Bottoms out at |
 |---|---|---|
-| **researcher → engineer** (gather, then build) | `defineStrategy(name, body)`: both agents in one body via `ctx.shot()` + `ctx.critique()` | `src/runtime/strategy.ts:789` |
+| **researcher → engineer** (gather, then build) | `defineStrategy(name, body)`: both agents in one body via `ctx.shot()` + `ctx.critique()` | `src/runtime/strategy-author.ts` |
 | **implement → verify** (build, then a SEPARATE checker gates it: selector ≠ judge) | `verify(spec)` as the `shape` | `src/runtime/personify/combinators.ts:333` |
 | **N-judge panel** (fan judges out, merge verdicts) | `panel(spec)` as the `shape` | `src/runtime/personify/combinators.ts:273` |
 

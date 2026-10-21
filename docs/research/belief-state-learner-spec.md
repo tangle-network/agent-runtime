@@ -34,7 +34,7 @@ The −8.2pp gate result is read from the **rollout-cell** store; the flywheel r
 | memory-views 𝓜 (4 views + promote/decay/revoke) | **unify → 2** | transient = `Scope` nursery (live children, `scope.next()` cursor); persistent = claim corpus (gated `renderCorpusToInstructions`, `corpus.ts:130`). Procedural memory stays *fixed* until the gate is green. |
 | action taxonomy (epistemic/computational/effectful) | **unify → 1** | every spawn is one `Agent.act` through the keystone; gating lives in the driver's `until` + `WidenGate`, not type variants. Effectfulness is a `Persona`/profile concern. |
 | factorized posterior over typed latent vars | **defer** | needs the decomposition known in advance; the binding question is whether *any* signal beats blind, not whether it is decomposed. |
-| `Persona` as a new type | **already deleted** | `Persona = AgentProfile` (`personify/persona.ts`). |
+| `Persona` as a new type | **already deleted** | `Persona = AgentProfile` (`src/runtime/personify/persona.ts`). |
 | four-scalar ledger shipped NOW (data-lens proposal) | **[FIX-3] DISOWNED** | three of the four scalars have **no producer** (the doc admits there is no calibrated `trace→confidence` map); shipping them as required fields is a fake-fallback / fail-loud violation. This is a **G-STEAL-7** schema, gated — not build-now. |
 | in-memory journal | **[FIX-6] KEEP** | `InMemorySpawnJournal` (`spawn-journal.ts:139`) is the *default* `SupervisorOpts.journal` (`types.ts:374`) — the ephemeral impl behind the same interface, not a competing source of truth. Deleting it breaks every non-durable test. The real point: only the *durable* journal is load-bearing **for replay**. |
 

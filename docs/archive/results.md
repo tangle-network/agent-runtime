@@ -10,7 +10,7 @@ charts hold to.
 
 ## Verifier-grounded selection recovers the oracle ceiling (HumanEval)
 
-![HumanEval gate](assets/gate-humaneval.png)
+![HumanEval gate](../assets/gate-humaneval.png)
 
 Generate k=4 completions, then **re-run each one against the task's own unit tests** (gold never
 shown) and keep the highest-passing. On HumanEval (gpt-3.5-turbo, n=50) this **captures the full
@@ -23,7 +23,7 @@ non-blind selection win.
 
 ## The signal survives real stateful coding rollouts (commit0)
 
-![commit0 Layer-1 validation](assets/gate-commit0-validation.png)
+![commit0 Layer-1 validation](../assets/gate-commit0-validation.png)
 
 HumanEval is Layer-0 (stateless completions). **commit0** is the Layer-1 test: the agent clones a
 stubbed Python library, implements it, runs the test suite, iterates, and emits a diff — graded by

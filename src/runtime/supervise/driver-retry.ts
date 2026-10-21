@@ -45,7 +45,7 @@
  * driver that RETURNED with the contract unmet ended the run silently — 376 of 376 winning lab runs
  * ended on this loop's own `stop: 'completed'`, with the completion gate left to label the result
  * rather than to change it. A completed drive whose contract is unmet is now a first-class moment:
- * the manager's `continuation` policy (`./continuation.ts`) re-enters the driver with Runtime's
+ * the manager's `continuation` policy (`src/runtime/supervise/continuation.ts`) re-enters the driver with Runtime's
  * continuation note, and every re-entry crosses the same budget, deadline, and abort bounds.
  * Successful continuations do not consume the failure retry allowance.
  *
