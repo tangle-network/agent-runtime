@@ -31,6 +31,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { runBenchRouterTurn } from '../router-turn'
+import { FINAL_ANSWER_SENTINEL, parseCitations, parseFinalAnswer } from './rag-shared'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 const execFileAsync = promisify(execFile)
@@ -243,7 +244,6 @@ async function loadFixtures(opts: LoadOptions): Promise<BenchTask[]> {
 async function loadLive(opts: LoadOptions): Promise<BenchTask[]> {
   const script = `
 import csv, ast, json, io, sys
-import { FINAL_ANSWER_SENTINEL, parseCitations, parseFinalAnswer } from './rag-shared'
 from urllib.request import urlopen
 with urlopen(${JSON.stringify(DATASET_URL)}, timeout=120) as resp:
     text = resp.read().decode('utf-8')

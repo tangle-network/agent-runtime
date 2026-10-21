@@ -23,6 +23,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { FINAL_ANSWER_SENTINEL, parseFinalAnswer } from './rag-shared'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 const execFileAsync = promisify(execFile)
@@ -221,7 +222,6 @@ print('ok')`,
       const limit = opts.limit ?? 10
       const script = `
 import json, sys
-import { FINAL_ANSWER_SENTINEL, parseFinalAnswer } from './rag-shared'
 from datasets import load_dataset
 ds = load_dataset(${JSON.stringify(DATASET)}, ${JSON.stringify(DATASET_CONFIG)}, split=${JSON.stringify(DATASET_SPLIT)})
 ids = set(json.loads(sys.argv[1])) if len(sys.argv) > 1 and sys.argv[1] else None
