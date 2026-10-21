@@ -7,7 +7,7 @@
 import { isRecord } from '../record-value'
 import { PlatformAuthError } from './auth.js'
 
-interface PlatformOidcClientOptions {
+export interface PlatformOidcClientOptions {
   baseUrl: string
   clientId: string
   /** Omit only for clients registered with token_endpoint_auth_method=none. */
@@ -20,7 +20,7 @@ interface PlatformOidcClientOptions {
   fetchImpl?: typeof fetch
 }
 
-interface OidcAuthorizeUrlOptions {
+export interface OidcAuthorizeUrlOptions {
   state: string
   codeChallenge: string
   /** Only supply a nonce when the consumer also validates the ID token. */
@@ -29,7 +29,7 @@ interface OidcAuthorizeUrlOptions {
   loginHint?: string
 }
 
-interface OidcTokens {
+export interface OidcTokens {
   accessToken: string
   tokenType: string
   expiresIn?: number
@@ -38,20 +38,20 @@ interface OidcTokens {
   scope?: string
 }
 
-interface OidcUser {
+export interface OidcUser {
   id: string
   email: string
   emailVerified: true
   name?: string
 }
 
-interface OidcExchangeResult {
+export interface OidcExchangeResult {
   tokens: OidcTokens
   user: OidcUser
 }
 
 /** Keep deviceCode secret. Only userCode and the verification URLs are displayed. */
-interface OidcDeviceAuthorization {
+export interface OidcDeviceAuthorization {
   deviceCode: string
   userCode: string
   verificationUri: string

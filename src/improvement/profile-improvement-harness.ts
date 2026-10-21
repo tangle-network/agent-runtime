@@ -17,9 +17,9 @@ import type {
 import type { ReadonlyAgentProfile } from './profile-types'
 import type { ImproveTrainingOptions, ImproveTrainingResult } from './training'
 
-type ProfileImprovementHarnessTrainOptions = Omit<ImproveTrainingOptions, 'mode'>
+export type ProfileImprovementHarnessTrainOptions = Omit<ImproveTrainingOptions, 'mode'>
 
-interface CreateProfileImprovementHarnessOptions<TScenario extends Scenario, TArtifact> {
+export interface CreateProfileImprovementHarnessOptions<TScenario extends Scenario, TArtifact> {
   /** Exact baseline profile. It is parsed, detached, and frozen at construction. */
   profile: ReadonlyAgentProfile
   /**
@@ -33,7 +33,7 @@ interface CreateProfileImprovementHarnessOptions<TScenario extends Scenario, TAr
   validateCandidate?: ImproveCandidateValidator
 }
 
-type ProfileImprovementHarnessRunOptions<TScenario extends Scenario, TArtifact> = Omit<
+export type ProfileImprovementHarnessRunOptions<TScenario extends Scenario, TArtifact> = Omit<
   ImproveMethodOptions<TScenario, TArtifact>,
   'executionRef' | 'agent' | 'validateCandidate'
 > & {

@@ -42,32 +42,88 @@ export type {
 } from '@tangle-network/agent-interface/environment-provider'
 export type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 export { assertProfileMaterializes } from '../agent/profile-materialization'
+export type { AgentCandidateWorkspaceArchiveLimits } from '../candidate-execution/workspace-archive'
 export { contentAddress } from '../durable/content-address'
 export { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/in-memory-spawn-stores'
 export { FileSpawnJournal } from '../durable/spawn-journal/journal-store'
 export { replaySpawnTree } from '../durable/spawn-journal/replay'
 export { FileResultBlobStore } from '../durable/spawn-journal/result-blob-store'
-export { loadSpawnForest } from '../durable/spawn-journal/spawn-forest'
+export {
+  loadSpawnForest,
+  type SpawnForest,
+  type SpawnForestEvent,
+  type SpawnForestInDoubtNode,
+  type SpawnForestMissingTree,
+  type SpawnForestNode,
+  type SpawnForestTree,
+} from '../durable/spawn-journal/spawn-forest'
 export { materializeTreeView } from '../durable/spawn-journal/tree-view'
+export type { SqlAdapter } from '../durable/sql-adapter'
 export { openSqlRunStore } from '../durable/sql-run-store'
+export type { CodexExecutionEvidence } from '../mcp/codex-execution-evidence'
+export type { CodexExecutionPolicy } from '../mcp/codex-execution-policy'
+export type { CodexTokenUsage } from '../mcp/codex-token-usage'
+export type { LocalHarnessResult } from '../mcp/local-harness-process'
 // The typed coordination-bus event (up: settled/question/finding; authorized instruction receipt;
 // down: steer/answer delivery outcome) — surfaced here so a host folding the bus onto its own timeline can
 // type its `onEvent` subscriber without reaching into the `/mcp` subpath. `MakeWorkerAgent` rides
 // alongside it: the worker-seam type `supervise`/`workerFromBackend` traffic in, so a host authoring
 // its own seam types it from the loop layer rather than the `/mcp` subpath.
-export type { AnalystRegistry } from '../mcp/tools/coordination-analysts'
 export type {
+  AnalystAssignmentRecord,
+  AnalystFindingEvent,
+  AnalystKind,
+  AnalystLensOutput,
+  AnalystRegistry,
+  AnalystRunContext,
+  AuthoredAnalystDefinition,
+  AuthoredAnalystLimits,
+  DefinedAnalystRecord,
+} from '../mcp/tools/coordination-analysts'
+export type {
+  BlockedToolReport,
   MakeWorkerAgent,
+  SettledWorker,
   SuperviseProfileEntry,
   WorkerSpawnContext,
 } from '../mcp/tools/coordination-contracts'
-export type { CoordinationEvent } from '../mcp/tools/coordination-events'
+export type {
+  CoordinationEvent,
+  EventAcknowledgement,
+  LeadMessage,
+  ManagerReentryState,
+  ToolOutcomeEvent,
+} from '../mcp/tools/coordination-events'
+export type {
+  MapItemFailurePolicy,
+  MapSpawnMarker,
+  MapTraversalEvent,
+} from '../mcp/tools/coordination-map-contracts'
+export type {
+  ContinuationInstruction,
+  DownMessageDeliveryAttempt,
+  DownMessageDeliveryOutcome,
+  DownMessageEvent,
+  WorkerResumeContext,
+} from '../mcp/tools/coordination-messages'
+export type {
+  QuestionDecision,
+  QuestionEscalationRecord,
+  QuestionEscalationTarget,
+  QuestionPolicy,
+  QuestionRecord,
+  questionEscalationTargets,
+} from '../mcp/tools/coordination-questions'
+export type { JsonScalar, RouteGate, RouteMatch } from '../mcp/tools/coordination-route-contracts'
+export type { GitRunner } from '../mcp/worktree'
+export type { WorktreeCheckRunner, WorktreeHarnessResult } from '../mcp/worktree-harness'
 // Re-exported on the KERNEL entry, not only the package root: a `supervise` caller imports
 // `@tangle-network/agent-runtime/kernel`, so an exporter reachable only from the root is an
 // exporter that caller cannot pass to `SupervisorOpts.otel` — the recorder above would have had
 // nowhere to write without standing up an OTLP collector first.
 export { createOtelExporter } from '../otel-export'
-export { runAgentRounds } from './agent-rounds'
+export type { BackendErrorDetail } from '../types'
+export { type RunAgentRoundsOptions, runAgentRounds } from './agent-rounds'
 // The best-so-far / AUC / plateau math, extracted so the LIVE progress-based stop rules
 // (`supervise/stop-rules`) decide from the SAME numbers the post-run report grades them by.
 export * from './anytime'
@@ -75,7 +131,16 @@ export * from './anytime'
 // profile×axis score matrix, and embeddable SVG/HTML charts (the hosted-leaderboard surface). Reads only
 // the universal `RunRecord` currency, so it reports ANY benchmark in ANY domain.
 export * from './benchmark-report'
-export { createCodeModeTools, runCodeMode } from './code-mode'
+export {
+  type CodeModeStore,
+  type CodeModeTool,
+  type CodeModeToolContext,
+  type CodeModeToolset,
+  type CodeModeToolsOptions,
+  createCodeModeTools,
+  type RunCodeModeOptions,
+  runCodeMode,
+} from './code-mode'
 // codex's own rollout store, read as a spend receipt. The reader is public because a harness store
 // is evidence a caller may need OUTSIDE a live run — reconciling a finished run, or auditing a seat
 // whose transport forwarded no usage at all.
@@ -90,8 +155,14 @@ export * from './declared-check'
 export {
   type DefinedLeaderboard,
   defineLeaderboard,
+  type LeaderboardBenchmarkAdapter,
+  type LeaderboardBenchScore,
+  type LeaderboardBenchTask,
+  type LeaderboardFlagSpec,
+  type LeaderboardIterationInfo,
   type LeaderboardRunContext,
   type LeaderboardScenario,
+  type LeaderboardScore,
   type LeaderboardSpec,
 } from './define-leaderboard'
 export {
@@ -105,7 +176,10 @@ export {
   createAgentEnvironmentProviderRegistry,
   resolveAgentEnvironmentProvider,
 } from './environment-provider/provider-registry'
-export { providerAsSandboxClient } from './environment-provider/provider-sandbox-adapter'
+export {
+  type ProviderAsSandboxClientOptions,
+  providerAsSandboxClient,
+} from './environment-provider/provider-sandbox-adapter'
 // Two substrates for the same "recursive agent decision" atom, both exported here (per
 // docs/architecture.md): canonical = the reactive `Scope`/`Supervisor` + the personify
 // combinators (budget-conserving, equal-k by construction — prefer for new recursive work);
@@ -123,8 +197,15 @@ export { providerAsSandboxClient } from './environment-provider/provider-sandbox
 // tree is only a log.
 export {
   captureHarnessTranscript,
+  type HarnessTranscriptArtifact,
+  type HarnessTranscriptCapture,
+  type HarnessTranscriptEvidence,
+  type HarnessTranscriptFile,
+  type HarnessTranscriptUnavailable,
+  type HarnessTranscriptUnavailableReason,
   harnessTranscriptArtifact,
   persistHarnessTranscript,
+  type ReadableEnvironment,
   resolveHarnessTranscriptCapture,
   retainHarnessTranscript,
 } from './harness-transcript'
@@ -132,8 +213,9 @@ export {
 // their own event, read alongside the canonical usage events by `createSandboxUsageLedger`. Only
 // the composite is public, as with `decodeToolPart` — the registry and its entries stay internal
 // so a harness is added in one place.
-export { decodeHarnessUsage } from './harness-usage'
+export { decodeHarnessUsage, type HarnessUsage } from './harness-usage'
 export * from './harvest-corpus'
+export type { HttpMcpServerSpec } from './http-mcp-client'
 // The in-process pseudo-box: a user `onPrompt` callback → a SandboxClient for
 // runAgentRounds / openSandboxRun (the typed offline seam, no SandboxInstance cast).
 export * from './in-process-sandbox-client'
@@ -147,7 +229,17 @@ export { defaultSelectWinner, TERMINAL_DECISIONS, type TerminalDecision } from '
 // API-key provisioning for adopted external MCP servers: secrets ride the
 // profile by NAME only; a KeyProvider resolves values at materialize time.
 export * from './key-provider'
-export { loopCampaignDispatch, loopDispatch, superviseDispatch } from './loop-dispatch'
+export type { LocalSandboxClientOptions } from './local-sandbox-client'
+export {
+  type LoopCampaignDispatchOptions,
+  type LoopDispatchOptions,
+  type LoopOptionsForDispatch,
+  loopCampaignDispatch,
+  loopDispatch,
+  type SuperviseDispatchOptions,
+  type SuperviseOptionsForDispatch,
+  superviseDispatch,
+} from './loop-dispatch'
 export * from './mcp-environment'
 export { observationFromRegistry } from './observation-registry'
 // The third-person observer: a worker's trace → trace-grounded findings, an
@@ -159,37 +251,69 @@ export * from './observe'
 // equal-k-on-cost ledger. The wave's type contracts live in `./personify/wave-types`.
 export * from './personify/analyst'
 export * from './personify/combinators'
-export {
-  FileCorpus,
-  InMemoryCorpus,
-  renderCorpusToInstructions,
-} from './personify/corpus'
+export { FileCorpus, InMemoryCorpus, renderCorpusToInstructions } from './personify/corpus'
 export { definePersona, runPersonified } from './personify/persona'
 export { equalKOnCost, trajectoryReport } from './personify/trajectory'
 export type * from './personify/types'
 export type {
+  AssertTraceDerivedFindings,
   CombinatorShape,
   Corpus,
+  CorpusFilter,
   CorpusRecord,
   EqualKArm,
+  EqualKOnCostOptions,
   EqualKVerdict,
+  FanoutOptions,
+  FanoutSynthesis,
+  FanoutWinnerSelector,
+  LoopUntilSpec,
+  LoopUntilState,
   Panel,
   PanelJudge,
+  PanelSpec,
+  PanelVerdict,
+  PipelineStage,
+  RenderCorpusToInstructionsOptions,
+  ScopeAnalyst,
+  ScopeAnalyzeInput,
+  ScopeWidenGate,
+  SteerContext,
   TrajectoryNode,
   TrajectoryReport,
+  TrajectoryReportOptions,
   Verify,
+  VerifySpec,
   Widen,
+  WidenDecision,
+  WidenLineage,
+  WidenSpec,
   WinnerStrategy,
 } from './personify/wave-types'
 export * from './private-cas'
 // Agent-eval integrations (judges, optimizers) use this exact-profile adapter instead of opening
 // a second provider path. It lowers one AgentProfile through createExecutor + streamAgentTurn.
 export { profileChatClient, profileOptimizerModelCall } from './profile-chat-client'
+export type { ProviderPlacement } from './provider-placement'
 export type {
+  ProviderCheckpointCaptureContext,
+  ProviderNativeCapturePhase,
+  ProviderWorkspaceAttemptProvenance,
+  ProviderWorkspaceCaptureProvenance,
+  ProviderWorkspaceCaptureReceipt,
+  ProviderWorkspaceCaptureResult,
+  ProviderWorkspaceEntryMetadata,
   ProviderWorkspaceRetentionContext,
   ProviderWorkspaceRetentionPort,
 } from './provider-workspace-retention'
 export * from './resolve-sandbox-client'
+export type {
+  HarnessTranscriptMetadata,
+  HarnessTranscriptReadLimits,
+  HarnessTranscriptReadOptions,
+  RetainedHarnessTranscriptCapture,
+  RetainedHarnessTranscriptDescriptor,
+} from './retained-harness-transcript'
 export * from './retained-interactive'
 export * from './retained-interactive-control'
 export type * from './retained-interactive-types'
@@ -203,31 +327,56 @@ export type * from './retained-run-types'
 // Router requests are an internal transport adapter. Public execution always enters through an
 // exact AgentProfile (`createExecutor` + `streamAgentTurn`); callers may configure only the
 // endpoint/auth transport used by that path.
-export type { RouterTransportConfig } from './router-http-transport'
-export type { ToolSpec } from './router-request-body'
+export type { RouterResponseReceipt, RouterTransportConfig } from './router-http-transport'
+export type { RouterRouting, ToolSpec } from './router-request-body'
 export {
   type BenchmarkCell,
+  type BenchmarkConfig,
+  type BenchmarkLift,
   type BenchmarkReport,
+  type BenchmarkStrategySummary,
+  type BenchmarkTaskRow,
   type Environment,
   printBenchmarkReport,
   runBenchmark,
 } from './run-benchmark'
 // The product-facing backend selector: one call picks sandbox/bridge/router transport.
 export * from './s3-private-cas-store'
-export { acquireSandbox } from './sandbox-acquire'
-export { extractLlmCallEvent, type SandboxUsageLedger, sumSandboxUsage } from './sandbox-events'
+export { type AcquireOptions, acquireSandbox } from './sandbox-acquire'
+export {
+  extractLlmCallEvent,
+  type SandboxServedBackend,
+  type SandboxUsageLedger,
+  sumSandboxUsage,
+} from './sandbox-events'
+export type {
+  SandboxEvidenceContext,
+  SandboxEvidenceReceipt,
+  SandboxEvidenceRetentionPort,
+} from './sandbox-evidence-retention'
 export {
   createSandboxToolPartState,
   mapSandboxEvent,
   mapSandboxToolEvent,
+  type SandboxLeafOut,
+  type SandboxOutputMarker,
+  type SandboxToolPartState,
 } from './sandbox-executor-output'
-export { createSandboxLineage, type SandboxLineage } from './sandbox-lineage'
+export {
+  createSandboxLineage,
+  type SandboxLineage,
+  type SandboxLineageHandle,
+} from './sandbox-lineage'
 export * from './sandbox-run'
 // Many workers per Sandbox box, each as its own harness process with its own directory.
 export {
   DEFAULT_SHARED_BOX_RESOURCES,
   DEFAULT_SHARED_BOX_WORKERS,
+  type SharedBoxCloseReceipt,
+  type SharedBoxPlacement,
   type SharedBoxPlacementOptions,
+  type SharedBoxStats,
+  type SharedWorkerIdentity,
   sharedBoxPlacement,
 } from './shared-box'
 export { ROUTER_CLIENT_HEADER, sharedBoxRefusal, sharedWorkerClientName } from './shared-box-worker'
@@ -239,23 +388,35 @@ export * from './stdio-mcp-client'
 // `defineStrategy` (compose shot() + critique(), zero Supervisor ceremony); compare
 // with runBenchmark. The depth/breadth drivers are the reference implementations.
 export {
+  type AgenticOptions,
+  type AgenticRunResult,
   type AgenticSurface,
   type AgenticTask,
   type AgenticTool,
   type ArtifactHandle,
   breadthStrategy,
+  type CorpusReadbackOptions,
   depthStrategy,
+  type RunAgenticOptions,
   refine,
   runAgentic,
+  type StrategyMessage,
+  type StrategyShotResult,
   type SurfaceScore,
   sample,
 } from './strategy'
 export {
+  type AuthoredStrategy,
+  type AuthorStrategyOptions,
   adaptiveRefine,
   assertStrategyContract,
   authorStrategy,
   defineStrategy,
+  type ShotSpec,
   type Strategy,
+  type StrategyArtifacts,
+  type StrategyCtx,
+  type StrategyResult,
   sampleThenRefine,
   strategyAuthorContract,
   strategyAuthorSystemPrompt,
@@ -267,6 +428,7 @@ export {
   type AgentTurnUsage,
   type CollectedAgentTurn,
   collectAgentTurn,
+  type StreamAgentTurnOptions,
   streamAgentTurn,
 } from './stream-agent-turn'
 // The structural lever as a strategy-family member: k samples → select by task-visible checks
@@ -276,11 +438,20 @@ export * from './structural-rollout'
 // The supervisor's intelligence: it AUTHORS each worker's profile (instructions + model) from a
 // SKILL (its own system prompt) — the optimizable self-improvement surface, not the plumbing.
 export * from './supervise/authoring'
+export type { BridgeHarnessStore, BridgeSeam } from './supervise/bridge-config'
 export {
   type BudgetPool,
+  type BudgetPoolRestore,
   type BudgetReadout,
   createBudgetPool,
+  type LeakedReservation,
+  type ReservationFloor,
+  type ReservationHolder,
+  type ReservationRejection,
+  type ReservationShortfall,
+  type ReservationStage,
   type ReservationTicket,
+  type ReserveOptions,
 } from './supervise/budget'
 // The chat-transport leaf (#721): a worker that IS a model conversation on a bare
 // OpenAI-compatible /v1/chat/completions endpoint — no sandbox. Ships with its session store and
@@ -295,7 +466,18 @@ export type { CheckVerdict } from './supervise/completion-gate'
 // The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
 // settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
 export * from './supervise/completion-gate'
-export { admitContinuationPolicy, type ContinuationPolicy } from './supervise/continuation'
+export {
+  admitContinuationPolicy,
+  type ContinuationAppend,
+  type ContinuationEntry,
+  type ContinuationPanel,
+  type ContinuationPanelInput,
+  type ContinuationPanelResult,
+  type ContinuationPolicy,
+  type ContinuationProfile,
+  type PanelFinding,
+  type VerdictSummary,
+} from './supervise/continuation'
 export type * from './supervise/contracts/accounting'
 export type * from './supervise/contracts/agent-scope'
 export type * from './supervise/contracts/execution-events'
@@ -312,7 +494,7 @@ export type * from './supervise/contracts/supervisor-result'
 export { type CoordinationLog, FileCoordinationLog } from './supervise/coordination-log'
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
 // harness (claude-code / codex / opencode) BECOMES the supervisor by mounting one MCP server.
-export { serveCoordinationMcp } from './supervise/coordination-mcp'
+export { type CoordinationMcpHandle, serveCoordinationMcp } from './supervise/coordination-mcp'
 // The one generic delegation verb: hand it an INTENT, it routes to `supervise()` with a default
 // authoring supervisor (no hardcoded worker profile) and returns the `SupervisedResult` unchanged —
 // so `spentTotal` (what the delegation cost) rides straight back.
@@ -325,7 +507,18 @@ export * from './supervise/detector-monitor'
 // settles, instead of draining a whole round (`fanout`) or opening one worker per driver turn.
 // `freeSlots` is the reading the driver sees.
 export * from './supervise/dispatch'
-export type { DriverRetryPolicy } from './supervise/driver-retry'
+export type {
+  DriverAttemptRecord,
+  DriverAttemptStop,
+  DriverContinuationRecord,
+  DriverFailureClass,
+  DriverRepromptRefusal,
+} from './supervise/driver-attempt-evidence'
+export type {
+  DriverContractState,
+  DriverReentry,
+  DriverRetryPolicy,
+} from './supervise/driver-retry'
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
 export * from './supervise/event-bus'
@@ -337,13 +530,20 @@ export * from './supervise/event-bus'
 // `runTree` is deliberately absent: it merges a resumed run's committed nodes into the live view,
 // and the supervisor applies it before returning, so `SupervisedResult.tree` already carries the
 // merged tree. Exporting it added a `run*` name that read as a second graph runtime.
-export { bestDelivered } from './supervise/finalizer'
+export {
+  bestDelivered,
+  type DeliveredOutput,
+  type FinalizeContext,
+  type FinalizerSettled,
+  type SupervisorFinalizer,
+} from './supervise/finalizer'
 // Agent graphs: profiles as nodes, registry-backed prompt directives as typed edges, every
 // traversal ledgered. An interpretation layer over `supervise()` (the execution core), never a
 // second scheduler — driver↔worker is the 2-node cyclic instance.
 export {
   type AgentGraph,
   defaultEdgeTraversalCap,
+  type EdgeDeliveryOutcome,
   type EdgeTraversal,
   type GateDecision,
   type GateRequest,
@@ -356,6 +556,7 @@ export {
   type RouteWhen,
   type RunGraphOptions,
   runGraph,
+  type TraversalContinuity,
 } from './supervise/graph'
 // The designer's memory: graphs and their outcomes as files in a workspace, so a rerun over
 // the same sandbox replays a known-good graph (near-zero inference) or authors a better one.
@@ -367,7 +568,13 @@ export * from './supervise/in-place-cli-executor'
 // The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
 // leases it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt),
 // and answers each sender `consumed` or `failed`.
-export type { Inbox } from './supervise/inbox'
+export type {
+  AuthorityInboxMessage,
+  Inbox,
+  InboxLease,
+  InboxMessage,
+  PeerInboxMessage,
+} from './supervise/inbox'
 /** Provider-backed native interactive workers. Runtime owns admission and control identity; the
  * provider owns the environment and process. */
 export * from './supervise/interactive-worker'
@@ -388,11 +595,14 @@ export * from './supervise/profile-registry'
 // tokens so far, recent tool/file activity, unread steers. What `observe_agent` now returns
 // mid-flight, and the evidence a supervisor steers FROM.
 export {
+  type ActivityLog,
   type ActivityNote,
   createActivityLog,
   DEFAULT_STALL_AFTER_MS,
+  type ExecutorProgress,
   readWorkerProgress,
   type ScopeProgressInput,
+  type TeamProgress,
   type WorkerProgress,
 } from './supervise/progress'
 // The kernel prompt registry: versioned prompt text as data (`<surface>/v<n>`), the directive
@@ -406,9 +616,11 @@ export * from './supervise/provision-supervisor'
 // drive harness's statement of what the next drive continues.
 export * from './supervise/reentry'
 export * from './supervise/remote-supervisor'
+export type { EvidencePendingEvent } from './supervise/retained-executor'
 export {
   cancelRun,
   type RunCancellation,
+  type RunCancelRequest,
   readRunCancellation,
   readRunCancelRequest,
 } from './supervise/run-cancellation'
@@ -452,10 +664,12 @@ export {
   type RouterSeam,
   type SandboxSeam,
 } from './supervise/runtime'
+export type { CliSeam, CliWorktreeSeam, RouterToolsSeam } from './supervise/runtime-seams'
 // The STEERABLE sandbox worker: one box, one server-side session, many turns — so a steer has a
 // turn boundary to be folded into and the default cloud worker becomes correctable mid-flight.
 export * from './supervise/sandbox-session'
 export { createScope, settledToIteration } from './supervise/scope'
+export type { ScopeArgs } from './supervise/scope-contract'
 // One data value per multi-agent research configuration (seven axes, a canonical digest, five
 // presets) and the compiler that maps it onto exactly one `supervise` or `runGraph` call.
 export * from './supervise/search-spec'
@@ -468,9 +682,13 @@ export * from './supervise/sql-run-context'
 // out. Enforcement lives here; the thresholds are the caller's policy. Composes with (and can never
 // override) the conserved-pool / deadline / abort ceilings.
 export {
+  type AllWorkersStalledOptions,
   allWorkersStalled,
   anyOf,
+  type NoProgressForOptions,
   noProgressFor,
+  type PlateauOptions,
+  type ProgressView,
   plateau,
   type StopDecision,
   type StopRule,
@@ -500,7 +718,16 @@ export {
   type SupervisorToolInvocationContext,
   supervisorAgent,
 } from './supervise/supervisor-agent'
-export { parseWorkerToolTraceArtifact } from './supervise/trace-evidence'
+export type {
+  CoordinationToolFace,
+  ObserveSupervisorNodeEvent,
+  SupervisorAgentDeps,
+  SupervisorNodeContextSeed,
+} from './supervise/supervisor-agent-contracts'
+export {
+  parseWorkerToolTraceArtifact,
+  type WorkerToolTraceArtifact,
+} from './supervise/trace-evidence'
 // The Merkle root over the events a turn archived. Journal records carry its receipt beside the
 // `outRef` it commits to; the artifact under `traceRoot.ref` holds every leaf and salt.
 export {
@@ -511,15 +738,26 @@ export {
 } from './supervise/trace-root'
 // The substrate-agnostic trace source: a worker's tool calls as agent-eval `ToolSpan`s, from an
 // OWNED loop (push) OR a sandbox box session (message parts). The common currency for both analysts.
-export { createPushTraceSource, type TraceSource } from './supervise/trace-source'
+export {
+  createPushTraceSource,
+  type SessionMessageLike,
+  type ToolStepInput,
+  type TraceSource,
+} from './supervise/trace-source'
 // The SETTLE-time analyzer: collect a TraceSource's spans and run agent-eval's published batch
 // analyzers (buildTrajectory / stuckLoopView / toolWasteView) — the post-hoc half.
-export { analyzeTrace } from './supervise/trajectory-recorder'
+export { analyzeTrace, type TrajectoryAnalysis } from './supervise/trajectory-recorder'
 // Untracked-artifact fidelity for cloned worker workspaces: `git clone` carries history only, and
 // real workspaces hold compiled build outputs as untracked files a worker's verify gate needs.
 // Promoted from the loops repo (#4519).
 export * from './supervise/untracked-clone'
+export type { UnavailablePausePolicy } from './supervise/upstream-unavailable'
 export { spendFromUsageEvents } from './supervise/usage-metering'
+export type {
+  WorkerEventCursor,
+  WorkerEventEntry,
+  WorkerEventPage,
+} from './supervise/worker-events'
 // The bounded settle-evidence block a worker exposes so the brain's next decision is not authored
 // blind. Complementary to `CompletionEvidence` (a pointer), which this block is the target of.
 // Promoted from the loops repo (#4519).
@@ -527,6 +765,7 @@ export * from './supervise/worker-evidence'
 // Exact cross-process attachment to a provider-retained worker process. The durable binding is
 // Runtime-owned and keyed by the supervised worker id; callers never inspect provider state.
 export {
+  type AttachWorkerOptions,
   attachWorker,
   readWorkerInteractiveBinding,
   type WorkerInteractiveBinding,
@@ -539,6 +778,7 @@ export {
 // `withWorkerSpawnRetry` composes it onto a caller-owned worker seam.
 export * from './supervise/worker-retry'
 export { createWorkerSlots } from './supervise/worker-slots'
+export type { WorkerTraceResolver } from './supervise/worker-trace'
 // The worktree-CLI leaf executor: a supervisor-authored AgentProfile (systemPrompt + model)
 // driving a local harness CLI on its own git worktree, surfaced as the open `Executor` port.
 export * from './supervise/worktree-cli-executor'
@@ -548,7 +788,6 @@ export * from './supervise/worktree-cli-executor'
 export * from './supervise/worktree-fanout'
 export * from './supervise-analysts'
 export * from './surface-diff'
-
 export * from './task-queue'
 // Profile-owned supervisor configuration. The raw driver constructor lives only under `/testing`;
 // production model execution enters through `supervise(AgentProfile)` — except the graph's root,

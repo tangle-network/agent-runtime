@@ -25,8 +25,17 @@
 // here so that either public face resolves the same owner and no client invents a second wrapper.
 export { provisionSupervisor } from '../runtime/supervise/provision-supervisor'
 export {
+  type BudgetStats,
+  type Distribution,
   loadTopSnapshot,
+  type SpendStats,
+  type SupervisorTotals,
   type SupervisorView,
+  type TopJournalEvent,
   type TopSnapshot,
+  type TopSnapshotCompleteness,
+  type TopSnapshotDiagnostic,
+  type TopSnapshotDiagnosticReason,
+  type TopSnapshotDiagnosticSource,
   type WorkerView,
 } from './top-snapshot'

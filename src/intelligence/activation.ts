@@ -49,7 +49,7 @@ import {
 } from './improvement-surfaces'
 import { optimizationActivationReceiptFromMetadata } from './optimization-receipt'
 
-interface CreateAgentImprovementActivationResultOptions {
+export interface CreateAgentImprovementActivationResultOptions {
   completedAt: string
   outcome: AgentImprovementActivationOutcome
 }
@@ -140,13 +140,13 @@ export type AgentImprovementActivationReconciliation = (
   input: AgentImprovementActivationTransitionInput,
 ) => Promise<unknown | undefined>
 
-interface ExecuteAgentImprovementActivationInput {
+export interface ExecuteAgentImprovementActivationInput {
   proposal: AgentImprovementProposal
   review: AgentImprovementReview
   activation: AgentImprovementActivation
 }
 
-interface ExecuteAgentImprovementActivationOptions {
+export interface ExecuteAgentImprovementActivationOptions {
   transition: AgentImprovementActivationTransition
   reconcile?: AgentImprovementActivationReconciliation
   now?: () => Date
@@ -526,14 +526,14 @@ function targetIdentity(target: { surface: AgentImprovementSurface; identity: st
   return `${target.surface}\u0000${target.identity}`
 }
 
-interface CreateAgentImprovementProposalOptions {
+export interface CreateAgentImprovementProposalOptions {
   runId: string
   findings: readonly ProposalFinding[]
   evaluation: AgentImprovementEvaluation
   now?: () => Date
 }
 
-interface ReviewAgentImprovementInput {
+export interface ReviewAgentImprovementInput {
   decision: AgentImprovementReviewDecision
   reviewedBy: string
   reason: string

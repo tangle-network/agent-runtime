@@ -40,7 +40,7 @@ export type PersonaDriver =
   | { kind: 'profile'; profile: AgentProfile }
   | { kind: 'scripted'; turns: string[] }
 
-interface RunPersonaConversationOptions {
+export interface RunPersonaConversationOptions {
   /** The agent under test. Metered; its rendered prompt leads its turns. */
   worker: AgentProfile
   /** The simulated user driving the dialogue. */
@@ -61,7 +61,7 @@ interface RunPersonaConversationOptions {
   workerName?: string
 }
 
-interface PersonaConversationResult {
+export interface PersonaConversationResult {
   transcript: ConversationTurn[]
   turns: number
   halted: HaltReason
@@ -196,7 +196,7 @@ export async function runPersonaConversation(
   }
 }
 
-interface RunPersonaConfig<TScenario extends Scenario, TArtifact> {
+export interface RunPersonaConfig<TScenario extends Scenario, TArtifact> {
   /** Resolve transport/executable ports for each exact profile. */
   executorFor: (profile: AgentProfile, role: 'worker' | 'persona') => ExecutorFactory<unknown>
   /** The persona driving each scenario — a driver profile or scripted turns. */

@@ -6,14 +6,51 @@
  * @experimental
  */
 
-export { candidateWorkspaceManifest } from './artifacts'
-export { buildAgentCandidateBundle } from './builder'
-export { sealAgentCandidateBundle } from './bundle'
-export type { AgentCandidateExecutionClaimStore } from './claim'
-export { FileAgentCandidateExecutionClaimStore } from './claim-file-store'
-export { disposePreparedAgentCandidateExecution } from './dispose'
-export { exactProcessProviderAsCandidateExecutor } from './exact-process-executor'
-export { executePreparedAgentCandidate } from './execute'
+export {
+  candidateWorkspaceManifest,
+  type WorkspaceScanLimits,
+  type WorkspaceScanOptions,
+} from './artifacts'
+export {
+  type AgentCandidateCodeSource,
+  type AgentCandidateCodeSurfaceSource,
+  type AgentCandidateProfileSource,
+  buildAgentCandidateBundle,
+} from './builder'
+export { type AgentCandidateBundleInput, sealAgentCandidateBundle } from './bundle'
+export type {
+  AgentCandidateExecutionAttemptRecord,
+  AgentCandidateExecutionAttemptRef,
+  AgentCandidateExecutionClaim,
+  AgentCandidateExecutionClaimResult,
+  AgentCandidateExecutionClaimStore,
+  AgentCandidateExecutionCleanupHandles,
+  AgentCandidateExecutionFailureClass,
+  AgentCandidateExecutionFinishResult,
+  AgentCandidateExecutionLease,
+  AgentCandidateExecutionPhase,
+  AgentCandidateExecutionPhaseResult,
+  AgentCandidateExecutionRecoveryEvidence,
+  AgentCandidateExecutionStageResult,
+  AgentCandidateExecutionTerminalRecord,
+  AgentCandidateExecutionTerminalResult,
+  AgentCandidateRetryRejection,
+} from './claim'
+export type { AgentCandidatePreparationEvidence } from './claim-file-formats'
+export {
+  FileAgentCandidateExecutionClaimStore,
+  type FileAgentCandidateExecutionClaimStoreOptions,
+} from './claim-file-store'
+export {
+  type DisposePreparedAgentCandidateOptions,
+  disposePreparedAgentCandidateExecution,
+} from './dispose'
+export {
+  type ExactProcessCandidateExecutorOptions,
+  exactProcessProviderAsCandidateExecutor,
+} from './exact-process-executor'
+export { type ExecutePreparedAgentCandidateOptions, executePreparedAgentCandidate } from './execute'
+export type { AgentCandidateExecutionRoots } from './execution-roots'
 export { prepareAgentCandidateExecution } from './prepare'
 export {
   agentCandidateProfileAsAgentProfile,
@@ -23,38 +60,73 @@ export {
   parseExactAgentProfileDiff,
 } from './profile'
 export {
+  type AgentCandidateModelGrantRunReservationInput,
+  type ProtectedAgentCandidateModelGrantContext,
   type RunProtectedAgentCandidateModelGrantOptions,
+  type RunProtectedAgentCandidateModelGrantResult,
   runProtectedAgentCandidateModelGrant,
 } from './protected-model-grant'
 export {
   type AgentCandidateModelGrantClient,
+  type AgentCandidateModelGrantReserveInput,
+  type CreateProtectedAgentCandidateModelPortOptions,
   createProtectedAgentCandidateModelPort,
 } from './protected-model-port'
 export type {
   AgentCandidateBenchmarkGraderPort,
+  AgentCandidateContainerPort,
   AgentCandidateExecutionPorts,
+  AgentCandidateExecutorFinalCapture,
+  AgentCandidateExecutorMemoryCapture,
   AgentCandidateExecutorPort,
+  AgentCandidateExecutorProfileFile,
   AgentCandidateExecutorRequest,
   AgentCandidateExecutorStopRequest,
   AgentCandidateExecutorTaskOutcomeCapture,
+  AgentCandidateExecutorWorkspaceFile,
+  AgentCandidateExecutorWorkspaceInput,
+  AgentCandidateMemoryPort,
+  AgentCandidateMemoryResetResult,
   AgentCandidateModelLimits,
   AgentCandidateModelPort,
   AgentCandidateOutputArtifactPort,
+  AgentCandidateOutputPurpose,
+  AgentCandidateProtectedModelActivation,
   AgentCandidateProtectedModelReservation,
+  AgentCandidateProtectedModelSettlement,
+  AgentCandidateProtectedModelSettlementCall,
   AgentCandidateProtectedRunCapture,
+  AgentCandidateRepositoryPort,
   AgentCandidateRunFinalization,
   AgentCandidateTaskExecution,
+  AgentCandidateVerificationPorts,
+  AgentCandidateWorkspacePort,
+  CanonicalCandidateDocument,
+  PersistedTaskOutcomeEvidence,
   PreparedAgentCandidateExecution,
+  PreparedAgentCandidateInstruction,
+  PreparedAgentCandidateKnowledge,
+  PreparedAgentCandidateLaunch,
+  PreparedAgentCandidateTrace,
   ResolvedAgentCandidateContainer,
+  VerifiedAgentCandidate,
+  VerifiedAgentCandidateTaskOutcome,
 } from './types'
 export { verifyAgentCandidateBundle } from './verify'
-export { captureAgentCandidateWorkspaceFiles } from './workspace-archive'
 export {
+  type CapturedAgentCandidateWorkspace,
+  captureAgentCandidateWorkspaceFiles,
+} from './workspace-archive'
+export {
+  type CaptureAgentCandidateWorkspaceOptions,
+  type CreateAgentCandidateWorkspacePortOptions,
   captureAgentCandidateWorkspace,
   createAgentCandidateWorkspacePort,
 } from './workspace-archive-local'
 export {
+  type AgentCandidateWorkspaceArtifactsOptions,
   type AgentCandidateWorkspaceTree,
+  type CaptureAgentCandidateWorkspaceToArtifactsOptions,
   captureAgentCandidateWorkspaceToArtifacts,
   captureAgentCandidateWorkspaceTreeToArtifacts,
   materializeAgentCandidateWorkspaceFromArtifacts,
@@ -63,6 +135,17 @@ export {
 } from './workspace-streams'
 export {
   type AgentCandidateWorkspaceSnapshotReferences,
+  type CaptureAgentWorkspaceSnapshotOptions,
   captureAgentWorkspaceSnapshot,
+  type MaterializeAgentWorkspaceSnapshotOptions,
   materializeAgentWorkspaceSnapshot,
 } from './workspace-transfer'
+export type {
+  DescribeWorkspaceTreeOptions,
+  SeedWorkspaceTreeInput,
+  WorkspaceTreeAlgorithm,
+  WorkspaceTreeDescriptor,
+  WorkspaceTreeEntryPolicy,
+  WorkspaceTreeExclusion,
+  WorkspaceTreeExclusionReason,
+} from './workspace-tree'

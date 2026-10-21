@@ -217,7 +217,7 @@ export function admitContinuationPolicy(policy: ContinuationPolicy, context: str
 /**
  * Every instruction word of the note. Runtime supplies the facts and their order; this data
  * supplies the words, so the note can be improved (by a person, reflection, or GEPA) without a code
- * change. Templates may name the facts in {@link CONTINUATION_FACTS} as `{name}`.
+ * change. Templates may name the facts in `CONTINUATION_FACTS` as `{name}`.
  */
 export interface ContinuationProfile {
   /** Recorded with every note, so each continuation names the words it carried. */

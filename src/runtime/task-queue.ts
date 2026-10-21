@@ -1,18 +1,18 @@
 /** One identified task admitted by a caller-owned ready queue. */
-interface TaskQueueEntry<T> {
+export interface TaskQueueEntry<T> {
   readonly id: string
   readonly value: T
 }
 
 /** Native promise settlement, retaining the exact returned or thrown value. */
-type TaskQueueSettlement<T, R> = {
+export type TaskQueueSettlement<T, R> = {
   readonly task: TaskQueueEntry<T>
 } & (
   | { readonly status: 'fulfilled'; readonly value: R }
   | { readonly status: 'rejected'; readonly reason: unknown }
 )
 
-interface TaskQueueOptions<T, R> {
+export interface TaskQueueOptions<T, R> {
   readonly concurrency: number
   /** Return the next ready task, or undefined when none is currently admissible.
    * Called again after each yielded settlement; awaiting admission may persist a

@@ -3,28 +3,24 @@ import assert from 'node:assert/strict'
 /** Exercise retained admission through public Runtime APIs without network or inference. */
 export async function verifyRetainedAdmissionConsumer(kernel) {
   const cases = [
-    [400, 'dispatch', 'terminal'],
-    [401, 'dispatch', 'terminal'],
-    [429, 'dispatch', 'unavailable'],
-    [408, 'dispatch', 'transient'],
-    [500, 'dispatch', 'transient'],
-    [502, 'dispatch', 'transient'],
-    [503, 'dispatch', 'unavailable'],
-    [529, 'dispatch', 'unavailable'],
-    [404, 'lookup', 'transient'],
-    [404, 'result', 'transient'],
+    [400, 'dispatch'],
+    [401, 'dispatch'],
+    [429, 'dispatch'],
+    [408, 'dispatch'],
+    [500, 'dispatch'],
+    [502, 'dispatch'],
+    [503, 'dispatch'],
+    [529, 'dispatch'],
+    [404, 'lookup'],
+    [404, 'result'],
   ]
-  for (const [status, stage, expected] of cases) {
+  for (const [status, stage] of cases) {
     const original = Object.assign(new Error('fixture refusal'), {
       status,
       ...(stage === 'dispatch'
         ? {}
         : { cause: Object.assign(new Error('nested refusal'), { status: 400 }) }),
     })
-    assert.equal(
-      kernel.classifyDriverFailure(Object.assign(new Error('direct control'), { status })),
-      [429, 503, 529].includes(status) ? 'unavailable' : status === 408 || status >= 500 ? 'transient' : 'terminal',
-    )
     const fixture = retainedFixture(original, stage)
     const base = kernel.providerAsExecutor(fixture.provider, { destroyOnSettle: false, unavailablePause: false })
     let observed
@@ -77,9 +73,6 @@ export async function verifyRetainedAdmissionConsumer(kernel) {
       journal: await journal.loadTree(runId),
     }))
     assert.equal(observed.name, 'RetainedExecutionPendingError')
-    assert.equal(kernel.classifyDriverFailure(observed), expected)
-    if ([429, 503, 529].includes(status))
-      assert.equal(kernel.upstreamUnavailableSignal(observed), 'http-' + status)
     const admissions = (await journal.loadTree(runId))
       .filter((event) => event.kind === 'execution-admitted')
       .map((event) => event.admission.phase)

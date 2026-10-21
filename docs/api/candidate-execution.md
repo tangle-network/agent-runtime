@@ -184,179 +184,6 @@ independently proved process death plus model and memory closure.
 
 [`AgentCandidateExecutionClaimStore`](#agentcandidateexecutionclaimstore).[`recoverExpired`](#recoverexpired-1)
 
-***
-
-### InMemoryAgentCandidateExecutionClaimStore
-
-**`Experimental`**
-
-Single-process lifecycle implementation.
-
-#### Implements
-
-- [`AgentCandidateExecutionClaimStore`](#agentcandidateexecutionclaimstore)
-
-#### Constructors
-
-##### Constructor
-
-> **new InMemoryAgentCandidateExecutionClaimStore**(`options?`): [`InMemoryAgentCandidateExecutionClaimStore`](#inmemoryagentcandidateexecutionclaimstore)
-
-**`Experimental`**
-
-###### Parameters
-
-###### options?
-
-[`InMemoryAgentCandidateExecutionClaimStoreOptions`](#inmemoryagentcandidateexecutionclaimstoreoptions) = `{}`
-
-###### Returns
-
-[`InMemoryAgentCandidateExecutionClaimStore`](#inmemoryagentcandidateexecutionclaimstore)
-
-#### Methods
-
-##### tryClaim()
-
-> **tryClaim**(`requested`): `Promise`\<[`AgentCandidateExecutionClaimResult`](#agentcandidateexecutionclaimresult)\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### requested
-
-[`AgentCandidateExecutionClaim`](#agentcandidateexecutionclaim)
-
-###### Returns
-
-`Promise`\<[`AgentCandidateExecutionClaimResult`](#agentcandidateexecutionclaimresult)\>
-
-###### Implementation of
-
-[`AgentCandidateExecutionClaimStore`](#agentcandidateexecutionclaimstore).[`tryClaim`](#tryclaim-1)
-
-##### getAttempt()
-
-> **getAttempt**(`requestedAttempt`): `Promise`\<[`AgentCandidateExecutionAttemptRecord`](#agentcandidateexecutionattemptrecord) \| `undefined`\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### requestedAttempt
-
-[`AgentCandidateExecutionAttemptRef`](#agentcandidateexecutionattemptref)
-
-###### Returns
-
-`Promise`\<[`AgentCandidateExecutionAttemptRecord`](#agentcandidateexecutionattemptrecord) \| `undefined`\>
-
-###### Implementation of
-
-[`AgentCandidateExecutionClaimStore`](#agentcandidateexecutionclaimstore).[`getAttempt`](#getattempt-1)
-
-##### markCandidateMayRun()
-
-> **markCandidateMayRun**(`requestedLease`): `Promise`\<[`AgentCandidateExecutionPhaseResult`](#agentcandidateexecutionphaseresult)\>
-
-**`Experimental`**
-
-Persist the point after which candidate code may have run.
-
-###### Parameters
-
-###### requestedLease
-
-[`AgentCandidateExecutionLease`](#agentcandidateexecutionlease)
-
-###### Returns
-
-`Promise`\<[`AgentCandidateExecutionPhaseResult`](#agentcandidateexecutionphaseresult)\>
-
-###### Implementation of
-
-[`AgentCandidateExecutionClaimStore`](#agentcandidateexecutionclaimstore).[`markCandidateMayRun`](#markcandidatemayrun-1)
-
-##### stageTerminal()
-
-> **stageTerminal**(`requestedLease`, `result`): `Promise`\<[`AgentCandidateExecutionStageResult`](#agentcandidateexecutionstageresult)\>
-
-**`Experimental`**
-
-Fsync the complete terminal record into the durable outbox.
-
-###### Parameters
-
-###### requestedLease
-
-[`AgentCandidateExecutionLease`](#agentcandidateexecutionlease)
-
-###### result
-
-[`AgentCandidateExecutionTerminalResult`](#agentcandidateexecutionterminalresult)
-
-###### Returns
-
-`Promise`\<[`AgentCandidateExecutionStageResult`](#agentcandidateexecutionstageresult)\>
-
-###### Implementation of
-
-[`AgentCandidateExecutionClaimStore`](#agentcandidateexecutionclaimstore).[`stageTerminal`](#stageterminal-1)
-
-##### finish()
-
-> **finish**(`requestedLease`, `requestedTerminalDigest`): `Promise`\<[`AgentCandidateExecutionFinishResult`](#agentcandidateexecutionfinishresult)\>
-
-**`Experimental`**
-
-Publish exactly the staged terminal identified by `terminalDigest`.
-
-###### Parameters
-
-###### requestedLease
-
-[`AgentCandidateExecutionLease`](#agentcandidateexecutionlease)
-
-###### requestedTerminalDigest
-
-`` `sha256:${string}` ``
-
-###### Returns
-
-`Promise`\<[`AgentCandidateExecutionFinishResult`](#agentcandidateexecutionfinishresult)\>
-
-###### Implementation of
-
-[`AgentCandidateExecutionClaimStore`](#agentcandidateexecutionclaimstore).[`finish`](#finish-1)
-
-##### recoverExpired()
-
-> **recoverExpired**(`requestedAttempt`, `evidence`): `Promise`\<[`AgentCandidateExecutionFinishResult`](#agentcandidateexecutionfinishresult)\>
-
-**`Experimental`**
-
-Write a failed terminal only after the lease expired and a trusted worker
-independently proved process death plus model and memory closure.
-
-###### Parameters
-
-###### requestedAttempt
-
-[`AgentCandidateExecutionAttemptRef`](#agentcandidateexecutionattemptref)
-
-###### evidence
-
-[`AgentCandidateExecutionRecoveryEvidence`](#agentcandidateexecutionrecoveryevidence)
-
-###### Returns
-
-`Promise`\<[`AgentCandidateExecutionFinishResult`](#agentcandidateexecutionfinishresult)\>
-
-###### Implementation of
-
-[`AgentCandidateExecutionClaimStore`](#agentcandidateexecutionclaimstore).[`recoverExpired`](#recoverexpired-1)
-
 ## Interfaces
 
 ### WorkspaceScanLimits
@@ -1022,26 +849,6 @@ independently proved process death plus model and memory closure.
 
 ***
 
-### InMemoryAgentCandidateExecutionClaimStoreOptions
-
-**`Experimental`**
-
-#### Properties
-
-##### now?
-
-> `optional` **now?**: () => `number`
-
-**`Experimental`**
-
-Testable evaluator clock; defaults to `Date.now`.
-
-###### Returns
-
-`number`
-
-***
-
 ### DisposePreparedAgentCandidateOptions
 
 **`Experimental`**
@@ -1177,28 +984,6 @@ Absolute container roots owned by one isolated candidate execution.
 **`Experimental`**
 
 Private runtime HOME used for agent-scoped profile files, when needed.
-
-***
-
-### PrepareAgentCandidateExecutionOptions
-
-**`Experimental`**
-
-#### Properties
-
-##### cleanupTimeoutMs?
-
-> `optional` **cleanupTimeoutMs?**: `number`
-
-**`Experimental`**
-
-##### resultTimeoutMs?
-
-> `optional` **resultTimeoutMs?**: `number`
-
-**`Experimental`**
-
-Maximum time for task verification, executable grading, and receipt construction.
 
 ***
 
@@ -1528,68 +1313,6 @@ The only public DNS name candidate processes may reach for inference.
 **`Experimental`**
 
 Exact environment names the activation endpoint must return, no more or fewer.
-
-***
-
-### RecoverExpiredAgentCandidateOptions
-
-**`Experimental`**
-
-#### Properties
-
-##### attempt
-
-> **attempt**: [`AgentCandidateExecutionAttemptRef`](#agentcandidateexecutionattemptref)
-
-**`Experimental`**
-
-##### claimStore
-
-> **claimStore**: [`AgentCandidateExecutionClaimStore`](#agentcandidateexecutionclaimstore)
-
-**`Experimental`**
-
-##### executor
-
-> **executor**: [`AgentCandidateExecutorPort`](#agentcandidateexecutorport)
-
-**`Experimental`**
-
-##### traceStore
-
-> **traceStore**: `TraceStore`
-
-**`Experimental`**
-
-##### ports
-
-> **ports**: `Pick`\<[`AgentCandidateExecutionPorts`](#agentcandidateexecutionports), `"models"` \| `"memory"`\>
-
-**`Experimental`**
-
-##### outputArtifacts
-
-> **outputArtifacts**: [`AgentCandidateOutputArtifactPort`](#agentcandidateoutputartifactport)
-
-**`Experimental`**
-
-##### cleanupTimeoutMs?
-
-> `optional` **cleanupTimeoutMs?**: `number`
-
-**`Experimental`**
-
-##### now?
-
-> `optional` **now?**: () => `number`
-
-**`Experimental`**
-
-Evaluator clock; must be the same clock used by the claim store.
-
-###### Returns
-
-`number`
 
 ***
 
@@ -3463,7 +3186,7 @@ The manifest digest covers files, while the archive digest also binds HEAD and t
 
 ##### limits?
 
-> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
+> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](runtime.md#agentcandidateworkspacearchivelimits)\>
 
 **`Experimental`**
 
@@ -3497,57 +3220,7 @@ Use the evaluator-owned artifact store when manifest or archive bytes should not
 
 ##### limits?
 
-> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
-
-**`Experimental`**
-
-***
-
-### AgentCandidateWorkspaceArchiveLimits
-
-**`Experimental`**
-
-#### Properties
-
-##### maxArchiveBytes
-
-> **maxArchiveBytes**: `number`
-
-**`Experimental`**
-
-##### maxEmbeddedArtifactBytes
-
-> **maxEmbeddedArtifactBytes**: `number`
-
-**`Experimental`**
-
-##### maxFiles
-
-> **maxFiles**: `number`
-
-**`Experimental`**
-
-##### maxFileBytes
-
-> **maxFileBytes**: `number`
-
-**`Experimental`**
-
-##### maxTotalFileBytes
-
-> **maxTotalFileBytes**: `number`
-
-**`Experimental`**
-
-##### maxPathBytes
-
-> **maxPathBytes**: `number`
-
-**`Experimental`**
-
-##### maxRepositoryBundleBytes
-
-> **maxRepositoryBundleBytes**: `number`
+> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](runtime.md#agentcandidateworkspacearchivelimits)\>
 
 **`Experimental`**
 
@@ -3583,7 +3256,7 @@ Caller-owned bytes accepted by createAgentCandidateWorkspacePort.
 
 ##### limits?
 
-> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
+> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](runtime.md#agentcandidateworkspacearchivelimits)\>
 
 **`Experimental`**
 
@@ -3702,7 +3375,7 @@ The bytes this capture added to the store; every other file was already there.
 
 ##### limits?
 
-> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
+> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](runtime.md#agentcandidateworkspacearchivelimits)\>
 
 **`Experimental`**
 
@@ -3744,7 +3417,7 @@ Absent destination inside a caller-owned private allocation scope.
 
 ##### limits?
 
-> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
+> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](runtime.md#agentcandidateworkspacearchivelimits)\>
 
 **`Experimental`**
 
@@ -4182,32 +3855,6 @@ Reservation fields supplied by a caller before Runtime resolves the model.
 
 ***
 
-### AgentCandidateModelGrantActivateInput
-
-> **AgentCandidateModelGrantActivateInput** = `Parameters`\<[`AgentCandidateModelPort`](#agentcandidatemodelport)\[`"activateGrant"`\]\>\[`0`\]
-
-**`Experimental`**
-
-***
-
-### AgentCandidateModelGrantSettleInput
-
-> **AgentCandidateModelGrantSettleInput** = `Parameters`\<[`AgentCandidateModelPort`](#agentcandidatemodelport)\[`"settleGrant"`\]\>\[`0`\]
-
-**`Experimental`**
-
-***
-
-### AgentCandidateModelGrantReservation
-
-> **AgentCandidateModelGrantReservation** = [`AgentCandidateProtectedModelReservation`](#agentcandidateprotectedmodelreservation)
-
-**`Experimental`**
-
-Secret-free response from the service's reservation endpoint.
-
-***
-
 ### AgentCandidateOutputPurpose
 
 > **AgentCandidateOutputPurpose** = `"execution-plan"` \| `"materialization-receipt"` \| `"candidate-workspace-manifest"` \| `"candidate-workspace-archive"` \| `"candidate-workspace-file"` \| `"task-manifest"` \| `"task-archive"` \| `"task-patch"` \| `"task-output"` \| `"task-outcome"` \| `"memory-after-manifest"` \| `"memory-after-archive"` \| `"grader-evidence"` \| `"benchmark-result"` \| `"model-settlement"` \| `"trace"` \| `"executor-native-evidence"` \| `"executor-capture"` \| `"run-receipt"` \| `"knowledge-retrieval-config"` \| `"knowledge-evaluation"` \| `"failure-evidence"`
@@ -4475,129 +4122,7 @@ What a walk does with an entry it refuses to describe: fail, or record and conti
 
 Why one entry contributed its name instead of its content.
 
-## Variables
-
-### CANDIDATE\_KNOWLEDGE\_ROOT\_ENV
-
-> `const` **CANDIDATE\_KNOWLEDGE\_ROOT\_ENV**: `"TANGLE_CANDIDATE_KNOWLEDGE_ROOT"` = `'TANGLE_CANDIDATE_KNOWLEDGE_ROOT'`
-
-**`Experimental`**
-
-Environment variable containing the materialized candidate knowledge root.
-
-***
-
-### CANDIDATE\_KNOWLEDGE\_RETRIEVAL\_CONFIG\_ENV
-
-> `const` **CANDIDATE\_KNOWLEDGE\_RETRIEVAL\_CONFIG\_ENV**: `"TANGLE_CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG"` = `'TANGLE_CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG'`
-
-**`Experimental`**
-
-Environment variable containing the materialized retrieval configuration path.
-
-***
-
-### CANDIDATE\_TRACE\_TAGS
-
-> `const` **CANDIDATE\_TRACE\_TAGS**: `object`
-
-**`Experimental`**
-
-Protected trace tags that bind a run to one prepared candidate execution.
-
-#### Type Declaration
-
-##### executionId
-
-> `readonly` **executionId**: `"tangle.candidate.execution_id"` = `'tangle.candidate.execution_id'`
-
-##### bundleDigest
-
-> `readonly` **bundleDigest**: `"tangle.candidate.bundle_digest"` = `'tangle.candidate.bundle_digest'`
-
-##### executionPlanDigest
-
-> `readonly` **executionPlanDigest**: `"tangle.candidate.execution_plan_digest"` = `'tangle.candidate.execution_plan_digest'`
-
-##### materializationReceiptDigest
-
-> `readonly` **materializationReceiptDigest**: `"tangle.candidate.materialization_receipt_digest"` = `'tangle.candidate.materialization_receipt_digest'`
-
-***
-
-### CANDIDATE\_TRACE\_ENV
-
-> `const` **CANDIDATE\_TRACE\_ENV**: `object`
-
-**`Experimental`**
-
-Environment keys used to propagate immutable candidate trace identity.
-
-#### Type Declaration
-
-##### executionId
-
-> `readonly` **executionId**: `"TANGLE_CANDIDATE_EXECUTION_ID"` = `'TANGLE_CANDIDATE_EXECUTION_ID'`
-
-##### bundleDigest
-
-> `readonly` **bundleDigest**: `"TANGLE_CANDIDATE_BUNDLE_DIGEST"` = `'TANGLE_CANDIDATE_BUNDLE_DIGEST'`
-
-##### executionPlanDigest
-
-> `readonly` **executionPlanDigest**: `"TANGLE_CANDIDATE_EXECUTION_PLAN_DIGEST"` = `'TANGLE_CANDIDATE_EXECUTION_PLAN_DIGEST'`
-
-##### materializationReceiptDigest
-
-> `readonly` **materializationReceiptDigest**: `"TANGLE_CANDIDATE_MATERIALIZATION_RECEIPT_DIGEST"` = `'TANGLE_CANDIDATE_MATERIALIZATION_RECEIPT_DIGEST'`
-
-##### traceRunId
-
-> `readonly` **traceRunId**: `"TANGLE_TRACE_RUN_ID"` = `'TANGLE_TRACE_RUN_ID'`
-
-***
-
-### AGENT\_CANDIDATE\_EXECUTION\_SUPPORT
-
-> `const` **AGENT\_CANDIDATE\_EXECUTION\_SUPPORT**: `Readonly`\<\{ `outcomes`: readonly \[`"workspace"`, `"output"`\]; `code`: readonly \[`"disabled"`, `"no-op"`, `"git-patch"`\]; `memory`: readonly \[`"disabled"`, `"isolated"`\]; `knowledge`: `true`; `profile`: `Readonly`\<\{ `mcpTransports`: readonly \[`"stdio"`\]; `remoteMcp`: `false`; `tools`: `false`; `permissions`: `false`; `modes`: `false`; `confidential`: `false`; \}\>; \}\>
-
-**`Experimental`**
-
-Surfaces admitted by Runtime's verifier before an environment adapter is selected.
-
 ## Functions
-
-### verifyMaterializedWorkspace()
-
-> **verifyMaterializedWorkspace**(`root`, `expected`, `options?`): `Promise`\<`void`\>
-
-**`Experimental`**
-
-Refuse a materialized workspace whose files, modes, or bytes are not the signed manifest.
-
-The scan streams, so the size of the largest file does not decide whether the check can run, and
-the refusal names the one mismatch a caller can produce on its own: a capture and a verify that
-disagree about `portableTree`.
-
-#### Parameters
-
-##### root
-
-`string`
-
-##### expected
-
-`AgentCandidateWorkspaceManifestMaterial`
-
-##### options?
-
-`Omit`\<[`WorkspaceScanOptions`](#workspacescanoptions), `"limits"`\> = `{}`
-
-#### Returns
-
-`Promise`\<`void`\>
-
-***
 
 ### scanMaterializedWorkspaceManifest()
 
@@ -4701,36 +4226,6 @@ Validate and content-address a candidate bundle before it crosses an approval bo
 
 ***
 
-### candidateExecutionClaim()
-
-> **candidateExecutionClaim**(`prepared`, `preparationEvidence`): [`AgentCandidateExecutionClaim`](#agentcandidateexecutionclaim)
-
-**`Experimental`**
-
-Extract the complete durable claim from a prepared execution.
-
-#### Parameters
-
-##### prepared
-
-[`PreparedAgentCandidateExecution`](#preparedagentcandidateexecution)
-
-##### preparationEvidence
-
-###### executionPlan
-
-`AgentCandidateArtifactRef`
-
-###### materializationReceipt
-
-`AgentCandidateArtifactRef`
-
-#### Returns
-
-[`AgentCandidateExecutionClaim`](#agentcandidateexecutionclaim)
-
-***
-
 ### disposePreparedAgentCandidateExecution()
 
 > **disposePreparedAgentCandidateExecution**(`prepared`, `options?`): `Promise`\<\{ `disposed`: `true`; \}\>
@@ -4799,76 +4294,6 @@ Executes and finalizes one durably claimed candidate without exposing an unprove
 
 ***
 
-### candidateKnowledgeExecutionPaths()
-
-> **candidateKnowledgeExecutionPaths**(`taskRoot`, `hasRetrievalConfig`): `object`
-
-**`Experimental`**
-
-Deterministic, signed locations used by every candidate executor.
-
-#### Parameters
-
-##### taskRoot
-
-`string`
-
-##### hasRetrievalConfig
-
-`boolean`
-
-#### Returns
-
-`object`
-
-##### root
-
-> **root**: `string`
-
-##### retrievalConfig?
-
-> `optional` **retrievalConfig?**: `string`
-
-***
-
-### persistCandidateOutputArtifact()
-
-> **persistCandidateOutputArtifact**(`port`, `input`): `Promise`\<`AgentCandidateArtifactRef`\>
-
-**`Experimental`**
-
-Persist evaluator evidence, read it back, and bind the returned locator to the exact bytes.
-
-#### Parameters
-
-##### port
-
-[`AgentCandidateOutputArtifactPort`](#agentcandidateoutputartifactport)
-
-##### input
-
-###### executionId
-
-`string`
-
-###### purpose
-
-[`AgentCandidateOutputPurpose`](#agentcandidateoutputpurpose)
-
-###### bytes
-
-`Uint8Array`
-
-###### signal?
-
-`AbortSignal`
-
-#### Returns
-
-`Promise`\<`AgentCandidateArtifactRef`\>
-
-***
-
 ### prepareAgentCandidateExecution()
 
 > **prepareAgentCandidateExecution**(`candidate`, `task`, `ports`, `options?`): `Promise`\<[`PreparedAgentCandidateExecution`](#preparedagentcandidateexecution)\>
@@ -4893,7 +4318,7 @@ Materializes a verified candidate into one immutable evaluator-owned execution p
 
 ##### options?
 
-[`PrepareAgentCandidateExecutionOptions`](#prepareagentcandidateexecutionoptions) = `{}`
+[`PrepareAgentCandidateExecutionOptions`](intelligence.md#prepareagentcandidateexecutionoptions) = `{}`
 
 #### Returns
 
@@ -4942,30 +4367,6 @@ Prove the measured generic profile and sealed candidate profile describe the sam
 #### Returns
 
 `void`
-
-***
-
-### parseExactAgentProfile()
-
-> **parseExactAgentProfile**(`input`, `label`): `AgentProfile`
-
-**`Experimental`**
-
-Parse a complete profile without silently discarding unsupported fields.
-
-#### Parameters
-
-##### input
-
-`unknown`
-
-##### label
-
-`string`
-
-#### Returns
-
-`AgentProfile`
 
 ***
 
@@ -5140,26 +4541,6 @@ it to cross into candidate execution or durable receipt finalization.
 
 ***
 
-### recoverExpiredAgentCandidateExecution()
-
-> **recoverExpiredAgentCandidateExecution**(`options`): `Promise`\<[`AgentCandidateExecutionFinishResult`](#agentcandidateexecutionfinishresult)\>
-
-**`Experimental`**
-
-Close an expired crashed attempt from persisted non-secret handles, then record failure.
-
-#### Parameters
-
-##### options
-
-[`RecoverExpiredAgentCandidateOptions`](#recoverexpiredagentcandidateoptions)
-
-#### Returns
-
-`Promise`\<[`AgentCandidateExecutionFinishResult`](#agentcandidateexecutionfinishresult)\>
-
-***
-
 ### verifyAgentCandidateBundle()
 
 > **verifyAgentCandidateBundle**(`input`, `ports`): `Promise`\<[`VerifiedAgentCandidate`](#verifiedagentcandidate)\>
@@ -5324,7 +4705,7 @@ manifest; reading a file is `artifacts.read` of what `locate` returns for its di
 
 ###### limits?
 
-`Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
+`Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](runtime.md#agentcandidateworkspacearchivelimits)\>
 
 ###### signal?
 

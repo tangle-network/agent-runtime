@@ -63,7 +63,7 @@ export interface ResearchTask {
  *
  * @experimental
  */
-interface KnowledgeItem {
+export interface KnowledgeItem {
   id: string
   /** Multi-tenant scope. MUST equal `task.knowledgeNamespace`. */
   namespace: string
@@ -86,7 +86,7 @@ interface KnowledgeItem {
  *
  * @experimental
  */
-type KnowledgeUpdate =
+export type KnowledgeUpdate =
   | { kind: 'insert'; namespace: string; item: KnowledgeItem }
   | { kind: 'supersede'; namespace: string; previousId: string; item: KnowledgeItem }
   | { kind: 'retract'; namespace: string; itemId: string; reason: string }
@@ -109,7 +109,7 @@ export interface ResearchOutput {
 }
 
 /** Options for the source-grounded researcher profile preset. @experimental */
-interface ResearcherProfileOptions {
+export interface ResearcherProfileOptions {
   /** Caller-owned exact harness/provider/model identity. */
   profile: AgentProfile
   /** Custom system prompt replacement. Default = built-in researcher preset. */

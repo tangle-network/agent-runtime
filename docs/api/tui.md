@@ -28,154 +28,6 @@ The runnable form is the `agent-runtime-top` bin: `agent-runtime-top <root> [--o
 
 ## Interfaces
 
-### TopAppOptions
-
-**`Experimental`**
-
-How the app was invoked. Defaults read `process.argv` / `process.cwd()`.
-
-#### Properties
-
-##### argv?
-
-> `readonly` `optional` **argv?**: readonly `string`[]
-
-**`Experimental`**
-
-##### cwd?
-
-> `readonly` `optional` **cwd?**: `string`
-
-**`Experimental`**
-
-***
-
-### RenderOptions
-
-**`Experimental`**
-
-#### Properties
-
-##### width?
-
-> `readonly` `optional` **width?**: `number`
-
-**`Experimental`**
-
-##### height?
-
-> `readonly` `optional` **height?**: `number`
-
-**`Experimental`**
-
-##### color?
-
-> `readonly` `optional` **color?**: `boolean`
-
-**`Experimental`**
-
-##### selectedSupervisorId?
-
-> `readonly` `optional` **selectedSupervisorId?**: `string`
-
-**`Experimental`**
-
-##### selectedWorkerId?
-
-> `readonly` `optional` **selectedWorkerId?**: `string`
-
-**`Experimental`**
-
-##### focus?
-
-> `readonly` `optional` **focus?**: `"supervisors"` \| `"workers"`
-
-**`Experimental`**
-
-##### mode?
-
-> `readonly` `optional` **mode?**: `"log"` \| `"overview"` \| `"detail"`
-
-**`Experimental`**
-
-##### notice?
-
-> `readonly` `optional` **notice?**: `string`
-
-**`Experimental`**
-
-##### steerInput?
-
-> `readonly` `optional` **steerInput?**: `object`
-
-**`Experimental`**
-
-###### active
-
-> `readonly` **active**: `boolean`
-
-###### value
-
-> `readonly` **value**: `string`
-
-###### workerLabel?
-
-> `readonly` `optional` **workerLabel?**: `string`
-
-***
-
-### RenderTarget
-
-**`Experimental`**
-
-#### Properties
-
-##### row
-
-> `readonly` **row**: `number`
-
-**`Experimental`**
-
-##### kind
-
-> `readonly` **kind**: `"worker"` \| `"supervisor"`
-
-**`Experimental`**
-
-##### id
-
-> `readonly` **id**: `string`
-
-**`Experimental`**
-
-##### supervisorId?
-
-> `readonly` `optional` **supervisorId?**: `string`
-
-**`Experimental`**
-
-***
-
-### RenderedTopFrame
-
-**`Experimental`**
-
-#### Properties
-
-##### frame
-
-> `readonly` **frame**: `string`
-
-**`Experimental`**
-
-##### targets
-
-> `readonly` **targets**: [`RenderTarget`](#rendertarget)[]
-
-**`Experimental`**
-
-***
-
 ### TopSnapshot
 
 **`Experimental`**
@@ -269,127 +121,13 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ***
 
-### SupervisorBase
-
-**`Experimental`**
-
-#### Extended by
-
-- [`SupervisorView`](#supervisorview)
-
-#### Properties
-
-##### id
-
-> `readonly` **id**: `string`
-
-**`Experimental`**
-
-##### status
-
-> `readonly` **status**: `string`
-
-**`Experimental`**
-
-##### task
-
-> `readonly` **task**: `string`
-
-**`Experimental`**
-
-##### workspaceDir
-
-> `readonly` **workspaceDir**: `string`
-
-**`Experimental`**
-
-##### budget
-
-> `readonly` **budget**: `number`
-
-**`Experimental`**
-
-##### verifyCmd?
-
-> `readonly` `optional` **verifyCmd?**: `string`
-
-**`Experimental`**
-
-##### workerModel?
-
-> `readonly` `optional` **workerModel?**: `string`
-
-**`Experimental`**
-
-##### driverModel?
-
-> `readonly` `optional` **driverModel?**: `string`
-
-**`Experimental`**
-
-##### verdict?
-
-> `readonly` `optional` **verdict?**: `string`
-
-**`Experimental`**
-
-##### progress?
-
-> `readonly` `optional` **progress?**: `string`
-
-**`Experimental`**
-
-##### startedAt?
-
-> `readonly` `optional` **startedAt?**: `string`
-
-**`Experimental`**
-
-##### completedAt?
-
-> `readonly` `optional` **completedAt?**: `string`
-
-**`Experimental`**
-
-##### maxSandboxes?
-
-> `readonly` `optional` **maxSandboxes?**: `number`
-
-**`Experimental`**
-
-##### maxLifetimeSeconds?
-
-> `readonly` `optional` **maxLifetimeSeconds?**: `number`
-
-**`Experimental`**
-
-##### idleTimeoutSeconds?
-
-> `readonly` `optional` **idleTimeoutSeconds?**: `number`
-
-**`Experimental`**
-
-##### maxUsd?
-
-> `readonly` `optional` **maxUsd?**: `number`
-
-**`Experimental`**
-
-##### maxDepth?
-
-> `readonly` `optional` **maxDepth?**: `number`
-
-**`Experimental`**
-
-***
-
 ### SupervisorView
 
 **`Experimental`**
 
 #### Extends
 
-- [`SupervisorBase`](#supervisorbase)
+- `SupervisorBase`
 
 #### Properties
 
@@ -401,7 +139,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`id`](#id-1)
+`SupervisorBase.id`
 
 ##### status
 
@@ -411,7 +149,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`status`](#status)
+`SupervisorBase.status`
 
 ##### task
 
@@ -421,7 +159,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`task`](#task)
+`SupervisorBase.task`
 
 ##### workspaceDir
 
@@ -431,7 +169,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`workspaceDir`](#workspacedir)
+`SupervisorBase.workspaceDir`
 
 ##### budget
 
@@ -441,7 +179,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`budget`](#budget)
+`SupervisorBase.budget`
 
 ##### verifyCmd?
 
@@ -451,7 +189,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`verifyCmd`](#verifycmd)
+`SupervisorBase.verifyCmd`
 
 ##### workerModel?
 
@@ -461,7 +199,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`workerModel`](#workermodel)
+`SupervisorBase.workerModel`
 
 ##### driverModel?
 
@@ -471,7 +209,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`driverModel`](#drivermodel)
+`SupervisorBase.driverModel`
 
 ##### verdict?
 
@@ -481,7 +219,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`verdict`](#verdict)
+`SupervisorBase.verdict`
 
 ##### progress?
 
@@ -491,7 +229,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`progress`](#progress)
+`SupervisorBase.progress`
 
 ##### startedAt?
 
@@ -501,7 +239,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`startedAt`](#startedat)
+`SupervisorBase.startedAt`
 
 ##### completedAt?
 
@@ -511,7 +249,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`completedAt`](#completedat)
+`SupervisorBase.completedAt`
 
 ##### maxSandboxes?
 
@@ -521,7 +259,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`maxSandboxes`](#maxsandboxes)
+`SupervisorBase.maxSandboxes`
 
 ##### maxLifetimeSeconds?
 
@@ -531,7 +269,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`maxLifetimeSeconds`](#maxlifetimeseconds)
+`SupervisorBase.maxLifetimeSeconds`
 
 ##### idleTimeoutSeconds?
 
@@ -541,7 +279,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`idleTimeoutSeconds`](#idletimeoutseconds)
+`SupervisorBase.idleTimeoutSeconds`
 
 ##### maxUsd?
 
@@ -551,7 +289,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`maxUsd`](#maxusd)
+`SupervisorBase.maxUsd`
 
 ##### maxDepth?
 
@@ -561,7 +299,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`maxDepth`](#maxdepth)
+`SupervisorBase.maxDepth`
 
 ##### stateDir
 
@@ -943,98 +681,6 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ## Functions
 
-### renderTopOnce()
-
-> **renderTopOnce**(`options?`): `string`
-
-**`Experimental`**
-
-Render exactly one frame and return it. This is the non-interactive path — `--once`, a pipe, a
-test — so it never touches raw mode, the alternate screen, or `process.exit`.
-
-#### Parameters
-
-##### options?
-
-[`TopAppOptions`](#topappoptions) = `{}`
-
-#### Returns
-
-`string`
-
-***
-
-### runTopApp()
-
-> **runTopApp**(`options?`): `void`
-
-**`Experimental`**
-
-Run the TUI. With a TTY on both ends and no `--once` this takes over the terminal until `q`;
-otherwise it writes a single frame to stdout and returns.
-
-#### Parameters
-
-##### options?
-
-[`TopAppOptions`](#topappoptions) = `{}`
-
-#### Returns
-
-`void`
-
-***
-
-### renderTopFrame()
-
-> **renderTopFrame**(`snapshot`, `options?`): `string`
-
-**`Experimental`**
-
-Render one snapshot to an ANSI frame. Use this when nothing needs to be clickable.
-
-#### Parameters
-
-##### snapshot
-
-[`TopSnapshot`](#topsnapshot)
-
-##### options?
-
-[`RenderOptions`](#renderoptions) = `{}`
-
-#### Returns
-
-`string`
-
-***
-
-### renderTopFrameWithLayout()
-
-> **renderTopFrameWithLayout**(`snapshot`, `options?`): [`RenderedTopFrame`](#renderedtopframe)
-
-**`Experimental`**
-
-Render one snapshot, returning the frame together with the row→entity map a mouse click resolves
-against. The layout is the only thing that knows which row is which run or worker, so emitting it
-alongside the text is what keeps click handling out of the renderer.
-
-#### Parameters
-
-##### snapshot
-
-[`TopSnapshot`](#topsnapshot)
-
-##### options?
-
-[`RenderOptions`](#renderoptions) = `{}`
-
-#### Returns
-
-[`RenderedTopFrame`](#renderedtopframe)
-
-***
-
 ### loadTopSnapshot()
 
 > **loadTopSnapshot**(`rootDir`, `now?`): [`TopSnapshot`](#topsnapshot)
@@ -1065,30 +711,6 @@ under test.
 
 ## References
 
-### ProvisionedSupervisor
-
-Re-exports [ProvisionedSupervisor](runtime.md#provisionedsupervisor)
-
-***
-
-### ProvisionSupervisorConnection
-
-Re-exports [ProvisionSupervisorConnection](runtime.md#provisionsupervisorconnection)
-
-***
-
-### ProvisionSupervisorRequest
-
-Re-exports [ProvisionSupervisorRequest](runtime.md#provisionsupervisorrequest)
-
-***
-
 ### provisionSupervisor
 
 Re-exports [provisionSupervisor](runtime.md#provisionsupervisor)
-
-***
-
-### SupervisorCleanupReceipt
-
-Re-exports [SupervisorCleanupReceipt](runtime.md#supervisorcleanupreceipt)

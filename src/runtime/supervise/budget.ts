@@ -263,7 +263,7 @@ export interface BudgetPool {
    *
    * With `wait`, a request the free balance cannot cover now, but could once the open reservations
    * return, is admitted as a WAITING ticket: `granted` resolves when the pool reserves it, and
-   * rejects with {@link ReservationWaitRefused} once nothing open could return enough. A waiting
+   * rejects with `ReservationWaitRefused` once nothing open could return enough. A waiting
    * ticket reserves nothing; reconciling it withdraws it. While any ticket waits, a new waiting
    * request queues behind it even when it would fit, so the order of asking is the order of grant.
    */

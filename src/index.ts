@@ -35,6 +35,31 @@ export {
   runPersonaConversation,
   runPersonaDispatch,
 } from './conversation'
+export type {
+  BackendCallPolicy,
+  CircuitBreakerConfig,
+  RetryableErrorPredicate,
+  RetryBackoff,
+} from './conversation/call-policy'
+export type {
+  PersonaConversationResult,
+  RunPersonaConfig,
+  RunPersonaConversationOptions,
+} from './conversation/run-persona'
+export type {
+  AuthSource,
+  ConversationDriveState,
+  ConversationParticipant,
+  ConversationPolicy,
+  ConversationResult,
+  ConversationStreamEvent,
+  HaltContext,
+  HaltPredicate,
+  HaltReason,
+  HaltSignal,
+  RunConversationOptions,
+  TurnOrder,
+} from './conversation/types'
 // ── Errors ───────────────────────────────────────────────────────────
 export {
   AgentEvalError,
@@ -49,6 +74,7 @@ export {
 // Complete agent-eval methods optimize profile fields. Runtime owns isolated
 // code/worktree candidates and checkpoint-producing trainer execution.
 export {
+  type AgenticGeneratorExecutorForWorktree,
   type AgenticGeneratorOptions,
   type AgenticGeneratorShotDisposition,
   type AgenticGeneratorShotExecution,
@@ -84,29 +110,114 @@ export {
   sharedBoxLane,
   subscriptionLane,
 } from './improvement/improve'
+export type {
+  ImproveCandidateValidationInput,
+  ImproveCandidateValidator,
+  ImproveCodeBaseOptions,
+  ImproveCodeOptions,
+  ImproveCodeResult,
+  ImproveCodeRunOptions,
+  ImproveCost,
+  ImproveCustomCodeGeneratorOptions,
+  ImproveMethodContext,
+  ImproveMethodLineage,
+  ImproveMethodOptions,
+  ImprovementCodeCandidate,
+  ImprovementProfileCandidate,
+  ImproveOptimizationRunOptions,
+  ImproveProfileComponents,
+  ImproveRuntimeCodeGeneratorOptions,
+  ImproveScenarioPartitions,
+  ImproveSearchAgent,
+  ImproveSearchIdentity,
+  ImproveSearchMethod,
+  ImproveSearchOptions,
+  ImproveSkillsOptions,
+  SearchPromotion,
+} from './improvement/improve-types'
 export type { CandidateGenerator } from './improvement/improvement-driver'
-export { officialGepa, officialSkillOpt } from './improvement/official-optimizers'
+export {
+  type OfficialGepaOptions,
+  type OfficialOptimizerContextOptions,
+  type OfficialSensitiveCandidateInput,
+  type OfficialSkillOptOptions,
+  officialGepa,
+  officialSkillOpt,
+} from './improvement/official-optimizers'
 export { optimizerMethod } from './improvement/optimizer-prompt'
 export {
+  type CreateProfileImprovementHarnessOptions,
   createProfileImprovementHarness,
   type ProfileImprovementHarness,
+  type ProfileImprovementHarnessRunOptions,
+  type ProfileImprovementHarnessTrainOptions,
 } from './improvement/profile-improvement-harness'
-export type { ReadonlyAgentProfile } from './improvement/profile-types'
-export { reflectiveGenerator } from './improvement/reflective-generator'
-export { reflectiveProfileProposer } from './improvement/reflective-profile-proposer'
+export type { DeepReadonly, ReadonlyAgentProfile } from './improvement/profile-types'
+export {
+  type ReflectiveGeneratorOptions,
+  reflectiveGenerator,
+} from './improvement/reflective-generator'
+export {
+  type ReflectiveProfileProposerOptions,
+  type ReflectiveProposerChat,
+  type ReflectiveProposerParent,
+  type ReflectiveProposerReply,
+  reflectiveProfileProposer,
+} from './improvement/reflective-profile-proposer'
+export type {
+  DecideSearchImprovementOptions,
+  SearchImprovementDecision,
+} from './improvement/search-decision'
+export type {
+  SearchLaneKind,
+  SearchLaneOptions,
+  SearchTraceOptions,
+  SharedBoxSearchLane,
+} from './improvement/search-executor'
+export type { SearchMethodOptions } from './improvement/search-method'
+export type {
+  CheckpointServingPort,
+  ProfileTrainerRequest,
+  TrainingBoundaryResult,
+} from './improvement/training'
+export type {
+  AgentImprovementActivationReconciliation,
+  AgentImprovementActivationResultStore,
+  AgentImprovementActivationTransition,
+} from './intelligence/activation'
 // ── Knowledge orchestration ──────────────────────────────────────────
 // Runtime owns live agent orchestration; agent-knowledge owns the KB/RAG/memory state.
 // These wrappers bridge the two without making agent-knowledge import runtime.
-export { createKnowledgeImprovementActivationExecutor } from './knowledge/activation'
+export {
+  type CreateKnowledgeImprovementActivationExecutorOptions,
+  createKnowledgeImprovementActivationExecutor,
+  type KnowledgeImprovementActivationExecutor,
+} from './knowledge/activation'
 export {
   buildKnowledgeImprovementExperimentBundles,
+  type KnowledgeImprovementCandidatePair,
+  type KnowledgeImprovementExperimentBundles,
+  type KnowledgeImprovementJobMeasurement,
+  type KnowledgeImprovementJobResult,
+  type RunKnowledgeImprovementJobOptions,
   runKnowledgeImprovementJob,
 } from './knowledge/improvement-job'
+export type {
+  KnowledgeReadinessCheck,
+  KnowledgeReadinessCheckInput,
+  KnowledgeReadinessCheckResult,
+} from './knowledge/supervised-update'
 // ── Delegated loop-runner (configured code/research/review/audit/improvement) ──
-export { auditLoopRunner } from './loop-runner'
+export { auditLoopRunner, type DelegatedLoopRunner } from './loop-runner'
 // ── Chat-model resolution ────────────────────────────────────────────
 // Router catalog fetch + fail-closed id validation + precedence resolver.
-export type { ModelInfo, ResolvedChatModel, RouterEnv } from './model-resolution'
+export type {
+  ChatModelCandidate,
+  ChatModelValidation,
+  ModelInfo,
+  ResolvedChatModel,
+  RouterEnv,
+} from './model-resolution'
 export {
   cleanModelId,
   DEFAULT_ROUTER_BASE_URL,
@@ -115,7 +226,13 @@ export {
   resolveRouterBaseUrl,
   validateChatModelId,
 } from './model-resolution'
-export type { OtelAttribute, OtelExportConfig, OtelExporter, OtelSpan } from './otel-export'
+export type {
+  OtelAttribute,
+  OtelExportConfig,
+  OtelExporter,
+  OtelExportStats,
+  OtelSpan,
+} from './otel-export'
 // ── OTEL export + trace propagation ──────────────────────────────────
 export {
   buildLoopOtelSpans,
@@ -129,21 +246,45 @@ export { priceTokens, ROUTER_PRICE_SOURCE, type TokenWork } from './pricing/rout
 export { decideKnowledgeReadiness } from './readiness'
 // ── Run loop ─────────────────────────────────────────────────────────
 export { runAgentTask, runAgentTaskStream } from './run'
+export type {
+  RuntimeFailureCause,
+  RuntimeFailureCode,
+  RuntimeFailureOwner,
+} from './runtime/failure-cause'
 export {
   isolatedCheckBoxEvidenceSchema,
   isolatedCheckResultSchema,
 } from './runtime/isolated-check-result'
 // ── Runtime hooks ────────────────────────────────────────────────────
-export type { RuntimeHookEvent, RuntimeHooks } from './runtime-hooks'
+export type {
+  RuntimeHookContext,
+  RuntimeHookErrorContext,
+  RuntimeHookEvent,
+  RuntimeHookPhase,
+  RuntimeHooks,
+  RuntimeHookTarget,
+} from './runtime-hooks'
 export { composeRuntimeHooks, defineRuntimeHooks } from './runtime-hooks'
 // ── Production run lifecycle ─────────────────────────────────────────
-export type { RuntimeRunHandle, RuntimeRunPersistenceAdapter, RuntimeRunRow } from './runtime-run'
+export type {
+  RuntimeRunCompleteInput,
+  RuntimeRunCost,
+  RuntimeRunHandle,
+  RuntimeRunOptions,
+  RuntimeRunPersistenceAdapter,
+  RuntimeRunRow,
+  RuntimeRunStatus,
+} from './runtime-run'
 export { startRuntimeRun } from './runtime-run'
 // ── Sanitization / telemetry ─────────────────────────────────────────
 export type {
+  RuntimeEventCollector,
   RuntimeStreamEventCollector,
+  RuntimeStreamEventSink,
+  RuntimeStreamEventSummary,
   RuntimeTelemetryOptions,
   SanitizedKnowledgeReadinessReport,
+  SanitizedKnowledgeRequirement,
 } from './sanitize'
 export {
   createRuntimeEventCollector,
@@ -153,7 +294,11 @@ export {
 // ── Sessions ──────────────────────────────────────────────────────────
 export { InMemoryRuntimeSessionStore } from './sessions'
 // ── SSE ───────────────────────────────────────────────────────────────
-export { readinessServerSentEvent, runtimeStreamServerSentEvent } from './sse'
+export {
+  readinessServerSentEvent,
+  runtimeStreamServerSentEvent,
+  type ServerSentEventOptions,
+} from './sse'
 // ── Core types ───────────────────────────────────────────────────────
 export type {
   AgentAdapter,
@@ -162,13 +307,18 @@ export type {
   AgentExecutionBackend,
   AgentKnowledgeProvider,
   AgentRuntimeEvent,
+  AgentRuntimeEventSink,
   AgentTaskContext,
   AgentTaskRunResult,
   AgentTaskSpec,
   AgentTaskStatus,
+  KnowledgeReadinessDecision,
   OpenAIChatResponseFormat,
   OpenAIChatTool,
   OpenAIChatToolChoice,
+  RunAgentTaskOptions,
+  RunAgentTaskStreamOptions,
+  RuntimeCanonicalStreamEvent,
   RuntimeSession,
   RuntimeSessionStore,
   RuntimeStreamEvent,

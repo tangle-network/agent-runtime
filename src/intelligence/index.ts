@@ -64,9 +64,17 @@ export { parseAgentCandidateProfileActivation as parseCandidateProfileMaterializ
 export type { Redactor } from '../redact'
 export { defaultRedactor } from '../redact'
 export type {
+  AgentImprovementActivationTargetPlan,
   AgentImprovementActivationTransitionInput,
+  AgentProfileImprovementActivationTargetPlan,
   CreateAgentImprovementActivationOptions,
+  CreateAgentImprovementActivationResultOptions,
+  CreateAgentImprovementProposalOptions,
+  ExecuteAgentImprovementActivationInput,
+  ExecuteAgentImprovementActivationOptions,
   ProfileImprovementActivationTransitionInput,
+  ReviewAgentImprovementInput,
+  SealedCandidateActivationTransitionInput,
 } from './activation'
 export {
   createAgentImprovementActivation,
@@ -81,24 +89,46 @@ export {
 } from './activation'
 export type {
   AgentProfileCandidateMeasurementExecutor,
+  AuthoredAgentProfileCandidateLineage,
   ProposeAuthoredAgentProfileImprovementOptions,
+  ProposeAuthoredAgentProfileImprovementResult,
 } from './authored-profile-improvement'
 export { proposeAuthoredAgentProfileImprovement } from './authored-profile-improvement'
-export type { CertifiedCapability, CredentialRef } from './capability'
+export type {
+  CapabilityAuth,
+  CapabilityInterface,
+  CapabilityManifest,
+  CertifiedCapability,
+  CertProvenance,
+  ContentRef,
+  CredentialRef,
+  DeliveryBinding,
+  HostSpec,
+  JsonSchema,
+} from './capability'
 export { CapabilityNotAdmittedError, manifestFromProfile } from './capability'
 export type {
   CertifiedArtifact,
+  CertifiedCapabilitySummary,
   CertifiedProfile,
   CertifiedPromptSource,
   CertifiedPromptSourceOptions,
+  CertifiedPromptSurface,
+  DiffProvenance,
+  ProposedProfileDiff,
+  PullCertifiedOptions,
   PullOutcome,
 } from './delivery'
 export { composeCertifiedPrompt, createCertifiedPromptSource, pullCertified } from './delivery'
-export type { EffortOverridesCompiled, EffortSettings } from './effort'
+export type { CorpusAccess, EffortOverridesCompiled, EffortSettings, EffortTier } from './effort'
 export { compileEffort, isIntelligenceOff, resolveEffort } from './effort'
 export type {
+  AgentCandidateExecutionHostPorts,
   CreateExactProcessCandidateExperimentExecutorOptions,
+  CreateProtectedExactProcessCandidateExperimentExecutorOptions,
   ExactProcessCandidateExperimentExecution,
+  ExactProcessCandidateExperimentExecutor,
+  ProtectedExactProcessCandidateExperimentExecutor,
 } from './exact-process-candidate'
 export {
   createExactProcessCandidateExperimentExecutor,
@@ -106,9 +136,19 @@ export {
   exactProcessCandidateExperimentExecutionSupport,
 } from './exact-process-candidate'
 export type {
+  AgentCandidateExperimentCellPlacement,
+  AgentImprovementAnalysisOptions,
+  AgentImprovementExperimentMaterial,
   AgentProfileImprovementBenchmark,
+  AgentProfileImprovementExecutor,
+  AgentProfileImprovementMethodOptions,
+  ExecuteAgentCandidateExperimentCellOptions,
+  ProposeAgentImprovementOptions,
+  ProposeAgentImprovementResult,
   ProposeAgentProfileImprovementOptions,
   ProposeAgentProfileImprovementResult,
+  RunAgentCandidateExperimentOptions,
+  RunAgentCandidateExperimentResult,
   VerifyCandidateExecutionEvidenceOptions,
 } from './improvement-cycle'
 export {
@@ -119,8 +159,12 @@ export {
   verifyCandidateExecutionEvidence,
 } from './improvement-cycle'
 export type {
+  AGENT_IMPROVEMENT_PROFILE_SURFACES,
+  AGENT_PROFILE_MEASURED_SURFACES,
   AgentImprovementActivationTargetIdentity,
   AgentImprovementProfileSurface,
+  AgentImprovementTargetProfileDiffOptions,
+  AgentProfileMeasuredSurface,
 } from './improvement-surfaces'
 export {
   agentImprovementProfileDiffs,
@@ -132,15 +176,26 @@ export {
 } from './improvement-surfaces'
 export {
   createOptimizationActivationReceipt,
+  type OptimizationActivationReceipt,
+  type OptimizationReceiptCost,
   optimizationActivationReceiptFromMetadata,
 } from './optimization-receipt'
 export type {
+  AgentImprovementProfileActivationInput,
+  AgentImprovementProfileActivationPreparation,
+  AgentImprovementProfileActivationTarget,
+  AgentImprovementProfileReplacement,
   AgentImprovementProfileStateDigest,
+  AgentImprovementProfileStateDigestInput,
   AgentImprovementProfileStateResolver,
+  AgentImprovementProfileStateResolverInput,
+  AgentImprovementProfileTargetState,
+  AgentImprovementProfileTargetTransition,
 } from './profile-activation'
 export { prepareAgentImprovementProfileActivation } from './profile-activation'
 export type {
   AppliedIntelligence,
+  IntelligenceAgent,
   IntelligenceHookConfig,
   IntelligenceWrapped,
 } from './with-intelligence'
@@ -253,7 +308,7 @@ export interface RunReport {
 /** Repo coordinates a product may declare for the (later) Gated-PR mode. The
  *  Observe slice only records their PRESENCE for `doctor()`; it never touches
  *  the repo. */
-interface RepoConfig {
+export interface RepoConfig {
   owner: string
   name: string
   baseBranch: string
@@ -343,7 +398,7 @@ export interface TraceHandle {
 }
 
 /** Metadata for {@link IntelligenceClient.recordTrace}. */
-interface RecordTraceMeta {
+export interface RecordTraceMeta {
   /** 32-hex trace id to anchor every span to. Defaults to a fresh id. */
   traceId?: string
   /** Span id of an enclosing span the loop root should parent under (e.g. a
@@ -418,14 +473,14 @@ export interface IntelligenceClient {
 }
 
 /** One mode's readiness verdict. */
-interface ModeReadiness {
+export interface ModeReadiness {
   ready: boolean
   /** Inputs this mode still needs, when not ready. Empty when ready. */
   missing: string[]
 }
 
 /** The `doctor()` readiness report — Mode-readiness without any network call. */
-interface DoctorReport {
+export interface DoctorReport {
   project: string
   effort: EffortSettings
   /** True when an OTLP endpoint is configured (export will actually ship). */
@@ -844,3 +899,7 @@ function withMissingAttributes(span: OtelSpan, attributes: Record<string, string
   if (Object.keys(missing).length === 0) return span
   return { ...span, attributes: [...(span.attributes ?? []), ...toOtelAttributes(missing)] }
 }
+
+export type { PrepareAgentCandidateExecutionOptions } from '../candidate-execution/prepare'
+export type { ImproveResult } from '../improvement/improve-types'
+export type { AgentEnvironmentProviderRef } from '../runtime/environment-provider/provider-registry'

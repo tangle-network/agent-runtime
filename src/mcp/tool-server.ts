@@ -35,7 +35,7 @@ const SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [
 ]
 
 /** @experimental */
-interface StdioToolServerOptions {
+export interface StdioToolServerOptions {
   /** Server display name surfaced via `initialize`. */
   serverName: string
   /** Server version surfaced via `initialize`. */

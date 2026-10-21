@@ -98,42 +98,6 @@ A write lost a compare-and-set race or targeted the wrong revision. Re-read and 
 
 > `readonly` **actual**: `number` \| `null`
 
-***
-
-### WorkspacePolicyError
-
-A policy or path rule refused the call.
-
-#### Extends
-
-- `Error`
-
-#### Constructors
-
-##### Constructor
-
-> **new WorkspacePolicyError**(`message`): [`WorkspacePolicyError`](#workspacepolicyerror)
-
-###### Parameters
-
-###### message
-
-`string`
-
-###### Returns
-
-[`WorkspacePolicyError`](#workspacepolicyerror)
-
-###### Overrides
-
-`Error.constructor`
-
-#### Properties
-
-##### code
-
-> `readonly` **code**: `"refused"`
-
 ## Interfaces
 
 ### WorkspaceCodecContext
@@ -902,14 +866,6 @@ Stored text of a sealed `content`: a prefix, then the sealed bytes in base64.
 
 Opening marker for the generated block in a harness's native memory file.
 
-***
-
-### HARNESS\_MEMORY\_END
-
-> `const` **HARNESS\_MEMORY\_END**: `"<!-- workspace-store:memory end -->"` = `'<!-- workspace-store:memory end -->'`
-
-Closing marker for the generated block in a harness's native memory file.
-
 ## Functions
 
 ### createAesGcmContentCodec()
@@ -1141,24 +1097,6 @@ Replace the generated block in `native`, or append one; text outside it is kept 
 
 ***
 
-### normalizeMemoryText()
-
-> **normalizeMemoryText**(`text`): `string`
-
-Lowercase, collapse spaces, drop a leading "Remember:" and trailing punctuation: the duplicate key.
-
-#### Parameters
-
-##### text
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
 ### captureHarnessMemory()
 
 > **captureHarnessMemory**(`before`, `after`): `string`[]
@@ -1184,29 +1122,11 @@ not a forget, which only `memory.forget` performs.
 
 ***
 
-### harnessActor()
-
-> **harnessActor**(`__namedParameters`): `string`
-
-The entry `actor` for a captured memory, so `createdBy` carries its provenance.
-
-#### Parameters
-
-##### \_\_namedParameters
-
-[`HarnessProvenance`](#harnessprovenance)
-
-#### Returns
-
-`string`
-
-***
-
 ### parseHarnessActor()
 
 > **parseHarnessActor**(`actor`): [`HarnessProvenance`](#harnessprovenance) \| `null`
 
-Read the harness, turn, and member provenance encoded by [harnessActor](#harnessactor).
+Read the harness, turn, and member provenance encoded by `harnessActor`.
 
 #### Parameters
 
@@ -1308,24 +1228,6 @@ Refuse anything but an absolute, normalized path such as `/files/report.md`.
 
 ***
 
-### memberIdFromPath()
-
-> **memberIdFromPath**(`path`): `string` \| `null`
-
-The member a path belongs to, or `null` for workspace-scoped paths.
-
-#### Parameters
-
-##### path
-
-`string`
-
-#### Returns
-
-`string` \| `null`
-
-***
-
 ### checkWorkspacePut()
 
 > **checkWorkspacePut**(`input`): `void`
@@ -1341,50 +1243,6 @@ Validate a put before any adapter touches storage; adapters call this first.
 #### Returns
 
 `void`
-
-***
-
-### checkOperationId()
-
-> **checkOperationId**(`path`, `operationId`): `void`
-
-Refuse an `operationId` that is present but empty, not a string, or over 256 chars.
-
-#### Parameters
-
-##### path
-
-`string`
-
-##### operationId
-
-`unknown`
-
-#### Returns
-
-`void`
-
-***
-
-### isSameWorkspaceWrite()
-
-> **isSameWorkspaceWrite**(`entry`, `input`): `boolean`
-
-Whether `entry` is exactly what `input` would write: same kind, content and bytes.
-
-#### Parameters
-
-##### entry
-
-[`WorkspaceEntry`](#workspaceentry)
-
-##### input
-
-[`WorkspacePutInput`](#workspaceputinput)
-
-#### Returns
-
-`boolean`
 
 ***
 
@@ -1492,33 +1350,6 @@ Workspace memories plus the speaker's own member memories, the set a turn may se
 #### Returns
 
 [`WorkspaceToolDefinition`](#workspacetooldefinition)[]
-
-***
-
-### rankEntries()
-
-> **rankEntries**(`entries`, `query`, `limit`): `object`[]
-
-BM25 over entry text (and path words), highest score first, ties by path.
-Entries without inline text match on path words only.
-
-#### Parameters
-
-##### entries
-
-readonly [`WorkspaceEntry`](#workspaceentry)[]
-
-##### query
-
-`string`
-
-##### limit
-
-`number`
-
-#### Returns
-
-`object`[]
 
 ***
 

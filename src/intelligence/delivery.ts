@@ -110,7 +110,7 @@ export type PullOutcome =
   | { succeeded: true; value: CertifiedProfile }
   | { succeeded: false; error: string; status?: number }
 
-interface PullCertifiedOptions {
+export interface PullCertifiedOptions {
   /** The agent target certified artifacts are promoted under. */
   target: string
   /** Bearer key. Defaults to `process.env.TANGLE_API_KEY`. */

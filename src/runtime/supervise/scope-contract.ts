@@ -83,7 +83,7 @@ export interface ScopeArgs {
    *  `DeadlineCheckIn`); `false` stops the child at its time box. Nested scopes inherit it. */
   readonly deadlineCheckIn?: DeadlineCheckIn
   /** How long a keyed leaf whose turn ended over its budget keeps its environment for a same-key
-   *  re-spawn to continue (ms). Default {@link DEFAULT_BUDGET_STOP_HOLD_MS}; `0` keeps none.
+   *  re-spawn to continue (ms). Default `DEFAULT_BUDGET_STOP_HOLD_MS`; `0` keeps none.
    *  Nested scopes inherit it. */
   readonly budgetStopHoldMs?: number
   /** Abort signal for this scope; an abort cascades into every live child's executor. */

@@ -12,6 +12,12 @@ export { runAnalystLoop } from './run-analyst-loop'
 export type {
   AnalystRegistryLike,
   FindingsStoreLike,
+  ImprovementEditBatch,
   ImprovementProposalSource,
+  ImprovementReport,
+  KnowledgeProposalBatch,
   KnowledgeProposalSource,
+  KnowledgeReport,
+  RunAnalystLoopOpts,
+  RunAnalystLoopResult,
 } from './types'

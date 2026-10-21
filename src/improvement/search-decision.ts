@@ -248,7 +248,7 @@ async function searchPromotion(
   return { experiment, decision }
 }
 
-interface DecideSearchImprovementOptions {
+export interface DecideSearchImprovementOptions {
   /** The closed search's directory, `<runDir>/search/<searchId>`: its
    * `ledger.jsonl`, `blobs/` and, unless `costLedger` is given, `cost-ledger.jsonl`. */
   searchDir: string
@@ -259,7 +259,7 @@ interface DecideSearchImprovementOptions {
   storage?: CampaignStorage
 }
 
-interface SearchImprovementDecision extends SearchShipDecision {
+export interface SearchImprovementDecision extends SearchShipDecision {
   searchId: string
   claim: SearchClaim
   claimVerification: SearchClaimVerification

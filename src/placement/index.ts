@@ -456,3 +456,8 @@ function declaredAxes(profile: object): AgentProfileMaterializationAxis[] {
   }
   return axes
 }
+
+export type {
+  AgentProfileMaterializationAxis,
+  KnownAgentProfileMaterializationAxis,
+} from '../agent/profile-materialization'
