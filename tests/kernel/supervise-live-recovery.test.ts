@@ -8,7 +8,7 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { expect, it } from 'vitest'
 import { providerAsExecutor } from '../../src/runtime/environment-provider'
-import { driverAgent } from '../../src/runtime/supervise/coordination-driver'
+import { driverAgent } from '../../src/runtime/supervise/driver-brain-agent'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Agent, SpawnJournal } from '../../src/runtime/supervise/types'

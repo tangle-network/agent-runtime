@@ -14,9 +14,10 @@ import {
   checkVerdictOf,
   createContinuationKeeper,
 } from './continuation'
-import { driverAgent, type RootSteer } from './coordination-driver'
 import type { PriorCoordination } from './coordination-log'
 import { serveCoordinationMcpForManager } from './coordination-mcp'
+import { driverAgent } from './driver-brain-agent'
+import type { RootSteer } from './driver-control-acknowledgers'
 import {
   type DriverAttemptRecord,
   type DriverContinuationRecord,
