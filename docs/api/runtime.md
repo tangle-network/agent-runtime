@@ -42173,6 +42173,16 @@ Bytes are written to the host first. With a durable store, every object is also 
 host as it is written, and `localBudgetBytes` bounds what the host keeps: an object's local copy
 is deleted only after its durable receipt exists, and reads fall back to the durable store.
 
+An object's name is published only after its bytes are synced, and that order is what makes a
+name trustworthy. A put whose digest already exists links nothing: it re-reads the existing
+object and refuses on a mismatch, and no later put replaces that file. So a deferred-sync mode
+that published names before one batch sync would, after a crash, leave a torn object under its
+valid name, and every later put of that digest would fail. Any batching must keep the order:
+write under temporary names, sync, publish the names, sync again (discovery-lab
+runner/evidence-store.mjs commits receipts this way). On drew-gtr-pro's USB SMR disk on
+2026-10-21 these per-object fsyncs, 545 ms each on the 16 SYNC_THREADS, set a store's rate at
+about 26 files/s.
+
 #### Parameters
 
 ##### root
