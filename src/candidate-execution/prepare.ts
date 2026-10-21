@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { lstat, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join, posix, relative, resolve as resolveHostPath } from 'node:path'
+import { isAbsolute, join, relative, resolve as resolveHostPath } from 'node:path'
 import type {
   AgentCandidateConfigValue,
   AgentCandidateEffectiveMemory,
@@ -63,11 +63,17 @@ import {
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
 import {
+  absoluteExecutionCwd,
+  buildLaunch,
+  candidateEntrypointReceipt,
   candidateProfileAgentPaths,
+  exactProfileExecutorFiles,
   materializeAgentCandidateProfilePlan,
+  modelRoutes,
   PI_CANDIDATE_AGENT_DIR_ENV,
   PI_CANDIDATE_SESSION_DIR_ENV,
 } from './profile'
+import { modelLimits } from './protected-model-port'
 import { requirePublicCandidateConfigValue } from './public-config'
 import {
   type AgentCandidateExecutionPorts,
@@ -888,28 +894,6 @@ async function prepareMemory(
   }
 }
 
-function buildLaunch(
-  candidate: VerifiedAgentCandidate,
-  task: AgentCandidateTaskExecution,
-  profileFlags: AgentCandidateConfigValue[],
-): { executable: string; args: AgentCandidateConfigValue[] } {
-  const launch = candidate.bundle.execution.launch
-  if (launch.kind === 'container-command') {
-    return { executable: launch.executable, args: [...(launch.args ?? []), ...profileFlags] }
-  }
-  const candidateRoot = task.executionRoots.candidateRoot
-  if (!candidateRoot) throw new Error('candidate entrypoint requires a container candidate root')
-  const entrypoint = posix.join(candidateRoot, launch.entrypoint)
-  const candidateArgs = launch.args ?? []
-  if (launch.interpreter) {
-    return {
-      executable: launch.interpreter,
-      args: [{ kind: 'public', value: entrypoint }, ...candidateArgs, ...profileFlags],
-    }
-  }
-  return { executable: entrypoint, args: [...candidateArgs, ...profileFlags] }
-}
-
 function mergePublicEnvironment(
   ...records: Array<Record<string, AgentCandidateConfigValue>>
 ): Record<string, AgentCandidateConfigValue> {
@@ -936,55 +920,6 @@ function unwrapPublicEnvironment(
       requirePublicCandidateConfigValue(value, `env.${name}`),
     ]),
   )
-}
-
-function modelRoutes(
-  profile: VerifiedAgentCandidate['bundle']['profile'],
-  requested: string,
-): AgentCandidateExecutionPlanMaterial['model']['routes'] {
-  const routes: AgentCandidateExecutionPlanMaterial['model']['routes'] = [
-    { kind: 'primary', requested },
-  ]
-  if (profile.model?.small) routes.push({ kind: 'small', requested })
-  for (const name of Object.keys(profile.modes ?? {}).sort()) {
-    if (profile.modes?.[name]?.model) routes.push({ kind: 'mode', name, requested })
-  }
-  for (const name of Object.keys(profile.subagents ?? {}).sort()) {
-    if (profile.subagents?.[name]?.model) routes.push({ kind: 'subagent', name, requested })
-  }
-  return routes
-}
-
-function candidateEntrypointReceipt(
-  candidate: VerifiedAgentCandidate,
-): { path: string; sha256: `sha256:${string}`; byteLength: number } | undefined {
-  const launch = candidate.bundle.execution.launch
-  const workspace = candidate.bundle.execution.workspace
-  if (launch.kind !== 'candidate-entrypoint' || !workspace) return undefined
-  const file = workspace.material.files.find((entry) => entry.path === launch.entrypoint)
-  if (!file) throw new Error('candidate entrypoint is absent from the verified workspace')
-  return { path: file.path, sha256: file.sha256, byteLength: file.byteLength }
-}
-
-function absoluteExecutionCwd(
-  cwd: VerifiedAgentCandidate['bundle']['execution']['cwd'],
-  roots: AgentCandidateTaskExecution['executionRoots'],
-): string {
-  const root = workspaceExecutionRoot(cwd.workspace, roots)
-  const absolute = cwd.path === '.' ? root : posix.join(root, cwd.path)
-  if (absolute !== root && !absolute.startsWith(`${root}/`)) {
-    throw new Error('candidate cwd escapes its execution workspace')
-  }
-  return absolute
-}
-
-function workspaceExecutionRoot(
-  workspace: 'task' | 'candidate',
-  roots: AgentCandidateTaskExecution['executionRoots'],
-): string {
-  const root = workspace === 'task' ? roots.taskRoot : roots.candidateRoot
-  if (!root) throw new Error(`candidate ${workspace} workspace root is missing`)
-  return root
 }
 
 function validateProtectedModelReservation(
@@ -1030,65 +965,4 @@ function assertEnvironmentDisjoint(
     if (seen.has(name)) throw new Error(`evaluator environment binding collides with ${name}`)
     seen.add(name)
   }
-}
-
-function modelLimits(limits: AgentCandidateExecutionLimits): {
-  maxModelCalls: number
-  maxInputTokens: number
-  maxOutputTokens: number
-  maxCostUsd: number
-} {
-  return {
-    maxModelCalls: limits.maxModelCalls,
-    maxInputTokens: limits.maxInputTokens,
-    maxOutputTokens: limits.maxOutputTokens,
-    maxCostUsd: limits.maxCostUsd,
-  }
-}
-
-function exactProfileExecutorFiles(
-  sourceFiles: ReadonlyArray<{
-    relPath: string
-    content: string
-    mode?: number
-    root?: 'agent' | 'workspace'
-  }>,
-  expectedFiles: ReadonlyArray<{
-    relPath: string
-    mode: number
-    contentSha256: string
-    root?: 'agent'
-  }>,
-): Array<{ path: string; mode: number; root?: 'agent'; bytes: Uint8Array }> {
-  const byIdentity = new Map(
-    sourceFiles.map((file) => [profileFileIdentity(file.root, file.relPath), file]),
-  )
-  if (byIdentity.size !== sourceFiles.length || sourceFiles.length !== expectedFiles.length) {
-    throw new Error('profile source files do not match the signed profile plan')
-  }
-  return expectedFiles.map((expected) => {
-    const source = byIdentity.get(profileFileIdentity(expected.root, expected.relPath))
-    const mode = source?.mode ?? 0o644
-    const bytes = Buffer.from(source?.content ?? '', 'utf8')
-    if (
-      !source ||
-      !Number.isInteger(mode) ||
-      mode < 0 ||
-      mode > 0o777 ||
-      mode !== expected.mode ||
-      sha256Bytes(bytes) !== expected.contentSha256
-    ) {
-      throw new Error('profile source files do not match the signed profile plan')
-    }
-    return {
-      path: expected.relPath,
-      mode,
-      ...(expected.root === 'agent' ? { root: 'agent' as const } : {}),
-      bytes: Uint8Array.from(bytes),
-    }
-  })
-}
-
-function profileFileIdentity(root: 'agent' | 'workspace' | undefined, relPath: string): string {
-  return `${root ?? 'workspace'}\0${relPath}`
 }

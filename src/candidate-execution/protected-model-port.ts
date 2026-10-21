@@ -1,4 +1,5 @@
 import type {
+  AgentCandidateExecutionLimits,
   AgentCandidateModelAccessNetwork,
   AgentCandidateResolvedModel,
   Sha256Digest,
@@ -541,4 +542,18 @@ function record(value: unknown, label: string): Record<string, unknown> {
     throw new Error(`${label} must be a plain object`)
   }
   return value as Record<string, unknown>
+}
+
+export function modelLimits(limits: AgentCandidateExecutionLimits): {
+  maxModelCalls: number
+  maxInputTokens: number
+  maxOutputTokens: number
+  maxCostUsd: number
+} {
+  return {
+    maxModelCalls: limits.maxModelCalls,
+    maxInputTokens: limits.maxInputTokens,
+    maxOutputTokens: limits.maxOutputTokens,
+    maxCostUsd: limits.maxCostUsd,
+  }
 }

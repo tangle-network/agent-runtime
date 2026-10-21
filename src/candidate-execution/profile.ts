@@ -1,6 +1,7 @@
 import { posix } from 'node:path'
-
 import type {
+  AgentCandidateConfigValue,
+  AgentCandidateExecutionPlanMaterial,
   AgentCandidateLaunch,
   AgentCandidateProfile,
   AgentCandidateProfileActivation,
@@ -30,7 +31,6 @@ import {
   materializeCandidateProfile,
   resolvePiRuntimePaths,
 } from '@tangle-network/agent-profile-materialize'
-
 import {
   assertSandboxProfileCompatibility,
   refuseSandboxProfileField,
@@ -46,6 +46,7 @@ import {
 } from './digest'
 import { requirePublicCandidateConfigValue } from './public-config'
 import { projectCandidatePromptIntents } from './system-prompt'
+import type { AgentCandidateTaskExecution, VerifiedAgentCandidate } from './types'
 
 export function candidateMaterializerHarness(harness: HarnessType): HarnessId {
   if (!isMaterializerHarness(harness)) {
@@ -585,4 +586,118 @@ function unsupportedProfileField(path: string): never {
   throw new Error(
     `generic AgentProfile field ${path} is not representable in a sealed candidate profile`,
   )
+}
+
+export function buildLaunch(
+  candidate: VerifiedAgentCandidate,
+  task: AgentCandidateTaskExecution,
+  profileFlags: AgentCandidateConfigValue[],
+): { executable: string; args: AgentCandidateConfigValue[] } {
+  const launch = candidate.bundle.execution.launch
+  if (launch.kind === 'container-command') {
+    return { executable: launch.executable, args: [...(launch.args ?? []), ...profileFlags] }
+  }
+  const candidateRoot = task.executionRoots.candidateRoot
+  if (!candidateRoot) throw new Error('candidate entrypoint requires a container candidate root')
+  const entrypoint = posix.join(candidateRoot, launch.entrypoint)
+  const candidateArgs = launch.args ?? []
+  if (launch.interpreter) {
+    return {
+      executable: launch.interpreter,
+      args: [{ kind: 'public', value: entrypoint }, ...candidateArgs, ...profileFlags],
+    }
+  }
+  return { executable: entrypoint, args: [...candidateArgs, ...profileFlags] }
+}
+
+export function modelRoutes(
+  profile: VerifiedAgentCandidate['bundle']['profile'],
+  requested: string,
+): AgentCandidateExecutionPlanMaterial['model']['routes'] {
+  const routes: AgentCandidateExecutionPlanMaterial['model']['routes'] = [
+    { kind: 'primary', requested },
+  ]
+  if (profile.model?.small) routes.push({ kind: 'small', requested })
+  for (const name of Object.keys(profile.modes ?? {}).sort()) {
+    if (profile.modes?.[name]?.model) routes.push({ kind: 'mode', name, requested })
+  }
+  for (const name of Object.keys(profile.subagents ?? {}).sort()) {
+    if (profile.subagents?.[name]?.model) routes.push({ kind: 'subagent', name, requested })
+  }
+  return routes
+}
+
+export function candidateEntrypointReceipt(
+  candidate: VerifiedAgentCandidate,
+): { path: string; sha256: `sha256:${string}`; byteLength: number } | undefined {
+  const launch = candidate.bundle.execution.launch
+  const workspace = candidate.bundle.execution.workspace
+  if (launch.kind !== 'candidate-entrypoint' || !workspace) return undefined
+  const file = workspace.material.files.find((entry) => entry.path === launch.entrypoint)
+  if (!file) throw new Error('candidate entrypoint is absent from the verified workspace')
+  return { path: file.path, sha256: file.sha256, byteLength: file.byteLength }
+}
+
+export function absoluteExecutionCwd(
+  cwd: VerifiedAgentCandidate['bundle']['execution']['cwd'],
+  roots: AgentCandidateTaskExecution['executionRoots'],
+): string {
+  const root = workspaceExecutionRoot(cwd.workspace, roots)
+  const absolute = cwd.path === '.' ? root : posix.join(root, cwd.path)
+  if (absolute !== root && !absolute.startsWith(`${root}/`)) {
+    throw new Error('candidate cwd escapes its execution workspace')
+  }
+  return absolute
+}
+
+function workspaceExecutionRoot(
+  workspace: 'task' | 'candidate',
+  roots: AgentCandidateTaskExecution['executionRoots'],
+): string {
+  const root = workspace === 'task' ? roots.taskRoot : roots.candidateRoot
+  if (!root) throw new Error(`candidate ${workspace} workspace root is missing`)
+  return root
+}
+
+export function exactProfileExecutorFiles(
+  sourceFiles: ReadonlyArray<{
+    relPath: string
+    content: string
+    mode?: number
+    root?: 'agent' | 'workspace'
+  }>,
+  expectedFiles: ReadonlyArray<{
+    relPath: string
+    mode: number
+    contentSha256: string
+    root?: 'agent'
+  }>,
+): Array<{ path: string; mode: number; root?: 'agent'; bytes: Uint8Array }> {
+  const byIdentity = new Map(
+    sourceFiles.map((file) => [profileFileIdentity(file.root, file.relPath), file]),
+  )
+  if (byIdentity.size !== sourceFiles.length || sourceFiles.length !== expectedFiles.length) {
+    throw new Error('profile source files do not match the signed profile plan')
+  }
+  return expectedFiles.map((expected) => {
+    const source = byIdentity.get(profileFileIdentity(expected.root, expected.relPath))
+    const mode = source?.mode ?? 0o644
+    const bytes = Buffer.from(source?.content ?? '', 'utf8')
+    if (
+      !source ||
+      !Number.isInteger(mode) ||
+      mode < 0 ||
+      mode > 0o777 ||
+      mode !== expected.mode ||
+      sha256Bytes(bytes) !== expected.contentSha256
+    ) {
+      throw new Error('profile source files do not match the signed profile plan')
+    }
+    return {
+      path: expected.relPath,
+      mode,
+      ...(expected.root === 'agent' ? { root: 'agent' as const } : {}),
+      bytes: Uint8Array.from(bytes),
+    }
+  })
 }
