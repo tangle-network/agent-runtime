@@ -18,8 +18,8 @@ import type {
   WorkerTraceEvidence,
 } from '../../runtime'
 import type { RuntimeFailureCause } from '../../runtime/failure-cause'
-import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
-import type { CheckRead, CheckVerdict } from '../../runtime/supervise/continuation'
+import type { CheckVerdict, DeliverableSpec } from '../../runtime/supervise/completion-gate'
+import type { CheckRead } from '../../runtime/supervise/continuation'
 import type { BusRecord, BusStats } from '../../runtime/supervise/event-bus'
 import type { PeerMailbox, PeerMailLimits } from '../../runtime/supervise/peer-mail'
 import type { McpToolDescriptor } from '../server'

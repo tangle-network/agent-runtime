@@ -45,12 +45,12 @@ import {
   type IsolatedCheckResult,
   runIsolatedCheck,
 } from './isolated-checker'
-import type { DeliverableSpec } from './supervise/completion-gate'
 import {
   CheckUnavailableError,
   type CheckVerdict,
+  type DeliverableSpec,
   verdictFromJudgeScore,
-} from './supervise/continuation'
+} from './supervise/completion-gate'
 
 /** A check program as a record declares it. */
 export interface DeclaredCheck {

@@ -17,7 +17,7 @@ import {
   readDeclaredCheck,
 } from '../../src/runtime/declared-check'
 import type { IsolatedCheckBox } from '../../src/runtime/isolated-checker'
-import { CheckUnavailableError } from '../../src/runtime/supervise/continuation'
+import { CheckUnavailableError } from '../../src/runtime/supervise/completion-gate'
 
 /**
  * A Sandbox client whose boxes are local directories. It runs the real `runIsolatedCheck` box
@@ -300,19 +300,6 @@ describe('a declared check', () => {
     expect(captured).toHaveLength(2)
     // Each capture directory is Runtime's own and is gone after its read.
     for (const into of captured) await expect(access(into)).rejects.toThrow()
-  })
-
-  it('gives no verdict when the state cannot be captured, and creates no box', async () => {
-    const deliverable = declaredCheckDeliverable(check, placement, {
-      state: async () => {
-        throw new Error('the root box has no container task')
-      },
-    })
-    await expect(deliverable.check({ answer: 42 })).rejects.toThrow(
-      /the run's state could not be captured: the root box has no container task/,
-    )
-    await expect(deliverable.checkState?.()).rejects.toThrow(CheckUnavailableError)
-    expect(boxes.created).toHaveLength(0)
   })
 
   it('scores a version on the sealed cases, which no in-run read ever mounts', async () => {

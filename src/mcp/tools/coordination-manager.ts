@@ -1,10 +1,6 @@
 import type { Scope } from '../../runtime'
-import {
-  type CheckRead,
-  CheckUnavailableError,
-  type CheckVerdict,
-  checkVerdictOf,
-} from '../../runtime/supervise/continuation'
+import { CheckUnavailableError, type CheckVerdict } from '../../runtime/supervise/completion-gate'
+import { type CheckRead, checkVerdictOf } from '../../runtime/supervise/continuation'
 import { type BusRecord, createEventBus } from '../../runtime/supervise/event-bus'
 import { INBOX_RECEIPT_KEY, type InboxReceipt } from '../../runtime/supervise/inbox'
 import { isLiveNodeStatus } from '../../runtime/supervise/node-status'

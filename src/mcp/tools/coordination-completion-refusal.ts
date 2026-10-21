@@ -1,9 +1,5 @@
-import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
-import {
-  type CheckVerdict,
-  failedItems,
-  NOTE_FAILURE_LINES,
-} from '../../runtime/supervise/continuation'
+import type { CheckVerdict, DeliverableSpec } from '../../runtime/supervise/completion-gate'
+import { failedItems, NOTE_FAILURE_LINES } from '../../runtime/supervise/continuation'
 /**
  * The refusal a failed check reading returns to `submit_result`: the verdict as a located fact,
  * the FAIL lines unless the check's tests must stay hidden, and how many times the manager has

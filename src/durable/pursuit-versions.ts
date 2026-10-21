@@ -47,7 +47,9 @@ import {
 } from '@tangle-network/agent-interface'
 import { applyExactAgentProfileDiff } from '../candidate-execution/profile'
 import { RuntimeRunStateError, ValidationError } from '../errors'
-import { type CheckVerdict, failedItems } from '../runtime/supervise/continuation'
+import { isFiniteNumber } from '../finite-number'
+import type { CheckVerdict } from '../runtime/supervise/completion-gate'
+import { failedItems } from '../runtime/supervise/continuation'
 import { authoredProfileDigest } from '../runtime/supervise/materialization'
 import { superviseRootProfile } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
@@ -1218,10 +1220,6 @@ async function exists(path: string): Promise<boolean> {
 
 function isSha256(value: unknown): value is Sha256Digest {
   return typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value)
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
 }
 
 function errorMessage(error: unknown): string {

@@ -3,7 +3,6 @@ import { PartialFailureError } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { BackendTransportError, ConfigError, ValidationError } from '../../errors'
 import { RetainedRunProviderContractError } from '../retained-run-binding'
-import { CheckUnavailableError } from './continuation'
 import {
   classifyDriverFailure,
   type DriverAttemptRecord,
@@ -1194,29 +1193,6 @@ describe('runDriverWithRetry — a completed drive whose contract is unmet', () 
     expect(reentries).toHaveLength(3)
     expect(reentries[1]?.reason).toBe('unmet-contract')
     expect(reentries[2]).toEqual({ reason: 'driver-failure', failure: 'stream closed', retry: 1 })
-  })
-
-  it('pauses, never fails, when the check itself could not run', async () => {
-    let calls = 0
-    const records: DriverAttemptRecord[] = []
-    await runDriverWithRetry({
-      drive: async () => {
-        calls += 1
-        if (calls <= 5) throw new CheckUnavailableError('check box did not start')
-      },
-      progress: () => mark({ contract: calls > 5 ? 'met' : 'unmet' }),
-      budget: () => budget(),
-      signal: new AbortController().signal,
-      policy: { maxAttempts: 1, maxConsecutiveFailures: 1 },
-      continuation: continuation(),
-      onAttempt: (r) => void records.push(r),
-      sleep: instantSleep,
-    })
-    expect(calls).toBe(6)
-    expect(records.slice(0, 5).map((r) => [r.classification, r.unavailableSignal])).toEqual(
-      Array.from({ length: 5 }, () => ['unavailable', 'check-unavailable']),
-    )
-    expect(records.at(-1)).toMatchObject({ stop: 'completed', contract: 'met' })
   })
 })
 

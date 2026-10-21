@@ -474,19 +474,18 @@ export {
 // workers; this leaf resumes its own sessions, so conversation graphs and chat-shot loops
 // compose from data on any transport.
 export * from './supervise/chat-transport-executor'
-// The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
-// settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
-export * from './supervise/completion-gate'
 // ONE CHECK, ONE RESEND RULE, ONE NOTE: the check's verdict, the continuation policy a manager
 // with a check must declare, and the note Runtime writes from the verdict. The profile owns every
 // instruction word; a play may append a section but never replace one.
+export type { CheckVerdict } from './supervise/completion-gate'
+// The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
+// settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
+export * from './supervise/completion-gate'
 export {
   type AdmittedFinding,
   admitContinuationPolicy,
   admitFinding,
   type CheckRead,
-  CheckUnavailableError,
-  type CheckVerdict,
   CONTINUATION_FACTS,
   type ContinuationAppend,
   type ContinuationContext,
@@ -504,7 +503,6 @@ export {
   type PanelFinding,
   passedItems,
   type VerdictSummary,
-  verdictFromJudgeScore,
 } from './supervise/continuation'
 export type * from './supervise/contracts/accounting'
 export type * from './supervise/contracts/agent-scope'
