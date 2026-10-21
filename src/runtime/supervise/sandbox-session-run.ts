@@ -91,11 +91,8 @@ export function sandboxSessionOutput(run: SandboxSessionRun): unknown {
     turns: run.turns,
     toolCalls: run.toolCalls,
     ...(run.latestOutcome ? { outcome: run.latestOutcome } : {}),
-    // The named reason behind a `false` `spent.tokensKnown`, on the settlement rather than the
-    // verdict: whether the work SUCCEEDED and whether its spend was MEASURED are different
-    // facts, and collapsing them would drop a correct worker from every valid-winner selection.
-    // The conserved pool already carries the measurement fact — `tokensKnown: false` taints the
-    // readout and names the node in `spendGaps`.
+    // The reason behind a `false` `spent.tokensKnown` rides the settlement, not the verdict: SUCCEEDED
+    // and MEASURED differ, and collapsing them would drop a correct worker from winner selection.
     ...(run.usageFailure === undefined ? {} : { tokensUnknownReason: run.usageFailure }),
     ...(run.args.workspaceCaptures === undefined
       ? {}

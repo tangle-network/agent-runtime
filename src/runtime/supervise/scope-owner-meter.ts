@@ -33,11 +33,10 @@ export class ScopeOwnerMeter {
     const partial = providerModel !== undefined || accountingOnly
     if (!partial) spend = withBudgetResources(spend, args.pool.readout())
     const seq = this.meterSeq++
-    // Debit the driver's own inference against the shared conserved pool (free → committed), so
-    // equal-k counts it live and `budget.tokensLeft` reflects it for the in-loop guard.
-    // An invalid observation (currently: unknown dollar cost under a dollar ceiling) still
-    // describes compute that already happened. Preserve it in the durable record before
-    // returning the refusal; otherwise the terminal result would falsely report that cost as $0.
+    // Debit the driver's own inference against the shared pool (free → committed), so equal-k and
+    // `budget.tokensLeft` see it live. An invalid observation (unknown dollars under a ceiling) still
+    // describes compute that happened: record it durably before returning the refusal, or the
+    // terminal result would report that cost as $0.
     let observeError: unknown
     try {
       args.pool.observe(spend, { partial, ...(alreadySpent ? { alreadySpent } : {}) })

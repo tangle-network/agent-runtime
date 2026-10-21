@@ -32,9 +32,8 @@ import { observeWorkerControls } from './worker-control-observer'
 
 /** What an external-harness manager's Agent face reads, during an `act` and between acts. */
 export interface ExternalManagerLive {
-  /** Set while `act` runs: where a message from this manager's lead goes. A harness with a live
-   *  inbox takes it inside the running turn; otherwise it is the input of the manager's next wake.
-   *  Before, a manager on an executor with no inbox refused every steer as `runtime-has-no-inbox`. */
+  /** Set while `act` runs: where a message from this manager's lead goes (inside the running turn
+   *  for a harness with a live inbox, else the input of the next wake). */
   inbox: ((message: unknown) => boolean) | undefined
   /** The workers this manager is waiting on, while it waits between turns. */
   waitingOn: number | undefined
@@ -135,11 +134,9 @@ export async function openManagerSession(
 }
 
 /**
- * PROGRESS-derived stop on this arm. The harness owns its own turn loop, so a worker settle is the
- * evaluation boundary the supervisor has — and it is the same ledger + the same `progressStop`
- * evaluator the router arm consults before each of its inference turns. The stop is delivered
- * through the ONE lever this arm already has: `stopController`, which the harness reads as its
- * stop signal and honours at the next turn boundary.
+ * PROGRESS-derived stop on this arm. The harness owns its turn loop, so a worker settle is the
+ * evaluation boundary: the same ledger and `progressStop` evaluator the router arm consults, with
+ * the stop delivered through `stopController`, which the harness honours at its next turn boundary.
  */
 function progressStopObserver(
   deps: SupervisorAgentDeps,
@@ -250,10 +247,9 @@ function serveManagerCoordination(
 
 /**
  * Where a message from this manager's lead goes. A harness invocation's executor ends with its
- * attempt, and its inbox with it. A message that executor still held moves to `nextTurnInbox`,
- * which the next drive's prompt carries whether it is a wake or a failure re-entry, instead of
- * failing with the executor. Run 18b's core-4 lost a director ruling and a failed-check notice
- * this way, and its next two prompts said "Events waiting for you: none".
+ * attempt, and its inbox with it, so a message it still held moves to `nextTurnInbox`, which the
+ * next drive's prompt carries (run 18b's core-4 lost a director ruling and a failed-check notice
+ * this way: "Events waiting for you: none").
  */
 function managerInboxRoute(
   config: ExternalManagerConfig,

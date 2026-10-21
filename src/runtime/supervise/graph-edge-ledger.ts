@@ -13,10 +13,9 @@ export class GraphEdgeLedger {
   private readonly journaled = new Set<EdgeTraversal>()
   // Per-edge ordinals: every row takes the next one, so the ledger reads as one full sequence.
   private readonly traversalCounts = new Map<string, number>()
-  // What the caps judge, kept apart from the ordinals: a spawn row is charged when a live worker
-  // BINDS it, never when it is authorized. scope.spawn runs the factory (this graph's
-  // authorizeSpawn) before it decides duplicate-key, key-conflict, or a completed keyed result,
-  // so a row that never binds advanced no cycle and must leave the backstop untouched (#1005).
+  // What the caps judge, apart from the ordinals: a spawn row is charged when a live worker BINDS
+  // it, never when authorized (scope.spawn runs the factory before deciding duplicate-key,
+  // key-conflict or a completed keyed result), so an unbound row leaves the backstop untouched (#1005).
   private readonly capSpend = new Map<string, number>()
   /** Edge ids whose traversal cap was hit — analyzes exhaustion included. */
   readonly exhausted = new Set<string>()
@@ -60,9 +59,8 @@ export class GraphEdgeLedger {
 
   /** Hold a provisional spawn row under its manager and assignment until a worker binds it. */
   holdPendingSpawn(parentNodeId: string | undefined, assignmentId: string, row: EdgeTraversal) {
-    // A keyed assignment id is stable across re-spawns, so a row still pending under it was
-    // never bound (the `agent.spawn` hook would have cleared it): settle it now, before this
-    // authorization takes its slot, or the earlier phantom stays `delivered` forever.
+    // A keyed assignment id is stable across re-spawns, so a row still pending under it never
+    // bound: settle it before this authorization takes its slot, or the phantom stays `delivered`.
     const key = pendingKey(parentNodeId, assignmentId)
     const stale = this.pendingByAssignment.get(key)
     if (stale !== undefined) void this.settleUnbound(stale)
@@ -88,13 +86,11 @@ export class GraphEdgeLedger {
 
   readonly settle = async (): Promise<GraphLedgerSettlement> => {
     // A spawn row is PROVISIONAL until the `agent.spawn` hook (fired synchronously once a worker
-    // exists) binds it to a live worker id. A row still unbound here means the factory ran but no
-    // NEW worker went live: the spawn was refused after the factory (identity conflict, runtime
-    // floor) or a keyed re-spawn deduplicated to an already-completed result (prepare() runs the
-    // factory, no hook fires). Both state the same truth every unpropagated row states — the
-    // directive never reached a live worker — so rewrite rather than mint a new outcome; the row
-    // kept its ordinal and was never charged to the edge cap. Then settle every journal write, so
-    // the ledger's journal twin is complete when this returns.
+    // exists) binds it. A row still unbound here means no NEW worker went live: the spawn was
+    // refused after the factory (identity conflict, runtime floor) or a keyed re-spawn
+    // deduplicated to a completed result. Both state what every unpropagated row states (the
+    // directive never reached a live worker), so rewrite rather than mint a new outcome. Then
+    // settle every journal write so the ledger's journal twin is complete when this returns.
     for (const pending of this.pendingByAssignment.values()) await this.settleUnbound(pending)
     this.pendingByAssignment.clear()
     await Promise.all(this.journalWrites)
@@ -109,9 +105,8 @@ export class GraphEdgeLedger {
     this.capSpend.set(edge, (this.capSpend.get(edge) ?? 0) + 1)
   }
 
-  // A provisional spawn row that never bound a live worker states the same truth every
-  // unpropagated row states — the directive never reached a worker — so it is rewritten in place
-  // rather than minted as a new outcome; its ordinal stands and the edge cap was never charged.
+  // An unbound provisional spawn row rewrites in place as `unpropagated`; its ordinal stands and
+  // the edge cap was never charged.
   private settleUnbound(pending: EdgeTraversal): Promise<void> {
     const refused: EdgeTraversal = {
       ...pending,

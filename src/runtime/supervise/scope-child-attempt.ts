@@ -39,9 +39,8 @@ export class ChildExecutionAttempt<C> {
   retainedOutputRef: string | undefined
   private teardownStarted = false
   private traceEvidence: WorkerTraceEvidence | undefined
-  // Same shape as the trace: read from the executor once per settle exit, persisted under its
-  // own content ref, and only the receipt travels on the record. Every arm, done and down alike,
-  // carries it — the arms that lose it are the failure arms (#1244).
+  // Like the trace: read once per settle exit, persisted under its own content ref, only the receipt
+  // travels. Every arm carries it, failure arms included (#1244).
   private transcriptEvidence: HarnessTranscriptEvidence | undefined
 
   constructor(
@@ -104,8 +103,7 @@ export class ChildExecutionAttempt<C> {
     this.teardownStarted = true
     const { live, executor } = this
     try {
-      // An environment kept for a continuation that this settlement will not offer is released
-      // with the rest of the executor.
+      // An environment kept for a continuation this settlement will not offer is released too.
       await executor.heldForContinuation?.()?.release()
       await teardownExecutor(executor, grace, this.deadlineAtMs, this.now, live.askTeardown)
       live.cleanupConfirmed = true
@@ -120,8 +118,8 @@ export class ChildExecutionAttempt<C> {
     if (this.reconciled) return this.reconciliationError
     this.reconciled = true
     const { live, opts } = this
-    // A refused pre-execution path (including an unmetered executor) reconciles zero and refunds
-    // its whole reservation. Every path that actually executes reports measured or unknown spend.
+    // A pre-execution refusal reconciles zero and refunds the reservation; every executing path
+    // reports measured or unknown spend.
     try {
       try {
         spend = withBudgetResources(spend, opts.budget, !this.started)
@@ -142,8 +140,7 @@ export class ChildExecutionAttempt<C> {
         }
         throw error
       }
-      // An overspend is recorded, not thrown: the pool has committed the true spend, and a
-      // child that completed keeps its artifact. A fault still throws, carrying any overspend.
+      // An overspend is recorded, not thrown (the pool committed the true spend); a fault throws.
       live.budgetViolation = this.pool.reconcile(this.ticket, spend)
       this.recordDeadlineOverrun()
       return undefined

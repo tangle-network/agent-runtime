@@ -83,17 +83,14 @@ export function buildSupervisorAgent(
     )
   }
   const name = stableProfile.name ?? 'supervisor'
-  // The prompt is consumed by BOTH arms, so it resolves here; the model id is router-arm-only and
-  // resolves inside that arm, so a harness supervisor never touches a field it does not use.
-  // No fallback at this site. Both arms receive only the prompt and instruction bytes declared by
-  // the profile.
+  // The prompt is consumed by BOTH arms so it resolves here; the model id is router-arm-only and
+  // resolves there. No fallback: both arms get only the prompt and instruction bytes the profile declares.
   const profilePrompt = resolveSupervisorSystemPrompt(stableProfile)
   const runtimeToolNames = declaredRuntimeToolNames(stableProfile)
 
-  // Bind safety is a BUILD-time fault, not a run-time one: it must throw before any compute, on the
-  // same synchronous path as the other configuration guards. The binding is SNAPSHOT here and the
-  // snapshot is both what gets checked and what `act()` binds, so a later mutation of
-  // `deps.coordination` cannot slip an unchecked host past the guard.
+  // Bind safety is a BUILD-time fault: throw before any compute, on the synchronous path of the
+  // other guards. The binding is SNAPSHOT here and that snapshot is both checked and bound by
+  // `act()`, so a later mutation of `deps.coordination` cannot slip an unchecked host past.
   const coordination: CoordinationBinding | undefined = deps.coordination
     ? { ...deps.coordination }
     : undefined

@@ -93,11 +93,10 @@ export function bindServedTools(
     reservedNames.add(tool.name)
   }
   const nodeTools = singleFlightTools(opts.nodeTools ?? [], { fenceMs, receipts: coord })
-  // `submit_result` runs the injected completion check inside its request, and a product check can
-  // re-run a build and a model review for minutes. Unfenced, the transport answered 504 at
-  // `requestTimeoutMs` while the check kept running, so the manager never saw the verdict or its
-  // reason: 25 of 25 submits in one 2026-09-22 factory run. Fenced, the call answers with a receipt
-  // and the verdict reaches the manager in its next wake, from the same check.
+  // `submit_result` runs the completion check inside its request, which can take minutes. Unfenced,
+  // the transport answered 504 while the check kept running and the manager never saw the verdict
+  // (25 of 25 submits in one 2026-09-22 run); fenced, it answers with a receipt and the verdict
+  // reaches the manager in its next wake.
   const fencedVerbs = singleFlightTools(
     coord.tools.filter((tool) => tool.name === DELIVERABLE_VERB),
     { fenceMs, receipts: coord },

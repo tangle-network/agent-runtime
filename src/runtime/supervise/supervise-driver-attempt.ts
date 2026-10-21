@@ -7,7 +7,7 @@ import type { BackendType } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
 import { COORDINATION_CLIENT_TOOL_TIMEOUT_MS } from '../../mcp/tools/coordination-request-context'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
-import { zeroSpend } from '../util'
+import { isAsyncIterable, zeroSpend } from '../util'
 import { type DriverAttemptIdentity, DriverExecutionAttempt } from './driver-execution-attempt'
 import { seatProviderProfile } from './manager-drive-session'
 import { runtimeOwnedPendingExecutorMaterialization } from './materialization'
@@ -54,15 +54,6 @@ import type {
   Scope,
   UsageEvent,
 } from './types'
-
-function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    Symbol.asyncIterator in value &&
-    typeof (value as AsyncIterable<T>)[Symbol.asyncIterator] === 'function'
-  )
-}
 
 interface DriverAttemptInput
   extends Pick<

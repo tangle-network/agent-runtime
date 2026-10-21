@@ -106,10 +106,10 @@ function managedWorker(
     seat.depth,
   )
   const { ownGraph, subtreeGraph, ownFlow } = subtreeOf(env, seat, authorized, spawnContext)
-  // A managed child, a graph node included, settles on its own accepted submission. Its result
-  // goes to the manager that assigned it, and the run's check judges the run's result, never
-  // a child's narrower assignment. A deliverable `resolveDeliverable` chose for this spawn
-  // still applies; a run with no check gives its non-graph children none.
+  // A managed child, a graph node included, settles on its own accepted submission and its result
+  // goes to the assigning manager; the run's check judges the run's result, never a child's narrower
+  // assignment. A deliverable `resolveDeliverable` chose still applies; a run with no check gives
+  // its non-graph children none.
   const ownSubmission =
     admitted.selectedDeliverable === undefined &&
     (subtreeGraph !== undefined || env.setup.deliverable !== undefined)
@@ -175,11 +175,10 @@ function managedWorker(
 }
 
 /**
- * The root of a `run_graph` subtask carries its graph's topology, and its whole subtree runs
- * under that graph's layer. A node already inside a graph cannot start another: the graph's
- * pinning refuses that spawn before it reaches here, and recovery cannot add one. A `maps` edge
- * whose item is a graph is the one exception: the graph authored it, and its pinning admitted
- * exactly that topology for this item.
+ * The root of a `run_graph` subtask carries its graph's topology, and its subtree runs under that
+ * graph's layer. A node inside a graph cannot start another (pinning refuses it, recovery cannot
+ * add one); the one exception is a `maps` edge whose item is a graph, which pinning admitted with
+ * exactly that topology.
  */
 function subtreeOf(
   env: WorkerTreeEnv,

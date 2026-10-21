@@ -154,11 +154,9 @@ class ScopeSpawner<Out> {
     }
     const resolved = this.resolveExecutorFactory(request, reservation.ticket)
     if (resolved === 'invalid-identity') return { ok: false, reason: 'invalid-identity' }
-    // The child keeps its budget slice and takes a worker slot now, or waits in the allocator's
-    // queue and starts when one frees. A recovered execution already runs remotely, so it takes a
-    // slot past the bound rather than waiting behind work that has not started. A child that
-    // waits for budget asks for its slot only once the budget is granted, so it never holds a
-    // slot that the children it waits on need.
+    // A recovered execution already runs remotely, so it takes a slot past the bound. A child
+    // that waits for budget asks for its slot only once the budget is granted, so it never holds
+    // a slot that the children it waits on need.
     const budgetGranted = reservation.granted
     const acquire = () =>
       this.deps.slotGroup.acquire(args.depth + 1, { force: recovery !== undefined })
@@ -167,10 +165,9 @@ class ScopeSpawner<Out> {
   }
 
   /**
-   * A key is an identity claim, not merely a cache label. An in-doubt start has no terminal
-   * receipt, so it refuses before touching a lazy factory. Every other reuse prepares the
-   * requested agent far enough to compare its authorized profile/task identity with the journal.
-   * No executor is resolved, constructed, reserved, or run on the completed path.
+   * A key is an identity claim, not a cache label. An in-doubt start has no terminal receipt, so
+   * it refuses before touching a lazy factory; every other reuse compares the prepared agent's
+   * identity with the journal. The completed path resolves, reserves and runs nothing.
    */
   private resolveKeyedReuse<C extends Out>(
     request: SpawnRequest<C>,
@@ -179,8 +176,7 @@ class ScopeSpawner<Out> {
     if (opts.key === undefined) return {}
     const existing = this.keys.get(opts.key)
     if (existing?.state === 'in-doubt' && recovery?.spawned.id !== existing.id) {
-      // A durable start with no terminal receipt does not prove the remote execution stopped.
-      // Do not invoke a lazy factory, reserve, or construct a replacement beside it.
+      // No terminal receipt does not prove the remote execution stopped: no replacement beside it.
       return { ok: false, reason: 'in-doubt' }
     }
     if (existing === undefined) return {}
@@ -243,14 +239,11 @@ class ScopeSpawner<Out> {
   }
 
   /**
-   * Reserve the child's whole ceiling atomically, never read-then-spawn overcommit, so Σk is
-   * conserved by construction. A ceiling the pool cannot cover now, but could once this scope's
-   * running children return what they hold, WAITS for it instead of failing: the child is
-   * admitted as `queued` and starts when settlements free enough. It fails CLOSED when nothing
-   * running could free enough. The manager's owner share stays free either way. This happens
-   * before a fresh lazy agent factory is called: refused work constructs nothing.
-   * The ticket is named from the moment it exists. A node id arrives only after admission, so
-   * the holder is refined at start; a leak caught before then still carries the assignment.
+   * Reserve the child's whole ceiling atomically so Σk is conserved by construction. A ceiling
+   * the pool could cover once this scope's running children return what they hold WAITS (the
+   * child is admitted `queued`); it fails CLOSED when nothing running could free enough. This
+   * runs before a lazy agent factory is called: refused work constructs nothing. The ticket is
+   * named from the start (assignment now, node id at admission).
    */
   private reserve<C extends Out>({ opts, recovery }: SpawnRequest<C>) {
     const { args, ownerFloor } = this.deps
@@ -297,11 +290,9 @@ class ScopeSpawner<Out> {
   }
 
   /**
-   * Everything between reserve and runChild's hand-off owns the reservation. A SYNCHRONOUS
-   * throw here (most likely the executor factory) would otherwise leak the reservation —
-   * runChild, which reconciles the ticket, is never reached. Release it with zero spend on
-   * throw, then rethrow, so `total ≡ free + reserved + committed` holds. (runChild never
-   * sync-throws, so there is no double-reconcile.)
+   * Everything between reserve and runChild's hand-off owns the reservation: a SYNCHRONOUS throw
+   * (most likely the executor factory) would leak it, so it is released with zero spend and
+   * rethrown, keeping `total ≡ free + reserved + committed`. runChild never sync-throws.
    */
   private start<C extends Out>(
     request: SpawnRequest<C>,
@@ -337,10 +328,8 @@ class ScopeSpawner<Out> {
     const { id, continuing } = child
     const controller = this.armChildAbort(child, cleanup)
     const deferredOwner: DeferredOwnerSlot = {}
-    // Resolved per spawn, not once per scope: the span of the spawning node is opened by the
-    // `agent.spawn` hook, so reading it lazily needs no assumption about hook ordering. Absent
-    // resolver (the untraced default) ⇒ no seam, and the child's `ExecutorContext` is exactly
-    // the object it was before worker trace propagation existed.
+    // Resolved per spawn: the spawning node's span is opened by the `agent.spawn` hook, so lazy
+    // reading assumes no hook ordering. No resolver (untraced) means no seam.
     const workerTrace = args.workerTrace?.(args.parentId)
     const { recoveryReady, markRecoveryReady } = recoveryReadyGate(recovery, budgetGranted)
     // Built before the retained seam, which cites it before the live child exists.
@@ -415,9 +404,8 @@ class ScopeSpawner<Out> {
     if (!recovery) notifyChildSpawned(args, child, executor, now)
     if (continuing !== undefined) handOverContinuation(continuing)
 
-    // Drive the executor to settlement off to the side; `next()` awaits the resulting
-    // promise. A thrown executor (or a real abort) is TYPED into a `down` record by
-    // `runChild` (never re-thrown) so a single failing child never rejects the cursor.
+    // A thrown executor (or a real abort) is TYPED into a `down` record by `runChild`, never
+    // re-thrown, so one failing child never rejects the cursor.
     const childRun = runChild(
       live,
       executor,
@@ -447,8 +435,7 @@ class ScopeSpawner<Out> {
       recovery?.continuation?.priorSpent,
       child.startedAt,
     )
-    // `runChild` owns the ticket from here: only the child's settlement closes it, so a leak
-    // found at the join barrier points at a child that never settled rather than at admission.
+    // `runChild` owns the ticket from here: a leak at the join barrier is a child that never settled.
     args.pool.attribute(ticket, { stage: 'executing' })
     const interactiveBindingCommitted = bindInteractiveWorker(
       args,
@@ -490,24 +477,13 @@ class ScopeSpawner<Out> {
         ),
       )
       .finally(() => {
-        // The worker slot bounds agents that are SIMULTANEOUSLY WORKING, and a terminally-settled
-        // child is not working. Gating the release on proof of destruction conflated two questions:
-        // how many workers are running, and how many remote environments were never reclaimed.
-        // A child whose cleanup cannot be confirmed — which is every retained execution, because
-        // its executor answers `destroyed: false` by construction while reconciliation is pending
-        // — then held its slot for the life of the process.
-        //
-        // Measured 2026-09-11 across 14 pursuits: 127 of 177 children settled that way, each
-        // permanently consuming one of 16 slots. One run recorded `max-live-workers` refusals
-        // carrying `live: 16, freeSlots: 0` at moments when 2 and then 1 child was actually
-        // running, and two directors wrote the resulting refusal into their durable records as a
-        // trade-off they believed they had chosen (#1183).
-        //
-        // The unconfirmed-cleanup fact is not lost: it stays on `live.cleanupConfirmed`, in
-        // `scope.workerCapacity.unconfirmed`, in the `teardown-unconfirmed` journal event, and in
-        // `result.teardownUnconfirmed`. Back-pressure against unreclaimed environments is a real
-        // concern, but it needs its own counter and its own refusal reason rather than a refusal
-        // that reports live workers it does not have.
+        // The worker slot bounds agents that are SIMULTANEOUSLY WORKING, and a settled child is
+        // not working. Gating the release on proof of destruction held a slot forever for every
+        // retained execution (its executor answers `destroyed: false` while reconciliation is
+        // pending): 127 of 177 children across 14 pursuits on 2026-09-11, until `max-live-workers`
+        // refused with `live: 16, freeSlots: 0` while 1 child ran (#1183). The unconfirmed-cleanup
+        // fact stays on `live.cleanupConfirmed`, `scope.workerCapacity.unconfirmed`, the
+        // `teardown-unconfirmed` journal event and `result.teardownUnconfirmed`.
         this.releaseStart(permit, cleanup)
       })
     // Persistence may fail before a cursor starts awaiting this child.
@@ -563,9 +539,8 @@ class ScopeSpawner<Out> {
   }
 
   /**
-   * The child's abort chains off this scope's signal (a scope abort reaps every child) AND off
-   * its own handle.abort() or bounded deadline. Aborting mid-acquire cascades through the
-   * executor's signal into its acquireSandbox find-by-name reap, so an acquiring node never leaks.
+   * The child's abort chains off this scope's signal AND its own handle.abort() or bounded
+   * deadline; aborting mid-acquire cascades into acquireSandbox's find-by-name reap.
    */
   private armChildAbort(child: AdmittedChild, cleanup: StartCleanup): AbortController {
     const { args, now } = this.deps
@@ -595,9 +570,8 @@ class ScopeSpawner<Out> {
 
 /**
  * The barrier a recovered owner's nested mount opens. A budget-queued recovery is already
- * represented by this scope's child handle. Waiting for its nested mount here can deadlock a
- * funded sibling that needs its parent. Its executor still restores descendants before it acts,
- * after the pool grants the ticket.
+ * represented by its child handle, and waiting for its mount here can deadlock a funded sibling
+ * that needs its parent.
  */
 function recoveryReadyGate(
   recovery: RetainedChildRecovery | undefined,

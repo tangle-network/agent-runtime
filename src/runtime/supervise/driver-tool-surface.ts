@@ -25,14 +25,11 @@ export async function openDriverToolSurface(
   opts: DriverAgentOptions,
   scope: Scope<unknown>,
 ): Promise<DriverToolSurface> {
-  // The manager's own environment is the source for a by-path spawn resource when no host
-  // directory serves it. Every scope registers a retained owner, so the reader is derivable
-  // here for the root and for a nested manager alike, and it resolves its environment lazily
-  // because the environment is admitted during the first turn, after these tools exist.
-  //
-  // Precedence, in order: a caller-supplied reader; a host directory (a loopback bridge root
-  // has one and no provider environment, so its scope's owner reader would refuse every read);
-  // the scope's own environment. The host root is left in place below as before.
+  // The manager's own environment serves a by-path spawn resource when no host directory does.
+  // Every scope registers a retained owner, so the reader is derivable for root and nested managers
+  // alike, resolving its environment lazily (admitted during the first turn, after these tools exist).
+  // Precedence: a caller-supplied reader; a host directory (a loopback bridge root has one and no
+  // provider environment, so its owner reader would refuse every read); the scope's environment.
   const ownerReader =
     opts.spawnResourceReader ??
     (opts.spawnResourceRoot === undefined ? scopeRetainedOwnerResourceReader(scope) : undefined)

@@ -197,10 +197,9 @@ function nestedDeliverableDeps(child: ManagedChild): Partial<SupervisorAgentDeps
           },
         }
       : {}),
-    // Every external manager with a check in the tree is sent back under the run's one
-    // continuation policy. Its files sit beside the root's, under its own owner id. A child
-    // that settles on its own submission has no part in that policy: it states what the run
-    // still owes.
+    // Every external manager with a check in the tree re-enters under the run's one continuation
+    // policy, its files beside the root's under its own owner id; a child that settles on its own
+    // submission has no part in it: it states what the run still owes.
     ...(checked &&
     !child.ownSubmission &&
     options.continuation &&

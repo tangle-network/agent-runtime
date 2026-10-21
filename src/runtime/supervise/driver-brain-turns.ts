@@ -93,8 +93,8 @@ function driverTurnSpend(res: BrainReply): Spend {
   }
 }
 
-// Calling the brain is the provider-attempt boundary. A rejection after that boundary
-// carries no trusted served identity, so preserve an empty attempt for root settlement.
+// Calling the brain is the provider-attempt boundary: a later rejection carries no trusted served
+// identity, so an empty attempt is preserved for root settlement.
 async function meterFailedBrainCall(
   opts: DriverAgentOptions,
   scope: Scope<unknown>,
@@ -126,18 +126,13 @@ async function meterFailedBrainCall(
   throw error
 }
 
-// Meter the driver's OWN inference on EVERY turn into the conserved pool — the largest single
-// token consumer in the loop, and what makes maxTurns=0 genuinely bounded (a thinking driver
-// drains the pool → poolStarved). Driver turns never consume the child-iteration budget;
-// failed inference stays visible through unknown token/USD channels and journal detail.
-//
-// There is deliberately no branch that skips `scope.meter`. A turn whose brain reported no
-// usage is metered as an UNKNOWN turn (`tokensKnown: false`), not omitted: omitting it let the
-// pool and the journal record a turn that ran as a turn that cost nothing, which is the one
-// thing this package forbids — a missing measurement is never zero. The unknown turn debits
-// the zero it actually knows and permanently marks `pool.readout().tokensKnown` false, so a
-// reader of `tokensLeft` can see the balance is a ceiling rather than a measurement. A
-// scripted/mock turn takes this path too, so offline equal-k still debits exactly zero tokens.
+// Meter the driver's OWN inference on EVERY turn into the conserved pool: the largest token
+// consumer in the loop, and what makes maxTurns=0 bounded (a thinking driver drains the pool).
+// Driver turns never consume the child-iteration budget; failed inference stays visible through
+// unknown token/USD channels. No branch skips `scope.meter`: a turn whose brain reported no usage
+// is metered as UNKNOWN (`tokensKnown: false`), never omitted, because a missing measurement is
+// never zero. It debits the zero it knows and marks `pool.readout().tokensKnown` false; scripted
+// turns take this path too, so offline equal-k still debits zero.
 async function meterDriverBrainCall(
   opts: DriverAgentOptions,
   scope: Scope<unknown>,
@@ -171,9 +166,8 @@ async function meterDriverBrainCall(
       ...(res.transportAttempts !== undefined ? { transportAttempts: res.transportAttempts } : {}),
       ...(res.usage?.reasoning !== undefined ? { reasoningTokens: res.usage.reasoning } : {}),
       ...(res.promptCache !== undefined ? { promptCache: res.promptCache } : {}),
-      // The streamed transport says explicitly when it finished with no usage chunk (a broken
-      // `include_usage` contract), which is a different fact from a brain that never reports
-      // usage at all. Recorded on the turn so the journal distinguishes them.
+      // The stream says explicitly when it finished with no usage chunk (a broken `include_usage`
+      // contract), distinct from a brain that never reports usage; the journal records which.
       ...(res.usageUnknown === true ? { streamUsageMissing: true } : {}),
       ...(res.costProvenance === 'catalog-estimate' ? { estimatedCostUsd: res.costUsd } : {}),
       ...detail,
@@ -281,10 +275,9 @@ export class DriverBrainTurns {
     return res
   }
 
-  // Chapter-close on the brain's own window. The default distiller pairs the factual settled-worker
-  // roster (from the live scope) with a brain-authored progress note; the brain call runs through
-  // the metered `chat`, so the one-time O(history) distill cost debits the conserved pool like any
-  // turn. It replaces the per-turn O(history) re-billing it removes.
+  // Chapter-close on the brain's window: the default distiller pairs the settled-worker roster
+  // with a brain-authored note through the metered `chat`, so the one-time distill cost debits
+  // the pool and replaces per-turn O(history) re-billing.
   compaction(): ToolLoopCompaction | undefined {
     const compaction = this.opts.compaction
     if (!compaction) return undefined
@@ -369,9 +362,8 @@ export class DriverBrainTurns {
     return composeWakeInput(wake, { tools: this.surface.toolNames, deadlineMs, now: this.now() })
   }
 
-  // Operator controls are applied at turn boundaries; while the driver waits between turns,
-  // apply them on a short clock instead. A cancelled worker then settles into the wake, and
-  // a root steer reaches the inbox, which ends the wait.
+  // Operator controls apply at turn boundaries, and on a short clock while the driver waits, so a
+  // cancelled worker settles into the wake and a root steer ends the wait.
   private startControlClock(): ReturnType<typeof setInterval> | undefined {
     const { acknowledger, steerAcknowledger } = this.controls
     const controlClock =
@@ -387,15 +379,13 @@ export class DriverBrainTurns {
     return controlClock
   }
 
-  // The conserved-pool + deadline + external-stop bound (what maxTurns=0 relies on): a driver
-  // that can no longer spawn (pool starved) or has run past the deadline stops here instead of
-  // burning turns. Checked before each inference turn.
+  // The pool + deadline + external-stop bound (what maxTurns=0 relies on): a starved or
+  // past-deadline driver stops here instead of burning turns. Checked before each inference turn.
   stopBefore(): boolean {
     const { opts, scope, now } = this
     const tracker = this.tracker
     const { coord } = this.surface
-    // HARD CEILINGS FIRST, and independently — a progress rule may never keep a run alive
-    // past one, so they are not folded into the same expression.
+    // HARD CEILINGS FIRST and independent: a progress rule may never keep a run alive past one.
     if (
       coord.isStopped() ||
       scope.signal.aborted ||
@@ -409,8 +399,7 @@ export class DriverBrainTurns {
     if (!opts.stopRule || !tracker) return false
     const decision = progressStop(tracker, opts.stopRule, coord, scope, now, opts.stallAfterMs)
     if (!decision.stop) return false
-    // `stopBefore` is a predicate the loop may consult more than once; the callback is a
-    // one-shot notification, so it fires on the FIRST stop only.
+    // `stopBefore` may be consulted repeatedly; the one-shot callback fires on the FIRST stop only.
     if (this.progressStopReason === undefined) {
       this.progressStopReason = decision.reason
       opts.onProgressStop?.(decision.reason)

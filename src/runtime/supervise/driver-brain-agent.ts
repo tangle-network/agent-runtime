@@ -86,15 +86,12 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       })
       // This manager takes no further turn: report anything still held as failed.
       inbox.failPending('the manager finished before a model turn read the message')
-      // Drain every already-settled child the brain never pulled — a gate-verified delivery must
-      // never be lost to the driver's pull discipline (e.g. a brain that spawned and stopped
-      // without awaiting). Non-blocking: live children are the supervisor's to tear down.
+      // Drain every settled child the brain never pulled (a verified delivery must not be lost to
+      // pull discipline); non-blocking, live children are the supervisor's to tear down.
       await coord.drainResolved()
-      // Final acknowledgement pass over the drained ledger, so a cancellation whose worker
-      // settled after the last turn's pass still records its terminal effect before act returns.
-      // Then expiry: run end closes every owned request that is still open (`not_live` never
-      // applied, `unknown` issued-but-unproven) — a reader can tell run-over from in-progress,
-      // and no pending request survives to abort a future spawn that matches by label.
+      // Final acknowledgement pass, so a cancellation whose worker settled after the last pass still
+      // records its effect, then expiry: run end closes every open owned request (`not_live` never
+      // applied, `unknown` issued-but-unproven), so no pending request aborts a later spawn by label.
       await controls.steerAcknowledger?.pass('final')
       controls.acknowledger?.pass('final')
       controls.acknowledger?.finish()
@@ -138,9 +135,8 @@ function assertDriverAgentOptions(opts: DriverAgentOptions): void {
       'driverAgent: extraTools requires executeExtraTool (how to run a work-tool call)',
     )
   }
-  // Fail loud on a half-wired analyst seam (matches the extraTools pattern): analyze-on-settle with no
-  // lens registry is a silent no-op the house rules forbid — the driver would get no findings, no error.
-  // Only LENS routes resolve against the registry; an agent route carries its own analyst profile.
+  // Fail loud on a half-wired analyst seam: analyze-on-settle with no lens registry is a silent
+  // no-op. Only LENS routes resolve against the registry; an agent route carries its own profile.
   if (
     (opts.analyzeOnSettle ?? [])
       .map(normalizeAnalyzeOnSettle)
@@ -151,9 +147,8 @@ function assertDriverAgentOptions(opts: DriverAgentOptions): void {
       'driverAgent: analyzeOnSettle requires analysts (the lens registry the kinds resolve against)',
     )
   }
-  // A work tool that shadows a coordination verb would leave the driver unable to coordinate.
-  // Validate against the reserved verb set HERE (construction), so the conflict fails loud — not
-  // buried inside act() where the supervisor would swallow the throw into a quiet no-winner.
+  // A work tool shadowing a coordination verb would leave the driver unable to coordinate; checked
+  // at construction, since act() would swallow the throw into a quiet no-winner.
   const reserved = new Set<string>(coordinationVerbNames)
   for (const tool of opts.nodeTools ?? []) {
     if (reserved.has(tool.name)) {
@@ -227,10 +222,9 @@ function driverInitialMessages(
   return [
     { role: 'system', content: system },
     { role: 'user', content: safeJsonText(task) },
-    // The resume brief: on a resumed run the brain's FIRST context already carries the
-    // committed settlements, the key states, the re-armed waits, carried-over questions/
-    // findings, and the spend the run already paid — so it continues from the unresolved
-    // work instead of re-planning (and re-paying) from scratch.
+    // The resume brief: a resumed run's FIRST context carries committed settlements, key states,
+    // re-armed waits, carried-over questions/findings and spend already paid, so the brain
+    // continues from unresolved work instead of re-planning (and re-paying).
     ...(scope.resume
       ? [{ role: 'user', content: resumeBrief(scope.resume, scope.view, opts.priorCoordination) }]
       : hasPriorCoordination(opts.priorCoordination)

@@ -47,6 +47,7 @@ import type {
   ProfileMaterializationReceipt,
   SpawnEvent,
   SpawnOpts,
+  WorkerInteractiveSession,
 } from './types'
 import { WorkerEvents } from './worker-events'
 import { writeWorkerInteractiveBinding } from './worker-interactive'
@@ -81,10 +82,8 @@ export interface AdmittedChild {
 }
 
 /**
- * Seed THIS scope's own keystone deps into the child's `ExecutorContext.seams`, so a child whose
- * executor is a DRIVER can mount a nested `Scope` at `depth+1` over a child pool backed by THIS
- * reservation. A leaf executor ignores it; the parent's sandbox/router seams still pass through
- * for leaves. Each nested driver repeats the same partitioning.
+ * Seed THIS scope's keystone deps into the child's `ExecutorContext.seams`, so a DRIVER child can
+ * mount a nested `Scope` at `depth+1` over a pool backed by THIS reservation. Leaves ignore it.
  */
 export function childExecutorContext(
   args: ScopeArgs,
@@ -282,12 +281,10 @@ export function recordChildCancellation<C>(
 }
 
 /**
- * Journal the spawn. The authored child profile itself, not only its digest:
- * `identity.profileDigest` is the canonical AgentProfile digest, which is NOT a blob key —
- * `FileResultBlobStore.put` asserts the key IS `contentAddress(artifact)`, so the event carries
- * both: the digest that names the agent and the ref that retrieves its bytes. Content-addressed,
- * so N children sharing a profile store one body. The blob lands BEFORE the event that names it,
- * so a reader that sees `profileRef` can always resolve it.
+ * Journal the spawn with the authored child profile itself: `identity.profileDigest` is not a blob
+ * key (`FileResultBlobStore.put` asserts the key IS `contentAddress(artifact)`), so the event
+ * carries the digest that names the agent and the ref that retrieves its bytes. The blob lands
+ * BEFORE the event that names it; N children sharing a profile store one body.
  */
 export function commitSpawnRecord<C>(
   args: ScopeArgs,
@@ -304,9 +301,8 @@ export function commitSpawnRecord<C>(
     .put(profileRef, spec.profile)
     .then(() => (taskRef === undefined ? undefined : args.blobs.put(taskRef, task)))
     .then(async () => {
-      // The spawn record and its execution input publish as ONE grouped record where the
-      // store supports it, so a SQL context's fenced head advances once per spawn — a crash
-      // between the two can never leave a spawned node whose task bytes are unreferenced.
+      // The spawn record and its execution input publish as ONE grouped record where supported, so
+      // a crash never leaves a spawned node with unreferenced task bytes.
       const events: SpawnEvent[] = [
         spawnedEvent(args, child, executor, ownedTreeRoot, profileRef, now),
       ]
@@ -322,10 +318,9 @@ export function commitSpawnRecord<C>(
       await appendSpawnEvents(args.journal, args.root, events)
     })
     .then(async () => {
-      // The severed distributed-trace hop, journaled beside the spawn it annotates: this run
-      // records spans AND resolved a context for this child, but the backend has no channel to
-      // carry it — the child's own trace will surface as a disconnected root, and this record
-      // is what makes that a queryable fact instead of a silent stranger tree.
+      // The severed distributed-trace hop, journaled beside its spawn: the run records spans AND
+      // resolved a context, but the backend has no channel to carry it, so the child's trace
+      // surfaces as a disconnected root; this makes that a queryable fact.
       if (args.workerTraceUnpropagated === undefined || workerTrace === undefined) return
       await args.journal.appendEvent(args.root, {
         kind: 'trace-unpropagated',
@@ -435,40 +430,26 @@ export function bindInteractiveWorker(
 ): Promise<void> {
   return spawnCommitted.then(async () => {
     if (args.interactiveBindingDir === undefined) return
-    const immediate = readInteractiveSession(live)
-    if (
-      immediate.status === 'available' ||
-      immediate.reason !== 'interactive-session-not-started' ||
-      live.readInteractiveReady === undefined
-    ) {
-      writeWorkerInteractiveBinding(
-        args.interactiveBindingDir,
-        live.id,
-        label,
-        args.root,
-        immediate,
-        now,
+    const notStarted = (session: WorkerInteractiveSession): boolean =>
+      session.status !== 'available' && session.reason === 'interactive-session-not-started'
+    let session = readInteractiveSession(live)
+    if (notStarted(session) && live.readInteractiveReady !== undefined) {
+      const ready = await readInteractiveReadyUntilWorkerEnds(
+        live.readInteractiveReady,
+        childRun,
+        signal,
       )
-      return
+      if (ready === undefined || notStarted(ready)) return
+      session = ready
     }
-    const ready = await readInteractiveReadyUntilWorkerEnds(
-      live.readInteractiveReady,
-      childRun,
-      signal,
+    writeWorkerInteractiveBinding(
+      args.interactiveBindingDir,
+      live.id,
+      label,
+      args.root,
+      session,
+      now,
     )
-    if (
-      ready !== undefined &&
-      (ready.status === 'available' || ready.reason !== 'interactive-session-not-started')
-    ) {
-      writeWorkerInteractiveBinding(
-        args.interactiveBindingDir,
-        live.id,
-        label,
-        args.root,
-        ready,
-        now,
-      )
-    }
   })
 }
 

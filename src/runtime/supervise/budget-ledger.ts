@@ -27,17 +27,15 @@ export interface BudgetLedger {
   freeTokens: number
   reservedTokens: number
   committedTokens: number
-  // Set once the pool records work with an unreported token count, and never cleared. Unlike
-  // `usdTainted` it does NOT close admission: the token channel is always capped, so refusing every
-  // later reservation would turn one provider that skipped a usage report into a dead run. The pool
-  // keeps enforcing the cap on what it knows and reports, via `readout().tokensKnown`, that the
-  // balance is an under-count rather than a measurement.
+  // Set once the pool records work with an unreported token count, never cleared. Unlike
+  // `usdTainted` it does NOT close admission (the token channel is always capped; refusing every
+  // later reservation would turn one skipped usage report into a dead run): the cap is enforced on
+  // what is known and `readout().tokensKnown` reports an under-count.
   tokensTainted: boolean
-  // Set once the pool charges a spend whose cache split it could not read, and never cleared. That
-  // spend was charged at its rolled-up prompt total, so the balance is an upper bound on
-  // newly-presented tokens. Same admission treatment as `tokensTainted`: enforce on what is known,
-  // report the uncertainty. A restored uncertain reservation does NOT set it — a declared ceiling
-  // carries no cache composition to misread, and `tokensTainted` already reports that charge.
+  // Set once the pool charges a spend whose cache split it could not read, never cleared: it was
+  // charged at its rolled-up prompt total, an upper bound on newly-presented tokens. Same treatment
+  // as `tokensTainted`. A restored uncertain reservation does NOT set it (a declared ceiling has no
+  // cache composition to misread; `tokensTainted` already reports it).
   cacheBreakdownTainted: boolean
   freeUsd: number
   reservedUsd: number
@@ -103,14 +101,11 @@ function noteUnknowns(l: BudgetLedger, spend: Spend): void {
 
 /**
  * Commit named-resource spend and classify it. `allocations` is the settling reservation's own
- * resource allocations, or `undefined` for spend that holds no reservation (`observe`, restore).
- *
- * Unverifiable usage is a `fault`: the remaining balance is consumed so admission closes.
- * Measured usage above an allocation is `overspent`. Without allocations, measured usage that
- * leaves a root limit overdrawn is `rootExceeded`. A reservation that stays within its own
- * allocation is never charged with a root overdraw: `reserve` admits an allocation only from
- * the remaining balance, so a negative balance at its settlement was caused, and reported, by
- * earlier spend.
+ * allocations, or `undefined` for spend holding no reservation (`observe`, restore). Unverifiable
+ * usage is a `fault` (the remaining balance is consumed so admission closes); measured usage above
+ * an allocation is `overspent`; without allocations, usage leaving a root limit overdrawn is
+ * `rootExceeded`. A reservation within its own allocation is never charged with a root overdraw:
+ * a negative balance at its settlement was caused, and reported, by earlier spend.
  */
 export function ledgerCommitResources(
   l: BudgetLedger,
@@ -217,13 +212,9 @@ export function ledgerTake(l: BudgetLedger, b: Budget): void {
 /**
  * The overspends a settlement of `spent` against `held` decides, before any balance moves. An
  * OVERSPEND is measured spend above the reservation; unknown dollars under a dollar cap (a fault
- * the caller reports) are flagged as `unknownUnderCap`.
- *
- * `usdBudgeted` is whether the child declared a dollar ceiling to be measured against. A child
- * whose `Budget` named no `maxUsd` reserved NO dollar allocation, so it has no ceiling to exceed:
- * under a capped root its real dollars are OBSERVED spend, which settlement commits and debits
- * from `free` (the same treatment `observe` gives driver inference). Only a child that DECLARED a
- * ceiling can overspend one.
+ * the caller reports) are flagged `unknownUnderCap`. `usdBudgeted` is whether the child declared a
+ * dollar ceiling: without `maxUsd` it reserved NO dollars, so under a capped root its dollars are
+ * OBSERVED spend, committed and debited from `free` like `observe`d inference.
  */
 export function ledgerClassifyOverspend(
   l: BudgetLedger,
@@ -240,14 +231,11 @@ export function ledgerClassifyOverspend(
   if (spent.iterations > held.iterations) {
     overspent.push({ channel: 'iterations', reserved: held.iterations, spent: spent.iterations })
   }
-  // Dollars that are not measured may not be compared against a reservation as if they were
-  // billed: a catalog-priced turn can exceed the ceiling and would then be reported as an
-  // overspend the child never made. The known channels still settle, then the dollar channel
-  // is permanently tainted and admission closes.
-  // USD is conserved ONLY when the root declared a ceiling AND the child declared one to be
-  // measured against. `maxUsd` is optional on both: when either is unset, usd is an OBSERVED
-  // quantity (committed for accounting), never a budgeted constraint — an unset ceiling must
-  // not behave as a hard $0 limit that fail-closes a real priced spend.
+  // Unmeasured dollars may not be compared against a reservation as if billed (a catalog-priced
+  // turn could exceed the ceiling and report an overspend the child never made): the known
+  // channels settle, then the dollar channel is tainted and admission closes.
+  // USD is conserved ONLY when the root AND the child declared a ceiling (`maxUsd` is optional on
+  // both); otherwise it is an OBSERVED quantity, and an unset ceiling must not act as a hard $0.
   if (!unknownUnderCap && l.usdCapped && usdBudgeted && spent.usd > held.usd) {
     overspent.push({ channel: 'usd', reserved: held.usd, spent: spent.usd })
   }
@@ -294,11 +282,10 @@ export function ledgerSettle(
 }
 
 /**
- * Direct free → committed debit (no reservation ticket). `free` may go negative on overspend —
- * that is honest; the readout then reports exhaustion and the in-loop guard halts the driver.
- * Work whose token count was never reported still debits what IS known (usually nothing) and
- * marks the balance incomplete. The alternative — refusing to record it — is the "free turn"
- * the pool must never see.
+ * Direct free → committed debit (no ticket). `free` may go negative on overspend: the readout then
+ * reports exhaustion and the in-loop guard halts the driver. Work with an unreported token count
+ * still debits what IS known and marks the balance incomplete; refusing to record it is the "free
+ * turn" the pool must never see.
  */
 export function ledgerObserve(
   l: BudgetLedger,
@@ -319,12 +306,10 @@ export function ledgerObserve(
 }
 
 /**
- * Reconstruct the conserved balances from a prior process's durable record. Measured prior spend is
- * debited exactly once. A started-without-terminal child is charged at its entire reservation: this
- * never mints capacity on restart, but unlike treating unknown as zero it can leave unrelated
- * capacity usable. The false known flags remain visible in every later report. Restore uses
- * direct arithmetic rather than `observe`, because the prior process's spend ALREADY happened:
- * refusing to record it would be the zero-cost restart the pool must never allow.
+ * Reconstruct the balances from a prior process's durable record. Measured prior spend is debited
+ * exactly once; a started-without-terminal child is charged at its entire reservation, so restart
+ * never mints capacity and the false known flags stay visible. Direct arithmetic, not `observe`:
+ * the prior spend ALREADY happened, and refusing to record it would be a zero-cost restart.
  */
 export function ledgerRestore(l: BudgetLedger, root: Budget, restore: BudgetPoolRestore): void {
   if (restore.committed !== undefined) {

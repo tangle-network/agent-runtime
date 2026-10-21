@@ -71,9 +71,8 @@ export function superviseInternal(
         : new RunCancellationReason(request.source, reason, request.operationId),
     )
   }
-  // Every configuration fault above throws SYNCHRONOUSLY — a caller that guards with
-  // `expect(() => supervise(...)).toThrow` still sees the throw, and no compute starts. Only the
-  // durable coordination replay needs to await, so the run begins inside `startSupervisedRun`.
+  // Every configuration fault above throws SYNCHRONOUSLY (no compute starts); only the durable
+  // coordination replay awaits, so the run begins inside `startSupervisedRun`.
   return startSupervisedRun({
     setup,
     workers,
@@ -92,10 +91,9 @@ async function startSupervisedRun(run: SupervisedRun) {
   const { options, ctx, log, runId, rootOwnerId, canonicalTask } = setup
   if (ctx.durability === 'sql') await assertSqlRunProvider(options)
   await verifyProfilePromotions(setup.profileTable)
-  // The durable coordination side-log (file contexts only) loads prior questions, findings, and
-  // authorized instruction receipts, then appends this process's evidence as it publishes. The
-  // router arm receives all three in its resume brief; the external arm seeds prior questions and
-  // leaves the other evidence in the log. No prior instruction is auto-delivered.
+  // The durable coordination side-log (file contexts only) loads prior questions, findings and
+  // instruction receipts and appends this process's evidence. The router arm gets all three in its
+  // resume brief; the external arm seeds prior questions. No prior instruction is auto-delivered.
   const priorCoordination = log ? await log.load(runId, rootOwnerId) : undefined
   const runDir = options.runDir === undefined ? undefined : resolve(options.runDir)
   const agent = rootSupervisorAgent(run, priorCoordination, runDir)
@@ -118,8 +116,7 @@ async function startSupervisedRun(run: SupervisedRun) {
   const result = supervisor.run(agent, canonicalTask, rootRunOptions(run, runDir, hooks, recorder))
   const settle = () => settleSupervisedRun(run, result, cancellation)
   if (!recorder) return settle()
-  // The recorder closes the root span on BOTH exits and never rethrows, so tracing can neither
-  // change the result nor swallow the run's own rejection.
+  // The recorder closes the root span on BOTH exits and never rethrows.
   try {
     const settled = await settle()
     await recorder.finish({ result: settled })
@@ -212,11 +209,10 @@ function rootSupervisorAgent(
               }),
         }
       : {}),
-    // A durable run's layout dir doubles as the worker-cancel control surface: every
-    // router-arm manager's turn loop acknowledges the `cancelWorker` requests it OWNS — the
-    // root (default 'run' scope) resolves its direct children plus label/profile references,
-    // each nested manager (above) its own direct-child node ids only. The root ALSO applies the
-    // run-scoped request (`cancelRun`) through the run's one cascade controller.
+    // A durable run's layout dir is the worker-cancel control surface: each router-arm manager's turn
+    // loop acknowledges the `cancelWorker` requests it OWNS (the root its direct children plus
+    // label/profile references, nested managers their direct-child ids) and the root also applies
+    // the run-scoped `cancelRun` through the one cascade controller.
     ...(runDir === undefined || runControl === undefined
       ? {}
       : {
@@ -232,10 +228,7 @@ function rootSupervisorAgent(
     : supervisorAgentWithTestBrain(canonicalProfile, { ...agentDeps, brain: run.testBrain })
 }
 
-/**
- * Built ONLY when `otel` is configured AND an exporter resolves, so the default path allocates
- * nothing and passes no `hooks` at all — byte-for-byte the wiring every existing caller gets.
- */
+/** Built ONLY when `otel` is configured AND an exporter resolves; the default path allocates nothing. */
 function rootSpanRecorder(setup: SupervisedRun['setup']): SupervisorSpanRecorder | undefined {
   const { options } = setup
   return options.otel
@@ -243,9 +236,8 @@ function rootSpanRecorder(setup: SupervisedRun['setup']): SupervisorSpanRecorder
         runId: setup.runId,
         namespace: setup.runNamespace,
         ...options.otel,
-        // The root span names the profile this segment runs, under the digest the journal
-        // recorded for the root. A caller adds what only it knows (a directive variant); the
-        // fields the profile decides are not the caller's to restate.
+        // The root span names the segment's profile under the journal's root digest; a caller adds
+        // only what it alone knows (a directive variant).
         agentIdentity: {
           ...options.otel.agentIdentity,
           ...authoredAgentIdentity(
@@ -297,9 +289,8 @@ function rootRunOptions(
 ): SupervisorOpts {
   const { setup, workers } = run
   const { options, ctx, registeredProfile, managerBackend, rootOwnerRuntime } = setup
-  // A caller-supplied recovery factory wins: it owns the worker seam (makeWorkerAgent /
-  // makeLeafAgent), so only it can reconstruct an interrupted child's executor. The derived
-  // registration below serves backend-built recursive managers, which no caller can name.
+  // A caller-supplied recovery factory wins: it owns the worker seam, so only it can rebuild an
+  // interrupted child's executor. The derived registration serves backend-built recursive managers.
   const recoverExecutor =
     options.recoverExecutor ?? workers.recoveryFactories.get(workers.workerFactory)
   return {
@@ -360,11 +351,9 @@ function rootRunOptions(
       ? AbortSignal.any([options.signal, run.durableCancellation.signal])
       : run.durableCancellation.signal,
     ...(hooks ? { hooks } : {}),
-    // Only a run that actually records spans hands trace context down to its workers; with no
-    // recorder this key is absent and no spawned worker's environment is touched.
+    // Only a run that records spans hands trace context to workers; a traced run on a backend with
+    // NO propagation channel journals each severed hop (`trace-unpropagated`).
     ...(recorder ? { workerTrace: recorder.workerTrace } : {}),
-    // A traced run on a backend with NO propagation channel journals each severed hop
-    // (`trace-unpropagated`) instead of silently producing disconnected child traces.
     ...(recorder && setup.traceUnpropagated
       ? { workerTraceUnpropagated: setup.traceUnpropagated }
       : {}),
@@ -384,8 +373,7 @@ async function settleSupervisedRun(
   try {
     result = await pending
   } finally {
-    // Closed on BOTH exits. A run that throws releases the file here, and whoever records
-    // the failure recomputes the same receipt from the bytes on disk.
+    // Closed on BOTH exits; whoever records a failure recomputes the same receipt from disk.
     try {
       rootStream = await setup.rootStreamSink?.close()
     } finally {
@@ -394,10 +382,8 @@ async function settleSupervisedRun(
     }
   }
   recordRunCancellationOutcome(options.runDir, result, setup.now)
-  // A nested manager's session rides its settle record (#1359). The root has no settle
-  // record, so its session had no receipt anywhere: 312 of 312 Discovery roots of
-  // 2026-09-23/24 settled without one, and 27 of the 57 harness subagent calls seen in those
-  // runs were the roots' own (#1264). The result carries it, persisted the same way.
+  // A nested manager's session rides its settle record (#1359); the root has none, so 312 of 312
+  // Discovery roots of 2026-09-23/24 settled without a session receipt (#1264). The result carries it.
   const rootHarnessTranscript =
     rootDriveHarness === undefined
       ? undefined
@@ -418,8 +404,7 @@ async function settleSupervisedRun(
     ...(rootStream === undefined ? {} : { rootStream }),
     ...(rootHarnessTranscript === undefined ? {} : { rootHarnessTranscript }),
     ...(run.rootContinuation === undefined ? {} : { continuation: run.rootContinuation }),
-    // The settle record names the attribution the root registered under, so a reader of
-    // result.json can group or compare runs without the journal.
+    // The settle record names the root's registered attribution so result.json readers can compare runs.
     ...(rootExecution.ref === undefined ? {} : { execution: rootExecution.ref }),
   }
 }

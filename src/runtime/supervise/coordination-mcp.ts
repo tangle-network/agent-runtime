@@ -1,20 +1,16 @@
 /**
- *
  * Serve the coordination verbs (spawn_worker / observe_agent / steer_agent / submit_result / stop)
- * as a real HTTP MCP server over a LIVE `Scope`. This is the keystone that lets a coding-harness
- * agent (opencode via the cli-bridge, claude-code, codex) BE the supervisor: it mounts this MCP
- * (`mcp.mcpServers.coordination`) and calls `spawn_worker` as a native tool, which lands on
- * `Scope.spawn` — a real box driving real boxes, not emulated function-tools.
+ * as a real HTTP MCP server over a LIVE `Scope`, so a coding-harness agent (opencode via the
+ * cli-bridge, claude-code, codex) can BE the supervisor: it mounts this MCP
+ * (`mcp.mcpServers.coordination`) and `spawn_worker` lands on `Scope.spawn`.
  *
  * Coordination vs DELEGATION (`../../mcp/delegates.ts`): coordination SPAWNS workers in a CHOSEN
- * backend (`createExecutor({ backend })` — sandbox OR cli-bridge) and live-drives them — observe /
- * steer / resume, recursive sub-drivers, one conserved budget. To instead delegate a coding task
- * INSIDE the agent's OWN sandbox (a durable fire-and-poll job that survives an MCP restart), use the
- * delegation MCP. Coordination is the live, cross-backend supervisor; delegation is own-sandbox async.
+ * backend (sandbox OR cli-bridge) and live-drives them (observe / steer / resume, recursive
+ * sub-drivers, one conserved budget); delegation runs a durable fire-and-poll coding job INSIDE
+ * the agent's OWN sandbox.
  *
- * Transport: JSON-RPC over HTTP POST (the MCP streamable-HTTP shape — `application/json` for a
- * single response). The server is created INSIDE an agent's `act(task, scope)` so it fronts that
- * agent's live scope; tear it down when the act returns.
+ * Transport: JSON-RPC over HTTP POST (MCP streamable-HTTP, single `application/json` response).
+ * The server is created INSIDE an agent's `act(task, scope)` and torn down when the act returns.
  *
  * @experimental
  */
@@ -108,10 +104,8 @@ export interface CoordinationMcpHandle {
   close(): Promise<void>
 }
 
-/** Hosts that reach only this machine, including the IPv4-mapped and bracketed IPv6 spellings a
- *  caller may pass through from config. A name that is not recognizably loopback counts as REMOTE:
- *  whether it resolves to a loopback interface is not knowable here, and the safe direction of that
- *  doubt is "exposed". */
+/** Hosts that reach only this machine (incl. IPv4-mapped and bracketed IPv6 spellings). A name not
+ *  recognizably loopback counts as REMOTE: whether it resolves to loopback is unknowable here. */
 export function isLoopbackHost(host: string): boolean {
   const h = host.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '')
   if (h === 'localhost' || h === '::1' || h === '0:0:0:0:0:0:0:1' || h === '::ffff:127.0.0.1') {
@@ -219,15 +213,8 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
  *  60 s MCP tool-call timeout Claude Code and Codex apply by default. */
 const RESPONSE_FENCE_CAP_MS = 45_000
 
-/**
- * The longest a fenced coordination call (`submit_result` and every method-supplied node tool)
- * holds its HTTP response before it answers with a receipt instead. The call keeps running, and
- * its outcome reaches the manager in its next wake.
- *
- * It is half of `requestTimeoutMs`, so the answer leaves before the transport's own 504 at
- * `requestTimeoutMs`, with the other half left for body transfer, admission, and serialization,
- * and at most {@link RESPONSE_FENCE_CAP_MS}.
- */
+/** The longest a fenced call (`submit_result`, node tools) holds its response before answering with
+ *  a receipt: half of `requestTimeoutMs` (beating the transport's 504), at most {@link RESPONSE_FENCE_CAP_MS}. */
 function coordinationResponseFenceMs(requestTimeoutMs: number): number {
   return Math.max(1, Math.min(RESPONSE_FENCE_CAP_MS, Math.floor(requestTimeoutMs / 2)))
 }
@@ -244,10 +231,8 @@ export async function serveCoordinationMcp(
     graphs?: GraphSubtasks
     authorizeDownMessage?: AuthorizeDownMessage
     perWorker: Budget
-    /** Independent completion check exposed to the driver as `submit_result`. The check runs
-     *  inside that call, so the call is served single-flight and fenced like `nodeTools`: a check
-     *  still running at the fence returns a receipt, and the verdict reaches the manager in its
-     *  next wake. */
+    /** Independent completion check exposed as `submit_result`; served single-flight and fenced like
+     *  `nodeTools` (a check still running at the fence returns a receipt). */
     deliverable?: DeliverableSpec<unknown>
     /** Serve `read_continuation` from the manager's continuation records. */
     readContinuation?: (continuation: number | undefined) => unknown
@@ -291,27 +276,20 @@ export async function serveCoordinationMcp(
     priorJournal?: ReadonlyArray<BusRecord<CoordinationEvent>>
     /** Lenses this manager defined in a prior process — seeds the menu and the definition cap. */
     priorAnalystDefinitions?: ReadonlyArray<DefinedAnalystRecord>
-    /** Product-selected tools already bound to this exact supervisor node. They share this server
-     *  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen.
-     *  Each is served single-flight and fenced (`./single-flight-tools`): an identical call joins
-     *  the running call, and a call still running at the fence returns a receipt whose outcome
-     *  reaches the manager in its next wake. */
+    /** Product-selected tools bound to this supervisor node. They share this server with the
+     *  coordination verbs (the MCP duplicate-name guard applies before listen) and are served
+     *  single-flight and fenced (`./single-flight-tools`): an identical call joins the running one. */
     nodeTools?: ReadonlyArray<McpToolDescriptor>
     /** Exact bare tool names to expose from the coordination and node-tool set. Runtime never
      *  grants an implicit complete tool set. An unknown name fails before the listener opens. */
     toolNames: ReadonlyArray<string>
     /**
-     * OPT-IN peer mail: let this manager's workers message each other directly, bounded and audited
+     * OPT-IN peer mail: workers message each other directly, bounded and audited
      * (`runtime/supervise/peer-mail`). Each spawn receives a capability URL on
-     * `WorkerSpawnContext.peerMailUrl`.
-     *
-     * It uses a separate capability path on the coordination listener. The manager endpoint
-     * grants spawn, steer and stop; the mail path serves only `send_mail` and `read_mail`,
-     * bound to one worker identity. A mail capability cannot authorize a manager request.
-     *
-     * The residual, stated plainly: the boundary is between AGENTS, not between processes. A worker
-     * that can read another worker's environment or process memory still holds that worker's
-     * capability. Loopback plus an unguessable path is what this layer can honestly enforce.
+     * `WorkerSpawnContext.peerMailUrl`, a separate path on the listener serving only `send_mail`
+     * and `read_mail` for one worker identity; it cannot authorize a manager request. The boundary
+     * is between AGENTS, not processes: a worker that can read another's environment or memory
+     * holds its capability. Loopback plus an unguessable path is what this layer can enforce.
      */
     peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
     /** OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
@@ -442,10 +420,9 @@ export async function serveCoordinationMcpForManager(
     credentials,
     state,
   }
-  // Same precedence as the router arm in coordination-driver: a caller-supplied reader, else a
-  // host directory, else the manager's own environment through its scope's retained owner. A
-  // provider-backed root and every nested manager come through THIS arm, so a fallback wired
-  // only in the driver arm would leave a sandbox director refused by path exactly as before.
+  // Same precedence as the router arm in coordination-driver: caller reader, else host directory,
+  // else the manager's own environment via its retained owner. Provider-backed roots and every
+  // nested manager come through THIS arm, so a driver-arm-only fallback would leave them refused.
   const ownerReader =
     opts.spawnResourceReader ??
     (opts.spawnResourceRoot === undefined
@@ -465,9 +442,8 @@ export async function serveCoordinationMcpForManager(
     serverVersion: '1',
     tools: servedTools,
   })
-  // Before the listener opens: a node tool invoked on the first request must already be able to
-  // call these verbs. Read back the server's ordered set so every consumer records the exact MCP
-  // surface.
+  // Before the listener opens, so a node tool on the first request can call these verbs; read back
+  // the ordered set so every consumer records the exact MCP surface.
   opts.onCoordinationTools?.([...mcp.tools.values()], coord)
 
   const server = createCoordinationListener(ctx, { coord, mcp, servedTools, background })

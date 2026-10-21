@@ -1,30 +1,21 @@
 /**
- *
- * The STEERABLE sandbox worker: one box, one server-side session, MANY turns — so a message
- * from the driver has a boundary to be folded into.
- *
- * The default cloud worker was built on `singleShotDriver`: one `runAgentRounds` shot, no turn
- * boundary, and no `Executor.deliver`. `Scope.send` therefore returned `false` for it and
- * `steer_agent` reported `delivered:false` on every call — steering the DEFAULT worker was
- * mechanically impossible, not merely unused. This module is the missing continuation loop.
- *
- * Structure deliberately mirrors `streamBridgeSession` (the cli-bridge equivalent that already
- * works) so both steerable runtimes have ONE shape:
+ * The STEERABLE sandbox worker: one box, one server-side session, MANY turns, so a driver message
+ * has a boundary to be folded into. The default worker (`singleShotDriver`, one `runAgentRounds`
+ * shot) had no turn boundary and no `Executor.deliver`, so `steer_agent` reported `delivered:false`
+ * on every call. Structure mirrors `streamBridgeSession` so both steerable runtimes share ONE shape:
  *
  *   - turn 0 sends the task through `SandboxLineage.start` (fresh box, minted session id);
- *   - each later turn fires ONLY when the inbox has a steer/answer to fold, and goes through
- *     `SandboxLineage.continue` — the SAME box and the SAME server-side session, so the prompt
- *     carries only the new instruction and the worker keeps everything it had already learned;
- *   - a worker may not settle while a delivered steer is unread: the loop drains once more
- *     before breaking, which is what makes `steer_agent` a promise rather than a hint;
- *   - a forceful (`interrupt:true`) steer aborts the in-flight turn so the worker re-plans
- *     immediately instead of finishing a path the supervisor already rejected.
+ *   - each later turn fires ONLY when the inbox has a steer/answer to fold, through
+ *     `SandboxLineage.continue` (same box, same session), so the prompt carries only the new
+ *     instruction;
+ *   - a worker may not settle while a delivered steer is unread: the loop drains once more before
+ *     breaking, which makes `steer_agent` a promise rather than a hint;
+ *   - a forceful (`interrupt:true`) steer aborts the in-flight turn so the worker re-plans.
  *
- * It also produces the LIVE signal a supervisor steers FROM: every sandbox event stamps
- * activity, tool parts are decoded into the shared `ToolSpan` currency for the online detector
- * panel, and `progress()` answers turn / tool / idle / pending-steer questions synchronously.
- *
- * Reports REAL usage only — token and cost numbers come from the sandbox events themselves.
+ * It also produces the LIVE signal a supervisor steers FROM: every sandbox event stamps activity,
+ * tool parts decode into the shared `ToolSpan` currency for the online detector panel, and
+ * `progress()` answers turn / tool / idle / pending-steer questions synchronously. Reports REAL
+ * usage only, from the sandbox events themselves.
  *
  * @experimental
  */
@@ -60,12 +51,10 @@ import type {
   UsageEvent,
 } from './types'
 
-/** Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so
- *  this bounds how many times a supervisor may redirect ONE worker before it must respawn. */
+/** Ceiling on continuation turns (turn 0 is the task, each later turn a folded steer). */
 export const DEFAULT_SANDBOX_STEERING_MAX_TURNS = 24
 
-/** Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`). Absent, the
- *  sandbox executor keeps its historical single-shot `runAgentRounds` composition verbatim. */
+/** Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`); absent, the single-shot composition is kept. */
 export interface SandboxSteeringOptions {
   /** Max turns for one worker (turn 0 + folded steers). Default {@link DEFAULT_SANDBOX_STEERING_MAX_TURNS}. */
   readonly maxTurns?: number
@@ -101,11 +90,8 @@ export interface SteerableSandboxArgs {
   readonly taskToPrompt: (task: unknown) => string
   readonly options?: SandboxSteeringOptions
   readonly loopCtx?: Partial<Omit<ExecCtx, 'sandboxClient' | 'signal'>>
-  /**
-   * Inherited `TRACE_ID` / `PARENT_SPAN_ID` for the box, merged into `CreateSandboxOptions.env` so
-   * the remote worker's own spans join the supervisor's trace under the spawning node's span.
-   * Absent when the run records no spans — the create options are then untouched.
-   */
+  /** Inherited `TRACE_ID` / `PARENT_SPAN_ID`, merged into `CreateSandboxOptions.env` so the
+   *  worker's spans join the supervisor's trace. Absent when the run records no spans. */
   readonly traceEnv?: Record<string, string>
   readonly contentRef: (prefix: string, value: unknown) => string
   readonly now?: () => number
@@ -192,9 +178,8 @@ async function* streamSession(
 
   const started = now()
   let nextPrompt: string | undefined = args.taskToPrompt(task)
-  // One ledger for the whole session: it credits the canonical usage events as they arrive and
-  // holds the harness's own usage receipt until the turn ends, so a turn that reports both is
-  // charged once. `settleTurn` resets it, so each turn accounts independently.
+  // One ledger per session: credits canonical usage events and holds the harness receipt until the
+  // turn ends, so a turn reporting both is charged once. `settleTurn` resets it per turn.
   const usageLedger = createSandboxUsageLedger(args.harness)
   run.outputReady = true
   const turns: SessionTurns = { run, lineage, spec, promptOptions, requested, usageLedger, signal }
@@ -205,9 +190,8 @@ async function* streamSession(
   try {
     for (let turn = 0; maxTurns === 0 || turn < maxTurns; turn += 1) {
       lease?.release()
-      // Take the down-leg FIRST. On turn 0 a steer that landed during box acquisition is
-      // appended to the task; on later turns the steer IS the whole prompt, because the
-      // worker's prior context lives server-side in the session.
+      // Take the down-leg FIRST: on turn 0 a steer that landed during acquisition is appended to
+      // the task; later the steer IS the whole prompt (context lives server-side).
       const turnLease = args.inbox.take()
       lease = turnLease
       nextPrompt = foldInboxIntoPrompt(run, turnLease, turn, nextPrompt)
@@ -219,10 +203,8 @@ async function* streamSession(
 
       const outcome = yield* runSandboxTurn(turns, turn, prompt, turnLease)
       if (outcome === 'replan') continue
-      // A worker may NOT settle while a delivered steer is unread — that is the whole
-      // contract `steer_agent` reports back to the driver. Loop instead of breaking.
-      // Peer mail is excluded: a sibling must not be able to deny a finished worker its
-      // settlement simply by keeping mail in flight.
+      // No settling while a delivered steer is unread (the `steer_agent` contract). Peer mail is
+      // excluded: a sibling must not deny a finished worker settlement by keeping mail in flight.
       if (args.inbox.pendingAuthority() === 0) break
     }
   } catch (error) {
@@ -355,8 +337,7 @@ async function* runSandboxTurn(
     run.latestOutcome = outcomeTracker.finish()
   } catch (e) {
     cleanup()
-    // A forceful steer ends the turn mid-stream. The harness receipt the turn already
-    // reported is credited, because those tokens were spent whatever ended the turn.
+    // A forceful steer ends the turn mid-stream; the receipt already reported is credited anyway.
     const abortedCall = usageLedger.settleTurn(callerName)
     if (abortedCall) yield* creditSandboxCall(run, abortedCall)
     // Re-plan ONLY when a forceful steer (not external teardown) aborted the turn: the
@@ -388,9 +369,8 @@ function publishSessionArtifact(run: SandboxSessionRun, started: number): void {
     ...(run.tokensKnown ? {} : { tokensKnown: false }),
     usd,
     ...(turns > 0 ? { usdKnown: false } : {}),
-    // Every dollar this worker saw came without a receipt, so the estimate channel names all of
-    // them. The `usdKnown: false` guard is the type's own rule: an estimate on a measured
-    // channel is a contradiction the pool refuses.
+    // Every dollar came without a receipt, so the estimate channel names all of them; an estimate
+    // on a measured channel is a contradiction the pool refuses.
     ...(turns > 0 && usd > 0 ? { usdEstimated: usd } : {}),
     ms: run.now() - started,
   }

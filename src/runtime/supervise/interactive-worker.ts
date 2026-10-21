@@ -1,9 +1,8 @@
 /**
- * Runtime-owned worker seam for a provider's native interactive coding-agent process.
- *
- * This adapter composes the retained-interactive lifecycle. It does not create a second stream,
- * replay buffer, session id, or cancellation protocol. The provider owns process state; Scope owns
- * the supervised worker, journal, budget, and local control inbox.
+ * Runtime-owned worker seam for a provider's native interactive coding-agent process. It composes
+ * the retained-interactive lifecycle, adding no second stream, replay buffer, session id or
+ * cancellation protocol: the provider owns process state; Scope owns the worker, journal, budget
+ * and local control inbox.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -79,12 +78,10 @@ export interface InteractiveWorkerKeyInput {
 }
 
 /**
- * Build a `MakeWorkerAgent` that starts one exact provider-owned native TUI per worker.
- *
- * A Scope supplies the durable admission hook and kernel-minted node attempt. The returned worker
- * exposes `interactiveReady`, so Scope writes the exact provider reference before the worker can be
- * attached by a different process. `attachWorker` then reconnects that same reference through the
- * provider's public `get`/interactive contract.
+ * Build a `MakeWorkerAgent` that starts one provider-owned native TUI per worker. A Scope supplies
+ * the durable admission hook and node attempt; the worker exposes `interactiveReady`, so the exact
+ * provider reference is written before another process can attach, and `attachWorker` reconnects
+ * it through the provider's public `get`/interactive contract.
  */
 export function workerFromInteractiveProvider(
   provider: AgentEnvironmentProvider,

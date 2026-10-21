@@ -25,9 +25,8 @@ export interface RunJoin {
   readonly persistence: ReturnType<typeof guardRunPersistence>
   readonly retainedAtSettlement: 'release' | 'keep'
   readonly resumeFrom: ScopeResumeState | undefined
-  /** Settled children whose executor teardown was never acknowledged, read at the join barrier.
-   *  Surfaced on every result arm so the leak is loud without voiding the run. A barrier that
-   *  throws leaves what it had read so far. */
+  /** Settled children whose executor teardown was never acknowledged, surfaced on every result arm
+   *  so the leak is loud without voiding the run. A throwing barrier leaves what it had read. */
   teardownUnconfirmed: ReadonlyArray<UnconfirmedTeardown>
   /** `teardown-*` records live outside the cursor namespace, like `metered`/`edge`. */
   teardownSeq: number
@@ -48,16 +47,13 @@ export async function joinRunChildren(
   // No later spawn can continue a budget-stopped worker, so what it held is released now.
   await releaseHeldEnvironments(scope)
   join.teardownUnconfirmed = unconfirmedTeardowns(scope)
-  // A manager that settled may still be capturing the workspace of its last turn, which
-  // it took over so that its node could settle first, and may be releasing its
-  // environment after it. Both finish before the run settles, under either policy.
+  // A settled manager may still be capturing its last turn's workspace and releasing its
+  // environment; both finish before the run settles.
   await settleManagerWork(scope)
-  // A retained-pending child kept its environment through the barrier so that a process
-  // resuming this run could reconcile the paid execution inside it. When the run will not
-  // be resumed, nothing ever would — measured 2026-09-11, four settled `no-winner` runs
-  // held 18 of a 60-slot fleet for 19 to 37 hours and later runs were refused for capacity.
-  // Whether a later process resumes is the caller's knowledge, not the outcome's, so the
-  // policy decides; the unconfirmed set is re-read so a released node is no longer named.
+  // A retained-pending child kept its environment so a resuming process could reconcile the paid
+  // execution. When the run will not be resumed nothing would: four settled `no-winner` runs held 18
+  // of a 60-slot fleet for 19 to 37 hours (2026-09-11). The caller knows whether a later process
+  // resumes, so the policy decides; the unconfirmed set is re-read so released nodes drop out.
   if (!persistence.failed && join.retainedAtSettlement === 'release') {
     join.teardownUnconfirmed = await releaseRetainedEnvironments(scope)
   }
@@ -70,9 +66,8 @@ export async function joinRunChildren(
     ...join.teardownUnconfirmed,
     ...unrecoveredRetainedChildren(scope, join.resumeFrom),
   ]
-  // The leak is real and must surface, so it is journaled per node — durable evidence a
-  // fleet autopsy reads without the run's outcome being voided by cleanup bookkeeping,
-  // naming the environment ids an operator's sweeper deletes.
+  // The leak must surface: journaled per node (durable evidence, naming the environment ids a
+  // sweeper deletes) without voiding the run's outcome.
   for (const node of join.teardownUnconfirmed) {
     await join.opts.journal.appendEvent(join.opts.runId, {
       kind: 'teardown-unconfirmed',
@@ -81,10 +76,8 @@ export async function joinRunChildren(
       at: new Date(join.now()).toISOString(),
     })
   }
-  // A released run is never resumed, so a retained child whose release the retries could
-  // not confirm is as final as a released one. Its slot closes now, marked
-  // `release-unconfirmed`, with the leak already named above; left open, it read as
-  // never-settled forever (#1301).
+  // A released run is never resumed, so a retained child whose release the retries could not
+  // confirm is final: its slot closes now as `release-unconfirmed` (#1301), the leak named above.
   if (releasing) await closeRetainedSlots(scope)
 }
 
@@ -105,8 +98,7 @@ async function confirmRetriableTeardowns(join: RunJoin, releasing: boolean): Pro
   ) {
     return
   }
-  // The window can last minutes, and a process that dies inside it must not lose the
-  // environment ids: the pending set is durable before the first retry.
+  // A process dying inside this window must not lose the environment ids: durable before the first retry.
   const pending = join.teardownUnconfirmed
   for (const node of pending) {
     await opts.journal.appendEvent(opts.runId, {

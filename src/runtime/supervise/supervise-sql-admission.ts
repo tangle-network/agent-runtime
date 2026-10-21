@@ -2,11 +2,8 @@ import { ValidationError } from '../../errors'
 import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
 import type { SuperviseOptions } from './supervise-options'
 
-/**
- * What a SQL run context admits, in the two phases `supervise` can check it: the run's identity
- * and worker seam before any compute (a synchronous configuration fault), then the coordinator and
- * the provider's retained-control capabilities once the run starts.
- */
+/** What a SQL run context admits, in two phases: identity and worker seam before any compute (a
+ *  synchronous configuration fault), then coordinator and retained-control capabilities at start. */
 export function assertSqlRunOptions(options: SuperviseOptions): void {
   if (options.runContext?.durability !== 'sql') return
   if (

@@ -51,9 +51,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   const workers = new ScopeWorkers(args, children, now)
   const meter = new ScopeOwnerMeter(args, now)
   const { releaseHeld, heldReleases } = createHeldChildRelease(args, now)
-  // The spawner owns the spawn-order namespace (`${parent}:s${ordinal}` and the `spawned` seq);
-  // the cursor owns the settlement-order namespace. They are separate so the two event kinds
-  // never collide in the journal's per-tree uniqueness guard.
+  // The spawner owns spawn order (`${parent}:s${ordinal}`, the `spawned` seq) and the cursor owns
+  // settlement order: separate namespaces so the two kinds never collide in the uniqueness guard.
   const { spawn, recordKeyedSettlement } = createScopeSpawner<Out>({
     args,
     children,
@@ -108,9 +107,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         working: workerSlots.working,
         queued: workerSlots.queued,
         freeSlots: freeSlots(workerSlots.working, workerSlots.max),
-        // The nodes behind a charged-but-idle slot: settled, yet their executor never
-        // acknowledged teardown. This scope names its OWN children; a nested manager names its
-        // own, so a leak is attributable rather than an integer.
+        // Nodes behind a charged-but-idle slot (settled, executor never acknowledged teardown); each
+        // scope names its OWN children so a leak is attributable.
         unconfirmed: Object.freeze(
           [...children.values()]
             .filter((child) => isTerminalNodeStatus(child.status) && !child.cleanupConfirmed)

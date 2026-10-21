@@ -112,9 +112,8 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
   const { config, session } = inputs
   const { deps, driveHarness } = config
   const { scope } = session.state
-  // The retry's progress mark. Spend and settlements are the BURN rate, not the goal, so they are
-  // reported beside the contract's verdict and the retry policy reads them together: with a
-  // declared check unmet, spend and settlements alone do not buy another attempt.
+  // The retry's progress mark: spend and settlements are the BURN rate, not the goal, so the retry
+  // policy reads them beside the contract verdict (with a check unmet they buy no attempt).
   const baseTokensLeft = scope.budget.tokensLeft
   const continuation = deps.continuation
   if (continuation !== undefined && deps.deliverable !== undefined) {
@@ -326,9 +325,8 @@ async function driveManagerTurn(
   // Every drive after the first is a new execution attempt of the root.
   beginScopeOwnerAttempt(scope, attempt)
   controls.beginDriverAttempt(attempt)
-  // A re-entered drive receives the original objective and the coordinator's run state unless
-  // the harness proves the turn continues the same session. The unmet items alone are the whole
-  // turn only then: a replacement sandbox knows nothing else.
+  // A re-entered drive receives the original objective and run state unless the harness proves the
+  // turn continues the same session; only then are the unmet items the whole turn.
   const turn: { current: DriverReentry | undefined } = { current: reentry }
   const held = loop.pendingWake?.attempt === attempt ? loop.pendingWake : undefined
   loop.pendingWake = undefined
@@ -452,9 +450,8 @@ async function invokeManagerHarness(
     })
     completed = true
   } catch (error) {
-    // Once the injected check has accepted a result, a later backend shutdown/timeout cannot
-    // erase that completed work — and there is nothing left to retry FOR. Without an accepted
-    // submission the backend error propagates into the retry decision.
+    // After an accepted result, a later backend shutdown/timeout cannot erase it and there is
+    // nothing left to retry FOR; without one the error propagates into the retry decision.
     if (!mcp.submittedResult() && !mcp.isStopped()) throw error
     completed = true
   } finally {

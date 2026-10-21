@@ -30,17 +30,15 @@ export interface OpenedRunTree {
 
 export async function openRunTree(opts: SupervisorOpts, now: () => number): Promise<OpenedRunTree> {
   const rootAttemptId = newExecutionAttemptId(opts.runId)
-  // One instant owns both the fresh pool's absolute deadline and its durable root records. Capture
-  // it before any asynchronous journal work so a slow begin cannot extend the run on restart.
+  // One instant owns the pool's absolute deadline and the durable root records, captured before
+  // any async journal work so a slow begin cannot extend the run on restart.
   const runStartedAtMs = now()
   const runStartedAt = new Date(runStartedAtMs).toISOString()
 
   // RESUME-FIRST (opt-in via `opts.resume`): read any prior journal tree for this runId BEFORE
-  // beginning a fresh one. A non-empty tree means a prior run for this runId already committed
-  // work (it crashed mid-flight, or this is an explicit resume), so rehydrate it instead of
-  // starting over. An empty/absent tree — and every run that did NOT opt in — takes the fresh
-  // path unchanged. This wires the already-built+tested resume primitives
-  // (`replaySpawnTree`/`materializeTreeView`); the journal/blob store decide durability.
+  // beginning a fresh one. A non-empty tree means a prior run committed work, so rehydrate it
+  // (`replaySpawnTree`/`materializeTreeView`) instead of starting over; an empty tree, and every
+  // run that did NOT opt in, takes the fresh path unchanged.
   const existing = await opts.journal.loadTree(opts.runId)
   if (opts.resume !== true && existing !== undefined) {
     throw new RuntimeRunStateError(
@@ -87,14 +85,13 @@ async function resumeRunTree(
   const abortRecovery = () => recoveryController.abort(opts.signal?.reason)
   if (opts.signal?.aborted) abortRecovery()
   else opts.signal?.addEventListener('abort', abortRecovery, { once: true })
-  // The execution deadline forbids new work, not recovery of committed evidence.
-  // Restore the tree first so an expired run reaches the normal deadline settlement
-  // and teardown path. Caller cancellation still interrupts reconciliation.
+  // The execution deadline forbids new work, not recovery of committed evidence: restore the tree
+  // first so an expired run reaches normal deadline settlement. Cancellation still interrupts.
   let restored: Awaited<ReturnType<typeof prepareScopeResume>>
   try {
     // A run cancelled before this entry settles from its journal and starts nothing:
-    // queens21-h22-tree4-20261018a's resume threw on the aborted recovery, and the next one
-    // re-ran its work to budget exhaustion before the cancel applied.
+    // queens21-h22-tree4-20261018a's resume threw on the aborted recovery, and the next re-ran its
+    // work to budget exhaustion before the cancel applied.
     const cancelledAtEntry =
       opts.signal?.aborted === true && opts.signal.reason instanceof RunCancellationReason
     restored = await prepareScopeResume(
@@ -130,16 +127,13 @@ async function beginRunTree(
     )
   }
   const pool = createBudgetPool(opts.budget, runStartedAtMs)
-  // Fresh run: begin the tree and journal the root as its own `spawned` node (parent-less, the
-  // spawn-ordinal-0 marker), so a journal-based reader — `trajectoryReport`, `replaySpawnTree`,
-  // `materializeTreeView` — can reconstruct the WHOLE realized tree from a real run, not only
-  // hand-built journals. The root is never `scope.spawn`ed (the supervisor runs `act` directly),
-  // so without this the root node is absent and `trajectoryReport` fails its `nodes.has(root)`
-  // invariant. The uniqueness guard skips `spawned` events (only the cursor namespace must be
-  // unique), so sharing ordinal 0 with the first child's spawn is not a collision; replay ignores
-  // `spawned` events for settlement reconstruction, so the replayed `Settled[]` is unchanged.
-  // A crash may have committed only beginTree. It owns no root yet, but beginning it
-  // again with a different timestamp would reject a valid empty durable run.
+  // Fresh run: begin the tree and journal the root as its own parent-less `spawned` node (ordinal 0),
+  // so journal readers (`trajectoryReport`, `replaySpawnTree`, `materializeTreeView`) can rebuild
+  // the WHOLE tree; the root is never `scope.spawn`ed, and without this `trajectoryReport` fails its
+  // `nodes.has(root)` invariant. The uniqueness guard skips `spawned` events, so sharing ordinal 0
+  // with the first child is no collision, and replay ignores them for settlement reconstruction.
+  // A crash may have committed only beginTree; beginning it again with a new timestamp would
+  // reject a valid empty durable run.
   if (existing === undefined) await opts.journal.beginTree(opts.runId, runStartedAt)
   const rootReceipt = rootMaterializationReceipt(opts)
   const rootRuntime = opts.rootMaterialization?.runtime ?? 'inline'

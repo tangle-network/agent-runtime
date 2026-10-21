@@ -40,10 +40,9 @@ export class ScopeWorkers {
   ) {}
 
   /**
-   * A child's own time box: tell it to save its state and submit what it has, and keep it running
-   * while it makes progress (`deadline.ts` `DeadlineCheckIn`). Returns the watch's stop, or
-   * undefined when the child cannot be told (no inbox, already settled, or check-ins are off), in
-   * which case the caller stops it as before.
+   * A child's own time box: tell it to save state and submit what it has, and keep it running
+   * while it progresses (`deadline.ts` `DeadlineCheckIn`). Returns the watch's stop, or undefined
+   * when the child cannot be told (no inbox, settled, or check-ins off), and the caller stops it.
    */
   readonly checkInAtTimeBox = (
     nodeId: NodeId,
@@ -73,13 +72,11 @@ export class ScopeWorkers {
   readonly send = (nodeId: NodeId, msg: unknown): boolean => {
     if (this.args.signal.aborted) return false
     const child = this.children.get(nodeId)
-    // Deliver only to a child that is still LIVE (not yet yielded by the cursor) and whose executor
-    // accepts an inbox. A settled/unknown child, or a leaf with no `deliver`, cannot be steered.
+    // Only a LIVE child whose executor accepts an inbox can be steered.
     if (!child || child.delivered || !child.deliver) return false
     const accepted = child.deliver(msg) !== false
     if (!accepted) return false
-    // A delivered steer IS activity: it resets the idle clock so a worker that was about to read
-    // as stalled is not immediately re-steered before it can act on the message it just got.
+    // A delivered steer IS activity: it resets the idle clock so the worker is not re-steered before it can act.
     child.lastActivityAt = this.now()
     return true
   }
@@ -90,16 +87,14 @@ export class ScopeWorkers {
   ): WorkerProgress | undefined => {
     const child = this.children.get(nodeId)
     if (!child) return undefined
-    // The executor's own read is best-effort enrichment on a live path — a throwing progress
-    // implementation must never break the driver's observation of an otherwise healthy worker.
+    // Best-effort enrichment on a live path: a throwing progress implementation must not break observation.
     let fromExecutor: ExecutorProgress | undefined
     try {
       fromExecutor = child.readProgress?.()
     } catch {
       fromExecutor = undefined
     }
-    // A manager child reports no usage of its own until it settles, so without its team the lead
-    // would read a manager whose workers are busy as idle and, after `stallAfterMs`, as stalled.
+    // A manager child reports no usage until it settles; without its team the lead would read it idle, then stalled.
     const team = liveTeamOf(child)
     return readWorkerProgress(
       {

@@ -90,8 +90,7 @@ export function prepareSuperviseRun(
   const options = captureSuperviseOptions(opts)
   assertSqlRunOptions(options)
   assertValidBudget(options.budget, 'supervise budget')
-  // Fail loud before any compute: every configured model must be in the allowed subset (no-op
-  // when allowedModels is unset). The backend seam carries its own model on most backends.
+  // Fail loud before any compute: every configured model must be in `allowedModels` (when set).
   const guidanceComposer = profileGuidanceComposer(options.profileGuidance)
   const { applyTraceTools, composeSpawnProfile } = traceToolPolicy(options, guidanceComposer)
   const peerAuditFor = peerAuditRegistry(options)
@@ -136,8 +135,8 @@ export function prepareSuperviseRun(
   const { childQuestionInboxes, askParentManager } = childQuestionRouting()
   const rootProviderModels: Array<string | undefined> = []
   const now = options.now ?? Date.now
-  // The root's own provider stream is retained only where a run directory can hold it. Nested
-  // managers share this harness and are left unretained here; a per-owner file is a later step.
+  // The root's provider stream is retained only where a run directory can hold it; nested managers
+  // share this harness and are left unretained (a per-owner file is a later step).
   const rootStreamSink =
     options.runDir === undefined ? undefined : createRootStreamSink(options.runDir, now)
   const observeNodeEvent = coordinationEventObserver(options)
@@ -176,10 +175,9 @@ export function prepareSuperviseRun(
     true,
   )
 
-  // Classify the worker backend against the propagation census ONCE: a backend with no channel to
-  // carry the trace context makes every traced spawn a severed hop, journaled per spawn as
-  // `trace-unpropagated` (see `worker-trace.ts` for the census). A caller-owned `makeWorkerAgent`
-  // is unclassifiable — no claim is journaled rather than a guessed one.
+  // Classify the worker backend against the propagation census ONCE: a backend with no channel
+  // for the trace context makes each traced spawn a severed hop, journaled as `trace-unpropagated`
+  // (`worker-trace.ts`). A caller-owned `makeWorkerAgent` is unclassifiable: no claim is journaled.
   const traceUnpropagated = options.backend
     ? workerTraceUnpropagatedDeclaration(options.backend.backend)
     : undefined
@@ -432,16 +430,13 @@ function admitPerWorker(options: SuperviseOptions) {
   const ownerShare = options.reservationPolicy?.ownerShare ?? 0
   const perWorker = options.perWorker ?? defaultPerWorker(options.budget, ownerShare)
   assertValidBudget(perWorker, 'supervise perWorker')
-  // A per-child ceiling larger than the pool it draws from cannot be honored, so accepting it
-  // silently misleads the caller: the child is capped by the reservation instead and settles with
-  // a `budgetViolation` against that smaller reservation, which reads as a budget outcome rather
-  // than a misconfiguration. Observed in the field with perWorker.maxTokens = 3_200_000_000 against a
-  // 200_000_000 pool, where children were still clamped at 700_000 and the caller had no way to
-  // tell the knob was inert. Refuse at construction, where the caller can still fix it.
+  // A per-child ceiling larger than its pool cannot be honored: accepting it silently reads as a
+  // budget outcome (children clamped at 700_000 under perWorker.maxTokens = 3_200_000_000 against
+  // a 200_000_000 pool) rather than a misconfiguration. Refuse at construction.
   assertPerWorkerWithinPool(perWorker, options.budget)
-  // A pool-sized ceiling can still be one no child is ever admitted under: the owner's kept share
-  // leaves less than it, or nothing remains for the owner's next turn. Five Discovery team runs
-  // died that way hours in. Only a caller-named slice is checked; the default is the runtime's own.
+  // A pool-sized ceiling can still be one no child is admitted under (the owner's kept share
+  // leaves less, or nothing for its next turn): five Discovery team runs died that way hours in.
+  // Only a caller-named slice is checked; the default is the runtime's own.
   if (options.perWorker !== undefined)
     assertPerWorkerAdmittable(perWorker, options.budget, ownerShare)
   return { ownerShare, perWorker }
@@ -488,18 +483,15 @@ function managerDriverPlan(
   const automaticDriver =
     managerBackend !== undefined &&
     automaticDriverBackendSupported(managerBackend, options.coordination)
-  // The root manager's workspace, when this process can read it: a loopback bridge runs the
-  // driver on this host with `cwd` as its workspace, so a spawn that names an inline resource by
-  // path resolves there. A caller-supplied harness is the actual driver and its workspace is its
-  // own; the bridge's cwd says nothing about it, so no root is inferred and a spawn by path is
-  // refused with the reason rather than read from a directory the driver never saw.
+  // The root manager's workspace, when this process can read it: a loopback bridge runs the driver
+  // here with `cwd` as workspace, so a spawn by path resolves there. A caller-supplied harness owns
+  // its workspace; no root is inferred and a spawn by path is refused with the reason.
   const spawnResourceRoot = hasCustomDriveHarness
     ? undefined
     : rootSpawnResourceRoot(managerBackend)
-  // Runtime-managed tool declarations and the driver's coordination channel are checked before
-  // reservation or journaling. A bridge adds its own route/admission check after that purely local
-  // validation. A caller-owned worker port owns its own mount and receives the exact profile
-  // unchanged.
+  // Runtime-managed tool declarations and the coordination channel are checked before reservation
+  // or journaling; a bridge adds its route/admission check after. A caller-owned worker port owns
+  // its mount and receives the profile unchanged.
   const spawnPreflight = composeSpawnPreflights(
     profileToolSpawnPreflight(
       options.makeWorkerAgent === undefined,
@@ -517,10 +509,9 @@ function managerDriverPlan(
       : undefined,
   )
   // A custom harness receives the provider-visible profile plus the immutable canonical profile
-  // for receipt binding. An undeclared materialization therefore defaults to the full canonical
-  // leaf set, apart from Runtime-owned coordination declarations consumed before dispatch.
-  // Declaring `driveHarnessMaterialization` narrows that claim and turns dropped axes into
-  // pre-spawn faults.
+  // for receipt binding, so an undeclared materialization defaults to the full canonical leaf set
+  // (less Runtime-owned coordination declarations); declaring `driveHarnessMaterialization`
+  // narrows that and turns dropped axes into pre-spawn faults.
   const driverMaterialization = hasCustomDriveHarness
     ? (options.driveHarnessMaterialization ?? fullProfileMaterialization)
     : managerBackend && automaticDriver
@@ -542,12 +533,10 @@ function managerDriverPlan(
 }
 
 /**
- * Every child that this run can drive as a manager inherits its manager's coordination grants,
- * so depth is the director's choice rather than an author's omission. A profile's own explicit
- * grants win; a child with no driver for its harness stays a leaf rather than failing to start.
- * A manager delivers its own work only through `submit_result`, which exists only under a
- * completion check (`childrenCanSubmit`). Without one, a worker turned manager could not finish
- * work it did itself.
+ * Every child this run can drive as a manager inherits its manager's coordination grants, so depth
+ * is the director's choice; explicit profile grants win and a child with no driver for its harness
+ * stays a leaf. A manager delivers its own work only through `submit_result`, which exists only
+ * under a completion check (`childrenCanSubmit`).
  */
 function spawnProfileComposer(
   options: SuperviseOptions,

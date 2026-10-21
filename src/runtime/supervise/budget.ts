@@ -1,65 +1,52 @@
 /**
- *
- * The conserved budget reservation pool — the invariant the whole instrument
- * rests on (critique M5/B3). One root `Budget` becomes a conserved pool of standard
- * quantities (tokens, usd, iterations) and caller-named resources plus an absolute deadline. Children reserve
- * atomically at spawn and reconcile at settle:
+ * The conserved budget reservation pool — the invariant the whole instrument rests on (critique
+ * M5/B3). One root `Budget` becomes a pool of standard quantities (tokens, usd, iterations) and
+ * caller-named resources plus an absolute deadline. Children reserve atomically at spawn and
+ * reconcile at settle:
  *
  *   total ≡ free + reserved + committed          (for every known quantity)
  *
- * `reserve` moves a child's whole ceiling from `free` → `reserved` and fails closed
- * when `free` can't cover it (never read-then-spawn overcommit, so `Σk(treatment) ≡
- * Σk(blind)` by construction). `reconcile` releases the reservation, commits ACTUAL
- * spend, and refunds the unspent remainder to `free`. Tokens and usd are separate
- * channels (`LoopTokenUsage` has no `usd`); iterations are conserved alongside them.
+ * `reserve` moves a child's whole ceiling `free` → `reserved` and fails closed when `free` can't
+ * cover it (never read-then-spawn overcommit, so `Σk(treatment) ≡ Σk(blind)` by construction).
+ * `reconcile` releases the reservation, commits ACTUAL spend, and refunds the remainder to `free`.
+ * Tokens and usd are separate channels; iterations are conserved alongside them.
  *
  * The token unit is `chargedTokens`: every token counted ONCE, when it first enters the context
  * (`input − cacheRead + output`, which is `freshInput + cacheWrite + output` under a complete
- * split). A cached prefix is re-presented content that was already charged when it was written, so
- * charging a cache read again would charge the same tokens twice — on a real fleet cache is 98% of
- * the rolled-up prompt total, which made a declared cap bite about 56x early. No price weight
- * enters the token channel; money is budgeted separately on `maxUsd`. The unit is additive, so a
- * child's settlement charges what its turns charged and a rolled-up report agrees with the pool.
- * Prompt tokens the provider never classified are charged in full, and
- * `readout().cacheBreakdownKnown` then reads false, so the balance reads as an upper bound on
- * newly-presented work rather than a measurement. The pool trusts a reported cache read the same way
- * it trusts a reported `input`: the token channel is an accounting unit, not a trust boundary
- * against a provider that misreports its own usage.
+ * split). A cached prefix was already charged when written; charging a cache read again made a
+ * declared cap bite about 56x early on a real fleet (cache is 98% of the rolled-up prompt total).
+ * No price weight enters the token channel; money is budgeted on `maxUsd`. The unit is additive,
+ * so a rolled-up report agrees with the pool. Prompt tokens the provider never classified are
+ * charged in full and `readout().cacheBreakdownKnown` reads false (an upper bound on newly-
+ * presented work). The pool trusts reported usage: it is an accounting unit, not a trust boundary.
  *
- * Named resources require explicit units, ceilings, and complete executor measurements.
- * Missing or unknown enforced measurements close admission for that resource.
- * The pool trusts those receipts; it does not independently meter external systems.
- * `Spend.boxMinutes` remains evidence only and has no implicit resource ceiling.
- * Callers must not present estimated box lifetime as a measured resource receipt.
+ * Named resources require explicit units, ceilings, and complete executor measurements; missing
+ * or unknown enforced measurements close admission for that resource. The pool trusts those
+ * receipts and meters no external system. `Spend.boxMinutes` is evidence only, with no implicit
+ * resource ceiling; never present estimated box lifetime as a measured resource receipt.
  *
- * Pure and deterministic: the run's start instant is supplied, there is no I/O, and no
- * wall-clock or RNG read. A `reserve`/`reconcile` ticket is single-use (fail-loud on double or
- * unknown reconcile) so a child can never refund twice. Reconciling an OPEN ticket always
- * closes it: a fail-loud condition settles the reservation first and throws afterwards, so no
- * error path can strand a reservation past the join barrier's `assertNoOpenTickets`.
- * Measured spend above a reservation is not a fail-loud condition. The pool commits it, returns
- * it as a `BudgetViolation`, and refuses later reservations from the reduced free balance; the
- * work it paid for is not discarded.
- * A child that declared no `maxUsd` reserved no dollar allocation, so its real dollars are
- * committed as observed spend and debited from the root's balance rather than treated as an
- * overspend of a $0 ceiling it never asked for. If dollar cost is unknowable under a
- * dollar limit, reconciliation closes the known token/iteration work, marks the dollar channel
- * unusable, and refuses later reservations; inventing a numeric dollar total would be worse.
- * If a TOKEN count is unknowable (a provider that reported no usage for work that ran), the pool
- * records the work, debits what it knows, and marks `readout().tokensKnown` false — the balance is
- * then a ceiling, not a measurement. It does not close admission the way the dollar channel does:
- * tokens are always capped, so one unreported turn must not end the run.
+ * Pure and deterministic: the run's start instant is supplied; no I/O, wall-clock or RNG read. A
+ * ticket is single-use (fail-loud on double or unknown reconcile). Reconciling an OPEN ticket
+ * always closes it: a fail-loud condition settles the reservation first and throws afterwards, so
+ * no error path strands a reservation past `assertNoOpenTickets`. Measured spend above a
+ * reservation is not fail-loud: the pool commits it, returns a `BudgetViolation`, and refuses
+ * later reservations from the reduced free balance. A child that declared no `maxUsd` reserved no
+ * dollars, so its real dollars are committed as observed spend against the root, not as an
+ * overspend of a $0 ceiling. Unknowable dollar cost under a dollar limit closes the known
+ * token/iteration work, marks the dollar channel unusable and refuses later reservations. An
+ * unknowable TOKEN count records the work, debits what is known, and marks
+ * `readout().tokensKnown` false (a ceiling, not a measurement); tokens are always capped, so one
+ * unreported turn must not end the run.
  *
- * A reservation the free balance cannot cover now can WAIT instead of failing (`reserve(b, holder,
- * { wait: true })`) when it would fit once the reservations still open return. It holds nothing
- * while it waits, so conservation is untouched. Waiting reservations are granted in the order they
- * asked, as settlements return budget, and are refused once no open reservation is left to return
- * any: then nothing could ever cover them.
+ * A reservation the free balance cannot cover now can WAIT (`reserve(b, holder, { wait: true })`)
+ * when it would fit once open reservations return. It holds nothing while waiting, so
+ * conservation is untouched; waiters are granted in asking order and refused once no open
+ * reservation is left to return any.
  *
- * A pool can be RESTORED from a prior process's durable record (same-host restart): measured
- * committed spend is debited exactly once, and each child journaled as started but never settled
- * is charged at its full declared ceiling — restart never mints capacity, and the unknown flags
- * stay visible in every later readout. The original absolute deadline never slides.
+ * A pool can be RESTORED from a prior process's durable record: measured committed spend is
+ * debited once, and each child journaled as started but never settled is charged at its full
+ * declared ceiling. Restart never mints capacity, unknown flags stay visible, and the original
+ * absolute deadline never slides.
  *
  * @experimental
  */
@@ -80,12 +67,8 @@ import { assertValidBudget, assertValidSpend } from './spend-validation'
 import type { Budget, BudgetViolation, Spend, UsageEvent } from './types'
 import { foldUsage } from './usage-metering'
 
-/**
- * A reconciliation whose spend the pool cannot verify. It is thrown after the reservation has
- * settled. `budgetViolation` carries any measured overspend on the same settlement, so a child
- * that fails closed on the fault still records how far its known channels exceeded the
- * reservation.
- */
+/** A reconciliation whose spend the pool cannot verify, thrown after the reservation settled.
+ *  `budgetViolation` carries any measured overspend on the same settlement. */
 export class BudgetReconcileFault extends Error {
   readonly budgetViolation?: BudgetViolation
 
@@ -106,12 +89,9 @@ export interface ReservationTicket {
     readonly usd: number
     readonly iterations: number
     /**
-     * Whether the child's `Budget` actually declared `maxUsd`. `reserved.usd` is `0` for BOTH a
-     * child that named no dollar ceiling and one that named `$0`, and the two settle differently:
-     * an undeclared ceiling cannot be exceeded, so the child's real dollars are committed as
-     * OBSERVED spend, while a declared ceiling of `$0` is a limit whose breach is fail-loud.
-     * Optional so an externally constructed ticket stays valid; an absent flag is read as
-     * `true` — the strict, fail-closed reading.
+     * Whether the child's `Budget` declared `maxUsd`. `reserved.usd` is `0` for both an undeclared
+     * ceiling (real dollars are committed as OBSERVED spend) and a declared `$0` (a breach is
+     * fail-loud). An absent flag is read as `true`, the fail-closed reading.
      */
     readonly usdBudgeted?: boolean
   }
@@ -122,34 +102,26 @@ export interface ReservationTicket {
  *  means the child owns the ticket and only its settlement can close it. */
 export type ReservationStage = 'admitted' | 'executing'
 
-/** Who holds a reservation. Recorded at `reserve` and refined through `attribute` once admission
- *  mints a node id, so a ticket stranded at the join barrier names the work that holds it instead
- *  of a bare counter. Every field except `stage` is optional: a pool used directly (no `Scope`)
- *  names nothing, and an unattributable leak must still be reportable. */
+/** Who holds a reservation, recorded at `reserve` and refined through `attribute`, so a ticket
+ *  stranded at the join barrier names its work. Only `stage` is required. */
 export interface ReservationHolder {
-  /** The manager-scoped assignment identity the caller declared (`SpawnOpts.assignmentId`, else
-   *  its `key`), when it declared one. */
+  /** The caller's assignment identity (`SpawnOpts.assignmentId`, else its `key`). */
   readonly assignment?: string
   /** The spawn label — the name an operator recognizes in a journal. */
   readonly label?: string
-  /** The spawned node's id, once admission minted one. Absent for a reservation that escaped
-   *  before its child had an identity. */
+  /** The spawned node's id, once admission minted one. */
   readonly childId?: string
   readonly stage: ReservationStage
 }
 
-/** One reservation still open when a run reached its join barrier — a conserved-pool leak,
- *  reported with the holder that can be chased rather than only its ticket id. */
+/** One reservation still open at the join barrier — a pool leak, with the holder to chase. */
 export interface LeakedReservation extends ReservationHolder {
   readonly ticketId: number
 }
 
-/** Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`,
- *  `usdLeft`, and `reservedTokens` reflect committed-but-unsettled reservations;
- *  `deadlineMs` is the ABSOLUTE wall-clock deadline (0 when the root set none).
- *  `iterationsLeft` is the remaining iteration capacity.
- *  `usdCapped` distinguishes a real `usdLeft <= 0` exhaustion from an uncapped pool (which always
- *  reads `usdLeft: 0`) — the in-loop guard needs it to bound a usd-capped driver. */
+/** Post-reservation pool readout — the shape `Scope.budget` exposes. `deadlineMs` is the ABSOLUTE
+ *  wall-clock deadline (0 when none). `usdCapped` distinguishes a real `usdLeft <= 0` exhaustion
+ *  from an uncapped pool (which always reads `usdLeft: 0`). */
 export type BudgetReadout = Readonly<{
   resources?: Readonly<
     Record<
@@ -165,22 +137,13 @@ export type BudgetReadout = Readonly<{
     >
   >
   tokensLeft: number
-  /**
-   * False once the pool has recorded work whose token count was UNREPORTED (a `Spend` with
-   * `tokensKnown: false`). `tokensLeft` is then a ceiling on what remains, not a measurement: real
-   * consumption is at least the debited amount and possibly more. Reading `tokensLeft` without this
-   * flag would present an under-count as an exact balance.
-   */
+  /** False once the pool recorded work with UNREPORTED tokens (`tokensKnown: false`): `tokensLeft`
+   *  is then a ceiling, and real consumption is at least the debited amount. */
   tokensKnown: boolean
-  /**
-   * False once the pool has charged a REPORTED spend whose prompt-cache split it could not read.
-   * The prompt tokens that carried no class were charged in full, and a cached prefix reaches the
-   * pool again on every turn that reads it, so the debited amount is an upper bound on
-   * newly-presented work rather than a measurement. It is a separate fact from `tokensKnown`: the
-   * counts arrived, but their composition did not. A restored uncertain reservation leaves this
-   * flag alone — it charges a declared ceiling, which has no composition to misread, and
-   * `tokensKnown` already reports that the balance is not a measurement.
-   */
+  /** False once the pool charged a REPORTED spend whose prompt-cache split it could not read: the
+   *  unclassified prompt tokens were charged in full, so the debit is an upper bound. Separate from
+   *  `tokensKnown` (counts arrived, composition did not); a restored uncertain reservation leaves
+   *  it alone, since a declared ceiling has no composition to misread. */
   cacheBreakdownKnown: boolean
   usdLeft: number
   usdCapped: boolean
@@ -231,20 +194,16 @@ export class ReservationWaitRefused extends Error {
   }
 }
 
-/** Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it
- * budgets; `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
- * unsatisfiable at any amount and the fix is to budget the root, not to ask for less. */
+/** Why a reservation was refused. `usd-unbudgeted`: the root declared no dollar ceiling, so the
+ * fix is to budget the root, not to ask for less. */
 export type ReservationRejection = 'budget-exhausted' | 'usd-unbudgeted'
 
-/** One budget channel a `budget-exhausted` reservation could not fit, with the amounts that
- * decided it. A refusal lists every channel that did not fit (`shortfalls`), so shrinking one
- * request is not answered by a second refusal on a channel the caller was never told about
- * (observed live: a director whose 100-iteration child was refused spent a probe worker to learn
- * the pool still admitted 3). `free` is a snapshot: live reservations return to it as their
- * workers settle, and a driver's own metered turns draw tokens and dollars from the same pool
- * before its next request arrives, so only `iterations` can be requested at exactly `free`.
- * `closedByUnknownSpend` means work with unmeasured usage ran under that enforced limit; the
- * channel then refuses every reservation for the rest of the run. */
+/** One channel a `budget-exhausted` reservation could not fit. A refusal lists every such channel
+ * so shrinking one request is not met by a second refusal (a director whose 100-iteration child
+ * was refused spent a probe worker to learn the pool admitted 3). `free` is a snapshot, and a
+ * driver's metered turns draw from the same pool, so only `iterations` can be requested at exactly
+ * `free`. `closedByUnknownSpend`: unmeasured usage ran under that enforced limit, so the channel
+ * refuses every reservation for the rest of the run. */
 export interface ReservationShortfall {
   readonly channel: 'tokens' | 'iterations' | 'usd' | `resource:${string}`
   readonly requested: number
@@ -266,15 +225,13 @@ export interface BudgetPoolRestore {
 
 export interface BudgetPool {
   /**
-   * Atomically reserve a child's full ceiling from the free balance. Fails closed
-   * ({ ok: false }) when the pool can't cover standard or named channels — the
-   * caller inspects `ok` before `ticket`.
+   * Atomically reserve a child's full ceiling from the free balance; fails closed
+   * ({ ok: false }) when the pool can't cover standard or named channels.
    *
-   * With `wait`, a request the free balance cannot cover now, but could once the open reservations
-   * return, is admitted as a WAITING ticket: `granted` resolves when the pool reserves it, and
-   * rejects with `ReservationWaitRefused` once nothing open could return enough. A waiting
-   * ticket reserves nothing; reconciling it withdraws it. While any ticket waits, a new waiting
-   * request queues behind it even when it would fit, so the order of asking is the order of grant.
+   * With `wait`, a request that could fit once open reservations return is admitted as a WAITING
+   * ticket: `granted` resolves when reserved and rejects with `ReservationWaitRefused` once
+   * nothing open could return enough. A waiting ticket reserves nothing; reconciling it withdraws
+   * it. New waiting requests queue behind existing waiters, so asking order is grant order.
    */
   reserve(
     b: Budget,
@@ -283,58 +240,39 @@ export interface BudgetPool {
   ):
     | { ok: true; ticket: ReservationTicket; granted?: Promise<void> }
     | { ok: false; reason: ReservationRejection; shortfalls?: readonly ReservationShortfall[] }
-  /**
-   * Name (or rename) who holds an open reservation. Merges into what `reserve` recorded, so a
-   * caller states only what it just learned — the node id admission minted, or the stage the
-   * ticket moved to. A settled or unknown ticket is ignored: attribution is leak EVIDENCE, never
-   * a lifecycle guard, and must not be able to fail a run that is otherwise healthy.
-   */
+  /** Name (or rename) who holds an open reservation, merging into what `reserve` recorded. A
+   *  settled or unknown ticket is ignored: attribution is leak EVIDENCE, never a lifecycle guard. */
   attribute(ticket: ReservationTicket, holder: ReservationHolder): void
   /**
-   * Release a reservation: commit the actual `spent`, refund the unspent remainder
-   * to the free pool. Throws on an unknown or already-reconciled ticket (fail loud —
-   * a double refund would silently break conservation).
-   *
-   * Returns the overspend when measured spend exceeded the reservation, after committing it.
-   * Throws, also after committing, when the spend cannot be verified: unknown dollar cost under
-   * a dollar cap, or unknown or overflowing usage of an enforced resource.
+   * Release a reservation: commit the actual `spent`, refund the remainder. Throws on an unknown
+   * or already-reconciled ticket (a double refund would break conservation). Returns the
+   * overspend, after committing it; throws, also after committing, when the spend cannot be
+   * verified (unknown dollars under a cap, unknown or overflowing enforced-resource usage).
    */
   reconcile(ticket: ReservationTicket, spent: Spend): BudgetViolation | undefined
-  /** Fold a normalized `UsageEvent` stream (or array) into a `Spend`. Tokens via
-   *  `addTokenUsage`, usd on its own channel, iterations from `'iteration'` events.
-   *  `ms` is left zero — wall-clock duration is the caller's to record, not the pool's. */
+  /** Fold a normalized `UsageEvent` stream (or array) into a `Spend`; `ms` is left zero. */
   spendFrom(events: AsyncIterable<UsageEvent> | UsageEvent[]): Promise<Spend>
   /** The current readout, reflecting all outstanding reservations. */
   readout(): BudgetReadout
   /**
-   * Record OBSERVED spend that did NOT go through reserve/reconcile — the driver's OWN inference
-   * (its chat turns), which is real compute but not a spawned child. A direct `free → committed`
-   * debit, so `total ≡ free + reserved + committed` is preserved: equal-k counts the driver's
-   * tokens and the in-loop budget guard (`readout().tokensLeft`) sees them. `free` may go negative
-   * when a run overspends. Unknown enforced resource usage is recorded before throwing.
-   * Partial increments defer completeness checks until the invocation reports its terminal spend.
-   * Unknown dollars under a dollar cap are refused, unless `alreadySpent` says the work finished
-   * with no caller left to refuse; that observation closes dollar admission instead.
-   * The DURABLE record is the journal's `metered` event (written by `Scope.meter`); this debit
-   * only makes the live `readout()` reflect driver inference for the in-loop guard.
+   * Record OBSERVED spend outside reserve/reconcile — the driver's OWN inference. A direct
+   * `free → committed` debit preserving the invariant; `free` may go negative on overspend.
+   * Unknown enforced resource usage is recorded before throwing; partial increments defer
+   * completeness checks until the terminal spend. Unknown dollars under a cap are refused, unless
+   * `alreadySpent` says the work finished with no caller left to refuse (that closes dollar
+   * admission instead). The DURABLE record is the journal's `metered` event (`Scope.meter`).
    */
   observe(spend: Spend, options?: { partial?: boolean; alreadySpent?: boolean }): void
-  /** Fail loud if any reservation is still open — the conserved-pool leak detector. Called at the
-   *  supervisor's join barrier: once every child has settled, no ticket may remain (a leaked
-   *  reservation would silently break `total ≡ free + reserved + committed`). */
+  /** Fail loud if any reservation is still open — the leak detector, called at the join barrier. */
   assertNoOpenTickets(): void
-  /** Every reservation still open, with its holder. Empty on a healthy pool. Read at the join
-   *  barrier so a run that failed can REPORT a leak it must not also be destroyed by. */
+  /** Every reservation still open, with its holder; lets a failed run REPORT a leak. */
   openReservations(): ReadonlyArray<LeakedReservation>
 }
 
 /**
  * Create a conserved reservation pool from a root `Budget`. `runStartedAtMs` is the WALL-CLOCK
- * instant the run's root was recorded, and it is the only input the deadline is derived from:
- * `runStartedAtMs + root.deadlineMs`, or `0` when the root declares no deadline. The pool holds no
- * clock, so a caller cannot hand it a run-relative one and get a duration back where an instant is
- * expected. A resumed pool passes the ORIGINAL root instant, so restart never slides the limit.
- * The readout is an absolute instant, not a shrinking remainder.
+ * instant the root was recorded; the deadline is `runStartedAtMs + root.deadlineMs` (`0` when
+ * none), an absolute instant. A resumed pool passes the ORIGINAL instant.
  */
 export function createBudgetPool(
   root: Budget,
@@ -389,8 +327,7 @@ export function createBudgetPool(
       grant = resolve
       refuse = reject
     })
-    // The caller may withdraw a waiting ticket before it awaits `granted`; a refusal it never
-    // reads must not surface as an unhandled rejection.
+    // A refusal the caller never reads (a withdrawn waiter) must not be an unhandled rejection.
     granted.catch(() => undefined)
     holdingNothing.add(id)
     waiting.push({ ticket, budget: b, keep, grant, refuse })
@@ -412,12 +349,9 @@ export function createBudgetPool(
     // that does not fit is reported, so a caller that shrinks one request is not refused again
     // on a second channel it was never told about.
     const shortfalls = ledgerShortfalls(ledger, b, keep)
-    // A dollar request against a root that declared no dollar ceiling can never be satisfied at
-    // ANY amount, which is a different fact from an exhausted balance and calls for a different
-    // fix: budget the root, do not retry smaller. Reporting both as `budget-exhausted` invites a
-    // caller to shrink its request forever — observed live, a driver walked its child budget down
-    // to $0.01 and spent 68k tokens before asking for help. An exhausted channel above still
-    // takes precedence, as it did before shortfalls were reported.
+    // A dollar request against a root with no dollar ceiling is unsatisfiable at ANY amount: budget
+    // the root, don't retry smaller (a driver once walked its child budget down to $0.01, 68k
+    // tokens). An exhausted channel above still takes precedence.
     if (shortfalls.length === 0 && wantUsd > 0 && !ledger.usdCapped) {
       return { ok: false, reason: 'usd-unbudgeted' }
     }
@@ -457,16 +391,11 @@ export function createBudgetPool(
       ? { tokens: 0, usd: 0, iterations: 0, resources: undefined }
       : ticket.reserved
 
-    // Two outcomes are DECIDED here and reported at the very END, after the reservation has
-    // been settled. A throw placed before settlement is how a ticket escapes the pool:
-    // `Scope.runChild` marks the child reconciled before calling, so nothing retries, the
-    // ticket stays open forever, and `assertNoOpenTickets` fails the whole run at the join
-    // barrier. Everything between here and the report is unconditional arithmetic.
-    //
-    // A FAULT is spend the pool cannot verify, and it throws. An OVERSPEND is measured spend
-    // above the reservation, and it is returned: the settlement commits the actual spend either
-    // way and lets `free` go negative (agent-runtime#1206). Unknown dollars are a fault even
-    // beside an overspend, so the child still fails closed.
+    // Two outcomes are DECIDED here and reported at the END, after settlement: a throw before it
+    // strands the ticket (`Scope.runChild` marks the child reconciled first, so nothing retries)
+    // and `assertNoOpenTickets` fails the run. A FAULT (unverifiable spend) throws; an OVERSPEND
+    // is returned, with `free` allowed negative (agent-runtime#1206). Unknown dollars are a fault
+    // even beside an overspend.
     const usdBudgeted = ticket.reserved.usdBudgeted !== false
     const { overspent, unknownUnderCap } = ledgerClassifyOverspend(ledger, held, usdBudgeted, spent)
     let fault = unknownUnderCap
@@ -498,24 +427,16 @@ export function createBudgetPool(
   ): void {
     assertValidSpend(spend, 'observed spend')
     ledgerValidateUnits(ledger, spend)
-    // Unknown dollars under a dollar cap are REFUSED before any balance mutates: unlike a
-    // reconciled child (whose reservation must settle), an observation has no ticket to strand,
-    // so the honest reading is a fail-loud refusal the caller surfaces — `driver-failed` carrying
-    // this reason — rather than an invented figure or a silently consumed cap. Work that already
-    // finished with no caller left to refuse it (a Runtime-owned analyst lens) closes dollar
-    // admission instead, as a reconciled child's unknown dollars do: refusing it would discard
-    // what that work produced and still leave its dollars unaccounted.
+    // Unknown dollars under a cap are REFUSED before any balance mutates: an observation has no
+    // ticket to strand, so the honest reading is a fail-loud `driver-failed`. Work already finished
+    // with no caller left (a Runtime-owned analyst lens) closes dollar admission instead.
     const unknownUnderCap = ledger.usdCapped && spend.usdKnown === false
     if (unknownUnderCap && options.alreadySpent !== true) {
-      // A typed refusal, not a bare invariant guard: this is a contract failure the caller sees on
-      // the `driver-failed` arm, and a driver retry must be able to tell it apart from a foreign
-      // accident it could recover from.
+      // Typed so a driver retry can tell this contract failure from a recoverable accident.
       throw new ValidationError(
         'budget pool: cannot observe unknown dollar cost under a dollar-capped budget',
       )
     }
-    // The DURABLE record of this spend is the journal's `metered` event (the twin written by
-    // `Scope.meter`); this debit exists only to make the live `readout()` reflect driver inference.
     const settlement = ledgerObserve(ledger, spend, unknownUnderCap, !options.partial)
     const violation = settlement.fault ?? settlement.rootExceeded
     if (violation) throw new ValidationError(`budget pool: ${violation}`)
@@ -617,8 +538,7 @@ function ticketFor(id: number, b: Budget): ReservationTicket {
   }
 }
 
-/** Name one leaked reservation by its holder, so the invariant message points at the work that
- *  holds the ticket rather than at a counter an operator cannot chase. */
+/** Name one leaked reservation by its holder. */
 function describeLeakedReservation(leak: LeakedReservation): string {
   const parts = [`ticket ${leak.ticketId}`]
   if (leak.childId !== undefined) parts.push(`child ${leak.childId}`)

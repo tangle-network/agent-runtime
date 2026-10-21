@@ -100,12 +100,10 @@ export function createSuperviseWorkers(
         'supervise: provide opts.backend (where workers run), opts.makeLeafAgent, or opts.makeWorkerAgent',
       )
     }
-    // A caller-owned leaf factory slots in here, under the same authorization and classification
-    // every backend-derived leaf gets; `backend` is then only needed for a per-spawn deliverable.
-    //
-    // The retry seam wraps the leaf factory, so a spawn refused BEFORE the worker ran is
-    // re-entered rather than settled dead. It sits inside the authorized path: the profile is
-    // already decided, and a re-entry runs the same executor object the kernel admitted.
+    // A caller-owned leaf factory slots in here under the same authorization and classification as
+    // every backend-derived leaf; `backend` is then needed only for a per-spawn deliverable. The
+    // retry seam wraps it, so a spawn refused BEFORE the worker ran is re-entered, not settled dead;
+    // it sits inside the authorized path and re-runs the executor object the kernel admitted.
     const withRetry = (make: MakeWorkerAgent): MakeWorkerAgent =>
       withWorkerSpawnRetry(make, options.workerRetry, {
         ...(options.onWorkerRetry ? { onRetry: options.onWorkerRetry } : {}),

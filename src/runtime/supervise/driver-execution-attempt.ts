@@ -216,17 +216,15 @@ export class DriverExecutionAttempt {
     return providerModelEvidence(evidence?.attempts[this.meteredProviderAttempts++])
   }
 
-  // A turn that completed and is found past its budget ends the drive at the turn boundary
-  // (`budgetStop`); its committed result stands, and the scope records the overspend on the
-  // node, which the manager's wake names. Throwing here discarded a turn that had already run and
-  // been paid for: the Lab's limits audit counted 28 worker turns (26.77 turn-hours) metered,
-  // found over their cap or deadline, and thrown away, e.g. on queens21-h22-capture-root-2-20261019c.
+  // A completed turn found past its budget ends the drive at the turn boundary (`budgetStop`);
+  // its committed result stands and the scope records the overspend on the node. Throwing here
+  // discarded paid-for turns: the Lab's limits audit counted 28 (26.77 turn-hours), e.g. on
+  // queens21-h22-capture-root-2-20261019c.
   async meterPending(forceUnknown = false): Promise<void> {
     if (this.pendingUsage.length === 0) return
     const { scope, executor } = this
-    // A forceful steer can finish one preflight attempt before the resumed turn produces usage.
-    // Consume those explicit no-dispatch attempts first, so the paid batch keeps its own served
-    // identity instead of inheriting the oldest positional evidence.
+    // A forceful steer can finish a preflight attempt before the resumed turn produces usage:
+    // consume those no-dispatch attempts first so the paid batch keeps its own served identity.
     for (;;) {
       const evidence = runtimeOwnedExecutorProviderEvidence(executor)
       const next = evidence?.attempts[this.meteredProviderAttempts]
@@ -255,8 +253,8 @@ export class DriverExecutionAttempt {
     )
     if (this.retainedOwner)
       this.committedOwnerSpend = addRetainedSpend(this.committedOwnerSpend, charge)
-    // The check stops a driver that would run on past its budget or deadline. A stopped manager
-    // is already ending this turn, and throwing here would discard the result it committed.
+    // Stops a driver that would run past its budget or deadline; a stopped manager is already
+    // ending this turn, and throwing would discard its committed result.
     if (this.stops.signal.aborted) return
     const spent = exhaustedBudgetChannels(scope.budget, this.now())
     if (spent === undefined) return
@@ -393,16 +391,13 @@ export class DriverExecutionAttempt {
       }
     }
     await this.meterPending()
-    // `resultArtifact()` is typed without the envelope outcome; scope's child settlement reads
-    // the same artifact through the same widening.
     const artifact = this.executor.resultArtifact() as ExecutorResult<unknown>
     this.terminalArtifact = artifact
     await this.meterStreamCorrection(artifact)
     this.captureTerminal(artifact)
   }
 
-  // A stream carries increments, while its terminal artifact says whether either accounting
-  // channel was omitted. Preserve unknowns in the shared pool instead of treating them as 0.
+  // The terminal artifact says whether a channel was omitted: keep unknowns in the pool, not 0.
   private async meterStreamCorrection(artifact: ExecutorResult<unknown>): Promise<void> {
     const { scope, observedOwnerSpend } = this
     const terminalResources = withBudgetResources(
@@ -468,14 +463,20 @@ export class DriverExecutionAttempt {
   /** A pending executor that completed must have acknowledged its terminal materialization. */
   async publishAcknowledgement(pending: PendingMaterialization): Promise<void> {
     if (pending === undefined || this.materializationPublished) return
-    const acknowledged = runtimeOwnedExecutorMaterialization(this.executor)
-    const acknowledgedBinding = runtimeOwnedExecutorExecutionBinding(this.executor)
-    if (acknowledged === undefined || acknowledgedBinding === undefined) {
+    if (!(await this.publishAcknowledged())) {
       throw new ValidationError(
         'driveHarnessFromBackend: external executor completed without a terminal materialization acknowledgement',
       )
     }
-    await this.publishMaterialization(acknowledged, acknowledgedBinding)
+  }
+
+  /** Publish the executor's own terminal attestation; false when it carries none. */
+  private async publishAcknowledged(): Promise<boolean> {
+    const declaration = runtimeOwnedExecutorMaterialization(this.executor)
+    const binding = runtimeOwnedExecutorExecutionBinding(this.executor)
+    if (declaration === undefined || binding === undefined) return false
+    await this.publishMaterialization(declaration, binding)
+    return true
   }
 
   /**
@@ -484,25 +485,18 @@ export class DriverExecutionAttempt {
    */
   async release(pending: PendingMaterialization, drive: DriveHarness): Promise<void> {
     const { executor, retainedOwner } = this
-    // The bridge can return its terminal receipt, then Runtime metering can fail before normal
-    // publication (for example, after an accepted submit_result exceeds the token budget).
-    // The executor attestation is the trusted receipt; publish it before teardown destroys the
-    // bridge-owned state. If no receipt exists, leave the owner unknown and preserve the
-    // original failure instead of inventing evidence or replacing its diagnostic.
+    // Metering can fail after the bridge returned its terminal receipt (an accepted submit_result
+    // over the token budget). The attestation is the trusted receipt: publish it before teardown
+    // destroys the bridge state. With no receipt, preserve the original failure; invent nothing.
     if (pending !== undefined && !this.materializationPublished) {
-      const acknowledged = runtimeOwnedExecutorMaterialization(executor)
-      const acknowledgedBinding = runtimeOwnedExecutorExecutionBinding(executor)
-      if (acknowledged !== undefined && acknowledgedBinding !== undefined) {
-        try {
-          await this.publishMaterialization(acknowledged, acknowledgedBinding)
-        } catch (error) {
-          this.noteFailure(error)
-        }
+      try {
+        await this.publishAcknowledged()
+      } catch (error) {
+        this.noteFailure(error)
       }
     }
-    // Capture provider evidence before teardown destroys the executor-owned observation state.
-    // This is independent from terminal materialization: an aborted paid turn still needs its
-    // served identity, while a plan-only receipt must never be used as a substitute.
+    // Capture provider evidence before teardown destroys the observation state: an aborted paid
+    // turn still needs its served identity, and a plan-only receipt is no substitute.
     recordRuntimeOwnedDriveHarnessProviderEvidence(
       drive,
       runtimeOwnedExecutorProviderEvidence(executor),
@@ -517,8 +511,8 @@ export class DriverExecutionAttempt {
       try {
         await this.meterUnmeteredAttempts()
       } catch (error) {
-        // The pool can reject before updating its readout. Preserve the provider diagnosis,
-        // but keep failed accounting terminal even when the original failure was transient.
+        // The pool can reject before updating its readout: keep the provider diagnosis, but make
+        // the failed accounting terminal even when the original failure was transient.
         this.failure = new RuntimeRunStateError(
           `${errMessage(this.failure)}; accounting failed: ${errMessage(error)}`,
           { cause: this.failure },
@@ -539,9 +533,8 @@ export class DriverExecutionAttempt {
     }
   }
 
-  // A reconnect may have started several provider attempts before the bridge failed.
-  // Persist one unknown-cost marker for every unmetered attempt; dropping a later model
-  // observation would let an earlier model appear homogeneous by accident.
+  // A reconnect may have started several provider attempts before the bridge failed: persist one
+  // unknown-cost marker per unmetered attempt, so an earlier model never looks homogeneous.
   private async meterUnmeteredAttempts(): Promise<void> {
     const { scope, executor } = this
     for (;;) {
@@ -575,7 +568,6 @@ export class DriverExecutionAttempt {
         { role: 'driver', runtime: executor.runtime, telemetry: 'unknown-after-failure' },
       )
     }
-    // Increments cannot prove the final resource total after an interrupted invocation.
     const attempts = runtimeOwnedExecutorProviderEvidence(executor)?.attempts
     const provenNotStarted =
       attempts !== undefined &&

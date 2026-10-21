@@ -8,9 +8,7 @@ import { armDeadlineTimer } from './deadline'
  */
 export class BridgeTurnSignals {
   readonly controller = new AbortController()
-  /** The turn ran out its own deadline. */
   timedOut = false
-  /** The model sent nothing for `modelSilenceMs` with no tool call open. */
   silent = false
   private openToolCalls = 0
   private silenceTimer: ReturnType<typeof setTimeout> | undefined

@@ -19,11 +19,8 @@ export interface SupervisorRunIntake<Task> {
   readonly budgetStopHoldMs: SupervisorOpts['budgetStopHoldMs']
 }
 
-/**
- * Read every caller-owned field once, then detach and freeze all decision data together before
- * the first await. Stateful runtime collaborators stay live by reference, but replacing a field
- * on the caller's opts object after intake cannot redirect this run.
- */
+/** Read every caller-owned field once, then detach and freeze all decision data before the first
+ *  await; stateful collaborators stay live by reference, but later opts mutation cannot redirect the run. */
 export function admitSupervisorRun<Task>(
   task: Task,
   opts: SupervisorOpts,

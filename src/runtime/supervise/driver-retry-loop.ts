@@ -30,44 +30,32 @@ import {
 } from './upstream-unavailable'
 
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3
-
 const DEFAULT_MAX_ATTEMPTS = Number.POSITIVE_INFINITY
-
 const DEFAULT_INITIAL_BACKOFF_MS = 2_000
-
 const DEFAULT_MAX_BACKOFF_MS = 30_000
-
 const DEFAULT_TRANSIENT_OUTAGE_MS = 900_000
 
 /**
- * The repeated-failure bound: attempts that each fail within {@link INSTANT_FAILURE_MS} with the
- * same error, {@link REPEATED_FAILURE_LIMIT} or more in a row over at least
- * {@link REPEATED_FAILURE_WINDOW_MS}, stop the run with `repeated-failure` whatever the rest of the
- * run is doing. The progress mark is run-wide, so while other nodes spend or settle, a driver that
- * dies on arrival reads as progressing and the barren bound never fires: on Discovery run
- * magnetar-rust-20261017c, 1,258 of 2,069 root attempts failed with 'connect ECONNREFUSED
- * 127.0.0.1:32897' between 13:20Z and 16:05Z. The window keeps a local server's restart, which
- * takes seconds, from ending a run.
+ * The repeated-failure bound: {@link REPEATED_FAILURE_LIMIT} or more attempts in a row, each
+ * failing within {@link INSTANT_FAILURE_MS} with the same error over at least
+ * {@link REPEATED_FAILURE_WINDOW_MS}, stop the run with `repeated-failure`. The progress mark is
+ * run-wide, so a driver dying on arrival reads as progressing while other nodes spend: run
+ * magnetar-rust-20261017c failed 1,258 of 2,069 root attempts with 'connect ECONNREFUSED
+ * 127.0.0.1:32897'. The window keeps a seconds-long local restart from ending a run.
  */
 const INSTANT_FAILURE_MS = 30_000
-
 const REPEATED_FAILURE_LIMIT = 10
-
 const REPEATED_FAILURE_WINDOW_MS = 5 * 60_000
-
 /** Consecutive identical reconciliation failures of one pending invocation that resolve it. */
 const SAME_PENDING_LIMIT = 2
 
 /**
- * Consecutive attempts that end in the same Sandbox `PartialFailureError`, with nothing gained
- * between them, that stop the loop. That error is a box that was created and then failed its
- * setup (its profile files would not materialize, it did not become ready). The retained
- * execution is bound durably to the node, so each re-entry meets the same box and the same
- * failure. Discovery run queens21-h22-capture-root-1-20261019c re-entered four such boxes 154
- * times in 37 minutes on `mkdir: cannot create directory '/work': Read-only file system`, one
- * box per root, each inside the transient-outage window that retries a failure which spent
- * nothing. A second identical attempt proves what a third would repeat; a different failure, or
- * any progress, starts the count over.
+ * Consecutive attempts ending in the same Sandbox `PartialFailureError` (a box created that then
+ * failed its setup) with nothing gained stop the loop: the retained execution is bound durably to
+ * the node, so each re-entry meets the same box and failure. Run queens21-h22-capture-root-1-
+ * 20261019c re-entered four such boxes 154 times in 37 minutes on `mkdir: cannot create directory
+ * '/work': Read-only file system`, inside the transient-outage window. A second identical attempt
+ * proves what a third repeats; a different failure, or any progress, restarts the count.
  */
 const SAME_PARTIAL_FAILURE_LIMIT = 2
 
@@ -76,9 +64,8 @@ function budgetStop(budget: DriverBudgetReadout, atMs: number): DriverAttemptSto
   if (budget.deadlineMs > 0 && atMs >= budget.deadlineMs) return 'deadline'
   if (budget.tokensLeft <= 0 || budget.iterationsLeft <= 0) return 'budget-exhausted'
   if (budget.usdCapped && budget.usdLeft <= 0) return 'budget-exhausted'
-  // A dollar-capped pool that has seen an unknown-cost turn closes admission permanently, so a
-  // retry could only reproduce the same refusal. The pool's own state proves this, independently of
-  // how the refusal was thrown.
+  // A dollar-capped pool that has seen an unknown-cost turn closes admission permanently: a retry
+  // could only reproduce the same refusal.
   if (budget.usdCapped && budget.usdKnown === false) return 'budget-exhausted'
   if (
     Object.values(budget.resources ?? {}).some(
@@ -94,12 +81,10 @@ function contractOf(mark: DriverProgressMark): DriverContractState {
 }
 
 /**
- * Did this attempt move the run toward its DELIVERABLE?
- *
- * A delivery always counts: an accepted submission, one more child that passed the check, the
- * contract turning met, or a rise in the check's best composite. Spend and settlements count only
- * while no declared check is outstanding — with a check unmet they are the burn-rate reading this
- * module's header measures and rejects.
+ * Did this attempt move the run toward its DELIVERABLE? A delivery always counts (an accepted
+ * submission, a child that passed the check, the contract turning met, a rise in the best
+ * composite). Spend and settlements count only while no declared check is outstanding; with one
+ * unmet they are the burn-rate reading the header rejects.
  */
 function madeProgress(before: DriverProgressMark, after: DriverProgressMark): boolean {
   if (after.submitted && !before.submitted) return true
@@ -344,12 +329,10 @@ export class DriverRetryLoop {
     const failedAt = limits.now()
     const stop = this.failureStop(failure, failedAt)
     const abandoned = await this.abandonPending(failure, stop)
-    // A pending invocation that would be abandoned again, after the run already spent its
-    // abandonments without progress, is not retried until the outage window or the barren bound
-    // ends it: each replacement failed reconciliation the same way, so the next one would too.
-    // Discovery run terraform-dc-build-20261009g-fork (2026-10-09) re-entered one stopped
-    // sandbox 52 times over 26 minutes this way, and settled an untyped `no-progress`. The stop
-    // names the pending cause so the owner reconciles the execution before re-driving the run.
+    // A pending invocation that would be abandoned again after the run spent its abandonments
+    // without progress is not retried until the outage window or barren bound ends it: each
+    // replacement failed reconciliation the same way (terraform-dc-build-20261009g-fork re-entered
+    // one stopped sandbox 52 times over 26 minutes). The stop names the pending cause.
     const unresolved =
       !abandoned &&
       !progressed &&
@@ -447,11 +430,10 @@ export class DriverRetryLoop {
     return this.consecutiveBarren + 1 >= limits.maxConsecutive ? 'no-progress' : undefined
   }
 
-  // A pending invocation that failed reconciliation the same way twice, or that would now
-  // end the run, is resolved instead of retried: the owner abandons it, recording what the
-  // provider confirmed, and the next drive starts a new invocation. The new invocation's
-  // failures start a new streak. Abandonments in a row without progress are bounded like
-  // failures, so a provider that loses every execution still ends the run.
+  // A pending invocation that failed reconciliation the same way twice, or that would now end the
+  // run, is abandoned instead of retried (recording what the provider confirmed), and the next
+  // drive starts a new invocation with a new streak. Abandonments in a row without progress are
+  // bounded like failures, so a provider that loses every execution still ends the run.
   private async abandonPending(
     failure: DriverFailure,
     stop: DriverAttemptStop | undefined,
@@ -481,9 +463,8 @@ export class DriverRetryLoop {
 
   /**
    * Decide what a completed drive with its check unmet does next. Every bound the FAILURE path
-   * applies is applied here too — that is the fix for `budgetStop` having lived only in the catch
-   * arm — and they are read again after the note is composed, because composing may run the
-   * question panel.
+   * applies is applied here too (`budgetStop` once lived only in the catch arm), and read again
+   * after the note is composed, because composing may run the question panel.
    */
   private async decideContinuation(
     policy: DriverContinuationPolicy,

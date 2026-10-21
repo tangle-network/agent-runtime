@@ -62,13 +62,9 @@ interface StreamBridgeArgs {
   onProfileMaterialization: (receipt: BridgeProfileMaterializationReceipt) => void
 }
 
-/**
- * One resumable cli-bridge session, run as a streamed turn loop. Turn 0 sends the
- * task; each subsequent turn fires ONLY when the inbox has a steer/answer to fold —
- * re-calling the SAME `session_id` so cli-bridge resumes the harness conversation.
- * Mirrors `routerToolsInlineExecutor`'s take→turn→settle loop, but each turn is a
- * full streamed harness session call rather than a single chat round.
- */
+/** One resumable cli-bridge session as a streamed turn loop: turn 0 sends the task, each later
+ *  turn fires ONLY when the inbox has a steer/answer to fold, re-calling the SAME `session_id`.
+ *  Mirrors `routerToolsInlineExecutor`'s take→turn→settle loop with a full harness call per turn. */
 export async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<UsageEvent> {
   const { seam, inbox, observation } = args
   const started = Date.now()
@@ -79,8 +75,7 @@ export async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterabl
   const harnessStore = openBridgeHarnessStore(seam.harnessStore)
   if (harnessStore) await readHarnessStoreDelta(harnessStore, observation)
 
-  // Turn 0 is the task; later turns carry the folded steer/answer as the next prompt
-  // on the SAME session. `nextPrompt` is undefined once there's nothing pending.
+  // Turn 0 is the task; later turns carry the folded steer/answer on the SAME session.
   let nextPrompt: string | undefined = taskToPrompt(args.task)
   // The messages this turn's prompt carries. Committed once the bridge streams the run, so a turn
   // that fails or is interrupted before then hands them back to the next prompt.
@@ -101,9 +96,8 @@ export async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterabl
     if (nextPrompt === undefined) break
     observation.note = `turn ${t}`
 
-    // Each turn sends ONLY the new task/steer. The full canonical profile carries the standing
-    // prompt, and cli-bridge materializes it once; duplicating it as a system message changes the
-    // instructions and makes profile-vs-message precedence backend-dependent.
+    // Each turn sends ONLY the new task/steer: the profile's standing prompt is materialized once,
+    // and duplicating it as a system message makes precedence backend-dependent.
     const messages: Array<{ role: string; content: string }> = []
     messages.push({ role: 'user', content: nextPrompt })
     nextPrompt = undefined
@@ -146,12 +140,9 @@ export async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterabl
       break
     }
 
-    // Before settling, take once more — the worker can't finish while a steer it
-    // never read is pending (the sandbox/router settle contract). A pending steer
-    // becomes the next resume turn; otherwise the session is truly done. A session that cannot
-    // run that turn reports the steer failed on the way out (`failPendingAfter`).
-    // AUTHORITY messages only: a sibling that kept sending mail could otherwise hold a finished
-    // worker open indefinitely, which is denial of settlement, not a delivery guarantee.
+    // Before settling, take once more: a worker can't finish with an unread steer pending, which
+    // becomes the next resume turn (else `failPendingAfter` reports it failed). AUTHORITY messages
+    // only, or a sibling's mail could hold a finished worker open indefinitely.
     if (inbox.pendingAuthority() === 0) break
   }
 
@@ -185,11 +176,9 @@ type BridgePreflight =
   | { readonly kind: 'stopped' }
   | { readonly kind: 'interrupted' }
 
-/**
- * Prove this bridge can accept the turn before allocating a remote run id. A refusal still
- * becomes an attempt with explicit no-dispatch evidence. Keeping the active-run map empty is
- * what prevents teardown from cancelling work the bridge never accepted.
- */
+/** Prove this bridge can accept the turn before allocating a remote run id. A refusal still becomes
+ *  an attempt with no-dispatch evidence; the empty active-run map keeps teardown from cancelling
+ *  work the bridge never accepted. */
 async function preflightBridgeTurn(
   args: StreamBridgeArgs,
   signals: BridgeTurnSignals,
@@ -357,10 +346,8 @@ async function settleFailedTurn(
   external: AbortSignal,
 ): Promise<void> {
   const { seam } = args
-  // A forceful steer first detaches this HTTP reader, then explicitly cancels
-  // the durable run and waits for terminal proof. Starting the resume turn
-  // before that acknowledgement would race two harness processes against one
-  // resumable session.
+  // A forceful steer detaches this reader, cancels the durable run and waits for terminal proof;
+  // resuming earlier would race two harness processes against one session.
   const interruptAbort =
     signals.interrupt.aborted && !args.signal.aborted && !args.controller.signal.aborted
   if (interruptAbort) {
@@ -372,9 +359,7 @@ async function settleFailedTurn(
     }
     return
   }
-  // A per-turn timeout is owned here, not by the HTTP socket. Request
-  // explicit cancellation before surfacing it; external scope teardown
-  // performs the same operation under its own grace budget.
+  // A per-turn timeout is owned here, not by the socket: request cancellation before surfacing it.
   if (signals.silent && !signals.timedOut) {
     if (!activeRun.terminal) await requestBridgeRunCancellation(seam, activeRun, 0)
     // Silence is the same accident as a deadline, found sooner: the turn failed, the run goes on.
@@ -385,10 +370,9 @@ async function settleFailedTurn(
   }
   if (signals.timedOut) {
     if (!activeRun.terminal) await requestBridgeRunCancellation(seam, activeRun, 0)
-    // The turn ran out its own deadline: it failed, and the run did not stop. Surfaced as the
-    // transport's AbortError it classified terminal, and one silent 4-hour root turn
-    // (timeoutMs 14,400,000) settled magnetar-rust-20261019b, a 48-hour run. As a failed turn
-    // the driver re-enters the run, counted and bounded like any other failure.
+    // The turn ran out its own deadline: it failed, the run did not stop. As the transport's
+    // AbortError it classified terminal (one silent 4-hour turn settled magnetar-rust-20261019b, a
+    // 48-hour run); as a failed turn the driver re-enters it, bounded like any other failure.
     throw new HarnessTurnFailedError('bridge', {
       error: `the turn ran out its ${seam.timeoutMs} ms deadline; cancellation of bridge run ${activeRun.id} requested`,
       errorCode: 'timeout',
@@ -413,11 +397,9 @@ function observeChunkIdentity(
         )
       }
       const isWireModel = chunk.model === seam.model
-      // The exact request id is transport metadata, even when it carries a snapshot.
-      // Never let it seed served identity or block a later provider snapshot.
+      // The exact request id is transport metadata: never served identity.
       if (!isWireModel && observedModelHasSnapshot(chunk.model)) {
-        // Record each validated served snapshot before merging. A later conflicting
-        // snapshot must remain visible in evidence so the attempt stays fail-closed.
+        // Record each snapshot before merging so a later conflict stays visible (fail-closed).
         args.onProviderModel(chunk.model)
       }
       if (!isWireModel) {
@@ -467,13 +449,11 @@ function* chunkProgress(
       at: Date.now(),
       kind: 'tool',
       label: step.toolName,
-      // No `status`: the bridge reported the DECISION to call this tool, and nothing on
-      // this wire ever reports the call finishing. An 'ok' here would be invented.
+      // No `status`: the wire reports the DECISION to call, never the finish.
       ...(describeToolArgs(step.args) ? { detail: describeToolArgs(step.args) } : {}),
     })
     args.record(step)
-    // Published after the local mirrors are updated, so a consumer that reads `progress()`
-    // when this event arrives sees the same call in the activity window.
+    // Published after the mirrors update, so `progress()` readers see the same call.
     yield {
       kind: 'progress',
       progress: {
@@ -485,8 +465,7 @@ function* chunkProgress(
     }
   }
   for (const result of chunk.toolResults ?? []) {
-    // A finished call is a second fact beside the decision above: it carries the status the
-    // decision honestly lacked, so it gets its own note rather than rewriting that one.
+    // A finished call is a second fact, with its own note, carrying the status the decision lacked.
     observation.activity.push({
       at: Date.now(),
       kind: 'tool',

@@ -41,10 +41,8 @@ import type {
   UnconfirmedTeardown,
 } from './types'
 
-/** The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every
- *  level draws its slice from the level above, so a tree ends when its slices run out. This
- *  ceiling only stops a runaway recursion that keeps spawning tiny slices, so it sits well above
- *  any depth a budget can usefully pay for. */
+/** The default recursion-depth ceiling. The conserved pool bounds depth (every level draws its
+ *  slice from the one above); this only stops a runaway recursion of tiny slices. */
 export const DEFAULT_MAX_DEPTH = 16
 
 /** Create a supervisor that owns one recursive agent execution tree. */
@@ -64,26 +62,21 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
     const rootResultAccepted = root.resultAccepted?.bind(root)
     const now = opts.now ?? Date.now
     assertRootIdentity(opts)
-    // Reserve the attached control synchronously, before the first journal read or write. A handle
-    // is one live route, so two concurrent runs may never race to overwrite that route and later
-    // detach each other. The lease is released on every early failure as well as normal teardown.
+    // Reserve the attached control synchronously, before the first journal access: a handle is
+    // one live route, so concurrent runs must not overwrite and later detach each other.
     const rootLease = attached?.acquire()
     try {
       const opened = await openRunTree(opts, now)
       const cascade = rootCascade(intake.controller, opts)
-      // The breaker watches `down` settlements via a counting journal decorator, so it
-      // observes every child failure without intercepting `scope.next()` (the driver's
-      // private channel). Tripping aborts the same controller; the trip is recorded so the
-      // final result can name it.
+      // The breaker counts `down` settlements via a journal decorator, so it sees every child
+      // failure without intercepting `scope.next()`. Tripping aborts the same controller.
       const breaker = createIntensityBreaker(opts, () => cascade.abort('intensity breaker tripped'))
       const journal = wrapJournalForBreaker(opts.journal, breaker)
       const scope = createRootScope<Out>(intake, opened, journal, now)
-      // `view`/drain read the scope opaquely (`Out` erased) — the supervisor never `spawn`s
-      // on it, so the live-tree readout and the join barrier are `Out`-agnostic.
+      // The supervisor never `spawn`s on it, so the readout and join barrier are `Out`-agnostic.
       const openScope = scope as unknown as Scope<unknown>
 
-      // Bind any attached RootHandle to THIS live run so view()/signal()/abort() reach the
-      // live scope + the one cascade controller. Detached again in the finally barrier.
+      // Bind any attached RootHandle to THIS live run; detached again in the finally barrier.
       if (rootLease) {
         rootLease.bind({
           scope: openScope,
@@ -108,17 +101,13 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         rootLease,
       })
 
-      // The run's tree, not this process's: on a resumed run the prior process's committed nodes are
-      // carried in, so `tree` covers the same work `spentTotal` bills for. Identical to `scope.view`
-      // on every run that did not resume.
+      // The run's tree, not this process's: a resumed run carries the prior process's committed
+      // nodes, so `tree` covers the work `spentTotal` bills for.
       intake.persistence.assertAvailable()
       const tree = runTree(scope)
-      // Reservations still open once every child has settled, read once at the barrier and named
-      // by their holders. A leak breaks `total ≡ free + reserved + committed`, so the winner path
-      // below still fails loud rather than hand back an output whose `spentTotal` cannot be
-      // trusted. A run that produced NO winner reports the same leak as an integrity finding
-      // instead: its tree and the spend the journal recorded are real, and replacing that
-      // settlement with an exception discards a whole pursuit over cleanup bookkeeping (#1181).
+      // A leak breaks `total ≡ free + reserved + committed`, so the winner path fails loud rather
+      // than return an untrustworthy `spentTotal`; a NO-winner run reports it as an integrity
+      // finding, since discarding a whole pursuit over cleanup bookkeeping is worse (#1181).
       const leakedReservations = opened.pool.openReservations()
       return await settleRootResult<Out>({
         ...settled,
@@ -151,11 +140,8 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
   return { run, attach }
 }
 
-/**
- * ONE internal controller is the root scope's abort source. Every cascade path (caller signal,
- * RootHandle.abort, breaker trip, deadline) aborts it; the scope fans it out to each live child's
- * executor (acquire-aware reap included).
- */
+/** ONE controller is the root scope's abort source: every cascade path (caller signal,
+ *  RootHandle.abort, breaker trip, deadline) aborts it and the scope fans it out to each child. */
 interface RootCascade {
   /** Whether a cascade path, not a persistence failure, aborted the controller. */
   readonly aborted: () => boolean
@@ -169,14 +155,11 @@ function rootCascade(controller: AbortController, opts: SupervisorOpts): RootCas
   const cascadeAbort = (reason?: unknown): boolean => {
     if (controller.signal.aborted) return false
     cascadeAborted = true
-    // Carry the reason on the signal so it chains down to each child's abort signal
-    // (`childAbort.signal.reason`) — the diagnostic the scope's executors observe.
+    // The reason chains down to each child's abort signal.
     controller.abort(reason)
     return true
   }
-  // `abortReason` keeps an `Error` reason's message and treats a reasonless `abort()` as the
-  // fallback, so a caller that aborts with `new Error('why')` settles as 'why' rather than the
-  // generic text, and every layer below sees the same reason this settlement records.
+  // `abortReason` keeps an `Error` reason's message, so `abort(new Error('why'))` settles as 'why'.
   const onCallerAbort = () => {
     const reason = opts.signal
       ? abortReason(opts.signal, 'caller signal aborted')
@@ -264,12 +247,8 @@ interface RootDeadline {
   readonly clear: () => void
 }
 
-/**
- * A root whose result was already accepted is ending the turn that submitted it. The deadline
- * gives it a bounded grace to return that result before cascading: cascading now would discard
- * accepted work and settle the run with no winner. Every child carries the same cutoff on its own
- * timer, so the grace keeps nothing else running.
- */
+/** A root whose result was already accepted gets a bounded grace at the deadline to return it;
+ *  cascading now would discard accepted work. Children carry the cutoff on their own timers. */
 function armRootDeadline(
   pool: BudgetPool,
   opts: SupervisorOpts,
@@ -318,10 +297,8 @@ interface RootExecution {
 interface RootSettled<Out> {
   readonly actOutcome: { ok: true; out: Out } | { ok: false; error: unknown }
   readonly executionAborted: boolean
-  /** Whether every spawned child was ALREADY down when root execution settled. Read at settle,
-   *  never after the join barrier: the barrier's own teardown turns healthy live children into
-   *  `down` nodes, and reading it afterwards reported a crashed driver's run as
-   *  `all-children-down` — the tree's state caused by the cleanup, not the cause of the failure. */
+  /** Whether every spawned child was ALREADY down at settle. Read before the join barrier, whose
+   *  own teardown turns healthy children `down` and misreported a crashed driver as `all-children-down`. */
   readonly allChildrenDownAtSettle: boolean
   readonly teardownUnconfirmed: ReadonlyArray<UnconfirmedTeardown>
 }
@@ -352,39 +329,27 @@ async function executeRoot<Out>(root: RootExecution): Promise<RootSettled<Out>> 
     const out = (await runAbortable(root.run, controller.signal, 'supervisor aborted')) as Out
     actOutcome = { ok: true, out }
   } catch (error) {
-    // act()'s rejection is the PRIMARY error; capture it before the join barrier so a
-    // teardown failure in the barrier can never overwrite it (firstError precedence).
+    // act()'s rejection is the PRIMARY error, captured before the join barrier can overwrite it.
     actOutcome = { ok: false, error }
   } finally {
-    // Root execution has settled, so the run's output is fixed and nothing spawned from here
-    // on could be joined by the barrier below or selected over by a driver that has stopped
-    // reading. Close admission BEFORE the drain: a background supervisor-tool invocation that
-    // outlived its response fence still holds this scope's verbs and can call `spawn`
-    // in-process at any point during the barrier. One that did (2026-09-14) took a conserved
-    // reservation 309 ms after the drain finished, and `assertNoOpenTickets` below read that
-    // live ticket as a leak and destroyed a 63-child run over it.
+    // Close admission BEFORE the drain: a background supervisor-tool invocation that outlived its
+    // response fence can still `spawn` in-process during the barrier. One did on 2026-09-14,
+    // 309 ms after the drain, and `assertNoOpenTickets` destroyed a 63-child run over it.
     closeScopeAdmission(scope)
     executionAborted = controller.signal.aborted
     allChildrenDownAtSettle = allSpawnedChildrenDown(runTree(scope))
-    // A child inherits the root cutoff and can settle the root act on that exact timer turn.
-    // If its settlement callback runs before the root timer callback, the finally block clears
-    // the still-pending root timer. Preserve the deadline cause from the shared absolute clock;
-    // do not overwrite a caller/breaker abort that already won the controller race.
+    // A child inherits the root cutoff and can settle the root act on that exact timer turn,
+    // before the root timer fires. Keep the deadline cause from the shared clock, unless a
+    // caller/breaker abort already won.
     if (!controller.signal.aborted && deadline.atMs > 0 && now() >= deadline.atMs) {
       deadline.exceeded = true
     }
     deadline.clear()
-    // #741: a root driver that DIED did not make its children unhealthy. When the run was not
-    // cancelled, `childSettleGraceMs` lets live children reach their own terminal state (and
-    // write what they hold) before the cascade takes them. Bounded by the run's own deadline,
-    // because nothing may outlive that.
-    //
-    // The grace covers a root that RETURNED with children still live, not only one that threw.
-    // A harness root ends its turn when it stops speaking; with no re-prompt configured that
-    // return is final, and the children it just spawned were torn down before their first turn
-    // (measured 2026-09-03 on one fleet: 7 of 17 lead runs ended this way, every child at zero
-    // tokens, nothing recorded). `drainLiveChildren` returns at once when nothing is live, so a
-    // root that finished after its children costs nothing here.
+    // #741: a root that DIED did not make its children unhealthy. When not cancelled,
+    // `childSettleGraceMs` lets live children finish before the cascade, bounded by the run's
+    // deadline. It covers a root that RETURNED with children live too (a harness root ends its
+    // turn when it stops speaking; 7 of 17 lead runs on 2026-09-03 tore children down at zero
+    // tokens). `drainLiveChildren` returns at once when nothing is live.
     const settleGraceMs = !controller.signal.aborted
       ? boundedSettleGrace(opts.childSettleGraceMs, deadline.atMs, now)
       : 0
@@ -401,8 +366,8 @@ async function executeRoot<Out>(root: RootExecution): Promise<RootSettled<Out>> 
       }
     }
     if (persistence.failed) {
-      // A failed journal cannot prove a terminal outcome or authorize release. Join local
-      // observers and admitted writes; retained providers keep their exact invocation alive.
+      // A failed journal proves no terminal outcome: join local observers and admitted writes;
+      // retained providers keep their invocation alive.
       await waitForScopeChildren(scope)
       await persistence.drain()
     }
@@ -438,23 +403,15 @@ async function settleRootResult<Out>(settled: RootSettlement<Out>): Promise<Supe
   if (actOutcome.ok) {
     if (settled.executionAborted) return noWinner(settled)
     const out = actOutcome.out
-    // Completion-oracle at the root: a `winner` MUST carry a real `Out`. A driver that ran to
-    // completion but selected nothing (its keep-best finalize found no DELIVERED child) returns
-    // `undefined` — that is a no-winner, never a winner wrapping `undefined`. The supervisor's
-    // contract is to refuse coercing a non-result into a best-effort Out (Foreman's 0/18 lesson).
+    // A `winner` MUST carry a real `Out`: a driver that selected nothing returns `undefined`,
+    // which is a no-winner, never a best-effort coercion (Foreman's 0/18 lesson).
     if (out !== undefined) {
-      // The one arm that claims a trustworthy `spentTotal` beside a delivered output, so it is
-      // the one arm that keeps the invariant as an assertion: a leaked ticket here would let a
-      // corrupt conserved total travel as a success.
+      // The one arm claiming a trustworthy `spentTotal` beside an output asserts the invariant.
       pool.assertNoOpenTickets()
-      // The driver synthesized a winner. Content-address it for the replay `outRef`, put it
-      // once, and sum the conserved spend off every journaled settlement. No re-ranking — the
-      // driver already selected.
       const outRef = contentAddress(out)
       await settled.opts.blobs.put(outRef, out)
-      // ONE ledger: the journal. `settled` events carry spawned-child WORK; `metered` events carry
-      // the drivers' OWN inference (the twin of `pool.observe`). `spentTotal` is their sum and the
-      // breakdown keeps the two separable — the A++ view of where the tokens went. No pool bridge.
+      // ONE ledger: `settled` events carry child WORK, `metered` events the drivers' OWN inference;
+      // `spentTotal` is their sum and the breakdown keeps the two separable.
       const { spentTotal, childWork, driverInference, gaps, providerModel, fleetYield } =
         await terminalAccounting(
           settled.journal,
@@ -479,16 +436,12 @@ async function settleRootResult<Out>(settled: RootSettlement<Out>): Promise<Supe
     return noWinner(settled)
   }
 
-  // act() rejected. The reason is proven from lifecycle state first, in precedence order:
-  // a tripped breaker outranks any abort (it is the most specific cause) outranks
-  // budget-exhaustion outranks a real `down` child. Only when NONE of those hold does the
-  // rejection itself become the reason — `driver-failed`, the one arm that carries `error`.
-  // A no-winner is TYPED — never a best-effort coercion of a partial child (M2).
+  // act() rejected: lifecycle state decides first (breaker, then abort, then budget exhaustion,
+  // then a real `down` child); only otherwise is the rejection itself the reason.
   return noWinner(settled, { error: actOutcome.error })
 }
 
-/** A no-winner still incurred real conserved spend before failing, so it carries `spentTotal`
- *  summed off the SAME journal the winner path reads — the caller always learns the cost. */
+/** A no-winner still carries `spentTotal`, summed off the SAME journal the winner path reads. */
 async function noWinner<Out>(
   settled: RootSettlement<Out>,
   rejection?: DriverRejection,
@@ -510,8 +463,7 @@ async function noWinner<Out>(
     ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
     fleetYield,
   }
-  // The lifecycle causes outrank the driver's own rejection, so they are asked first and a
-  // proven one ends it. `undefined` means the supervisor's own state explains nothing.
+  // Lifecycle causes outrank the driver's own rejection; `undefined` means they explain nothing.
   const lifecycle = classifyNoWinner(
     settled.executionAborted,
     settled.pool,
@@ -531,22 +483,14 @@ async function noWinner<Out>(
     }
   }
   if (lifecycle !== undefined) return { ...common, reason: lifecycle }
-  // No lifecycle cause AND the driver threw ⇒ the driver itself is the fault. `error` is
-  // REQUIRED on this arm, and it is present by construction: this is the only branch that
-  // produces `driver-failed`, and it is unreachable unless a rejection was captured.
+  // No lifecycle cause AND the driver threw: the driver is the fault (the only `error` arm).
   if (rejection !== undefined) {
     return { ...common, reason: 'driver-failed', error: describeRejection(rejection.error) }
   }
-  // The residual bucket: ran to completion under budget and selected nothing usable, with
-  // every lifecycle cause ruled out above — no breaker, no abort, no exhausted pool, and
-  // not every child down when the root settled. A root that never spawned is named as
-  // such: `all-children-down` with nothing spawned was the settle reason on every
-  // sandbox-placed director that quietly did its work in bash, and it sent every reader
-  // looking at the fleet instead of at the root. A root whose children delivered (all of
-  // them, or all but the `downCount` the record carries) and which then selected nothing
-  // is named as such too: this bucket used to settle `all-children-down` as well, and on
-  // the 2026-09-20 fleet corpus 46 of the 57 runs carrying that reason had zero down
-  // children in their own `fleetYield`.
+  // Residual: completed under budget, selected nothing usable, every lifecycle cause ruled out.
+  // A root that never spawned is named so: `all-children-down` with nothing spawned sent readers
+  // looking at the fleet instead of the root; and on the 2026-09-20 corpus 46 of 57 runs with
+  // that reason had zero down children in their own `fleetYield`.
   if (fleetYield.spawned === 0) return { ...common, reason: 'no-children-spawned' }
   return { ...common, reason: 'no-result-selected' }
 }

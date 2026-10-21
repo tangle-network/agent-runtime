@@ -59,9 +59,8 @@ export function driveHarnessFromBackend(
     manager.switchedProviderCheckpointAt = undefined
     await manager.selectSeat(args, seatSelection, executionId, now)
     const retainedOwner = await bindDriveRetainedOwner(manager, args)
-    // What this drive continues decides what a re-entered driver must be told. Only a proven
-    // same-session turn gets the unmet items alone; a replacement environment gets the objective
-    // and the coordinator's run state.
+    // Only a proven same-session turn gets the unmet items alone; a replacement environment gets
+    // the objective and the coordinator's run state.
     const driveTask =
       args.reentry === undefined
         ? args.task
@@ -78,9 +77,8 @@ export function driveHarnessFromBackend(
     const acceptedOwner = retainedOwner ? await scopeRetainedOwnerResult(scope) : undefined
     if (acceptedOwner) {
       await restoreAcceptedOwnerTurn(scope)
-      // A committed turn that failed is replayed as the failure it was, not as a delivered turn.
-      // Its evidence is restored above, so the retry loop's next attempt starts a new invocation
-      // in the same environment instead of this resume ending on the failed result.
+      // A committed turn that failed replays as that failure; its evidence is restored so the
+      // next attempt starts a new invocation in the same environment.
       const replayedFailure = harnessTurnFailure(manager.ownerRuntime, acceptedOwner)
       if (replayedFailure !== undefined) throw replayedFailure
       // The coordination journal still goes through the normal driver finalizer.
@@ -155,9 +153,8 @@ async function bindDriveRetainedOwner(
             profile: activeSeat ? seatProviderProfile(authoredProfile, activeSeat) : profile,
           },
     )
-    // The manager's current box, for a spawn that names a resource by path. Read from the
-    // active executor's receipt at spawn time, not captured: the environment does not exist
-    // yet here, and a retry re-enters `drive` with a fresh executor.
+    // Read from the active executor's receipt at spawn time: the environment does not exist yet,
+    // and a retry re-enters `drive` with a fresh executor.
     bindScopeRetainedOwnerEnvironmentId(scope, () => {
       if (state.activeExecutor === undefined) return undefined
       const execution = runtimeOwnedExecutorMaterialization(state.activeExecutor)?.execution
@@ -179,9 +176,8 @@ async function reentryDriveTask(
   priorCommittedArtifact: ExecutorResult<unknown> | undefined,
 ): Promise<unknown> {
   const { activeSeat, switchedProviderCheckpointAt } = manager
-  // The first drive after a process restart proves nothing yet: a retained owner reconciles
-  // its own invocation when it recovers, and probing the environment here first reconnected
-  // to it a second time.
+  // The first drive after a restart proves nothing: a retained owner reconciles its own invocation
+  // on recovery, and probing here first reconnected to it twice.
   const proven: ReentryContinuity =
     reentry.reason.reason === 'run-reentered'
       ? UNPROVEN_CONTINUITY
@@ -202,9 +198,8 @@ async function reentryDriveTask(
   ) {
     throw new ValidationError('same-provider seat continuation lost its native environment')
   }
-  // A fresh re-entry keeps the environment the backend proves and starts a new session in it:
-  // the bridge under a new session id below, a retained provider owner under a new session id
-  // in its live environment (`prepareScopeRetainedOwnerTask`).
+  // A fresh re-entry keeps the proven environment under a new session id (the bridge below; a
+  // retained provider owner in its live environment, `prepareScopeRetainedOwnerTask`).
   const continuity: ReentryContinuity =
     session === 'fresh' && proven.session === 'continued' ? { ...proven, session: 'new' } : proven
   reentry.onContinuity?.(continuity)
@@ -232,12 +227,10 @@ async function reentryDriveTask(
 }
 
 /**
- * What the next drive of a harness-brained manager continues, as far as its backend proves it.
- *
- * A bridge reattaches the harness session by its durable execution id. A retained provider owner
- * continues in the environment it last used while the provider still holds it, and a deliberate
- * later invocation there continues the same harness session. A provider without retained control
- * creates a new environment for every drive and releases the old one. Anything else is unproven.
+ * What the next drive of a harness-brained manager continues, as far as its backend proves it. A
+ * bridge reattaches the session by durable execution id; a retained provider owner continues in its
+ * last environment while the provider holds it (a later invocation there continues the session); a
+ * provider without retained control creates a new environment per drive. Anything else is unproven.
  */
 async function reentryContinuity(
   backend: ExecutorConfig,

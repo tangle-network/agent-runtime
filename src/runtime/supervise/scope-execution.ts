@@ -1,7 +1,7 @@
 import { ValidationError } from '../../errors'
 import { runtimeFailureCause } from '../failure-cause'
 import { type HarnessTranscriptEvidence, settleHarnessTranscript } from '../harness-transcript'
-import { cloneTokenUsage } from '../util'
+import { cloneTokenUsage, isAsyncIterable } from '../util'
 import { signalAbortError } from './abortable'
 import type { BudgetPool, ReservationTicket } from './budget'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS } from './deadline'
@@ -65,20 +65,15 @@ export async function runChild<C>(
     startedAt,
   )
   try {
-    // Identity and kernel-owned materialization evidence must be durable before execution can
-    // begin. A failed append or invalid executor declaration produces a typed-down child and
-    // refunds its reservation; the executor observes zero calls.
+    // Materialization evidence must be durable before execution begins; a failure here types the
+    // child down and refunds its reservation with zero executor calls.
     await executionReady
     if (childAbort.signal.aborted) throw signalAbortError(childAbort.signal, 'execution aborted')
-    // A queued child runs nothing until the pool grants its budget slice and then the allocator
-    // grants it a worker slot. A refused budget wait settles it down as budget-exhausted; an abort
-    // while it waits settles it down with whatever it holds refunded.
+    // A queued child runs nothing until the pool grants its budget slice and then a worker slot.
     if (budgetReady !== undefined) await awaitAbortable(budgetReady, childAbort.signal)
     await awaitAbortable(slotReady, childAbort.signal)
-    // A budgetExempt WORKER (e.g. the raw `cli` printer) reports zero spend by contract; its
-    // reconcile refunds the whole reservation, keeping it out of the conserved Σk by construction.
-    // Only the DRIVER path refuses budget-exempt runtimes (`driveHarnessFromBackend`), because a
-    // driver's own inference must be metered.
+    // A budgetExempt WORKER (the raw `cli` printer) reports zero spend by contract and its
+    // reconcile refunds the whole reservation; only the DRIVER path refuses such runtimes.
     live.status = 'running'
     attempt.started = true
     const ran = recovering
@@ -86,7 +81,7 @@ export async function runChild<C>(
       : executor.execute(task, childAbort.signal)
     let artifact: ExecutorResult<C>
     let terminalSpend: Spend
-    if (isAsyncIterable(ran)) {
+    if (isAsyncIterable<UsageEvent>(ran)) {
       const spend = await foldExecutorStream(
         attempt,
         ran,
@@ -125,17 +120,13 @@ interface ExecutionEvidence {
 }
 
 /**
- * Drain a streaming executor, folding its incremental usage events as they arrive (the
- * conserved-pool authority). Each event also republishes the running total + a fresh activity
- * stamp onto the live child, so a concurrent `scope.progress(id)` sees a worker mid-flight rather
- * than a zeroed row.
- *
- * The fold does not abort when the running total crosses the reservation. Executors report
- * usage after the model call it measures, and the Tangle sandbox executor reports all of it
- * in the terminal receipt, so the crossing report is often the last event before the
- * artifact. Aborting there would discard completed work while saving no spend. A cap that
- * prevents spend belongs in the executor, before it starts a call the reservation cannot
- * cover. An overspend is recorded at reconciliation instead.
+ * Drain a streaming executor, folding usage events as they arrive. Each event republishes the
+ * running total and a fresh activity stamp onto the live child, so `scope.progress(id)` sees a
+ * worker mid-flight. The fold does not abort when the total crosses the reservation: executors
+ * report usage after the call it measures (the sandbox executor in its terminal receipt), so the
+ * crossing report is often the last event, and aborting would discard completed work while saving
+ * no spend. A cap that prevents spend belongs in the executor; an overspend is recorded at
+ * reconciliation.
  */
 async function foldExecutorStream<C>(
   { live, childAbort, now }: ChildExecutionAttempt<C>,
@@ -174,8 +165,7 @@ async function settleExecuted<C>(
   artifact: ExecutorResult<C>,
 ): Promise<PreSeqSettled> {
   const { live, executor, childAbort, opts } = attempt
-  // Executor work is complete; everything below is persistence/teardown. From here `settled`
-  // resolves without further executor progress — the non-blocking drain keys on this.
+  // Executor work is complete; the non-blocking drain keys on this.
   live.executorDone = true
 
   // A driver child's OWN-inference subtree total — re-homed by the parent on EVERY settle exit
@@ -304,47 +294,26 @@ async function settleRetainedPending<C>(
   live.recoveryPending = true
   live.executorDone = true
   const trace = await attempt.captureTrace()
-  // Attempt teardown so a receipt exists at all; the permit release above does not depend on
-  // it. A pending retained leaf answers `destroyed: false`, but a nested manager's executor
-  // answers `destroyed: true` whenever its own descendants are confirmed, though its owner
-  // environment is still held. So `cleanupConfirmed` here does not mean the execution is
-  // gone, and the final close below still closes this slot (#1189).
+  // Teardown so a receipt exists at all. A nested manager's executor answers `destroyed: true`
+  // once its descendants are confirmed though its owner environment is still held, so
+  // `cleanupConfirmed` here does not mean the execution is gone (#1189).
   await attempt.teardown(opts.shutdown ?? 'brutalKill').catch(() => undefined)
-  // Charge what was observed, not the reservation ceiling — by the one rule the done and crash
-  // paths already apply: a recursive executor's explicit accounting, else the running total
-  // the conserved pool metered off the stream.
-  //
-  // `reconcile` refunds `reserved - spent`, so passing the ceiling as spend refunded exactly
-  // nothing: a child that ran no turn was charged its entire per-worker allowance. Measured
-  // 2026-09-11, all three runs at a 4M per-worker ceiling against a 32M root budget: 16 dead
-  // children charged 64M (200% of the whole run's budget) having metered 890k; 14 charged 56M
-  // (175%) having metered 139k, a 359x overcharge. `budget-exhausted` is the second most common
-  // no-winner reason in that archive, and a run could reach it having metered almost nothing
-  // (#1190).
-  //
-  // The floor is `live.spent` for a leaf: every production leaf streams its usage into it, and
-  // none implements `metered`, so a fallback keyed on `metered` alone kept charging the ceiling
-  // for exactly the children measured above. Every channel is marked unknown, because the
-  // remote execution may still be consuming what it was handed off to: the floor is never read
-  // back as a measurement. The child-work part is journaled as this node's `reconciled` floor
-  // (its slot stays open until a resume recovers it or the release sweep closes it, so no
-  // `settled` record carries it yet), and a driver's own inference rides its `metered`
-  // record as on every other path.
-  //
-  // A ticket already reconciled at a measured terminal spend (a persistence failure after the
-  // artifact landed) keeps that measurement: `live.spent` is then what the pool committed.
+  // Charge what was observed, not the reservation ceiling: a recursive executor's explicit
+  // accounting, else the running total the pool metered off the stream. `reconcile` refunds
+  // `reserved - spent`, so passing the ceiling refunded nothing: on 2026-09-11, 16 dead children
+  // were charged 64M having metered 890k (#1190). The floor is `live.spent` for a leaf (no
+  // production leaf implements `metered`), with every channel marked unknown because the remote
+  // execution may still be consuming; it is journaled as this node's `reconciled` floor. A
+  // ticket already reconciled at a measured terminal spend keeps that measurement.
   if (!attempt.reconciled) {
     const accounting = executor.accounting?.()
     const ms = Math.max(0, now() - live.startedAt)
     live.spent = { ...unknownFloor(accounting?.reported ?? live.spent), ms }
     attempt.reconcile({ ...unknownFloor(accounting?.reservation ?? live.spent), ms })
   }
-  // The node keeps its cursor slot open, so no terminal record can carry an overspend yet, and
-  // the floor is not the execution's final spend. A recovered settlement reports it from the
-  // recorded result; reporting it here would make the live views disagree with replay. The
-  // pool did commit it, though, and when the run RELEASES the node the floor is its final
-  // charge — so the answer is held aside for the release sweep's terminal record rather than
-  // discarded, or that record would say 'within reservation' for a node the pool overspent.
+  // The slot stays open, so no terminal record carries an overspend yet and the floor is not the
+  // final spend; reporting it here would make live views disagree with replay. The pool did
+  // commit it, so the answer is held for the release sweep's terminal record.
   live.retainedViolation = live.budgetViolation
   live.budgetViolation = undefined
   return {
@@ -355,16 +324,14 @@ async function settleRetainedPending<C>(
       executor.metered?.(),
       undefined,
       attempt.retainedOutputRef,
-      // The #1244 population exactly: 45 of these in one evening, each of which executed and
-      // reasoned and left no artifact. This is the only record their transcript can reach.
+      // #1244: 45 of these in one evening executed and left no artifact; this is the only record
+      // their transcript can reach.
       await attempt.persistTranscript(),
     ),
     reconciled: live.spent,
-    // Classified HERE, from the typed cause, before `errMessage` flattens it to text: a
-    // provider that broke its contract and an execution nobody can observe both arrive on
-    // this branch, and an operator must act differently on each (#1204). `recoveryPending`
-    // without a RetainedExecutionPendingError is an admission that never got a result — by
-    // definition unobservable.
+    // Classified from the typed cause before `errMessage` flattens it (#1204). `recoveryPending`
+    // without a RetainedExecutionPendingError is an admission that never got a result:
+    // unobservable by definition.
     retainedPendingCause:
       err instanceof RetainedExecutionPendingError ? err.pendingCause : 'unobservable',
   }
@@ -386,9 +353,8 @@ async function settleCrashed<C>(
   } catch (error) {
     evidenceError = error
   }
-  // A recursive executor can still report the nested work committed before it threw.
-  // Reconcile that whole partial subtree while journaling its child-work component separately.
-  // A box-backed trace must be collected before teardown destroys the session that owns it.
+  // A recursive executor can still report the nested work committed before it threw. A
+  // box-backed trace must be collected before teardown destroys the session that owns it.
   const trace = await attempt.captureTrace()
   let teardownError: unknown
   try {
@@ -401,22 +367,17 @@ async function settleCrashed<C>(
   const providerModel = runtimeOwnedExecutorProviderEvidence(executor)
   const aborted = childAbort.signal.aborted || isAbortError(err)
   if (attempt.started && !attempt.terminalTelemetryCaptured && accounting === undefined) {
-    // The provider never delivered a terminal usage receipt. This is true for an ordinary
-    // network/provider crash just as it is for an abort. Preserve observed partial counts as a
-    // lower bound, but never reinterpret the unreported remainder as zero under either root
-    // ceiling. A recursive executor's explicit accounting remains authoritative on its throw
-    // path; a persistence/teardown failure after a terminal artifact does too.
+    // No terminal usage receipt arrived (a crash or an abort): keep observed partial counts as a
+    // lower bound, never read the unreported remainder as zero. A recursive executor's explicit
+    // accounting stays authoritative, as after a persistence failure behind a terminal artifact.
     live.spent = unknownFloor(live.spent)
   }
   const reconcileError = attempt.reconcile(accounting?.reservation ?? live.spent)
   const failure = runtimeFailureCause(err, { signal: childAbort.signal })
   // A crashed driver child still re-homes the partial inference it durably metered.
   const down = downRecord(
-    // The operation that failed is the causal error. Cleanup and accounting can independently
-    // fail while handling it, but must never replace it with a secondary diagnostic (for
-    // example, missing terminal usage after a provider crash). Their presence still marks the
-    // settlement as infrastructure-related, while the unknown spend flags retain the accounting
-    // failure itself in the durable record.
+    // The failed operation is the causal error; a cleanup or accounting failure never replaces it
+    // but still marks the settlement as infrastructure-related.
     errMessage(err),
     evidenceError !== undefined ||
       teardownError !== undefined ||
@@ -479,14 +440,9 @@ function failureRecord(
 }
 
 /**
- * Fold a streaming executor's normalized usage into the conserved `Spend`, publishing the
- * running total after EVERY event via `onProgress`.
- *
- * The publish is what makes a running worker observable. Before it, `live.spent` was assigned
- * once — after the whole stream drained — so `observe_agent` on a RUNNING worker reported
- * `{tokens:0, iterations:0}` for the entire run and a driver had no way to tell a worker three
- * turns deep from one that had produced nothing. It also means a worker that THROWS mid-stream
- * now reconciles its real partial spend instead of refunding work the provider already billed.
+ * Fold a streaming executor's usage into the conserved `Spend`, publishing the running total
+ * after EVERY event: a RUNNING worker is observable (it used to report zero until the stream
+ * drained) and one that throws mid-stream reconciles its real partial spend.
  */
 async function foldStream(
   stream: AsyncIterable<UsageEvent>,
@@ -560,11 +516,9 @@ function preserveUnknownTelemetry(streamed: Spend, terminal: Spend): Spend {
     ...(terminal.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(terminal.usdKnown === false ? { usdKnown: false } : {}),
     ms: terminal.ms,
-    // The platform box-time channel is terminal-artifact-only BY DESIGN: a box's minutes are not
-    // known until it dies, so nothing on the usage stream can carry them and the conserved pool
-    // never sees them. That makes this the one place they can reach `live.spent`, and from there
-    // the journal, the tree view and every rollup. Without this the channel would be reported by
-    // the executor and dropped at settlement — measured by the value audit on PR #1053.
+    // Box-time is terminal-artifact-only BY DESIGN (minutes are unknown until the box dies), so
+    // this is the one place it can reach `live.spent` and the journal; without it the channel was
+    // dropped at settlement (value audit, PR #1053).
     ...(terminal.boxMinutes !== undefined ? { boxMinutes: terminal.boxMinutes } : {}),
     ...(terminal.boxMinutesKnown !== undefined
       ? { boxMinutesKnown: terminal.boxMinutesKnown }
@@ -572,9 +526,7 @@ function preserveUnknownTelemetry(streamed: Spend, terminal: Spend): Spend {
     ...(terminal.boxMinutesProvenance !== undefined
       ? { boxMinutesProvenance: terminal.boxMinutesProvenance }
       : {}),
-    // Token provenance travels with the counters. The stream fold already derives it from the
-    // events; the terminal artifact answers for an executor whose settlement states it and whose
-    // stream did not, so a store-read receipt is not dropped on the way to the journal.
+    // The terminal artifact supplies provenance for an executor whose stream did not.
     ...((streamed.tokensProvenance ?? terminal.tokensProvenance) === undefined
       ? {}
       : { tokensProvenance: streamed.tokensProvenance ?? terminal.tokensProvenance }),
@@ -679,14 +631,6 @@ export function downRecord(
     ...(metered ? { metered } : {}),
     ...(outRef === undefined ? {} : { outRef }),
   }
-}
-
-function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as AsyncIterable<UsageEvent>)[Symbol.asyncIterator] === 'function'
-  )
 }
 
 function isAbortError(err: unknown): boolean {

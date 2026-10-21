@@ -77,9 +77,7 @@ interface LoopState {
   reasoningKnown: boolean
   readonly promptCache: Record<string, number | string>
   lastText: string
-  // Every call this loop decided to make, in order. The count of executed calls is
-  // `executedToolCalls.length`; the entries themselves keep the per-call detail the
-  // terminal artifact publishes.
+  // Every call this loop decided to make, in order, with the detail the terminal artifact publishes.
   readonly executedToolCalls: ExecutorToolCall[]
   readonly leases: InboxLease[]
 }
@@ -133,30 +131,24 @@ export async function runRouterToolLoop(
         )
       : taskToMessages(task, spec, profileExecution.systemPrompt),
   )
-  // The external abort sources (caller signal + executor teardown), merged ONCE — so we don't
-  // re-register listeners on these long-lived signals every turn.
+  // Merged ONCE so listeners are not re-registered on these long-lived signals every turn.
   const external = linkAbort(signal, env.controller.signal).signal
   const actions = buildActionSpace(env, state, task, external)
 
   try {
     for (let t = 0; env.maxTurns === 0 || t < env.maxTurns; t += 1) {
-      // QUEUED messages flush at the step boundary, before this turn's inference.
       flushInbox(env, state)
       const turn = startTurn(inbox, external)
       const res = await requestModelTurn(env, state, actions, turn, signal, t)
-      // A forceful interrupt aborted the request: re-plan with the steer folded in.
-      if (res === undefined) continue
+      if (res === undefined) continue // a forceful interrupt aborted it: re-plan with the steer
       recordModelReceipt(env, state, res, t)
       const toolCalls = res.toolCalls
       if (toolCalls.length === 0) {
-        // Only authority messages require another turn. Peer mail joins an already-required
-        // turn at the next boundary, but cannot keep a finished worker running.
+        // Only authority messages require another turn; peer mail cannot keep a finished worker running.
         if (inbox.pendingAuthority() > 0) continue
         state.messages.push({ role: 'assistant', content: res.content ?? '' })
         break
       }
-      // Record the assistant turn verbatim, then run each call on the host and
-      // fold the result back as a `tool` message for the next turn.
       state.messages.push({
         role: 'assistant',
         content: res.content ?? '',
@@ -206,11 +198,8 @@ function newLoopState(messages: Message[]): LoopState {
   }
 }
 
-/**
- * Fold any queued down-messages into the conversation as one operator turn (the boundary
- * flush). The folded turn stays in `messages`, so an interrupted request re-sends it; the
- * leases commit once a request carrying them returns.
- */
+/** Fold queued down-messages into one operator turn; it stays in `messages` so an interrupted
+ *  request re-sends it, and the leases commit once a request carrying them returns. */
 function flushInbox(env: RouterToolLoopEnv, state: LoopState): void {
   const lease = env.inbox.take()
   if (lease.messages.length === 0) return
@@ -218,11 +207,8 @@ function flushInbox(env: RouterToolLoopEnv, state: LoopState): void {
   state.leases.push(lease)
 }
 
-/**
- * A forceful (interrupt) message aborts THIS turn so the worker re-plans immediately. The
- * per-turn controller fires on `external` OR a fresh interrupt; its listener on `external` is
- * removed after the turn (`cleanup`) so nothing accumulates across turns.
- */
+/** A forceful message aborts THIS turn so the worker re-plans. The controller fires on `external`
+ *  OR a fresh interrupt; `cleanup` removes its `external` listener so nothing accumulates. */
 function startTurn(inbox: Inbox, external: AbortSignal): TurnAbort {
   const interrupt = inbox.freshInterrupt()
   const controller = new AbortController()
@@ -233,10 +219,7 @@ function startTurn(inbox: Inbox, external: AbortSignal): TurnAbort {
   return { controller, interrupt, cleanup: () => external.removeEventListener('abort', abortTurn) }
 }
 
-/**
- * Both direct calls and calls made inside a program cross this exact authorized handler and the
- * same existing tool-step observer.
- */
+/** Direct calls and calls made inside a program cross this one authorized handler and observer. */
 async function executeGranted(
   env: RouterToolLoopEnv,
   state: LoopState,
@@ -278,10 +261,7 @@ async function executeGranted(
   }
 }
 
-/**
- * The profile chooses this node's action space; the host retains restored state, direct-only
- * capabilities and execution ceilings.
- */
+/** The profile chooses the action space; the host keeps restored state, direct-only tools and ceilings. */
 function buildActionSpace(
   env: RouterToolLoopEnv,
   state: LoopState,
@@ -358,11 +338,10 @@ async function requestModelTurn(
     return res
   } catch (e) {
     turn.cleanup()
-    // Re-plan ONLY when a forceful inbox message aborted this turn (a real AbortError, with the
-    // interrupt — not the external teardown/budget signal). The request reached the transport,
-    // so count its iteration and exact physical attempts. Without a terminal receipt its token,
-    // reasoning, and dollar totals are unknown; treating it as free can overspend the pool.
-    // Any other error — incl. a network fault coincident with an interrupt — is fatal: rethrow.
+    // Re-plan ONLY for a real AbortError caused by a forceful inbox message (not the external
+    // teardown/budget signal). The request reached the transport, so count its iteration and
+    // attempts; with no terminal receipt its totals are unknown, and free would overspend the
+    // pool. Any other error, including a network fault coincident with an interrupt, is fatal.
     const interruptAbort =
       e instanceof DOMException &&
       e.name === 'AbortError' &&
@@ -481,8 +460,7 @@ async function runToolCalls(
     try {
       args = JSON.parse(tc?.arguments ?? '{}') as Record<string, unknown>
     } catch {
-      // Malformed args are a real outcome, not an infra fault — feed the error
-      // back so the model can correct, rather than aborting the whole loop.
+      // Malformed args are a real outcome: feed the error back so the model can correct.
       state.messages.push({
         role: 'tool',
         tool_call_id: id,
@@ -493,11 +471,8 @@ async function runToolCalls(
     let result: unknown
     let succeeded = true
     try {
-      // The dispatch carries the per-turn interrupt signal TOO, not just the
-      // external teardown/budget one: a forceful steer_agent({interrupt:true})
-      // that lands while a codemode program runs must revoke the program and
-      // its nested effects immediately (the turn re-plans), not at completion
-      // or the five-minute bound.
+      // The per-turn interrupt signal rides too: a forceful steer_agent({interrupt:true}) during
+      // a codemode program must revoke it and its nested effects at once, not at the 5-minute bound.
       const context = {
         signal: AbortSignal.any([external, turn.controller.signal]),
         callId: id,

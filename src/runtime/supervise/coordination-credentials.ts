@@ -14,13 +14,12 @@ export interface CoordinationCredentials {
   /** Bind tokens to the endpoint they were minted for; set once the address is known. */
   setAudience(audience: string): void
   /**
-   * Why a supplied credential is refused, or undefined when it is valid. A credential lives as
-   * long as the scope it fronts: until the scope's signal aborts, within an explicit `ttlMs`, and
-   * until rotation revokes it. Every stop aborts that signal: cancellation, the run's deadline, and
-   * a lead stopping its child. A child's own time box does not: its lead checks it in and keeps it
-   * running (`deadline.ts` `DeadlineCheckIn`), and the check-in asks it to record its state and
-   * submit through these very tools. Refusing at the time box left a checked-in child unable to do
-   * either (2026-10-10: eu-datacenter-power-2030-20261010b:s3, every call for its last 41 minutes).
+   * Why a supplied credential is refused, or undefined when valid. It lives as long as the scope
+   * it fronts: until the scope's signal aborts (cancellation, the run's deadline, a lead stopping
+   * its child), within an explicit `ttlMs`, and until rotation revokes it. A child's own time box
+   * does not abort it: the check-in (`deadline.ts` `DeadlineCheckIn`) asks it to submit through
+   * these very tools, and refusing at the time box blocked that (eu-datacenter-power-2030-
+   * 20261010b:s3, every call for its last 41 minutes).
    */
   refused(supplied: Buffer): 'scope-stopped' | 'credential-refused' | undefined
   /** Whether a supplied read-only credential is refused. */

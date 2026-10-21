@@ -102,10 +102,9 @@ export class ManagerDriveSession {
   /** Set by a seat switch that replaced the environment, for the drive that follows it. */
   switchedProviderCheckpointAt: string | undefined
   private seatChain: SeatChain | undefined
-  // What this manager's harness has been doing, from the progress events its drives stream. An
-  // executor that keeps no activity log of its own (a provider) otherwise reads as idle to the
-  // lead that observes it: measured 2026-10-05, a director mid-turn read `turns: 0`, `idleMs`
-  // 463967, `stalled: true`.
+  // What the harness has been doing, from streamed progress events: an executor with no activity
+  // log of its own (a provider) otherwise reads idle (a director mid-turn read `turns: 0`,
+  // `stalled: true` on 2026-10-05).
   private readonly driveActivity = createActivityLog()
   // The manager's own harness session, as the attempts before the newest one captured it.
   private managerTranscript: HarnessTranscriptCapture | undefined
@@ -151,12 +150,11 @@ export class ManagerDriveSession {
     }
   }
 
-  // The newest attempt's executor keeps capturing after its attempt returns: a retained
-  // owner's final session copy and workspace capture run as end-of-turn work after the turn
-  // commits, so its transcript is read when a receipt is taken, never copied when the attempt
-  // ends. Copying it there recorded the `capture-did-not-run` placeholder for roots whose session
-  // was stored minutes later: 7 of 8 such nodes on Runtime 0.319.8 and later (#1360).
-  // The newest capture wins; a capture never gives way to an attempt that captured nothing.
+  // The newest attempt's executor keeps capturing after its attempt returns (a retained owner's
+  // session copy and workspace capture run after the turn commits), so its transcript is read when
+  // a receipt is taken, never copied at attempt end: that recorded the `capture-did-not-run`
+  // placeholder for 7 of 8 such nodes on Runtime 0.319.8+ (#1360). The newest capture wins; a
+  // capture never gives way to an attempt that captured nothing.
   readonly keepTranscript = (capture: HarnessTranscriptCapture | undefined): void => {
     const kept = this.managerTranscript
     if (
@@ -209,9 +207,8 @@ export class ManagerDriveSession {
       throw new ValidationError('AgentProfile.seats requires SuperviseOptions.selectSeat')
     }
     if (this.activeSeat === undefined) {
-      // A coordinator crash after a provider committed a failed turn must restore that exact
-      // outcome before selecting a replacement. No new seat may start while the old call is
-      // still in doubt, and the next retry carries the typed usage-limit reason.
+      // After a coordinator crash following a committed failed turn, restore that outcome before
+      // selecting a replacement; no new seat starts while the old call is in doubt.
       const accepted = await scopeRetainedOwnerResult(scope)
       const failure =
         accepted === undefined ? undefined : harnessTurnFailure(this.ownerRuntime, accepted)

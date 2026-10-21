@@ -10,11 +10,9 @@ import type { NodeId, Settled } from './types'
 export class ScopeSettlementCursor<Out> {
   /** Settlement writes in flight; a drain or an empty cursor waits for every one. */
   readonly writes = new Set<Promise<Settled<Out>>>()
-  // The order `next()` yields settlements (B2); it stamps the `settled`/`cancelled` event's `seq`
-  // and the `Settled.seq` the driver branches on. It is separate from the spawn ordinal so a
-  // `spawned` event never collides with a `settled` event in the journal's per-tree uniqueness
-  // guard (which is scoped to the cursor namespace). A resumed scope continues PAST the recorded
-  // maximum so a fresh settlement never reuses a journaled `seq`; a fresh scope starts at 0.
+  // The order `next()` yields settlements (B2): the `seq` of `settled`/`cancelled` events and of
+  // `Settled`. Separate from the spawn ordinal so a `spawned` event never collides with a `settled`
+  // one in the per-tree uniqueness guard. A resumed scope continues PAST the recorded maximum.
   private cursorSeq: number
 
   constructor(

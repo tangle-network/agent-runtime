@@ -3,21 +3,14 @@ import type { LiveChild, ScopeArgs } from './scope-contract'
 import type { NodeExecutionIdentity, NodeId, ResumedKeyState, Settled } from './types'
 
 /** One semantic key's current assignment state. */
-export type ScopeKeyState<Out> =
-  | { readonly state: 'live'; readonly id: NodeId; readonly identity: NodeExecutionIdentity }
-  | {
-      readonly state: 'done'
-      readonly id: NodeId
-      readonly identity: NodeExecutionIdentity
-      readonly settled: Settled<Out> & { kind: 'done' }
-    }
-  | {
-      readonly state: 'down'
-      readonly id: NodeId
-      readonly identity: NodeExecutionIdentity
-      readonly reason: string
-    }
-  | { readonly state: 'in-doubt'; readonly id: NodeId; readonly identity: NodeExecutionIdentity }
+export type ScopeKeyState<Out> = {
+  readonly id: NodeId
+  readonly identity: NodeExecutionIdentity
+} & (
+  | { readonly state: 'live' | 'in-doubt' }
+  | { readonly state: 'done'; readonly settled: Settled<Out> & { kind: 'done' } }
+  | { readonly state: 'down'; readonly reason: string }
+)
 
 /**
  * The semantic-key registry (`SpawnOpts.key`): every keyed assignment's current state, seeded
@@ -82,19 +75,15 @@ function resumedKeyState<Out>(
       settled: prior.settled as Settled<Out> & { kind: 'done' },
     }
   }
-  if (prior.state === 'down' && prior.settled?.kind === 'down') {
-    return { state: 'down', id: prior.id, identity, reason: prior.settled.reason }
-  }
-  if (prior.state === 'down' && prior.settled === undefined) {
-    // A derived `down`: the resume itself proved the attempt dead (an `inline` runtime cannot
-    // outlive its process), so there is no settlement to fold — the derived reason is the
-    // terminal evidence a same-key re-spawn reports as `resumed: "retried"`.
-    return {
-      state: 'down',
-      id: prior.id,
-      identity,
-      reason: prior.reason ?? 'interrupted: resume proved the prior attempt dead',
-    }
+  if (prior.state === 'down' && (prior.settled?.kind === 'down' || prior.settled === undefined)) {
+    // With no settlement the `down` is derived: the resume itself proved the attempt dead (an
+    // `inline` runtime cannot outlive its process), and the derived reason is the evidence a
+    // same-key re-spawn reports as `resumed: "retried"`.
+    const reason =
+      prior.settled?.kind === 'down'
+        ? prior.settled.reason
+        : (prior.reason ?? 'interrupted: resume proved the prior attempt dead')
+    return { state: 'down', id: prior.id, identity, reason }
   }
   return { state: 'in-doubt', id: prior.id, identity }
 }
