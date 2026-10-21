@@ -10,13 +10,12 @@ import {
 import { verifiedArtifactChunks } from './artifact-streams'
 import { canonicalCandidateBytes, deepFreezeCandidate } from './digest'
 import type { AgentCandidateArtifactPort } from './types'
+import { type AgentCandidateWorkspaceArchiveLimits, workspaceLimits } from './workspace-archive'
 import {
-  type AgentCandidateWorkspaceArchiveLimits,
   type CaptureAgentCandidateWorkspaceOptions,
   captureAgentCandidateWorkspace,
   createAgentCandidateWorkspacePort,
-  workspaceLimits,
-} from './workspace-archive'
+} from './workspace-archive-local'
 
 /** The canonical workspace evidence without manifest material or embedded file bytes. */
 export type AgentCandidateWorkspaceSnapshotReferences = Pick<

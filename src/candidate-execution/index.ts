@@ -150,13 +150,15 @@ export {
 export { AGENT_CANDIDATE_EXECUTION_SUPPORT, verifyAgentCandidateBundle } from './verify'
 export {
   type AgentCandidateWorkspaceArchiveLimits,
-  type CaptureAgentCandidateWorkspaceOptions,
   type CapturedAgentCandidateWorkspace,
+  captureAgentCandidateWorkspaceFiles,
+} from './workspace-archive'
+export {
+  type CaptureAgentCandidateWorkspaceOptions,
   type CreateAgentCandidateWorkspacePortOptions,
   captureAgentCandidateWorkspace,
-  captureAgentCandidateWorkspaceFiles,
   createAgentCandidateWorkspacePort,
-} from './workspace-archive'
+} from './workspace-archive-local'
 export {
   type AgentCandidateWorkspaceArtifactsOptions,
   type AgentCandidateWorkspaceTree,

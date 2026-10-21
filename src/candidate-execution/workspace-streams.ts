@@ -19,13 +19,15 @@ import type { AgentCandidateArtifactPort } from './types'
 import {
   type AgentCandidateWorkspaceArchiveLimits,
   assertWorkspacePathOrder,
-  type CaptureAgentCandidateWorkspaceOptions,
-  prepareEmptyDestination,
   safeArchivePath,
   workspaceLimits,
-  workspacePath,
   workspaceTarHeader,
 } from './workspace-archive'
+import {
+  type CaptureAgentCandidateWorkspaceOptions,
+  prepareEmptyDestination,
+  workspacePath,
+} from './workspace-archive-local'
 
 type WorkspaceFile = AgentCandidateWorkspaceManifestMaterial['files'][number]
 

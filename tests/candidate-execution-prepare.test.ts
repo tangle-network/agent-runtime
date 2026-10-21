@@ -25,7 +25,7 @@ import { verifyAgentCandidateBundle } from '../src/candidate-execution/verify'
 import {
   captureAgentCandidateWorkspace,
   createAgentCandidateWorkspacePort,
-} from '../src/candidate-execution/workspace-archive'
+} from '../src/candidate-execution/workspace-archive-local'
 import {
   bindCandidateFixtureBundle,
   candidateBundle as bundle,
