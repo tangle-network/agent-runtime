@@ -51,7 +51,10 @@ Scenario coverage lives in `tests/kernel/graph.test.ts` (`run_graph`),
   a flow cannot end `no-children-spawned` while an entry is still running.
 - One usable settle fires at most one routes edge: the first in declaration order whose `when`
   holds. A fork's one traversal spawns every node it lists; a join fires once each member has
-  settled usably since it last fired. A route into a node that still has a running worker throws
+  settled usably since it last fired, and its target's task names the members in declared order,
+  never the member that settled last, so a resumed run derives the same task under the same key.
+  A route that spawns a node with a settled worker in this flow names that worker as `successorOf`.
+  A route into a node that still has a running worker throws
   `GraphRouteError` with reason `target-live`.
 - A flow inside a maps item or a `run_graph` subtask runs under its own runtime-owned root; when it
   stops or cannot route, that subtask fails, so a down item is decided by `onItemFailure`. An edge at its cap is skipped and ledgered `unpropagated`; a settle no edge matches throws

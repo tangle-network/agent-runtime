@@ -49,12 +49,13 @@ On each usable settle of `from`, its routes edges are tried in declaration order
 `when` compares JSON scalars only (`equals`, `in`, `exists` at an RFC 6901 pointer, or `all` of several); a numeric or stateful rule is a field the node settles, such as a boolean or a counter.
 A match reads `from` unless it names a node listed in the edge's `evidence`; a pointer that does not resolve does not match.
 An edge without `when` is the default branch: at most one per node, and last.
-A node target receives `{ from: { node, result }, evidence }` and the edge directive; `{ stop: reason }` ends the run with no winner; `{ finish: reason }` makes this settle part of the output.
+A node target receives `{ from: { node, result }, evidence }` (a join's target `{ from: { nodes }, evidence }`) and the edge directive; `{ stop: reason }` ends the run with no winner; `{ finish: reason }` makes this settle part of the output.
 The output is `{ [node]: latest usable result }` over terminal nodes (no outgoing routes or map edge) and finish sources, and the deliverable decides it.
 Every routes cycle, each subcycle included, must cross an edge with an explicit `maxTraversals`: a cap on `a -> b` does not bound a `b <-> c` loop beside it. An edge at its cap is skipped and matching continues, so give a repair loop a fallback edge.
 `continuity: 'resume'` continues the target's latest settled session.
+A routes edge into a node that already has a settled worker in this flow (a back edge) spawns it with `successorOf` that latest settled worker; the spawn key does not change.
 A fork lists two or more nodes in `to`: one traversal spawns them all at once, each under key `route:<edge>#<traversal>:<node>`.
-A join lists two or more nodes in `from`: it fires once every member has settled usably since it last fired, its target's evidence holds each member's latest result, it carries no `when`, and it is the only routes edge leaving each member.
+A join lists two or more nodes in `from`: it fires once every member has settled usably since it last fired, its target's task is `{ from: { nodes: <members in declared order> }, evidence }` with each member's latest result in `evidence`, the same whichever member settled last, so a resumed run derives the same task; it carries no `when`, and it is the only routes edge leaving each member.
 A route into a node that still has a running worker throws `GraphRouteError` with reason `target-live`; converging branches use a join.
 A map edge may leave any flow node, and its join may have routes edges.
 A maps edge's `graph` item and a `run_graph` subtask may be flow graphs (`entry` on the topology). Inside a maps item, every entry whose task is `{ item: true }` receives the item value, and a down settle ends that item only, so `onItemFailure` decides the join.
