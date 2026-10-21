@@ -107,11 +107,8 @@ import {
 } from '../../errors'
 import type { BlockedToolReport } from '../../mcp/tools/coordination-contracts'
 import { sleep } from '../util'
-import {
-  CheckUnavailableError,
-  type ContinuationContext,
-  type ContinuationEntry,
-} from './continuation'
+import { CheckUnavailableError } from './completion-gate'
+import type { ContinuationContext, ContinuationEntry } from './continuation'
 import { credentialCommandExit, isCredentialRefusal } from './credential-refusal'
 import { causeChain, errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
 import {

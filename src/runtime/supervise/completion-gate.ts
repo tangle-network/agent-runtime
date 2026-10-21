@@ -22,7 +22,7 @@
  */
 
 import { isAsyncIterable } from '../util'
-import { type CheckVerdict, checkVerdictOf } from './continuation'
+import { checkVerdictOf } from './continuation'
 import { teardownSurfaces } from './deadline'
 import { inheritRuntimeOwnedExecutorAttestation } from './materialization'
 import type { DefaultVerdict, Executor, ExecutorResult, UsageEvent } from './types'
@@ -221,4 +221,73 @@ export function mapExecutorResult<In, Out>(
     },
   }
   return inheritRuntimeOwnedExecutorAttestation(inner, wrapped)
+}
+
+// ── The check ────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * One reading of a completion check.
+ *
+ * A check program prints an agent-eval `JudgeScore`; {@link verdictFromJudgeScore} reads it into
+ * this shape. A plain boolean check is a verdict with no items.
+ */
+export interface CheckVerdict {
+  /** Whether the check accepts the result. */
+  readonly pass: boolean
+  /** Every item the check read, by name: 1 when it passes, lower when it does not. The
+   *  `JudgeScore.dimensions` of the check program. */
+  readonly items?: Readonly<Record<string, number>>
+  /** The check's score. */
+  readonly composite?: number
+  /** The pass threshold on `composite`, when the check has one. */
+  readonly threshold?: number
+  /** One `FAIL <item> <where>: <reason>` line per failed item, in the check's order. */
+  readonly failures?: ReadonlyArray<string>
+  /** The check's prose review of the result, when it writes one. */
+  readonly review?: string
+}
+
+/**
+ * The check could not run: its box did not start, its judge's provider refused, its program
+ * crashed. It is not a verdict on the result. Inside a run the loop pauses, as it does for an
+ * unavailable upstream, and the refusal tells the director its result was not judged.
+ */
+export class CheckUnavailableError extends Error {
+  constructor(message: string, options?: { readonly cause?: unknown }) {
+    super(message, options)
+    this.name = 'CheckUnavailableError'
+  }
+}
+
+/**
+ * Read an agent-eval `JudgeScore` from a check program into a verdict.
+ *
+ * Each dimension is a checked item. `notes` lines that start with `FAIL ` are the failures; the
+ * remaining lines are the check's review. The verdict passes when `composite >= threshold` and the
+ * score is not marked `failed`; a `failed` score means the judge itself did not run, which is
+ * {@link CheckUnavailableError}, not a verdict.
+ */
+export function verdictFromJudgeScore(
+  score: {
+    readonly dimensions: Readonly<Record<string, number>>
+    readonly composite: number
+    readonly notes: string
+    readonly failed?: true
+  },
+  threshold: number,
+): CheckVerdict {
+  if (score.failed === true) {
+    throw new CheckUnavailableError(`the check's judge did not run: ${score.notes}`)
+  }
+  const lines = score.notes.split('\n').map((line) => line.trimEnd())
+  const failures = lines.filter((line) => line.startsWith('FAIL '))
+  const review = lines.filter((line) => !line.startsWith('FAIL ') && line.trim() !== '').join('\n')
+  return checkVerdictOf({
+    pass: score.composite >= threshold,
+    items: score.dimensions,
+    composite: score.composite,
+    threshold,
+    failures,
+    ...(review === '' ? {} : { review }),
+  })
 }

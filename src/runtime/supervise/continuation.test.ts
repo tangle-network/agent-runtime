@@ -4,12 +4,11 @@ import { join } from 'node:path'
 import { toolSpansToTraceAnalysisStore } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../../errors'
+import type { CheckVerdict } from './completion-gate'
 import {
   admitContinuationPolicy,
   admitFinding,
   type CheckRead,
-  CheckUnavailableError,
-  type CheckVerdict,
   type ContinuationPolicy,
   type ContinuationProfile,
   checkVerdictOf,
@@ -17,9 +16,7 @@ import {
   createContinuationKeeper,
   distillFindings,
   expandQuestions,
-  failedItems,
   type PanelFinding,
-  verdictFromJudgeScore,
 } from './continuation'
 import type { DriverProgressMark } from './driver-retry'
 import { rootStreamToolSpans } from './run-traces'
@@ -125,35 +122,6 @@ function finding(over: Partial<PanelFinding> = {}): PanelFinding {
 }
 
 describe('the check verdict', () => {
-  it('reads a JudgeScore: dimensions are items, FAIL lines are failures, the rest is the review', () => {
-    const verdict = verdictFromJudgeScore(
-      {
-        dimensions: { parses: 1, 'prime-count': 0 },
-        composite: 0.5,
-        notes: 'FAIL prime-count primes.txt:1: 19 primes\nFull log: /tmp/check.log',
-      },
-      1,
-    )
-    expect(verdict).toEqual({
-      pass: false,
-      items: { parses: 1, 'prime-count': 0 },
-      composite: 0.5,
-      threshold: 1,
-      failures: ['FAIL prime-count primes.txt:1: 19 primes'],
-      review: 'Full log: /tmp/check.log',
-    })
-    expect(failedItems(verdict)).toEqual(['prime-count'])
-  })
-
-  it('reads a failed JudgeScore as a check that could not run, never as a zero', () => {
-    expect(() =>
-      verdictFromJudgeScore(
-        { dimensions: {}, composite: 0, notes: 'judge provider refused', failed: true },
-        1,
-      ),
-    ).toThrow(CheckUnavailableError)
-  })
-
   it('fails closed on anything but true or a passing verdict', () => {
     expect(checkVerdictOf(true)).toEqual({ pass: true })
     expect(checkVerdictOf(false)).toEqual({ pass: false })

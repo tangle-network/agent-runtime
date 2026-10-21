@@ -32,48 +32,14 @@
  * profile, not this file, decides how blunt the words are.
  */
 
-import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { TraceAnalysisStore } from '@tangle-network/agent-eval'
+import { sha256 } from '../../content-digest'
 import { ValidationError } from '../../errors'
+import { isFiniteNumber } from '../../finite-number'
+import type { CheckVerdict } from './completion-gate'
 import type { DriverBudgetReadout, DriverProgressMark } from './driver-retry'
-
-// ── The check ────────────────────────────────────────────────────────────────────────────────────
-
-/**
- * One reading of a completion check.
- *
- * A check program prints an agent-eval `JudgeScore`; {@link verdictFromJudgeScore} reads it into
- * this shape. A plain boolean check is a verdict with no items.
- */
-export interface CheckVerdict {
-  /** Whether the check accepts the result. */
-  readonly pass: boolean
-  /** Every item the check read, by name: 1 when it passes, lower when it does not. The
-   *  `JudgeScore.dimensions` of the check program. */
-  readonly items?: Readonly<Record<string, number>>
-  /** The check's score. */
-  readonly composite?: number
-  /** The pass threshold on `composite`, when the check has one. */
-  readonly threshold?: number
-  /** One `FAIL <item> <where>: <reason>` line per failed item, in the check's order. */
-  readonly failures?: ReadonlyArray<string>
-  /** The check's prose review of the result, when it writes one. */
-  readonly review?: string
-}
-
-/**
- * The check could not run: its box did not start, its judge's provider refused, its program
- * crashed. It is not a verdict on the result. Inside a run the loop pauses, as it does for an
- * unavailable upstream, and the refusal tells the director its result was not judged.
- */
-export class CheckUnavailableError extends Error {
-  constructor(message: string, options?: { readonly cause?: unknown }) {
-    super(message, options)
-    this.name = 'CheckUnavailableError'
-  }
-}
 
 /** Read a check function's return value into a verdict. Anything but `true` or a passing verdict
  *  is a failure: a check fails closed. */
@@ -98,45 +64,12 @@ export function checkVerdictOf(outcome: unknown): CheckVerdict {
   return Object.freeze({
     pass: raw.pass === true,
     ...(items === undefined ? {} : { items: Object.freeze(items) }),
-    ...(finite(raw.composite) ? { composite: raw.composite } : {}),
-    ...(finite(raw.threshold) ? { threshold: raw.threshold } : {}),
+    ...(isFiniteNumber(raw.composite) ? { composite: raw.composite } : {}),
+    ...(isFiniteNumber(raw.threshold) ? { threshold: raw.threshold } : {}),
     ...(failures === undefined ? {} : { failures: Object.freeze(failures) }),
     ...(typeof raw.review === 'string' && raw.review.trim() !== ''
       ? { review: raw.review.trim() }
       : {}),
-  })
-}
-
-/**
- * Read an agent-eval `JudgeScore` from a check program into a verdict.
- *
- * Each dimension is a checked item. `notes` lines that start with `FAIL ` are the failures; the
- * remaining lines are the check's review. The verdict passes when `composite >= threshold` and the
- * score is not marked `failed`; a `failed` score means the judge itself did not run, which is
- * {@link CheckUnavailableError}, not a verdict.
- */
-export function verdictFromJudgeScore(
-  score: {
-    readonly dimensions: Readonly<Record<string, number>>
-    readonly composite: number
-    readonly notes: string
-    readonly failed?: true
-  },
-  threshold: number,
-): CheckVerdict {
-  if (score.failed === true) {
-    throw new CheckUnavailableError(`the check's judge did not run: ${score.notes}`)
-  }
-  const lines = score.notes.split('\n').map((line) => line.trimEnd())
-  const failures = lines.filter((line) => line.startsWith('FAIL '))
-  const review = lines.filter((line) => !line.startsWith('FAIL ') && line.trim() !== '').join('\n')
-  return checkVerdictOf({
-    pass: score.composite >= threshold,
-    items: score.dimensions,
-    composite: score.composite,
-    threshold,
-    failures,
-    ...(review === '' ? {} : { review }),
   })
 }
 
@@ -259,8 +192,8 @@ export function admitContinuationPolicy(policy: ContinuationPolicy, context: str
     const usd = policy.panelUsd
     if (
       usd === undefined ||
-      !finite(usd.perContinuation) ||
-      !finite(usd.perRun) ||
+      !isFiniteNumber(usd.perContinuation) ||
+      !isFiniteNumber(usd.perRun) ||
       usd.perContinuation <= 0 ||
       usd.perRun < usd.perContinuation
     ) {
@@ -750,7 +683,7 @@ export function summarizeVerdict(verdict: CheckVerdict | undefined): VerdictSumm
 }
 
 export function noteDigest(note: string): string {
-  return `sha256:${createHash('sha256').update(note).digest('hex')}`
+  return `sha256:${sha256(note)}`
 }
 
 /** A run directory's continuation files: the root's at `<runDir>/continuations/<n>/`, a nested
@@ -812,10 +745,6 @@ export interface ContinuationContext {
   /** Re-entered drives in a row, this one included, that ended without progress. */
   readonly barrenReentries: number
   readonly signal: AbortSignal
-}
-
-function finite(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
 }
 
 function format(value: number): string {

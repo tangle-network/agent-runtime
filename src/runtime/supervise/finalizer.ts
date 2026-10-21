@@ -19,8 +19,8 @@
  */
 
 import { ValidationError } from '../../errors'
-import type { DeliverableSpec } from './completion-gate'
-import { CheckUnavailableError, checkVerdictOf } from './continuation'
+import { CheckUnavailableError, type DeliverableSpec } from './completion-gate'
+import { checkVerdictOf } from './continuation'
 import type { ResultBlobStore, Scope, TreeView } from './types'
 
 /** One settled worker as the finalizer sees it — the ledger row (structural fields only). */

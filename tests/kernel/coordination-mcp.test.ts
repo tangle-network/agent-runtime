@@ -12,7 +12,7 @@ import {
   InMemorySpawnJournal,
 } from '../../src/durable/in-memory-spawn-stores'
 import type { AwaitWakeInput } from '../../src/mcp/tools/coordination-events'
-import type { CheckVerdict } from '../../src/runtime/supervise/continuation'
+import type { CheckVerdict } from '../../src/runtime/supervise/completion-gate'
 import { coordinationHttpHandler } from '../../src/runtime/supervise/coordination-http'
 import {
   serveCoordinationMcp,

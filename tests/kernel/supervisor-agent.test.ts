@@ -4,7 +4,7 @@ import {
   InMemorySpawnJournal,
 } from '../../src/durable/in-memory-spawn-stores'
 import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination-contracts'
-import { CheckUnavailableError } from '../../src/runtime/supervise/continuation'
+import { CheckUnavailableError } from '../../src/runtime/supervise/completion-gate'
 import type {
   DriverAttemptRecord,
   DriverContinuationRecord,

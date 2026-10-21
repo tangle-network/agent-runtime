@@ -6,10 +6,10 @@ import type { CoordinationEvent, ManagerWake } from '../../mcp/tools/coordinatio
 import { agentHarness } from '../harness-role'
 import type { ToolLoopChat } from '../tool-loop'
 import { linkAbort, runAbortable } from './abortable'
+import { CheckUnavailableError } from './completion-gate'
 import {
   admitContinuationPolicy,
   bestComposite,
-  CheckUnavailableError,
   type ContinuationKeeper,
   checkVerdictOf,
   createContinuationKeeper,
