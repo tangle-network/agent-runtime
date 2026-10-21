@@ -31,43 +31,31 @@
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
-import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
+import { createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { ValidationError } from '../../errors'
-import type { RuntimeStreamEvent } from '../../types'
 import { readPromptOptions } from '../prompt-options'
 import type { ProviderWorkspaceCaptureReceipt } from '../provider-workspace-retention'
-import {
-  assertSandboxServedModel,
-  createSandboxUsageLedger,
-  type SandboxServedBackend,
-  sandboxEventServedBackend,
-} from '../sandbox-events'
-import {
-  createSandboxToolPartState,
-  sandboxOutputMarker,
-  sandboxProgressEvents,
-} from '../sandbox-executor-output'
-import { createSandboxLineage, type SandboxLineageHandle } from '../sandbox-lineage'
+import { assertSandboxServedModel, createSandboxUsageLedger } from '../sandbox-events'
+import { createSandboxLineage } from '../sandbox-lineage'
 import { projectSandboxOutcome } from '../sandbox-outcome'
 import type { AgentRunSpec, ExecCtx, SandboxClient } from '../types'
-import { addTokenUsage, promptCacheTokenClasses, zeroTokenUsage } from '../util'
 import { armDeadlineTimer } from './deadline'
 import type { Inbox, InboxLease } from './inbox'
 import { concreteProfileModel } from './model-policy'
+import type { ExecutorProgress } from './progress'
 import {
-  type ActivityLog,
-  type ActivityNote,
-  createActivityLog,
-  describeToolArgs,
-  type ExecutorProgress,
-} from './progress'
-import { createPushTraceSource, decodeBoxPart, type TraceSource } from './trace-source'
+  cancelSandboxSession,
+  creditSandboxCall,
+  newSandboxSessionRun,
+  recordBoxEvent,
+  type SandboxSessionRun,
+  sandboxSessionOutput,
+} from './sandbox-session-run'
+import type { TraceSource } from './trace-source'
 import type {
   DefaultVerdict,
   ExecutorCancellation,
   ExecutorCancellationRequest,
-  ExecutorProgressEvent,
-  ExecutorToolCall,
   Spend,
   UsageEvent,
 } from './types'
@@ -125,434 +113,294 @@ export interface SteerableSandboxArgs {
 
 /** One steerable sandbox worker. The returned session is inert until `stream()` is drained. */
 export function createSteerableSandboxSession(args: SteerableSandboxArgs): SteerableSandboxSession {
-  const now = args.now ?? Date.now
   const maxTurns = args.options?.maxTurns ?? DEFAULT_SANDBOX_STEERING_MAX_TURNS
   if (!Number.isSafeInteger(maxTurns) || maxTurns < 0) {
     throw new ValidationError(
       'steerable sandbox worker: maxTurns must be a nonnegative safe integer (0 means unbounded)',
     )
   }
-  const activity: ActivityLog = createActivityLog(args.options?.activityWindow ?? 12)
-  const trace = createPushTraceSource({ runId: `sandbox-${args.harness}-${now()}`, now })
-
-  const state = {
-    turns: 0,
-    /** `undefined` until a text-bearing terminal event is observed; never seeded with `''`. */
-    lastText: undefined as string | undefined,
-    servedBackend: undefined as SandboxServedBackend | undefined,
-    seenToolCalls: new Set<string>(),
-    toolCalls: [] as ExecutorToolCall[],
-    artifact: undefined as
-      | { outRef: string; out: unknown; verdict?: DefaultVerdict; spent: Spend }
-      | undefined,
-    latestOutcome: undefined as AgentRunOutcome | undefined,
-    /** Reads the live lineage handle once a box and session exist, for exact cancellation. */
-    session: undefined as (() => SandboxLineageHandle | undefined) | undefined,
-    teardown: undefined as (() => Promise<void>) | undefined,
-    note: 'starting',
-  }
-
-  let readOutput: (() => unknown) | undefined
-
-  const toolParts = createSandboxToolPartState()
-
-  /** Record one box event for the trace and the activity window, and return the live output it
-   *  carries so the caller can publish it to the turn stream. */
-  const recordEvent = (event: SandboxEvent): ExecutorProgressEvent[] => {
-    const at = now()
-    const data = (event as { data?: unknown }).data
-    const part = data && typeof data === 'object' ? (data as { part?: unknown }).part : undefined
-    if (part !== undefined) {
-      const step = decodeBoxPart(part, args.harness)
-      if (step) {
-        // The same call streams several frames; count it once so the detector panel and the
-        // driver's activity window both see ONE entry per real tool call.
-        const key = step.callId ?? `${step.toolName}:${activity.size()}`
-        if (!state.seenToolCalls.has(key)) {
-          state.seenToolCalls.add(key)
-          trace.record(step)
-          const note: ActivityNote = {
-            at,
-            kind: 'tool',
-            label: step.toolName,
-            ...(step.status ? { status: step.status } : {}),
-            ...(describeToolArgs(step.args) ? { detail: describeToolArgs(step.args) } : {}),
-          }
-          activity.push(note)
-        }
-      }
-    }
-    const text = readFinalText(event)
-    if (text !== undefined) state.lastText = text
-    const served = sandboxEventServedBackend(event)
-    if (served !== undefined) state.servedBackend = served
-    const progress = sandboxProgressEvents(event, toolParts)
-    for (const item of progress) {
-      if (item.kind !== 'tool_call') continue
-      state.toolCalls.push({
-        ...(item.toolCallId === undefined ? {} : { id: item.toolCallId }),
-        name: item.toolName,
-        arguments: item.args ?? {},
-      })
-    }
-    return progress
-  }
-
-  async function* stream(task: unknown, signal: AbortSignal): AsyncIterable<UsageEvent> {
-    let preservationFailure: string | undefined
-    let preservationError: unknown
-    let executionFailure: unknown
-    const lineage = createSandboxLineage(args.sandboxClient, {
-      maxConcurrency: 1,
-      failOnDestroyError: args.failOnDestroyError,
-    })
-    state.teardown = () => lineage.teardown()
-
-    const spec: AgentRunSpec<unknown> = {
-      profile: args.profile,
-      taskToPrompt: args.taskToPrompt,
-      name: args.profile.name ?? String(args.harness),
-      sandboxOverrides: {
-        backend: { type: args.harness },
-        ...(args.traceEnv && Object.keys(args.traceEnv).length > 0 ? { env: args.traceEnv } : {}),
-      },
-    }
-    const promptOptions = readPromptOptions(
-      args.loopCtx?.promptOptions,
-      'steerable sandbox worker: loopCtx.promptOptions',
-    )
-    // The exact instrument every turn of this session asks the box for (agent-runtime#892).
-    const requestedModel = concreteProfileModel(args.profile)
-    const requested = {
-      ...(args.profile.model?.provider !== undefined
-        ? { provider: args.profile.model.provider }
-        : {}),
-      ...(requestedModel !== undefined ? { model: requestedModel } : {}),
-    }
-
-    const started = now()
-    const tokens = zeroTokenUsage()
-    let tokensKnown = true
-    let usd = 0
-    let handle: SandboxLineageHandle | undefined
-    state.session = () => handle
-    let nextPrompt: string | undefined = args.taskToPrompt(task)
-    // One ledger for the whole session: it credits the canonical usage events as they arrive and
-    // holds the harness's own usage receipt until the turn ends, so a turn that reports both is
-    // charged once. `settleTurn` resets it, so each turn accounts independently.
-    const usageLedger = createSandboxUsageLedger(args.harness)
-    let usageFailure: string | undefined
-    readOutput = () => ({
-      content: state.lastText,
-      output: sandboxOutputMarker(state.lastText),
-      ...(state.servedBackend === undefined ? {} : { servedBackend: state.servedBackend }),
-      turns: state.turns,
-      toolCalls: state.toolCalls,
-      ...(state.latestOutcome ? { outcome: state.latestOutcome } : {}),
-      // The named reason behind a `false` `spent.tokensKnown`, on the settlement rather than the
-      // verdict: whether the work SUCCEEDED and whether its spend was MEASURED are different
-      // facts, and collapsing them would drop a correct worker from every valid-winner selection.
-      // The conserved pool already carries the measurement fact — `tokensKnown: false` taints the
-      // readout and names the node in `spendGaps`.
-      ...(usageFailure === undefined ? {} : { tokensUnknownReason: usageFailure }),
-      ...(args.workspaceCaptures === undefined
-        ? {}
-        : { workspaceCaptures: args.workspaceCaptures() }),
-      ...(preservationFailure === undefined ? {} : { preservationFailure }),
-    })
-    function* creditCall(call: RuntimeStreamEvent & { type: 'llm_call' }): Generator<UsageEvent> {
-      const callTokensKnown =
-        call.tokensKnown !== false &&
-        typeof call.tokensIn === 'number' &&
-        typeof call.tokensOut === 'number'
-      if (!callTokensKnown) tokensKnown = false
-      // A receipt the ledger could not read marks the SPEND unknown, never the stream failed: the
-      // worker keeps running and settles on its own outcome with `tokensKnown: false` plus this
-      // message. The first message is kept: it names the receipt, and a later one adds no fact.
-      if (call.tokensUnknownReason !== undefined) {
-        usageFailure ??= call.tokensUnknownReason
-        activity.push({
-          at: now(),
-          kind: 'note',
-          label: 'usage-unreadable',
-          detail: call.tokensUnknownReason,
-        })
-      }
-      const input = call.tokensIn ?? 0
-      const output = call.tokensOut ?? 0
-      if (input || output || !callTokensKnown) {
-        const usage: Extract<UsageEvent, { kind: 'tokens' }> = {
-          kind: 'tokens',
-          input,
-          output,
-          ...(callTokensKnown ? {} : { tokensKnown: false }),
-          // Classify against THIS call's own prompt total, so the classes partition the
-          // number they belong to rather than a running sum from other calls.
-          ...promptCacheTokenClasses(call.tokensIn, call.promptCache),
-        }
-        addTokenUsage(tokens, usage)
-        yield usage
-      }
-      if (typeof call.costUsd === 'number' && call.costUsd > 0) {
-        usd += call.costUsd
-        // Numeric sandbox cost has no billing-provenance/completeness receipt, so the whole amount
-        // is a price rather than a charge and rides the estimate channel too — `usd - usdEstimated`
-        // is what names billed money, and without it this figure read as provider spend (#1175).
-        yield {
-          kind: 'cost',
-          usd: call.costUsd,
-          usdKnown: false,
-          usdEstimated: call.costUsd,
-          provenance: 'uncaptured',
-        }
-      }
-    }
-
-    // The messages this turn's prompt carries, committed once the box streams the turn. A turn
-    // that fails or is interrupted before then hands them back to the next prompt.
-    let lease: InboxLease | undefined
-    try {
-      for (let turn = 0; maxTurns === 0 || turn < maxTurns; turn += 1) {
-        lease?.release()
-        // Take the down-leg FIRST. On turn 0 a steer that landed during box acquisition is
-        // appended to the task; on later turns the steer IS the whole prompt, because the
-        // worker's prior context lives server-side in the session.
-        const turnLease = args.inbox.take()
-        lease = turnLease
-        const pending = turnLease.messages
-        if (pending.length > 0) {
-          const folded = args.inbox.fold(pending)
-          nextPrompt = turn === 0 && nextPrompt ? `${nextPrompt}\n\n${folded}` : folded
-          const peerCount = pending.filter((m) => m.kind === 'mail').length
-          activity.push({
-            at: now(),
-            kind: 'note',
-            // Split the label by authority class: peer mail folded into a turn is not a steer.
-            label: peerCount === pending.length ? 'peer-mail-folded' : 'steer-folded',
-            detail:
-              peerCount === 0
-                ? `${pending.length} message(s)`
-                : `${pending.length} message(s), ${peerCount} peer`,
-          })
-        }
-        if (nextPrompt === undefined) break
-
-        const prompt = nextPrompt
-        nextPrompt = undefined
-        state.note = `turn ${turn}`
-
-        const interruptSig = args.inbox.freshInterrupt()
-        const turnController = new AbortController()
-        const abortTurn = () => turnController.abort()
-        if (signal.aborted || args.controller.signal.aborted) turnController.abort()
-        else {
-          signal.addEventListener('abort', abortTurn)
-          args.controller.signal.addEventListener('abort', abortTurn)
-        }
-        interruptSig.addEventListener('abort', abortTurn, { once: true })
-        const clearTimer = args.options?.turnTimeoutMs
-          ? armDeadlineTimer(args.options.turnTimeoutMs, abortTurn, true)
-          : undefined
-        const cleanup = () => {
-          signal.removeEventListener('abort', abortTurn)
-          args.controller.signal.removeEventListener('abort', abortTurn)
-          interruptSig.removeEventListener('abort', abortTurn)
-          clearTimer?.()
-        }
-
-        let events: AsyncIterable<SandboxEvent>
-        let sawLlmCall = false
-        const outcomeTracker = createAgentRunOutcomeTracker()
-        try {
-          if (!handle) {
-            const opened = await lineage.start(spec, prompt, turnController.signal, promptOptions)
-            handle = opened.handle
-            events = opened.events
-          } else {
-            events = await lineage.continue(handle, prompt, turnController.signal, promptOptions)
-          }
-          for await (const event of events) {
-            // The box streamed this turn, so its prompt reached the session.
-            if (handle) {
-              for (const message of turnLease.messages) {
-                turnLease.commit(`${handle.sessionId}#turn-${turn}`, message.id)
-              }
-            }
-            outcomeTracker.observe(event)
-            for (const progress of recordEvent(event)) yield { kind: 'progress', progress }
-            const call = usageLedger.observe(event, spec.name ?? String(args.harness))
-            if (call) {
-              sawLlmCall = true
-              yield* creditCall(call)
-            }
-            assertSandboxServedModel(event, requested)
-          }
-          const harnessCall = usageLedger.settleTurn(spec.name ?? String(args.harness))
-          if (harnessCall) {
-            sawLlmCall = true
-            yield* creditCall(harnessCall)
-          }
-          state.latestOutcome = outcomeTracker.finish()
-        } catch (e) {
-          cleanup()
-          // A forceful steer ends the turn mid-stream. The harness receipt the turn already
-          // reported is credited, because those tokens were spent whatever ended the turn.
-          const abortedCall = usageLedger.settleTurn(spec.name ?? String(args.harness))
-          if (abortedCall) yield* creditCall(abortedCall)
-          // Re-plan ONLY when a forceful steer (not external teardown) aborted the turn: the
-          // steer is already queued, so loop back and fold it. Anything else is fatal.
-          if (isInterruptAbort(e, interruptSig, signal, args.controller.signal)) {
-            activity.push({ at: now(), kind: 'note', label: 'interrupted', detail: 'replanning' })
-            continue
-          }
-          throw e
-        }
-        cleanup()
-
-        if (!sawLlmCall) {
-          tokensKnown = false
-          yield { kind: 'tokens', input: 0, output: 0, tokensKnown: false }
-        }
-
-        state.turns += 1
-        activity.push({ at: now(), kind: 'turn', label: `turn ${turn}` })
-        yield { kind: 'iteration' }
-
-        // A worker may NOT settle while a delivered steer is unread — that is the whole
-        // contract `steer_agent` reports back to the driver. Loop instead of breaking.
-        // Peer mail is excluded: a sibling must not be able to deny a finished worker its
-        // settlement simply by keeping mail in flight.
-        if (args.inbox.pendingAuthority() === 0) break
-      }
-    } catch (error) {
-      executionFailure = error
-      lease?.release()
-      throw error
-    } finally {
-      state.note = 'settled'
-      if (args.failOnDestroyError) {
-        try {
-          await lineage.teardown()
-          state.teardown = undefined
-        } catch (error) {
-          preservationFailure = error instanceof Error ? error.message : String(error)
-          preservationError = error
-          if (executionFailure instanceof Error) {
-            Object.assign(executionFailure, { cause: executionFailure.cause ?? error })
-          }
-        }
-      } else {
-        await lineage.teardown().catch(() => {})
-        state.teardown = undefined
-      }
-    }
-
-    if (preservationFailure !== undefined) throw preservationError
-
-    // Mark the dollar channel unknown even when no event carried a numeric subtotal: a completed
-    // sandbox turn is not proof that the provider billed exactly zero.
-    if (state.turns > 0) {
-      yield { kind: 'cost', usd: 0, usdKnown: false, provenance: 'uncaptured' }
-    }
-    const spent: Spend = {
-      iterations: state.turns,
-      tokens,
-      ...(tokensKnown ? {} : { tokensKnown: false }),
-      usd,
-      ...(state.turns > 0 ? { usdKnown: false } : {}),
-      // Every dollar this worker saw came without a receipt, so the estimate channel names all of
-      // them. The `usdKnown: false` guard is the type's own rule: an estimate on a measured
-      // channel is a contradiction the pool refuses.
-      ...(state.turns > 0 && usd > 0 ? { usdEstimated: usd } : {}),
-      ms: now() - started,
-    }
-    const out = readOutput()
-    const verdict = state.latestOutcome
-      ? projectSandboxOutcome(state.latestOutcome).verdict
-      : undefined
-    state.artifact = {
-      outRef: args.contentRef('sandbox-steerable', { harness: args.harness, out }),
-      out,
-      ...(verdict ? { verdict } : {}),
-      spent,
-    }
-  }
-
+  const run = newSandboxSessionRun(args)
   return {
-    stream,
+    stream: (task, signal) => streamSession(run, maxTurns, task, signal),
     output() {
-      if (readOutput === undefined)
-        throw new ValidationError('sandbox output read before execution')
-      return readOutput()
+      if (!run.outputReady) throw new ValidationError('sandbox output read before execution')
+      return sandboxSessionOutput(run)
     },
-    async cancel(request: ExecutorCancellationRequest): Promise<ExecutorCancellation> {
-      const live = state.session?.()
-      const observedAt = () => new Date().toISOString()
-      if (!live) {
-        return {
-          status: 'unknown',
-          effect: 'cancel_requested',
-          observedAt: observedAt(),
-          detail: 'no box session exists yet for this worker; nothing remote could be asked',
-        }
-      }
-      const session = (
-        live.box as unknown as {
-          session?: (id: string) => { interrupt?: (options?: unknown) => Promise<unknown> }
-        }
-      ).session?.(live.sessionId)
-      if (!session || typeof session.interrupt !== 'function') {
-        return {
-          status: 'unknown',
-          effect: 'cancel_requested',
-          observedAt: observedAt(),
-          detail: 'the sandbox client exposes no session interrupt operation',
-          evidence: { sessionId: live.sessionId },
-        }
-      }
-      try {
-        const result = (await session.interrupt()) as { cancelled?: unknown }
-        const evidence = { sessionId: live.sessionId, operationId: request.operationId, result }
-        if (result?.cancelled === true) {
-          args.controller.abort('executor cancelled')
-          return {
-            status: 'accepted',
-            effect: 'cancelled',
-            observedAt: observedAt(),
-            detail: 'the box reported the running execution cancelled',
-            evidence,
-          }
-        }
-        // `cancelled: false` is the platform saying the selected execution was not running.
-        return {
-          status: 'already-terminal',
-          effect: 'not_live',
-          observedAt: observedAt(),
-          detail: 'the box reported no running execution on this session',
-          evidence,
-        }
-      } catch (error) {
-        return {
-          status: 'unknown',
-          effect: 'cancel_requested',
-          observedAt: observedAt(),
-          detail: `the box interrupt failed: ${error instanceof Error ? error.message : String(error)}`,
-          evidence: { sessionId: live.sessionId, operationId: request.operationId },
-        }
-      }
-    },
+    cancel: (request: ExecutorCancellationRequest) => cancelSandboxSession(run, request),
     progress: (): ExecutorProgress => ({
-      turns: state.turns,
+      turns: run.turns,
       pendingMessages: args.inbox.pending(),
-      recentActivity: activity.read(),
-      note: state.note,
+      recentActivity: run.activity.read(),
+      note: run.note,
     }),
-    traceSource: () => trace.source,
-    artifact: () => state.artifact,
+    traceSource: () => run.trace.source,
+    artifact: () => run.artifact,
     async teardown() {
-      if (args.failOnDestroyError) await state.teardown?.()
-      else await state.teardown?.().catch(() => {})
+      if (args.failOnDestroyError) await run.teardown?.()
+      else await run.teardown?.().catch(() => {})
     },
+  }
+}
+
+/** What every turn of one session shares: its lineage, spec, requested model and usage ledger. */
+interface SessionTurns {
+  readonly run: SandboxSessionRun
+  readonly lineage: ReturnType<typeof createSandboxLineage>
+  readonly spec: AgentRunSpec<unknown>
+  readonly promptOptions: ReturnType<typeof readPromptOptions>
+  readonly requested: { provider?: string; model?: string }
+  readonly usageLedger: ReturnType<typeof createSandboxUsageLedger>
+  readonly signal: AbortSignal
+}
+
+async function* streamSession(
+  run: SandboxSessionRun,
+  maxTurns: number,
+  task: unknown,
+  signal: AbortSignal,
+): AsyncIterable<UsageEvent> {
+  const { args, now } = run
+  let preservationError: unknown
+  let executionFailure: unknown
+  const lineage = createSandboxLineage(args.sandboxClient, {
+    maxConcurrency: 1,
+    failOnDestroyError: args.failOnDestroyError,
+  })
+  run.teardown = () => lineage.teardown()
+
+  const spec: AgentRunSpec<unknown> = {
+    profile: args.profile,
+    taskToPrompt: args.taskToPrompt,
+    name: args.profile.name ?? String(args.harness),
+    sandboxOverrides: {
+      backend: { type: args.harness },
+      ...(args.traceEnv && Object.keys(args.traceEnv).length > 0 ? { env: args.traceEnv } : {}),
+    },
+  }
+  const promptOptions = readPromptOptions(
+    args.loopCtx?.promptOptions,
+    'steerable sandbox worker: loopCtx.promptOptions',
+  )
+  // The exact instrument every turn of this session asks the box for (agent-runtime#892).
+  const requestedModel = concreteProfileModel(args.profile)
+  const requested = {
+    ...(args.profile.model?.provider !== undefined
+      ? { provider: args.profile.model.provider }
+      : {}),
+    ...(requestedModel !== undefined ? { model: requestedModel } : {}),
+  }
+
+  const started = now()
+  let nextPrompt: string | undefined = args.taskToPrompt(task)
+  // One ledger for the whole session: it credits the canonical usage events as they arrive and
+  // holds the harness's own usage receipt until the turn ends, so a turn that reports both is
+  // charged once. `settleTurn` resets it, so each turn accounts independently.
+  const usageLedger = createSandboxUsageLedger(args.harness)
+  run.outputReady = true
+  const turns: SessionTurns = { run, lineage, spec, promptOptions, requested, usageLedger, signal }
+
+  // The messages this turn's prompt carries, committed once the box streams the turn. A turn
+  // that fails or is interrupted before then hands them back to the next prompt.
+  let lease: InboxLease | undefined
+  try {
+    for (let turn = 0; maxTurns === 0 || turn < maxTurns; turn += 1) {
+      lease?.release()
+      // Take the down-leg FIRST. On turn 0 a steer that landed during box acquisition is
+      // appended to the task; on later turns the steer IS the whole prompt, because the
+      // worker's prior context lives server-side in the session.
+      const turnLease = args.inbox.take()
+      lease = turnLease
+      nextPrompt = foldInboxIntoPrompt(run, turnLease, turn, nextPrompt)
+      if (nextPrompt === undefined) break
+
+      const prompt = nextPrompt
+      nextPrompt = undefined
+      run.note = `turn ${turn}`
+
+      const outcome = yield* runSandboxTurn(turns, turn, prompt, turnLease)
+      if (outcome === 'replan') continue
+      // A worker may NOT settle while a delivered steer is unread — that is the whole
+      // contract `steer_agent` reports back to the driver. Loop instead of breaking.
+      // Peer mail is excluded: a sibling must not be able to deny a finished worker its
+      // settlement simply by keeping mail in flight.
+      if (args.inbox.pendingAuthority() === 0) break
+    }
+  } catch (error) {
+    executionFailure = error
+    lease?.release()
+    throw error
+  } finally {
+    run.note = 'settled'
+    if (args.failOnDestroyError) {
+      try {
+        await lineage.teardown()
+        run.teardown = undefined
+      } catch (error) {
+        run.preservationFailure = error instanceof Error ? error.message : String(error)
+        preservationError = error
+        if (executionFailure instanceof Error) {
+          Object.assign(executionFailure, { cause: executionFailure.cause ?? error })
+        }
+      }
+    } else {
+      await lineage.teardown().catch(() => {})
+      run.teardown = undefined
+    }
+  }
+
+  if (run.preservationFailure !== undefined) throw preservationError
+
+  // Mark the dollar channel unknown even when no event carried a numeric subtotal: a completed
+  // sandbox turn is not proof that the provider billed exactly zero.
+  if (run.turns > 0) {
+    yield { kind: 'cost', usd: 0, usdKnown: false, provenance: 'uncaptured' }
+  }
+  publishSessionArtifact(run, started)
+}
+
+/** Fold the messages the inbox holds into the next prompt, noting the fold in the activity window. */
+function foldInboxIntoPrompt(
+  run: SandboxSessionRun,
+  turnLease: InboxLease,
+  turn: number,
+  nextPrompt: string | undefined,
+): string | undefined {
+  const pending = turnLease.messages
+  if (pending.length === 0) return nextPrompt
+  const folded = run.args.inbox.fold(pending)
+  const peerCount = pending.filter((m) => m.kind === 'mail').length
+  run.activity.push({
+    at: run.now(),
+    kind: 'note',
+    // Split the label by authority class: peer mail folded into a turn is not a steer.
+    label: peerCount === pending.length ? 'peer-mail-folded' : 'steer-folded',
+    detail:
+      peerCount === 0
+        ? `${pending.length} message(s)`
+        : `${pending.length} message(s), ${peerCount} peer`,
+  })
+  return turn === 0 && nextPrompt ? `${nextPrompt}\n\n${folded}` : folded
+}
+
+/**
+ * One turn's abort: the spawn signal, the executor's controller, a forceful steer, or the turn
+ * deadline. `cleanup` detaches every listener.
+ */
+function openTurnAbort(run: SandboxSessionRun, signal: AbortSignal) {
+  const { args } = run
+  const interruptSig = args.inbox.freshInterrupt()
+  const turnController = new AbortController()
+  const abortTurn = () => turnController.abort()
+  if (signal.aborted || args.controller.signal.aborted) turnController.abort()
+  else {
+    signal.addEventListener('abort', abortTurn)
+    args.controller.signal.addEventListener('abort', abortTurn)
+  }
+  interruptSig.addEventListener('abort', abortTurn, { once: true })
+  const clearTimer = args.options?.turnTimeoutMs
+    ? armDeadlineTimer(args.options.turnTimeoutMs, abortTurn, true)
+    : undefined
+  const cleanup = () => {
+    signal.removeEventListener('abort', abortTurn)
+    args.controller.signal.removeEventListener('abort', abortTurn)
+    interruptSig.removeEventListener('abort', abortTurn)
+    clearTimer?.()
+  }
+  return { interruptSig, turnController, cleanup }
+}
+
+/** Stream one turn through the lineage: `'replan'` when a forceful steer ended it, else `'ran'`. */
+async function* runSandboxTurn(
+  turns: SessionTurns,
+  turn: number,
+  prompt: string,
+  turnLease: InboxLease,
+): AsyncGenerator<UsageEvent, 'replan' | 'ran'> {
+  const { run, lineage, spec, promptOptions, requested, usageLedger, signal } = turns
+  const { args } = run
+  const callerName = spec.name ?? String(args.harness)
+  const { interruptSig, turnController, cleanup } = openTurnAbort(run, signal)
+  let events: AsyncIterable<SandboxEvent>
+  let sawLlmCall = false
+  const outcomeTracker = createAgentRunOutcomeTracker()
+  try {
+    if (!run.handle) {
+      const opened = await lineage.start(spec, prompt, turnController.signal, promptOptions)
+      run.handle = opened.handle
+      events = opened.events
+    } else {
+      events = await lineage.continue(run.handle, prompt, turnController.signal, promptOptions)
+    }
+    for await (const event of events) {
+      // The box streamed this turn, so its prompt reached the session.
+      if (run.handle) {
+        for (const message of turnLease.messages) {
+          turnLease.commit(`${run.handle.sessionId}#turn-${turn}`, message.id)
+        }
+      }
+      outcomeTracker.observe(event)
+      for (const progress of recordBoxEvent(run, event)) yield { kind: 'progress', progress }
+      const call = usageLedger.observe(event, callerName)
+      if (call) {
+        sawLlmCall = true
+        yield* creditSandboxCall(run, call)
+      }
+      assertSandboxServedModel(event, requested)
+    }
+    const harnessCall = usageLedger.settleTurn(callerName)
+    if (harnessCall) {
+      sawLlmCall = true
+      yield* creditSandboxCall(run, harnessCall)
+    }
+    run.latestOutcome = outcomeTracker.finish()
+  } catch (e) {
+    cleanup()
+    // A forceful steer ends the turn mid-stream. The harness receipt the turn already
+    // reported is credited, because those tokens were spent whatever ended the turn.
+    const abortedCall = usageLedger.settleTurn(callerName)
+    if (abortedCall) yield* creditSandboxCall(run, abortedCall)
+    // Re-plan ONLY when a forceful steer (not external teardown) aborted the turn: the
+    // steer is already queued, so loop back and fold it. Anything else is fatal.
+    if (isInterruptAbort(e, interruptSig, signal, args.controller.signal)) {
+      run.activity.push({ at: run.now(), kind: 'note', label: 'interrupted', detail: 'replanning' })
+      return 'replan'
+    }
+    throw e
+  }
+  cleanup()
+
+  if (!sawLlmCall) {
+    run.tokensKnown = false
+    yield { kind: 'tokens', input: 0, output: 0, tokensKnown: false }
+  }
+
+  run.turns += 1
+  run.activity.push({ at: run.now(), kind: 'turn', label: `turn ${turn}` })
+  yield { kind: 'iteration' }
+  return 'ran'
+}
+
+function publishSessionArtifact(run: SandboxSessionRun, started: number): void {
+  const { turns, usd } = run
+  const spent: Spend = {
+    iterations: turns,
+    tokens: run.tokens,
+    ...(run.tokensKnown ? {} : { tokensKnown: false }),
+    usd,
+    ...(turns > 0 ? { usdKnown: false } : {}),
+    // Every dollar this worker saw came without a receipt, so the estimate channel names all of
+    // them. The `usdKnown: false` guard is the type's own rule: an estimate on a measured
+    // channel is a contradiction the pool refuses.
+    ...(turns > 0 && usd > 0 ? { usdEstimated: usd } : {}),
+    ms: run.now() - started,
+  }
+  const out = sandboxSessionOutput(run)
+  const verdict = run.latestOutcome ? projectSandboxOutcome(run.latestOutcome).verdict : undefined
+  run.artifact = {
+    outRef: run.args.contentRef('sandbox-steerable', { harness: run.args.harness, out }),
+    out,
+    ...(verdict ? { verdict } : {}),
+    spent,
   }
 }
 
@@ -567,16 +415,4 @@ function isInterruptAbort(
     (err instanceof DOMException && err.name === 'AbortError') ||
     (typeof err === 'object' && err !== null && (err as { name?: unknown }).name === 'AbortError')
   return aborted && interrupt.aborted && !external.aborted && !owned.aborted
-}
-
-/** The terminal text a sandbox `result` event carries, when it carries one. An observed empty
- *  string is returned as `''`, because "the box answered nothing" is not "the box never
- *  answered". */
-function readFinalText(event: SandboxEvent): string | undefined {
-  const data = (event as { data?: unknown }).data
-  if (!data || typeof data !== 'object') return undefined
-  const text = (data as { finalText?: unknown; text?: unknown }).finalText
-  if (typeof text === 'string') return text
-  const alt = (data as { text?: unknown }).text
-  return typeof alt === 'string' ? alt : undefined
 }
