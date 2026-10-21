@@ -18,8 +18,8 @@ import {
   describeRetainedNativeStops,
   stopRetainedNativeExecution,
 } from '../../src/runtime/retained-native-stop'
+import { cancelRun } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
-import { cancelRun } from '../../src/runtime/supervise/run-layout'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Agent, SpawnEvent } from '../../src/runtime/supervise/types'
