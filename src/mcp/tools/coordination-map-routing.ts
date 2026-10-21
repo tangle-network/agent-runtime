@@ -28,16 +28,11 @@ export function createMapRouting({
   // `spawn_worker` call takes, so the pool, the pre-flight and the pinning authority judge it, and
   // no manager turn is spent starting it.
   const mapRoutes = opts.mapOnSettle ?? []
-  interface MapItemSettlement {
-    readonly outcome: MapTraversalEvent['outcome']
-    readonly result?: unknown
-    readonly reason?: string
-  }
   interface MapExpansion {
     readonly route: MapOnSettleRoute
     readonly sourceWorker: string
     readonly items: ReadonlyArray<unknown>
-    readonly settlements: Array<MapItemSettlement | undefined>
+    readonly settlements: Array<WorkerSettlement | undefined>
     /** The next index to start. */
     next: number
     inFlight: number
@@ -65,16 +60,6 @@ export function createMapRouting({
     const capacity = (opts.scope as Partial<Scope<unknown>>).workerCapacity
     if (capacity === undefined || capacity.freeSlots === null) return undefined
     return capacity.working + capacity.freeSlots
-  }
-  const mapSettlement = (settled: Settled<unknown>, worker: SettledWorker): MapItemSettlement => {
-    if (settled.kind !== 'done' || worker.status !== 'done') {
-      return { outcome: 'failed', reason: worker.status === 'down' ? worker.reason : 'down' }
-    }
-    if (worker.valid === false) {
-      return { outcome: 'failed', reason: 'its deliverable check rejected the result' }
-    }
-    if (settled.out === undefined) return { outcome: 'empty', reason: 'it settled with no result' }
-    return { outcome: 'delivered', result: settled.out }
   }
   const startMapSpawn = async (
     expansion: MapExpansion,
@@ -259,7 +244,7 @@ export function createMapRouting({
     if (member === undefined) return
     mapMembers.delete(worker.id)
     const { expansion, role, index, bytes } = member
-    const settlement = mapSettlement(settled, worker)
+    const settlement = workerSettlement(settled, worker)
     await publishMap({
       edge: expansion.route.edge,
       phase: role,
@@ -370,8 +355,31 @@ export function createMapRouting({
   }
 }
 
+/** What one settle delivered. A settle is usable (`delivered`) when it settled `done`, its
+ *  deliverable check did not reject it, and its result is defined; maps and routes both read
+ *  results through this one rule. */
+export interface WorkerSettlement {
+  readonly outcome: 'delivered' | 'empty' | 'failed' | 'unpropagated'
+  readonly result?: unknown
+  readonly reason?: string
+}
+
+export function workerSettlement(
+  settled: Settled<unknown>,
+  worker: SettledWorker,
+): WorkerSettlement {
+  if (settled.kind !== 'done' || worker.status !== 'done') {
+    return { outcome: 'failed', reason: worker.status === 'down' ? worker.reason : 'down' }
+  }
+  if (worker.valid === false) {
+    return { outcome: 'failed', reason: 'its deliverable check rejected the result' }
+  }
+  if (settled.out === undefined) return { outcome: 'empty', reason: 'it settled with no result' }
+  return { outcome: 'delivered', result: settled.out }
+}
+
 /** Resolve an RFC 6901 JSON pointer (`''` is the whole document). */
-function resolveJsonPointer(
+export function resolveJsonPointer(
   document: unknown,
   pointer: string,
 ):

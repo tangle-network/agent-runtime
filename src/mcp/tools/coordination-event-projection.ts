@@ -48,6 +48,7 @@ const projectEvent = (ev: CoordinationEvent): Record<string, unknown> => {
   if (ev.type === 'tool-outcome') return { type: 'tool-outcome', ...ev.outcome }
   if (ev.type === 'lead-message') return { type: 'lead-message', ...ev.message }
   if (ev.type === 'map') return { type: 'map', ...ev.map }
+  if (ev.type === 'route') return { type: 'route', ...ev.route }
   // Down-leg `steer` is record-only (never queued), so the driver never pulls it; project
   // defensively for completeness.
   return { type: ev.type, ...ev.down }

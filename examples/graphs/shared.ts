@@ -97,6 +97,10 @@ export interface LeafShot {
   /** For an analyst node: build the settle output from the source worker's output exactly as this
    *  spawn's task carried it (`sourceOutputOf`), so the finding reports what the analyst read. */
   fromSource?: (source: unknown) => unknown
+  /** Build the settle output from this spawn's own task: a flow node reads the result its routes
+   *  edge carried (`{ from: { node, result }, evidence }`), so what it settles is derived from
+   *  what it was handed. */
+  fromTask?: (task: unknown) => unknown
   valid: boolean
   score?: number
   /** Awaited just before this settle, so an example can hold one worker open until another
@@ -206,9 +210,11 @@ export function leafSeam(
           outRef: `w:${name}:${attempt}`,
           out: shot?.fromSource
             ? shot.fromSource(sourceOutputOf(context?.task))
-            : shot
-              ? shot.out
-              : { built: name, attempt },
+            : shot?.fromTask
+              ? shot.fromTask(context?.task)
+              : shot
+                ? shot.out
+                : { built: name, attempt },
           verdict: { valid, score: shot?.score ?? (valid ? 1 : 0) },
           spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
         }

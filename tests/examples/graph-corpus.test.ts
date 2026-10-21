@@ -2,23 +2,24 @@
  * The corpus examples (`examples/graphs/`) run offline end-to-end, and each one's DECISIVE ledger
  * facts hold. The examples come from what 660 Claude Workflow scripts actually do (counts in the
  * README catalog); each test asserts the ledger rows that make its pattern true, through the
- * example's exported factory and the shipped `runGraphWithTestBrain` path. Nothing is mocked
- * below the leaf seam and the driver brain.
+ * example's exported factory and the shipped `runGraph` path (`runGraphWithTestBrain` for a graph
+ * whose root is driven by a scripted brain). Nothing is mocked below the leaf seam and the driver
+ * brain; a flow graph (role-chain, conditional-skip, loop-until-dry, proof-gate) has no brain.
  *
  *   static-fanout-synthesize   3 delegates (one per dimension) + 3 analyzes rows into the root;
  *                              result.out is the joined synthesis, and it flips with one dimension
  *   per-item-pipeline          one verify row per finder settle; a publisher spawns BEFORE the
  *                              last verify (no barrier, or the run would deadlock)
- *   role-chain                 scout, builder, reviewer in order, each task carrying the output the
- *                              root read from the stage before; result.out is the reviewed fix
+ *   role-chain                 scout, builder, reviewer in order from routes edges, each task
+ *                              carrying the stage before's exact result; result.out is the review
  *   isolated-writers-integrate three writers, then the integrator
  *   discovered-fanout-reduce   4 traversals on ONE edge, then the reducer; peak live readers equals
  *                              workerSlots (2, and 4 in the control)
  *   skeptic-majority           3 analyzes rows per settle; result.out keeps the claim on 2 of 3 and
  *                              carries no claim when the votes drop it
- *   conditional-skip           zero findings: zero traversals on the verify edge
+ *   conditional-skip           zero findings: zero traversals on the verify edge, a finish instead
  *   judge-panel                2 judges x 3 attempts = 6 scores; result.out is the top attempt's work
- *   loop-until-dry             stops at two dry rounds, under the cap
+ *   loop-until-dry             the critic's dry streak finishes the loop at two, under the cap
  *   hierarchical-nested        the lead's workers have ids nested under the lead's
  *   dependency-waves           ledger order respects the DAG
  *   proof-gate                 no proof, no traversal on the destructive edge
@@ -29,7 +30,7 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { digestOfGraph, type GraphResult } from '@tangle-network/agent-runtime/kernel'
+import { digestOfGraph, type GraphResult, runGraph } from '@tangle-network/agent-runtime/kernel'
 import { runGraphWithTestBrain } from '@tangle-network/agent-runtime/testing'
 import { describe, expect, it } from 'vitest'
 import { arms, compareArms } from '../../examples/graphs/arm-comparison'
@@ -53,6 +54,7 @@ import {
 
 const delegatesOf = (res: GraphResult) => res.ledger.filter((row) => row.kind === 'delegates')
 const analyzesOf = (res: GraphResult) => res.ledger.filter((row) => row.kind === 'analyzes')
+const routesOf = (res: GraphResult) => res.ledger.filter((row) => row.kind === 'routes')
 const edgesOf = (res: GraphResult, edge: string) => res.ledger.filter((row) => row.edge === edge)
 /** What the run delivered: `result.out` of a winner. */
 const delivered = (res: GraphResult): unknown => {
@@ -118,30 +120,36 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
     expect(res.exhaustedEdges).toEqual([])
   })
 
-  it('role-chain: scout, builder, reviewer in order, each task carrying the output the root read', async () => {
+  it('role-chain: scout, builder, reviewer in order, each task carrying the stage before', async () => {
     const { graph, opts, tasks } = roleChain()
-    const res = await runGraphWithTestBrain(graph, opts)
+    const res = await runGraph(graph, opts)
 
     expect(res.result.kind).toBe('winner')
-    const rows = delegatesOf(res)
-    expect(rows.map((r) => [r.edge, r.outcome, r.workerId])).toEqual([
-      ['delegates:lead->scout', 'delivered', 'chain:s0'],
-      ['delegates:lead->builder', 'delivered', 'chain:s1'],
-      ['delegates:lead->reviewer', 'delivered', 'chain:s2'],
+    expect(routesOf(res).map((r) => [r.edge, r.outcome])).toEqual([
+      ['routes:entry->scout', 'delivered'],
+      ['routes:scout#1->builder', 'delivered'],
+      ['routes:builder#1->reviewer', 'delivered'],
     ])
-    // Each brief carries what the previous worker produced, as observe_agent returned it.
-    expect(String(tasks().builder)).toContain(JSON.stringify(STAGE_OUT.scout))
-    expect(String(tasks().reviewer)).toContain(JSON.stringify(STAGE_OUT.builder))
-    expect(delivered(res)).toEqual({ fix: STAGE_OUT.builder, review: STAGE_OUT.reviewer })
+    expect(delegatesOf(res)).toEqual([])
+    // Each task carries the exact result the previous worker settled.
+    expect(tasks().builder).toEqual({
+      from: { node: 'scout', result: STAGE_OUT.scout },
+      evidence: { scout: STAGE_OUT.scout },
+    })
+    expect(tasks().reviewer).toEqual({
+      from: { node: 'builder', result: STAGE_OUT.builder },
+      evidence: { builder: STAGE_OUT.builder },
+    })
+    expect(delivered(res)).toEqual({ reviewer: STAGE_OUT.reviewer })
     expect(res.exhaustedEdges).toEqual([])
 
     // The control: a different scout finding changes the builder's brief, so the brief is read
-    // from the worker, not written into the script.
+    // from the worker, not written into the graph.
     const other = { ...STAGE_OUT, scout: { file: 'src/lex.ts', defect: 'drops a byte-order mark' } }
     const alt = roleChain(other)
-    await runGraphWithTestBrain(alt.graph, alt.opts)
-    expect(String(alt.tasks().builder)).toContain(JSON.stringify(other.scout))
-    expect(String(alt.tasks().builder)).not.toContain(JSON.stringify(STAGE_OUT.scout))
+    await runGraph(alt.graph, alt.opts)
+    expect(JSON.stringify(alt.tasks().builder)).toContain(JSON.stringify(other.scout))
+    expect(JSON.stringify(alt.tasks().builder)).not.toContain(JSON.stringify(STAGE_OUT.scout))
   })
 
   it('isolated-writers-integrate: three writer traversals, then the integrator', async () => {
@@ -217,18 +225,23 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
 
   it('conditional-skip: with zero findings the verify edge has zero traversals, by design', async () => {
     const found = conditionalSkip(['null deref', 'stale cache'])
-    const some = await runGraphWithTestBrain(found.graph, found.opts)
+    const some = await runGraph(found.graph, found.opts)
     expect(some.result.kind).toBe('winner')
-    expect(delegatesOf(some).map((r) => [r.edge, r.outcome])).toEqual([
-      ['delegates:lead->finder', 'delivered'],
-      ['delegates:lead->verifier', 'delivered'],
+    expect(routesOf(some).map((r) => [r.edge, r.outcome])).toEqual([
+      ['routes:entry->finder', 'delivered'],
+      ['routes:finder#1->verifier', 'delivered'],
     ])
+    expect(delivered(some)).toEqual({ verifier: { confirmed: 2 } })
 
     const none = conditionalSkip([])
-    const skipped = await runGraphWithTestBrain(none.graph, none.opts)
+    const skipped = await runGraph(none.graph, none.opts)
     expect(skipped.result.kind).toBe('winner')
-    expect(delegatesOf(skipped).map((r) => r.edge)).toEqual(['delegates:lead->finder'])
-    expect(edgesOf(skipped, 'delegates:lead->verifier')).toEqual([])
+    expect(routesOf(skipped).map((r) => r.edge)).toEqual([
+      'routes:entry->finder',
+      'routes:finder#2->finish:nothing-found',
+    ])
+    expect(edgesOf(skipped, 'routes:finder#1->verifier')).toEqual([])
+    expect(delivered(skipped)).toEqual({ finder: { findings: [] } })
     expect(skipped.exhaustedEdges).toEqual([])
   })
 
@@ -251,21 +264,22 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
     expect(Math.max(...Object.values(out.totals))).toBeCloseTo(1.7)
   })
 
-  it('loop-until-dry: stops at two dry rounds, with the cap unused', async () => {
+  it('loop-until-dry: the critic settles its dry streak and the loop finishes at two, under the cap', async () => {
     const { graph, opts } = loopUntilDry()
-    const res = await runGraphWithTestBrain(graph, opts)
+    const res = await runGraph(graph, opts)
 
     expect(res.result.kind).toBe('winner')
-    const sweeps = edgesOf(res, 'delegates:lead->finder')
     // Sweeps 1 and 2 found things, 3 and 4 were dry: four sweeps, the first fresh, the rest resumed.
-    expect(sweeps.map((r) => [r.traversal, r.outcome, r.continuity])).toEqual([
-      [1, 'delivered', 'fresh'],
-      [2, 'delivered', 'resume'],
-      [3, 'delivered', 'resume'],
-      [4, 'delivered', 'resume'],
+    const sweeps = routesOf(res).filter((r) => r.to === 'finder')
+    expect(sweeps.map((r) => [r.edge, r.outcome, r.continuity])).toEqual([
+      ['routes:entry->finder', 'delivered', 'fresh'],
+      ['routes:critic#2->finder', 'delivered', 'resume'],
+      ['routes:critic#2->finder', 'delivered', 'resume'],
+      ['routes:critic#2->finder', 'delivered', 'resume'],
     ])
-    expect(edgesOf(res, 'analyzes:critic:finder->lead')).toHaveLength(4)
-    expect(sweeps.length).toBeLessThan(6)
+    expect(edgesOf(res, 'routes:finder#1->critic')).toHaveLength(4)
+    expect(res.ledger.at(-1)?.edge).toBe('routes:critic#1->finish:dry')
+    expect(delivered(res)).toEqual({ critic: { new: 0, dryStreak: 2 } })
     expect(res.exhaustedEdges).toEqual([])
   })
 
@@ -304,22 +318,26 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
 
   it('proof-gate: a proven backup releases the purge, an empty one leaves its edge at zero', async () => {
     const proven = proofGate(4096)
-    const withProof = await runGraphWithTestBrain(proven.graph, proven.opts)
+    const withProof = await runGraph(proven.graph, proven.opts)
     expect(withProof.result.kind).toBe('winner')
-    expect(delegatesOf(withProof).map((r) => r.edge)).toEqual([
-      'delegates:lead->backup',
-      'delegates:lead->purge',
+    expect(routesOf(withProof).map((r) => r.edge)).toEqual([
+      'routes:entry->backup',
+      'routes:backup#1->proof',
+      'routes:proof#1->purge',
     ])
-    expect(analyzesOf(withProof).map((r) => [r.edge, r.outcome])).toEqual([
-      ['analyzes:proof:backup->lead', 'delivered'],
-    ])
+    expect(delivered(withProof)).toEqual({ purge: { purged: true } })
 
     const empty = proofGate(0)
-    const noProof = await runGraphWithTestBrain(empty.graph, empty.opts)
+    const noProof = await runGraph(empty.graph, empty.opts)
     expect(noProof.result.kind).toBe('winner')
-    expect(delegatesOf(noProof).map((r) => r.edge)).toEqual(['delegates:lead->backup'])
-    expect(edgesOf(noProof, 'delegates:lead->purge')).toEqual([])
-    expect(analyzesOf(noProof)).toHaveLength(1)
+    expect(routesOf(noProof).map((r) => r.edge)).toEqual([
+      'routes:entry->backup',
+      'routes:backup#1->proof',
+      'routes:proof#2->finish:no-backup',
+    ])
+    expect(edgesOf(noProof, 'routes:proof#1->purge')).toEqual([])
+    // The proof derived its verdict from the backup result it was handed.
+    expect(delivered(noProof)).toEqual({ proof: { snapshot: 'snap-1', bytes: 0, ok: false } })
   })
 
   it('arm-comparison: three recorded runs, the cheapest delivery wins and is what lookup replays', async () => {

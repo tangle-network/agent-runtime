@@ -1,0 +1,3 @@
+type: minor
+---
+`runGraph` runs fixed pipelines, conditional branches, bounded repair loops and stop rules from graph data. Set `AgentGraph.entry` and add `routes` edges (`{ kind: 'routes', from, to: node | { stop } | { finish }, directive, when?, evidence?, maxTraversals?, continuity? }`): Runtime spawns the entries and fires the first matching route on each usable settle, with no model root and no caller brain. A `stop` edge returns no winner `'stopped'` with `GraphResult.stopped`; a settle no edge matches throws `GraphRouteError`. The `role-chain`, `conditional-skip`, `proof-gate` and `loop-until-dry` examples are flow graphs.

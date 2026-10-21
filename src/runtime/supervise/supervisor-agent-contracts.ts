@@ -12,6 +12,7 @@ import type { CoordinationEvent, WorkerWatchOptions } from '../../mcp/tools/coor
 import type { MapOnSettleRoute } from '../../mcp/tools/coordination-map-contracts'
 import type { AuthorizeDownMessage, ContinuityMode } from '../../mcp/tools/coordination-messages'
 import type { ChildQuestionInbox, EscalateQuestion } from '../../mcp/tools/coordination-questions'
+import type { RouteFlow } from '../../mcp/tools/coordination-route-contracts'
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
 import type { RouterTransportConfig } from '../router-http-transport'
@@ -309,6 +310,8 @@ export interface SupervisorAgentDeps {
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
   /** Maps expanded when their source worker settles (both arms). Omit = none. */
   readonly mapOnSettle?: ReadonlyArray<MapOnSettleRoute>
+  /** The flow this root manager runs (router arm only; see `RouteFlow`). Omit = none. */
+  readonly routeFlow?: RouteFlow
   /** Trusted source refs for this manager’s existing observe_agent capability. */
   readonly sourceEvidenceRefs?: ReadonlyArray<string>
   readonly peerAudit?: PeerAuditAccess

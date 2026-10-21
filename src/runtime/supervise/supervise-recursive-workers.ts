@@ -17,13 +17,15 @@ import { errMessage } from './error-message'
 import {
   createGraphOverlay,
   type GraphOverlay,
+  productSpawnAuthority,
+  validateGraphTopology,
+} from './graph-overlay'
+import {
   type GraphSubtaskTopology,
   graphSubtaskOf,
   parseGraphSubtaskTopology,
   prepareGraphSubtask,
-  productSpawnAuthority,
-  validateGraphTopology,
-} from './graph-overlay'
+} from './graph-subtask'
 import { assertProfileModelsAllowed } from './model-policy'
 import { kernelPromptRegistry } from './prompt-registry'
 import { registerRetainedExecutorPreparation } from './retained-executor'
@@ -210,6 +212,7 @@ export function createSuperviseWorkers(
           depth,
           ...(spawnContext.analyst !== undefined ? { analyst: spawnContext.analyst } : {}),
           ...(spawnContext.map !== undefined ? { map: spawnContext.map } : {}),
+          ...(spawnContext.route !== undefined ? { route: spawnContext.route } : {}),
           ...(spawnContext.continuity !== undefined ? { continuity: spawnContext.continuity } : {}),
         })
         // Recovery reconstructs the admitted authority; authorization cannot replace it. Inside a

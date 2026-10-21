@@ -202,6 +202,7 @@ export function superviseInternal(
       ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
       ...(options.wake !== undefined ? { wake: options.wake } : {}),
       ...(options.mapOnSettle ? { mapOnSettle: options.mapOnSettle } : {}),
+      ...(options.routeFlow ? { routeFlow: options.routeFlow } : {}),
       ...(options.continuityByProfile ? { continuityByProfile: options.continuityByProfile } : {}),
       ...supervisorTurnOptions(options),
       ...(deliverable && options.continuation && isExternalSupervisor(canonicalProfile)

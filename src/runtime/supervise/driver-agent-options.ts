@@ -13,6 +13,7 @@ import type { CoordinationEvent, WorkerWatchOptions } from '../../mcp/tools/coor
 import type { MapOnSettleRoute } from '../../mcp/tools/coordination-map-contracts'
 import type { AuthorizeDownMessage, ContinuityMode } from '../../mcp/tools/coordination-messages'
 import type { ChildQuestionInbox, EscalateQuestion } from '../../mcp/tools/coordination-questions'
+import type { RouteFlow } from '../../mcp/tools/coordination-route-contracts'
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
@@ -65,6 +66,9 @@ export interface DriverAgentOptions {
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
   /** Maps expanded when their source worker settles (`CoordinationToolsOptions.mapOnSettle`). */
   readonly mapOnSettle?: ReadonlyArray<MapOnSettleRoute>
+  /** The flow this manager runs (`CoordinationToolsOptions.routeFlow`). Requires the runtime flow
+   *  brain, which makes no model call. */
+  readonly routeFlow?: RouteFlow
   /** Trusted source refs for this manager’s existing observe_agent capability. */
   readonly sourceEvidenceRefs?: ReadonlyArray<string>
   readonly peerAudit?: PeerAuditAccess
