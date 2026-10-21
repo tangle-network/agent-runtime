@@ -25,29 +25,31 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError, ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import { createStdioToolServer } from '../../mcp/tool-server'
-import {
-  type AnalystRegistry,
-  type AnalyzeOnSettleRoute,
-  type AuthorizeDownMessage,
-  type ChildQuestionInbox,
-  type ContinuityMode,
-  type CoordinationEvent,
-  type CoordinationTools,
-  createCoordinationToolsForManager,
-  type DefinedAnalystRecord,
-  type EscalateQuestion,
-  type GraphSubtasks,
-  type MakeWorkerAgent,
-  type MapOnSettleRoute,
-  type PeerAuditAccess,
-  type QuestionEscalationRecord,
-  type QuestionPolicy,
-  type QuestionRecord,
-  type SettledWorker,
-  type SpawnPreflight,
-  type SuperviseProfileEntry,
-  type WorkerWatchOptions,
-} from '../../mcp/tools/coordination'
+import type {
+  AnalystRegistry,
+  AnalyzeOnSettleRoute,
+  DefinedAnalystRecord,
+} from '../../mcp/tools/coordination-analysts'
+import type {
+  CoordinationTools,
+  GraphSubtasks,
+  MakeWorkerAgent,
+  PeerAuditAccess,
+  SettledWorker,
+  SpawnPreflight,
+  SuperviseProfileEntry,
+} from '../../mcp/tools/coordination-contracts'
+import type { CoordinationEvent, WorkerWatchOptions } from '../../mcp/tools/coordination-events'
+import { createCoordinationToolsForManager } from '../../mcp/tools/coordination-manager'
+import type { MapOnSettleRoute } from '../../mcp/tools/coordination-map-contracts'
+import type { AuthorizeDownMessage, ContinuityMode } from '../../mcp/tools/coordination-messages'
+import type {
+  ChildQuestionInbox,
+  EscalateQuestion,
+  QuestionEscalationRecord,
+  QuestionPolicy,
+  QuestionRecord,
+} from '../../mcp/tools/coordination-questions'
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import { runAbortable } from './abortable'
 import {

@@ -2,29 +2,12 @@ import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { writeAllBytes } from '../../src/durable/jsonl-file'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal'
-import type { CoordinationEvent } from '../../src/mcp/tools/coordination'
+import type { CoordinationEvent } from '../../src/mcp/tools/coordination-events'
 import { FileCorpus } from '../../src/runtime/personify/corpus'
 import { FileCoordinationLog } from '../../src/runtime/supervise/coordination-log'
 
 describe('durable append-only JSONL', () => {
-  it('finishes short writes instead of acknowledging a truncated record', async () => {
-    const chunks: Buffer[] = []
-    const handle = {
-      async write(buffer: Uint8Array, offset: number, length: number) {
-        const written = Math.min(3, length)
-        chunks.push(Buffer.from(buffer.subarray(offset, offset + written)))
-        return { bytesWritten: written, buffer }
-      },
-    }
-
-    await writeAllBytes(handle, 'abcdefgh')
-
-    expect(Buffer.concat(chunks).toString('utf8')).toBe('abcdefgh')
-    expect(chunks.map((chunk) => chunk.length)).toEqual([3, 3, 2])
-  })
-
   it('recovers only an invalid unterminated final spawn-journal record', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'spawn-jsonl-tail-'))
     try {

@@ -56,45 +56,52 @@ export type {
   AnalyzeOnSettleRoute,
   AuthoredAnalystDefinition,
   AuthoredAnalystLimits,
-  AuthorizeDownMessage,
-  AuthorizedDownMessage,
-  AwaitWakeInput,
-  BlockedToolReport,
-  ChildQuestionInbox,
-  ContinuationInstruction,
-  ContinuityMode,
-  CoordinationEvent,
-  CoordinationStats,
   DefinedAnalystRecord,
-  DownMessageAuthorizationInput,
-  DownMessageDeliveryAttempt,
-  DownMessageDeliveryOutcome,
-  DownMessageEvent,
-  EscalateQuestion,
-  EventAcknowledgement,
-  LeadMessage,
+} from '../mcp/tools/coordination-analysts'
+export { canonicalFindingEvent, normalizeAnalyzeOnSettle } from '../mcp/tools/coordination-analysts'
+export type {
+  BlockedToolReport,
+  CoordinationStats,
   MakeWorkerAgent,
-  ManagerReentryState,
-  ManagerWake,
-  MapOnSettleRoute,
-  MapSpawnMarker,
-  MapTraversalEvent,
-  QuestionEscalationOutcome,
-  QuestionEscalationRecord,
   SpawnPreflight,
   SpawnPreflightContext,
   SpawnRefusal,
   SpawnRefusalCause,
   SuperviseProfileEntry,
-  ToolOutcomeEvent,
-  WorkerResumeContext,
   WorkerSpawnContext,
+} from '../mcp/tools/coordination-contracts'
+export type {
+  AwaitWakeInput,
+  CoordinationEvent,
+  EventAcknowledgement,
+  LeadMessage,
+  ManagerReentryState,
+  ManagerWake,
+  ToolOutcomeEvent,
   WorkerWatchOptions,
-} from './../mcp/tools/coordination'
-export {
-  canonicalFindingEvent,
-  normalizeAnalyzeOnSettle,
-} from './../mcp/tools/coordination'
+} from '../mcp/tools/coordination-events'
+export type {
+  MapOnSettleRoute,
+  MapSpawnMarker,
+  MapTraversalEvent,
+} from '../mcp/tools/coordination-map-contracts'
+export type {
+  AuthorizeDownMessage,
+  AuthorizedDownMessage,
+  ContinuationInstruction,
+  ContinuityMode,
+  DownMessageAuthorizationInput,
+  DownMessageDeliveryAttempt,
+  DownMessageDeliveryOutcome,
+  DownMessageEvent,
+  WorkerResumeContext,
+} from '../mcp/tools/coordination-messages'
+export type {
+  ChildQuestionInbox,
+  EscalateQuestion,
+  QuestionEscalationOutcome,
+  QuestionEscalationRecord,
+} from '../mcp/tools/coordination-questions'
 export type { WorktreeCheckRunner, WorktreeHarnessResult } from './../mcp/worktree-harness'
 // Re-exported on the KERNEL entry, not only the package root: a `supervise` caller imports
 // `@tangle-network/agent-runtime/kernel`, so an exporter reachable only from the root is an

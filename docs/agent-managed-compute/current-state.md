@@ -7,6 +7,7 @@
 > and `tests/durability/` kills real processes. Finding 5 is narrowed to `SpawnJournal` plus delegation status.
 > Finding 2 (delegation idempotency is process-local) and finding 7 for delegation cancellation remain open.
 > See [durability.md](../durability.md) for the current owner map and [reliability.md](./reliability.md) for limits.
+> Current coordination implementation: `src/mcp/tools/coordination-manager.ts`; existing local HTTP cases: `tests/kernel/coordination-mcp.test.ts` (fixture workers, not hosted execution).
 > The original observations remain unchanged as historical evidence.
 
 ## Tested Baseline

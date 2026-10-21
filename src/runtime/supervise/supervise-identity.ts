@@ -7,7 +7,8 @@ import {
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
-import type { CoordinationEvent, WorkerSpawnContext } from '../../mcp/tools/coordination'
+import type { WorkerSpawnContext } from '../../mcp/tools/coordination-contracts'
+import type { CoordinationEvent } from '../../mcp/tools/coordination-events'
 import { deriveNodeExecutionIdentity } from './scope'
 import { detachedSnapshot } from './snapshot'
 import type { SupervisorNodeContext } from './supervisor-agent'

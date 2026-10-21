@@ -4,7 +4,8 @@ import {
   canonicalAgentProfileDigest,
 } from '@tangle-network/agent-interface'
 import { ConfigError, ValidationError } from '../../errors'
-import type { AnalystRegistry, SuperviseProfileEntry } from '../../mcp/tools/coordination'
+import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
+import type { SuperviseProfileEntry } from '../../mcp/tools/coordination-contracts'
 import type { DeliverableSpec } from './completion-gate'
 import type { SupervisorFinalizer } from './finalizer'
 import { assertExecutableAgentProfile, assertProfileModelsAllowed } from './model-policy'

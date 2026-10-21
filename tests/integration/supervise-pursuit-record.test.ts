@@ -28,7 +28,7 @@ import {
 } from '../../src/durable/settle-record'
 import { closesCursorSlot, FileSpawnJournal } from '../../src/durable/spawn-journal'
 import { SupervisePursuitError, supervisePursuit } from '../../src/durable/supervise-pursuit'
-import type { WorkerSpawnContext } from '../../src/mcp/tools/coordination'
+import type { WorkerSpawnContext } from '../../src/mcp/tools/coordination-contracts'
 import { providerAsExecutor } from '../../src/runtime/environment-provider'
 import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-layout'
 import type {

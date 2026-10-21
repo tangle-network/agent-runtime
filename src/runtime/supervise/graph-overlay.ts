@@ -20,14 +20,10 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
-import type {
-  AnalystRegistry,
-  AnalyzeOnSettleRoute,
-  AuthorizedDownMessage,
-  ContinuityMode,
-  CoordinationEvent,
-  MapOnSettleRoute,
-} from '../../mcp/tools/coordination'
+import type { AnalystRegistry, AnalyzeOnSettleRoute } from '../../mcp/tools/coordination-analysts'
+import type { CoordinationEvent } from '../../mcp/tools/coordination-events'
+import type { MapOnSettleRoute } from '../../mcp/tools/coordination-map-contracts'
+import type { AuthorizedDownMessage, ContinuityMode } from '../../mcp/tools/coordination-messages'
 import { isRecord } from '../../record-value'
 import { errMessage } from './error-message'
 import type {

@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FileSpawnJournal, InMemoryResultBlobStore } from '../../src/durable/spawn-journal'
-import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination'
+import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination-contracts'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import {
   cancelWorker,

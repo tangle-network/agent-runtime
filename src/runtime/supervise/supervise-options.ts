@@ -5,19 +5,16 @@ import type {
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 import type { ProfileMaterializationContract } from '../../agent/profile-materialization'
+import type { AnalystRegistry, AnalyzeOnSettleRoute } from '../../mcp/tools/coordination-analysts'
+import type { MakeWorkerAgent } from '../../mcp/tools/coordination-contracts'
+import type { CoordinationEvent, WorkerWatchOptions } from '../../mcp/tools/coordination-events'
+import type { MapOnSettleRoute, MapSpawnMarker } from '../../mcp/tools/coordination-map-contracts'
 import type {
-  AnalystRegistry,
-  AnalyzeOnSettleRoute,
   AuthorizedDownMessage,
   ContinuityMode,
-  CoordinationEvent,
   DownMessageAuthorizationInput,
-  EscalateQuestion,
-  MakeWorkerAgent,
-  MapOnSettleRoute,
-  MapSpawnMarker,
-  WorkerWatchOptions,
-} from '../../mcp/tools/coordination'
+} from '../../mcp/tools/coordination-messages'
+import type { EscalateQuestion } from '../../mcp/tools/coordination-questions'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type { RouterTransportConfig } from '../router-http-transport'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'

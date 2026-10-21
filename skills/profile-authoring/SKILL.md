@@ -37,7 +37,7 @@ Native tool ids (agent-container `packages/agent-profile-materialize/src/control
 
 A harness's own subagent runs outside Runtime: no journal row, no reservation from the shared budget, no grade. Turn native subagents on when the agent needs internal throughput (split and merge, maker and critic, best of N) and separate Runtime identity, budget and grading are unnecessary; their work counts only through the delivered artifact. Use Runtime spawn (`agent_runtime_coordination_spawn_worker`) when a child needs its own record, budget or check. agent-dev-container maps these tools in `packages/agent-profile-materialize/src/control-maps.ts`.
 
-Runtime keys (agent-runtime `src/runtime/supervise/provider-visible-profile.ts`; verbs from `coordinationVerbNames` in `src/mcp/tools/coordination.ts`):
+Runtime keys (agent-runtime `src/runtime/supervise/provider-visible-profile.ts`; verbs from `coordinationVerbNames` in `src/mcp/tools/coordination-events.ts`):
 
 - Runtime removes every key that starts with `agent_runtime_coordination_` before the harness sees the profile. Any other spelling reaches the harness and is refused: a bare `knowledge_record`, OpenCode's `agent-runtime-coordination_spawn_worker`, Claude Code's `mcp__agent-runtime-coordination__spawn_worker`, or `agent_runtime_spawn_worker`.
 - Verbs: `spawn_worker`, `cancel_worker`, `observe_agent`, `steer_agent`, `read_journal`, `submit_result`, `report_blocked`, `ask_parent`, `list_questions`, `answer_question`, `read_continuation`, `stop`, `list_analysts`, `run_analyst`, `define_analyst`, `run_graph`.

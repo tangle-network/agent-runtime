@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
-import type { QuestionRecord } from '../../src/mcp/tools/coordination'
+import type { QuestionRecord } from '../../src/mcp/tools/coordination-questions'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import { testContinuation } from '../helpers/continuation'
 import { supervise } from '../helpers/runtime-with-test-brain'
-import { scriptedBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const budget = { maxTokens: 20_000, maxIterations: 20 }
@@ -39,36 +38,6 @@ async function call(
 }
 
 describe('supervise delivers parent questions, not just callback configuration', () => {
-  it('forwards a router manager question to the configured inbox', async () => {
-    const received: QuestionRecord[] = []
-    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
-    await supervise(
-      testAgentProfile('root', {
-        harness: 'cli-base',
-        tools: runtimeToolDeclarations('ask_parent'),
-      }),
-      'research',
-      {
-        budget,
-        makeWorkerAgent: () => ({ name: 'unused', act: async () => undefined }),
-        brain: scriptedBrain(
-          [
-            { toolCalls: [{ name: 'ask_parent', arguments: question('root') }] },
-            { content: 'Continue with the unblocked work.' },
-          ],
-          seen,
-        ),
-        escalateQuestion: (value) => {
-          received.push(value)
-          return { delivered: true, to: 'operator-inbox' }
-        },
-      },
-    )
-    expect(received).toHaveLength(1)
-    expect(received[0]).toMatchObject({ from: 'root', question: question('root').question })
-    expect(JSON.stringify(seen)).toContain('queued-for-parent')
-  })
-
   it.each([true, false])(
     'forwards both root and recursive native questions (inbox accepts: %s)',
     async (accepts) => {

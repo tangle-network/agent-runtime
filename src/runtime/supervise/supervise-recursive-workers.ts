@@ -6,12 +6,11 @@ import {
 } from '../../agent/profile-materialization'
 import { ValidationError } from '../../errors'
 import type {
-  ChildQuestionInbox,
   GraphSubtasks,
   MakeWorkerAgent,
-  QuestionRecord,
   WorkerSpawnContext,
-} from '../../mcp/tools/coordination'
+} from '../../mcp/tools/coordination-contracts'
+import type { ChildQuestionInbox, QuestionRecord } from '../../mcp/tools/coordination-questions'
 import { CONTINUATIONS_DIR } from './continuation'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
 import { errMessage } from './error-message'

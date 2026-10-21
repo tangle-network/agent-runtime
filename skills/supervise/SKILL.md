@@ -13,7 +13,7 @@ Author agents that can perform the required work, then direct them from checked 
 Put research choices, methods, revision rules, and stopping criteria in each profile's prompt.
 Runtime owns shared budgets, recursion limits, concurrency, cancellation, journals, and recovery.
 The caller configures root execution through [SuperviseOptions](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts).
-Per-assignment budgets, continuity, and keys belong to the [coordination tools](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts), not invented profile fields.
+Per-assignment budgets, continuity, and keys belong to the [coordination tools](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-worker-tools.ts), not invented profile fields.
 
 An agent receives recursive authority by declaring `agent_runtime_coordination_spawn_worker: true` in its tools.
 Declare each other Runtime tool it needs explicitly.

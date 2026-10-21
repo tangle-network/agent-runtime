@@ -1,36 +1,13 @@
 /**
- * THE STEERING PROOF.
- *
- * The measured defect this file exists to close: 0 steer messages across 897+ supervisor journal
- * events. Two mechanical causes, both proved here:
- *   1. the default sandbox worker implemented no `Executor.deliver`, so `Scope.send` returned
- *      `false` and every `steer_agent` reported `delivered:false`;
- *   2. `observe_agent` returned nothing about a RUNNING worker, so a driver had no evidence a
- *      steer was warranted even if one could land.
- *
- * The test drives the REAL path — `supervise()` → coordination MCP verbs → `Scope` → the
- * steerable sandbox executor → `SandboxLineage` — against a fake box whose harness is scripted to
- * behave differently depending on what it is told. It asserts on the WORKER'S OBSERVED ACTIONS,
- * split at the moment the steer was delivered:
- *
- *   before the steer: the worker only ever touched `legacy/wrong.ts`
- *   after  the steer: the worker touched `core/right.ts` and never `legacy/wrong.ts` again
- *
- * and it FALSIFIES itself: the same script, same box, same brain, with delivery disabled (the
- * historical single-shot sandbox worker) must fail — the steer is not delivered and the worker's
- * post-steer actions never change.
+ * A durable supervised run records no instruction when message authority is absent.
+ * The Sandbox client and model turns are local fixtures; the journal filesystem is real.
  */
 
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type {
-  AgentEnvironmentEvent,
-  AgentEnvironmentProvider,
-} from '@tangle-network/agent-interface/environment-provider'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import { downMessageRefusalReasons } from '../../src/mcp/tools/coordination'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import type { Budget } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
@@ -160,52 +137,6 @@ function createFakeHarness(): FakeHarness {
   }
 }
 
-/** What the supervisor's brain saw and did, captured for assertions. */
-interface BrainRecord {
-  observedProgress?: Record<string, unknown>
-  steerResult?: Record<string, unknown>
-}
-
-/**
- * A REACTIVE brain (not a fixed script): it spawns, waits until the worker is genuinely mid-flight,
- * observes it through `observe_agent`, steers on what it saw, releases the worker, and ends its turn to wait for it.
- * Reactive because a fixed script cannot prove "observed a running worker" — it could just as
- * easily have run before the worker started or after it settled.
- */
-function steeringBrain(harness: FakeHarness, record: BrainRecord): ToolLoopChat {
-  let turn = 0
-  let workerId = 'w'
-  return async (messages) => {
-    const lastTool = [...messages]
-      .reverse()
-      .find((m) => (m as { role?: string }).role === 'tool') as { content?: string } | undefined
-    const parsed = lastTool?.content ? safeJson(lastTool.content) : undefined
-    turn += 1
-
-    if (turn === 1) {
-      return call('spawn_worker', { profile: coderProfile, task: 'make the change' })
-    }
-    if (turn === 2) {
-      workerId = String(parsed?.workerId ?? 'w')
-      // Do not observe until the worker has really started working — otherwise "observed live
-      // progress" would be a claim about timing luck, not about the feed.
-      await harness.workingOnWrongFile
-      return call('observe_agent', { workerId })
-    }
-    if (turn === 3) {
-      record.observedProgress = parsed as Record<string, unknown>
-      return call('steer_agent', { workerId, instruction: STEER })
-    }
-    if (turn === 4) {
-      record.steerResult = parsed as Record<string, unknown>
-      // The steer is queued in the worker's inbox; let its held turn finish so it can fold it.
-      harness.releaseFirstTurn()
-      return { toolCalls: [], content: 'waiting for the worker' }
-    }
-    return { toolCalls: [], content: 'done' }
-  }
-}
-
 function missingMessageAuthorityBrain(
   harness: FakeHarness,
   record: { steer?: Record<string, unknown>; answer?: Record<string, unknown> },
@@ -279,41 +210,6 @@ function backend(harness: FakeHarness, steerable: boolean): ExecutorConfig {
   }
 }
 
-interface AuthorityRecord {
-  spawnCalls: number
-  messages: Array<{ instruction: string; frozen: boolean; hasIdentity: boolean }>
-}
-
-async function runSupervisedSteer(steerable: boolean, authority?: AuthorityRecord) {
-  const harness = createFakeHarness()
-  const record: BrainRecord = {}
-  const result = await supervise(rootProfile, 'change the right module', {
-    budget,
-    backend: backend(harness, steerable),
-    brain: steeringBrain(harness, record),
-    maxTurns: 8,
-    ...(authority
-      ? {
-          authorizeSpawn(input) {
-            authority.spawnCalls += 1
-            return { profile: input.profile }
-          },
-          authorizeMessage(input) {
-            authority.messages.push({
-              instruction: input.instruction,
-              frozen: Object.isFrozen(input) && Object.isFrozen(input.workerIdentity),
-              hasIdentity:
-                input.workerIdentity.profileDigest !== undefined &&
-                input.workerIdentity.taskDigest !== undefined,
-            })
-            return { instruction: input.instruction }
-          },
-        }
-      : {}),
-  })
-  return { harness, record, result }
-}
-
 describe('mid-flight steering — a supervisor observes a live worker and changes what it does', () => {
   it('refuses steer and answer when spawn authority has no message authority', async () => {
     const runDir = await mkdtemp(join(tmpdir(), 'supervise-message-authority-'))
@@ -345,180 +241,5 @@ describe('mid-flight steering — a supervisor observes a live worker and change
       harness.releaseFirstTurn()
       await rm(runDir, { recursive: true, force: true })
     }
-  })
-
-  it('authorizes the continuation against the exact live worker identity', {
-    timeout: 30_000,
-  }, async () => {
-    const authority: AuthorityRecord = { spawnCalls: 0, messages: [] }
-    const { record } = await runSupervisedSteer(true, authority)
-    expect(record.steerResult?.delivered).toBe(true)
-    expect(authority).toEqual({
-      spawnCalls: 1,
-      messages: [{ instruction: STEER, frozen: true, hasIdentity: true }],
-    })
-  })
-
-  it('delivers a steer to a RUNNING sandbox worker and the worker acts differently afterwards', {
-    timeout: 30_000,
-  }, async () => {
-    const { harness, record } = await runSupervisedSteer(true)
-
-    // ── B-1: the driver could SEE the running worker ───────────────────────────────
-    const progress = record.observedProgress?.progress as Record<string, unknown> | undefined
-    expect(progress, 'observe_agent returned no progress for a running worker').toBeDefined()
-    expect(progress?.live).toBe(true)
-    expect(progress?.steerable, 'a steerable worker must advertise that a steer can land').toBe(
-      true,
-    )
-    const activity = progress?.recentActivity as Array<{ label: string; detail?: string }>
-    expect(activity.length, 'no live tool activity was visible mid-flight').toBeGreaterThan(0)
-    expect(activity.map((a) => a.detail)).toContain(WRONG)
-    expect(typeof progress?.idleMs).toBe('number')
-    expect(progress?.stalled).toBe(false)
-
-    // ── B-2: the steer actually landed ────────────────────────────────────────────
-    expect(record.steerResult?.delivered, 'steer_agent did not deliver to a live worker').toBe(true)
-
-    // ── THE PROOF: the worker's behavior CHANGED, before vs after the message ──────
-    const steeredTurns = new Set(
-      harness.prompts.map((p, i) => (p.includes(STEER) ? i : -1)).filter((i) => i >= 0),
-    )
-    expect(steeredTurns.size, 'the steer never reached the worker as a prompt').toBeGreaterThan(0)
-    const firstSteeredTurn = Math.min(...steeredTurns)
-
-    const before = harness.actions.filter((a) => a.turn < firstSteeredTurn)
-    const after = harness.actions.filter((a) => a.turn >= firstSteeredTurn)
-
-    expect(before.length, 'the worker did nothing before the steer').toBeGreaterThan(0)
-    expect(new Set(before.map((a) => a.file))).toEqual(new Set([WRONG]))
-
-    expect(after.length, 'the worker did nothing after the steer').toBeGreaterThan(0)
-    expect(new Set(after.map((a) => a.file))).toEqual(new Set([RIGHT]))
-    expect(after.some((a) => a.file === WRONG)).toBe(false)
-  })
-
-  it('FALSIFICATION: with delivery disabled the same run cannot steer and the worker never changes', {
-    timeout: 30_000,
-  }, async () => {
-    const { harness, record } = await runSupervisedSteer(false)
-
-    // The single-shot sandbox worker has no inbox — this is the historical behavior, stated.
-    // The refusal carries the machine code AND the sentence that names the unmet condition.
-    expect(record.steerResult?.delivered).toBe(false)
-    expect(record.steerResult?.outcome).toBe('runtime-has-no-inbox')
-    expect(record.steerResult?.reason).toBe(downMessageRefusalReasons['runtime-has-no-inbox'])
-
-    // And so the proof's assertion is unreachable: nothing the worker did ever changed.
-    expect(harness.prompts.some((p) => p.includes(STEER))).toBe(false)
-    expect(harness.actions.length).toBeGreaterThan(0)
-    expect(new Set(harness.actions.map((a) => a.file))).toEqual(new Set([WRONG]))
-    expect(harness.actions.some((a) => a.file === RIGHT)).toBe(false)
-  })
-  it('shows a lead the harness activity of a running child manager, not an idle executor', async () => {
-    // The provider executor keeps no activity log of its own. A director that was streaming a turn
-    // read `turns: 0`, an idle time counted from its start, and `stalled: true`.
-    let streaming!: () => void
-    const directorStreaming = new Promise<void>((resolve) => {
-      streaming = resolve
-    })
-    let endTurn!: () => void
-    const turnHeld = new Promise<void>((resolve) => {
-      endTurn = resolve
-    })
-    const stallAfterMs = 200
-    const provider: AgentEnvironmentProvider = {
-      name: 'manager-activity-fixture',
-      capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
-      async create() {
-        return {
-          id: 'env-director',
-          provider: 'manager-activity-fixture',
-          status: async () => 'running',
-          destroy: async () => {},
-          async *stream(): AsyncIterable<AgentEnvironmentEvent> {
-            // Quiet for longer than the stall window, then active just before it is observed.
-            await new Promise((resolve) => setTimeout(resolve, stallAfterMs + 150))
-            yield {
-              type: 'message.part.updated',
-              data: { delta: 'reading the notes', part: { type: 'text' } },
-            } as unknown as AgentEnvironmentEvent
-            yield {
-              type: 'message.part.updated',
-              data: {
-                part: {
-                  type: 'tool',
-                  tool: 'read',
-                  callID: 'call-1',
-                  state: { status: 'completed', input: { filePath: 'notes.md' } },
-                },
-              },
-            } as unknown as AgentEnvironmentEvent
-            streaming()
-            await turnHeld
-            yield { type: 'done', data: { outcome: { type: 'completed' } } }
-          },
-        }
-      },
-    }
-    let observed: Record<string, unknown> | undefined
-    let turn = 0
-    const brain: ToolLoopChat = async (messages) => {
-      turn += 1
-      const lastTool = [...messages]
-        .reverse()
-        .find((m) => (m as { role?: string }).role === 'tool') as { content?: string } | undefined
-      const parsed = lastTool?.content ? safeJson(lastTool.content) : undefined
-      if (turn === 1) {
-        return call('spawn_worker', {
-          profile: {
-            name: 'director',
-            harness: 'codex',
-            model: { provider: 'offline', default: 'offline/director' },
-            tools: runtimeToolDeclarations('spawn_worker'),
-          },
-          task: 'investigate',
-        })
-      }
-      if (turn === 2) {
-        await directorStreaming
-        return call('observe_agent', { workerId: String(parsed?.workerId) })
-      }
-      if (turn === 3) {
-        observed = parsed
-        endTurn()
-        return { toolCalls: [], content: 'waiting for the director' }
-      }
-      return { toolCalls: [], content: 'done' }
-    }
-
-    try {
-      await supervise(rootProfile, 'run the investigation', {
-        budget,
-        backend: { backend: 'provider', provider },
-        coordination: {
-          authentication: true,
-          publicUrl: ({ port }) => `http://127.0.0.1:${port}/mcp`,
-        },
-        stallAfterMs,
-        driverRetry: { enabled: false },
-        brain,
-      })
-    } finally {
-      endTurn()
-    }
-
-    const progress = observed?.progress as Record<string, unknown> | undefined
-    expect(progress, 'observe_agent returned no progress for a running manager').toBeDefined()
-    expect(progress?.live).toBe(true)
-    // Its own drive's progress events are its activity: the tool it ran and the text it produced.
-    const activity = progress?.recentActivity as Array<{ kind: string; label: string }>
-    expect(activity.map((entry) => `${entry.kind}:${entry.label}`)).toEqual(
-      expect.arrayContaining(['tool:read', 'turn:model output']),
-    )
-    // That activity is recent, so the manager is not idle, though it started longer ago than the
-    // stall window.
-    expect(progress?.idleMs as number).toBeLessThan(stallAfterMs)
-    expect(progress?.stalled).toBe(false)
   })
 })

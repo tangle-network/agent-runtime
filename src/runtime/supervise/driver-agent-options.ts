@@ -1,22 +1,18 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { McpToolDescriptor } from '../../mcp/server'
+import type { AnalystRegistry, AnalyzeOnSettleRoute } from '../../mcp/tools/coordination-analysts'
 import type {
-  AnalystRegistry,
-  AnalyzeOnSettleRoute,
-  AuthorizeDownMessage,
-  ChildQuestionInbox,
-  ContinuityMode,
-  CoordinationEvent,
   CoordinationTools,
-  EscalateQuestion,
   GraphSubtasks,
   MakeWorkerAgent,
-  MapOnSettleRoute,
   PeerAuditAccess,
   SpawnPreflight,
   SuperviseProfileEntry,
-  WorkerWatchOptions,
-} from '../../mcp/tools/coordination'
+} from '../../mcp/tools/coordination-contracts'
+import type { CoordinationEvent, WorkerWatchOptions } from '../../mcp/tools/coordination-events'
+import type { MapOnSettleRoute } from '../../mcp/tools/coordination-map-contracts'
+import type { AuthorizeDownMessage, ContinuityMode } from '../../mcp/tools/coordination-messages'
+import type { ChildQuestionInbox, EscalateQuestion } from '../../mcp/tools/coordination-questions'
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'

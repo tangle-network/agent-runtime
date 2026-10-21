@@ -4,7 +4,7 @@ import {
   agentProfileSchema,
 } from '@tangle-network/agent-interface'
 import { ConfigError, ValidationError } from '../../errors'
-import { coordinationVerbNames } from '../../mcp/tools/coordination'
+import { coordinationVerbNames } from '../../mcp/tools/coordination-events'
 import { agentHarness } from '../harness-role'
 import type { DeliverableSpec } from './completion-gate'
 import { assertExecutableAgentProfile, concreteProfileModel } from './model-policy'

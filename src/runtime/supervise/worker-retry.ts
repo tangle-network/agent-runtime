@@ -34,7 +34,7 @@
  */
 
 import { ValidationError } from '../../errors'
-import type { MakeWorkerAgent } from '../../mcp/tools/coordination'
+import type { MakeWorkerAgent } from '../../mcp/tools/coordination-contracts'
 import { isAsyncIterable, sleep } from '../util'
 import { teardownSurfaces } from './deadline'
 import { inheritRuntimeOwnedExecutorAttestation } from './materialization'

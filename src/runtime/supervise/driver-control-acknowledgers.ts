@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { DownMessageEvent, SettledWorker } from '../../mcp/tools/coordination'
+import type { SettledWorker } from '../../mcp/tools/coordination-contracts'
+import type { DownMessageEvent } from '../../mcp/tools/coordination-messages'
 import type { InboxReceipt } from './inbox'
 import { isTerminalNodeStatus } from './node-status'
 import { applyRunCancellation } from './run-cancellation'

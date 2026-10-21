@@ -24,7 +24,7 @@ import type {
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { contentAddress } from '../../durable/spawn-journal'
-import type { MakeWorkerAgent, WorkerSpawnContext } from '../../mcp/tools/coordination'
+import type { MakeWorkerAgent, WorkerSpawnContext } from '../../mcp/tools/coordination-contracts'
 import { startRetainedInteractiveRun } from '../retained-interactive'
 import { claimRetainedInteractiveControl } from '../retained-interactive-control'
 import { destroyInteractiveEnvironment, environmentGone } from '../retained-interactive-lifecycle'
