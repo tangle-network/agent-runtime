@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
-import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-layout'
+import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-cancellation'
 import type {
   Agent,
   AgentSpec,

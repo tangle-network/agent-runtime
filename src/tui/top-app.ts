@@ -18,7 +18,8 @@
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { emitKeypressEvents } from 'node:readline'
-import { cancelRun, cancelWorker, writeWorkerSteer } from '../runtime/supervise/run-layout'
+import { cancelRun } from '../runtime/supervise/run-cancellation'
+import { cancelWorker, writeWorkerSteer } from '../runtime/supervise/run-layout'
 import {
   loadTopSnapshot,
   type RenderTarget,

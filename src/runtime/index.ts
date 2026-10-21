@@ -696,6 +696,15 @@ export * from './supervise/provision-supervisor'
 export * from './supervise/reentry'
 export * from './supervise/remote-supervisor'
 export type { EvidencePendingEvent, RetainedPendingCause } from './supervise/retained-executor'
+export {
+  cancelRun,
+  type RunCancellation,
+  type RunCancelRequest,
+  readRunCancellation,
+  readRunCancelRequest,
+  runCancellationFile,
+  runCancelRequestFile,
+} from './supervise/run-cancellation'
 // The one-call store bundle for a supervised run: a journal + blob store + executor registry,
 // shaped to spread straight into `SupervisorOpts`. `createInMemoryRunContext` is the default
 // (fresh, process-lifetime); `createFileRunContext(dir)` is the durable one — file-backed stores
@@ -708,20 +717,13 @@ export * from './supervise/run-context'
 // readers fall back to). Promoted from the loops repo (#4519 in agent-container) so the
 // writer contract is published alongside its reader.
 export {
-  cancelRun,
   cancelWorker,
   legacySupervisorRunDir,
   legacySupervisorRunsRoot,
-  type RunCancellation,
-  type RunCancelRequest,
-  readRunCancellation,
-  readRunCancelRequest,
   readWorkerCancellation,
   readWorkerCancelRequests,
   readWorkerSteerAcknowledgement,
   readWorkerSteerRequests,
-  runCancellationFile,
-  runCancelRequestFile,
   safeWorkerFile,
   supervisorRunDir,
   supervisorRunsRoot,

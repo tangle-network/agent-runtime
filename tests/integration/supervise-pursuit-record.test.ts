@@ -31,7 +31,7 @@ import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { SupervisePursuitError, supervisePursuit } from '../../src/durable/supervise-pursuit'
 import type { WorkerSpawnContext } from '../../src/mcp/tools/coordination-contracts'
 import { providerAsExecutor } from '../../src/runtime/environment-provider'
-import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-layout'
+import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-cancellation'
 import type {
   DriveHarness,
   DriveHarnessOwnerContext,

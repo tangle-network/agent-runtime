@@ -20,13 +20,15 @@ import {
 } from './durable-file'
 import {
   cancelRun,
-  cancelWorker,
   readRunCancellation,
   readRunCancelRequest,
+  writeRunCancellation,
+} from './run-cancellation'
+import {
+  cancelWorker,
   readWorkerCancellation,
   readWorkerCancelRequests,
   workerCancelRequestsFile,
-  writeRunCancellation,
   writeWorkerCancellation,
 } from './run-layout'
 

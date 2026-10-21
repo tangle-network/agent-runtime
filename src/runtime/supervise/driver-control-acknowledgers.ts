@@ -4,12 +4,16 @@ import type { SettledWorker } from '../../mcp/tools/coordination-contracts'
 import type { DownMessageEvent } from '../../mcp/tools/coordination-messages'
 import type { InboxReceipt } from './inbox'
 import { isTerminalNodeStatus } from './node-status'
-import { applyRunCancellation } from './run-cancellation'
+import type { RunCancelRequest } from './run-cancellation'
 import {
-  claimWorkerSteerDelivery,
+  applyRunCancellation,
   type RunCancellation,
   readRunCancellation,
   readRunCancelRequest,
+  writeRunCancellation,
+} from './run-cancellation'
+import {
+  claimWorkerSteerDelivery,
   readWorkerCancellation,
   readWorkerCancelRequests,
   readWorkerSteerAcknowledgement,
@@ -18,7 +22,6 @@ import {
   type WorkerCancelRequest,
   type WorkerSteerAcknowledgement,
   type WorkerSteerRequest,
-  writeRunCancellation,
   writeWorkerCancellation,
   writeWorkerSteerAcknowledgement,
 } from './run-layout'
@@ -48,7 +51,7 @@ interface CancelAcknowledgerDeps {
   /** Abort the WHOLE run through the one cascade controller it already has. Present only on the
    *  `'run'`-scoped manager, and only when the caller wired a root control; without it a
    *  run-scoped cancel request is not this manager's to apply. */
-  readonly abortRun?: (reason: string, request?: import('./run-layout').RunCancelRequest) => void
+  readonly abortRun?: (reason: string, request?: RunCancelRequest) => void
 }
 
 /** An operator steer handed to the run root's inbox. The root answers `receipt` once: when a model

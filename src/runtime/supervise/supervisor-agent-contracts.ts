@@ -32,6 +32,7 @@ import type { SupervisorFinalizer } from './finalizer'
 import type { PeerMailLimits } from './peer-mail'
 import type { ExecutorProgress } from './progress'
 import type { ReentryContinuity } from './reentry'
+import type { RunCancelRequest } from './run-cancellation'
 import type { StopRule } from './stop-rules'
 import type { SupervisorProfile } from './supervisor-agent-profile'
 import type { TraceSource } from './trace-source'
@@ -337,10 +338,7 @@ export interface SupervisorAgentDeps {
    *  caller's judgment. Omit = ceilings only. */
   readonly stopRule?: StopRule
   /** One-shot notification of WHY a `stopRule` ended the run (BOTH arms). */
-  readonly onProgressStop?: (
-    reason: string,
-    request?: import('./run-layout').RunCancelRequest,
-  ) => void
+  readonly onProgressStop?: (reason: string, request?: RunCancelRequest) => void
   /** Turn cap for the supervisor's own loop. Router arm: driver inference turns (see
    *  `DriverAgentOptions.maxTurns`). External arm: the cap belongs to the harness loop, so
    *  `supervise()` applies it in the drive seam it builds and this field is not read here. */
@@ -409,7 +407,7 @@ export interface SupervisorAgentDeps {
   readonly controlScope?: 'run' | 'subtree'
   /** Abort the whole run — the seam a run-scoped cancel request is applied through (both arms,
    *  `'run'` scope only). See `DriverAgentOptions.abortRun`. */
-  readonly abortRun?: (reason: string, request?: import('./run-layout').RunCancelRequest) => void
+  readonly abortRun?: (reason: string, request?: RunCancelRequest) => void
 }
 
 /** Test-only dependency shape. It is exported only through the package's explicit `/testing`

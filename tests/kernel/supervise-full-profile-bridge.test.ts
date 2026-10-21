@@ -20,7 +20,7 @@ import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob
 import { materializeTreeView } from '../../src/durable/spawn-journal/tree-view'
 import { RuntimeRunStateError } from '../../src/errors'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
-import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-layout'
+import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-cancellation'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import { createRootHandle } from '../../src/runtime/supervise/supervisor'
 import type { NodeId, SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
