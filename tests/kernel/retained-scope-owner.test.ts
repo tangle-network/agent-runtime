@@ -8,11 +8,11 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
 import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
+import { contentAddress } from '../../src/durable/content-address'
 import {
-  contentAddress,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
-} from '../../src/durable/spawn-journal'
+} from '../../src/durable/in-memory-spawn-stores'
 import {
   bindScopeRetainedOwnerEnvironmentId,
   bindScopeRetainedOwnerProvider,

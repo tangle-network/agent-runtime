@@ -20,22 +20,20 @@ export { type AnalystFinding, computeFindingId, makeFinding } from '@tangle-netw
 export type { AgentProfile } from '@tangle-network/agent-interface'
 export type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 export { assertProfileMaterializes } from '../agent/profile-materialization'
-export {
-  contentAddress,
-  FileResultBlobStore,
-  FileSpawnJournal,
-  InMemoryResultBlobStore,
-  InMemorySpawnJournal,
-  loadSpawnForest,
-  materializeTreeView,
-  replaySpawnTree,
-  type SpawnForest,
-  type SpawnForestEvent,
-  type SpawnForestInDoubtNode,
-  type SpawnForestMissingTree,
-  type SpawnForestNode,
-  type SpawnForestTree,
-} from '../durable/spawn-journal'
+export { contentAddress } from '../durable/content-address'
+export { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/in-memory-spawn-stores'
+export { FileSpawnJournal } from '../durable/spawn-journal/journal-store'
+export { replaySpawnTree } from '../durable/spawn-journal/replay'
+export { FileResultBlobStore } from '../durable/spawn-journal/result-blob-store'
+export type {
+  SpawnForestEvent,
+  SpawnForestInDoubtNode,
+  SpawnForestMissingTree,
+  SpawnForestNode,
+  SpawnForestTree,
+} from '../durable/spawn-journal/spawn-forest'
+export { loadSpawnForest, type SpawnForest } from '../durable/spawn-journal/spawn-forest'
+export { materializeTreeView } from '../durable/spawn-journal/tree-view'
 export {
   openSqlRunStore,
   type SqlRunLease,

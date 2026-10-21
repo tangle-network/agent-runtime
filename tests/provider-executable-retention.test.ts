@@ -14,7 +14,8 @@ import {
   createAgentCandidateWorkspacePort,
 } from '../src/candidate-execution'
 import { sha256Bytes } from '../src/candidate-execution/digest'
-import { contentAddress, replaySpawnTree } from '../src/durable/spawn-journal'
+import { contentAddress } from '../src/durable/content-address'
+import { replaySpawnTree } from '../src/durable/spawn-journal/replay'
 import { RuntimeRunStateError } from '../src/errors'
 import type { ProviderLeafOut } from '../src/runtime/environment-provider'
 import {

@@ -15,7 +15,7 @@
 
 import { appendFileSync, readFileSync } from 'node:fs'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
-import { FileSpawnJournal } from '../../src/durable/spawn-journal'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { spendFromUsageEvents } from '../../src/runtime/supervise/budget'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'

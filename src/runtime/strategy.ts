@@ -23,7 +23,7 @@
 
 import type { ChatClient } from '@tangle-network/agent-eval'
 import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/spawn-journal'
+import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/in-memory-spawn-stores'
 import type { RuntimeHooks } from '../runtime-hooks'
 import { observe } from './observe'
 import type { Outcome } from './personify/types'

@@ -1,4 +1,5 @@
-import { appendSpawnEvents, contentAddress } from '../../durable/spawn-journal'
+import { contentAddress } from '../../durable/content-address'
+import { appendSpawnEvents } from '../../durable/spawn-journal/journal-store'
 import { RuntimeRunStateError, ValidationError } from '../../errors'
 import { abortReason, RunCancellationReason, runAbortable } from './abortable'
 import { type BudgetPool, createBudgetPool } from './budget'

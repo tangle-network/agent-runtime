@@ -1,4 +1,5 @@
-import { appendSpawnEvents, contentAddress } from '../../durable/spawn-journal'
+import { contentAddress } from '../../durable/content-address'
+import { appendSpawnEvents } from '../../durable/spawn-journal/journal-store'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { persistHarnessTranscript, readHarnessTranscript } from '../harness-transcript'

@@ -11,13 +11,13 @@ import {
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  FileResultBlobStore,
-  FileSpawnJournal,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
-  materializeTreeView,
-  replaySpawnTree,
-} from '../../src/durable/spawn-journal'
+} from '../../src/durable/in-memory-spawn-stores'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
+import { replaySpawnTree } from '../../src/durable/spawn-journal/replay'
+import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
+import { materializeTreeView } from '../../src/durable/spawn-journal/tree-view'
 import { RuntimeRunStateError } from '../../src/errors'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-layout'

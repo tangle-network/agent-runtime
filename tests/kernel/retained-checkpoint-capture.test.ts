@@ -10,7 +10,7 @@ import {
   captureAgentCandidateWorkspaceTreeToArtifacts,
   verifyAgentCandidateWorkspaceTree,
 } from '../../src/candidate-execution/workspace-streams'
-import { InMemoryResultBlobStore } from '../../src/durable/spawn-journal'
+import { InMemoryResultBlobStore } from '../../src/durable/in-memory-spawn-stores'
 import { createPrivateCasArtifactPort } from '../../src/runtime/private-cas'
 import { captureProviderCheckpointWorkspace } from '../../src/runtime/provider-workspace-retention'
 import {

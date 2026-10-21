@@ -85,4 +85,4 @@ Buffered and streamed Router responses use the same receipt validation.
 After a transport retry, the final measured subtotal remains available, but completeness becomes unknown because earlier attempts lack receipts.
 Inline Router executors sum turn receipts and preserve unknown measurements across turns.
 Custom tool-loop brains can return the same map as `resources` on their existing response.
-The public `supervise` regression is `tests/kernel/named-resource-driver.test.ts`.
+Real HTTP resource-policy coverage is in `tests/runtime/router-resource-policy.test.ts`.

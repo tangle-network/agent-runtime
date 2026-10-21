@@ -6,7 +6,7 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import { contentAddress } from '../../src/durable/spawn-journal'
+import { contentAddress } from '../../src/durable/content-address'
 import { ValidationError } from '../../src/errors'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'

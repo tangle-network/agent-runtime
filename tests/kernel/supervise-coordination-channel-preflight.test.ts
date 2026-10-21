@@ -16,7 +16,7 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
 import { fullProfileMaterialization } from '../../src/agent/profile-materialization'
-import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import { InMemorySpawnJournal } from '../../src/durable/in-memory-spawn-stores'
 import type { SuperviseOptions } from '../../src/runtime/supervise/supervise'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type { NodeId, SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'

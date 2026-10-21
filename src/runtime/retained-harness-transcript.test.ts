@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { captureAgentCandidateWorkspaceFiles } from '../candidate-execution'
 import { sha256Bytes } from '../candidate-execution/digest'
-import { InMemoryResultBlobStore } from '../durable/spawn-journal'
+import { InMemoryResultBlobStore } from '../durable/in-memory-spawn-stores'
 import { ValidationError } from '../errors'
 import {
   harnessTranscriptArtifact,

@@ -24,7 +24,7 @@ import {
   verifyAgentCandidateWorkspaceTree,
 } from '../candidate-execution'
 import { sha256Bytes } from '../candidate-execution/digest'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/spawn-journal'
+import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/in-memory-spawn-stores'
 import {
   type ProviderLeafOut,
   type ProviderWorkspaceRetentionContext,

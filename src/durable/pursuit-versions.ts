@@ -58,7 +58,7 @@ import { FileObserverJournal } from './observer-journal'
 import { projectPursuit } from './observer-projection'
 import type { PursuitFork } from './run-fork'
 import { parseSettleRecord, readSettleRecord, SETTLE_RECORD_FILE } from './settle-record'
-import { FileSpawnJournal } from './spawn-journal'
+import { FileSpawnJournal } from './spawn-journal/journal-store'
 import type { SupervisedPursuitResult, SupervisePursuitOptions } from './supervise-pursuit'
 
 /**

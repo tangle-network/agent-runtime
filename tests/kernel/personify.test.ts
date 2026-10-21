@@ -5,11 +5,11 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  FileResultBlobStore,
-  FileSpawnJournal,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
-} from '../../src/durable/spawn-journal'
+} from '../../src/durable/in-memory-spawn-stores'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
+import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
 import { RuntimeRunStateError, ValidationError } from '../../src/errors'
 import {
   fanout,
@@ -21,11 +21,11 @@ import {
   widen,
 } from '../../src/runtime/personify/combinators'
 import { definePersona, runPersonified } from '../../src/runtime/personify/persona'
+import type { Persona } from '../../src/runtime/personify/types'
 import type {
   CombinatorShape,
   Outcome,
   PanelVerdict,
-  Persona,
   ScopeWidenGate,
 } from '../../src/runtime/personify/wave-types'
 import { spendFromUsageEvents } from '../../src/runtime/supervise/budget'

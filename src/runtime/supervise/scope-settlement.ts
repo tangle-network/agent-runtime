@@ -1,4 +1,4 @@
-import { contentAddress } from '../../durable/spawn-journal'
+import { contentAddress } from '../../durable/content-address'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { subtreeSummaryOf } from './scope-capabilities'
 import type { LiveChild, PreSeqSettled, ScopeArgs } from './scope-contract'

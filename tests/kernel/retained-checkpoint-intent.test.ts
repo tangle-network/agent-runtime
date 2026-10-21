@@ -8,7 +8,7 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import { InMemoryResultBlobStore } from '../../src/durable/spawn-journal'
+import { InMemoryResultBlobStore } from '../../src/durable/in-memory-spawn-stores'
 import {
   bindScopeRetainedOwnerProvider,
   noteScopeRetainedOwnerCoordination,

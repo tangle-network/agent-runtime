@@ -2,14 +2,13 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import {
-  aggregateProviderModelEvidence,
-  contentAddress,
-  FileResultBlobStore,
-  FileSpawnJournal,
-  InMemorySpawnJournal,
-  materializeTreeView,
-} from '../../src/durable/spawn-journal'
+import { contentAddress } from '../../src/durable/content-address'
+import { InMemorySpawnJournal } from '../../src/durable/in-memory-spawn-stores'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
+import { aggregateProviderModelEvidence } from '../../src/durable/spawn-journal/provider-model-evidence'
+import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
+import type { SpawnForest, SpawnForestNode } from '../../src/durable/spawn-journal/spawn-forest'
+import { materializeTreeView } from '../../src/durable/spawn-journal/tree-view'
 import { loadSpawnForest } from '../../src/runtime'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -23,8 +22,6 @@ import type {
   NodeSnapshot,
   Scope,
   SpawnEvent,
-  SpawnForest,
-  SpawnForestNode,
   SpawnJournal,
   UsageEvent,
 } from '../../src/runtime/supervise/types'

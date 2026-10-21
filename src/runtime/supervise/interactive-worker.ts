@@ -23,7 +23,7 @@ import type {
   AgentEnvironmentProvider,
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
-import { contentAddress } from '../../durable/spawn-journal'
+import { contentAddress } from '../../durable/content-address'
 import type { MakeWorkerAgent, WorkerSpawnContext } from '../../mcp/tools/coordination-contracts'
 import { startRetainedInteractiveRun } from '../retained-interactive'
 import { claimRetainedInteractiveControl } from '../retained-interactive-control'

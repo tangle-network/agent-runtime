@@ -1,5 +1,5 @@
 import type { AgentProfile, WorkspaceCheckpointRef } from '@tangle-network/agent-interface'
-import { contentAddress } from '../../durable/spawn-journal'
+import { contentAddress } from '../../durable/content-address'
 import type {
   RetainedRunAdmission,
   RetainedRunAdmissionHook,

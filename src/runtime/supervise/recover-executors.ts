@@ -3,14 +3,11 @@ import {
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
-import {
-  closesCursorSlot,
-  contentAddress,
-  loadSpawnForest,
-  materializeTreeView,
-  ownedTreeRootSpawn,
-  replaySpawnTree,
-} from '../../durable/spawn-journal'
+import { contentAddress } from '../../durable/content-address'
+import { closesCursorSlot } from '../../durable/spawn-journal/event-index'
+import { replaySpawnTree } from '../../durable/spawn-journal/replay'
+import { loadSpawnForest, ownedTreeRootSpawn } from '../../durable/spawn-journal/spawn-forest'
+import { materializeTreeView } from '../../durable/spawn-journal/tree-view'
 import { RuntimeRunStateError } from '../../errors'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { addSpend, zeroSpend } from '../util'

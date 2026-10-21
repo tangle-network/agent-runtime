@@ -5,13 +5,10 @@ import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { RetainedRunAdmission } from '../../runtime/retained-run-types'
 import type { SpawnEvent, SpawnJournal } from '../../runtime/supervise/types'
-import {
-  contentAddress,
-  FileResultBlobStore,
-  FileSpawnJournal,
-  InMemoryResultBlobStore,
-  InMemorySpawnJournal,
-} from '../spawn-journal'
+import { contentAddress } from '../content-address'
+import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../in-memory-spawn-stores'
+import { FileSpawnJournal } from '../spawn-journal/journal-store'
+import { FileResultBlobStore } from '../spawn-journal/result-blob-store'
 
 const dirs: string[] = []
 afterEach(async () => {

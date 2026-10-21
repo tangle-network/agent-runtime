@@ -22,11 +22,11 @@ import { join } from 'node:path'
 import { deriveHexId } from '@tangle-network/agent-trace-contract'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { contentAddress } from '../../src/durable/content-address'
 import {
-  contentAddress,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
-} from '../../src/durable/spawn-journal'
+} from '../../src/durable/in-memory-spawn-stores'
 import type { OtelExporter, OtelSpan } from '../../src/otel-export'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import {

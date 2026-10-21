@@ -10,7 +10,7 @@ import {
   agentCandidateWorkspaceSnapshotEvidenceSchema,
   canonicalAgentProfileDigest,
 } from '@tangle-network/agent-interface'
-import { contentAddress } from '../../durable/spawn-journal'
+import { contentAddress } from '../../durable/content-address'
 import {
   captureProviderWorkspaceSnapshot,
   workspaceCaptureReceipt,
