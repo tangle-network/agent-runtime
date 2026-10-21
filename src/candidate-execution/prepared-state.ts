@@ -8,7 +8,6 @@ import {
   agentCandidateMaterializationReceiptSchema,
   agentCandidateProfilePlanEvidenceSchema,
 } from '@tangle-network/agent-interface'
-
 import { verifyMaterializedProfileWorkspace, verifyMaterializedWorkspace } from './artifacts'
 import {
   canonicalCandidateBytes,
@@ -21,6 +20,7 @@ import {
 import { assertAgentCandidateExecutionRoots } from './execution-roots'
 import { verifyTaskCheckout } from './git-materialize'
 import { parseAgentCandidateProfileActivation } from './profile'
+import { modelLimits } from './protected-model-port'
 import type {
   AgentCandidateExecutionPorts,
   AgentCandidateExecutorRequest,
@@ -683,17 +683,6 @@ function immutableExecutorFiles<
   return Object.freeze(
     files.map((file) => Object.freeze({ ...file, bytes: Uint8Array.from(file.bytes) }) as T),
   )
-}
-
-function modelLimits(
-  limits: PreparedAgentCandidateExecution['executionPlan']['value']['material']['limits'],
-): AgentCandidateProtectedModelReservation['enforcedLimits'] {
-  return {
-    maxModelCalls: limits.maxModelCalls,
-    maxInputTokens: limits.maxInputTokens,
-    maxOutputTokens: limits.maxOutputTokens,
-    maxCostUsd: limits.maxCostUsd,
-  }
 }
 
 function transitionLifecycle(
