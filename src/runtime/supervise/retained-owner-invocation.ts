@@ -3,7 +3,6 @@ import { ValidationError } from '../../errors'
 import { stopRetainedNativeExecution } from '../retained-native-stop'
 import type { RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { addSpend, zeroSpend } from '../util'
-import { assertValidSpend } from './budget'
 import { errMessage, errorText } from './error-message'
 import { executorFailureReason } from './executor-outcome'
 import {
@@ -26,6 +25,7 @@ import {
 import { type OwnerRegistration, type OwnerState, owners } from './retained-owner-state'
 import { ownerCaptureWriter, preemptRotationCaptures } from './retained-owner-turn-lifecycle'
 import { detachedSnapshot } from './snapshot'
+import { assertValidSpend } from './spend-validation'
 import { traceRootWriter } from './trace-root'
 import type { ExecutorResult, Scope, SpawnEvent } from './types'
 

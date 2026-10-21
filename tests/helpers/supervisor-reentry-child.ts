@@ -16,7 +16,6 @@
 import { appendFileSync, readFileSync } from 'node:fs'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
-import { spendFromUsageEvents } from '../../src/runtime/supervise/budget'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import { type DriveHarness, supervisorAgent } from '../../src/runtime/supervise/supervisor-agent'
@@ -27,6 +26,7 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { spendFromUsageEvents } from '../../src/runtime/supervise/usage-metering'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 import { testContinuation } from './continuation'
 

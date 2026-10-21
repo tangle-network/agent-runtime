@@ -6,7 +6,6 @@ import {
 } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
-import { assertValidSpend } from './budget'
 import {
   authoredProfileDigest,
   knownExecutionBindingReceipt,
@@ -19,6 +18,7 @@ import { providerVisibleProfile } from './provider-visible-profile'
 import type { ScopeArgs } from './scope-contract'
 import { authoredSeatStages, seatExecutionProfile } from './seat-chain'
 import { detachedSnapshot } from './snapshot'
+import { assertValidSpend } from './spend-validation'
 import type {
   ExecutionBindingReceipt,
   ExecutorExecutionBinding,

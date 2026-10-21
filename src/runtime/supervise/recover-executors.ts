@@ -11,12 +11,7 @@ import { materializeTreeView } from '../../durable/spawn-journal/tree-view'
 import { RuntimeRunStateError } from '../../errors'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { addSpend, zeroSpend } from '../util'
-import {
-  assertValidSpend,
-  type BudgetPoolRestore,
-  BudgetReconcileFault,
-  createBudgetPool,
-} from './budget'
+import { type BudgetPoolRestore, BudgetReconcileFault, createBudgetPool } from './budget'
 import { executorFailure, executorFailureInfra } from './executor-outcome'
 import { addResourceSpend, withBudgetResources } from './resources'
 import {
@@ -28,6 +23,7 @@ import {
 } from './retained-executor'
 import type { ScopeArgs } from './scope'
 import { detachedSnapshot, shareParsedStrings } from './snapshot'
+import { assertValidSpend } from './spend-validation'
 import { releasedChildPayload, terminalDownEvent } from './terminal-record'
 import { nestedDriverTreeRoot } from './tree-key'
 import type {

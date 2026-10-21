@@ -14,7 +14,6 @@ import { replaySpawnTree } from '../../durable/spawn-journal/replay'
 import { materializeTreeView } from '../../durable/spawn-journal/tree-view'
 import { BackendTransportError, ValidationError } from '../../errors'
 import { priceTokens } from '../../pricing/router-prices'
-import { spendFromUsageEvents } from './budget'
 import { classifyDriverFailure } from './driver-retry'
 import {
   runtimeOwnedExecutorMaterialization,
@@ -30,6 +29,7 @@ import {
 } from './runtime'
 import { createSupervisor } from './supervisor'
 import type { Agent, AgentSpec, Scope, SpawnEvent, UsageEvent } from './types'
+import { spendFromUsageEvents } from './usage-metering'
 
 const TEST_RUN_DIGEST = `sha256:${'b'.repeat(64)}`
 const TEST_WORKSPACE_DIGEST = `sha256:${'a'.repeat(64)}`

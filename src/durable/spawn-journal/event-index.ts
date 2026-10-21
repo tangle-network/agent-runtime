@@ -1,5 +1,5 @@
-import { assertValidSpend } from '../../runtime/supervise/budget'
 import { executorFailureReason } from '../../runtime/supervise/executor-outcome'
+import { assertValidSpend } from '../../runtime/supervise/spend-validation'
 import type { NodeId, SpawnEvent } from '../../runtime/supervise/types'
 
 /** Minimal state needed to validate a node; progress and trace payloads are never retained here. */
