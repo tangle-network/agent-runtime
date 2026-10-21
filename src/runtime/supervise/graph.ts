@@ -18,7 +18,7 @@
  *
  *  1. **Node pinning** — a spawn names a node (`profile.name` = node id) and the node's canonical
  *     profile is what runs; a driver cannot smuggle capabilities into a worker it did not define.
- *  2. **Observable edges** — every delegates/analyzes/maps traversal lands in an EDGE LEDGER
+ *  2. **Observable edges** — every delegates/analyzes/maps/routes traversal lands in an EDGE LEDGER
  *     (`delivered | stripped | empty | unpropagated | failed`, with byte counts), in memory on
  *     the result AND as `edge` events in the run journal. The motivating incident: a filter
  *     silently replaced 1,700-char steering with 241 chars of boilerplate for three rounds and
@@ -39,6 +39,10 @@
  *     join node. The runtime spawns every item and the join when the source settles, so the
  *     driver spends no model turn on them; each item is a spawn through the same authorized path,
  *     reserving from the same conserved pool, and every expansion, item and join is a ledger row.
+ *  7. **Flow graphs** — with `entry` set, no node is a root: Runtime spawns the entries and fires
+ *     `routes` edges on each settle (`graph-flow.ts`), so a fixed order, a branch, a bounded repair
+ *     loop and a stop rule are graph data. The root manager is Runtime's own and never calls a
+ *     model; every entry and route spawn takes the same authorized path a map item takes.
  *
  * ORACLES ARE ENVIRONMENT, NEVER WORKERS. Graders/verifiers must not be spawnable in the graph —
  * a delegates edge to them leaks the rubric. An `analyzes` edge names its analyst in one of two
@@ -61,13 +65,17 @@ import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
 import type { MakeWorkerAgent } from '../../mcp/tools/coordination-contracts'
 import type { MapItemFailurePolicy } from '../../mcp/tools/coordination-map-contracts'
 import type { ContinuityMode } from '../../mcp/tools/coordination-messages'
+import type { RouteWhen } from '../../mcp/tools/coordination-route-contracts'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { harnessRunsAgent } from '../harness-role'
 import type { ToolLoopChat } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
+import { runtimeFlowBrain } from './flow-brain'
+import { createFlowRun, flowRootProfile, routeFlowOf, validateFlowGraph } from './graph-flow'
 import {
   createGraphOverlay,
   graphRootProfile,
+  type RootValidatedGraph,
   type ValidatedGraph,
   validateGraphTopology,
 } from './graph-overlay'
@@ -82,6 +90,11 @@ import {
 import type { Budget, NodeId, ResultBlobStore, SpawnJournal, SupervisedResult } from './types'
 
 export type { MapItemFailurePolicy } from '../../mcp/tools/coordination-map-contracts'
+export type {
+  JsonScalar,
+  RouteMatch,
+  RouteWhen,
+} from '../../mcp/tools/coordination-route-contracts'
 export { defaultEdgeTraversalCap } from './graph-overlay'
 
 // ── The algebra ────────────────────────────────────────────────────────────────
@@ -182,6 +195,32 @@ export type GraphEdge =
       /** Each item's budget, merged over the per-worker default as `spawn_worker`'s `budget` is. */
       readonly itemBudget?: Partial<Budget>
     }
+  /**
+   * A route in a flow graph (one with `entry`): Runtime traverses it when `from` settles, so no
+   * root decides the order, the branch, the repair loop or the stop. On each usable settle of
+   * `from` its outgoing routes edges are tried in declaration order and the first whose `when`
+   * holds fires; an edge without `when` is the default branch and comes last. A node target is
+   * spawned with `{ from: { node, result }, evidence: { [id]: latest usable result } }` and the
+   * directive appended to its pinned instructions; `{ stop }` ends the run with no winner and
+   * `GraphResult.stopped`; `{ finish }` makes this settle part of the run's output.
+   */
+  | {
+      readonly kind: 'routes'
+      readonly from: NodeId
+      readonly to: NodeId | { readonly stop: string } | { readonly finish: string }
+      readonly directive: PromptHandle
+      /** Absent on the default edge. A match reads `from` unless it names a node in `evidence`. */
+      readonly when?: RouteWhen
+      /** Nodes whose latest usable result rides the target's task. */
+      readonly evidence?: ReadonlyArray<NodeId>
+      /** Traversals beyond this are skipped (ledgered `unpropagated`) and matching continues with
+       *  the next edge. Default {@link defaultEdgeTraversalCap}. A routes cycle needs at least one
+       *  edge that sets it. */
+      readonly maxTraversals?: number
+      /** `'resume'` re-attaches each spawn of the target to its latest settled session. Omit =
+       *  `'fresh'`. */
+      readonly continuity?: ContinuityMode
+    }
 
 /** A topology without the run's own budget and deliverable: the form a `maps` edge runs per item,
  *  as `run_graph` runs it. */
@@ -197,6 +236,11 @@ export interface AgentGraph {
   readonly deliverable: DeliverableSpec<unknown>
   /** One conserved pool across the whole graph — cycles without conservation never terminate. */
   readonly budget: Budget
+  /** Setting it makes this a FLOW graph: Runtime spawns every entry at once, each with its task,
+   *  and traverses `routes` edges itself. No node is a root and no caller brain runs; the run's
+   *  output is `{ [node]: latest usable result }` over its terminal nodes and `finish` sources,
+   *  judged by `deliverable`. */
+  readonly entry?: ReadonlyArray<{ readonly node: NodeId; readonly task: unknown }>
 }
 
 // ── The edge ledger ────────────────────────────────────────────────────────────
@@ -213,10 +257,11 @@ export type TraversalContinuity = ContinuityMode | 'steer'
 
 /** One recorded edge traversal — the in-memory row; the journal twin is the `edge` SpawnEvent. */
 export interface EdgeTraversal {
-  /** Stable edge id: `delegates:<from>-><to>`, `analyzes:<analyst>:<over…>-><to>`, or
-   *  `maps:<from>-><to | graph>-><join>`. */
+  /** Stable edge id: `delegates:<from>-><to>`, `analyzes:<analyst>:<over…>-><to>`,
+   *  `maps:<from>-><to | graph>-><join>`, `routes:<from>#<ordinal>-><to | stop:<reason> |
+   *  finish:<reason>>`, or `routes:entry-><node>` for an entry. */
   readonly edge: string
-  readonly kind: 'delegates' | 'analyzes' | 'maps'
+  readonly kind: 'delegates' | 'analyzes' | 'maps' | 'routes'
   readonly from: string
   readonly to: string
   /** The resolved directive reference (`<surface>/v<n>`). */
@@ -260,6 +305,35 @@ export class GraphEdgeCapError extends Error {
   }
 }
 
+/** A flow node's usable settle matched no routes edge leaving it. The flow spawned nothing more;
+ *  the full evidence rides on the error, shaped like {@link GraphEdgeCapError}. */
+export class GraphRouteError extends Error {
+  readonly node: NodeId
+  readonly workerId: string
+  readonly ledger: ReadonlyArray<EdgeTraversal>
+  readonly result: SupervisedResult<unknown>
+  constructor(
+    unrouted: {
+      readonly node: NodeId
+      readonly workerId: string
+      readonly detail: string
+    },
+    ledger: ReadonlyArray<EdgeTraversal>,
+    result: SupervisedResult<unknown>,
+  ) {
+    super(
+      `runGraph: flow node '${unrouted.node}' (worker ${unrouted.workerId}) settled a result ` +
+        `no routes edge matched (${unrouted.detail}). Add a default routes edge or fix the node; ` +
+        'the full edge ledger and the supervised result ride on this error.',
+    )
+    this.name = 'GraphRouteError'
+    this.node = unrouted.node
+    this.workerId = unrouted.workerId
+    this.ledger = ledger
+    this.result = result
+  }
+}
+
 // ── Options / result ───────────────────────────────────────────────────────────
 
 /**
@@ -287,6 +361,8 @@ const GRAPH_OWNED_SUPERVISE_OPTIONS = [
   'onCoordinationEvent',
   'analyzeOnSettle',
   'mapOnSettle',
+  // A flow graph's entries and routes edges; its runtime-owned root runs them.
+  'routeFlow',
   'continuityByProfile',
   // A graph pins every node and its delegation edges; a node never gains spawn rights it lacks.
   'inheritSpawnRights',
@@ -554,6 +630,15 @@ export interface GraphResult<Out = unknown> {
    *  that run, and the exhaustion stays observable here. */
   readonly exhaustedEdges: ReadonlyArray<string>
   readonly runId: string
+  /** Why a flow graph ended early: a `stop` edge fired (`edge` names it), or a flow node settled
+   *  down (no `edge`; `reason` is `down: <worker reason>`) or, where a route was needed, without a
+   *  usable result (no `edge`; `reason` is `unusable: <why>`). Live flow workers are aborted. */
+  readonly stopped?: {
+    readonly edge?: string
+    readonly at: NodeId
+    readonly workerId: string
+    readonly reason: string
+  }
 }
 
 /** `RunGraphOptions` with the brain REQUIRED — the shape the `/testing` entry's
@@ -571,11 +656,13 @@ function validateGraph(
   registry: PromptRegistry,
   analysts: AnalystRegistry | undefined,
 ): ValidatedGraph {
-  if (!Array.isArray(graph.nodes) || graph.nodes.length === 0) {
-    throw new ValidationError('runGraph: graph.nodes must be a non-empty array')
-  }
-  if (!Array.isArray(graph.edges) || graph.edges.length === 0) {
-    throw new ValidationError('runGraph: graph.edges must be a non-empty array')
+  if (graph.entry === undefined) {
+    if (!Array.isArray(graph.nodes) || graph.nodes.length === 0) {
+      throw new ValidationError('runGraph: graph.nodes must be a non-empty array')
+    }
+    if (!Array.isArray(graph.edges) || graph.edges.length === 0) {
+      throw new ValidationError('runGraph: graph.edges must be a non-empty array')
+    }
   }
   if (typeof graph.deliverable?.check !== 'function') {
     throw new ValidationError('runGraph: graph.deliverable is mandatory (termination oracle)')
@@ -583,15 +670,18 @@ function validateGraph(
   if (typeof graph.budget !== 'object' || graph.budget === null) {
     throw new ValidationError('runGraph: graph.budget is mandatory (the conserved pool)')
   }
+  if (graph.entry !== undefined) return validateFlowGraph(graph, registry, analysts)
   return validateGraphTopology(graph.nodes, graph.edges, registry, analysts)
 }
 
 // ── The runner ─────────────────────────────────────────────────────────────────
 
 /**
- * Execute an {@link AgentGraph}. The root node becomes the supervisor (`supervise()` — the
- * execution core), each worker node is spawnable BY NODE ID (`spawn_worker` with
- * `profile: { name: '<node id>' }`; the node's canonical profile is pinned by the graph), each
+ * Execute an {@link AgentGraph}. A flow graph (`entry` set) runs from its entries and routes edges
+ * under a runtime-owned root that places no model call. Otherwise the root node becomes the
+ * supervisor (`supervise()` — the execution core), each worker node is spawnable BY NODE ID
+ * (`spawn_worker` with `profile: { name: '<node id>' }`; the node's canonical profile is pinned by
+ * the graph), each
  * delegates directive is appended to the worker profile's `prompt.instructions` per traversal,
  * and each analyzes edge becomes an analyst-on-settle route with a real DESTINATION. Every
  * traversal is ledgered and journaled.
@@ -628,7 +718,32 @@ export function assertRunGraphAuthoring(
   assertRunGraphOptionKeys(opts)
   const registry = opts.registry ?? kernelPromptRegistry()
   const validated = validateGraph(graph, registry, opts.analysts)
-  const { root } = validated
+  const requireLeaves = (): void => {
+    if (!opts.backend && !opts.makeLeafAgent) {
+      throw new ValidationError(
+        'runGraph: provide opts.backend (where nodes run) or opts.makeLeafAgent',
+      )
+    }
+  }
+  if (validated.flow !== undefined) {
+    // A flow's root is Runtime's own: nothing a caller sets for a root manager has a reader.
+    const rootOptions = [
+      ...(brain ? ['brain'] : []),
+      ...(['driverBackend', 'finalizer', 'maxTurns', 'compaction'] as const).filter(
+        (key) => opts[key] !== undefined,
+      ),
+    ]
+    if (rootOptions.length > 0) {
+      throw new ValidationError(
+        `runGraph: ${rootOptions.join(', ')} with graph.entry — a flow graph has no root ` +
+          'manager: Runtime spawns its entries and traverses its routes edges, and the graph ' +
+          "owns the run's output",
+      )
+    }
+    requireLeaves()
+    return validated
+  }
+  const { root } = validated as RootValidatedGraph
   // A caller brain and a harness driver are two answers to WHO makes the root's calls: refuse the
   // contradiction before any compute, and refuse a harness-driven root outright — the harness IS
   // that root's brain, so a supplied one would be silently ignored downstream.
@@ -642,11 +757,7 @@ export function assertRunGraphAuthoring(
       `runGraph: root node '${root.id}' declares harness '${root.profile.harness}', so the harness drives it — a caller brain applies only to a router-brained root (profile.harness omitted or 'cli-base')`,
     )
   }
-  if (!opts.backend && !opts.makeLeafAgent) {
-    throw new ValidationError(
-      'runGraph: provide opts.backend (where nodes run) or opts.makeLeafAgent',
-    )
-  }
+  requireLeaves()
   return validated
 }
 
@@ -670,7 +781,8 @@ export function superviseAgentGraph(
     )
   }
   const validated = assertRunGraphAuthoring(graph, opts, brain)
-  const { root } = validated
+  // A flow graph: Runtime schedules its nodes, and its root manager is Runtime's own.
+  const flow = validated.flow === undefined ? undefined : createFlowRun()
   // A durable graph needs its journal AND blob store on disk. `supervise()` already resolves this
   // for its own context (`options.journal ?? createFileRunContext(runDir).journal`), but the graph
   // passes an explicit `journal`/`blobs` — the edge ledger's twin writes ride on it — so the graph
@@ -730,7 +842,15 @@ export function superviseAgentGraph(
     },
   }
   const hooks = composeRuntimeHooks(graphHooks, opts.hooks)
-  const rootProfile = graphRootProfile(validated, registry)
+  const rootProfile =
+    flow === undefined
+      ? graphRootProfile(validated as RootValidatedGraph, registry)
+      : flowRootProfile
+  const rootBrain = flow === undefined ? brain : runtimeFlowBrain()
+  const task =
+    flow === undefined
+      ? graphTask(graph, (validated as RootValidatedGraph).root)
+      : (graph.deliverable.describe ?? 'Runtime runs this flow graph from its entries.')
 
   // Every configuration fault above throws SYNCHRONOUSLY (matching `supervise()`'s own
   // contract); only the run itself is asynchronous.
@@ -758,7 +878,10 @@ export function superviseAgentGraph(
         _context: unknown,
         _eventId: unknown,
         record: { readonly event: Parameters<typeof overlay.onCoordinationEvent>[0] },
-      ) => overlay.onCoordinationEvent(record.event),
+      ) => {
+        overlay.onCoordinationEvent(record.event)
+        flow?.observe(record.event)
+      },
       // Lens routes resolve against the registry; agent routes carry their own analyst profile,
       // so a graph whose only analysts are nodes needs no registry at all.
       ...(overlay.routes.length > 0
@@ -771,17 +894,29 @@ export function superviseAgentGraph(
       ...(Object.keys(overlay.continuityByProfile).length > 0
         ? { continuityByProfile: overlay.continuityByProfile }
         : {}),
+      // A flow root's wake batches nothing for a decision, so it ends its turn on the first event.
+      ...(flow === undefined
+        ? {}
+        : {
+            routeFlow: routeFlowOf(validated),
+            finalizer: flow.finalizer,
+            wake: { debounceMs: 0, ...opts.wake },
+          }),
       authorizeMessage,
     } satisfies SuperviseOptions
-    const result =
-      brain === undefined
-        ? await supervise(rootProfile, graphTask(graph, root), superviseOptions)
-        : await superviseWithTestBrain(rootProfile, graphTask(graph, root), {
-            ...superviseOptions,
-            brain,
-          })
+    // The flow root reaches supervise through the same brain seam a caller brain takes.
+    const supervised =
+      rootBrain === undefined
+        ? await supervise(rootProfile, task, superviseOptions)
+        : await superviseWithTestBrain(rootProfile, task, { ...superviseOptions, brain: rootBrain })
 
     const { ledger, exhaustedEdges, exhaustedDelegates } = await overlay.settle()
+    const concluded = flow?.conclude(supervised)
+    if (concluded?.kind === 'unrouted') {
+      throw new GraphRouteError(concluded.unrouted, ledger, supervised)
+    }
+    const result = concluded?.result ?? supervised
+    const stopped = concluded?.stopped
     // A LIFECYCLE ending (caller abort, exhausted budget) is its own complete explanation: the
     // cap did not end that run even when it was exhausted along the way, and blaming it would
     // misattribute the ending (and turn a caller-initiated abort into a throw). The exhaustion
@@ -796,7 +931,7 @@ export function superviseAgentGraph(
       // Only DELEGATES caps refuse spawns, so only they can be the cause named here.
       throw new GraphEdgeCapError(exhaustedDelegates, ledger, result)
     }
-    return { result, ledger, exhaustedEdges, runId }
+    return { result, ledger, exhaustedEdges, runId, ...(stopped ? { stopped } : {}) }
   }
 
   return start()

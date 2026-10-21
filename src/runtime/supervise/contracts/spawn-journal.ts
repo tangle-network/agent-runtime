@@ -653,7 +653,7 @@ export type SpawnEvent =
        *  One run journal can then hold several graphs' ledgers; absent for the run's own graph. */
       graph?: NodeId
       edge: {
-        kind: 'delegates' | 'analyzes' | 'maps' | 'data'
+        kind: 'delegates' | 'analyzes' | 'maps' | 'routes' | 'data'
         from: string
         to: string
         /** The resolved directive reference (`<surface>/v<n>`), never the directive bytes.

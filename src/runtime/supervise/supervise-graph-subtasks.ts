@@ -1,10 +1,7 @@
 import { ValidationError } from '../../errors'
-import {
-  type GraphOverlay,
-  type GraphSubtaskTopology,
-  parseGraphSubtaskTopology,
-} from './graph-overlay'
+import type { GraphOverlay } from './graph-overlay'
 import { graphRegistry, loadGraph } from './graph-registry'
+import { type GraphSubtaskTopology, parseGraphSubtaskTopology } from './graph-subtask'
 
 /** A stored graph's topology, from the registry `SuperviseOptions.graphRegistry` names. */
 export async function storedGraphTopology(

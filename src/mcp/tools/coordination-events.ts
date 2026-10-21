@@ -14,6 +14,7 @@ import type {
   DownMessageEvent,
 } from './coordination-messages'
 import type { QuestionEscalationRecord, QuestionRecord } from './coordination-questions'
+import type { RouteFlowEvent } from './coordination-route-contracts'
 
 /** Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  *  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
@@ -65,6 +66,9 @@ export type CoordinationEvent =
   /** One step of a map route. Record-only, except an expansion that was refused and a join that
    *  could not run: those are queued, because no settlement will wake the manager for them. */
   | { readonly type: 'map'; readonly map: MapTraversalEvent }
+  /** One flow step (see {@link RouteFlowEvent}). Record-only: the settle that caused it already
+   *  woke the manager, and a flow manager makes no decision of its own. */
+  | { readonly type: 'route'; readonly route: RouteFlowEvent }
 
 /** One acknowledgement record: which delivered events are now processed, and on whose word. */
 export interface EventAcknowledgement {
@@ -243,6 +247,7 @@ export const journalEventKinds = [
   'tool-outcome',
   'lead-message',
   'map',
+  'route',
 ] as const satisfies ReadonlyArray<CoordinationEvent['type']>
 
 export type JournalEventKind = (typeof journalEventKinds)[number]

@@ -28,6 +28,7 @@ import {
 import { runExtraTool, runTool } from './driver-tool-dispatch'
 import { errMessage } from './error-message'
 import { bestDelivered, runFinalizer, runTree } from './finalizer'
+import { isRuntimeFlowBrain } from './flow-brain'
 import { createInbox, type InboxLease } from './inbox'
 import { providerAttemptEvidence } from './materialization'
 import { addResourceSpend, withBudgetResources } from './resources'
@@ -105,6 +106,13 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
   // maxTurns=0 is no turn-count cap. The conserved pool, deadline, abort, and explicit stop remain
   // the caller-visible bounds; Runtime does not substitute a hidden sentinel.
   const maxTurns = opts.maxTurns ?? 0
+  // A flow root: Runtime schedules its work from graph data and its brain makes no model call.
+  const runtimeScheduled = isRuntimeFlowBrain(opts.brain)
+  if (opts.routeFlow !== undefined && !runtimeScheduled) {
+    throw new ValidationError(
+      'driverAgent: routeFlow is runtime-owned — runGraph sets it for a graph with entry, together with the flow brain',
+    )
+  }
   const now = opts.now ?? Date.now
   const inbox = opts.inbox ?? createInbox()
   const transcript = opts.transcript ?? createRouterTranscript()
@@ -140,6 +148,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.analysts ? { analysts: opts.analysts } : {}),
         ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
         ...(opts.mapOnSettle ? { mapOnSettle: opts.mapOnSettle } : {}),
+        ...(opts.routeFlow ? { routeFlow: opts.routeFlow } : {}),
         ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
         ...(opts.peerAudit ? { peerAudit: opts.peerAudit } : {}),
         ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
@@ -388,12 +397,12 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         const turn = driverTurn
         // A compaction may have replaced the middle since `beforeTurn`; its note is what the model sees.
         transcript.observe(messages)
-        const res = await meteredBrain(
-          messages,
-          tools,
-          { kind: 'driver-inference', turn },
-          (reply) => transcript.reply(reply),
-        )
+        // A flow root's turn reaches no provider, so there is no attempt to meter or attribute.
+        const res = runtimeScheduled
+          ? await opts.brain(messages, tools)
+          : await meteredBrain(messages, tools, { kind: 'driver-inference', turn }, (reply) =>
+              transcript.reply(reply),
+            )
         for (const lease of leases.splice(0)) {
           for (const message of lease.messages) {
             lease.commit(`${scope.view.root}#driver-turn-${turn}`, message.id)
@@ -555,7 +564,8 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               scope.signal.aborted ||
               poolStarved(scope, opts.perWorker, opts.preserveOwnerTurns) ||
               deadlinePassed(scope, now) ||
-              ownTurnsUnbounded(scope, poolTokens, driverTurns, opts.maxTurns)
+              (!runtimeScheduled &&
+                ownTurnsUnbounded(scope, poolTokens, driverTurns, opts.maxTurns))
             ) {
               return true
             }

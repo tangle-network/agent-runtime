@@ -25,6 +25,7 @@ const superviseOptionKeys = [
   'analysts',
   'analyzeOnSettle',
   'mapOnSettle',
+  'routeFlow',
   'authorizeMessage',
   'authorizeSpawn',
   'backend',

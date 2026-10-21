@@ -211,6 +211,7 @@ export function createSpawnAdmission({
       ...(successorOf !== undefined ? { successorOf } : {}),
       ...(peerMailUrl !== undefined ? { peerMailUrl } : {}),
       ...(input.map !== undefined ? { map: input.map } : {}),
+      ...(input.route !== undefined ? { route: input.route } : {}),
     })
     const res = opts.scope.spawn(() => opts.makeWorkerAgent(profile, context), task, {
       budget,

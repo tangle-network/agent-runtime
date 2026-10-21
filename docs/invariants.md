@@ -36,3 +36,32 @@ Scenario coverage lives in `tests/kernel/supervise-retained-owner-pending.test.t
 
 Scenario coverage lives in `tests/kernel/graph.test.ts` (`run_graph`),
 `tests/durability/graph-rundir-journal.test.ts` and `tests/durability/graph-kill-resume.test.ts`.
+
+# Flow graphs
+
+- A graph with `entry` is a flow graph. Runtime decides its order, branches, repair loops and stops
+  from graph data: its root manager is Runtime's own, its brain places no model call and meters no
+  provider attempt (a no-usage turn would count as unknown spend, which a dollar-capped pool
+  refuses), and a caller `brain`, `driverBackend`, `finalizer`, `maxTurns` or `compaction` is
+  refused because a flow root has no reader for them.
+- Entry and route spawns are runtime spawns, like map items. Each takes the admission a
+  `spawn_worker` call takes, so the conserved pool, the pre-flight and node pinning judge it; its
+  runtime-authored `route` marker is what pinning admits, never a model argument.
+- Runtime spawns every entry when the root's coordination opens, before the root's first turn, so
+  a flow cannot end `no-children-spawned` while an entry is still running.
+- One usable settle fires at most one routes edge: the first in declaration order whose `when`
+  holds. An edge at its cap is skipped and ledgered `unpropagated`; a settle no edge matches throws
+  `GraphRouteError`, a `stop` edge returns no winner `'stopped'`, and a down flow node returns no
+  winner `'all-children-down'`, each with nothing spawned after it.
+- A `done` settle without a usable result (its deliverable check rejected it, or it has no result)
+  is not output on a terminal node; on a node with routes edges it ends the run as a down settle
+  does, `'all-children-down'` with `stopped.reason` `unusable: <why>`.
+- A flow that ends early aborts its live flow workers: the run returns at the stop, it does not
+  wait for siblings.
+- The run's output is `{ [node]: latest usable result }` over its terminal nodes and `finish`
+  sources, and the graph's deliverable alone decides whether it wins.
+- Every entry, traversal, cap skip and refused route spawn is a `routes` row in the edge ledger and
+  an `edge` event in the run journal.
+
+Scenario coverage lives in `tests/kernel/graph-routes.test.ts` and the four flow examples in
+`tests/examples/graph-corpus.test.ts`.

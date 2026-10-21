@@ -11,9 +11,13 @@
  *      above one) — not the exact cap, not the width, not the model provider, not the root's
  *      non-spawn grants, not any wording. Two graphs with equal signatures are the same topology.
  *   2. For graphs with equal signatures, `ledgerShape` runs each example's offline scenarios and
- *      fingerprints what the run DID: the driver's spawn waves in order (how many workers each
- *      turn spawned, one or many, with consecutive equal waves collapsed), the analyzes rows, the
- *      continuity stamps and the outcomes. Equal topology plus equal ledger shape is a duplicate.
+ *      fingerprints what the run DID: the spawn waves in order (how many workers each driver turn
+ *      spawned, one or many, with consecutive equal waves collapsed; in a flow graph, the entries
+ *      and then each route spawn), the analyzes and routes rows, the continuity stamps and the
+ *      outcomes. Equal topology plus equal ledger shape is a duplicate.
+ *
+ * A flow graph (one with `entry`) has no root: Runtime starts its entries and traverses its routes
+ * edges, so its signature carries the entry width and each routes edge instead.
  *
  * A graph that is another catalogued graph's topology on purpose says so with `reuses` (an arm of
  * a comparison, the live run of an offline example); the audit checks that the named graph really
@@ -21,12 +25,13 @@
  * are never part of either fingerprint: two graphs that differ only in wording are one example.
  */
 
-import type { AgentGraph, GraphResult } from '@tangle-network/agent-runtime/kernel'
 import {
-  type RunGraphTestOptions,
-  runGraphWithTestBrain,
-  type ToolLoopChat,
-} from '../../src/testing'
+  type AgentGraph,
+  type GraphResult,
+  type RunGraphOptions,
+  runGraph,
+} from '@tangle-network/agent-runtime/kernel'
+import { runGraphWithTestBrain, type ToolLoopChat } from '../../src/testing'
 import { analystAgentReview } from './analyst-agent-review'
 import { arms } from './arm-comparison'
 import { bestOfN } from './best-of-n'
@@ -50,10 +55,11 @@ import { staticFanoutSynthesize } from './static-fanout-synthesize'
 import { userSimConversation } from './user-sim-conversation'
 import { watchdogSteer } from './watchdog-steer'
 
-/** One run of a catalogued graph. `opts` is absent when the graph cannot run offline. */
+/** One run of a catalogued graph. `opts` is absent when the graph cannot run offline; a root
+ *  graph's offline opts carry its scripted brain, a flow graph's carry none. */
 export interface CatalogRun {
   readonly graph: AgentGraph
-  readonly opts?: RunGraphTestOptions
+  readonly opts?: RunGraphOptions
 }
 
 export interface CatalogGraph {
@@ -154,11 +160,15 @@ export const NOT_GRAPH_FILES: Readonly<Record<string, string>> = {
 
 type Role = 'root' | 'worker' | 'analyst-node' | 'nested-supervisor'
 
-/** Who each node is in the graph: the root, a worker, an analyst node, or a nested supervisor. */
+/** Who each node is in the graph: the root, a worker, an analyst node, or a nested supervisor. A
+ *  flow graph has no root. */
 export function rolesOf(graph: AgentGraph): (id: string) => Role {
   const delegates = graph.edges.filter((e) => e.kind === 'delegates')
   const delegated = new Set(delegates.map((e) => e.to))
-  const root = delegates.map((e) => e.from).find((id) => !delegated.has(id)) ?? ''
+  const root =
+    graph.entry === undefined
+      ? (delegates.map((e) => e.from).find((id) => !delegated.has(id)) ?? '')
+      : undefined
   const nodes = new Map(graph.nodes.map((n) => [n.id, n]))
   const analysts = new Set(
     graph.edges.flatMap((e) => (e.kind === 'analyzes' && nodes.has(e.analyst) ? [e.analyst] : [])),
@@ -190,7 +200,25 @@ const repeats = (e: { maxTraversals?: number }): string =>
 export function graphSignature(graph: AgentGraph): string {
   const role = rolesOf(graph)
   const nodes = new Set(graph.nodes.map((n) => n.id))
+  // A flow graph's topology is its entries and its routes: each edge's target (a node's role, a
+  // stop or a finish), whether it is conditional, and whether it declares repetition.
+  const flow =
+    graph.entry === undefined
+      ? {}
+      : {
+          entry: width(graph.entry.length),
+          routes: bucketed(
+            graph.edges.flatMap((e) =>
+              e.kind === 'routes'
+                ? [
+                    `${typeof e.to === 'string' ? role(e.to) : 'stop' in e.to ? 'stop' : 'finish'}|${e.when === undefined ? 'default' : 'when'}|${repeats(e)}|${e.continuity ?? 'fresh'}`,
+                  ]
+                : [],
+            ),
+          ),
+        }
   return JSON.stringify({
+    ...flow,
     roles: bucketed(graph.nodes.map((n) => role(n.id))),
     delegates: bucketed(
       graph.edges.flatMap((e) =>
@@ -216,18 +244,34 @@ export async function ledgerShape(run: Required<CatalogRun>): Promise<string> {
   const role = rolesOf(run.graph)
   const waves: string[] = []
   const inner = run.opts.brain
-  const brain: ToolLoopChat = async (messages, tools, context) => {
-    const turn = await inner(messages, tools, context)
-    const wave = turn.toolCalls.flatMap((tc) => {
-      if (tc.name === 'steer_agent') return ['steer']
-      if (tc.name !== 'spawn_worker') return []
-      const args = JSON.parse(tc.arguments) as { profile?: { name?: string } }
-      return [role(args.profile?.name ?? '')]
-    })
-    if (wave.length > 0) waves.push(bucketed(wave).join('+'))
-    return turn
+  let res: GraphResult
+  if (inner === undefined) {
+    // A flow graph: the entries are one wave, then each route spawn is a wave of its own.
+    res = await runGraph(run.graph, run.opts)
+    const spawned = res.ledger.filter(
+      (r) =>
+        r.kind === 'routes' &&
+        r.outcome === 'delivered' &&
+        run.graph.nodes.some((n) => n.id === r.to),
+    )
+    const entries = spawned.filter((r) => r.edge.startsWith('routes:entry->'))
+    if (entries.length > 0) waves.push(bucketed(entries.map((r) => role(r.to))).join('+'))
+    for (const r of spawned.filter((row) => !entries.includes(row)))
+      waves.push(bucketed([role(r.to)]).join('+'))
+  } else {
+    const brain: ToolLoopChat = async (messages, tools, context) => {
+      const turn = await inner(messages, tools, context)
+      const wave = turn.toolCalls.flatMap((tc) => {
+        if (tc.name === 'steer_agent') return ['steer']
+        if (tc.name !== 'spawn_worker') return []
+        const args = JSON.parse(tc.arguments) as { profile?: { name?: string } }
+        return [role(args.profile?.name ?? '')]
+      })
+      if (wave.length > 0) waves.push(bucketed(wave).join('+'))
+      return turn
+    }
+    res = await runGraphWithTestBrain(run.graph, { ...run.opts, brain })
   }
-  const res: GraphResult = await runGraphWithTestBrain(run.graph, { ...run.opts, brain })
   const collapsed: string[] = []
   for (const wave of waves) {
     const last = collapsed.at(-1)
@@ -236,9 +280,20 @@ export async function ledgerShape(run: Required<CatalogRun>): Promise<string> {
   }
   const kinds = (pick: (row: GraphResult['ledger'][number]) => string) =>
     [...new Set(res.ledger.map(pick))].sort()
+  const routes = res.ledger.filter((r) => r.kind === 'routes')
   return JSON.stringify({
     waves: collapsed,
     analyzes: bucketed(res.ledger.filter((r) => r.kind === 'analyzes').map((r) => role(r.to))),
+    ...(routes.length === 0
+      ? {}
+      : {
+          routes: bucketed(
+            routes.map(
+              (r) =>
+                `${r.to.startsWith('stop:') ? 'stop' : r.to.startsWith('finish:') ? 'finish' : role(r.to)}|${r.outcome}`,
+            ),
+          ),
+        }),
     continuity: kinds((r) => r.continuity),
     outcomes: kinds((r) => r.outcome),
   })

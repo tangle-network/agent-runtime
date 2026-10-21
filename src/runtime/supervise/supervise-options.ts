@@ -15,6 +15,7 @@ import type {
   DownMessageAuthorizationInput,
 } from '../../mcp/tools/coordination-messages'
 import type { EscalateQuestion } from '../../mcp/tools/coordination-questions'
+import type { RouteFlow, RouteSpawnMarker } from '../../mcp/tools/coordination-route-contracts'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type { RouterTransportConfig } from '../router-http-transport'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
@@ -168,6 +169,10 @@ export interface SuperviseOptions {
     /** Present only when a map route started this spawn — authored by the runtime, never accepted
      *  from tool arguments. A node-pinning authority reads it to admit the map's item or join. */
     readonly map?: MapSpawnMarker
+    /** Present only when a flow's entry or routes edge started this spawn — authored by the
+     *  runtime, never accepted from tool arguments. A node-pinning authority reads it to admit the
+     *  node the edge names. */
+    readonly route?: RouteSpawnMarker
     /** The EFFECTIVE continuity of this spawn, resolved by the coordination layer. */
     readonly continuity?: ContinuityMode
   }) => AuthorizedSpawn
@@ -384,6 +389,9 @@ export interface SuperviseOptions {
    *  source's result, then one join. An AgentGraph's `maps` edges set it; see `MapOnSettleRoute`.
    *  Omit = none. */
   readonly mapOnSettle?: ReadonlyArray<MapOnSettleRoute>
+  /** The flow the root manager runs: an AgentGraph with `entry` sets it, together with its
+   *  runtime-owned root, which makes no model call. See `RouteFlow`. Omit = none. */
+  readonly routeFlow?: RouteFlow
   /**
    * Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
    * moment one loops or error-storms — so the supervisor learns it mid-run (in its next wake)

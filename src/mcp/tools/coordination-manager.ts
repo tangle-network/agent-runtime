@@ -40,6 +40,7 @@ import { managerReentryState } from './coordination-manager-reentry'
 import { createMapRouting } from './coordination-map-routing'
 import { createQuestionLedger } from './coordination-question-ledger'
 import { createQuestionTools } from './coordination-question-tools'
+import { createRouteRouting } from './coordination-route-routing'
 import { createSettlementDrain } from './coordination-settlement-drain'
 import { createSpawnAdmission } from './coordination-spawn-admission'
 import { createWorkerObservation } from './coordination-worker-observation'
@@ -118,6 +119,7 @@ export function createCoordinationToolsForManager(
     nodeForWorker,
     workerRouteNames,
     liveWorkerIdNamed,
+    resolveContinuity,
     admitSpawn,
     abortWorker,
   } = spawnAdmission
@@ -180,7 +182,13 @@ export function createCoordinationToolsForManager(
     : []
   let resumeEventIndex = 0
   let readyInFlight: Promise<void> | undefined
-  const ready = (): Promise<void> => {
+  // The flow start hook: a flow's entries are spawned once, when the coordination opens and
+  // before the manager's first turn, after any replayed settlements are published.
+  const ready = async (): Promise<void> => {
+    await replayResumeEvents()
+    if (opts.routeFlow !== undefined) await routes.start()
+  }
+  const replayResumeEvents = (): Promise<void> => {
     if (resumeEventIndex >= resumeEvents.length) return Promise.resolve()
     if (readyInFlight) return readyInFlight
     readyInFlight = (async () => {
@@ -274,6 +282,18 @@ export function createCoordinationToolsForManager(
     admitSpawn: (input) => admitSpawn(input),
     profileNameByWorker,
   })
+  const routes = createRouteRouting({
+    opts,
+    bus,
+    admitSpawn: (input) => admitSpawn(input),
+    resolveContinuity,
+    profileNameByWorker,
+    stop: (why) => {
+      stopped = true
+      reason = why
+      notifyStop()
+    },
+  })
   const settlements = createSettlementDrain({
     opts,
     ledger,
@@ -281,6 +301,7 @@ export function createCoordinationToolsForManager(
     bus,
     analysis,
     maps,
+    routes,
     workerRouteNames,
     projectSettled,
   })
