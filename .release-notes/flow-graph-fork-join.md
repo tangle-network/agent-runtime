@@ -1,3 +1,0 @@
-type: minor
----
-Flow graphs fork and join. A `routes` edge whose `to` lists several nodes spawns them all in one traversal (each under key `route:<edge>#<traversal>:<node>`); one whose `from` lists several nodes is a join that fires once every member has settled, with each member's latest result in the target's evidence. A route into a node that still runs throws `GraphRouteError` with the new `reason` `'target-live'` (`'unrouted'` otherwise). `GraphTopology` gains `entry`, so a maps edge's `graph` item and a `run_graph` subtask may be flow graphs: inside a maps item each `{ item: true }` entry task becomes the item, and a down settle fails that item only, leaving the join to `onItemFailure`. The `dependency-waves` example is now a flow graph with no driver brain.
