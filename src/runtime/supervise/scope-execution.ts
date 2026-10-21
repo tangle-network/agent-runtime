@@ -9,14 +9,7 @@ import {
 } from '../harness-transcript'
 import { cloneTokenUsage } from '../util'
 import { abortError } from './abortable'
-import {
-  type BudgetPool,
-  BudgetReconcileFault,
-  meterUsageEvent,
-  newUsageTotals,
-  type ReservationTicket,
-  spendFromUsageTotals,
-} from './budget'
+import { type BudgetPool, BudgetReconcileFault, type ReservationTicket } from './budget'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { errMessage } from './error-message'
 import { executorFailure, executorFailureInfra } from './executor-outcome'
@@ -37,6 +30,7 @@ import type {
   UsageEvent,
   WorkerTraceEvidence,
 } from './types'
+import { meterUsageEvent, newUsageTotals, spendFromUsageTotals } from './usage-metering'
 
 export async function runChild<C>(
   live: LiveChild,

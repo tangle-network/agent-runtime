@@ -1,5 +1,5 @@
 import type { Budget } from '../../runtime'
-import { assertValidBudget } from '../../runtime/supervise/budget'
+import { assertValidBudget } from '../../runtime/supervise/spend-validation'
 
 export // Parse a per-spawn `budget` override and merge it over the per-worker default (per field).
 // Fails loud on a non-object or a non-finite numeric field — a malformed budget must never

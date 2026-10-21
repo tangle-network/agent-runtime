@@ -467,7 +467,6 @@ export {
   type ReservationTicket,
   ReservationWaitRefused,
   type ReserveOptions,
-  spendFromUsageEvents,
 } from './supervise/budget'
 // The chat-transport leaf (#721): a worker that IS a model conversation on a bare
 // OpenAI-compatible /v1/chat/completions endpoint — no sandbox. Ships with its session store and
@@ -884,6 +883,7 @@ export * from './supervise/untracked-clone'
 // One pause rule for an upstream that cannot serve now: a driver re-enters after it, and a
 // provider-backed leaf continues in its environment after it (`ProviderExecutorOptions`).
 export type { UnavailablePausePolicy } from './supervise/upstream-unavailable'
+export { spendFromUsageEvents } from './supervise/usage-metering'
 // How a manager that ended its turn with work open is woken: heartbeat, debounce, deadline notice.
 export {
   DEFAULT_DEADLINE_WARNING_MS,

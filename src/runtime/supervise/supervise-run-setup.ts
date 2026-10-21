@@ -20,7 +20,6 @@ import type {
   QuestionRecord,
 } from '../../mcp/tools/coordination-questions'
 import type { ToolLoopChat } from '../tool-loop'
-import { assertValidBudget } from './budget'
 import type { BusRecord } from './event-bus'
 import { runtimeOwnedScopeOwnerRuntime } from './materialization'
 import {
@@ -32,6 +31,7 @@ import { createRootStreamSink } from './root-stream'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import { assertRecursiveReservationPolicy } from './scope'
 import { authoredSeatStages } from './seat-chain'
+import { assertValidBudget } from './spend-validation'
 import {
   assertPerWorkerAdmittable,
   assertPerWorkerWithinPool,
