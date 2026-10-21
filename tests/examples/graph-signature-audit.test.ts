@@ -98,7 +98,15 @@ describe('examples/graphs — structural deduplication audit', () => {
       signatureOf(entry('arm-comparison/best-of-3')),
     )
     expect(signatureOf(entry('conditional-skip'))).not.toBe(signatureOf(entry('best-of-n')))
-    const flows = ['role-chain', 'conditional-skip', 'loop-until-dry', 'proof-gate']
+    const flows = [
+      'role-chain',
+      'conditional-skip',
+      'loop-until-dry',
+      'proof-gate',
+      'dependency-waves',
+      'static-fanout-synthesize',
+      'per-item-pipeline',
+    ]
     expect(new Set(flows.map((name) => signatureOf(entry(name)))).size).toBe(flows.length)
 
     const waves = async (name: string) =>
