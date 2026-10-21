@@ -6996,14 +6996,14 @@ The goal framing handed to the shape — the "what to achieve", not "how".
 
 ##### context
 
-> `readonly` **context**: [`PersonaContext`](#personacontext-1)
+> `readonly` **context**: [`PersonaContext`](#personacontext)
 
 Who the loop is acting as — the opaque persona context blob the shape may inject into
  child tasks. Opaque to the framework; only the persona's profiles/prompts interpret it.
 
 ##### executors
 
-> `readonly` **executors**: [`PersonaExecutors`](#personaexecutors-1)
+> `readonly` **executors**: [`PersonaExecutors`](#personaexecutors)
 
 The executor seams (router endpoint+key, sandbox client, cli bin) the built-in runtimes
 read off `ExecutorContext.seams`, OR a fully pre-configured registry. The supervisor
@@ -7103,11 +7103,11 @@ The minimal input to build a `Persona`. Mirrors `Persona` but lets the builder d
 
 ##### context
 
-> `readonly` **context**: [`PersonaContext`](#personacontext-1)
+> `readonly` **context**: [`PersonaContext`](#personacontext)
 
 ##### executors
 
-> `readonly` **executors**: [`PersonaExecutors`](#personaexecutors-1)
+> `readonly` **executors**: [`PersonaExecutors`](#personaexecutors)
 
 ##### extensions?
 
@@ -7742,7 +7742,7 @@ Build the next step child's task from the root task + the state accumulated so f
 
 ###### state
 
-[`LoopUntilState`](#loopuntilstate-2)\<`State`\>
+[`LoopUntilState`](#loopuntilstate)\<`State`\>
 
 ###### ctx
 
@@ -7754,7 +7754,7 @@ Build the next step child's task from the root task + the state accumulated so f
 
 ##### fold()
 
-> **fold**(`prior`, `settled`): [`LoopUntilState`](#loopuntilstate-2)\<`State`\>
+> **fold**(`prior`, `settled`): [`LoopUntilState`](#loopuntilstate)\<`State`\>
 
 Fold one settled step into the accumulated state (the loop's running deliverable candidate).
 
@@ -7762,7 +7762,7 @@ Fold one settled step into the accumulated state (the loop's running deliverable
 
 ###### prior
 
-[`LoopUntilState`](#loopuntilstate-2)\<`State`\>
+[`LoopUntilState`](#loopuntilstate)\<`State`\>
 
 ###### settled
 
@@ -7770,7 +7770,7 @@ Fold one settled step into the accumulated state (the loop's running deliverable
 
 ###### Returns
 
-[`LoopUntilState`](#loopuntilstate-2)\<`State`\>
+[`LoopUntilState`](#loopuntilstate)\<`State`\>
 
 ##### until()
 
@@ -7784,7 +7784,7 @@ Reads `findings` (trace-derived), NOT a raw verdict score — the deployable-sto
 
 ###### state
 
-[`LoopUntilState`](#loopuntilstate-2)\<`State`\>
+[`LoopUntilState`](#loopuntilstate)\<`State`\>
 
 ###### findings
 
@@ -8749,7 +8749,7 @@ iteration count.
 
 ##### report
 
-> `readonly` **report**: [`TrajectoryReport`](#trajectoryreport-3)
+> `readonly` **report**: [`TrajectoryReport`](#trajectoryreport)
 
 ***
 
@@ -11363,7 +11363,7 @@ The worker: model + router + (optional) the critic's instruction (the steerer kn
 
 ##### strategies?
 
-> `optional` **strategies?**: [`Strategy`](#strategy-3)\<[`StrategyResult`](#strategyresult-1)\>[]
+> `optional` **strategies?**: [`Strategy`](#strategy-3)\<[`StrategyResult`](#strategyresult)\>[]
 
 Which strategies to compare. Pass the built-ins (`refine`, `sample`) or your own.
  Default: [sample, refine].
@@ -13499,7 +13499,7 @@ Where the authored module file is written (created if missing).
 
 ##### Result
 
-`Result` *extends* [`StrategyResult`](#strategyresult-1) = [`StrategyResult`](#strategyresult-1)
+`Result` *extends* [`StrategyResult`](#strategyresult) = [`StrategyResult`](#strategyresult)
 
 #### Properties
 
@@ -13824,7 +13824,7 @@ code, transports and callbacks. Change it whenever one of them changes.
 
 ##### root?
 
-> `optional` **root?**: [`Strategy`](#strategy-3)\<[`StrategyResult`](#strategyresult-1)\>
+> `optional` **root?**: [`Strategy`](#strategy-3)\<[`StrategyResult`](#strategyresult)\>
 
 The strategy to beat and the tree's root. Default `refine`.
 
@@ -14527,7 +14527,7 @@ Observed billed subtotal. `usdKnown:false` means it is incomplete, never a measu
 
 ##### Result
 
-`Result` *extends* [`StrategyResult`](#strategyresult-1) = [`StrategyResult`](#strategyresult-1)
+`Result` *extends* [`StrategyResult`](#strategyresult) = [`StrategyResult`](#strategyresult)
 
 #### Properties
 
@@ -15112,7 +15112,7 @@ The body's deliverable — a `StrategyResult` plus selection provenance. The ext
 
 #### Extends
 
-- [`StrategyResult`](#strategyresult-1)
+- [`StrategyResult`](#strategyresult)
 
 #### Properties
 
@@ -15122,7 +15122,7 @@ The body's deliverable — a `StrategyResult` plus selection provenance. The ext
 
 ###### Inherited from
 
-[`StrategyResult`](#strategyresult-1).[`score`](#score-5)
+[`StrategyResult`](#strategyresult).[`score`](#score-5)
 
 ##### resolved
 
@@ -15130,7 +15130,7 @@ The body's deliverable — a `StrategyResult` plus selection provenance. The ext
 
 ###### Inherited from
 
-[`StrategyResult`](#strategyresult-1).[`resolved`](#resolved-3)
+[`StrategyResult`](#strategyresult).[`resolved`](#resolved-3)
 
 ##### completions
 
@@ -15138,7 +15138,7 @@ The body's deliverable — a `StrategyResult` plus selection provenance. The ext
 
 ###### Inherited from
 
-[`StrategyResult`](#strategyresult-1).[`completions`](#completions)
+[`StrategyResult`](#strategyresult).[`completions`](#completions)
 
 ##### progression
 
@@ -15146,7 +15146,7 @@ The body's deliverable — a `StrategyResult` plus selection provenance. The ext
 
 ###### Inherited from
 
-[`StrategyResult`](#strategyresult-1).[`progression`](#progression-1)
+[`StrategyResult`](#strategyresult).[`progression`](#progression-1)
 
 ##### shots
 
@@ -15154,7 +15154,7 @@ The body's deliverable — a `StrategyResult` plus selection provenance. The ext
 
 ###### Inherited from
 
-[`StrategyResult`](#strategyresult-1).[`shots`](#shots-2)
+[`StrategyResult`](#strategyresult).[`shots`](#shots-2)
 
 ##### artifact
 
@@ -17338,13 +17338,13 @@ Optional live tool evidence exposed by executors that can observe it.
 
 ##### progress()?
 
-> `optional` **progress**(): [`ExecutorProgress`](#executorprogress-1) \| `undefined`
+> `optional` **progress**(): [`ExecutorProgress`](#executorprogress) \| `undefined`
 
 Optional live execution progress exposed by executors that can observe it.
 
 ###### Returns
 
-[`ExecutorProgress`](#executorprogress-1) \| `undefined`
+[`ExecutorProgress`](#executorprogress) \| `undefined`
 
 ##### harnessTranscript()?
 
@@ -18437,7 +18437,7 @@ message returns `false`, and that refusal propagates to the caller.
 
 ##### progress()?
 
-> `optional` **progress**(): [`ExecutorProgress`](#executorprogress-1) \| `undefined`
+> `optional` **progress**(): [`ExecutorProgress`](#executorprogress) \| `undefined`
 
 Optional LIVE progress: what this worker is doing RIGHT NOW, read synchronously and
 cheaply while `execute` is still streaming. The scope already derives activity timing,
@@ -18452,7 +18452,7 @@ mid-flight — it can only be waited on.
 
 ###### Returns
 
-[`ExecutorProgress`](#executorprogress-1) \| `undefined`
+[`ExecutorProgress`](#executorprogress) \| `undefined`
 
 ##### traceSource()?
 
@@ -18615,7 +18615,7 @@ driver branched on, its verdict, and the conserved spend. Read once, after settl
 
 ##### accounting()?
 
-> `optional` **accounting**(): [`ExecutorAccounting`](#executoraccounting-1) \| `undefined`
+> `optional` **accounting**(): [`ExecutorAccounting`](#executoraccounting) \| `undefined`
 
 Optional accounting split for recursive executors.
 `reported` is the child-work spend written on this node's settlement; `reservation` is the
@@ -18626,7 +18626,7 @@ Valid after `execute` resolves or throws; ordinary leaf executors omit it.
 
 ###### Returns
 
-[`ExecutorAccounting`](#executoraccounting-1) \| `undefined`
+[`ExecutorAccounting`](#executoraccounting) \| `undefined`
 
 ##### metered()?
 
@@ -26710,11 +26710,11 @@ Drive the worker to settlement. `signal` is the spawn-scoped abort handed to `ex
 
 ##### progress()
 
-> **progress**(): [`ExecutorProgress`](#executorprogress-1)
+> **progress**(): [`ExecutorProgress`](#executorprogress)
 
 ###### Returns
 
-[`ExecutorProgress`](#executorprogress-1)
+[`ExecutorProgress`](#executorprogress)
 
 ##### cancel()
 
@@ -29557,13 +29557,13 @@ Optional live evidence from the harness execution currently being driven.
 
 ##### progress()?
 
-> `optional` **progress**(): [`ExecutorProgress`](#executorprogress-1) \| `undefined`
+> `optional` **progress**(): [`ExecutorProgress`](#executorprogress) \| `undefined`
 
 Optional live progress from the harness execution currently being driven.
 
 ###### Returns
 
-[`ExecutorProgress`](#executorprogress-1) \| `undefined`
+[`ExecutorProgress`](#executorprogress) \| `undefined`
 
 ##### resultArtifact()?
 
@@ -34603,7 +34603,7 @@ judge/verdict/score scheme is rejected. Fail loud — a tainted finding aborts. 
 
 ### TrajectoryReportFn
 
-> **TrajectoryReportFn** = (`journal`, `blobs`, `root`, `options?`) => `Promise`\<[`TrajectoryReport`](#trajectoryreport-3)\>
+> **TrajectoryReportFn** = (`journal`, `blobs`, `root`, `options?`) => `Promise`\<[`TrajectoryReport`](#trajectoryreport)\>
 
 `trajectoryReport(...)` — the tree+cost reconstructor. Async (reads journal + optionally blobs).
 
@@ -34627,7 +34627,7 @@ judge/verdict/score scheme is rejected. Fail loud — a tainted finding aborts. 
 
 #### Returns
 
-`Promise`\<[`TrajectoryReport`](#trajectoryreport-3)\>
+`Promise`\<[`TrajectoryReport`](#trajectoryreport)\>
 
 ***
 
@@ -42090,7 +42090,7 @@ Register a composed shape on the default `builtinShapes` registry — the one-ca
 
 ### trajectoryReport()
 
-> **trajectoryReport**(`journal`, `blobs`, `root`, `options?`): `Promise`\<[`TrajectoryReport`](#trajectoryreport-3)\>
+> **trajectoryReport**(`journal`, `blobs`, `root`, `options?`): `Promise`\<[`TrajectoryReport`](#trajectoryreport)\>
 
 Reconstruct the whole spawn tree for `root` with per-node + rolled-up `Spend`. Reads the
 journal for structure + spend and, when `withOutputs`, the blob store for each `done`
@@ -42118,7 +42118,7 @@ store cannot rehydrate (a silent gap would mis-cost or mis-evidence the tree).
 
 #### Returns
 
-`Promise`\<[`TrajectoryReport`](#trajectoryreport-3)\>
+`Promise`\<[`TrajectoryReport`](#trajectoryreport)\>
 
 ***
 
@@ -43254,7 +43254,7 @@ Author a Strategy from the composable steps — the open, compact way.
 
 ##### Result
 
-`Result` *extends* [`StrategyResult`](#strategyresult-1)
+`Result` *extends* [`StrategyResult`](#strategyresult)
 
 #### Parameters
 
@@ -43391,7 +43391,7 @@ Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-
 
 ##### Result
 
-`Result` *extends* [`StrategyResult`](#strategyresult-1) = [`StrategyResult`](#strategyresult-1)
+`Result` *extends* [`StrategyResult`](#strategyresult) = [`StrategyResult`](#strategyresult)
 
 #### Parameters
 
@@ -45358,7 +45358,7 @@ Fold the scope-derived facts and the executor's optional enrichment into one rea
 
 ##### executor
 
-[`ExecutorProgress`](#executorprogress-1) \| `undefined`
+[`ExecutorProgress`](#executorprogress) \| `undefined`
 
 ##### now
 

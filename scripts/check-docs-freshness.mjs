@@ -25,6 +25,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { generatedApiLinks } from './generated-api-links.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const docPath = join(repoRoot, 'docs', 'canonical-api.md')
@@ -645,6 +646,9 @@ if (!existsSync(catalogPath)) {
 // =========================================================================
 // Report + exit
 // =========================================================================
+
+// Report ambiguous inherited member links; the generator repairs only unique exact headings.
+generatedApiLinks()
 
 const byClass = {}
 for (const d of drift) (byClass[d.cls] ||= []).push(d)

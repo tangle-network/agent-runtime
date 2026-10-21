@@ -202,7 +202,7 @@ How the app was invoked. Defaults read `process.argv` / `process.cwd()`.
 
 ##### completeness
 
-> `readonly` **completeness**: [`TopSnapshotCompleteness`](#topsnapshotcompleteness-1)
+> `readonly` **completeness**: [`TopSnapshotCompleteness`](#topsnapshotcompleteness)
 
 **`Experimental`**
 
