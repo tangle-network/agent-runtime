@@ -1266,7 +1266,7 @@ Provider-neutral model request resolved before any grant is reserved.
 
 ###### harness
 
-> **harness**: `"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
+> **harness**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
 
 ###### reasoningEffort
 
@@ -1503,7 +1503,7 @@ Catalog/snapshot resolution stays separate from credential issuance.
 
 ###### harness
 
-`"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
+`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
 
 ###### reasoningEffort
 
@@ -2023,7 +2023,7 @@ any archive encoding, or no-op when the exact workspace is already present.
 
 ###### harness
 
-`"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
+`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
 
 ###### reasoningEffort
 
@@ -3436,56 +3436,6 @@ Omit for a workspace-root file; agent-root files use the private Pi directory.
 
 ***
 
-### AgentCandidateWorkspaceArchiveLimits
-
-**`Experimental`**
-
-#### Properties
-
-##### maxArchiveBytes
-
-> **maxArchiveBytes**: `number`
-
-**`Experimental`**
-
-##### maxEmbeddedArtifactBytes
-
-> **maxEmbeddedArtifactBytes**: `number`
-
-**`Experimental`**
-
-##### maxFiles
-
-> **maxFiles**: `number`
-
-**`Experimental`**
-
-##### maxFileBytes
-
-> **maxFileBytes**: `number`
-
-**`Experimental`**
-
-##### maxTotalFileBytes
-
-> **maxTotalFileBytes**: `number`
-
-**`Experimental`**
-
-##### maxPathBytes
-
-> **maxPathBytes**: `number`
-
-**`Experimental`**
-
-##### maxRepositoryBundleBytes
-
-> **maxRepositoryBundleBytes**: `number`
-
-**`Experimental`**
-
-***
-
 ### CaptureAgentCandidateWorkspaceOptions
 
 **`Experimental`**
@@ -3548,6 +3498,56 @@ Use the evaluator-owned artifact store when manifest or archive bytes should not
 ##### limits?
 
 > `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
+
+**`Experimental`**
+
+***
+
+### AgentCandidateWorkspaceArchiveLimits
+
+**`Experimental`**
+
+#### Properties
+
+##### maxArchiveBytes
+
+> **maxArchiveBytes**: `number`
+
+**`Experimental`**
+
+##### maxEmbeddedArtifactBytes
+
+> **maxEmbeddedArtifactBytes**: `number`
+
+**`Experimental`**
+
+##### maxFiles
+
+> **maxFiles**: `number`
+
+**`Experimental`**
+
+##### maxFileBytes
+
+> **maxFileBytes**: `number`
+
+**`Experimental`**
+
+##### maxTotalFileBytes
+
+> **maxTotalFileBytes**: `number`
+
+**`Experimental`**
+
+##### maxPathBytes
+
+> **maxPathBytes**: `number`
+
+**`Experimental`**
+
+##### maxRepositoryBundleBytes
+
+> **maxRepositoryBundleBytes**: `number`
 
 **`Experimental`**
 
@@ -5208,6 +5208,26 @@ Capture one exact regular-file workspace for immutable candidate execution.
 
 ***
 
+### createAgentCandidateWorkspacePort()
+
+> **createAgentCandidateWorkspacePort**(`options?`): [`AgentCandidateWorkspacePort`](#agentcandidateworkspaceport)
+
+**`Experimental`**
+
+Create the standard bounded materializer for candidate execution ports.
+
+#### Parameters
+
+##### options?
+
+[`CreateAgentCandidateWorkspacePortOptions`](#createagentcandidateworkspaceportoptions) = `{}`
+
+#### Returns
+
+[`AgentCandidateWorkspacePort`](#agentcandidateworkspaceport)
+
+***
+
 ### captureAgentCandidateWorkspaceFiles()
 
 > **captureAgentCandidateWorkspaceFiles**(`input`, `options?`): `Promise`\<[`CapturedAgentCandidateWorkspace`](#capturedagentcandidateworkspace)\>
@@ -5229,26 +5249,6 @@ readonly [`AgentCandidateExecutorWorkspaceFile`](#agentcandidateexecutorworkspac
 #### Returns
 
 `Promise`\<[`CapturedAgentCandidateWorkspace`](#capturedagentcandidateworkspace)\>
-
-***
-
-### createAgentCandidateWorkspacePort()
-
-> **createAgentCandidateWorkspacePort**(`options?`): [`AgentCandidateWorkspacePort`](#agentcandidateworkspaceport)
-
-**`Experimental`**
-
-Create the standard bounded materializer for candidate execution ports.
-
-#### Parameters
-
-##### options?
-
-[`CreateAgentCandidateWorkspacePortOptions`](#createagentcandidateworkspaceportoptions) = `{}`
-
-#### Returns
-
-[`AgentCandidateWorkspacePort`](#agentcandidateworkspaceport)
 
 ***
 

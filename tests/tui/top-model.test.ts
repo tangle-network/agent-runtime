@@ -12,7 +12,8 @@ import {
   workerInboxFile,
   writeWorkerSteer,
 } from '../../src/runtime/supervise/run-layout'
-import { loadTopSnapshot, renderTopFrame, renderTopFrameWithLayout } from '../../src/tui/top-model'
+import { renderTopFrame, renderTopFrameWithLayout } from '../../src/tui/top-frame'
+import { loadTopSnapshot } from '../../src/tui/top-snapshot'
 
 describe('supervisor top model', () => {
   const roots: string[] = []

@@ -35,7 +35,7 @@ Most of the machinery a "host Prime properly" plan calls for is built. Reuse it.
 | Integration need | Existing primitive | Where |
 |---|---|---|
 | Harness identity + per-harness capability truth | `HarnessType` + the harness-capability layer (model lock, reasoning clamp, selector honoring) | `@tangle-network/agent-interface` (`harness.ts`, `harness-capabilities.ts`) |
-| Environment capability negotiation (streaming, sessions, workspace, **checkpoint/fork**) | `AgentEnvironmentCapabilities` incl. `branching.checkpoint/fork`; `AgentEnvironment.checkpoint()/fork()` | `src/runtime/environment-provider.ts` |
+| Environment capability negotiation (streaming, sessions, workspace, **checkpoint/fork**) | `AgentEnvironmentCapabilities` incl. `branching.checkpoint/fork`; `AgentEnvironment.checkpoint()/fork()` | `src/runtime/environment-provider/provider-sandbox-adapter.ts` |
 | Portable capability with per-harness lowerings ("one skill, many bindings") | `CertifiedCapability` = `{ iface, binding, auth, provenance }` — interfaces closed, bindings open; a Prime Python skill is one binding arm (`file`/`sandbox-code`), never a new manifest format | `src/intelligence/capability.ts` |
 | Execution-identity receipts (what exactly ran) | `materialized` journal event (authored/effective profile + platform-attachment digests), `RunProvenance.mounts`, `SelectionReceipt`, usage integrity guard | `src/runtime/supervise/`, `src/runtime/types.ts` |
 | Frozen candidate identity + workspace bytes | `buildAgentCandidateBundle` / `captureAgentCandidateWorkspace` | `src/candidate-execution/` |
@@ -184,7 +184,7 @@ instrumented runs; 6–9 unlock the experiment tier.
 
 **Adapter shape note.** Prime is daemon-backed with persistent sessions, which maps more
 naturally onto the `AgentEnvironmentProvider` contract (sessions, capability
-negotiation, `checkpoint`/`fork` — `src/runtime/environment-provider.ts`) than onto a
+negotiation, `checkpoint`/`fork` — `src/runtime/environment-provider/provider-sandbox-adapter.ts`) than onto a
 plain one-shot `backend.type`. Both integration shapes reach Runtime through existing
 ports (`providerAsExecutor` / `providerAsSandboxClient` on one side, `buildBackendOptions`
 on the other); the sandbox side should pick per tier — box backend for basic runs,

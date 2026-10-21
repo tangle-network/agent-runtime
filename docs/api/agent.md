@@ -591,7 +591,7 @@ substantive prompt rewrites, etc.) via this callback.
 
 ##### allowCreateForKinds?
 
-> `optional` **allowCreateForKinds?**: readonly (`"mcp"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"` \| `"knowledge.wiki"` \| `"knowledge.claim"` \| `"knowledge.raw"` \| `"knowledge.stale"` \| `"system-prompt"` \| `"skill"` \| `"tool-doc"` \| `"new-tool"` \| `"hook"` \| `"subagent"` \| `"workflow"` \| `"rag"` \| `"scaffolding"` \| `"output-schema"` \| `"websearch.outdated"` \| `"prior-run-summary"` \| `"cluster"`)[]
+> `optional` **allowCreateForKinds?**: readonly (`"mcp"` \| `"code"` \| `"agent-profile"` \| `"memory"` \| `"rollout-policy"` \| `"knowledge.wiki"` \| `"knowledge.claim"` \| `"knowledge.raw"` \| `"knowledge.stale"` \| `"system-prompt"` \| `"skill"` \| `"tool-doc"` \| `"new-tool"` \| `"hook"` \| `"subagent"` \| `"workflow"` \| `"rag"` \| `"scaffolding"` \| `"output-schema"` \| `"websearch.outdated"` \| `"prior-run-summary"` \| `"cluster"`)[]
 
 When the resolved target doesn't exist, allow the substrate to
 CREATE the file (for `knowledge.wiki`, `new-tool` subjects). Default
@@ -1379,7 +1379,7 @@ not the plan's to lower.
 
 ##### harness
 
-`"claude-code"` \| `"codex"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
+`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"gemini"`
 
 ##### context
 

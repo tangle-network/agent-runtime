@@ -24,6 +24,7 @@ import {
 
 import { readMaterializedWorkspaceFiles } from './artifacts'
 import { runBoundCandidateBenchmarkGrader } from './benchmark-grader'
+import type { AgentCandidateExecutionFailureClass } from './claim'
 import {
   canonicalCandidateBytes,
   embeddedCandidateArtifact,
@@ -542,4 +543,27 @@ function assertUnitScore(value: unknown, label: string): asserts value is number
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
     throw new Error(`${label} must be finite and within [0, 1]`)
   }
+}
+
+export async function persistFailureEvidence(
+  state: PreparedCandidateState,
+  reason: string,
+  failureClass: AgentCandidateExecutionFailureClass,
+  termination: AgentCandidateTermination | undefined,
+  outputArtifacts: AgentCandidateOutputArtifactPort,
+) {
+  const bytes = canonicalCandidateBytes({
+    kind: 'agent-candidate-execution-failure',
+    executionId: state.executionId,
+    bundleDigest: state.bundle.digest,
+    executionPlanDigest: state.executionPlan.value.digest,
+    failureClass,
+    reason,
+    ...(termination ? { termination } : {}),
+  })
+  return await persistCandidateOutputArtifact(outputArtifacts, {
+    executionId: state.executionId,
+    purpose: 'failure-evidence',
+    bytes,
+  })
 }

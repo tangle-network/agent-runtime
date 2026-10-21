@@ -1,8 +1,8 @@
 import { ValidationError } from '../../errors'
-import { resolveAgentEnvironmentProvider } from '../environment-provider'
+import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { sleep as runtimeSleep } from '../util'
-import { HarnessTurnFailedError } from './driver-retry'
+import { HarnessTurnFailedError } from './driver-attempt-evidence'
 import { executorFailure } from './executor-outcome'
 import {
   attestRuntimeOwnedScopeOwner,

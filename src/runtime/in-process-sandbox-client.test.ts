@@ -2,57 +2,8 @@ import { existsSync } from 'node:fs'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { inProcessSandboxClient } from './in-process-sandbox-client'
-import { runAgentRounds } from './run-loop'
-import type { Driver, OutputAdapter } from './types'
 
 describe('inProcessSandboxClient', () => {
-  it('drives runAgentRounds end-to-end from an onPrompt callback (no SandboxInstance cast at the call site)', async () => {
-    const client = inProcessSandboxClient({
-      onPrompt: (prompt): SandboxEvent[] => [
-        { type: 'llm_call', data: { tokensIn: 10, tokensOut: 5, costUsd: 0.001 } },
-        { type: 'result', data: { finalText: `echo:${prompt}` } },
-      ],
-    })
-    const driver: Driver<string, string, 'done'> = {
-      name: 'single-shot',
-      async plan(_t, history) {
-        return history.length === 0 ? ['hello'] : []
-      },
-      decide() {
-        return 'done'
-      },
-    }
-    const output: OutputAdapter<string> = {
-      parse: (events) => String(events.at(-1)?.data?.finalText ?? ''),
-    }
-
-    const result = await runAgentRounds({
-      driver,
-      agentRun: {
-        profile: {
-          name: 'echo',
-          harness: 'opencode',
-          model: { provider: 'offline', default: 'offline-test-model' },
-        },
-        taskToPrompt: (t) => t,
-      },
-      output,
-      validator: {
-        async validate() {
-          return { valid: true, score: 1 }
-        },
-      },
-      task: 'hello',
-      maxIterations: 1,
-      ctx: { sandboxClient: client },
-    })
-
-    expect(result.iterations[0]?.output).toBe('echo:hello')
-    // The llm_call event the callback emitted is metered by the kernel.
-    expect(result.tokenUsage).toEqual({ input: 10, output: 5, cacheBreakdownKnown: false })
-    expect(result.costUsd).toBeCloseTo(0.001, 6)
-  })
-
   it('increments the round counter per streamPrompt on the same box', async () => {
     const seen: number[] = []
     const client = inProcessSandboxClient({

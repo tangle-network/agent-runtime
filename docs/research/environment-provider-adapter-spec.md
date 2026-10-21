@@ -2,11 +2,13 @@
 
 **Status:** draft, evidence checked 2026-06-26 against this repo at `main`.
 
-**Implementation status in this repo:** the runtime provider layer landed in
-`src/runtime/environment-provider.ts`. It defines the runtime-facing provider
-contract, exports it from `/runtime`, and includes compatibility adapters:
+**Current implementation owners:** portable provider contracts live in
+`@tangle-network/agent-interface/environment-provider`. Runtime exports its adapters
+from `/kernel`: `src/runtime/environment-provider/provider-sandbox-adapter.ts` owns
+Sandbox compatibility, `provider-executor-admission.ts` owns executor admission,
+and `provider-registry.ts` owns provider registration and lookup. The adapters are:
 
-- `providerAsSandboxClient(provider)` so existing `runLoop`/`openSandboxRun`
+- `providerAsSandboxClient(provider)` so existing `runAgentRounds`/`openSandboxRun`
   paths can run against any provider.
 - `sandboxClientAsProvider(client)` so today's Tangle sandbox SDK client is the
   first provider implementation.
@@ -51,7 +53,7 @@ one contract without importing the Tangle sandbox SDK.
 
 - Runtime execution code:
   - `src/runtime/types.ts`
-  - `src/runtime/run-loop.ts`
+  - [Pre-refactor round kernel](https://github.com/tangle-network/agent-runtime/blob/d75110a06ed35b21155b7b3a245b29a387d1f27f/src/runtime/run-loop.ts); its current composition is `src/runtime/agent-rounds.ts`; `src/runtime/iteration-execution.ts` owns execution, `src/runtime/iteration-result.ts` owns results, `src/runtime/iteration-events.ts` owns events, and `src/runtime/iteration-sandboxes.ts` owns sandbox lifecycle
   - `src/runtime/sandbox-backend.ts`
   - `src/runtime/sandbox-acquire.ts`
   - `src/runtime/sandbox-lineage.ts`
@@ -557,8 +559,8 @@ provider to implement native agent semantics.
 1. **Define neutral provider types**
    - Shared types ship in
      `@tangle-network/agent-interface/environment-provider`.
-   - Runtime imports and re-exports those shared types from
-     `src/runtime/environment-provider.ts`.
+   - Runtime imports those shared types from Interface and re-exports them from
+     `src/runtime/index.ts`.
    - Keep the first shared version additive and public.
 
 2. **Implement the Tangle sandbox provider adapter**
@@ -568,7 +570,7 @@ provider to implement native agent semantics.
 
 3. **Switch runtime internals to the neutral provider where practical**
    - Start with `sandbox-acquire`, `sandbox-lineage`, and `sandbox-capabilities`.
-   - Keep `runLoop` behavior unchanged.
+   - Keep `runAgentRounds` behavior unchanged.
    - Keep old SDK-shaped entry points as compatibility wrappers.
 
 4. **Add the CLI bridge provider adapter**

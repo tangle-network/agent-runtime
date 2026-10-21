@@ -41,7 +41,7 @@ They do not establish distributed recovery, secure remote use, or production per
 | Native MCP transport | `src/runtime/supervise/coordination-mcp.ts` | A local agent runner can call coordination actions over HTTP. |
 | Driver reasoning | `src/runtime/supervise/driver-brain-agent.ts` | A model can choose coordination actions dynamically. |
 | Child execution | `Executor` and `createExecutor` | Router, bridge, CLI, sandbox, worktree, and custom implementations share one execution contract. |
-| Provider adapters | `src/runtime/environment-provider.ts` | External environment providers can be adapted into the runtime. |
+| Provider adapters | [Pre-refactor provider adapter](https://github.com/tangle-network/agent-runtime/blob/d75110a06ed35b21155b7b3a245b29a387d1f27f/src/runtime/environment-provider.ts) | External environment providers can be adapted into the runtime. |
 | Tree records | `SpawnJournal` and `ResultBlobStore` | Completed child decisions and content-addressed outputs can be replayed for inspection. |
 | Conversation records | `ConversationJournal` | A single conversation writer can resume from committed turns. |
 | Async delegation records | `DelegationTaskQueue` | A one-shot task can persist status and reconnect to a detached session when configured. |

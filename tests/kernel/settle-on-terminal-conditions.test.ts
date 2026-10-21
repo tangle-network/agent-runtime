@@ -3,7 +3,7 @@ import {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
 } from '../../src/durable/in-memory-spawn-stores'
-import type { DriverContinuationRecord } from '../../src/runtime/supervise/driver-retry'
+import type { DriverContinuationRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import { type DriveHarness, supervisorAgent } from '../../src/runtime/supervise/supervisor-agent'

@@ -10,10 +10,8 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
 import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
-import {
-  type ProviderWorkspaceRetentionPort,
-  providerAsExecutor,
-} from '../../src/runtime/environment-provider'
+import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
+import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import {
   describeRetainedNativeStops,
   stopRetainedNativeExecution,

@@ -1,20 +1,32 @@
+import { assertProposalFindings, type ProposalFinding } from '@tangle-network/agent-eval/analyst'
+import {
+  verifyAgentProfileImprovementExperimentComparison,
+  verifyCandidateExperimentComparison,
+} from '@tangle-network/agent-eval/contract'
 import type {
   AgentCandidateBundle,
   AgentCandidateExperiment,
   AgentImprovementActivation,
+  AgentImprovementActivationIntent,
   AgentImprovementActivationOutcome,
   AgentImprovementActivationResult,
   AgentImprovementActivationTarget,
+  AgentImprovementEvaluation,
   AgentImprovementProposal,
   AgentImprovementReview,
+  AgentImprovementReviewDecision,
   AgentImprovementSurface,
   AgentProfileImprovementChange,
+  AgentProfileImprovementExecutionRef,
   AgentProfileImprovementExperiment,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 import {
   agentImprovementActivationResultSchema,
   agentImprovementActivationSchema,
+  agentImprovementProposalSchema,
+  agentImprovementReviewSchema,
+  agentProfileImprovementExecutionRefSchema,
   agentProfileImprovementExperimentSchema,
 } from '@tangle-network/agent-interface'
 
@@ -25,15 +37,17 @@ import {
   verifyCanonicalCandidateDocument,
 } from '../candidate-execution/digest'
 import {
-  requireSealedCandidateExperiment,
-  verifyAgentImprovementActivation,
-  verifyAgentImprovementProposal,
-} from './improvement-cycle'
-import {
+  type AgentImprovementActivationTargetIdentity,
   agentImprovementTargetDigest,
   agentImprovementTargetInput,
   agentProfileImprovementStateDigest,
+  assertAgentImprovementActivationTargets,
+  buildAgentImprovementActivationTargets,
+  deriveChangedSurfaces,
+  profileImprovementChangedSurfaces,
+  sameAgentImprovementSurfaceSet,
 } from './improvement-surfaces'
+import { optimizationActivationReceiptFromMetadata } from './optimization-receipt'
 
 export interface CreateAgentImprovementActivationResultOptions {
   completedAt: string
@@ -510,4 +524,291 @@ function targetMap<T extends { surface: AgentImprovementSurface; identity: strin
 
 function targetIdentity(target: { surface: AgentImprovementSurface; identity: string }): string {
   return `${target.surface}\u0000${target.identity}`
+}
+
+export interface CreateAgentImprovementProposalOptions {
+  runId: string
+  findings: readonly ProposalFinding[]
+  evaluation: AgentImprovementEvaluation
+  now?: () => Date
+}
+
+export interface ReviewAgentImprovementInput {
+  decision: AgentImprovementReviewDecision
+  reviewedBy: string
+  reason: string
+  feedback?: string
+  now?: () => Date
+}
+
+export interface CreateAgentImprovementActivationOptions {
+  intent: AgentImprovementActivationIntent
+  /** Runtime derives each exact source digest; callers identify only the records to change. */
+  targets: [AgentImprovementActivationTargetIdentity, ...AgentImprovementActivationTargetIdentity[]]
+  fundingOwner: string
+  authorizedBy: string
+  expiresAt: string
+  /** Required only when an activation targets the complete `agent-profile` surface. */
+  executionRef?: AgentProfileImprovementExecutionRef
+  now?: () => Date
+}
+
+type ProposalFindingImprovementProposal = Omit<AgentImprovementProposal, 'findings'> & {
+  findings: ProposalFinding[]
+}
+
+/** Create the reviewable record only from a complete, recomputable experiment result. */
+export function createAgentImprovementProposal(
+  options: CreateAgentImprovementProposalOptions,
+): AgentImprovementProposal {
+  const findings = assertProposalFindings(
+    options.findings,
+    'createAgentImprovementProposal findings',
+  )
+  const { evaluation, changedSurfaces } = validateShippableAgentImprovementEvaluation(
+    options.evaluation,
+    options.runId,
+    'agent improvement proposal',
+  )
+  return agentImprovementProposalSchema.parse(
+    canonicalCandidateDocument<ProposalFindingImprovementProposal>({
+      kind: 'agent-improvement-proposal',
+      runId: options.runId,
+      changedSurfaces,
+      proposedAt: (options.now ?? (() => new Date()))().toISOString(),
+      findings: [...findings],
+      evaluation,
+    }).value,
+  )
+}
+
+/** Persist a human or tenant-policy decision bound to one exact proposal. */
+export function reviewAgentImprovementProposal(
+  inputProposal: AgentImprovementProposal,
+  input: ReviewAgentImprovementInput,
+): AgentImprovementReview {
+  const proposal = verifyAgentImprovementProposal(inputProposal)
+  if (!input.reviewedBy.trim()) throw new Error('candidate review requires reviewedBy')
+  if (!input.reason.trim()) throw new Error('candidate review requires a reason')
+  if (input.decision === 'approve' && proposal.evaluation.decision.outcome !== 'ship') {
+    throw new Error('candidate cannot be approved without a passing experiment')
+  }
+  const reviewedAt = (input.now ?? (() => new Date()))().toISOString()
+  if (Date.parse(reviewedAt) < Date.parse(proposal.proposedAt)) {
+    throw new Error('candidate review cannot predate its proposal')
+  }
+  return agentImprovementReviewSchema.parse(
+    canonicalCandidateDocument<AgentImprovementReview>({
+      kind: 'agent-improvement-review',
+      proposalDigest: proposal.digest,
+      decision: input.decision,
+      reviewedBy: input.reviewedBy,
+      reviewedAt,
+      reason: input.reason,
+      ...(input.feedback === undefined ? {} : { feedback: input.feedback }),
+    }).value,
+  )
+}
+
+/** Authorize product-owned writes only after the exact candidate was measured and approved. */
+export function createAgentImprovementActivation(
+  inputProposal: AgentImprovementProposal,
+  inputReview: AgentImprovementReview,
+  options: CreateAgentImprovementActivationOptions,
+): AgentImprovementActivation {
+  const proposal = verifyAgentImprovementProposal(inputProposal)
+  const review = verifyAgentImprovementReview(inputReview)
+  if (review.decision !== 'approve' || review.proposalDigest !== proposal.digest) {
+    throw new Error('candidate activation requires an approval for the exact proposal')
+  }
+  if (!options.fundingOwner.trim() || !options.authorizedBy.trim()) {
+    throw new Error('candidate activation authority must be non-empty')
+  }
+  const experiment = proposal.evaluation.experiment
+  const authorizedAt = (options.now ?? (() => new Date()))().toISOString()
+  if (Date.parse(authorizedAt) < Date.parse(review.reviewedAt)) {
+    throw new Error('candidate activation cannot predate its approval')
+  }
+  const targets = buildAgentImprovementActivationTargets(
+    proposal.changedSurfaces,
+    experiment,
+    options.intent,
+    options.targets,
+  )
+  const executionRef = profileActivationExecutionRef(experiment, targets, options.executionRef)
+  return agentImprovementActivationSchema.parse(
+    canonicalCandidateDocument<AgentImprovementActivation>({
+      kind: 'agent-improvement-activation',
+      proposalDigest: proposal.digest,
+      reviewDigest: review.digest,
+      experimentDigest: experiment.digest,
+      candidateDigest: measuredCandidateDigest(proposal),
+      ...(executionRef ? { executionRef } : {}),
+      intent: options.intent,
+      targets,
+      fundingOwner: options.fundingOwner,
+      authorizedBy: options.authorizedBy,
+      authorizedAt,
+      expiresAt: options.expiresAt,
+    }).value,
+  )
+}
+
+/** Validate a proposal and recompute every binding to its measured experiment. */
+export function verifyAgentImprovementProposal(input: unknown): AgentImprovementProposal {
+  const proposal = verifyCanonicalCandidateDocument(
+    agentImprovementProposalSchema.parse(input),
+    'agent improvement proposal',
+  )
+  const { changedSurfaces } = validateShippableAgentImprovementEvaluation(
+    proposal.evaluation,
+    proposal.runId,
+    'agent improvement proposal',
+  )
+  const changedSurfacesMatch =
+    proposal.evaluation.kind === 'agent-profile-improvement-measured-comparison'
+      ? sameAgentImprovementSurfaceSet(proposal.changedSurfaces, changedSurfaces)
+      : sameOrderedValues(proposal.changedSurfaces, changedSurfaces)
+  if (!changedSurfacesMatch) {
+    throw new Error('proposal changed surfaces do not match its exact experiment')
+  }
+  assertProposalFindings(proposal.findings, 'agent improvement proposal findings')
+  return proposal
+}
+
+/** Return a sealed bundle experiment; ordinary profile changes need a product-owned executor. */
+export function requireSealedCandidateExperiment(
+  proposal: AgentImprovementProposal,
+): AgentCandidateExperiment {
+  if (proposal.evaluation.kind !== 'agent-improvement-measured-comparison') {
+    throw new Error(
+      'agent profile improvement activation requires a product profile-diff executor, not a sealed candidate bundle',
+    )
+  }
+  return proposal.evaluation.experiment
+}
+
+function measuredCandidateDigest(proposal: AgentImprovementProposal): Sha256Digest {
+  return proposal.evaluation.kind === 'agent-profile-improvement-measured-comparison'
+    ? proposal.evaluation.experiment.candidate.stateDigest
+    : proposal.evaluation.experiment.candidate.digest
+}
+
+function profileActivationExecutionRef(
+  experiment: AgentImprovementEvaluation['experiment'],
+  targets: AgentImprovementActivation['targets'],
+  executionRef: AgentProfileImprovementExecutionRef | undefined,
+): AgentProfileImprovementExecutionRef | undefined {
+  const targetsAgentProfile = targets.some((target) => target.surface === 'agent-profile')
+  if (!targetsAgentProfile) {
+    if (executionRef !== undefined) {
+      throw new Error('profile activation executionRef is valid only for agent-profile targets')
+    }
+    return undefined
+  }
+  if (experiment.kind !== 'agent-profile-improvement-experiment') {
+    throw new Error('agent-profile activation requires a measured profile experiment')
+  }
+  if (executionRef === undefined) {
+    throw new Error('profile improvement activation requires the measured executor')
+  }
+  const parsed = agentProfileImprovementExecutionRefSchema.parse(executionRef)
+  if (canonicalCandidateDigest(parsed) !== canonicalCandidateDigest(experiment.executionRef)) {
+    throw new Error('profile improvement activation executor does not match the measurement')
+  }
+  return parsed
+}
+
+function validateShippableAgentImprovementEvaluation(
+  input: unknown,
+  runId: string,
+  subject: string,
+): {
+  evaluation: AgentImprovementEvaluation
+  changedSurfaces: AgentImprovementProposal['changedSurfaces']
+} {
+  const evaluation = verifyAgentImprovementEvaluation(input)
+  if (evaluation.decision.outcome !== 'ship') {
+    throw new Error(`${subject} requires a passing experiment`)
+  }
+  if (runId !== evaluation.provenance.runId) {
+    throw new Error('proposal runId does not match its measured experiment')
+  }
+  const changedSurfaces =
+    evaluation.kind === 'agent-profile-improvement-measured-comparison'
+      ? profileImprovementChangedSurfaces(evaluation.experiment.change)
+      : deriveChangedSurfaces(evaluation.experiment.baseline, evaluation.experiment.candidate)
+  return { evaluation, changedSurfaces }
+}
+
+/** Use each owning package's complete measurement validator before a proposal is persisted. */
+function verifyAgentImprovementEvaluation(input: unknown): AgentImprovementEvaluation {
+  if (
+    typeof input === 'object' &&
+    input !== null &&
+    'kind' in input &&
+    input.kind === 'agent-profile-improvement-measured-comparison'
+  ) {
+    const evaluation = verifyAgentProfileImprovementExperimentComparison(input)
+    optimizationActivationReceiptFromMetadata(evaluation.metadata)
+    return evaluation
+  }
+  const evaluation = verifyCandidateExperimentComparison(input)
+  optimizationActivationReceiptFromMetadata(evaluation.metadata)
+  return evaluation
+}
+
+/** Validate the canonical identity and wire shape of an improvement review. */
+export function verifyAgentImprovementReview(input: unknown): AgentImprovementReview {
+  return verifyCanonicalCandidateDocument(
+    agentImprovementReviewSchema.parse(input),
+    'agent improvement review',
+  )
+}
+
+/** Validate activation authority against the exact proposal, review, experiment, and base state. */
+export function verifyAgentImprovementActivation(input: {
+  proposal: unknown
+  review: unknown
+  activation: unknown
+}): AgentImprovementActivation {
+  const proposal = verifyAgentImprovementProposal(input.proposal)
+  const review = verifyAgentImprovementReview(input.review)
+  const activation = verifyCanonicalCandidateDocument(
+    agentImprovementActivationSchema.parse(input.activation),
+    'agent improvement activation',
+  )
+  const experiment = proposal.evaluation.experiment
+  if (
+    review.decision !== 'approve' ||
+    review.proposalDigest !== proposal.digest ||
+    activation.proposalDigest !== proposal.digest ||
+    activation.reviewDigest !== review.digest ||
+    activation.experimentDigest !== experiment.digest ||
+    activation.candidateDigest !== measuredCandidateDigest(proposal) ||
+    Date.parse(review.reviewedAt) < Date.parse(proposal.proposedAt) ||
+    Date.parse(activation.authorizedAt) < Date.parse(review.reviewedAt)
+  ) {
+    throw new Error('candidate activation does not bind the measured and approved candidate')
+  }
+  if (
+    activation.targets.some((target) => target.surface === 'agent-profile') &&
+    (proposal.evaluation.kind !== 'agent-profile-improvement-measured-comparison' ||
+      activation.executionRef === undefined ||
+      canonicalCandidateDigest(activation.executionRef) !==
+        canonicalCandidateDigest(proposal.evaluation.experiment.executionRef))
+  ) {
+    throw new Error('profile activation does not bind the measured executor')
+  }
+  assertAgentImprovementActivationTargets(
+    proposal.changedSurfaces,
+    experiment,
+    activation.intent,
+    activation.targets,
+  )
+  return activation
+}
+
+function sameOrderedValues<T>(left: readonly T[], right: readonly T[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
 }

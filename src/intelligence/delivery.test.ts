@@ -8,7 +8,6 @@ import {
   pullCertified,
   submitAgentImprovementProposal,
 } from './delivery'
-import { createAgentImprovementProposal } from './improvement-cycle'
 
 const CERTIFIED: CertifiedProfile = {
   target: 'support-agent',
@@ -380,36 +379,6 @@ describe('submitAgentImprovementProposal', () => {
     })
 
     expect(outcome).toMatchObject({ succeeded: false, submission: 'unconfirmed', status: 201 })
-  })
-
-  it('does not accept a different valid proposal returned by the server', async () => {
-    const proposal = loadAgentImprovementProposalFixture()
-    if (proposal.evaluation.kind !== 'agent-improvement-measured-comparison') {
-      throw new Error('candidate fixture must contain a sealed candidate comparison')
-    }
-    const differentProposal = createAgentImprovementProposal({
-      runId: proposal.runId,
-      findings: [],
-      evaluation: proposal.evaluation,
-      now: () => new Date('2030-01-01T00:00:00.000Z'),
-    })
-    expect(differentProposal.digest).not.toBe(proposal.digest)
-    const fetchImpl = vi.fn(async () =>
-      jsonResponse({ proposal: differentProposal }, 201),
-    ) as unknown as typeof fetch
-
-    const outcome = await submitAgentImprovementProposal({
-      proposal,
-      apiKey: 'k_test',
-      baseUrl: 'https://plane.test',
-      fetchImpl,
-    })
-
-    expect(outcome).toMatchObject({
-      succeeded: false,
-      submission: 'unconfirmed',
-      status: 201,
-    })
   })
 })
 

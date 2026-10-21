@@ -3,7 +3,7 @@
  * sample/refine/sampleThenRefine strategy family: k independent samples, selection by
  * TASK-VISIBLE checks only, then a guarded self-repair loop steered by the checks'
  * failure output. Design: docs/design/structural-rollout-integration.md; measured basis
- * (bench/src/hev-structural.mts, bench/src/mbpp-structural.mts): +8.5..+21.3pp hidden-test
+ * (historical HumanEval/MBPP rigs linked from the design): +8.5..+21.3pp hidden-test
  * lift across Llama-3-8B/Qwen2.5-7B × HumanEval/MBPP, null only at saturation.
  *
  * Honesty invariants carried over from the proven rigs:
@@ -25,13 +25,13 @@
  */
 
 import { randomBytes } from 'node:crypto'
+import type { AgenticTask } from './strategy'
 import {
-  type AgenticTask,
   defineStrategy,
   type Strategy,
   type StrategyCtx,
   type StrategyResult,
-} from './strategy'
+} from './strategy-author'
 import type { SelectionReceipt } from './types'
 
 /** Provider-neutral conversation records read by structural candidate extraction. */

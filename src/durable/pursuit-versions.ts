@@ -10,7 +10,7 @@
  * a closed chain reads it back, and a call on an open chain continues it.
  */
 
-import { access, readFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
@@ -20,8 +20,6 @@ import {
   parseSearchLedgerLine,
   runSearch,
   type SearchArtifactCodec,
-  type SearchArtifactRef,
-  type SearchAttemptAccounting,
   type SearchAudit,
   type SearchCellResult,
   type SearchCellSettledEvent,
@@ -29,7 +27,6 @@ import {
   type SearchExecutionIdentity,
   type SearchExecutor,
   type SearchHistoryReceipt,
-  type SearchNode,
   type SearchProposerPort,
   SearchRecorder,
   type SearchSourceRef,
@@ -39,7 +36,6 @@ import {
 import {
   type AgentProfile,
   type AgentProfileDiff,
-  agentProfileSchema,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
   type Sha256Digest,
@@ -49,17 +45,33 @@ import { applyExactAgentProfileDiff } from '../candidate-execution/profile'
 import { RuntimeRunStateError, ValidationError } from '../errors'
 import { isFiniteNumber } from '../finite-number'
 import type { CheckVerdict } from '../runtime/supervise/completion-gate'
-import { failedItems } from '../runtime/supervise/continuation'
 import { authoredProfileDigest } from '../runtime/supervise/materialization'
 import { superviseRootProfile } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
-import type { SpawnEvent, Spend, SupervisedResult } from '../runtime/supervise/types'
+import type { SpawnEvent, SupervisedResult } from '../runtime/supervise/types'
+import { errorMessage } from '../runtime/util'
 import { contentAddress } from './content-address'
-import { isNoEntError } from './jsonl-file'
 import { FileObserverJournal } from './observer-journal'
 import { projectPursuit } from './observer-projection'
+import {
+  exists,
+  FREE,
+  isSha256,
+  jsonProfile,
+  loadNode,
+  pursuitValueDigest,
+  pursuitVersionsLedgerPath,
+  readSealed,
+  settledElapsed,
+  type VersionNode,
+  type VersionRecord,
+  versionAccounting,
+  versionFailure,
+  versionRun,
+} from './pursuit-version-evidence'
+import { reviewOfBest } from './pursuit-version-review'
 import type { PursuitFork } from './run-fork'
-import { parseSettleRecord, readSettleRecord, SETTLE_RECORD_FILE } from './settle-record'
+import { readSettleRecord, SETTLE_RECORD_FILE } from './settle-record'
 import { FileSpawnJournal } from './spawn-journal/journal-store'
 import type { SupervisedPursuitResult, SupervisePursuitOptions } from './supervise-pursuit'
 
@@ -192,15 +204,6 @@ export interface PursuitVersionChain {
   readonly receipt: SearchHistoryReceipt
 }
 
-/** Where `'review-of-best'` mounts a review: `inputs/review/version-<n>.md`. One review lives in
- *  a profile at a time. */
-export const REVIEW_DIR = 'inputs/review/'
-
-/** The chain's directory beside the first version's: the ledger and its content blobs. */
-export function pursuitVersionsLedgerPath(runDir: string): string {
-  return resolve(`${resolve(runDir.trim())}.search`, 'ledger.jsonl')
-}
-
 /**
  * Validate a `versions` option before any compute. The same check runs inside `supervisePursuit`;
  * a caller that records the option as data can run it at preflight.
@@ -293,31 +296,6 @@ type RunOne = (
   opts: SupervisePursuitOptions,
 ) => Promise<SupervisedPursuitResult<SupervisedResult<unknown>>>
 
-/** A search node's artifact: a version's profile, or a change that did not apply. */
-interface VersionNode {
-  readonly profile: AgentProfile | null
-  /** The change from the parent; set on a node a proposal returned in this process. */
-  readonly change?: AgentProfileDiff
-  readonly parentDigest?: Sha256Digest
-  readonly refusal: string | null
-}
-
-/** One node of the chain, as the ledger records it. */
-interface VersionRecord {
-  readonly nodeId: string
-  readonly version: number
-  readonly runId: string
-  readonly runDir: string
-  /** Null for a change that did not apply. */
-  readonly profile: AgentProfile | null
-  readonly parentNodeId: string | null
-  /** The change from the parent, from the node's first edge. */
-  readonly change?: AgentProfileDiff
-  /** The settled attempt's seal and verdict. */
-  readonly seal?: SearchArtifactRef
-  readonly verdict?: VersionVerdict
-}
-
 /** Run a version chain. `supervisePursuit` calls this when `versions` is set. */
 export async function runPursuitVersions(
   profile: SupervisorProfile,
@@ -368,7 +346,7 @@ export async function runPursuitVersions(
       ? profile
       : applyExactAgentProfileDiff(profile, firstFork.change, 'supervisePursuit versions'),
   )
-  const taskRevision = digestOf(task, 'task')
+  const taskRevision = pursuitValueDigest(task, 'task')
   const identity = (nodeProfile: AgentProfile): SearchExecutionIdentity => ({
     model: {
       provider: 'agent-runtime',
@@ -965,114 +943,6 @@ export async function runPursuitVersions(
   }
 }
 
-/** The bytes of a version's sealed `result.json` and the record they hold, parsed from the same
- *  bytes that are hashed. */
-async function readSealed(
-  runDir: string,
-  version: number,
-): Promise<{ bytes: Uint8Array; result: SupervisedResult<unknown> }> {
-  const path = resolve(runDir, SETTLE_RECORD_FILE)
-  let bytes: Uint8Array
-  try {
-    bytes = await readFile(path)
-  } catch (error) {
-    if (!isNoEntError(error)) throw error
-    throw new RuntimeRunStateError(
-      `supervisePursuit versions: version ${version} has no settle record in ${runDir}`,
-    )
-  }
-  return { bytes, result: parseSettleRecord(Buffer.from(bytes).toString('utf8'), path) }
-}
-
-/** A profile as the JSON the ledger stores: validated, with undefined entries absent. */
-function jsonProfile(profile: unknown): AgentProfile {
-  canonicalAgentProfileDigest(profile as AgentProfile)
-  return JSON.parse(JSON.stringify(agentProfileSchema.parse(profile))) as AgentProfile
-}
-
-function loadNode(
-  store: { readBlob(ref: SearchArtifactRef): unknown },
-  node: SearchNode,
-): VersionNode {
-  const stored = store.readBlob(node.artifact) as {
-    kind?: unknown
-    profile?: unknown
-    change?: AgentProfileDiff | null
-    parentDigest?: Sha256Digest | null
-    refusal?: string | null
-  }
-  if (stored.kind === 'agent-profile') {
-    const parsed = agentProfileSchema.safeParse(stored.profile)
-    if (!parsed.success) {
-      throw new RuntimeRunStateError(`version node ${node.nodeId} holds an invalid AgentProfile`)
-    }
-    return { profile: parsed.data as AgentProfile, refusal: null }
-  }
-  if (stored.kind === 'unapplied-change') {
-    return {
-      profile: null,
-      ...(stored.change ? { change: stored.change } : {}),
-      ...(stored.parentDigest ? { parentDigest: stored.parentDigest } : {}),
-      refusal: stored.refusal ?? 'the change did not apply',
-    }
-  }
-  throw new RuntimeRunStateError(`version node ${node.nodeId} holds no version artifact`)
-}
-
-/** The `<runDir>.v<n>` directory and `<runId>.v<n>` id of version `n`, beside the first. */
-function versionRun(runDir: string, runId: string, version: number) {
-  return version === 1
-    ? { runDir, runId }
-    : { runDir: `${runDir}.v${version}`, runId: `${runId}.v${version}` }
-}
-
-/** A version's settled spend as the ledger's accounting. Unknown dollars carry the part a
- *  provider is known to have billed as their floor. */
-function versionAccounting(spent: Spend | undefined): SearchAttemptAccounting {
-  const tokensKnown =
-    spent !== undefined &&
-    spent.tokensKnown !== false &&
-    spent.tokens?.tokensKnown !== false &&
-    Number.isSafeInteger(spent.tokens?.input) &&
-    Number.isSafeInteger(spent.tokens?.output) &&
-    Number.isSafeInteger(spent.tokens?.cacheRead)
-  const usdKnown = spent !== undefined && spent.usdKnown !== false && isFiniteNumber(spent.usd)
-  return {
-    tokens: tokensKnown
-      ? {
-          status: 'known',
-          inputTokens: spent.tokens.input,
-          outputTokens: spent.tokens.output,
-          cachedTokens: spent.tokens.cacheRead!,
-        }
-      : {
-          status: 'unknown',
-          reason: `the version's settled spend reports no complete token count with its cache split (input ${spent?.tokens?.input ?? 'none'}, output ${spent?.tokens?.output ?? 'none'})`,
-        },
-    cost: usdKnown
-      ? { status: 'known', usd: spent.usd, source: 'provider' }
-      : {
-          status: 'unknown',
-          knownLowerBoundUsd: Math.max(
-            0,
-            isFiniteNumber(spent?.usd) ? spent.usd - (spent.usdEstimated ?? 0) : 0,
-          ),
-          reason: "the version's settled spend names unpriced or unreported work",
-        },
-  }
-}
-
-/** How long a version that settled before its chain opened ran, from its settle record. */
-function settledElapsed(settled: SupervisedResult<unknown> | undefined): number {
-  const elapsed = settled?.spentTotal?.ms
-  return isFiniteNumber(elapsed) ? elapsed : 0
-}
-
-const FREE: SearchAttemptAccounting = {
-  tokens: { status: 'known', inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
-  cost: { status: 'known', usd: 0, source: 'free' },
-}
-
 function canonicalStop(stop: PursuitVersionStop): PursuitVersionStop {
   return {
     patience: stop.patience,
@@ -1086,23 +956,6 @@ function canonicalStop(stop: PursuitVersionStop): PursuitVersionStop {
 
 const DEFAULT_IDENTICAL_FAILURES = 3
 
-/**
- * What a version that did no work failed with: a driver error, by its name and its message with
- * the parts that differ between runs (digits, hex runs, absolute paths) normalized, or an unscored
- * verdict. Null for a version that ran, won or not.
- */
-export function versionFailure(version: JudgedPursuitVersion): string | null {
-  if (version.verdict.score === null) return 'unscored by the judge'
-  const { result } = version
-  if (result.kind !== 'no-winner' || result.reason !== 'driver-failed') return null
-  const message = result.error.message
-    .replace(/(?:\/[\w.@~+-]+){2,}/gu, '<path>')
-    .replace(/\b[0-9a-f]{8,}\b/giu, '<hex>')
-    .replace(/\d+/gu, '<n>')
-    .slice(0, 500)
-  return `driver-failed: ${result.error.name}: ${message}`
-}
-
 /** The failure the last `count` judged versions share, or null when they do not all share one. */
 export function identicalFailureStreak(
   versions: readonly JudgedPursuitVersion[],
@@ -1114,114 +967,4 @@ export function identicalFailureStreak(
   return first !== null && first !== undefined && failures.every((failure) => failure === first)
     ? first
     : null
-}
-
-/**
- * `'review-of-best'`: fork from the kept version with its check's verdict mounted under
- * {@link REVIEW_DIR} and the profile's review words as one instruction. The previous review's
- * mount and instruction are removed, so a profile carries one review.
- */
-function reviewOfBest(runId: string, words: string): NextPursuitVersion {
-  return ({ best, versions }) => {
-    const n = versions.length + 1
-    const verdict = best.verdict.check
-    const path = `${REVIEW_DIR}version-${best.version}.md`
-    const instruction = words
-      .replaceAll('{version}', String(best.version))
-      .replaceAll('{path}', path)
-      .replaceAll('{score}', best.verdict.score === null ? 'none' : String(best.verdict.score))
-      .trim()
-    const page = reviewPage(best.version, best.verdict.score, verdict)
-    // Instructions are set and removed by value: an earlier review instruction equal to this one
-    // stays as it is, and every other earlier one is removed.
-    const earlier = best.change?.set?.prompt?.instructions ?? []
-    const earlierInstructions = earlier.filter((text) => text !== instruction)
-    const earlierMounts = (best.profile.resources?.files ?? [])
-      .map((file) => file.path)
-      .filter((mounted) => mounted.startsWith(REVIEW_DIR) && mounted !== path)
-    return {
-      kind: 'agent-profile-diff',
-      id: `${runId}-v${n}-review-of-v${best.version}`,
-      title: `Version ${n}: review of version ${best.version}`,
-      source: {
-        kind: 'optimizer',
-        notes: [`review-of-best: version ${best.version}`, `judge ${best.verdict.judgeDigest}`],
-      },
-      set: {
-        ...(earlier.includes(instruction) ? {} : { prompt: { instructions: [instruction] } }),
-        resources: {
-          files: [{ path, resource: { kind: 'inline', name: path, content: page } }],
-        },
-      },
-      ...(earlierInstructions.length > 0 || earlierMounts.length > 0
-        ? {
-            remove: {
-              ...(earlierInstructions.length > 0
-                ? { prompt: { instructions: [...earlierInstructions] } }
-                : {}),
-              ...(earlierMounts.length > 0 ? { resources: { files: earlierMounts } } : {}),
-            },
-          }
-        : {}),
-    } as AgentProfileDiff
-  }
-}
-
-/** The review page: facts only, in the check's own lines. */
-function reviewPage(
-  version: number,
-  score: number | null,
-  verdict: CheckVerdict | undefined,
-): string {
-  if (verdict === undefined) {
-    return [
-      `# Version ${version}`,
-      '',
-      `Score: ${score ?? 'none'}. The judge reported no per-item verdict.`,
-      '',
-    ].join('\n')
-  }
-  const failing = failedItems(verdict)
-  return [
-    `# Version ${version}`,
-    '',
-    `Score: ${score ?? 'none'}.${verdict.threshold === undefined ? '' : ` The check passes at ${verdict.threshold}.`}`,
-    '',
-    '## Items',
-    '',
-    ...Object.entries(verdict.items ?? {}).map(
-      ([item, value]) => `- ${item}: ${value >= 1 ? 'passes' : `fails (${value})`}`,
-    ),
-    '',
-    ...(failing.length === 0 ? [] : ['## Failures', '', ...(verdict.failures ?? []), '']),
-    ...(verdict.review === undefined ? [] : ["## The check's review", '', verdict.review, '']),
-  ].join('\n')
-}
-
-function digestOf(value: unknown, name: string): Sha256Digest {
-  try {
-    return canonicalCandidateDigest(value)
-  } catch (error) {
-    throw new ValidationError(
-      `supervisePursuit versions: the ${name} must be canonical JSON to pin the chain: ${errorMessage(error)}`,
-    )
-  }
-}
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path)
-    return true
-  } catch (error) {
-    if (isNoEntError(error)) return false
-    throw error
-  }
-}
-
-function isSha256(value: unknown): value is Sha256Digest {
-  return typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value)
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

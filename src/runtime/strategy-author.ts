@@ -1,3 +1,18 @@
+import type { Outcome } from './personify/types'
+import {
+  type AgenticOptions,
+  type AgenticSurface,
+  type AgenticTask,
+  type ArtifactHandle,
+  createStrategyLeaf,
+  drainOne,
+  perChild,
+  profileTurnLimit,
+  type ShotTask,
+  type StrategyMessage,
+  type StrategyShotResult,
+} from './strategy'
+import type { Agent, Scope } from './supervise/types'
 /**
  * authorStrategy — the agent-authored layer as a package primitive (software-3.0): an
  * LLM reads a benchmark's per-task LOSSES + the defineStrategy contract and writes a NEW
@@ -21,7 +36,6 @@ import { sha256Bytes } from '../candidate-execution/digest'
 import { strategyAuthorMethod } from '../improvement/optimizer-prompt'
 import { assertAuthoredCode } from './authored-code'
 import { profileChatClient } from './profile-chat-client'
-import type { Strategy } from './strategy'
 import type { ExecutorConfig } from './supervise/runtime'
 
 /** The compressed consumable a skill carries: everything an author needs to emit a loop. */
@@ -233,3 +247,327 @@ export async function authorStrategy(opts: AuthorStrategyOptions): Promise<Autho
   }
   return { ...(await loadAuthoredStrategy(code, opts.outDir)), code }
 }
+
+/**
+ * A Strategy is HOW you spend the compute budget to beat the Environment's check — it
+ * builds the driver `Agent` the Supervisor runs. This is the OPEN extension point: a dev
+ * authors their own by implementing `driver()` to return an Agent whose `act()` spawns
+ * shots/analysts via `scope.spawn` / `scope.next` / `scope.send`. The two built-ins are
+ * the reference implementations to copy:
+ *   sample — K INDEPENDENT attempts, keep the best-verifying (best-of-N / resample).
+ *   refine — attempt → observe() reads the trace → steer the next → repeat (iterate).
+ * (A multi-agent "team" is just a Strategy whose driver spawns several different agents.)
+ */
+declare const strategyResult: unique symbol
+
+export interface Strategy<Result extends StrategyResult = StrategyResult> {
+  readonly name: string
+  /** @internal Associates a strategy with its typed result without adding a runtime field. */
+  readonly [strategyResult]?: Result
+  driver(
+    surface: AgenticSurface,
+    task: AgenticTask,
+    opts: AgenticOptions,
+    budget: number,
+  ): Agent<unknown, Outcome<unknown>>
+}
+
+// ── The composable LEGO: author a strategy in ~15 lines from two steps ───────────
+//
+// A strategy body gets `shot()` (run one worker attempt over an artifact) and
+// `critique()` (the firewalled analyst reads the trace → a steer). Compose them — no
+// Supervisor/Scope ceremony. This is the skillifiable unit: an agent can emit a
+// `defineStrategy(name, body)` of a few step-calls; it can't reliably emit a 70-line
+// driver. (depthStrategy/breadthStrategy are the hand-written reference impls; refine/sample
+// stay on them — proven — while NEW strategies are authored compactly here.)
+
+export interface ShotSpec {
+  /** present ⇒ continue this artifact (depth); absent ⇒ the shot opens a fresh one (sample/restart). */
+  handle?: ArtifactHandle
+  messages?: StrategyMessage[]
+  steer?: string
+  /** Exact profile for this shot. Omitted means `AgenticOptions.workerProfile`. */
+  profile?: AgentProfile
+  /** Restrict THIS shot to a subset of the domain's tools (by name) — focus a shot on
+   *  the relevant capabilities. Restriction-only; unknown names throw. Omitted ⇒ all. */
+  tools?: string[]
+}
+
+export interface StrategyResult {
+  score: number
+  resolved: boolean
+  completions: number
+  progression: number[]
+  shots: number
+}
+
+/** Artifact lifecycle a strategy may manage itself — open/close ONLY. Raw `call`/`score`
+ *  are withheld: scores reach the body solely through `shot()`'s StrategyShotResult (the
+ *  harness-verified channel), so a body cannot peek the check or fabricate around it. */
+export interface StrategyArtifacts {
+  readonly name: string
+  open(task: AgenticTask): Promise<ArtifactHandle>
+  close(handle: ArtifactHandle): Promise<void>
+}
+
+/** What a strategy body composes with: the artifact lifecycle, the budget, and the two steps. */
+export interface StrategyCtx {
+  /** Open/close artifacts the body manages itself (e.g. one persistent handle for depth). */
+  readonly surface: StrategyArtifacts
+  readonly task: AgenticTask
+  readonly opts: AgenticOptions
+  readonly budget: number
+  readonly scope: Scope<Outcome<unknown>>
+  /** Run ONE worker shot; its harness-scored result, or null if it went down. */
+  shot(spec?: ShotSpec): Promise<StrategyShotResult | null>
+  /** The firewalled critic reads the trajectory → a steer string, or null on COMPLETE/down. */
+  critique(messages: StrategyMessage[]): Promise<string | null>
+  /** The RAW analyst channel: the firewalled critic answers `instruction` over the
+   *  trajectory verbatim — no findings extraction, so verdict-shaped formats
+   *  (CONTINUE/STOP decisions, calibrated predictions) survive. Same firewall:
+   *  trajectory in, never scores. Null when the analyst went down. */
+  consult(messages: StrategyMessage[], instruction: string): Promise<string | null>
+  /** The tools THIS artifact's task actually offers (names + descriptions only — never
+   *  the implementations). Tool sets vary per task on heterogeneous domains; a strategy
+   *  that restricts shots MUST select from this list, never from hardcoded names. */
+  listTools(handle: ArtifactHandle): Promise<Array<{ name: string; description?: string }>>
+}
+
+/** Author a Strategy from the composable steps — the open, compact way. */
+export function defineStrategy<Result extends StrategyResult>(
+  name: string,
+  run: (ctx: StrategyCtx) => Promise<Result>,
+): Strategy<Result> {
+  return {
+    name,
+    driver: (surface, task, opts, budget) => ({
+      name,
+      async act(_t, scope): Promise<Outcome<unknown>> {
+        let seq = 0
+        // HARNESS-VERIFIED scoring: the deliverable score is computed HERE from the shots
+        // the harness actually brokered + scored via surface.score() — NEVER the value the
+        // (possibly authored / adversarial) body returns. An authored strategy cannot
+        // fabricate a win; it can only report what its real shots achieved. Keep-best.
+        let verifiedBest = 0
+        let verifiedResolved = false
+        // Close is IDEMPOTENT by construction for the body: authored code double-closes
+        // (often as a floating promise inside a finally), and a second close must be a
+        // no-op rather than a domain error that escapes as an unhandled rejection and
+        // kills the whole benchmark run. A close failure on a LIVE handle still throws.
+        const openHandles = new Set<string>()
+        const ctx: StrategyCtx = {
+          // Narrowed to open/close — the body gets no raw call()/score() access.
+          surface: {
+            name: surface.name,
+            open: async (t) => {
+              const h = await surface.open(t)
+              openHandles.add(h.id)
+              return h
+            },
+            close: async (h) => {
+              if (!h || !openHandles.has(h.id)) return
+              openHandles.delete(h.id)
+              await surface.close(h)
+            },
+          },
+          task,
+          opts,
+          budget,
+          scope,
+          async shot(spec) {
+            const profile = spec?.profile ?? opts.workerProfile
+            const innerTurns = profileTurnLimit(profile, 'authored strategy shot')
+            const child = createStrategyLeaf(`shot:${seq}`, 'shot', profile, surface, opts)
+            seq += 1
+            const res = scope.spawn(
+              child,
+              {
+                task,
+                handle: spec?.handle,
+                messages: spec?.messages,
+                steer: spec?.steer,
+                profile,
+                tools: spec?.tools,
+              } as ShotTask,
+              { budget: perChild(innerTurns), label: child.name },
+            )
+            if (!res.ok) return null
+            const settled = await drainOne(scope)
+            if (settled.kind === 'down') return null
+            const out = settled.out as unknown as StrategyShotResult
+            if (out.score > verifiedBest) verifiedBest = out.score
+            if (out.total > 0 && out.passes === out.total) verifiedResolved = true
+            return out
+          },
+          async listTools(handle) {
+            const tools = await surface.tools(task, handle)
+            return tools.map((t) => ({
+              name: t.function.name,
+              ...(t.function.description ? { description: t.function.description } : {}),
+            }))
+          },
+          async critique(messages) {
+            const child = createStrategyLeaf(
+              `analyst:${seq}`,
+              'analyst',
+              opts.analystProfile ?? opts.workerProfile,
+              surface,
+              opts,
+            )
+            seq += 1
+            const res = scope.spawn(
+              child,
+              { task, messages },
+              { budget: perChild(1), label: child.name },
+            )
+            if (!res.ok) return null
+            const settled = await drainOne(scope)
+            if (settled.kind === 'down') return null
+            const findings = settled.out as unknown as string
+            return /^\s*COMPLETE\b/i.test(findings) ? null : findings
+          },
+          async consult(messages, instruction) {
+            const child = createStrategyLeaf(
+              `analyst:${seq}`,
+              'analyst',
+              opts.analystProfile ?? opts.workerProfile,
+              surface,
+              opts,
+            )
+            seq += 1
+            const res = scope.spawn(
+              child,
+              { task, messages, rawInstruction: instruction },
+              { budget: perChild(1), label: child.name },
+            )
+            if (!res.ok) return null
+            const settled = await drainOne(scope)
+            if (settled.kind === 'down') return null
+            return settled.out as unknown as string
+          },
+        }
+        const r = await run(ctx)
+        // Override the body's self-reported score/resolved with the harness-verified
+        // values. The body's progression/completions/shots are advisory (display only) —
+        // but NORMALIZED: an authored body that omits them must not poison downstream
+        // consumers (losses tables, anytime curves) with undefined.
+        return {
+          kind: 'done',
+          deliverable: {
+            mode: name,
+            ...r,
+            progression: Array.isArray(r.progression) ? r.progression : [],
+            completions: typeof r.completions === 'number' ? r.completions : 0,
+            shots: typeof r.shots === 'number' ? r.shots : 0,
+            score: verifiedBest,
+            resolved: verifiedResolved,
+          },
+        }
+      },
+    }),
+  }
+}
+
+/** A NEW strategy, authored from the steps (~20 lines): refine, but when a steered shot
+ *  fails to improve the score it ABANDONS that line and restarts fresh (branch-when-stuck)
+ *  — the widen/MCTS idea the depth-stuck failure motivated. Scored keep-best (the best
+ *  checkpoint across all lines), the deployable metric. This is the "experts build BETTER
+ *  optimizations" path: a new technique, compact, with zero Supervisor ceremony. */
+export const adaptiveRefine = defineStrategy(
+  'adaptiveRefine',
+  async ({ surface, task, budget, shot, critique }) => {
+    let handle = await surface.open(task)
+    const progression: number[] = []
+    let messages: StrategyMessage[] | undefined
+    let steer: string | undefined
+    let completions = 0
+    let best = -1
+    let shots = 0
+    try {
+      for (shots = 0; shots < budget; shots += 1) {
+        const out = await shot({ handle, messages, steer })
+        if (!out) break
+        completions += out.completions
+        progression.push(out.score)
+        if (out.score >= 1) break
+        if (out.score <= best) {
+          // Stuck: steering isn't improving this line — abandon it, restart fresh.
+          await surface.close(handle)
+          handle = await surface.open(task)
+          messages = undefined
+          steer = undefined
+          continue
+        }
+        best = out.score
+        messages = out.messages
+        const findings = await critique(out.messages)
+        completions += 1
+        if (!findings) break
+        steer = `A reviewer flagged unfinished items:\n${findings}\n\nAddress each with the tools, verify they took, then continue.`
+      }
+      const score = progression.length ? Math.max(...progression) : 0
+      return { score, resolved: score >= 1, completions, progression, shots }
+    } finally {
+      await surface.close(handle)
+    }
+  },
+)
+
+/** The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open),
+ *  then refine the best-verifying line with the remaining budget. Sample's basin escape +
+ *  refine's accumulation — the third built-in, authored from the public steps. */
+export const sampleThenRefine = defineStrategy(
+  'sampleThenRefine',
+  async ({ surface, task, budget, shot, critique }) => {
+    const explore = Math.max(1, Math.ceil(budget / 2))
+    const open = new Set<ArtifactHandle>()
+    const progression: number[] = []
+    let completions = 0
+    let shots = 0
+    try {
+      // Explore: independent lines on handles we own (kept open so the best can continue).
+      let best: { handle: ArtifactHandle; out: StrategyShotResult } | undefined
+      for (let i = 0; i < explore; i += 1) {
+        const handle = await surface.open(task)
+        open.add(handle)
+        const out = await shot({ handle })
+        if (!out) continue
+        shots += 1
+        completions += out.completions
+        progression.push(out.score)
+        if (!best || out.score > best.out.score) best = { handle, out }
+        if (out.score >= 1) break
+      }
+      if (!best) return { score: 0, resolved: false, completions, progression, shots }
+      // Exploit: close the losers, refine the winner with the remaining budget.
+      for (const h of [...open]) {
+        if (h !== best.handle) {
+          await surface.close(h)
+          open.delete(h)
+        }
+      }
+      let messages = best.out.messages
+      let topScore = best.out.score
+      for (let i = explore; i < budget && topScore < 1; i += 1) {
+        const findings = await critique(messages)
+        completions += 1
+        if (!findings) break
+        const out = await shot({
+          handle: best.handle,
+          messages,
+          steer: `A reviewer flagged unfinished items:\n${findings}\n\nAddress each with the tools, verify they took, then continue.`,
+        })
+        if (!out) break
+        shots += 1
+        completions += out.completions
+        progression.push(out.score)
+        messages = out.messages
+        if (out.score > topScore) topScore = out.score
+      }
+      const score = progression.length ? Math.max(...progression) : 0
+      return { score, resolved: score >= 1, completions, progression, shots }
+    } finally {
+      for (const h of open) await surface.close(h)
+    }
+  },
+)

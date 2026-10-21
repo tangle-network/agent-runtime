@@ -162,7 +162,7 @@ class OpenCodeRouterAgent(OpenCodeAgent):
         The base `_get_templated_script_path` resolves the template relative to
         `inspect.getfile(self.__class__)` — i.e. next to THIS subclass file, where
         `opencode-setup.sh.j2` does not exist. Resolve it from the stock
-        `OpenCodeAgent`'s own directory instead (same fix as OpenCodeRefineAgent).
+        `OpenCodeAgent`'s own directory instead (the canonical template owner).
         """
         template_path = (
             Path(inspect.getfile(OpenCodeAgent)).parent / "opencode-setup.sh.j2"

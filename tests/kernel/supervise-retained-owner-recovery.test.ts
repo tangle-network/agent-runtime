@@ -6,7 +6,7 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
+import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'

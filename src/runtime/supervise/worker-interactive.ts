@@ -9,7 +9,7 @@ import {
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { FileSpawnJournal } from '../../durable/spawn-journal/journal-store'
 import { loadSpawnForest } from '../../durable/spawn-journal/spawn-forest'
-import type { AgentEnvironmentProviderRegistry } from '../environment-provider'
+import type { AgentEnvironmentProviderRegistry } from '../environment-provider/provider-registry'
 import { reconnectRetainedInteractiveRun } from '../retained-interactive'
 import { assertNoSymlinkDescendant, publishExclusiveDurableFile } from './durable-file'
 import type { WorkerInteractiveSession, WorkerInteractiveUnavailableReason } from './types'

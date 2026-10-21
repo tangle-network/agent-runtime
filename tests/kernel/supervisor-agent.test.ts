@@ -8,7 +8,7 @@ import { CheckUnavailableError } from '../../src/runtime/supervise/completion-ga
 import type {
   DriverAttemptRecord,
   DriverContinuationRecord,
-} from '../../src/runtime/supervise/driver-retry'
+} from '../../src/runtime/supervise/driver-attempt-evidence'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {

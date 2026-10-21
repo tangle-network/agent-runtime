@@ -54,6 +54,7 @@ import { createReadStream } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { ValidationError } from '../errors'
+import { recordValue as plainRecord } from '../record-value'
 import type { HarnessUsage } from './harness-usage'
 
 /** The cumulative counters codex reports, in the runtime's field names. */
@@ -812,12 +813,6 @@ function uuidV7TimestampMs(value: string | undefined): number | undefined {
   if (!match) return undefined
   const ms = Number.parseInt(`${match[1]}${match[2]}`, 16)
   return Number.isSafeInteger(ms) ? ms : undefined
-}
-
-function plainRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
 }
 
 function naturalNumber(value: unknown): number | undefined {

@@ -36,7 +36,7 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
 │ round-synchronous           │            │ reactive keystone (canonical)   │
 │ driver.plan → decide        │            │ Agent.act spawns into a Scope   │
 │ (most benches drive this)   │            │ conserved budget ⇒ equal-k      │
-│ run-loop.ts                 │            │ supervise/{scope,supervisor}.ts │
+│ agent-rounds.ts                 │            │ supervise/{scope,supervisor}.ts │
 └─────────────────────────────┘            └─────────────────────────────────┘
                 └────────── same Executor port underneath ──────────┘
 ```
@@ -47,7 +47,8 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
 Bridge code follows these internal boundaries:
 
 - `bridge-config.ts` captures transport configuration and resolves protected credential references at dispatch.
-- `bridge-executor.ts` owns the executor lifecycle, steering, materialization, and measured usage.
+- `bridge-executor.ts` owns the executor lifecycle and materialization.
+- `bridge-session-stream.ts` owns the resumable session turn loop, steering, and measured usage.
 - `bridge-transport.ts` owns admission checks, HTTP requests, ordered reconnect, and acknowledged cancellation.
 - `bridge-protocol.ts` decodes streams and validates receipts without owning network or executor state.
 

@@ -19,7 +19,6 @@ import {
   withinCandidateCleanupDeadline,
   withinCandidateResultDeadline,
 } from './cleanup'
-import { canonicalCandidateBytes } from './digest'
 import { candidatePostRunWindowMs, candidateTerminalWindowMs } from './execution-window'
 import {
   type SealedAgentCandidateExecutorFinalCapture,
@@ -37,6 +36,7 @@ import {
   type PersistedAgentCandidateModelSettlement,
   persistCandidateBenchmarkResult,
   persistCandidateModelSettlement,
+  persistFailureEvidence,
   persistVerifiedAgentCandidateExecutorCapture,
 } from './outcome-evidence'
 import { persistCandidateOutputArtifact } from './output-artifacts'
@@ -963,29 +963,6 @@ async function finishClaim(
   } catch {
     return false
   }
-}
-
-async function persistFailureEvidence(
-  state: PreparedCandidateState,
-  reason: string,
-  failureClass: AgentCandidateExecutionFailureClass,
-  termination: AgentCandidateTermination | undefined,
-  outputArtifacts: AgentCandidateOutputArtifactPort,
-) {
-  const bytes = canonicalCandidateBytes({
-    kind: 'agent-candidate-execution-failure',
-    executionId: state.executionId,
-    bundleDigest: state.bundle.digest,
-    executionPlanDigest: state.executionPlan.value.digest,
-    failureClass,
-    reason,
-    ...(termination ? { termination } : {}),
-  })
-  return await persistCandidateOutputArtifact(outputArtifacts, {
-    executionId: state.executionId,
-    purpose: 'failure-evidence',
-    bytes,
-  })
 }
 
 function protectedEnvironmentValues(

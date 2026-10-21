@@ -45,5 +45,14 @@
     "source-order"
   ],
   "githubPages": false,
-  "outputFileStrategy": "modules"
+  "outputFileStrategy": "modules",
+  "externalSymbolLinkMappings": {
+    "@tangle-network/agent-runtime": {
+      "RouteFlow": "https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts",
+      "DecideGate": "https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts",
+      "RouteSpawnMarker": "https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts",
+      "GateDecisionRecord": "https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts",
+      "RouteFlowEvent": "https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts"
+    }
+  }
 }

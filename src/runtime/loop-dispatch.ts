@@ -42,8 +42,8 @@ import type {
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
 import type { PromptOptions } from '@tangle-network/sandbox'
+import { type RunAgentRoundsOptions, runAgentRounds } from './agent-rounds'
 import { canonicalObservedModelParts } from './model-identity'
-import { type RunAgentRoundsOptions, runAgentRounds } from './run-loop'
 import { type SuperviseOptions, supervise } from './supervise/supervise'
 import type { ProviderModelExecutionEvidence, SupervisedResult } from './supervise/types'
 import type { LoopResult, LoopTokenUsage, LoopTraceEmitter, SandboxClient } from './types'

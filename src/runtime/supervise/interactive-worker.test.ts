@@ -24,7 +24,7 @@ import {
 } from '@tangle-network/agent-interface'
 import type { CreateAgentEnvironmentInput } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import { loadTopSnapshot } from '../../tui/top-model'
+import { loadTopSnapshot } from '../../tui/top-snapshot'
 import type { ToolLoopChat } from '../tool-loop'
 import {
   interactiveAdmissionSeamKey,

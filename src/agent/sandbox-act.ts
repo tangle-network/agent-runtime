@@ -25,7 +25,7 @@ import type {
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import type { AgentRunSpec, OutputAdapter, SandboxClient } from '../runtime'
 import { mapSandboxEvent } from '../runtime'
-import { createSandboxForSpec } from '../runtime/run-loop'
+import { createSandboxForSpec } from '../runtime/iteration-sandboxes'
 import type { RuntimeStreamEvent } from '../types'
 import type { AgentRunContext, AgentRunInvocation } from './define-agent'
 import {

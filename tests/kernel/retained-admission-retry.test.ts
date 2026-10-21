@@ -7,11 +7,11 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
-import { providerAsExecutor } from '../../src/runtime/environment-provider'
+import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
 import { startRetainedRun } from '../../src/runtime/retained-run-start'
 import type { RetainedRunAdmission } from '../../src/runtime/retained-run-types'
+import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import {
-  type DriverAttemptRecord,
   type DriverBudgetReadout,
   runDriverWithRetry,
 } from '../../src/runtime/supervise/driver-retry'

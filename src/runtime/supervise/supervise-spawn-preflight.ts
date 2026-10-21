@@ -1,5 +1,5 @@
+import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import type { SpawnPreflight } from '../../mcp/tools/coordination-contracts'
-import type { AgentEnvironmentProvider } from '../environment-provider'
 import { profileBridgeWireModel } from './model-policy'
 import {
   type BridgeSeam,

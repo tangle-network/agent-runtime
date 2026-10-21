@@ -8,7 +8,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import type { HarnessTranscriptEvidence } from '../../harness-transcript'
 import type { RetainedRunEffect } from '../../retained-run-types'
-import type { DriverAttemptRecord } from '../driver-retry'
+import type { DriverAttemptRecord } from '../driver-attempt-evidence'
 import type { EvidencePendingEvent, RetainedPendingCause } from '../retained-executor'
 import type { Budget, BudgetViolation, Spend } from './accounting'
 import type {

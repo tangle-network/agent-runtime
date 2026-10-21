@@ -175,7 +175,7 @@ cost dial, not two separate drivers"):
 |---|---|---|---|
 | **told / `llm-call`** | one call: `context(trace+findings) → directive` | no | `reflectiveGenerator` |
 | **leads / `sandbox-agent`** | a harness in a worktree that can use tools, **call or author trace-analysts**, **re-run analysis over the logs**, even **change code**, then emit the steer/surface ("auto-research") | **yes** | `agenticGenerator` |
-| text-only baseline | mutate the surface text into N variants | no | a `defineStrategy` variant (`src/runtime/strategy.ts`) |
+| text-only baseline | mutate the surface text into N variants | no | a `defineStrategy` variant (`src/runtime/strategy-author.ts`) |
 
 The sandbox-agent driver **runs in a sandbox/worktree** so the repo never accretes
 its scratch work. Its prompt can be prescriptive ("use this directive") or
@@ -477,7 +477,7 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
   The roles are the *same* atom; a node is a "driver" only because its tools spawn children.
   A child whose `act` calls `scope.spawn` is a driver too, with its **own sub-scope** (depth+1, bounded by `maxDepth` + a partition of the same root total) — recursion isn't a feature, it's the absence of a base case (`src/runtime/supervise/supervisor.ts`, `src/runtime/supervise/scope.ts`).
 - **REAL** — the **leaf** at the bottom is where a real coding harness runs, opaque and
-  self-parallelizing internally; the `runAgentRounds` kernel (`src/runtime/run-loop.ts`) is
+  self-parallelizing internally; the `runAgentRounds` kernel (`src/runtime/agent-rounds.ts`) is
   composed as one leaf execution backend. Everything above it is the same `act`/`Scope`
   atom, observable as one lifecycle stream (`scope.spawn`/settle →
   `agent.spawn`/`agent.child`).

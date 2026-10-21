@@ -104,12 +104,14 @@ Object.assign(process.env, {
 })
 
 try {
-  const [runtime, experimentFixtures, executionFixtures, profileFixtures] = await Promise.all([
-    import('../src/intelligence/improvement-cycle'),
-    import('../tests/helpers/candidate-experiment-fixture'),
-    import('../tests/helpers/candidate-execution-fixture'),
-    import('../tests/helpers/profile-improvement-fixture'),
-  ])
+  const [runtime, activation, experimentFixtures, executionFixtures, profileFixtures] =
+    await Promise.all([
+      import('../src/intelligence/improvement-cycle'),
+      import('../src/intelligence/activation'),
+      import('../tests/helpers/candidate-experiment-fixture'),
+      import('../tests/helpers/candidate-execution-fixture'),
+      import('../tests/helpers/profile-improvement-fixture'),
+    ])
   cleanupCandidateExperimentFixtures = experimentFixtures.cleanupCandidateExperimentFixtures
   cleanupCandidateFixtures = executionFixtures.cleanupCandidateFixtures
 
@@ -125,7 +127,7 @@ try {
       runtimeVersion: packageJson.version,
     },
   })
-  const proposal = runtime.createAgentImprovementProposal({
+  const proposal = activation.createAgentImprovementProposal({
     runId,
     findings: [
       {
@@ -148,7 +150,7 @@ try {
   })
   const serialized = formatFixture(
     fixturePath,
-    `${JSON.stringify(runtime.verifyAgentImprovementProposal(proposal), null, 2)}\n`,
+    `${JSON.stringify(activation.verifyAgentImprovementProposal(proposal), null, 2)}\n`,
   )
   const profileFixture = profileFixtures.createProfileImprovementFixture({
     metadata: {
@@ -156,7 +158,7 @@ try {
       runtimeVersion: packageJson.version,
     },
   })
-  const profileProposal = runtime.createAgentImprovementProposal({
+  const profileProposal = activation.createAgentImprovementProposal({
     runId: profileFixture.evaluation.provenance.runId,
     findings: [],
     evaluation: profileFixture.evaluation,
@@ -164,7 +166,7 @@ try {
   })
   const serializedProfileProposalFixture = formatFixture(
     profileFixturePath,
-    `${JSON.stringify(runtime.verifyAgentImprovementProposal(profileProposal), null, 2)}\n`,
+    `${JSON.stringify(activation.verifyAgentImprovementProposal(profileProposal), null, 2)}\n`,
   )
   const serializedProfileStateFixture = formatFixture(
     profileStateFixturePath,

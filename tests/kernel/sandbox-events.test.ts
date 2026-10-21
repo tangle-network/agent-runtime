@@ -2,13 +2,9 @@ import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   assertSandboxServedModel,
-  createSandboxToolPartState,
   createSandboxUsageLedger,
   extractLlmCallEvent,
-  mapSandboxEvent,
-  mapSandboxToolEvent,
   sandboxEventServedBackend,
-  sandboxProgressEvents,
   sumSandboxUsage,
 } from '../../src/runtime/sandbox-events'
 
@@ -183,85 +179,6 @@ describe('sumSandboxUsage — meter an openSandboxRun turn', () => {
   })
 })
 
-describe('mapSandboxEvent — SandboxEvent → RuntimeStreamEvent', () => {
-  it('maps a text part to text_delta, preferring the incremental delta', () => {
-    expect(
-      mapSandboxEvent({
-        type: 'message.part.updated',
-        data: { part: { type: 'text', text: 'hello world' }, delta: ' world' },
-      }),
-    ).toEqual({ type: 'text_delta', text: ' world' })
-  })
-
-  it('falls back to part.text when no delta is present', () => {
-    expect(
-      mapSandboxEvent({
-        type: 'message.part.updated',
-        data: { part: { type: 'text', text: 'hi' } },
-      }),
-    ).toEqual({ type: 'text_delta', text: 'hi' })
-  })
-
-  it('maps reasoning and thinking parts to reasoning_delta', () => {
-    expect(
-      mapSandboxEvent({
-        type: 'message.part.updated',
-        data: { part: { type: 'reasoning' }, delta: 'because' },
-      }),
-    ).toEqual({ type: 'reasoning_delta', text: 'because' })
-    expect(
-      mapSandboxEvent({
-        type: 'message.part.updated',
-        data: { part: { type: 'thinking' }, delta: 'hmm' },
-      }),
-    ).toEqual({ type: 'reasoning_delta', text: 'hmm' })
-  })
-
-  it('returns undefined for an unknown part type rather than guessing a shape', () => {
-    expect(
-      mapSandboxEvent({
-        type: 'message.part.updated',
-        data: { part: { type: 'tool', toolName: 'x' } },
-      }),
-    ).toBeUndefined()
-  })
-
-  it('returns undefined for a text part with no text payload', () => {
-    expect(
-      mapSandboxEvent({ type: 'message.part.updated', data: { part: { type: 'text' } } }),
-    ).toBeUndefined()
-  })
-
-  it('maps cost-bearing events to llm_call', () => {
-    expect(
-      mapSandboxEvent({
-        type: 'llm_call',
-        data: { model: 'm', tokensIn: 10, tokensOut: 5, costUsd: 0.01 },
-      }),
-    ).toEqual({ type: 'llm_call', model: 'm', tokensIn: 10, tokensOut: 5, costUsd: 0.01 })
-  })
-
-  it('maps a result carrying usage to llm_call, and a bare result to undefined', () => {
-    expect(
-      mapSandboxEvent(
-        { type: 'result', data: { usage: { inputTokens: 3, outputTokens: 4 } } },
-        { agentRunName: 'r' },
-      ),
-    ).toEqual({
-      type: 'llm_call',
-      model: 'r',
-      tokensIn: 3,
-      tokensOut: 4,
-      usdKnown: false,
-    })
-    expect(mapSandboxEvent({ type: 'result', data: { finalText: 'done' } })).toBeUndefined()
-  })
-
-  it('returns undefined for a non-object event', () => {
-    expect(mapSandboxEvent(undefined as unknown as SandboxEvent)).toBeUndefined()
-  })
-})
-
 describe('extractLlmCallEvent — strict numeric coercion', () => {
   it('rejects a NaN token count rather than poisoning the ledger', () => {
     expect(
@@ -361,10 +278,6 @@ describe('the event decoders stay pure so a failed run can still be read', () =>
 
   it('extractLlmCallEvent returns undefined for an error event instead of throwing', () => {
     expect(extractLlmCallEvent(failedTurn[1]!, 'agent')).toBeUndefined()
-  })
-
-  it('mapSandboxEvent returns undefined for an error event instead of throwing', () => {
-    expect(mapSandboxEvent(failedTurn[1]!)).toBeUndefined()
   })
 
   it('sumSandboxUsage still meters the spend of a turn that ended in failure', () => {
@@ -496,22 +409,6 @@ describe('mapSandboxToolEvent — a liveness frame is not a tool call', () => {
         },
       }) as unknown as SandboxEvent,
   )
-
-  it('records one call for a call that heartbeats while it runs', () => {
-    const state = createSandboxToolPartState()
-    const projected = [call, ...liveness].flatMap((event) => mapSandboxToolEvent(event, state))
-    expect(projected).toEqual([
-      {
-        type: 'tool_call',
-        toolName: 'mcp__agent-runtime-coordination__await_event',
-        toolCallId: 'toolu_01Sz',
-        args: { max: 5 },
-      },
-    ])
-    const fresh = createSandboxToolPartState()
-    const progress = [call, ...liveness].flatMap((event) => sandboxProgressEvents(event, fresh))
-    expect(progress.filter((event) => event.kind === 'tool_call')).toHaveLength(1)
-  })
 })
 
 describe('mapSandboxToolEvent — codex tool items', () => {
@@ -540,65 +437,6 @@ describe('mapSandboxToolEvent — codex tool items', () => {
     exit_code: null,
     status: 'in_progress',
   }
-
-  it('projects one call per item id and its result, named as Eval names codex tools', () => {
-    const state = createSandboxToolPartState()
-    const projected = [
-      item('item.started', mcp),
-      item('item.completed', { ...mcp, result: { content: [] }, status: 'completed' }),
-      item('item.started', command),
-      item('item.completed', { ...command, aggregated_output: 'fail', exit_code: 1 }),
-      item('item.completed', { id: 'item_3', type: 'file_change', changes: [{ path: 'a.ts' }] }),
-      item('item.started', { id: 'item_4', type: 'reasoning', text: 'thinking' }),
-      item('turn.completed', {}),
-      {
-        type: 'raw',
-        data: { type: 'raw', backend: 'opencode', event: { type: 'tool_use', part: {} } },
-      } as unknown as SandboxEvent,
-    ].flatMap((event) => mapSandboxToolEvent(event, state))
-    expect(projected).toEqual([
-      {
-        type: 'tool_call',
-        toolName: 'agent-runtime-coordination/read_journal',
-        toolCallId: 'item_1',
-        args: {
-          server: 'agent-runtime-coordination',
-          tool: 'read_journal',
-          arguments: { sinceRow: 0 },
-        },
-      },
-      {
-        type: 'tool_result',
-        toolName: 'agent-runtime-coordination/read_journal',
-        toolCallId: 'item_1',
-        result: { content: [] },
-      },
-      {
-        type: 'tool_call',
-        toolName: 'command_execution',
-        toolCallId: 'item_2',
-        args: { command: 'npm test' },
-      },
-      {
-        type: 'tool_result',
-        toolName: 'command_execution',
-        toolCallId: 'item_2',
-        result: { error: 'command_execution failed', status: 'failed', output: 'fail' },
-      },
-      {
-        type: 'tool_call',
-        toolName: 'file_change',
-        toolCallId: 'item_3',
-        args: { changes: [{ path: 'a.ts' }] },
-      },
-      {
-        type: 'tool_result',
-        toolName: 'file_change',
-        toolCallId: 'item_3',
-        result: [{ path: 'a.ts' }],
-      },
-    ])
-  })
 })
 
 describe('SandboxUsageLedger settled usage projection', () => {

@@ -31,7 +31,7 @@ import type {
   AgentProfile,
   AgentProfileDiff,
 } from '@tangle-network/agent-interface'
-import { verifyAgentImprovementProposal } from './improvement-cycle'
+import { verifyAgentImprovementProposal } from './activation'
 
 const defaultPlaneBaseUrl = 'https://intelligence.tangle.tools'
 const defaultRefreshMs = 300_000

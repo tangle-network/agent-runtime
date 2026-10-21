@@ -17,7 +17,10 @@ import {
   RetainedRunProviderContractError,
 } from './retained-run-binding'
 import type { RetainedRunEventOptions } from './retained-run-types'
-import { extractTransportEventIdentity, parseCanonicalTransportEvent } from './sandbox-events'
+import {
+  extractTransportEventIdentity,
+  parseCanonicalTransportEvent,
+} from './sandbox-transport-events'
 import { abortError } from './util'
 
 /** The runtime's own contract checks inside the stream loop, so the catch can tell a broken

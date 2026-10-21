@@ -1,5 +1,5 @@
 import type { BudgetPool } from './budget'
-import { DriverAttemptsExhaustedError } from './driver-retry'
+import { DriverAttemptsExhaustedError } from './driver-attempt-evidence'
 import { errMessage, errorProperty } from './error-message'
 import type { IntensityBreaker } from './supervisor-intensity-breaker'
 import type { NoWinnerError, SupervisedResult, SupervisorOpts, TreeView } from './types'

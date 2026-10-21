@@ -551,7 +551,7 @@ Rule of thumb: `delegate` = "I don't care how"; `supervise` = "I authored the dr
 
 | Pattern | Use | Bottoms out at |
 |---|---|---|
-| **researcher → engineer** (gather, then build) | `defineStrategy(name, body)`: both agents in one body via `ctx.shot()` + `ctx.critique()` | `src/runtime/strategy.ts:789` |
+| **researcher → engineer** (gather, then build) | `defineStrategy(name, body)`: both agents in one body via `ctx.shot()` + `ctx.critique()` | `src/runtime/strategy-author.ts` |
 | **implement → verify** (build, then a SEPARATE checker gates it: selector ≠ judge) | `verify(spec)` as the `shape` | `src/runtime/personify/combinators.ts:333` |
 | **N-judge panel** (fan judges out, merge verdicts) | `panel(spec)` as the `shape` | `src/runtime/personify/combinators.ts:273` |
 

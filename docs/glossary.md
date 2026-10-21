@@ -11,7 +11,7 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 
 | Term | Canonical meaning | Anchor | Not |
 |---|---|---|---|
-| **Iteration** | ONE `driver.plan → dispatch → output.parse → validator.validate → driver.decide` cycle. The kernel's official accounting unit; trace events are `loop.iteration.*`. | `types.ts:119` (`Iteration`), `run-loop.ts` (the loop body) | not a "rollout" (that's what happens *inside* it); not a "turn" |
+| **Iteration** | ONE `driver.plan → dispatch → output.parse → validator.validate → driver.decide` cycle. The kernel's official accounting unit; trace events are `loop.iteration.*`. | `types.ts:119` (`Iteration`), `src/runtime/agent-rounds.ts` (the loop body) | not a "rollout" (that's what happens *inside* it); not a "turn" |
 | **Round** | Informal synonym for **iteration**. **Avoid — say "iteration".** | docstrings only | — |
 | **Rollout** | ONE agent execution in a box: one `streamPrompt` (or one executor `execute`) producing an answer/patch/artifact. The **worker's** unit, nested *inside* one iteration. | `sandbox-run.ts:30` ("a SINGLE rollout") | NOT the driver↔worker round (that's an iteration); a fanout iteration contains N rollouts |
 | **Attempt** | A rollout as the steer/analyst sees it (its output + verdict + trace). Same event, steer-side view. | `bench/src/sandbox-run.ts:39` (`SteerHistory`) | — |
@@ -24,7 +24,7 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 | Term | Meaning | Anchor |
 |---|---|---|
 | **Driver** | Owns topology. `plan(task, history) → Task[]` (1 = refine, N = fanout, 0 = stop) and `decide(history) → Decision`. The authority on what runs next. **Live and central.** | `types.ts:138` |
-| **Worker** | The agent run dispatched within an iteration (round-robin over `agentRuns`). "worker box", "finished worker". **Live term.** | `run-loop.ts:88,107` (`AgentRunSpec` `types.ts:67`) |
+| **Worker** | The agent run dispatched within an iteration (round-robin over `agentRuns`). "worker box", "finished worker". **Live term.** | `src/runtime/iteration-execution.ts` (`AgentRunSpec` `types.ts:67`) |
 | **Validator** | Owns scoring: `validate(output, ctx) → Verdict {valid, score}`. The judge. Selector ≠ judge: the driver selects, the validator judges. `ctx.box` is the iteration's LIVE sandbox, so a check can execute commands in the container it scores; a supervised worker gets one through `SandboxSeam.validator`. | `types.ts:52` |
 | **OutputAdapter** | Owns event-stream decode: `parse(events) → Output`. | `types.ts:105` |
 | **Analyst** | An `Agent.act` over the trace that returns a steer (never reads the verdict — the steer firewall). `llmAnalyst` (one router call); a strategy reads it via `ctx.critique`. | `bench/src/sandbox-run.ts:58` (`llmAnalyst`); firewall `src/runtime/personify/analyst.ts` (`assertTraceDerivedFindings`) |
@@ -37,10 +37,10 @@ The shape grows by LLM decision through the **coordination toolbox** over a live
 
 | Term | Meaning | Anchor |
 |---|---|---|
-| **Strategy** (`sample`/`refine`) | A `defineStrategy(name, body)` value run through the Supervisor as one recursive `Agent.act`: `sample` = breadth/best-of-N, `refine` = depth/iterate-with-feedback. The harness-verified topology, NOT a fixed script. | `strategy.ts` (`defineStrategy`, `sample`, `refine`) |
+| **Strategy** (`sample`/`refine`) | A `defineStrategy(name, body)` value run through the Supervisor as one recursive `Agent.act`: `sample` = breadth/best-of-N, `refine` = depth/iterate-with-feedback. The harness-verified topology, NOT a fixed script. | `src/runtime/strategy-author.ts` (`defineStrategy`); `src/runtime/strategy.ts` (`sample`, `refine`) |
 | **Coordination toolbox** | The driver's per-step move set as MCP tools over a live `Scope`: `spawn_worker` (branch N) · `steer_agent` (interrupt) · `observe_agent` · `stop`; the driver reacts in the turn Runtime wakes it with. This **is** "topology grown through LLM decisions". | `src/mcp/tools/coordination-manager.ts` (`createCoordinationTools`) |
 | **Profiles table** | `SuperviseRegistry.profiles`: the named `AgentProfile`s any manager in a run may spawn with `spawn_worker({ profile: '<name>' })`. Each `SuperviseProfileEntry` is exploratory, or promoted by a verified `SealedExperiment` plus a `PairedPromotionDecision` that promoted. Omitted or empty, the spawn tool is unchanged: that is the off switch. | `src/runtime/supervise/supervise.ts` (`SuperviseRegistry`, `snapshotProfileTable`); `src/mcp/tools/coordination-contracts.ts` (`SuperviseProfileEntry`) |
-| **AnalystFn / `critique`** | `(history, task?) → correction`. The firewalled steer — trajectory in, never the score. `llmAnalyst` (one router call); the strategy author calls it via `ctx.critique`. | `bench/src/sandbox-run.ts:50,58` (`llmAnalyst`); `strategy.ts` (`ctx.critique`) |
+| **AnalystFn / `critique`** | `(history, task?) → correction`. The firewalled steer — trajectory in, never the score. `llmAnalyst` (one router call); the strategy author calls it via `ctx.critique`. | `bench/src/sandbox-run.ts:50,58` (`llmAnalyst`); `src/runtime/strategy-author.ts` (`ctx.critique`) |
 
 ## The executor port (the unified execution seam)
 
@@ -62,8 +62,8 @@ The shape grows by LLM decision through the **coordination toolbox** over a live
 | **Charged tokens** | The pool's token unit: `input - cacheRead + output`, so each token is counted once, when it first enters the context. Under a complete split it equals `freshInput + cacheWrite + output`. The subtraction form is additive, so an aggregate charges what its records charged; a cache class that does not fit inside the prompt total it partitions credits nothing. Unclassified prompt tokens are charged in full and `BudgetReadout.cacheBreakdownKnown` reads false, marking the balance an upper bound. | `src/runtime/util.ts` |
 | **BudgetPool / ReservationTicket** | The **conserved reservation pool**: each spawn *reserves* against the root then settles to actual `Spend`. This is what makes **equal-compute hold by construction** (the anti-confound invariant for the gate). | `src/runtime/supervise/budget.ts` |
 | **UsageEvent** | The normalized usage increment every executor emits, so the pool meters all runtimes identically. | `supervise/types.ts:120` |
-| **Bridge turn receipt** | The usage cli-bridge counts for itself: it runs every harness against a scoped-loopback endpoint it owns and publishes what passed through it on the turn's materialization receipt, as `inference.observation.usage` with the prompt-cache split. Harness-agnostic by construction, because the proxy reads provider requests and not a CLI's own events. The bridge executor credits it only for a turn whose stream carried no usage frame, so a turn is charged once. | `src/runtime/supervise/runtime.ts` (`readBridgeReceiptTokens`) |
-| `runAgentRounds`'s budget | Only `maxIterations` (count) + `maxConcurrency` (in-flight cap) + per-`Iteration` cost aggregation. The rigorous reservation pool is the keystone's, not `runAgentRounds`'s. | `run-loop.ts:88` |
+| **Bridge turn receipt** | The usage cli-bridge counts for itself: it runs every harness against a scoped-loopback endpoint it owns and publishes what passed through it on the turn's materialization receipt, as `inference.observation.usage` with the prompt-cache split. Harness-agnostic by construction, because the proxy reads provider requests and not a CLI's own events. The bridge executor credits it only for a turn whose stream carried no usage frame, so a turn is charged once. | `src/runtime/supervise/bridge-session-stream.ts` (`readBridgeReceiptTokens`) |
+| `runAgentRounds`'s budget | Only `maxIterations` (count) + `maxConcurrency` (in-flight cap) + per-`Iteration` cost aggregation. The rigorous reservation pool is the keystone's, not `runAgentRounds`'s. | `src/runtime/agent-rounds.ts` |
 
 ## Agent-to-agent
 

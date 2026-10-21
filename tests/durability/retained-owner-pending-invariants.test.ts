@@ -38,9 +38,9 @@ import {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
 } from '../../src/durable/in-memory-spawn-stores'
-import { providerAsExecutor } from '../../src/runtime/environment-provider'
+import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
+import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import {
-  type DriverAttemptRecord,
   type DriverBudgetReadout,
   runDriverWithRetry,
 } from '../../src/runtime/supervise/driver-retry'

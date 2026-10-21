@@ -442,10 +442,10 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 | `ProtectedExactProcessCandidateExperimentExecutor` | interface | Exact-process executor plus the ports required for durable recovery. |
 | `RecordTraceMeta` | interface | Metadata for {@link IntelligenceClient.recordTrace}. |
 | `RepoConfig` | interface | Repo coordinates a product may declare for the (later) Gated-PR mode. The |
+| `ResolvedCapabilitySurface` | interface | Materialized capability surfaces supplied by a consumer-owned executor. |
 | `ResolvedHook` | interface | One resolved hook — event + the command/matcher the seam folds into |
 | `ResolvedRetrieval` | interface | One retrieval handle. The agent never learns vector vs graph vs index. |
 | `ResolvedSubagent` | interface | One resolved subagent — folded into `AgentProfile.subagents`. |
-| `ResolvedSurface` | interface | Materialized capability surfaces supplied by a consumer-owned executor. |
 | `RunRecord` | interface | The typed record `withIntelligence` sends per call — serialized through the |
 | `RunReport` | interface | What an agent reports (via `applied.record`) to enrich the {@link RunRecord} |
 | `SubmitAgentImprovementProposalOptions` | interface | Submit a completed measured proposal for product-side review. |
@@ -484,7 +484,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1132 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -554,7 +554,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
 | `createExecutorRegistry` | function | The open resolver/registry. Pre-registers the three built-ins under their |
 | `createFencedSqlRunContext` | function | A cross-machine run context on the existing autocommit SqlAdapter. Reuse the same database, |
 | `createFileRunContext` | function | Build a DURABLE run context: the spawn journal and the result blobs are file-backed (fsynced |
-| `createInbox` | function | Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages and a sibling's peer mail queue here, and the worker's loop drains them at step boundaries and be |
+| `createInbox` | function | Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages and a sibling's peer mail queue here, and the worker's loop leases them at step boundaries and be |
 | `createInMemoryRunContext` | function | Build a fresh in-memory run context. Every call returns NEW stores (no shared global |
 | `createInPlaceCliExecutor` | function | Build an in-place CLI leaf `Executor`. Per-spawn, but NOT per-workspace: repeated spawns against |
 | `createMcpEnvironment` | function | Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. |
@@ -725,7 +725,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
 | `runCancelRequestFile` | function | The run-scoped cancel request file of one run — one {@link RunCancelRequest}. |
 | `runCodeMode` | function | Execute a JS async-function body against Runtime capabilities. The upstream |
 | `runFinalizer` | function | Run a finalizer over a settled-worker ledger under the delivered-only invariant: filter the |
-| `runGraph` | function | Execute an {@link AgentGraph}. The root node becomes the supervisor (`supervise()` — the |
+| `runGraph` | function | Execute an {@link AgentGraph}. A flow graph (`entry` set) runs from its entries and routes edges |
 | `runInWorkspace` | function | Run a worker `body` inside a FRESH clone of a shared `Workspace`, then commit its work back |
 | `runIsolatedCheck` | function | Run an untrusted check in Linux Bubblewrap, or in its own Sandbox box when `box` is set. |
 | `runPersonified` | function | Compose the persona + chosen shape onto a fresh keystone `Supervisor`. Resolves the shape |
@@ -806,7 +806,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
 | `bestDelivered` | const | Keep-best under the completion oracle — the DEFAULT finalizer and the exact behavior every |
 | `builtinShapes` | const | The default registry `runPersonified` resolves a shape name against. Empty by construction — |
 | `cliInPlaceExecutor` | const | The leaf `createInPlaceCliExecutor` as a backend-as-data factory: a supervisor-authored |
-| `cliWorktreeExecutor` | const | The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored |
+| `cliWorktreeExecutor` | const | Executor factory for a CLI harness that runs in a git worktree of the caller's checkout. |
 | `collectDelivered` | const | Every verified distinct output, highest score first — the shape for competing hypotheses, a |
 | `CONTINUATION_FACTS` | const | The facts a profile template may name. |
 | `DEADLINE_CHECK_IN_MESSAGE` | const | The check-in a child receives at its own time box. |
@@ -859,6 +859,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
 | `FileResultBlobStore` | class | FS `ResultBlobStore`. One JSON file per artifact under `dir`, named by a |
 | `FileSpawnJournal` | class | JSONL on disk. One line per record: the first record is `begin`, subsequent records |
 | `GraphEdgeCapError` | class | A delegates edge exhausted its traversal cap and the run produced no winner: the cap, not the |
+| `GraphRouteError` | class | A flow node's usable settle matched no routes edge leaving it (`unrouted`), or a fired edge named |
 | `HarvestError` | class | The completed batch evidence remains available even when every analysis failed. |
 | `InMemoryCorpus` | class | In-memory `Corpus`. Keyed by record `id`; `append` validates the record, is idempotent on an |
 | `InMemoryResultBlobStore` | class | In-memory `ResultBlobStore`. Content-addressed: `put` verifies the supplied |
@@ -981,6 +982,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
 | `EqualKVerdict` | interface | The equal-k-on-cost verdict: whether every arm spent within `tolerance` of the others on the |
 | `EventAcknowledgement` | interface | One acknowledgement record: which delivered events are now processed, and on whose word. |
 | `EventBus` | interface | The child→parent coordination bus surface: publish, priority-ordered pull, pass-through subscribe, history, and stats. |
+| `EvidencePendingEvent` | interface | Evidence debt, a {@link SpawnEvent} row: the workspace an accepted turn left in its retained |
 | `EvolutionStrategy` | interface | One strategy the search registered, as the ledger records it. |
 | `ExecCtx` | interface | Execution context for `runAgentRounds`: the sandbox client the kernel creates boxes through, plus optional runtime hooks. |
 | `Executor` | interface | The leaf runtime — ONE open interface, not a closed union. `execute` returns a |
@@ -1002,6 +1004,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
 | `FinalizeContext` | interface | What a finalizer gets to decide with. `delivered` is the ONLY output material; `allSettled` |
 | `FinalizerSettled` | interface | One settled worker as the finalizer sees it — the ledger row (structural fields only). |
 | `FleetYield` | interface | How this run's spawned CHILDREN ended, counted by node id off the complete journal FOREST at |
+| `GateRequest` | interface | What a gate asks its caller. `visit` is the 1-based count of times this run reached the gate; |
+| `GraphGate` | interface | A vertex that is not an agent: reaching it asks the caller for one of `choices`. The edges |
 | `GraphNode` | interface | A graph node: an id and a canonical `AgentProfile`. The profile is the ONLY way a node is |
 | `GraphRunRecord` | interface | One completed run of one graph, for one task shape. |
 | `GraphTopology` | interface | A topology without the run's own budget and deliverable: the form a `maps` edge runs per item, |
@@ -1011,6 +1015,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
 | `HarvestSurfaceDiffsOptions` | interface | Inputs to {@link harvestSurfaceDiffs}: the run's mount manifest, the read seam, and optional |
 | `HeldEnvironment` | interface | One provider environment an executor holds, named by the provider's own id. |
 | `HeldForContinuation` | interface | A budget-stopped turn's environment, held for a keyed continuation ({@link Executor.heldForContinuation}). |
+| `InboxLease` | interface | Messages taken for one model input. Exactly one of `commit` per message or `release` settles |
 | `InMemoryRunContext` | interface | The bundle of stores a supervised run needs, shaped to spread into `SupervisorOpts`. |
 | `InMemoryRunContextOptions` | interface | Options for a supervised run context. |
 | `InPlaceHarnessResult` | interface | The canonical result of one in-place harness run. The edits are the DIRECTORY, not a patch: |
@@ -1151,6 +1156,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
 | `RouterRouting` | interface | Router provider routing, lowered into every request a transport sends as |
 | `RouterSeam` | interface | Router/inline transport seam. The profile owns model, prompt, and generation behavior. |
 | `RouterToolsSeam` | interface | Router seam WITH tool use — the tool-using router backend. Same direct |
+| `RouterTransportConfig` | interface | Connection details for Runtime's Router-backed executors. |
 | `RunCancellation` | interface | The durable acknowledgement state for the run-scoped cancel operation, keyed by `operationId`. |
 | `RunCancelRequest` | interface | One durable run-scoped cancel request: cancel the WHOLE run, not one worker. |
 | `RunContextLease` | interface | An immutable capability for one run ownership generation. |
@@ -1293,7 +1299,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
 | `ContinuationAppend` | type | A play's own section for one note. Return `undefined` to add nothing this time. |
 | `ContinuationPanel` | type | Ask the panel's questions over the run's own traces. |
 | `ContinuityMode` | type | How a spawn CONTINUES a node's prior work: `'fresh'` starts a brand-new session (the default, |
-| `CoordinationBinding` | type | Listener, authenticated remote endpoint, and bounded request policy for one manager. |
 | `CoordinationDeliveryEvidence` | type | Durable delivery evidence retained in commit order. An attempt without a later event carrying |
 | `CoordinationEvent` | type | Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for |
 | `CoordinationOwnerId` | type | Stable identity of the supervisor that owns one coordination stream. High-level supervision |
@@ -1323,13 +1328,16 @@ Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
 | `Fanout` | type | `fanout(items, opts)` — build the fanout combinator over a static item list. |
 | `FanoutWinnerSelector` | type | A winner-selection strategy: argmax/sort over the gathered child iterations (each output is the |
 | `FlatWidenGate` | type | The flat default `ScopeWidenGate` factory contract — never widens, keeping the R2 firewall |
+| `GateDecision` | type | The caller's answer to one gate visit: route on a choice, or end the run. `by` names who |
 | `GroupOf` | type | The axis (matrix column) a record contributes to — default the scenario group. |
 | `HarnessTranscriptCapture` | type | What the executor holds before settlement: a retained descriptor, inline files, or absence. |
 | `HarnessTranscriptEvidence` | type | The durable receipt on a settlement: a content-addressed pointer to a persisted |
 | `HarnessTranscriptUnavailableReason` | type | Why no transcript reached a record, from either the capture or the settle path. |
 | `HeldRelease` | type | Why a held budget-stop environment was released: its hold ceiling ran out, its manager |
+| `InboxReceipt` | type | The one terminal answer an inbox gives the sender of a message. `messageId` is the wire |
 | `InProcessOnPrompt` | type | The user callback: given a prompt and its round, produce the box's event |
 | `InteractiveWorkerEnvironment` | type | Environment fields supplied to every interactive worker after Runtime adds the exact profile. |
+| `JsonScalar` | type | A JSON scalar: what a route condition compares. A numeric or stateful rule is a field the |
 | `LoopOptionsForDispatch` | type | runAgentRounds options minus the `ctx` (loopDispatch builds the ctx). |
 | `LoopShape` | type | A reusable act-body factory. Given the persona's content + seams (`ShapeContext`), it |
 | `LoopUntil` | type | `loopUntil(spec)` — build the iterative-deepening combinator. `seed` is the initial state. |
@@ -1372,6 +1380,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
 | `RootMaterialization` | type | Trusted root composition evidence. Generic `Agent.act` roots omit this and remain unknown. |
 | `RootProviderModelEvidence` | type | Provider-observed model identity for the root manager's settled inference turns. |
 | `RootSignal` | type | Cancellation of a running root. Send steering or answers through the root's `deliver` inbox. |
+| `RouteMatch` | type | One condition over a settled result: the RFC 6901 `pointer` in the latest usable result of |
+| `RouteWhen` | type | A route condition: one match, or every match of `all`. |
 | `RunContext` | type | The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext` is the |
 | `RunPersonified` | type | The composed run signature. |
 | `Runtime` | type | The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name. |
@@ -1424,7 +1434,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1122 exports.
 | `WorktreeCheckRunner` | type | The single shell-command-in-worktree runner seam (replaces the per-executor copies). |
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcquireOptions`, `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentGraph`, `AgenticOptions`, `AgenticRunResult`, `AgenticTask`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `AnytimeTaskCurve`, `ArtifactHandle`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CliWorktreeBridgeSeam`, `CodeModeOptions`, `CodeModeTool`, `CodeModeToolContext`, `CodeModeToolset`, `ContinuationPanelResult`, `CoordinationAuthentication`, `CoordinationHttpAudit`, `CoordinationMcpHandle`, `CoordinationPublicAddress`, `CoordinationTransportOptions`, `CopyOptions`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DesignerToolsEnv`, `DispatchReport`, `Driver`, `EvolutionAuthor`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ExecutorResultMapping`, `ForkRequest`, `GitWorkspaceOptions`, `GraphDesignerExtraTools`, `GraphRegistryDir`, `GraphResult`, `HarnessTranscriptArtifact`, `HarnessTranscriptFile`, `HarnessTranscriptMetadata`, `HarnessTranscriptReadOptions`, `HarnessTranscriptUnavailable`, `HarvestFailure`, `HarvestReport`, `HttpMcpServerSpec`, `Inbox`, `InPlaceCliExecutorOptions`, `InProcessSandboxClientOptions`, `IsolatedCheckOptions`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LocalSandboxClientOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NodeSnapshot`, `NoProgressForOptions`, `Observation`, `ObserveInput`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PeerMailbox`, `PeerMailboxOptions`, `PeerMailSendInput`, `PlacementInfo`, `PlateauOptions`, `PrivateCasArtifactPort`, `PrivateCasOptions`, `ProfileRegistryDir`, `ProgressTrackerOptions`, `ProviderWorkspaceCaptureResult`, `PublishOptions`, `ReentryTaskInput`, `ResolveSandboxClientOptions`, `ResourceRequest`, `RetainedHarnessTranscriptCapture`, `RollingDispatchOptions`, `RouterTransportConfig`, `RunAgenticOptions`, `RunAgentRoundsOptions`, `RunCodeModeOptions`, `SandboxEvidenceContext`, `SandboxEvidenceReceipt`, `SandboxRun`, `SeatSegment`, `SeatSelectionInput`, `ShotSpec`, `SpawnOpts`, `SqlRunContextOptions`, `SqlRunLease`, `SqlRunStoreOptions`, `StdioMcpConnection`, `StdioMcpServerSpec`, `SteerableSandboxArgs`, `Strategy`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SupervisorSpanOptions`, `SupervisorSpanRecorder`, `SurfaceScore`, `TaskQueueOptions`, `ToolSpec`, `ToolStepInput`, `TournamentRow`, `TraceSource`, `TrajectoryAnalysis`, `UntrackedCopyStats`, `ValidationCtx`, `Validator`, `VerdictSummary`, `VerifierEnvironmentOptions`, `WatchTraceOptions`, `WaterfallCollector`, `WaterfallReport`, `WaterfallSpan`, `WorkerEventEntry`, `WorkerEvidenceInput`, `WorkerSpawnRetryHooks`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `CodeModeResult`, `CodeModeStore`, `GraphEdge`, `GraphSelection`, `HarvestCorpusOptions`, `InboxMessage`, `IsolatedCheckResult`, `LoopTraceEvent`, `MakeWorkerAgent`, `ObserveOptions`, `PeerMailOutcome`, `RepairStop`, `SandboxControlClient`, `SeatSelection`, `SpawnEvent`, `UsageEvent`, `WorkerEventPage`, `WorkspaceCommit`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcquireOptions`, `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentGraph`, `AgenticOptions`, `AgenticRunResult`, `AgenticTask`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `AnytimeTaskCurve`, `ArtifactHandle`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CliWorktreeBridgeSeam`, `CodeModeOptions`, `CodeModeTool`, `CodeModeToolContext`, `CodeModeToolset`, `ContinuationPanelResult`, `CoordinationAuthentication`, `CoordinationHttpAudit`, `CoordinationMcpHandle`, `CoordinationPublicAddress`, `CoordinationTransportOptions`, `CopyOptions`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DesignerToolsEnv`, `DispatchReport`, `Driver`, `EvolutionAuthor`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ExecutorResultMapping`, `ForkRequest`, `GitWorkspaceOptions`, `GraphDesignerExtraTools`, `GraphRegistryDir`, `GraphResult`, `HarnessTranscriptArtifact`, `HarnessTranscriptFile`, `HarnessTranscriptMetadata`, `HarnessTranscriptReadOptions`, `HarnessTranscriptUnavailable`, `HarvestFailure`, `HarvestReport`, `HttpMcpServerSpec`, `Inbox`, `InPlaceCliExecutorOptions`, `InProcessSandboxClientOptions`, `IsolatedCheckOptions`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LocalSandboxClientOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpListedTool`, `NodeSnapshot`, `NoProgressForOptions`, `Observation`, `ObserveInput`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PeerMailbox`, `PeerMailboxOptions`, `PeerMailSendInput`, `PlacementInfo`, `PlateauOptions`, `PrivateCasArtifactPort`, `PrivateCasOptions`, `ProfileRegistryDir`, `ProgressTrackerOptions`, `ProviderWorkspaceCaptureResult`, `PublishOptions`, `ReentryTaskInput`, `ResolveSandboxClientOptions`, `ResourceRequest`, `RetainedHarnessTranscriptCapture`, `RollingDispatchOptions`, `RunAgenticOptions`, `RunAgentRoundsOptions`, `RunCodeModeOptions`, `SandboxEvidenceContext`, `SandboxEvidenceReceipt`, `SandboxRun`, `SeatSegment`, `SeatSelectionInput`, `ShotSpec`, `SpawnOpts`, `SqlRunContextOptions`, `SqlRunLease`, `SqlRunStoreOptions`, `StdioMcpConnection`, `StdioMcpServerSpec`, `SteerableSandboxArgs`, `Strategy`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SupervisorSpanOptions`, `SupervisorSpanRecorder`, `SurfaceScore`, `TaskQueueOptions`, `ToolSpec`, `ToolStepInput`, `TournamentRow`, `TraceSource`, `TrajectoryAnalysis`, `UntrackedCopyStats`, `ValidationCtx`, `Validator`, `VerdictSummary`, `VerifierEnvironmentOptions`, `WatchTraceOptions`, `WaterfallCollector`, `WaterfallReport`, `WaterfallSpan`, `WorkerEventEntry`, `WorkerEvidenceInput`, `WorkerSpawnRetryHooks`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `CodeModeResult`, `CodeModeStore`, `CoordinationBinding`, `GraphEdge`, `GraphSelection`, `HarvestCorpusOptions`, `InboxMessage`, `IsolatedCheckResult`, `LoopTraceEvent`, `MakeWorkerAgent`, `ObserveOptions`, `PeerMailOutcome`, `RepairStop`, `SandboxControlClient`, `SeatSelection`, `SpawnEvent`, `UsageEvent`, `WorkerEventPage`, `WorkspaceCommit`.
 
 ### Analyst loop — trace findings on a running loop
 
@@ -1491,8 +1501,9 @@ Import from `@tangle-network/agent-runtime/platform` — 28 exports.
 | `PlatformCatalogProvider` | interface | A connectable provider in the catalog (`/v1/hub/providers`). |
 | `PlatformConnection` | interface | A live integration connection, as returned by `/v1/hub/connections`. |
 | `PlatformHubClientOptions` | interface | Server-side client for the Tangle platform's integration hub |
+| `PlatformOidcClientOptions` | interface | OpenID Connect client for the Tangle authorization server. Identity tokens |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AuthorizeUrlOptions`, `CatalogResult`, `ConnectionHealth`, `ConnectionHealthResult`, `ExchangeCodeResult`, `ExecInput`, `MintTokenInput`, `MintTokenResult`, `OidcAuthorizeUrlOptions`, `OidcExchangeResult`, `OidcTokens`, `OidcUser`, `PlatformHubStatus`, `PlatformOidcClientOptions`, `StartAuthInput`, `StartAuthResult`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AuthorizeUrlOptions`, `CatalogResult`, `ConnectionHealth`, `ConnectionHealthResult`, `ExchangeCodeResult`, `ExecInput`, `MintTokenInput`, `MintTokenResult`, `OidcAuthorizeUrlOptions`, `OidcExchangeResult`, `OidcTokens`, `OidcUser`, `PlatformHubStatus`, `StartAuthInput`, `StartAuthResult`.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
@@ -1738,7 +1749,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 257 exports.
 | `CodexExecutionPolicy` | interface | Isolation settings asserted before a reproducible Codex run is allowed to start. |
 | `CodexTokenUsage` | interface | Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event. |
 | `ContinuationInstruction` | interface | Durable authorization receipt written before a continuation reaches a worker. |
-| `CoordinationTools` | interface | The supervisor-side toolbox returned by {@link createCoordinationTools}: the MCP tool |
+| `CoordinationTools` | interface | The supervisor-side toolbox returned by {@link createCoordinationTools }: the MCP tool |
 | `DefinedAnalystRecord` | interface | What the coordination layer records when a definition is admitted: the exact accepted bytes, the |
 | `DelegateArgs` | interface | Parsed `delegate` tool arguments. |
 | `DelegateCodeConfig` | interface | Minimal `CoderTask` overrides exposed over the MCP wire. The full |
@@ -1814,7 +1825,7 @@ Import from `@tangle-network/agent-runtime/tui` — 27 exports.
 | `ProvisionSupervisorConnection` | interface | Caller-supplied environment provider for one supervisor run. |
 | `ProvisionSupervisorRequest` | interface | Input to the public Runtime supervisor provisioner. |
 | `SupervisorCleanupReceipt` | interface | Exact owner-scoped cleanup receipt returned after Runtime releases the run resources. |
-| `TopSnapshot` | interface | The read side of the supervisor-run TUI: turn the on-disk run layout into one `TopSnapshot`, and |
+| `TopSnapshot` | interface | The snapshot reader for the supervisor-run TUI: turn the on-disk run layout into a `TopSnapshot`. |
 | `TopSnapshotDiagnostic` | interface | One skipped or partially read snapshot source. `path` is relative to the run directory and |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BudgetStats`, `Distribution`, `RenderedTopFrame`, `RenderOptions`, `RenderTarget`, `SpendStats`, `SupervisorBase`, `SupervisorTotals`, `SupervisorView`, `TopAppOptions`, `WorkerView`, `TopJournalEvent`, `TopSnapshotCompleteness`, `TopSnapshotDiagnosticReason`, `TopSnapshotDiagnosticSource`.

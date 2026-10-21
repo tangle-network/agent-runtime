@@ -71,7 +71,7 @@ Serve `run_graph` — see `CoordinationToolsOptions.graphs`.
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-18)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-11)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -146,6 +146,19 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result 
 > `readonly` `optional` **mapOnSettle?**: readonly [`MapOnSettleRoute`](runtime.md#maponsettleroute)[]
 
 Maps expanded when their source worker settles (`CoordinationToolsOptions.mapOnSettle`).
+
+##### routeFlow?
+
+> `readonly` `optional` **routeFlow?**: [`RouteFlow`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)
+
+The flow this manager runs (`CoordinationToolsOptions.routeFlow`). Requires the runtime flow
+ brain, which makes no model call.
+
+##### decideGate?
+
+> `readonly` `optional` **decideGate?**: [`DecideGate`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)
+
+Answers the gates of `routeFlow` (`CoordinationToolsOptions.decideGate`).
 
 ##### sourceEvidenceRefs?
 
@@ -432,7 +445,7 @@ The durable run directory (`SuperviseOptions.runDir` / the `run-layout` event di
 ACKNOWLEDGES worker-scoped cancel requests from. Each turn the driver reads the layout's
 cancellation inbox once, applies any request naming one of ITS OWN workers through that
 worker's existing per-child abort (cascading to the worker's subtree and no sibling), and
-writes the durable [WorkerCancellation](runtime.md#workercancellation) acknowledgement: `cancel_requested` when the
+writes the durable [runtime.WorkerCancellation](runtime.md#workercancellation) acknowledgement: `cancel_requested` when the
 abort is issued, `cancelled` only when the worker reaches a terminal `down` on the settle
 path, `not_live` when the worker is already gone — a missing worker never reads as success.
 Which requests this driver OWNS is set by [controlScope](#controlscope). Omit = no acknowledger
@@ -518,7 +531,7 @@ WHERE worker nodes run — the executor backend. Provide this OR `makeLeafAgent`
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`backend`](runtime.md#backend-3)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`backend`](runtime.md#backend-4)
 
 ##### driverBackend?
 
@@ -559,7 +572,7 @@ Caller-side runtime hooks (telemetry, policy, product extensions). Composed AFTE
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`hooks`](runtime.md#hooks-5)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`hooks`](runtime.md#hooks-6)
 
 ##### analysts?
 
@@ -571,6 +584,27 @@ The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT — need
 ###### Inherited from
 
 [`RunGraphOptions`](runtime.md#rungraphoptions).[`analysts`](runtime.md#analysts)
+
+##### decideGate?
+
+> `readonly` `optional` **decideGate?**: (`request`) => `Promise`\<[`GateDecision`](runtime.md#gatedecision)\>
+
+Answers a flow gate while the process holds the run; the wait counts against its deadline.
+ ENVIRONMENT, like `analysts`; required when the graph declares gates.
+
+###### Parameters
+
+###### request
+
+[`GateRequest`](runtime.md#gaterequest)
+
+###### Returns
+
+`Promise`\<[`GateDecision`](runtime.md#gatedecision)\>
+
+###### Inherited from
+
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`decideGate`](runtime.md#decidegate)
 
 ##### registry?
 
@@ -594,7 +628,7 @@ The run journal the edge ledger and every spawn/settle ride. Default: in-memory.
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`journal`](runtime.md#journal-1)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`journal`](runtime.md#journal-2)
 
 ##### blobs?
 
@@ -602,7 +636,7 @@ The run journal the edge ledger and every spawn/settle ride. Default: in-memory.
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`blobs`](runtime.md#blobs-2)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`blobs`](runtime.md#blobs-3)
 
 ##### runId?
 
@@ -610,7 +644,7 @@ The run journal the edge ledger and every spawn/settle ride. Default: in-memory.
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`runId`](runtime.md#runid-14)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`runId`](runtime.md#runid-15)
 
 ##### authorizeMessage?
 
@@ -666,14 +700,14 @@ Whole-run persistence and ownership. SQL contexts are acquired before replay and
 
 ##### rootHandle?
 
-> `readonly` `optional` **rootHandle?**: [`RootHandle`](runtime.md#roothandle-2)\<`unknown`\>
+> `readonly` `optional` **rootHandle?**: [`RootHandle`](runtime.md#roothandle)\<`unknown`\>
 
 Caller-created live handle for observing, steering, or cancelling this root manager. Runtime
 attaches it before execution and detaches it after the join barrier.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`rootHandle`](runtime.md#roothandle-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`rootHandle`](runtime.md#roothandle-2)
 
 ##### signal?
 
@@ -684,7 +718,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-30)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-36)
 
 ##### execution?
 
@@ -695,7 +729,7 @@ digests itself from the exact detached values it executes.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-4)
 
 ##### selectSeat?
 
@@ -754,7 +788,7 @@ Where the coordination MCP binds when the supervisor is harness-driven. Omit = a
 OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_mail`, bounded
  and audited (`CoordinationToolsOptions.peerMail`). The runtime mints one capability URL per
  spawn, serves the mail listener beside the coordination MCP, and hands each worker its
- endpoint on [WorkerSpawnContext.peerMailUrl](runtime.md#peermailurl).
+ endpoint on [runtime.WorkerSpawnContext.peerMailUrl](runtime.md#peermailurl).
 
  On the backend-derived worker path the runtime also MOUNTS that endpoint, the way a driver
  receives its coordination MCP: out of band on the bridge's `runtime_attachments`, so the
@@ -805,7 +839,7 @@ Reconstruct executors for interrupted children on resume, for a run that owns it
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`recoverExecutor`](runtime.md#recoverexecutor-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`recoverExecutor`](runtime.md#recoverexecutor-2)
 
 ##### profileSecurity?
 
@@ -864,7 +898,7 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 ###### budget
 
-[`Budget`](runtime.md#budget-18)
+[`Budget`](runtime.md#budget-11)
 
 ###### label
 
@@ -892,6 +926,14 @@ Present (as the analyst id) only when the runtime's analyst-on-settle hook initi
 
 Present only when a map route started this spawn — authored by the runtime, never accepted
  from tool arguments. A node-pinning authority reads it to admit the map's item or join.
+
+###### route?
+
+[`RouteSpawnMarker`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)
+
+Present only when a flow's entry or routes edge started this spawn — authored by the
+ runtime, never accepted from tool arguments. A node-pinning authority reads it to admit the
+ node the edge names.
 
 ###### continuity?
 
@@ -1016,7 +1058,7 @@ have metered usage, so a blind re-run would double-spend and stays fatal.
 
 Omit = no retry, the historical behaviour. Applies to backend-derived leaves, including those
 a `makeLeafAgent` builds; a caller-owned `makeWorkerAgent` composes
-[withWorkerSpawnRetry](runtime.md#withworkerspawnretry) itself.
+[runtime.withWorkerSpawnRetry](runtime.md#withworkerspawnretry) itself.
 
 ###### Inherited from
 
@@ -1082,7 +1124,7 @@ An explicit run deadline always wins. Omit/`0` = immediate teardown.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`childSettleGraceMs`](runtime.md#childsettlegracems-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`childSettleGraceMs`](runtime.md#childsettlegracems-2)
 
 ##### teardownConfirmMs?
 
@@ -1095,7 +1137,7 @@ See `SupervisorOpts.teardownConfirmMs`.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`teardownConfirmMs`](runtime.md#teardownconfirmms-3)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`teardownConfirmMs`](runtime.md#teardownconfirmms-4)
 
 ##### retainedAtSettlement?
 
@@ -1110,7 +1152,7 @@ can resume an in-memory run). See `SupervisorOpts.retainedAtSettlement`.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`retainedAtSettlement`](runtime.md#retainedatsettlement-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`retainedAtSettlement`](runtime.md#retainedatsettlement-2)
 
 ##### resolveDriveHarness?
 
@@ -1205,7 +1247,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-18)
+> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-11)
 
 The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
  of the part of the pool children may reserve (the pool less any owner share). A nested
@@ -1225,11 +1267,11 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`reservationPolicy`](runtime.md#reservationpolicy-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`reservationPolicy`](runtime.md#reservationpolicy-3)
 
 ##### deadlineCheckIn?
 
-> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](runtime.md#deadlinecheckin)
+> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](runtime.md#deadlinecheckin-1)
 
 What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default: a check-in;
  the child is told to save its state and submit what it has, and is stopped only once it then
@@ -1238,7 +1280,7 @@ What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-3)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-4)
 
 ##### budgetStopHoldMs?
 
@@ -1250,7 +1292,7 @@ How long a keyed worker whose turn ended over its budget keeps its environment f
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`budgetStopHoldMs`](runtime.md#budgetstopholdms-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`budgetStopHoldMs`](runtime.md#budgetstopholdms-3)
 
 ##### workerSlots?
 
@@ -1264,7 +1306,7 @@ Bound on concurrently WORKING agents across the whole recursive tree: a number, 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`workerSlots`](runtime.md#workerslots-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`workerSlots`](runtime.md#workerslots-5)
 
 ##### watchWorkers?
 
@@ -1348,7 +1390,7 @@ reused id without it. Ignored when `runDir` is also set — the file context own
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-7)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-9)
 
 ##### segment?
 
@@ -1384,7 +1426,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### harness?
 
-> `readonly` `optional` **harness?**: `"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
+> `readonly` `optional` **harness?**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
 
 ###### stack?
 
@@ -1464,7 +1506,7 @@ Recursion ceiling for the tree (root = 0). The conserved pool is what bounds dep
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`maxDepth`](runtime.md#maxdepth-3)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`maxDepth`](runtime.md#maxdepth-4)
 
 ##### maxTurns?
 
@@ -1507,7 +1549,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-16)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-17)
 
 ##### allowedModels?
 
@@ -1584,24 +1626,24 @@ Whole-run persistence and ownership. SQL contexts are acquired before replay and
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](runtime.md#budget-18)
+> `readonly` **budget**: [`Budget`](runtime.md#budget-11)
 
 The conserved compute pool for the whole run.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-16)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-21)
 
 ##### rootHandle?
 
-> `readonly` `optional` **rootHandle?**: [`RootHandle`](runtime.md#roothandle-2)\<`unknown`\>
+> `readonly` `optional` **rootHandle?**: [`RootHandle`](runtime.md#roothandle)\<`unknown`\>
 
 Caller-created live handle for observing, steering, or cancelling this root manager. Runtime
 attaches it before execution and detaches it after the join barrier.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`rootHandle`](runtime.md#roothandle-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`rootHandle`](runtime.md#roothandle-2)
 
 ##### signal?
 
@@ -1612,7 +1654,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-30)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-36)
 
 ##### execution?
 
@@ -1623,7 +1665,7 @@ digests itself from the exact detached values it executes.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-4)
 
 ##### backend?
 
@@ -1633,7 +1675,7 @@ WHERE workers run — derives the worker seam. Provide this OR an explicit `make
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`backend`](runtime.md#backend-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`backend`](runtime.md#backend-5)
 
 ##### selectSeat?
 
@@ -1716,7 +1758,7 @@ Where the coordination MCP binds when the supervisor is harness-driven. Omit = a
 OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_mail`, bounded
  and audited (`CoordinationToolsOptions.peerMail`). The runtime mints one capability URL per
  spawn, serves the mail listener beside the coordination MCP, and hands each worker its
- endpoint on [WorkerSpawnContext.peerMailUrl](runtime.md#peermailurl).
+ endpoint on [runtime.WorkerSpawnContext.peerMailUrl](runtime.md#peermailurl).
 
  On the backend-derived worker path the runtime also MOUNTS that endpoint, the way a driver
  receives its coordination MCP: out of band on the bridge's `runtime_attachments`, so the
@@ -1796,7 +1838,7 @@ Reconstruct executors for interrupted children on resume, for a run that owns it
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`recoverExecutor`](runtime.md#recoverexecutor-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`recoverExecutor`](runtime.md#recoverexecutor-2)
 
 ##### driverBackend?
 
@@ -1867,7 +1909,7 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 ###### budget
 
-[`Budget`](runtime.md#budget-18)
+[`Budget`](runtime.md#budget-11)
 
 ###### label
 
@@ -1895,6 +1937,14 @@ Present (as the analyst id) only when the runtime's analyst-on-settle hook initi
 
 Present only when a map route started this spawn — authored by the runtime, never accepted
  from tool arguments. A node-pinning authority reads it to admit the map's item or join.
+
+###### route?
+
+[`RouteSpawnMarker`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)
+
+Present only when a flow's entry or routes edge started this spawn — authored by the
+ runtime, never accepted from tool arguments. A node-pinning authority reads it to admit the
+ node the edge names.
 
 ###### continuity?
 
@@ -2097,7 +2147,7 @@ have metered usage, so a blind re-run would double-spend and stays fatal.
 
 Omit = no retry, the historical behaviour. Applies to backend-derived leaves, including those
 a `makeLeafAgent` builds; a caller-owned `makeWorkerAgent` composes
-[withWorkerSpawnRetry](runtime.md#withworkerspawnretry) itself.
+[runtime.withWorkerSpawnRetry](runtime.md#withworkerspawnretry) itself.
 
 ###### Inherited from
 
@@ -2163,7 +2213,7 @@ An explicit run deadline always wins. Omit/`0` = immediate teardown.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`childSettleGraceMs`](runtime.md#childsettlegracems-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`childSettleGraceMs`](runtime.md#childsettlegracems-2)
 
 ##### teardownConfirmMs?
 
@@ -2176,7 +2226,7 @@ See `SupervisorOpts.teardownConfirmMs`.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`teardownConfirmMs`](runtime.md#teardownconfirmms-3)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`teardownConfirmMs`](runtime.md#teardownconfirmms-4)
 
 ##### retainedAtSettlement?
 
@@ -2191,7 +2241,7 @@ can resume an in-memory run). See `SupervisorOpts.retainedAtSettlement`.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`retainedAtSettlement`](runtime.md#retainedatsettlement-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`retainedAtSettlement`](runtime.md#retainedatsettlement-2)
 
 ##### resolveDriveHarness?
 
@@ -2315,7 +2365,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-18)
+> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-11)
 
 The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
  of the part of the pool children may reserve (the pool less any owner share). A nested
@@ -2335,11 +2385,11 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`reservationPolicy`](runtime.md#reservationpolicy-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`reservationPolicy`](runtime.md#reservationpolicy-3)
 
 ##### deadlineCheckIn?
 
-> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](runtime.md#deadlinecheckin)
+> `readonly` `optional` **deadlineCheckIn?**: [`DeadlineCheckIn`](runtime.md#deadlinecheckin-1)
 
 What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default: a check-in;
  the child is told to save its state and submit what it has, and is stopped only once it then
@@ -2348,7 +2398,7 @@ What a child's own time box (a `spawn_worker` `budget.deadlineMs`) does. Default
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-3)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`deadlineCheckIn`](runtime.md#deadlinecheckin-4)
 
 ##### budgetStopHoldMs?
 
@@ -2360,7 +2410,7 @@ How long a keyed worker whose turn ended over its budget keeps its environment f
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`budgetStopHoldMs`](runtime.md#budgetstopholdms-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`budgetStopHoldMs`](runtime.md#budgetstopholdms-3)
 
 ##### workerSlots?
 
@@ -2374,7 +2424,7 @@ Bound on concurrently WORKING agents across the whole recursive tree: a number, 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`workerSlots`](runtime.md#workerslots-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`workerSlots`](runtime.md#workerslots-5)
 
 ##### analysts?
 
@@ -2386,7 +2436,7 @@ Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset �
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`analysts`](runtime.md#analysts-3)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`analysts`](runtime.md#analysts-2)
 
 ##### analyzeOnSettle?
 
@@ -2412,6 +2462,28 @@ Maps the runtime expands when their source worker settles: fan-out over a list i
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`mapOnSettle`](runtime.md#maponsettle)
+
+##### routeFlow?
+
+> `readonly` `optional` **routeFlow?**: [`RouteFlow`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)
+
+The flow the root manager runs: an AgentGraph with `entry` sets it, together with its
+ runtime-owned root, which makes no model call. See `RouteFlow`. Omit = none.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`routeFlow`](runtime.md#routeflow)
+
+##### decideGate?
+
+> `readonly` `optional` **decideGate?**: [`DecideGate`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)
+
+Answers each gate visit of `routeFlow`; `runGraph` sets it from `RunGraphOptions.decideGate`,
+ replaying a decision the run journal already holds. Omit = none.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`decideGate`](runtime.md#decidegate-1)
 
 ##### watchWorkers?
 
@@ -2476,7 +2548,7 @@ Worker output store. Defaults to in-memory.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-6)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-7)
 
 ##### runDir?
 
@@ -2521,7 +2593,7 @@ reused id without it. Ignored when `runDir` is also set — the file context own
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-7)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-9)
 
 ##### segment?
 
@@ -2557,7 +2629,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### harness?
 
-> `readonly` `optional` **harness?**: `"acp"` \| `"amp"` \| `"claude-code"` \| `"cli-base"` \| `"codex"` \| `"cursor"` \| `"factory-droids"` \| `"forge"` \| `"gemini"` \| `"hermes"` \| `"kimi-code"` \| `"nanoclaw"` \| `"openclaw"` \| `"opencode"` \| `"pi"` \| `"prime"`
+> `readonly` `optional` **harness?**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
 
 ###### stack?
 
@@ -2590,7 +2662,7 @@ Override the spawn journal directly (advanced; `runDir` is the ordinary durable 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`journal`](runtime.md#journal-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`journal`](runtime.md#journal-6)
 
 ##### stopRule?
 
@@ -2648,7 +2720,7 @@ Recursion ceiling for the tree (root = 0). The conserved pool is what bounds dep
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`maxDepth`](runtime.md#maxdepth-3)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`maxDepth`](runtime.md#maxdepth-4)
 
 ##### maxTurns?
 
@@ -2687,7 +2759,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-20)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-21)
 
 ##### now?
 
@@ -2699,7 +2771,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-16)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-17)
 
 ##### allowedModels?
 
@@ -2745,7 +2817,7 @@ Lifecycle observers for the whole recursive tree (`Scope` re-seeds them into eve
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`hooks`](runtime.md#hooks-8)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`hooks`](runtime.md#hooks-9)
 
 ##### otel?
 
@@ -2797,7 +2869,7 @@ Parent post office bound to this manager's worker identity.
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`blobs`](runtime.md#blobs-7)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`blobs`](runtime.md#blobs-8)
 
 ##### makeWorkerAgent
 
@@ -2831,7 +2903,7 @@ Product authorization for every down-leg continuation to a child.
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-18)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-11)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -3184,6 +3256,26 @@ Maps expanded when their source worker settles (both arms). Omit = none.
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`mapOnSettle`](runtime.md#maponsettle-1)
 
+##### routeFlow?
+
+> `readonly` `optional` **routeFlow?**: [`RouteFlow`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)
+
+The flow this root manager runs (router arm only; see `RouteFlow`). Omit = none.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`routeFlow`](runtime.md#routeflow-1)
+
+##### decideGate?
+
+> `readonly` `optional` **decideGate?**: [`DecideGate`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)
+
+Answers the gates of `routeFlow` (`SuperviseOptions.decideGate`).
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`decideGate`](runtime.md#decidegate-2)
+
 ##### sourceEvidenceRefs?
 
 > `readonly` `optional` **sourceEvidenceRefs?**: readonly `string`[]
@@ -3380,7 +3472,7 @@ How the settled ledger becomes the run's output (both arms). Default `bestDelive
 
 Where the coordination MCP binds (external arm). Omit = an ephemeral loopback port, which is
  unreachable from an off-host harness. A non-loopback host fails closed — see
- [assertCoordinationBinding](runtime.md#assertcoordinationbinding).
+ [runtime.assertCoordinationBinding](runtime.md#assertcoordinationbinding).
 
 ###### Inherited from
 
@@ -3593,7 +3685,7 @@ A proposal produced by Runtime's opaque profile-improvement path.
 
 ### driverAgent()
 
-> **driverAgent**(`opts`): [`Agent`](runtime.md#agent-2)\<`unknown`, `unknown`\>
+> **driverAgent**(`opts`): [`Agent`](runtime.md#agent-1)\<`unknown`, `unknown`\>
 
 Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
 `driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
@@ -3606,7 +3698,7 @@ Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it
 
 #### Returns
 
-[`Agent`](runtime.md#agent-2)\<`unknown`, `unknown`\>
+[`Agent`](runtime.md#agent-1)\<`unknown`, `unknown`\>
 
 ***
 
@@ -3635,7 +3727,7 @@ Alias for graph tests written before `RunGraphOptions.brain` was production. The
 
 ### superviseWithTestBrain()
 
-> **superviseWithTestBrain**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error`: [`NoWinnerError`](runtime.md#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend-1); `childWork`: [`Spend`](runtime.md#spend-1); \}; \}\>
+> **superviseWithTestBrain**(`profile`, `task`, `opts`): `Promise`\<\{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error`: [`NoWinnerError`](runtime.md#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend-1); `childWork`: [`Spend`](runtime.md#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \}\>
 
 Deterministic scripted-brain path for tests. Not exported from Runtime's main entry.
 
@@ -3655,13 +3747,13 @@ Deterministic scripted-brain path for tests. Not exported from Runtime's main en
 
 #### Returns
 
-`Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error`: [`NoWinnerError`](runtime.md#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend-1); `childWork`: [`Spend`](runtime.md#spend-1); \}; \}\>
+`Promise`\<\{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error`: [`NoWinnerError`](runtime.md#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend-1); `childWork`: [`Spend`](runtime.md#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \}\>
 
 ***
 
 ### supervisorAgentWithTestBrain()
 
-> **supervisorAgentWithTestBrain**(`profile`, `deps`): [`Agent`](runtime.md#agent-2)\<`unknown`, `unknown`\>
+> **supervisorAgentWithTestBrain**(`profile`, `deps`): [`Agent`](runtime.md#agent-1)\<`unknown`, `unknown`\>
 
 Scripted-brain construction for deterministic tests. Not exported from Runtime's main entry.
 
@@ -3677,7 +3769,7 @@ Scripted-brain construction for deterministic tests. Not exported from Runtime's
 
 #### Returns
 
-[`Agent`](runtime.md#agent-2)\<`unknown`, `unknown`\>
+[`Agent`](runtime.md#agent-1)\<`unknown`, `unknown`\>
 
 ***
 

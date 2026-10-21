@@ -103,7 +103,7 @@ This table tracks the existing documents that materially overlap this plan.
 | Driver dynamically spawns, waits for, and selects children | Implemented | `tests/runtime/resume-aware-driver.test.ts`: scripted brain, real coordinator kill/restart and journal files; surviving child selection is checked. |
 | Recursive driver starts another driver | Implemented | `src/runtime/supervise/driver-executor.ts`; `tests/kernel/nested-coordination-durability.test.ts` exercises nested managers through real HTTP MCP and files with scripted harnesses. |
 | Shared budget and depth limits across a tree | Implemented | `src/runtime/supervise/budget.ts`, `src/runtime/supervise/scope.ts` |
-| Provider-neutral compute adapter | Implemented | `src/runtime/environment-provider.ts` |
+| Provider-neutral compute adapter | Implemented | `src/runtime/environment-provider/provider-sandbox-adapter.ts` |
 | One-shot delegation restart recovery | Partially implemented | `src/mcp/task-queue.ts` |
 | Conversation turn restart recovery | Owned by Agent App's turn store; Runtime's `runConversation` is in-process only | `@tangle-network/agent-app/stream`, [durability.md](../durability.md) |
 | Supervised tree restart recovery | Committed replay, retained children, and reconstructed nested managers with original reservations and finalizers | `src/runtime/supervise/supervisor.ts` |

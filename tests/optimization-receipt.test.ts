@@ -5,9 +5,9 @@ import { agentCandidateProfileAsAgentProfile } from '../src/candidate-execution/
 import type { ImproveMethodFactory } from '../src/improvement'
 import {
   createAgentImprovementActivation,
-  proposeAgentImprovement,
   reviewAgentImprovementProposal,
-} from '../src/intelligence/improvement-cycle'
+} from '../src/intelligence/activation'
+import { proposeAgentImprovement } from '../src/intelligence/improvement-cycle'
 import {
   optimizationActivationReceiptFromMetadata,
   optimizationReceiptMetadataKey,

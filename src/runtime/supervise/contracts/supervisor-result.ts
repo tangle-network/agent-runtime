@@ -121,7 +121,7 @@ export type SupervisedResult<Out> =
       /** What the root's external driver loop did: genuine continuations, failure retries,
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
-      readonly continuation?: import('../driver-retry').DriverContinuationRecord
+      readonly continuation?: import('../driver-attempt-evidence').DriverContinuationRecord
       /** The root's caller-supplied attribution as it registered (`SuperviseOptions.execution`):
        *  a fork's lineage keys, a SearchSpec's `searchSpecDigest`. Absent when the caller set none. */
       readonly execution?: AgentExecutionRef
@@ -173,7 +173,7 @@ export type SupervisedResult<Out> =
       /** What the root's external driver loop did: genuine continuations, failure retries,
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
-      readonly continuation?: import('../driver-retry').DriverContinuationRecord
+      readonly continuation?: import('../driver-attempt-evidence').DriverContinuationRecord
       /** The root's caller-supplied attribution as it registered (`SuperviseOptions.execution`):
        *  a fork's lineage keys, a SearchSpec's `searchSpecDigest`. Absent when the caller set none. */
       readonly execution?: AgentExecutionRef
@@ -263,7 +263,7 @@ export type SupervisedResult<Out> =
       /** What the root's external driver loop did: genuine continuations, failure retries,
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
-      readonly continuation?: import('../driver-retry').DriverContinuationRecord
+      readonly continuation?: import('../driver-attempt-evidence').DriverContinuationRecord
       /** The root's caller-supplied attribution as it registered (`SuperviseOptions.execution`):
        *  a fork's lineage keys, a SearchSpec's `searchSpecDigest`. Absent when the caller set none. */
       readonly execution?: AgentExecutionRef

@@ -21,12 +21,8 @@ import type { DeliverableSpec } from './completion-gate'
 import type { ContinuationPolicy } from './continuation'
 import type { PriorCoordination } from './coordination-log'
 import type { CoordinationTransportOptions } from './coordination-mcp'
-import type {
-  DriverAttemptRecord,
-  DriverContinuationRecord,
-  DriverReentry,
-  DriverRetryPolicy,
-} from './driver-retry'
+import type { DriverAttemptRecord, DriverContinuationRecord } from './driver-attempt-evidence'
+import type { DriverReentry, DriverRetryPolicy } from './driver-retry'
 import type { BusRecord } from './event-bus'
 import type { SupervisorFinalizer } from './finalizer'
 import type { PeerMailLimits } from './peer-mail'
@@ -367,7 +363,7 @@ export interface SupervisorAgentDeps {
   readonly finalizer?: SupervisorFinalizer
   /** Where the coordination MCP binds (external arm). Omit = an ephemeral loopback port, which is
    *  unreachable from an off-host harness. A non-loopback host fails closed — see
-   *  {@link assertCoordinationBinding}. */
+   *  {@link runtime.assertCoordinationBinding}. */
   readonly coordination?: CoordinationBinding
   /** OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
    *  pre-journal point that may ask the backend a question (does this bridge route the child's

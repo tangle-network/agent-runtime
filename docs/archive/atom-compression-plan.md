@@ -10,7 +10,7 @@
 
 ## Honest LOC reality (read before the lists)
 
-`runLoop` (run-loop.ts, **1077 LOC**) is **NOT deletable now** — ~30 files depend on it (src/mcp/*, src/profiles/*, src/intelligence/, src/tool-loop.ts, src/loop-runner.ts, the sandbox-run seam) and it is already the **leaf-exec kernel** the Supervisor's sandbox executor composes under each worker. It stays. The deletable dumbness is the *driver policy layer* and the duplicate wrappers, not the kernel. So net-negative is achievable but **moderate, not dramatic** — claiming we delete 1000+ lines would be the lie.
+`runLoop` ([pre-refactor kernel source](https://github.com/tangle-network/agent-runtime/blob/d75110a06ed35b21155b7b3a245b29a387d1f27f/src/runtime/run-loop.ts), **1077 LOC** in this dated inventory) is **NOT deletable now** — ~30 files depend on it (src/mcp/*, src/profiles/*, src/intelligence/, src/tool-loop.ts, src/loop-runner.ts, the sandbox-run seam) and it is already the **leaf-exec kernel** the Supervisor's sandbox executor composes under each worker. It stays. The deletable dumbness is the *driver policy layer* and the duplicate wrappers, not the kernel. So net-negative is achievable but **moderate, not dramatic** — claiming we delete 1000+ lines would be the lie.
 
 ## CUT LIST (delete / collapse)
 

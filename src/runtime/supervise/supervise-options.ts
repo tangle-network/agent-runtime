@@ -26,7 +26,8 @@ import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
 import type { ContinuationPolicy } from './continuation'
 import type { DeadlineCheckIn } from './deadline'
-import type { DriverAttemptRecord, DriverRetryPolicy } from './driver-retry'
+import type { DriverAttemptRecord } from './driver-attempt-evidence'
+import type { DriverRetryPolicy } from './driver-retry'
 import type { BusRecord } from './event-bus'
 import type { SupervisorFinalizer } from './finalizer'
 import type { SupervisorSpanOptions } from './otel-spans'
@@ -102,7 +103,7 @@ export interface SuperviseOptions {
   /** OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_mail`, bounded
    *  and audited (`CoordinationToolsOptions.peerMail`). The runtime mints one capability URL per
    *  spawn, serves the mail listener beside the coordination MCP, and hands each worker its
-   *  endpoint on {@link WorkerSpawnContext.peerMailUrl}.
+   *  endpoint on {@link runtime.WorkerSpawnContext.peerMailUrl}.
    *
    *  On the backend-derived worker path the runtime also MOUNTS that endpoint, the way a driver
    *  receives its coordination MCP: out of band on the bridge's `runtime_attachments`, so the
@@ -261,7 +262,7 @@ export interface SuperviseOptions {
    *
    * Omit = no retry, the historical behaviour. Applies to backend-derived leaves, including those
    * a `makeLeafAgent` builds; a caller-owned `makeWorkerAgent` composes
-   * {@link withWorkerSpawnRetry} itself.
+   * {@link runtime.withWorkerSpawnRetry} itself.
    */
   readonly workerRetry?: WorkerSpawnRetryPolicy
   /** Per-re-entry record for every retried worker spawn — what makes a saturated executor visible

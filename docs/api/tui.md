@@ -50,6 +50,132 @@ How the app was invoked. Defaults read `process.argv` / `process.cwd()`.
 
 ***
 
+### RenderOptions
+
+**`Experimental`**
+
+#### Properties
+
+##### width?
+
+> `readonly` `optional` **width?**: `number`
+
+**`Experimental`**
+
+##### height?
+
+> `readonly` `optional` **height?**: `number`
+
+**`Experimental`**
+
+##### color?
+
+> `readonly` `optional` **color?**: `boolean`
+
+**`Experimental`**
+
+##### selectedSupervisorId?
+
+> `readonly` `optional` **selectedSupervisorId?**: `string`
+
+**`Experimental`**
+
+##### selectedWorkerId?
+
+> `readonly` `optional` **selectedWorkerId?**: `string`
+
+**`Experimental`**
+
+##### focus?
+
+> `readonly` `optional` **focus?**: `"supervisors"` \| `"workers"`
+
+**`Experimental`**
+
+##### mode?
+
+> `readonly` `optional` **mode?**: `"log"` \| `"overview"` \| `"detail"`
+
+**`Experimental`**
+
+##### notice?
+
+> `readonly` `optional` **notice?**: `string`
+
+**`Experimental`**
+
+##### steerInput?
+
+> `readonly` `optional` **steerInput?**: `object`
+
+**`Experimental`**
+
+###### active
+
+> `readonly` **active**: `boolean`
+
+###### value
+
+> `readonly` **value**: `string`
+
+###### workerLabel?
+
+> `readonly` `optional` **workerLabel?**: `string`
+
+***
+
+### RenderTarget
+
+**`Experimental`**
+
+#### Properties
+
+##### row
+
+> `readonly` **row**: `number`
+
+**`Experimental`**
+
+##### kind
+
+> `readonly` **kind**: `"worker"` \| `"supervisor"`
+
+**`Experimental`**
+
+##### id
+
+> `readonly` **id**: `string`
+
+**`Experimental`**
+
+##### supervisorId?
+
+> `readonly` `optional` **supervisorId?**: `string`
+
+**`Experimental`**
+
+***
+
+### RenderedTopFrame
+
+**`Experimental`**
+
+#### Properties
+
+##### frame
+
+> `readonly` **frame**: `string`
+
+**`Experimental`**
+
+##### targets
+
+> `readonly` **targets**: [`RenderTarget`](#rendertarget)[]
+
+**`Experimental`**
+
+***
+
 ### TopSnapshot
 
 **`Experimental`**
@@ -76,7 +202,7 @@ How the app was invoked. Defaults read `process.argv` / `process.cwd()`.
 
 ##### completeness
 
-> `readonly` **completeness**: [`TopSnapshotCompleteness`](#topsnapshotcompleteness-1)
+> `readonly` **completeness**: [`TopSnapshotCompleteness`](#topsnapshotcompleteness)
 
 **`Experimental`**
 
@@ -275,7 +401,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ###### Inherited from
 
-[`SupervisorBase`](#supervisorbase).[`id`](#id)
+[`SupervisorBase`](#supervisorbase).[`id`](#id-1)
 
 ##### status
 
@@ -525,7 +651,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ##### status
 
-> `readonly` **status**: `"running"` \| `"cancelled"` \| `"done"` \| `"down"`
+> `readonly` **status**: `"cancelled"` \| `"done"` \| `"running"` \| `"down"`
 
 **`Experimental`**
 
@@ -783,132 +909,6 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 **`Experimental`**
 
-***
-
-### RenderOptions
-
-**`Experimental`**
-
-#### Properties
-
-##### width?
-
-> `readonly` `optional` **width?**: `number`
-
-**`Experimental`**
-
-##### height?
-
-> `readonly` `optional` **height?**: `number`
-
-**`Experimental`**
-
-##### color?
-
-> `readonly` `optional` **color?**: `boolean`
-
-**`Experimental`**
-
-##### selectedSupervisorId?
-
-> `readonly` `optional` **selectedSupervisorId?**: `string`
-
-**`Experimental`**
-
-##### selectedWorkerId?
-
-> `readonly` `optional` **selectedWorkerId?**: `string`
-
-**`Experimental`**
-
-##### focus?
-
-> `readonly` `optional` **focus?**: `"supervisors"` \| `"workers"`
-
-**`Experimental`**
-
-##### mode?
-
-> `readonly` `optional` **mode?**: `"log"` \| `"overview"` \| `"detail"`
-
-**`Experimental`**
-
-##### notice?
-
-> `readonly` `optional` **notice?**: `string`
-
-**`Experimental`**
-
-##### steerInput?
-
-> `readonly` `optional` **steerInput?**: `object`
-
-**`Experimental`**
-
-###### active
-
-> `readonly` **active**: `boolean`
-
-###### value
-
-> `readonly` **value**: `string`
-
-###### workerLabel?
-
-> `readonly` `optional` **workerLabel?**: `string`
-
-***
-
-### RenderTarget
-
-**`Experimental`**
-
-#### Properties
-
-##### row
-
-> `readonly` **row**: `number`
-
-**`Experimental`**
-
-##### kind
-
-> `readonly` **kind**: `"worker"` \| `"supervisor"`
-
-**`Experimental`**
-
-##### id
-
-> `readonly` **id**: `string`
-
-**`Experimental`**
-
-##### supervisorId?
-
-> `readonly` `optional` **supervisorId?**: `string`
-
-**`Experimental`**
-
-***
-
-### RenderedTopFrame
-
-**`Experimental`**
-
-#### Properties
-
-##### frame
-
-> `readonly` **frame**: `string`
-
-**`Experimental`**
-
-##### targets
-
-> `readonly` **targets**: [`RenderTarget`](#rendertarget)[]
-
-**`Experimental`**
-
 ## Type Aliases
 
 ### TopSnapshotCompleteness
@@ -985,36 +985,6 @@ otherwise it writes a single frame to stdout and returns.
 
 ***
 
-### loadTopSnapshot()
-
-> **loadTopSnapshot**(`rootDir`, `now?`): [`TopSnapshot`](#topsnapshot)
-
-**`Experimental`**
-
-Read every supervisor run under one workspace into a single point-in-time snapshot.
-
-Pure with respect to the process: it only reads, and it never throws for a writer mid-append.
-An unreadable or half-written source is still skipped — an operator view must survive a live
-writer — but every skip is reported as one bounded `TopSnapshotDiagnostic`, so a client can
-tell a removed run from a partial read. `now` is injectable so elapsed time is deterministic
-under test.
-
-#### Parameters
-
-##### rootDir
-
-`string`
-
-##### now?
-
-`number` = `...`
-
-#### Returns
-
-[`TopSnapshot`](#topsnapshot)
-
-***
-
 ### renderTopFrame()
 
 > **renderTopFrame**(`snapshot`, `options?`): `string`
@@ -1062,6 +1032,36 @@ alongside the text is what keeps click handling out of the renderer.
 #### Returns
 
 [`RenderedTopFrame`](#renderedtopframe)
+
+***
+
+### loadTopSnapshot()
+
+> **loadTopSnapshot**(`rootDir`, `now?`): [`TopSnapshot`](#topsnapshot)
+
+**`Experimental`**
+
+Read every supervisor run under one workspace into a single point-in-time snapshot.
+
+Pure with respect to the process: it only reads, and it never throws for a writer mid-append.
+An unreadable or half-written source is still skipped — an operator view must survive a live
+writer — but every skip is reported as one bounded `TopSnapshotDiagnostic`, so a client can
+tell a removed run from a partial read. `now` is injectable so elapsed time is deterministic
+under test.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+##### now?
+
+`number` = `...`
+
+#### Returns
+
+[`TopSnapshot`](#topsnapshot)
 
 ## References
 

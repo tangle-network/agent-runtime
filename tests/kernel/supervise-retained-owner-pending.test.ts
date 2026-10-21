@@ -21,7 +21,7 @@ import type {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EventAcknowledgement } from '../../src/mcp/tools/coordination-events'
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
-import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
+import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { AUTHORITY_PROMOTION_MS } from '../../src/runtime/supervise/inbox'
 import {
   applyRunCancellation,

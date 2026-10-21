@@ -24,10 +24,8 @@ import { agentImprovementSourceSchema } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
 import { parseExactAgentProfile } from '../candidate-execution/profile'
 import { assertProfileTrainingIsHeldOut } from '../improvement/candidate-validation'
-import {
-  type AgentProfileImprovementBenchmark,
-  createAgentImprovementProposal,
-} from './improvement-cycle'
+import { createAgentImprovementProposal } from './activation'
+import type { AgentProfileImprovementBenchmark } from './improvement-cycle'
 import { agentImprovementProfileDiffs } from './improvement-surfaces'
 import type { AgentImprovementProfileStateDigest } from './profile-activation'
 import {

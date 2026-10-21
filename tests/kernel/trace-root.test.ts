@@ -31,7 +31,10 @@ import {
 } from '../../src/durable/in-memory-spawn-stores'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { replaySpawnTree } from '../../src/durable/spawn-journal/replay'
-import { type ProviderLeafOut, providerAsExecutor } from '../../src/runtime/environment-provider'
+import {
+  type ProviderLeafOut,
+  providerAsExecutor,
+} from '../../src/runtime/environment-provider/provider-executor-admission'
 import { createPrivateCasArtifactPort } from '../../src/runtime/private-cas'
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
