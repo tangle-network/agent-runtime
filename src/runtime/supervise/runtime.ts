@@ -1,6 +1,5 @@
 /** Built-in executor configuration and selection over the shared Executor contract. */
 
-export type { ToolSpec } from '../router-client'
 export type { SandboxLeafOut, SandboxOutputMarker } from '../sandbox-executor-output'
 export type { BridgeHarnessStore, BridgeModelCredential, BridgeSeam } from './bridge-config'
 export { bridgeRuntimeAttachmentsKey, bridgeStopSignalKey } from './bridge-config'

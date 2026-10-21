@@ -25,7 +25,7 @@ import {
   harnessTranscriptFromLines,
   harnessTranscriptUnavailable,
 } from '../harness-transcript'
-import type { RouterResponseReceipt } from '../router-client'
+import type { RouterResponseReceipt } from '../router-http-transport'
 import type { ToolLoopMessageRecord, ToolLoopToolCall } from '../tool-loop'
 
 /** The harness name a router-brained agent's transcript carries. */

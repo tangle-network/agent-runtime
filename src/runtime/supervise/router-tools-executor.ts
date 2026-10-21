@@ -10,14 +10,13 @@ import {
   toolResultText,
 } from '../code-mode'
 import { assertRouterAutoDeclaration, assertRouterAutoResponse } from '../router-auto-evidence'
+import { routerChatWithTools, streamRouterChatWithTools } from '../router-client'
 import {
-  type PromptCacheUsage,
   type RouterResponseReceipt,
-  routerChatWithTools,
   routerTransportAttemptsFromError,
-  streamRouterChatWithTools,
-  type ToolSpec,
-} from '../router-client'
+} from '../router-http-transport'
+import type { ToolSpec } from '../router-request-body'
+import type { PromptCacheUsage } from '../router-response'
 import { addTokenUsage, promptCacheTokenClasses, zeroTokenUsage } from '../util'
 import { linkAbort } from './abortable'
 import { localAbortCancellation } from './executor-local-cancellation'

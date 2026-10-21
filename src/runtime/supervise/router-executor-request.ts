@@ -1,6 +1,6 @@
 import { ValidationError } from '../../errors'
 import { observedModelMatchesDeclared } from '../model-identity'
-import type { RouterConfig } from '../router-client'
+import type { RouterConfig } from '../router-request-body'
 import type { RouterProfileExecution } from './router-profile-execution'
 import type { RouterSeam } from './runtime-seams'
 import type { ExecutorContext } from './types'

@@ -8,7 +8,8 @@ import type {
   ProviderExecutorOptions,
   ProviderWorkspaceCaptureReceipt,
 } from '../environment-provider'
-import type { RouterConfig, RouterResponseReceipt, RouterRouting, ToolSpec } from '../router-client'
+import type { RouterResponseReceipt } from '../router-http-transport'
+import type { RouterConfig, RouterRouting, ToolSpec } from '../router-request-body'
 import type { SandboxLeafOut } from '../sandbox-executor-output'
 import type { SharedBoxPlacement } from '../shared-box'
 import type { ExecCtx, SandboxClient, Validator } from '../types'

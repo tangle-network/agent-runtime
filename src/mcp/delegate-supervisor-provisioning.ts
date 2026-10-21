@@ -16,7 +16,7 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError } from '../errors'
 import type { SandboxClient } from '../runtime'
-import type { RouterTransportConfig } from '../runtime/router-client'
+import type { RouterTransportConfig } from '../runtime/router-http-transport'
 import { supervisorInstructions } from '../runtime/supervise/authoring'
 import { coordinationProfileToolPrefix } from '../runtime/supervise/provider-visible-profile'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'

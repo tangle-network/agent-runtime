@@ -20,7 +20,7 @@
  */
 
 import { ConfigError } from '../../errors'
-import type { RouterTransportConfig } from '../router-client'
+import type { RouterTransportConfig } from '../router-http-transport'
 import type { DeliverableSpec } from './completion-gate'
 import type { ExecutorConfig } from './runtime'
 import { supervise } from './supervise'

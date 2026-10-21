@@ -19,7 +19,7 @@ import {
   createCodeModeTools,
   toolResultText,
 } from './code-mode'
-import type { ToolSpec } from './router-client'
+import type { ToolSpec } from './router-request-body'
 import type { Spend } from './supervise/types'
 
 /** Provider-neutral conversation record accepted by a tool-loop brain. */
