@@ -40,8 +40,6 @@
  * @stable
  */
 
-import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type {
@@ -57,6 +55,7 @@ import {
   type HarnessType,
   type ReasoningEffort,
 } from '@tangle-network/agent-interface'
+import { sha256 } from '../content-digest'
 import { runSettledCommand } from '../mcp/worktree-harness'
 import {
   type AgentTurnUsage,
@@ -72,7 +71,7 @@ import { createExecutor, type ExecutorConfig } from '../runtime/supervise/runtim
 import { detachedSnapshot } from '../runtime/supervise/snapshot'
 import type { CandidateGenerator } from './improvement-driver'
 import { optimizerMethod } from './optimizer-prompt'
-import { restoreWorktreeTree, snapshotWorktreeTree } from './worktree-tree'
+import { restoreWorktreeTree, snapshotWorktreeTree, worktreeChangedPaths } from './worktree-tree'
 
 const RAW_TRACE_ANALYST_ID = 'raw-trace-distiller'
 const RAW_TRACE_AREA = 'raw-trace-context'
@@ -683,7 +682,7 @@ function shotReceipt(input: {
     provider: input.provider,
     model: input.model,
     reasoningEffort: input.profile.model?.reasoningEffort ?? null,
-    promptSha256: sha256(input.prompt),
+    promptSha256: `sha256:${sha256(input.prompt)}`,
     startedAt: input.startedAt.toISOString(),
     completedAt: input.completedAt.toISOString(),
     durationMs: input.completedAt.getTime() - input.startedAt.getTime(),
@@ -751,10 +750,6 @@ function promptCacheReadTokens(usage: AgentTurnUsage): number | undefined {
     if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
   }
   return undefined
-}
-
-function sha256(value: string): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`
 }
 
 /** Turn proposal findings into a concrete coder task —
@@ -971,11 +966,6 @@ function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, n - 1)}…`
 }
 
-/** Non-empty `git status --porcelain` ⇒ the harness changed the worktree.
- *  Fails loud: the worktree is a fresh checkout, so a git error here means
- *  something is genuinely broken (git missing, corrupt index, killed mid-run).
- *  Folding that into `false` would silently discard a candidate and mask the
- *  real failure — forbidden by the no-silent-fallbacks doctrine. */
 /** Do two names address the same directory? An in-place placement is only in-place if it names the
  *  worktree the driver created, and a byte comparison answers that wrongly on a platform whose
  *  temporary directory is a symlink: macOS reports `/var/folders/...` where the resolved path is
@@ -996,41 +986,11 @@ function canonicalPath(path: string): string {
   }
 }
 
+/** Non-empty `git status --porcelain` ⇒ the harness changed the worktree.
+ *  Fails loud: the worktree is a fresh checkout, so a git error here means
+ *  something is genuinely broken (git missing, corrupt index, killed mid-run).
+ *  Folding that into `false` would silently discard a candidate and mask the
+ *  real failure — forbidden by the no-silent-fallbacks doctrine. */
 function worktreeDirty(worktreePath: string): boolean {
   return worktreeChangedPaths(worktreePath).length > 0
-}
-
-function worktreeChangedPaths(worktreePath: string): string[] {
-  const result = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
-    cwd: worktreePath,
-    encoding: 'utf-8',
-  })
-  if (result.error) {
-    throw new Error(
-      `agenticGenerator: git status failed to spawn in ${worktreePath}: ${result.error.message}`,
-    )
-  }
-  if (result.status !== 0) {
-    throw new Error(
-      `agenticGenerator: git status exited ${result.status} in ${worktreePath}: ${result.stderr.trim()}`,
-    )
-  }
-  const records = result.stdout.split('\0')
-  const paths: string[] = []
-  for (let i = 0; i < records.length; i += 1) {
-    const record = records[i]
-    if (!record) continue
-    paths.push(record.slice(3))
-    // Rename and copy entries have a second NUL-delimited path without a status prefix.
-    if (record[0] === 'R' || record[1] === 'R' || record[0] === 'C' || record[1] === 'C') {
-      const source = records[++i]
-      if (!source) {
-        throw new Error(
-          `agenticGenerator: git status omitted a rename/copy path in ${worktreePath}`,
-        )
-      }
-      paths.push(source)
-    }
-  }
-  return paths
 }
