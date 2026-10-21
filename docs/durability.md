@@ -222,10 +222,13 @@ Each keyed spawn resolves in one of four ways:
 - **In doubt.** The prior attempt started with no terminal receipt. The step is re-admitted once under `<key>#2`, the replacement key the `spawn_worker` contract names. If `<key>#2` is in doubt too, the flow ends with `GraphResult.stopped.reason` `in-doubt:<node>`.
 - **New.** Nothing is journaled for the key, and the step runs.
 
+A key is admitted again only for the same profile and task. A join target's task is `{ from: { nodes }, evidence }`, with the members in declared order and each one's latest result in `evidence`, so the member a replay settles last does not change it. A route spawn's `successorOf` names the node's latest settled worker, a replayed one included, and is not part of that identity.
+
 A gate decision journaled before the kill is replayed without calling `decideGate`. A gate that was reached but not decided is asked again under the same visit number.
 
 Limits:
 - Replayed traversal rows are journaled again by the resumed process. Gate decision rows are the exception: a replayed decision rides the result ledger only.
+- A join target journaled before its task named the members (`{ from: { node, result } }`, Runtime 0.338.0 and earlier) conflicts on resume whenever a different member completes the join; the target is refused `key-conflict`.
 - A replayed committed step is never a resume target. A `continuity: 'resume'` edge whose prior node settled in a dead process starts its target fresh.
 - A journal written before map spawns were keyed holds unkeyed map rows. They match no key, so a flow resumed from such a journal runs those map items again.
 
