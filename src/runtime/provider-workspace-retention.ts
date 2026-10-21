@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import type {
   AgentCandidateCapturedArtifact,
   AgentCandidateWorkspaceSnapshotEvidence,
@@ -13,6 +12,7 @@ import {
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
 import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
 import { verifyWorkspaceSnapshotArtifacts } from '../candidate-execution/artifacts'
+import { sha256Bytes } from '../candidate-execution/digest'
 import type { AgentCandidateArtifactPort } from '../candidate-execution/types'
 import {
   type AgentCandidateWorkspaceArchiveLimits,
@@ -366,7 +366,7 @@ export async function captureProviderCheckpointWorkspace(
             if (
               held === undefined ||
               held.byteLength !== bytes.byteLength ||
-              held.sha256 !== `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+              held.sha256 !== sha256Bytes(bytes)
             )
               throw new Error(
                 `checkpoint capture does not hold the checkpoint's marker ${marker.path}`,
@@ -525,14 +525,10 @@ export function assertProviderWorkspaceRetentionPort(
   if (typeof port.capture !== 'function') {
     throw new ValidationError(`${context}: workspaceRetention.capture is required`)
   }
-  if (port.captureNative !== undefined && typeof port.captureNative !== 'function') {
-    throw new ValidationError(`${context}: workspaceRetention.captureNative must be a function`)
-  }
-  if (port.captureCheckpoint !== undefined && typeof port.captureCheckpoint !== 'function') {
-    throw new ValidationError(`${context}: workspaceRetention.captureCheckpoint must be a function`)
-  }
-  if (port.captureLive !== undefined && typeof port.captureLive !== 'function') {
-    throw new ValidationError(`${context}: workspaceRetention.captureLive must be a function`)
+  for (const key of ['captureNative', 'captureCheckpoint', 'captureLive'] as const) {
+    if (port[key] !== undefined && typeof port[key] !== 'function') {
+      throw new ValidationError(`${context}: workspaceRetention.${key} must be a function`)
+    }
   }
   if (port.liveIntervalMs !== undefined && port.captureLive === undefined) {
     throw new ValidationError(`${context}: workspaceRetention.liveIntervalMs requires captureLive`)
