@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
-# Keep size policy in the global hook owner, including when this repo overrides hooksPath.
-r="$(git config --global core.hooksPath)/loc-ratchet"
+# Keep the commit-time ratchets (size, doc paths, duplicate exports) in the global hook owner, including when this
+# repo overrides hooksPath; older hosts have only loc-ratchet.
+g="$(git config --global core.hooksPath)"
+r="$g/ratchets"; [ -x "$r" ] || r="$g/loc-ratchet"
 if [ -x "$r" ]; then
   "$r" || exit $?
 fi
