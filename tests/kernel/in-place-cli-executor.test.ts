@@ -18,7 +18,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
-import type { LocalHarnessResult, RunLocalHarnessOptions } from '../../src/mcp/local-harness'
+import type {
+  LocalHarnessResult,
+  RunLocalHarnessOptions,
+} from '../../src/mcp/local-harness-process'
 import { createInPlaceCliExecutor } from '../../src/runtime/supervise/in-place-cli-executor'
 import {
   runtimeOwnedExecutorExecutionBinding,

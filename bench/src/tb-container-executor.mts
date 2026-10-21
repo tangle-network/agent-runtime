@@ -18,7 +18,7 @@ import type {
   Runtime,
   Spend,
 } from '../../src/runtime/index'
-import { harnessInvocation, type LocalHarness } from '../../src/mcp/local-harness'
+import { harnessInvocation, type LocalHarness } from '../../src/mcp/local-harness-invocation'
 import { assertExecutableAgentProfile } from '../../src/runtime/supervise/model-policy'
 
 export interface TbExecOutput {

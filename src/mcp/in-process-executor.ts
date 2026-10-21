@@ -25,7 +25,7 @@ import type { LoopSandboxPlacement, SandboxClient } from '../runtime'
 import { assertBoxlessPromptOptions } from '../runtime/prompt-options'
 import { assertExecutableAgentProfile } from '../runtime/supervise/model-policy'
 import type { DelegationExecutor } from './executor'
-import { LOCAL_HARNESSES, type LocalHarness } from './local-harness'
+import { LOCAL_HARNESSES, type LocalHarness } from './local-harness-invocation'
 import type { GitRunner, WorktreeHandle } from './worktree'
 import { runWorktreeHarness } from './worktree-harness'
 
@@ -44,7 +44,7 @@ export interface InProcessExecutorOptions {
   /** Test seam — override the git runner used by the worktree helpers. */
   runGit?: GitRunner
   /** Test seam — override the harness runner (defaults to the real CLI via `runLocalHarness`). */
-  runHarness?: typeof import('./local-harness').runLocalHarness
+  runHarness?: typeof import('./local-harness-process').runLocalHarness
   /** Test seam — override the post-check runner (defaults to a `sh -c` spawn). A throw is folded
    *  into a non-fatal `{exitCode:-1}` so a broken check command fails the signal, not the run. */
   runPostCheck?: (

@@ -41,16 +41,15 @@ import {
   profileMaterializationAxes,
   worktreeCliProfileMaterialization,
 } from '../agent/profile-materialization'
+import { terminateProcessTreeAndConfirm } from '../runtime/process-tree'
+import type { CodexExecutionPolicy } from './codex-execution-policy'
+import type { CodexTokenUsage } from './codex-token-usage'
 import {
-  type CodexExecutionPolicy,
-  type CodexTokenUsage,
   harnessInvocation,
   harnessSupportsReasoningEffort,
   type LocalHarness,
-  type LocalHarnessResult,
-  runLocalHarness,
-  terminateProcessTreeAndConfirm,
-} from './local-harness'
+} from './local-harness-invocation'
+import { type LocalHarnessResult, runLocalHarness } from './local-harness-process'
 import {
   captureWorktreeDiff,
   createWorktree,

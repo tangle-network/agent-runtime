@@ -14,6 +14,13 @@
  * @module
  */
 
+export {
+  CodexExecutionDiagnosticError,
+  type CodexExecutionFailureDiagnostic,
+} from './codex-diagnostics'
+export type { CodexExecutionEvidence } from './codex-execution-evidence'
+export type { CodexExecutionPolicy } from './codex-execution-policy'
+export { type CodexTokenUsage, parseCodexTokenUsage } from './codex-token-usage'
 export type {
   CoderDelegate,
   CoderReview,
@@ -103,23 +110,14 @@ export {
   type FactJudgeVerdict,
   type KbGateResult,
 } from './kb-gate'
-export type {
-  CodexExecutionEvidence,
-  CodexExecutionFailureDiagnostic,
-  CodexExecutionPolicy,
-  CodexTokenUsage,
-  LocalHarness,
-  LocalHarnessResult,
-  RunLocalHarnessOptions,
-} from './local-harness'
 export {
-  CodexExecutionDiagnosticError,
   DEFAULT_LOCAL_HARNESS,
   harnessSupportsReasoningEffort,
   LOCAL_HARNESSES,
+  type LocalHarness,
   localHarnessExecutable,
-  parseCodexTokenUsage,
-} from './local-harness'
+} from './local-harness-invocation'
+export type { LocalHarnessResult, RunLocalHarnessOptions } from './local-harness-process'
 export {
   type AgentMemorySpec,
   type CreateMemoryToolServerOptions,

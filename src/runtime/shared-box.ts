@@ -63,7 +63,7 @@ import { ValidationError } from '../errors'
  *  package-root export name varies across sandbox releases — derived here instead. */
 type TurnModelRouting = NonNullable<PromptOptions['backend']>['model']
 
-import { harnessInvocation } from '../mcp/local-harness'
+import { harnessInvocation } from '../mcp/local-harness-invocation'
 import { LEAF_CONTINUATION_TASK } from './environment-provider'
 import { concreteProfileModel, profileProviderModel } from './supervise/model-policy'
 import {
