@@ -60,4 +60,4 @@ These are internal working documents: design theses, research narrative, and roa
 
 - On any architecture conflict, `architecture.md` wins; "Built vs Designed" is stated explicitly with a `file:line` anchor — never assume a documented design is shipped without one.
 - The generated [api/](./api/) reference + the docs-freshness gate (`scripts/check-docs-freshness.mjs`) keep the curated docs honest: every backticked symbol must resolve. See [MAINTAINING.md](./MAINTAINING.md).
-- Repo bootloader + authorship/comment/layering deltas live in [../CLAUDE.md](../CLAUDE.md).
+- Repo bootloader + authorship/comment/layering deltas live in [../AGENTS.md](../AGENTS.md).
