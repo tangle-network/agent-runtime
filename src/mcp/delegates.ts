@@ -133,7 +133,7 @@ export type DetachedWinnerSelection =
   | 'first-approved'
 
 /** @experimental */
-export interface DetachedSessionDelegateOptions {
+interface DetachedSessionDelegateOptions {
   /**
    * Execution placement. Pass a {@link DelegationExecutor} (sibling or fleet)
    * to control where worker iterations land. `sandboxClient` is a
@@ -426,7 +426,7 @@ export function coderTaskFromArgs(args: DelegateCodeArgs): CoderTask {
 }
 
 /** @experimental */
-export interface SettleDetachedCoderTurnOptions {
+interface SettleDetachedCoderTurnOptions {
   task: CoderTask
   /** Session id of the detached turn — used as the synthesized event id. */
   sessionId: string

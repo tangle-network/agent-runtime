@@ -49,7 +49,7 @@ export interface ChatTurnProducer<TEvent extends ChatStreamEvent = ChatStreamEve
 }
 
 /** Product callbacks invoked while one chat turn runs. */
-export interface ChatTurnHooks {
+interface ChatTurnHooks {
   /** Build the backend stream. The engine forwards nonterminal events and
    *  reads `finalText()` once the stream drains. Reported errors fail the turn. */
   produce(): ChatTurnProducer
@@ -73,7 +73,7 @@ export interface ChatTurnHooks {
 }
 
 /** Inputs for one streamed product chat turn. */
-export interface RunChatTurnInput {
+interface RunChatTurnInput {
   identity: ChatTurnIdentity
   hooks: ChatTurnHooks
   /** Worker liveness hook. When omitted, trace flush is awaited inline

@@ -41,7 +41,7 @@ const ANALYST_ID = 'raw-trace-distiller'
  *  distiller's near-perfect threshold) or when it recorded an `error`. */
 const PASS_THRESHOLD = 0.999
 
-export interface RawTraceDistillerOptions {
+interface RawTraceDistillerOptions {
   /** Anchor the emitted paths at this run root instead of the generation `runDir`
    *  the loop passes in. Normally unset — each call points at that generation's
    *  own directory (`input.runDir`). Pass an absolute path when you construct the

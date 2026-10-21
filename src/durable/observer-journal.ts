@@ -28,7 +28,7 @@ export interface ObserverRecord {
   readonly digest: string
 }
 
-export interface ObserverJournal {
+interface ObserverJournal {
   appendEvent(event: RuntimeHookEvent): Promise<ObserverRecord>
   appendDecision(point: RuntimeDecisionPoint): Promise<ObserverRecord>
   read(): Promise<readonly ObserverRecord[]>

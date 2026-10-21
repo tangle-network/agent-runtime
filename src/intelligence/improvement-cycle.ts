@@ -123,7 +123,7 @@ export interface AgentCandidateExperimentCellPlacement {
   execution: ExecutePreparedAgentCandidateOptions
 }
 
-export interface RunAgentCandidateExperimentOptions
+interface RunAgentCandidateExperimentOptions
   extends Omit<
     CompareCandidateExperimentOptions,
     'experiment' | 'measurements' | 'measurement' | 'preparation'
@@ -140,13 +140,13 @@ export interface RunAgentCandidateExperimentOptions
   signal?: AbortSignal
 }
 
-export interface RunAgentCandidateExperimentResult {
+interface RunAgentCandidateExperimentResult {
   experiment: AgentCandidateExperiment
   measurements: AgentCandidateExperimentMeasurement[]
   evaluation: AgentImprovementMeasuredComparison
 }
 
-export interface ExecuteAgentCandidateExperimentCellOptions
+interface ExecuteAgentCandidateExperimentCellOptions
   extends CandidateExperimentExecutionInput,
     AgentCandidateExperimentCellPlacement {}
 
@@ -160,7 +160,7 @@ export interface VerifyCandidateExecutionEvidenceOptions {
 }
 
 /** A failed baseline or candidate cell with its complete Runtime failure result. */
-export class AgentCandidateExperimentCellExecutionError extends Error {
+class AgentCandidateExperimentCellExecutionError extends Error {
   readonly finalization: Extract<AgentCandidateRunFinalization, { succeeded: false }>
 
   constructor(finalization: Extract<AgentCandidateRunFinalization, { succeeded: false }>) {
@@ -172,7 +172,7 @@ export class AgentCandidateExperimentCellExecutionError extends Error {
 
 type CreateAgentImprovementMeasuredComparisonOptions = CompareCandidateExperimentOptions
 
-export type AgentImprovementAnalysisOptions = Omit<
+type AgentImprovementAnalysisOptions = Omit<
   RunAnalystLoopOpts,
   | 'runId'
   | 'inputs'
@@ -191,7 +191,7 @@ type WithProposalFindings<T> = T extends unknown
   ? Omit<T, 'findings'> & { findings?: readonly ProposalFinding[] }
   : never
 
-export interface ProposeAgentImprovementOptions<TScenario extends Scenario, TArtifact> {
+interface ProposeAgentImprovementOptions<TScenario extends Scenario, TArtifact> {
   runId: string
   profile: AgentProfile
   analysis: AgentImprovementAnalysisOptions
@@ -214,7 +214,7 @@ export type AgentImprovementExperimentMaterial = Omit<
   'candidateLineage'
 >
 
-export interface ProposeAgentImprovementResult<TScenario extends Scenario, TArtifact> {
+interface ProposeAgentImprovementResult<TScenario extends Scenario, TArtifact> {
   analysis: RunAnalystLoopResult
   improvement: ImproveResult<TScenario, TArtifact>
   experiment: AgentCandidateExperiment
@@ -234,7 +234,7 @@ export interface AgentProfileImprovementBenchmark {
  * One product execution adapter shared by optimizer search and exact profile
  * measurement. `executionRef` must identify both operations and their closure.
  */
-export interface AgentProfileImprovementExecutor<TScenario extends Scenario, TArtifact> {
+interface AgentProfileImprovementExecutor<TScenario extends Scenario, TArtifact> {
   executionRef: AgentProfileImprovementExecutionRef
   optimize: ImproveMethodOptions<TScenario, TArtifact>['agent']
   measure(
@@ -243,7 +243,7 @@ export interface AgentProfileImprovementExecutor<TScenario extends Scenario, TAr
 }
 
 /** The portable profile changes that the measured-profile contract permits. */
-export type AgentProfileImprovementMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
+type AgentProfileImprovementMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
   ImproveMethodOptions<TScenario, TArtifact>,
   'agent' | 'executionRef' | 'findings' | 'surface'
 > & {
@@ -410,7 +410,7 @@ export async function executeAgentCandidateExperimentCell(
 }
 
 /** Delegate all statistics and promotion checks to agent-eval's receipt-based comparison. */
-export function createAgentImprovementMeasuredComparison(
+function createAgentImprovementMeasuredComparison(
   options: CreateAgentImprovementMeasuredComparisonOptions,
 ): AgentImprovementMeasuredComparison {
   return verifyCandidateExperimentComparison(measuredComparisonFromCandidateExperiment(options))

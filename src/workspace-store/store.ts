@@ -157,7 +157,7 @@ export function checkWorkspacePut(input: WorkspacePutInput): void {
 const MAX_OPERATION_ID = 256
 
 /** Refuse an `operationId` that is present but empty, not a string, or over 256 chars. */
-export function checkOperationId(path: string, operationId: unknown): void {
+function checkOperationId(path: string, operationId: unknown): void {
   if (operationId === undefined) return
   if (typeof operationId !== 'string' || !operationId || operationId.length > MAX_OPERATION_ID) {
     throw new TypeError(
@@ -177,7 +177,7 @@ function sameBytes(left?: WorkspaceBytesRef, right?: WorkspaceBytesRef): boolean
 }
 
 /** Whether `entry` is exactly what `input` would write: same kind, content and bytes. */
-export function isSameWorkspaceWrite(entry: WorkspaceEntry, input: WorkspacePutInput): boolean {
+function isSameWorkspaceWrite(entry: WorkspaceEntry, input: WorkspacePutInput): boolean {
   return (
     entry.kind === input.kind &&
     entry.content === input.content &&

@@ -58,7 +58,7 @@ export interface CaptureAgentCandidateWorkspaceOptions {
   }
 }
 
-export interface CreateAgentCandidateWorkspacePortOptions {
+interface CreateAgentCandidateWorkspacePortOptions {
   limits?: Partial<AgentCandidateWorkspaceArchiveLimits>
 }
 

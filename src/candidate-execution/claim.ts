@@ -272,7 +272,7 @@ function attemptRecord(
   })
 }
 
-export interface InMemoryAgentCandidateExecutionClaimStoreOptions {
+interface InMemoryAgentCandidateExecutionClaimStoreOptions {
   /** Testable evaluator clock; defaults to `Date.now`. */
   now?: () => number
 }

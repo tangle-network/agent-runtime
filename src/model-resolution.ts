@@ -71,7 +71,7 @@ export function cleanModelId(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined
 }
 
-export interface ChatModelCandidate {
+interface ChatModelCandidate {
   /** Stable label for telemetry — e.g. `request`, `workspace`, `env`. */
   source: string
   model: string | undefined
@@ -99,9 +99,7 @@ export function resolveChatModel(
   return fallback
 }
 
-export type ChatModelValidation =
-  | { succeeded: true; value: string }
-  | { succeeded: false; error: string }
+type ChatModelValidation = { succeeded: true; value: string } | { succeeded: false; error: string }
 
 const WELL_FORMED_MODEL_ID = /^[A-Za-z0-9._/@:-]+$/
 

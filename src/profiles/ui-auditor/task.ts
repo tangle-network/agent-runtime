@@ -14,7 +14,7 @@
 import type { UiFinding, UiLens } from './substrate'
 
 /** @experimental */
-export interface UiAuditViewport {
+interface UiAuditViewport {
   width: number
   height: number
 }

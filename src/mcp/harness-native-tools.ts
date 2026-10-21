@@ -33,7 +33,7 @@ import type { HarnessType } from '@tangle-network/agent-interface'
  * Sourced native sub-agent tool names, keyed by the same `HarnessType` vocabulary the rest of the
  * runtime draws harness names from, so a harness the interface renames is a compile error here.
  */
-export const harnessNativeTools = {
+const harnessNativeTools = {
   // codex CLI 0.150.1: the `multi_agents_v2` collab family, read out of the shipped binary.
   codex: [
     'spawn_agent',
@@ -54,10 +54,10 @@ export const harnessNativeTools = {
 } as const satisfies Partial<Record<HarnessType, ReadonlyArray<string>>>
 
 /** A harness with a sourced native tool list. */
-export type SourcedHarness = keyof typeof harnessNativeTools
+type SourcedHarness = keyof typeof harnessNativeTools
 
 /** The harnesses this registry has a sourced list for. */
-export const sourcedHarnesses = Object.keys(harnessNativeTools) as ReadonlyArray<SourcedHarness>
+const sourcedHarnesses = Object.keys(harnessNativeTools) as ReadonlyArray<SourcedHarness>
 
 /**
  * The tool names `harness` publishes natively, or `undefined` when no list has been sourced for it.

@@ -1,24 +1,15 @@
-/**
- * Capability manifest types and conversion from the certified profile wire format.
- * Consumers own binding admission and execution.
- *
- * @stable
- */
-
-import type { AgentProfileMcpServer } from '@tangle-network/agent-interface'
-import type { ToolSpec } from '../runtime/router-request-body'
 import type { CertifiedArtifact, CertifiedProfile, CertifiedPromptSurface } from './delivery'
 
 // ── AXIS 1 — INTERFACE (CLOSED) ────────────────────────────────────────────────
 
 /** A structural JSON Schema object describing a tool's parameters. */
-export type JsonSchema = Record<string, unknown>
+type JsonSchema = Record<string, unknown>
 
 /**
  * What the agent consumes. CLOSED — a new runtime kind NEVER extends this. Each
  * arm maps slot-for-slot onto `AgentProfile` + the host `RouterToolsSeam`.
  */
-export type CapabilityInterface =
+type CapabilityInterface =
   | {
       surface: 'tool'
       name: string
@@ -32,16 +23,13 @@ export type CapabilityInterface =
   | { surface: 'hook'; event: string; matcher?: string }
   | { surface: 'subagent'; name: string; description?: string }
 
-/** Every interface surface tag supported by the manifest schema. */
-export type CapabilitySurface = CapabilityInterface['surface']
-
 // ── Content + credential REFERENCES (resolved lazily per-tenant) ────────────────
 
 /**
  * Where a capability's bytes live. A leaked manifest carries no live secret and
  * no inlined blob: `github`/`blob` are pointers resolved at provision time.
  */
-export type ContentRef =
+type ContentRef =
   | { kind: 'inline'; content: string }
   | { kind: 'github'; repository?: string; path: string; ref?: string }
   | { kind: 'blob'; uri: string; sha256: string; bytes?: number }
@@ -56,7 +44,7 @@ export interface CredentialRef {
  * manifest; the consumer resolves the live secret per tenant,
  * never inlined here.
  */
-export type CapabilityAuth =
+type CapabilityAuth =
   | { mode: 'none' }
   | { mode: 'tangle-key' }
   | { mode: 'hub-connection'; providerId: string; scopes?: string[] }
@@ -70,7 +58,7 @@ export type CapabilityAuth =
  * `image` is the sandbox image tag; `warm`/`idleTtlMs`/`costTag` meter standing
  * cost; `ports` are the inner server's listen ports the host must expose.
  */
-export interface HostSpec {
+interface HostSpec {
   backend: 'sandbox' | 'router' | 'cli'
   image?: string
   ports?: number[]
@@ -83,7 +71,7 @@ export interface HostSpec {
  * Describes how a capability is backed.
  * Consumers must admit a binding before executing it.
  */
-export type DeliveryBinding =
+type DeliveryBinding =
   // FILE class — deliver = write bytes (the shipped path).
   | { kind: 'inline'; content: ContentRef }
   | { kind: 'file'; path: string; content: ContentRef; executable?: boolean }
@@ -114,7 +102,7 @@ export type DeliveryBinding =
   | { kind: 'a2a'; endpoint: string; card: ContentRef; auth?: CapabilityAuth }
 
 /** Every binding kind represented by the manifest schema. */
-export type DeliveryBindingKind = DeliveryBinding['kind']
+type DeliveryBindingKind = DeliveryBinding['kind']
 
 // ── Provenance + the manifest ───────────────────────────────────────────────────
 
@@ -131,7 +119,7 @@ export type DeliveryBindingKind = DeliveryBinding['kind']
  * `iface.name` (display only): collapsing the two flips the fold order for a
  * mix of null-path and non-null-path artifacts.
  */
-export interface CertProvenance {
+interface CertProvenance {
   contentHash: string
   version: number | null
   lift: string | null
@@ -153,60 +141,11 @@ export interface CertifiedCapability {
  * during the migration window (the shipped pull lane still emits it); new
  * capabilities live in `capabilities`.
  */
-export interface CapabilityManifest {
+interface CapabilityManifest {
   target: string
   generatedAt: string
   promptSurface: CertifiedPromptSurface | null
   capabilities: CertifiedCapability[]
-}
-
-// ── The resolved surface — one shape, both seams ────────────────────────────────
-
-/** One retrieval handle. The agent never learns vector vs graph vs index. */
-export interface ResolvedRetrieval {
-  name: string
-  retrieve(query: string, k?: number): Promise<Array<{ text: string; score?: number }>>
-}
-
-/** One resolved hook — event + the command/matcher the seam folds into
- *  `AgentProfile.hooks`. */
-export interface ResolvedHook {
-  event: string
-  command: string
-  matcher?: string
-}
-
-/** One resolved subagent — folded into `AgentProfile.subagents`. */
-export interface ResolvedSubagent {
-  name: string
-  description?: string
-  prompt?: string
-}
-
-/** Materialized capability surfaces supplied by a consumer-owned executor. */
-export interface ResolvedCapabilitySurface {
-  /** Host-side tool defs → `RouterToolsSeam.tools` / agent-app `extraTools`. */
-  tools: ToolSpec[]
-  /** Host-side dispatch for a resolved tool. Throws when `name` is unknown so a
-   *  mis-dispatch is loud, never a silent empty string. */
-  execute(name: string, args: Record<string, unknown>, task: unknown): Promise<string>
-  /** Sandbox-side tool delivery → `AgentProfile.mcp` / in-proc `createMcpEnvironment`. */
-  mcpConnections: Record<string, AgentProfileMcpServer>
-  /** Prompt-context additions, byte-stable-ordered → folded system prompt. */
-  promptAdditions: string[]
-  /** Workspace files → `AgentProfile.resources.files`. */
-  files: Array<{ path: string; content: string; executable?: boolean }>
-  /** Uniform retrieval handles. */
-  retrieval: ResolvedRetrieval[]
-  /** Hooks → `AgentProfile.hooks`. */
-  hooks: ResolvedHook[]
-  /** Subagents → `AgentProfile.subagents`. */
-  subagents: ResolvedSubagent[]
-  /** The folded system prompt — base + the byte-stable prompt additions, exactly
-   *  as `composeCertifiedPrompt` renders the inline/context capabilities. */
-  systemPrompt: string
-  /** Tear down provisioned hosts (reverse dependency order). */
-  dispose(): Promise<void>
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────────

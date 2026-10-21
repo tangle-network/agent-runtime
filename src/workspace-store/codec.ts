@@ -15,7 +15,7 @@
 import type { WorkspaceEntry, WorkspaceStore } from './store'
 
 /** Where a value lives; bound into the ciphertext. */
-export interface WorkspaceCodecContext {
+interface WorkspaceCodecContext {
   readonly tenant: string
   readonly path: string
   /**
@@ -25,7 +25,7 @@ export interface WorkspaceCodecContext {
   readonly operationId?: string
 }
 
-export interface WorkspaceContentCodec {
+interface WorkspaceContentCodec {
   seal(plain: Uint8Array, context: WorkspaceCodecContext): Promise<Uint8Array>
   open(sealed: Uint8Array, context: WorkspaceCodecContext): Promise<Uint8Array>
 }
@@ -261,7 +261,7 @@ export function openWorkspaceBytes(
   return codec.open(sealed, context)
 }
 
-export interface ContentCodecOptions {
+interface ContentCodecOptions {
   /**
    * Return stored content that is not sealed as is, for a store being moved
    * onto a codec. Off by default: a regulated store refuses plaintext.

@@ -3,7 +3,7 @@ import { isRecord } from '../record-value'
 import type { NodeId } from '../runtime/supervise/types'
 import { readCommittedJsonLines } from './jsonl-file'
 
-export interface DurableCoordinationStreamIdentity {
+interface DurableCoordinationStreamIdentity {
   readonly runId: string
   /** Exact owner ids present in the side-log, sorted for deterministic display. */
   readonly ownerIds: readonly string[]
@@ -16,7 +16,7 @@ export interface DurableCoordinationStreamIdentity {
  * Identities discoverable from one `supervise({ runDir })` directory without
  * already knowing the root node or coordination run id stored inside it.
  */
-export interface DurableSupervisionDiscovery {
+interface DurableSupervisionDiscovery {
   readonly runDir: string
   readonly spawnJournalPath: string
   readonly coordinationLogPath: string

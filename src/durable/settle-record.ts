@@ -36,7 +36,7 @@ export const SETTLE_RECORD_FILE = 'result.json'
 export const FAILURE_RECORD_FILE = 'failure.json'
 
 /** What `failure.json` records about the most recent throw. */
-export interface DurableFailureRecord {
+interface DurableFailureRecord {
   readonly runId: string
   readonly pursuitId: string
   /** ISO instant the throw was recorded. */

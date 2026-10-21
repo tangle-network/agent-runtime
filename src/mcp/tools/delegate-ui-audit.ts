@@ -290,7 +290,7 @@ function validateConfig(raw: unknown): DelegateUiAuditArgs['config'] {
 }
 
 /** @experimental */
-export interface DelegateUiAuditHandlerOptions {
+interface DelegateUiAuditHandlerOptions {
   queue: DelegationTaskQueue
   delegate: UiAuditorDelegate
   estimateDurationMs?: (args: DelegateUiAuditArgs) => number

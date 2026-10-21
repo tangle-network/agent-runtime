@@ -187,7 +187,7 @@ export async function supervisePursuit(
 
 /** Options for {@link superviseGraphPursuit}: every `runGraph` option, plus the pursuit identity,
  *  the run directory this execution owns, and optional observer delivery. */
-export interface SuperviseGraphPursuitOptions extends RunGraphOptions {
+interface SuperviseGraphPursuitOptions extends RunGraphOptions {
   /** Stable objective identity spanning concrete Runtime runs. */
   readonly pursuitId: string
   /** The directory this execution owns: journal, blobs, observer journal, lock and terminal

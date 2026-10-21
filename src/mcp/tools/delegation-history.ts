@@ -92,7 +92,7 @@ export function validateDelegationHistoryArgs(raw: unknown): DelegationHistoryAr
 }
 
 /** @stable */
-export interface DelegationHistoryHandlerOptions {
+interface DelegationHistoryHandlerOptions {
   queue: DelegationTaskQueue
 }
 

@@ -88,7 +88,7 @@ export interface ProposeAuthoredAgentProfileImprovementOptions {
   now?: () => Date
 }
 
-export interface ProposeAuthoredAgentProfileImprovementResult {
+interface ProposeAuthoredAgentProfileImprovementResult {
   candidateProfile: AgentProfile
   candidateLineage: AgentCandidateLineage
   experiment: AgentProfileImprovementExperiment

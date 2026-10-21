@@ -41,13 +41,13 @@ import type { Sha256Digest } from '@tangle-network/agent-interface'
  * digest survives a checkout whose umask differs. Both stamp the algorithm into the digest, so one
  * tree cannot produce the same digest under both.
  */
-export type WorkspaceTreeAlgorithm = 'tree-v1' | 'portable-tree-v1'
+type WorkspaceTreeAlgorithm = 'tree-v1' | 'portable-tree-v1'
 
 /** What a walk does with an entry it refuses to describe: fail, or record and continue. */
-export type WorkspaceTreeEntryPolicy = 'refuse' | 'exclude'
+type WorkspaceTreeEntryPolicy = 'refuse' | 'exclude'
 
 /** Why one entry contributed its name instead of its content. */
-export type WorkspaceTreeExclusionReason =
+type WorkspaceTreeExclusionReason =
   | 'absolute-symlink'
   | 'symlink-escapes-tree'
   | 'symlink-resolves-outside-tree'
@@ -56,7 +56,7 @@ export type WorkspaceTreeExclusionReason =
 
 /** One entry the walk recorded but did not describe. Reported rather than dropped: a digest that
  *  silently omitted an entry would be a different digest with no way to tell why. */
-export interface WorkspaceTreeExclusion {
+interface WorkspaceTreeExclusion {
   /** Tree-relative path, `/`-separated. */
   readonly path: string
   readonly reason: WorkspaceTreeExclusionReason
@@ -64,7 +64,7 @@ export interface WorkspaceTreeExclusion {
   readonly target?: string
 }
 
-export interface WorkspaceTreeDescriptor {
+interface WorkspaceTreeDescriptor {
   readonly algorithm: WorkspaceTreeAlgorithm
   readonly digest: Sha256Digest
   readonly files: number
@@ -76,7 +76,7 @@ export interface WorkspaceTreeDescriptor {
   readonly excluded: ReadonlyArray<WorkspaceTreeExclusion>
 }
 
-export interface DescribeWorkspaceTreeOptions {
+interface DescribeWorkspaceTreeOptions {
   /** Default `'tree-v1'`. */
   readonly algorithm?: WorkspaceTreeAlgorithm
   /**
@@ -94,7 +94,7 @@ export interface DescribeWorkspaceTreeOptions {
   readonly onMissingEntry?: WorkspaceTreeEntryPolicy
 }
 
-export interface SeedWorkspaceTreeInput {
+interface SeedWorkspaceTreeInput {
   /** The tree to copy FROM. Described, then copied entry by entry. */
   readonly source: string
   /** The tree to copy INTO. Must exist, and must not lie inside `source`. */

@@ -25,7 +25,7 @@ export { ROUTER_PRICE_SOURCE }
  * `@snapshot` suffix, then its last path segment (`openai/gpt-6.1-sol` is `gpt-6.1-sol`), each
  * as written and lowercased. Undefined when the Router prices no such model.
  */
-export function routerTokenPrice(model: string): RouterTokenPrice | undefined {
+function routerTokenPrice(model: string): RouterTokenPrice | undefined {
   const bare = (model.split('@')[0] ?? model).trim()
   const last = bare.slice(bare.lastIndexOf('/') + 1)
   for (const id of [model, bare, bare.toLowerCase(), last, last.toLowerCase()]) {

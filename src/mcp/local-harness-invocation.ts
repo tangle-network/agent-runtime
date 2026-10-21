@@ -196,17 +196,6 @@ export const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = 
  *  other harness enumeration reads, so adding a row above is the only edit a new harness needs. */
 export const LOCAL_HARNESSES = Object.keys(HARNESS_INVOCATIONS) as ReadonlyArray<LocalHarness>
 
-/** The harness a caller gets when it expresses no preference. A composition-root default, not a
- *  capability claim: one constant so the several entry points cannot drift apart. */
-export const DEFAULT_LOCAL_HARNESS: LocalHarness = 'claude-code'
-
-/** The CLI binary a harness id runs. The two are NOT the same string (`claude-code` runs `claude`),
- *  so anything spawning a harness — a version probe, a login check — reads it from here rather than
- *  passing the harness id as a command. */
-export function localHarnessExecutable(harness: LocalHarness): string {
-  return HARNESS_INVOCATIONS[harness].command
-}
-
 /**
  * Whether the harness's native control can express this reasoning effort. Admission checks read
  * this so a profile the invocation would later refuse is rejected BEFORE any workspace state is

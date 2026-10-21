@@ -65,13 +65,6 @@ export interface DelegateCodeArgs {
   namespace?: string
 }
 
-/** @experimental */
-export interface DelegateCodeResult {
-  taskId: string
-  /** Best-effort hint — coder loops can take minutes-to-hours. */
-  estimatedDurationMs?: number
-}
-
 export type { ResearchSource }
 
 /** @experimental */
@@ -89,12 +82,6 @@ export interface DelegateResearchArgs {
   sources?: ResearchSource[]
   variants?: number
   config?: DelegateResearchConfig
-}
-
-/** @experimental */
-export interface DelegateResearchResult {
-  taskId: string
-  estimatedDurationMs?: number
 }
 
 /** @experimental */
@@ -182,7 +169,7 @@ export interface UiAuditorDelegationOutput {
 }
 
 /** @experimental */
-export type UiAuditLensFilter = readonly UiLens[]
+type UiAuditLensFilter = readonly UiLens[]
 
 /** Optional per-route capture spec the agent surfaces over the wire. */
 export interface DelegateUiAuditRoute {

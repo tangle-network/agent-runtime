@@ -16,7 +16,7 @@ import { sanitizeKnowledgeReadinessReport, sanitizeRuntimeStreamEvent } from './
 import type { RuntimeStreamEvent } from './types'
 
 /** @stable */
-export interface ServerSentEventOptions {
+interface ServerSentEventOptions {
   event?: string
   id?: string
   retry?: number

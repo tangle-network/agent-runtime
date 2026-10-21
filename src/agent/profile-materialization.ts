@@ -13,7 +13,6 @@ import {
 } from '@tangle-network/agent-profile-materialize'
 import { ValidationError } from '../errors'
 
-export type { CanonicalAgentProfileMaterializationAxis }
 /**
  * The canonical AgentProfile leaves, re-exported from `@tangle-network/agent-interface`.
  *
@@ -21,7 +20,7 @@ export type { CanonicalAgentProfileMaterializationAxis }
  * contract must name every leaf it carries, because claiming a compound parent while dropping one
  * of its children is exactly the silent-drop this module exists to catch.
  */
-export { AGENT_PROFILE_MATERIALIZATION_AXES, profileMaterializationAxes }
+export { profileMaterializationAxes }
 
 export type KnownAgentProfileMaterializationAxis = CanonicalAgentProfileMaterializationAxis
 
@@ -39,7 +38,7 @@ export interface ProfileMaterializationContract {
 }
 
 /** One changed AgentProfile axis that would be dropped by a run path. */
-export interface ProfileMaterializationIssue {
+interface ProfileMaterializationIssue {
   contract: string
   axis: AgentProfileMaterializationAxis
   reason: 'unsupported-axis'
@@ -47,19 +46,19 @@ export interface ProfileMaterializationIssue {
 }
 
 /** Input for declaring a run path's profile-axis support. */
-export interface DefineProfileMaterializationContractOptions {
+interface DefineProfileMaterializationContractOptions {
   name: string
   axes: readonly AgentProfileMaterializationAxis[]
 }
 
 /** Input for checking a candidate diff against a run path. */
-export interface ValidateProfileMaterializationOptions {
+interface ValidateProfileMaterializationOptions {
   contract: ProfileMaterializationContract
   changedAxes: readonly AgentProfileMaterializationAxis[]
 }
 
 /** Input for throwing on dropped profile axes. */
-export interface AssertProfileMaterializationOptions extends ValidateProfileMaterializationOptions {
+interface AssertProfileMaterializationOptions extends ValidateProfileMaterializationOptions {
   /** Extra label included in the thrown error, usually the caller or run id. */
   context?: string
 }
@@ -330,7 +329,7 @@ export function renderUnsupported(unsupported: readonly Unsupported[]): string {
 }
 
 /** Format profile-axis drop issues into a concise operator-facing error. */
-export function renderProfileMaterializationIssues(
+function renderProfileMaterializationIssues(
   issues: readonly ProfileMaterializationIssue[],
   context?: string,
 ): string {

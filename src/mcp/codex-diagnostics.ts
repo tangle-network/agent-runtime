@@ -4,7 +4,7 @@ import { stripVTControlCharacters } from 'node:util'
 
 /** Bounded, credential-redacted process context attached when reproducible Codex output fails
  * validation. The process still fails closed; this only preserves enough evidence to diagnose it. */
-export interface CodexExecutionFailureDiagnostic {
+interface CodexExecutionFailureDiagnostic {
   exitCode: number | null
   killedBySignal: NodeJS.Signals | null
   timedOut: boolean

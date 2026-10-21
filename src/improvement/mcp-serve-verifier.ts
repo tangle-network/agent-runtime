@@ -24,7 +24,7 @@ import {
 } from '../runtime/stdio-mcp-client'
 import type { Verifier, VerifyResult } from './agentic-generator'
 
-export interface McpServeSpec {
+interface McpServeSpec {
   /** Command that starts the built MCP server in the worktree (stdio transport). */
   command: string
   args?: string[]

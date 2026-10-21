@@ -107,7 +107,7 @@ export interface AgentManifest<TPersona = unknown, TRunOutput = unknown> {
   analyst: AnalystConfig
 }
 
-export interface AgentRubric<TRunOutput> {
+interface AgentRubric<TRunOutput> {
   /** Dimensions composing the weighted score. Weights sum to 1.0 by convention. */
   dimensions: ReadonlyArray<RubricDimension<TRunOutput>>
   /**
@@ -148,7 +148,7 @@ export interface JudgeConfig<TRunOutput> {
   anchors?: ReadonlyArray<{ input: string; output: TRunOutput; expected: Record<string, number> }>
 }
 
-export interface AgentRuntime<TPersona, TRunOutput> {
+interface AgentRuntime<TPersona, TRunOutput> {
   /**
    * Invoke the agent against one persona. Returns BOTH:
    *   - `events`: an `AsyncIterable<RuntimeStreamEvent>` the chat-centric
@@ -233,7 +233,7 @@ export interface AgentRunContext {
   signal?: AbortSignal
 }
 
-export interface AnalystConfig {
+interface AnalystConfig {
   /** Model the analyst kinds use. Override per-kind via `analystKinds[i].cost.models`. */
   model: string
   /** Optional total budget across all kinds for one run. Substrate enforces via `BudgetGuard`. */

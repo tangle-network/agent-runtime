@@ -32,7 +32,7 @@ import type {
   AgentCandidateOutputArtifactPort,
 } from './types'
 
-export interface RecoverExpiredAgentCandidateOptions {
+interface RecoverExpiredAgentCandidateOptions {
   attempt: AgentCandidateExecutionAttemptRef
   claimStore: AgentCandidateExecutionClaimStore
   executor: AgentCandidateExecutorPort

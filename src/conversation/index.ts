@@ -15,36 +15,7 @@
  */
 
 export { createProfileExecutionBackend } from '../runtime/profile-execution-backend'
-export type {
-  BackendCallPolicy,
-  CircuitBreakerConfig,
-  RetryableErrorPredicate,
-  RetryBackoff,
-} from './call-policy'
 export { createConversationBackend } from './conversation-backend'
-export { defineConversation } from './define-conversation'
 export { runConversation, runConversationStream } from './run-conversation'
-export {
-  type PersonaConversationResult,
-  type PersonaDriver,
-  type RunPersonaConfig,
-  type RunPersonaConversationOptions,
-  runPersonaConversation,
-  runPersonaDispatch,
-} from './run-persona'
-export type {
-  AuthSource,
-  Conversation,
-  ConversationDriveState,
-  ConversationParticipant,
-  ConversationPolicy,
-  ConversationResult,
-  ConversationStreamEvent,
-  ConversationTurn,
-  HaltContext,
-  HaltPredicate,
-  HaltReason,
-  HaltSignal,
-  RunConversationOptions,
-  TurnOrder,
-} from './types'
+export { type PersonaDriver, runPersonaConversation, runPersonaDispatch } from './run-persona'
+export type { Conversation, ConversationTurn } from './types'

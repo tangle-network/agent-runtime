@@ -36,7 +36,7 @@ export interface PlatformConnection {
 }
 
 /** A connectable provider in the catalog (`/v1/hub/providers`). */
-export interface PlatformCatalogProvider {
+interface PlatformCatalogProvider {
   providerId: string
   title?: string
   authKind?: string
@@ -50,14 +50,14 @@ export interface PlatformCatalogProvider {
   [k: string]: unknown
 }
 
-export interface CatalogResult {
+interface CatalogResult {
   providers: PlatformCatalogProvider[]
   /** Count of substrate-bundled connectors behind the catalog. */
   substrateBundled?: number
   [k: string]: unknown
 }
 
-export interface StartAuthInput {
+interface StartAuthInput {
   /** The provider to connect (goes in the URL path). */
   providerId: string
   /** Accepted for interface compatibility; the platform's start endpoint is
@@ -71,7 +71,7 @@ export interface StartAuthInput {
   cli?: boolean
 }
 
-export interface StartAuthResult {
+interface StartAuthResult {
   /** The URL to send the user to. Normalized across the platform's two start
    *  branches: github returns `authorizationUrl`, substrate returns
    *  `redirectUrl`. */
@@ -87,7 +87,7 @@ export interface ConnectionHealth {
   error?: { code: string; message: string }
 }
 
-export interface ConnectionHealthResult {
+interface ConnectionHealthResult {
   connection: PlatformConnection
   health: ConnectionHealth
 }
@@ -101,7 +101,7 @@ export interface HealthCheck {
   checkedAt?: string
 }
 
-export interface MintTokenInput {
+interface MintTokenInput {
   /** The hub action the token authorizes (e.g. `slack.chat.postMessage`). */
   actionPath: string
   /** Bind to a specific connection, or … */
@@ -116,14 +116,14 @@ export interface MintTokenResult {
   expiresAt: string
 }
 
-export interface ExecInput {
+interface ExecInput {
   /** The hub action path to execute. */
   path: string
   input?: unknown
   connectionId?: string
 }
 
-export interface PlatformHubStatus {
+interface PlatformHubStatus {
   contract?: unknown
   principal: { kind: string; userId: string; [k: string]: unknown }
   connections: { connectedProviderCount: number; unhealthyProviderCount: number }

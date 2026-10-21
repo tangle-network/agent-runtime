@@ -260,7 +260,7 @@ export interface AnalystAssignmentRecord {
 }
 
 /** One rejected field of an authored analyst definition: which field, and what is wrong with it. */
-export interface AnalystDefinitionIssue {
+interface AnalystDefinitionIssue {
   readonly path: string
   readonly message: string
 }

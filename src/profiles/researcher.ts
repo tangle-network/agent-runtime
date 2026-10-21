@@ -63,7 +63,7 @@ export interface ResearchTask {
  *
  * @experimental
  */
-export interface KnowledgeItem {
+interface KnowledgeItem {
   id: string
   /** Multi-tenant scope. MUST equal `task.knowledgeNamespace`. */
   namespace: string
@@ -86,7 +86,7 @@ export interface KnowledgeItem {
  *
  * @experimental
  */
-export type KnowledgeUpdate =
+type KnowledgeUpdate =
   | { kind: 'insert'; namespace: string; item: KnowledgeItem }
   | { kind: 'supersede'; namespace: string; previousId: string; item: KnowledgeItem }
   | { kind: 'retract'; namespace: string; itemId: string; reason: string }
@@ -109,7 +109,7 @@ export interface ResearchOutput {
 }
 
 /** Options for the source-grounded researcher profile preset. @experimental */
-export interface ResearcherProfileOptions {
+interface ResearcherProfileOptions {
   /** Caller-owned exact harness/provider/model identity. */
   profile: AgentProfile
   /** Custom system prompt replacement. Default = built-in researcher preset. */
@@ -162,7 +162,7 @@ export function researcherProfile(options: ResearcherProfileOptions & { task?: R
 }
 
 /** @experimental */
-export interface MultiHarnessResearcherFanoutOptions {
+interface MultiHarnessResearcherFanoutOptions {
   /** Exact execution profiles, one per parallel researcher. */
   profiles: ReadonlyArray<AgentProfile>
   /** Default citation density floor for the shared validator. */
@@ -235,7 +235,7 @@ export function multiHarnessResearcherFanout(options: MultiHarnessResearcherFano
  *
  * @experimental
  */
-export function createResearcherValidator(
+function createResearcherValidator(
   task: ResearchTask,
   config: { citationDensityMin?: number; namespaceCheck?: boolean } = {},
 ): Validator<ResearchOutput> {

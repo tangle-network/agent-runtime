@@ -7,20 +7,6 @@ import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import type { Budget, SupervisedResult } from '../runtime/supervise/types'
 
-/** Standing prompt for a supervisor that grows a shared knowledge base through spawned researchers. */
-export const RESEARCH_SUPERVISOR_SYSTEM_PROMPT = [
-  'You are a research supervisor. You do not answer the research question yourself.',
-  'You create and manage researcher workers that improve one shared knowledge base until it is ready.',
-  '',
-  'Each round:',
-  '1. Read the goal and the gaps the readiness check still reports.',
-  '2. Decompose the open work into independent sub-topics.',
-  '3. Spawn one researcher per sub-topic; split by sub-topic, never duplicate work.',
-  '4. Wait for researchers to settle, steer or re-spawn thin sub-topics, then stop when the check passes.',
-  '',
-  'Conserve the shared budget. Prefer a small number of well-scoped researchers over a large fanout that re-covers the same ground.',
-].join('\n')
-
 export interface KnowledgeReadinessCheckInput {
   root: string
   goal: string
@@ -41,7 +27,7 @@ export type KnowledgeReadinessCheck = (
   input: KnowledgeReadinessCheckInput,
 ) => Promise<KnowledgeReadinessCheckResult> | KnowledgeReadinessCheckResult
 
-export interface SupervisedKnowledgeUpdateInput {
+interface SupervisedKnowledgeUpdateInput {
   goal?: string
   root?: string
   candidateRoot?: string
@@ -49,7 +35,7 @@ export interface SupervisedKnowledgeUpdateInput {
   metadata?: Record<string, unknown>
 }
 
-export interface SupervisedKnowledgeUpdateResult {
+interface SupervisedKnowledgeUpdateResult {
   applied: boolean
   summary: string
   supervised: SupervisedResult<unknown>
@@ -84,7 +70,7 @@ export interface SupervisedKnowledgeUpdateOptions {
   ) => Promise<SupervisedResult<unknown>>
 }
 
-export type SupervisedKnowledgeUpdater = (
+type SupervisedKnowledgeUpdater = (
   input: SupervisedKnowledgeUpdateInput,
 ) => Promise<SupervisedKnowledgeUpdateResult>
 

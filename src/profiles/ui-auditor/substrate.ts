@@ -57,14 +57,6 @@ export const UI_LENSES: readonly UiLens[] = [
  */
 export type UiFindingSeverity = 'low' | 'med' | 'high' | 'critical'
 
-/** Frozen severity tuple, ordered worst → least bad for sort/report. */
-export const UI_FINDING_SEVERITIES: readonly UiFindingSeverity[] = [
-  'critical',
-  'high',
-  'med',
-  'low',
-] as const
-
 /** Pointer to a screenshot referenced by a finding (workspace-relative path). */
 export interface UiFindingScreenshot {
   path: string

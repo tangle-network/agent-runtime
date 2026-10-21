@@ -38,7 +38,7 @@ interface UiState {
 }
 
 /** @experimental How the app was invoked. Defaults read `process.argv` / `process.cwd()`. */
-export interface TopAppOptions {
+interface TopAppOptions {
   readonly argv?: readonly string[]
   readonly cwd?: string
 }
@@ -60,7 +60,7 @@ let timer: NodeJS.Timeout | undefined
  * Render exactly one frame and return it. This is the non-interactive path — `--once`, a pipe, a
  * test — so it never touches raw mode, the alternate screen, or `process.exit`.
  */
-export function renderTopOnce(options: TopAppOptions = {}): string {
+function renderTopOnce(options: TopAppOptions = {}): string {
   const args = [...(options.argv ?? process.argv.slice(2))]
   state = initialState(args, options.cwd ?? process.cwd())
   snapshot = loadTopSnapshot(state.root)

@@ -467,7 +467,7 @@ export function flatOtelSpan(
   }
 }
 
-export interface RuntimeEventOtelOptions extends RuntimeTelemetryOptions {
+interface RuntimeEventOtelOptions extends RuntimeTelemetryOptions {
   /** Final customer redactor applied after the schema-aware runtime sanitizer. */
   redact?: (value: unknown) => unknown
 }
@@ -599,7 +599,7 @@ export function buildRuntimeEventOtelSpans(
  * mapper attaches the inherited delegation span; the delegation journal
  * leaves it as the tree root).
  */
-export interface LoopSpanNode {
+interface LoopSpanNode {
   spanId: string
   parentSpanId?: string
   /** `'loop'` | `'loop.round'` | `'loop.iteration'`. */

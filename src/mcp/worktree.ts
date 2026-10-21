@@ -31,7 +31,7 @@ export interface WorktreeHandle {
 }
 
 /** @experimental */
-export interface CreateWorktreeOptions {
+interface CreateWorktreeOptions {
   /** Absolute path to the main git checkout. */
   repoRoot: string
   /** Unique id for the worktree path + branch. Use the delegation run id. */
@@ -45,7 +45,7 @@ export interface CreateWorktreeOptions {
 }
 
 /** @experimental */
-export interface DiffOptions {
+interface DiffOptions {
   /** Worktree to diff. */
   worktree: WorktreeHandle
   /** What to compare against. Default `worktree.baseSha`. */
@@ -61,7 +61,7 @@ export interface DiffOptions {
 }
 
 /** @experimental */
-export interface DiffResult {
+interface DiffResult {
   patch: string
   stats: {
     filesChanged: number
@@ -71,7 +71,7 @@ export interface DiffResult {
 }
 
 /** @experimental */
-export interface RemoveWorktreeOptions {
+interface RemoveWorktreeOptions {
   worktree: WorktreeHandle
   repoRoot: string
   /** Force removal even if dirty (default true; the loser of a fanout has uncommitted changes). */

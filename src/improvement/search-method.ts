@@ -89,7 +89,7 @@ import {
   taggedLedger,
 } from './search-executor'
 
-export interface SearchMethodOptions {
+interface SearchMethodOptions {
   /** Writes each child surface from the parents the policy chose. It reads the
    * train split only (`ProposeContext.train` and `summary`); `history` is empty. */
   proposer: SurfaceProposer<ProposalFinding>

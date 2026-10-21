@@ -364,7 +364,7 @@ export interface ImprovementCodeCandidate {
   profile?: never
 }
 
-export type ImprovementCandidate = ImprovementProfileCandidate | ImprovementCodeCandidate
+type ImprovementCandidate = ImprovementProfileCandidate | ImprovementCodeCandidate
 
 /** Normalized spend reported for one Runtime improvement run. */
 export interface ImproveCost {

@@ -63,7 +63,7 @@ import type { TraceContext } from './trace-propagation'
 export type { JsonRpcResponse, McpToolDescriptor } from './protocol'
 
 /** @experimental */
-export interface McpServerOptions {
+interface McpServerOptions {
   /**
    * Required to enable `delegate` — the ONE generic delegation verb. Inject the supervisor
    * substrate: its brain `router`, the worker `backend`, and the completion `deliverable`. The
@@ -99,7 +99,7 @@ export interface McpServerOptions {
 }
 
 /** @experimental */
-export interface McpServer {
+interface McpServer {
   /** Tools currently registered (depend on which delegates were wired). */
   readonly tools: ReadonlyMap<string, McpToolDescriptor>
   /** The underlying queue — exposed so tests can introspect it. */
