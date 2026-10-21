@@ -99,29 +99,12 @@
  */
 
 import { ValidationError } from '../../errors'
-import { sleep } from '../util'
 import type { ContinuationContext } from './continuation'
-import {
-  abandonablePending,
-  causedByPartialFailure,
-  classifyDriverFailure,
-  type DriverAttemptRecord,
-  type DriverAttemptStop,
-  DriverAttemptsExhaustedError,
-  type DriverRepromptRefusal,
-  undispatchedCredentialExit,
-  upstreamUnavailableSignal,
-} from './driver-attempt-evidence'
-import { errMessage } from './error-message'
-import { RetainedExecutionPendingError, type RetainedPendingCause } from './retained-executor'
+import type { DriverAttemptRecord } from './driver-attempt-evidence'
+import { DriverRetryLoop, driverRetryLimits } from './driver-retry-loop'
+import type { RetainedExecutionPendingError } from './retained-executor'
 import type { Scope } from './types'
-import {
-  cappedDoublingMs,
-  jitteredMs,
-  type UnavailablePausePolicy,
-  unavailablePauseMs,
-  unavailableResumeAt,
-} from './upstream-unavailable'
+import type { UnavailablePausePolicy } from './upstream-unavailable'
 
 /** The scope's live conserved-pool readout — the retry's real bound. Indexed off `Scope` so this
  *  module tracks the pool's shape rather than restating it. */
@@ -265,7 +248,7 @@ interface DriverWaitPolicy {
   ) => Promise<{ readonly input: string; readonly idleMs: number } | undefined>
 }
 
-interface DriverRetryRun {
+export interface DriverRetryRun {
   /** Run one attempt. Rejects exactly as the un-retried driver would. `reentry` is present on
    *  every attempt after the first, and on the first one of a re-entered run; see
    *  {@link DriverReentry}. */
@@ -314,91 +297,14 @@ interface DriverRetryRun {
   readonly random?: () => number
 }
 
-const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3
-
-const DEFAULT_MAX_ATTEMPTS = Number.POSITIVE_INFINITY
-
-const DEFAULT_INITIAL_BACKOFF_MS = 2_000
-
-const DEFAULT_MAX_BACKOFF_MS = 30_000
-
-const DEFAULT_TRANSIENT_OUTAGE_MS = 900_000
-
-/**
- * The repeated-failure bound: attempts that each fail within {@link INSTANT_FAILURE_MS} with the
- * same error, {@link REPEATED_FAILURE_LIMIT} or more in a row over at least
- * {@link REPEATED_FAILURE_WINDOW_MS}, stop the run with `repeated-failure` whatever the rest of the
- * run is doing. The progress mark is run-wide, so while other nodes spend or settle, a driver that
- * dies on arrival reads as progressing and the barren bound never fires: on Discovery run
- * magnetar-rust-20261017c, 1,258 of 2,069 root attempts failed with 'connect ECONNREFUSED
- * 127.0.0.1:32897' between 13:20Z and 16:05Z. The window keeps a local server's restart, which
- * takes seconds, from ending a run.
- */
-const INSTANT_FAILURE_MS = 30_000
-
-const REPEATED_FAILURE_LIMIT = 10
-
-const REPEATED_FAILURE_WINDOW_MS = 5 * 60_000
-
-/** Consecutive identical reconciliation failures of one pending invocation that resolve it. */
-const SAME_PENDING_LIMIT = 2
-
-/**
- * Consecutive attempts that end in the same Sandbox `PartialFailureError`, with nothing gained
- * between them, that stop the loop. That error is a box that was created and then failed its
- * setup (its profile files would not materialize, it did not become ready). The retained
- * execution is bound durably to the node, so each re-entry meets the same box and the same
- * failure. Discovery run queens21-h22-capture-root-1-20261019c re-entered four such boxes 154
- * times in 37 minutes on `mkdir: cannot create directory '/work': Read-only file system`, one
- * box per root, each inside the transient-outage window that retries a failure which spent
- * nothing. A second identical attempt proves what a third would repeat; a different failure, or
- * any progress, starts the count over.
- */
-const SAME_PARTIAL_FAILURE_LIMIT = 2
-
-/** The budget's own verdict on whether another attempt may run at all. */
-function budgetStop(budget: DriverBudgetReadout, atMs: number): DriverAttemptStop | undefined {
-  if (budget.deadlineMs > 0 && atMs >= budget.deadlineMs) return 'deadline'
-  if (budget.tokensLeft <= 0 || budget.iterationsLeft <= 0) return 'budget-exhausted'
-  if (budget.usdCapped && budget.usdLeft <= 0) return 'budget-exhausted'
-  // A dollar-capped pool that has seen an unknown-cost turn closes admission permanently, so a
-  // retry could only reproduce the same refusal. The pool's own state proves this, independently of
-  // how the refusal was thrown.
-  if (budget.usdCapped && budget.usdKnown === false) return 'budget-exhausted'
-  if (
-    Object.values(budget.resources ?? {}).some(
-      (resource) => !resource.known || resource.remaining <= 0,
-    )
-  )
-    return 'budget-exhausted'
-  return undefined
-}
-
-function contractOf(mark: DriverProgressMark): DriverContractState {
-  return mark.contract ?? 'none'
-}
-
-/**
- * Did this attempt move the run toward its DELIVERABLE?
- *
- * A delivery always counts: an accepted submission, one more child that passed the check, the
- * contract turning met, or a rise in the check's best composite. Spend and settlements count only
- * while no declared check is outstanding — with a check unmet they are the burn-rate reading this
- * module's header measures and rejects.
- */
-function madeProgress(before: DriverProgressMark, after: DriverProgressMark): boolean {
-  if (after.submitted && !before.submitted) return true
-  if ((after.deliveredCount ?? 0) > (before.deliveredCount ?? 0)) return true
-  if (after.composite !== undefined && after.composite > (before.composite ?? -Infinity))
-    return true
-  if (contractOf(before) !== 'met' && contractOf(after) === 'met') return true
-  if (contractOf(after) === 'unmet') return false
-  return after.poolTokensSpent > before.poolTokensSpent || after.settledCount > before.settledCount
-}
-
-async function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
-  if (ms <= 0 || signal.aborted) return
-  await sleep(ms, signal, false)
+function assertContinuationPolicy(continuation: DriverContinuationPolicy | undefined): void {
+  if (continuation === undefined) return
+  if (!Number.isFinite(continuation.deadlineMs) || continuation.deadlineMs <= 0) {
+    throw new ValidationError('runDriverWithRetry: a continuation needs a finite positive deadline')
+  }
+  if (!Number.isInteger(continuation.maxBarren) || continuation.maxBarren < 1) {
+    throw new ValidationError('runDriverWithRetry: continuation.maxBarren must be an integer >= 1')
+  }
 }
 
 /**
@@ -411,426 +317,25 @@ async function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
  * belongs to the finalizer, not to this loop.
  */
 export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
-  const now = run.now ?? Date.now
-  const sleep = run.sleep ?? defaultSleep
-  const random = run.random ?? Math.random
-  const policy = run.policy ?? {}
-  const retryEnabled = policy.enabled !== false
-  const maxConsecutive = Math.max(
-    0,
-    policy.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES,
-  )
-  const maxAttempts = Math.max(1, policy.maxAttempts ?? DEFAULT_MAX_ATTEMPTS)
-  const initialBackoff = Math.max(0, policy.initialBackoffMs ?? DEFAULT_INITIAL_BACKOFF_MS)
-  const maxBackoff = Math.max(initialBackoff, policy.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS)
-  const transientOutage = Math.max(0, policy.transientOutageMs ?? DEFAULT_TRANSIENT_OUTAGE_MS)
-
-  const continuation = run.continuation
-  if (continuation !== undefined) {
-    if (!Number.isFinite(continuation.deadlineMs) || continuation.deadlineMs <= 0) {
-      throw new ValidationError(
-        'runDriverWithRetry: a continuation needs a finite positive deadline',
-      )
-    }
-    if (!Number.isInteger(continuation.maxBarren) || continuation.maxBarren < 1) {
-      throw new ValidationError(
-        'runDriverWithRetry: continuation.maxBarren must be an integer >= 1',
-      )
-    }
-  }
-  const attempts: DriverAttemptRecord[] = []
-  let consecutiveBarren = 0
-  // Re-entered drives, in a row, that completed without a delivery. Reset by any progress, on a
-  // failed drive as well as a completed one; never by a completion alone.
-  let barrenReentries = 0
-  let failures = 0
-  // Failures charged against `maxAttempts`: every failure except a transient one inside an outage.
-  let chargedFailures = 0
-  // When the current streak of transient failures in which nothing ran began. Cleared by any
-  // attempt that did work, failed or completed.
-  let outageSince: number | undefined
-  // Consecutive `unavailable` attempts, for the pause doubling only. Any other outcome, or an
-  // unavailable attempt that still made progress, resets it: the upstream served in between.
-  let consecutivePauses = 0
-  // Consecutive failures that left the same unfinished retained invocation pending for the same
-  // reason, and the abandonments since the last progress or completed drive.
-  let samePending: { readonly cause: RetainedPendingCause; readonly count: number } | undefined
-  // The current streak of instant failures with one error, and when its first one failed.
-  let sameFailure:
-    | { readonly error: string; readonly count: number; readonly since: number }
-    | undefined
-  // The current streak of identical `PartialFailureError` attempts that gained nothing.
-  let samePartial: { readonly error: string; readonly count: number } | undefined
-  let abandonments = 0
-  // Every pause this loop took, for the re-entry it names.
-  let pauses = 0
-  let continuations = 0
-  let wakes = 0
-  let reentry: DriverReentry | undefined = run.reentered?.first
-  // Whether the current attempt began before the re-entered root's first model event.
-  let beforeModelEvent = false
-
-  const emit = async (record: DriverAttemptRecord): Promise<void> => {
-    const entered = reentry === undefined ? {} : { reentry: reentry.reason }
-    const stamped = {
-      ...record,
-      ...entered,
-      ...(beforeModelEvent ? { beforeModelEvent: true as const } : {}),
-    }
-    attempts.push(stamped)
-    await run.onAttempt?.(stamped)
-  }
-
-  /**
-   * Decide what a completed drive with its check unmet does next. Every bound the FAILURE path
-   * applies is applied here too — that is the fix for `budgetStop` having lived only in the catch
-   * arm — and they are read again after the note is composed, because composing may run the
-   * question panel.
-   */
-  const decideContinuation = async (
-    policy: DriverContinuationPolicy,
-    attempt: number,
-    after: DriverProgressMark,
-  ): Promise<{ steer: string } | { refusedBy: DriverRepromptRefusal }> => {
-    const bounds = (): DriverRepromptRefusal | undefined => {
-      if (policy.closed()) return 'closed'
-      if (run.signal.aborted) return 'aborted'
-      if (now() >= policy.deadlineMs) return 'deadline'
-      const byBudget = budgetStop(run.budget(), now())
-      return byBudget === 'deadline' || byBudget === 'budget-exhausted' ? byBudget : undefined
-    }
-    if (barrenReentries >= policy.maxBarren) return { refusedBy: 'no-progress' }
-    const before = bounds()
-    if (before !== undefined) return { refusedBy: before }
-    const steer = (
-      await policy.compose({
-        attempt,
-        continuations,
-        progress: after,
-        budget: run.budget(),
-        barrenReentries,
-        signal: run.signal,
-      })
-    ).trim()
-    const afterCompose = bounds()
-    if (afterCompose !== undefined) return { refusedBy: afterCompose }
-    if (steer.length === 0) {
-      throw new ValidationError('runDriverWithRetry: the continuation note is empty')
-    }
-    return { steer }
-  }
-
+  const limits = driverRetryLimits(run)
+  assertContinuationPolicy(run.continuation)
+  const loop = new DriverRetryLoop(run, limits)
   for (let attempt = 1; ; attempt += 1) {
     const before = run.progress()
-    const startedAt = now()
-    beforeModelEvent = run.reentered !== undefined && run.reentered.modelEvents() === 0
+    const startedAt = limits.now()
+    loop.beforeModelEvent = run.reentered !== undefined && run.reentered.modelEvents() === 0
     // The completed-drive arm lives OUTSIDE this try. A configuration fault raised while deciding
     // the re-prompt is the caller's, not the driver's, and must reach the caller unwrapped instead
     // of being classified as one more driver failure.
     // No asynchronous work separates this check from dispatch. It covers first entry and
     // re-entry after onAttempt, whose awaited observer may exhaust authority or resources.
-    const admissionStop = run.signal.aborted ? 'aborted' : budgetStop(run.budget(), now())
-    if (admissionStop !== undefined) {
-      // A completed-but-unmet invocation remains completed; its finalizer owns acceptance.
-      if (attempts.length > 0) return
-      throw new DriverAttemptsExhaustedError(
-        run.signal.aborted
-          ? run.signal.reason
-          : new ValidationError(`driver admission: ${admissionStop}`),
-        attempts,
-        admissionStop,
-      )
-    }
+    if (loop.admissionRefused()) return
     try {
-      await run.drive(attempt, reentry)
+      await run.drive(attempt, loop.reentry)
     } catch (error) {
-      const durationMs = now() - startedAt
-      const classification = classifyDriverFailure(error, run.signal)
-      const after = run.progress()
-      const progressed = madeProgress(before, after)
-      if (progressed) abandonments = 0
-      const retainedFailure = error instanceof RetainedExecutionPendingError ? error : undefined
-      const pending = abandonablePending(error)
-      const failureRecord = () => ({
-        attempt,
-        durationMs,
-        error: errMessage(error),
-        classification,
-        madeProgress: progressed,
-      })
-      const throwIfRetryBoundsReached = () => {
-        if (run.signal.aborted) {
-          throw new DriverAttemptsExhaustedError(error, attempts, 'aborted')
-        }
-        const afterWait = budgetStop(run.budget(), now())
-        if (afterWait) {
-          throw new DriverAttemptsExhaustedError(error, attempts, afterWait)
-        }
-      }
-      samePending =
-        pending === undefined || classification !== 'transient'
-          ? undefined
-          : {
-              cause: pending.pendingCause,
-              count: samePending?.cause === pending.pendingCause ? samePending.count + 1 : 1,
-            }
-      if (classification === 'unavailable') {
-        // A pause, not a failure: neither `failures` nor the barren streak moves, so an outage of
-        // any length ends the run only at the deadline, the budget, or a cancellation.
-        if (progressed) barrenReentries = 0
-        const stop = ((): DriverAttemptStop | undefined => {
-          if (!retryEnabled) return 'retry-disabled'
-          if (run.signal.aborted) return 'aborted'
-          return budgetStop(run.budget(), now())
-        })()
-        const unavailableSignal = upstreamUnavailableSignal(error) ?? 'unavailable'
-        if (stop !== undefined) {
-          await emit({
-            ...failureRecord(),
-            unavailableSignal,
-            stop,
-          })
-          throw new DriverAttemptsExhaustedError(error, attempts, stop)
-        }
-        pauses += 1
-        consecutivePauses = progressed ? 1 : consecutivePauses + 1
-        // A refusal that names its reset holds until then, never past the run's deadline: probing a
-        // 5-hour plan window every 300 s spent 219 of magnetar-rust-20261018b's 324 attempts.
-        const pausedAt = now()
-        const resetAt = unavailableResumeAt(errMessage(error), pausedAt)
-        const deadlineMs = run.budget().deadlineMs
-        const pause =
-          resetAt === undefined
-            ? jitteredMs(unavailablePauseMs(consecutivePauses, policy), random)
-            : Math.max(1_000, Math.min(resetAt, deadlineMs > 0 ? deadlineMs : resetAt) - pausedAt)
-        const exitCode = undispatchedCredentialExit(error)
-        const resumeAt = resetAt ?? (exitCode === undefined ? undefined : pausedAt + pause)
-        await emit({
-          ...failureRecord(),
-          unavailableSignal,
-          ...(exitCode === undefined ? {} : { exitCode }),
-          retryInMs: pause,
-          ...(resumeAt === undefined ? {} : { resumeAt: new Date(resumeAt).toISOString() }),
-        })
-        // The same rule as a failure retry: re-enter with the ORIGINAL task and the run's state,
-        // because the refused turn may have ended before it read a re-prompt.
-        reentry = { reason: 'upstream-unavailable', signal: unavailableSignal, pause: pauses }
-        await sleep(pause, run.signal)
-        // Waiting for capacity is not transient outage time. A transient streak that began before
-        // the refusal keeps its own age, so a capacity outage longer than `transientOutageMs`
-        // cannot end the run on the next transient failure. Measured 2026-10-07 on Discovery run
-        // terraform-dc-tokens-20261006d: its root waited out capacity refusals for 16 minutes.
-        if (outageSince !== undefined) outageSince += now() - startedAt
-        throwIfRetryBoundsReached()
-        continue
-      }
-      consecutivePauses = 0
-      failures += 1
-      const failedAt = now()
-      const idle =
-        classification === 'transient' &&
-        !progressed &&
-        after.poolTokensSpent === before.poolTokensSpent &&
-        after.settledCount === before.settledCount
-      if (!idle) outageSince = undefined
-      else outageSince ??= failedAt
-      // A transient streak in which nothing ran is an outage while it is young: it is retried like
-      // a pause, and the failure bounds apply only once it outlasts `transientOutageMs`.
-      const inOutage = idle && failedAt - (outageSince ?? failedAt) < transientOutage
-      if (!inOutage) chargedFailures += 1
-      const failure = errMessage(error)
-      sameFailure =
-        durationMs >= INSTANT_FAILURE_MS
-          ? undefined
-          : sameFailure?.error === failure
-            ? { error: failure, count: sameFailure.count + 1, since: sameFailure.since }
-            : { error: failure, count: 1, since: failedAt }
-      const repeated =
-        sameFailure !== undefined &&
-        sameFailure.count >= REPEATED_FAILURE_LIMIT &&
-        failedAt - sameFailure.since >= REPEATED_FAILURE_WINDOW_MS
-      samePartial =
-        classification === 'transient' &&
-        !progressed &&
-        pending === undefined &&
-        causedByPartialFailure(error)
-          ? {
-              error: failure,
-              count: samePartial?.error === failure ? samePartial.count + 1 : 1,
-            }
-          : undefined
-      const stop = ((): DriverAttemptStop | undefined => {
-        if (classification === 'terminal') return 'terminal-error'
-        if (!retryEnabled) return 'retry-disabled'
-        if (run.signal.aborted) return 'aborted'
-        const byBudget = budgetStop(run.budget(), failedAt)
-        if (byBudget) return byBudget
-        // The same failed box twice with nothing gained: the outage window below would retry it
-        // for fifteen minutes, because the attempt spent nothing.
-        if (samePartial !== undefined && samePartial.count >= SAME_PARTIAL_FAILURE_LIMIT) {
-          return 'repeated-failure'
-        }
-        if (inOutage) return undefined
-        if (chargedFailures >= maxAttempts) return 'max-attempts'
-        // Progress resets the barren counter: a driver that is doing real work between crashes
-        // has earned another attempt, and the budget remains the bound on how many. Progress is
-        // read run-wide, so an attempt that dies on arrival with the same error is bounded here.
-        if (progressed) return repeated ? 'repeated-failure' : undefined
-        return consecutiveBarren + 1 >= maxConsecutive ? 'no-progress' : undefined
-      })()
-      // A pending invocation that failed reconciliation the same way twice, or that would now
-      // end the run, is resolved instead of retried: the owner abandons it, recording what the
-      // provider confirmed, and the next drive starts a new invocation. The new invocation's
-      // failures start a new streak. Abandonments in a row without progress are bounded like
-      // failures, so a provider that loses every execution still ends the run.
-      let abandoned = false
-      if (
-        pending !== undefined &&
-        samePending !== undefined &&
-        run.resolvePending !== undefined &&
-        retryEnabled &&
-        !run.signal.aborted &&
-        abandonments < maxConsecutive &&
-        (stop === 'no-progress' || (stop === undefined && samePending.count >= SAME_PENDING_LIMIT))
-      ) {
-        abandoned = await run.resolvePending(pending, samePending.count)
-        if (abandoned) {
-          abandonments += 1
-          samePending = undefined
-          consecutiveBarren = 0
-          outageSince = undefined
-        }
-      }
-      // A pending invocation that would be abandoned again, after the run already spent its
-      // abandonments without progress, is not retried until the outage window or the barren bound
-      // ends it: each replacement failed reconciliation the same way, so the next one would too.
-      // Discovery run terraform-dc-build-20261009g-fork (2026-10-09) re-entered one stopped
-      // sandbox 52 times over 26 minutes this way, and settled an untyped `no-progress`. The stop
-      // names the pending cause so the owner reconciles the execution before re-driving the run.
-      const unresolved =
-        !abandoned &&
-        !progressed &&
-        pending !== undefined &&
-        samePending !== undefined &&
-        run.resolvePending !== undefined &&
-        abandonments >= maxConsecutive &&
-        samePending.count >= SAME_PENDING_LIMIT &&
-        (stop === undefined || stop === 'no-progress')
-      const retryStop = abandoned ? undefined : unresolved ? 'pending-unresolved' : stop
-
-      if (progressed) barrenReentries = 0
-      if (retryStop !== undefined) {
-        await emit({
-          ...failureRecord(),
-          stop: retryStop,
-          ...(retainedFailure === undefined ? {} : { pendingCause: retainedFailure.pendingCause }),
-        })
-        throw new DriverAttemptsExhaustedError(error, attempts, retryStop)
-      }
-
-      if (!abandoned) consecutiveBarren = progressed ? 0 : consecutiveBarren + 1
-      const backoff = jitteredMs(
-        cappedDoublingMs(consecutiveBarren, initialBackoff, maxBackoff),
-        random,
-      )
-      await emit({
-        ...failureRecord(),
-        ...(abandoned ? { abandoned: true } : {}),
-        retryInMs: backoff,
-      })
-      // A retry re-enters with the ORIGINAL task. The drive that just failed may have died before
-      // it read the re-prompt at all, so replaying the unmet-items text in its place would drop
-      // the run's actual instruction. The failure itself travels, so the caller can say why.
-      reentry = { reason: 'driver-failure', failure: errMessage(error), retry: failures }
-      await sleep(backoff, run.signal)
-      // The wait is where an abort or a deadline most often lands; re-ask before re-entering.
-      throwIfRetryBoundsReached()
+      await loop.afterFailure(error, attempt, before, startedAt)
       continue
     }
-
-    // A completed invocation ends the transport-failure streak, even while the pursuit's
-    // independent completion check remains unmet. Successful continuation is not a failure. The
-    // barren re-entry count is a different fact and a completion alone never resets it.
-    consecutiveBarren = 0
-    consecutivePauses = 0
-    outageSince = undefined
-    samePending = undefined
-    sameFailure = undefined
-    samePartial = undefined
-    abandonments = 0
-    const durationMs = now() - startedAt
-    const after = run.progress()
-    const progressed = madeProgress(before, after)
-    const contract = contractOf(after)
-    const contractField = contract === 'none' ? {} : { contract }
-    if (progressed) barrenReentries = 0
-    else if (
-      !beforeModelEvent &&
-      reentry !== undefined &&
-      reentry.reason !== 'wake' &&
-      contract === 'unmet'
-    ) {
-      barrenReentries += 1
-    }
-    // A turn that ends with work open is a wait. The bounds the failure path applies hold here
-    // too; a closed run (accepted, stopped, blocked) never waits.
-    const wait = run.wait
-    if (
-      wait !== undefined &&
-      contract !== 'met' &&
-      !(continuation?.closed() ?? false) &&
-      !run.signal.aborted &&
-      budgetStop(run.budget(), now()) === undefined &&
-      wait.open()
-    ) {
-      const woken = await wait.wake(attempt + 1)
-      if (woken !== undefined && !run.signal.aborted) {
-        wakes += 1
-        await emit({
-          attempt,
-          durationMs,
-          madeProgress: progressed,
-          ...contractField,
-          waitedMs: woken.idleMs,
-          retryInMs: 0,
-        })
-        reentry = { reason: 'wake', input: woken.input, wake: wakes }
-        continue
-      }
-    }
-    if (contract === 'unmet' && continuation !== undefined) {
-      const decision = await decideContinuation(continuation, attempt, after)
-      if ('steer' in decision) {
-        continuations += 1
-        // No backoff: the driver is not failing — it finished early.
-        await emit({
-          attempt,
-          durationMs,
-          madeProgress: progressed,
-          ...contractField,
-          reprompted: true,
-          retryInMs: 0,
-        })
-        reentry = { reason: 'unmet-contract', steer: decision.steer, continuation: continuations }
-        continue
-      }
-      await emit({
-        attempt,
-        durationMs,
-        madeProgress: progressed,
-        ...contractField,
-        repromptRefusedBy: decision.refusedBy,
-        stop: 'completed',
-      })
-      return
-    }
-    await emit({
-      attempt,
-      durationMs,
-      madeProgress: progressed,
-      ...contractField,
-      stop: 'completed',
-    })
-    return
+    if (!(await loop.afterCompletion(attempt, before, startedAt))) return
   }
 }
