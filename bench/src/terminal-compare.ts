@@ -13,11 +13,11 @@
  *                     summary of round 1's commands + terminal state + the
  *                     failing tests from tb's own run dir, then
  *                     `tb run --agent-import-path
- *                     tb_agents.opencode_refine_agent:OpenCodeRefineAgent
- *                     --agent-kwarg prior_attempt=<summary>`. The refine agent
- *                     prepends an evidence-gated refine directive; with no
- *                     prior_attempt it is byte-for-byte the plain opencode agent,
- *                     so round 1 == blind by construction.
+ *                     tb_agents.opencode_router_agent:OpenCodeRouterAgent
+ *                     --agent-kwarg prior_attempt_hex=h<hex>`. The router agent
+ *                     adds refine instructions only when prior evidence exists.
+ *                     Round 1 uses the same exact profile without prior evidence;
+ *                     router configuration and metering stay active in every round.
  *   Stop early once resolved.
  *
  * Reports blind (resolved_1) vs refine (resolved_final) + rescued/broke counts,
