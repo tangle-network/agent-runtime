@@ -4,8 +4,9 @@
  *
  * Phase 1: the root's first drive streams a model event, spawns a worker that never settles, and
  * SIGKILLs the process once the worker's `spawned` record is on disk. Phase 2: a new process on the
- * same directory and run id re-enters the run; its model streams per drive as `<shape>` scripts.
- * Only the model process (`driveHarness`) and the supervisor clock are fake.
+ * same directory and run id re-enters the run; its model streams per drive as `<shape>` scripts,
+ * and the operator stops the run once its first `barren-pause` row is on disk. Only the model
+ * process (`driveHarness`) and the supervisor clock are fake.
  *
  * Usage: `node --import tsx supervisor-reentry-child.ts <dir> <runId> <phase:1|2> [shape]`
  * Writes `${dir}/tasks-phase-<n>.jsonl`, and in phase 2 `${dir}/journal-phase-2.jsonl`: what the
@@ -143,6 +144,22 @@ const root = supervisorAgent(profile, {
   continuation: testContinuation({ maxBarren: 2 }),
 })
 const task = 'Answer the question.'
+// Phase 2's operator: a barren streak only pauses the run, so the run ends when the operator
+// stops it, as soon as the first `barren-pause` row is on disk.
+const operator = new AbortController()
+const barrenPauseOnDisk = (): boolean => {
+  try {
+    return readFileSync(journalPath, 'utf8').includes('"kind":"barren-pause"')
+  } catch {
+    return false
+  }
+}
+const watch =
+  phase === '2'
+    ? setInterval(() => {
+        if (barrenPauseOnDisk()) operator.abort(new Error('operator stopped the run'))
+      }, 5)
+    : undefined
 // The supervisor clock is fake: each phase reads one fixed instant.
 const result = await createSupervisor<unknown, unknown>().run(root, task, {
   budget: { maxIterations: 100, maxTokens: 100_000 },
@@ -153,7 +170,9 @@ const result = await createSupervisor<unknown, unknown>().run(root, task, {
   runId,
   ...ctx,
   now: () => (phase === '1' ? 1_000 : 2_000),
+  signal: operator.signal,
 })
+clearInterval(watch)
 
 process.stdout.write(
   `${JSON.stringify({

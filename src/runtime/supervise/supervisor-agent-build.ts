@@ -40,6 +40,7 @@ import { applyRunCancellation } from './run-cancellation'
 import { runTraceAnalysisStore } from './run-traces'
 import {
   beginScopeOwnerAttempt,
+  recordScopeOwnerBarrenPause,
   recordScopeOwnerDriverAttempt,
   recordScopeOwnerPause,
 } from './scope'
@@ -921,6 +922,8 @@ export function buildSupervisorAgent(
               }
               await deps.onDriverAttempt?.(record)
             },
+            // A barren streak paces the root and the run's own journal records each pause.
+            onBarrenPause: (pause) => recordScopeOwnerBarrenPause(scope, pause),
           })
           driverFailed = false
         } finally {

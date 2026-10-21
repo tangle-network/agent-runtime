@@ -5,6 +5,7 @@ export {
   hasRetriableTeardowns,
   meterRuntimeOwnedAccounting,
   meterRuntimeOwnedProviderAttempt,
+  recordScopeOwnerBarrenPause,
   recordScopeOwnerDriverAttempt,
   recordScopeOwnerPause,
   registerNestedTeardownScope,

@@ -77,6 +77,9 @@ export interface DriverAttemptRecord {
   readonly contract?: DriverContractState
   /** True when this COMPLETED attempt's unmet contract sent the loop back with a continuation. */
   readonly reprompted?: boolean
+  /** With `reprompted`: the pause taken before that continuation because the barren streak had
+   *  reached `continuation.maxBarren`. The run's journal holds its `barren-pause` row. */
+  readonly barrenPauseMs?: number
   /** For a completed attempt that left work open: how long the manager then waited, with no
    *  model turn, before the wake that started the next attempt. */
   readonly waitedMs?: number
@@ -85,15 +88,12 @@ export interface DriverAttemptRecord {
   readonly repromptRefusedBy?: DriverRepromptRefusal
 }
 
-/** Why a completed drive with an unmet contract was not re-entered. `no-progress` means
- *  `continuation.maxBarren` consecutive re-entered drives completed without progress. `closed`
- *  means the run was already closed: the manager's own `stop` or a progress stop rule. */
+/** Why a completed drive with an unmet contract was not re-entered. `closed` means the run was
+ *  already closed: the manager's own `stop` or a progress stop rule. A barren streak is never a
+ *  refusal: it pauses the next continuation (`barrenPauseMs`). */
 export type DriverRepromptRefusal =
   | 'closed'
-  | Extract<
-      DriverAttemptStop,
-      'aborted' | 'budget-exhausted' | 'deadline' | 'max-attempts' | 'no-progress'
-    >
+  | Extract<DriverAttemptStop, 'aborted' | 'budget-exhausted' | 'deadline' | 'max-attempts'>
 
 /** Longest cause chain read for a `PartialFailureError`; the failing box's error sits one or two wrappers down. */
 const PARTIAL_FAILURE_CAUSE_DEPTH = 6

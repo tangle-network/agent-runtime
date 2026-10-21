@@ -321,6 +321,7 @@ const outsideCursorNamespaceKinds = [
   'root-segment',
   'root-reentered',
   'paused',
+  'barren-pause',
   'driver-attempt',
   'node-inputs-resolved',
   'edge-verdict',

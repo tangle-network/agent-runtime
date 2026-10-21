@@ -8,10 +8,10 @@
  * Phase 1 runs a harness-driven root in its own OS process and SIGKILLs it mid-drive, with one
  * worker open. Phase 2 is a new process on the same run directory and run id, and no phase-2 drive
  * makes progress. The run must record the re-entry, stay running through two barren drives after
- * it, and refuse a continuation only after `maxBarren` (2) barren drives that each began after the
- * first post-re-entry model event. Two model shapes: silent for two drives before it speaks, and
- * the incident's, speaking from the first drive. Only the model process and the supervisor clock
- * are fake (`tests/helpers/supervisor-reentry-child.ts`).
+ * it, and pause before a continuation only after `maxBarren` (2) barren drives that each began
+ * after the first post-re-entry model event; the operator then stops it. Two model shapes: silent
+ * for two drives before it speaks, and the incident's, speaking from the first drive. Only the
+ * model process and the supervisor clock are fake (`tests/helpers/supervisor-reentry-child.ts`).
  */
 
 import { spawn } from 'node:child_process'
@@ -114,7 +114,7 @@ describe('supervisor re-entry after a process restart', () => {
     records.filter((record) => record.repromptRefusedBy !== undefined || record.stop !== undefined)
 
   for (const shape of ['silent-first', 'streams-first'] as const) {
-    it(`records the re-entry and stays running through two barren drives (${shape})`, {
+    it(`records the re-entry and pauses only after two counted barren drives (${shape})`, {
       timeout: 120_000,
     }, async () => {
       const runId = `reentry-${shape}`
@@ -135,24 +135,27 @@ describe('supervisor re-entry after a process restart', () => {
       expect(third?.attempts.every((record) => record.madeProgress === false)).toBe(true)
       expect(refusals(third?.attempts ?? [])).toEqual([])
 
-      // Exactly one refusal, by `no-progress`, after `maxBarren` drives that began after the first
+      // Exactly one barren pause, after `maxBarren` drives that began after the first
       // post-re-entry model event; every drive that began before it is marked and never counted.
+      // A barren streak never refuses a continuation: the operator's stop ended the run.
       const silent = shape === 'silent-first' ? 3 : 1
-      expect(attempts).toHaveLength(silent + 2)
+      expect(events.filter((event) => event.kind === 'barren-pause')).toEqual([
+        expect.objectContaining({ id: runId, attempt: silent + 2, streak: 2, pauseMs: 300_000 }),
+      ])
+      // The continued drives, then at most the record of the drive the stop refused.
+      expect(attempts.length).toBeGreaterThanOrEqual(silent + 1)
+      expect(attempts.length).toBeLessThanOrEqual(silent + 2)
       expect(attempts[0]).toMatchObject({ attempt: 1, reentry: 'run-reentered' })
       expect(attempts.slice(0, silent).every((record) => record.beforeModelEvent === true)).toBe(
         true,
       )
       expect(attempts.slice(silent).some((record) => record.beforeModelEvent === true)).toBe(false)
-      expect(attempts.slice(0, -1).every((record) => record.reprompted === true)).toBe(true)
-      expect(refusals(attempts)).toEqual([
-        expect.objectContaining({
-          attempt: silent + 2,
-          madeProgress: false,
-          repromptRefusedBy: 'no-progress',
-          stop: 'completed',
-        }),
-      ])
+      expect(attempts.slice(0, silent + 1).every((record) => record.reprompted === true)).toBe(true)
+      expect(
+        refusals(attempts).every(
+          (record) => record.repromptRefusedBy === 'aborted' && record.attempt === silent + 2,
+        ),
+      ).toBe(true)
     })
   }
 })
