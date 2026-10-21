@@ -6,10 +6,8 @@ import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FileSpawnJournal, InMemoryResultBlobStore } from '../../src/durable/spawn-journal'
-import {
-  type DriverAgentOptions,
-  driverAgent,
-} from '../../src/runtime/supervise/coordination-driver'
+import type { DriverAgentOptions } from '../../src/runtime/supervise/driver-agent-options'
+import { driverAgent } from '../../src/runtime/supervise/driver-brain-agent'
 import {
   readWorkerSteerAcknowledgement,
   supervisorRunDir,

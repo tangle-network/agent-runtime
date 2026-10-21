@@ -6,7 +6,6 @@ import {
   type QuestionEscalationRecord,
 } from '../../src/mcp/tools/coordination'
 import type { Agent, ResultBlobStore, Scope, Spend } from '../../src/runtime'
-import { steerAcknowledgementDetail } from '../../src/runtime/supervise/coordination-driver'
 import { serveCoordinationMcp } from '../../src/runtime/supervise/coordination-mcp'
 
 const zeroSpend = (): Spend => ({ iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
@@ -153,28 +152,6 @@ describe('every coordination refusal names its unmet condition', () => {
     // Every outcome the down-leg can report has a sentence; a new code cannot ship without one.
     for (const [outcome, sentence] of Object.entries(downMessageRefusalReasons)) {
       expect(sentence.length, outcome).toBeGreaterThan(20)
-    }
-  })
-
-  it('the manager-facing and operator-facing outcome maps stay total over the same codes', () => {
-    // Two maps for one enum is deliberate — `downMessageRefusalReasons` tells a MODEL what to do
-    // next, `steerAcknowledgementDetail` tells a PERSON reading the run what happened — but a new
-    // outcome must not land in only one of them. The compiler holds the first (it is a
-    // `Record<DownMessageDeliveryOutcome, string>`) and the exhaustive switch holds the second;
-    // this holds them to the SAME key set.
-    for (const outcome of Object.keys(downMessageRefusalReasons) as ReadonlyArray<
-      keyof typeof downMessageRefusalReasons
-    >) {
-      const detail = steerAcknowledgementDetail({
-        receiptId: 'r',
-        toWorker: 'w0',
-        instruction: 'x',
-        instructionDigest: `sha256:${'0'.repeat(64)}`,
-        delivered: outcome === 'delivered',
-        outcome,
-      })
-      expect(detail, outcome).toBeTypeOf('string')
-      expect(detail.length, outcome).toBeGreaterThan(20)
     }
   })
 

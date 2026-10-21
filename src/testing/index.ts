@@ -14,10 +14,8 @@ import canonicalAgentImprovementProposalFixture from './fixtures/agent-improveme
 import canonicalAgentProfileImprovementProposalFixture from './fixtures/agent-profile-improvement-proposal.json'
 import canonicalAgentProfileImprovementStateFixture from './fixtures/agent-profile-improvement-state.json'
 
-export {
-  type DriverAgentOptions,
-  driverAgent,
-} from '../runtime/supervise/coordination-driver'
+export type { DriverAgentOptions } from '../runtime/supervise/driver-agent-options'
+export { driverAgent } from '../runtime/supervise/driver-brain-agent'
 export {
   type RunGraphTestOptions,
   runGraphWithTestBrain,

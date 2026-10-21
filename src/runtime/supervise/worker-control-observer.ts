@@ -3,7 +3,7 @@ import {
   createCancelAcknowledger,
   createSteerAcknowledger,
   type RootSteer,
-} from './coordination-driver'
+} from './driver-control-acknowledgers'
 import type { Scope } from './types'
 
 /** Observe durable worker controls while the native harness owns the manager's turn loop. */

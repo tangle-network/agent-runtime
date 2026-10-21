@@ -26,8 +26,8 @@ import type {
 import type { McpToolDescriptor } from '../../mcp/server'
 import { createCoordinationTools } from '../../mcp/tools/coordination'
 import { sleep } from '../util'
-import { createCancelAcknowledger, createSteerAcknowledger } from './coordination-driver'
 import { armDeadlineTimer } from './deadline'
+import { createCancelAcknowledger, createSteerAcknowledger } from './driver-control-acknowledgers'
 import { writeAtomicDurableFile } from './durable-file'
 import {
   type InteractiveWorkerEnvironment,

@@ -782,7 +782,6 @@ export {
   type VerdictSummary,
   verdictFromJudgeScore,
 } from './supervise/continuation'
-export { finalizeBestDelivered } from './supervise/coordination-driver'
 // The durable coordination side-log a file-backed `RunContext` carries: questions, findings, answer
 // decisions, and authorized continuation receipts the spawn journal does not own. Receipts persist
 // as evidence and are never auto-delivered to a replacement worker.
@@ -894,6 +893,7 @@ export {
   type DeliveredOutput,
   type FinalizeContext,
   type FinalizerSettled,
+  finalizeBestDelivered,
   pickBestDelivered,
   runFinalizer,
   type SupervisorFinalizer,
