@@ -45,6 +45,8 @@ export interface ValidatedFlow {
   }>
   /** Every routes edge by its ledger id, in declaration order. */
   readonly routes: ReadonlyMap<string, RoutesEdge>
+  /** The nodes each entry or routes edge starts, by ledger id: what route-spawn pinning admits. */
+  readonly starts: ReadonlyMap<string, ReadonlySet<NodeId>>
   /** Nodes Runtime spawns through an entry or a routes edge. */
   readonly nodes: ReadonlyMap<NodeId, GraphNode>
   /** Nodes whose settles the flow routes: `nodes` and every map join. */
@@ -67,8 +69,20 @@ export const flowRootProfile: AgentProfile = Object.freeze({
   tools: { [`${coordinationProfileToolPrefix}spawn_worker`]: true },
 }) as AgentProfile
 
-const routeTargetName = (to: RoutesEdge['to']): string =>
-  typeof to === 'string' ? to : 'stop' in to ? `stop:${to.stop}` : `finish:${to.finish}`
+/** The nodes a routes edge starts: one, every node of a fork, or none for a stop or finish. */
+export const routeTargets = (to: RoutesEdge['to']): ReadonlyArray<NodeId> =>
+  typeof to === 'string' ? [to] : Array.isArray(to) ? to : []
+
+/** The sources a routes edge waits for: one, or every member of a join. */
+export const routeSources = (from: RoutesEdge['from']): ReadonlyArray<NodeId> =>
+  typeof from === 'string' ? [from] : from
+
+const routeTargetName = (to: RoutesEdge['to']): string => {
+  const nodes = routeTargets(to)
+  if (nodes.length > 0) return nodes.join('+')
+  const end = to as { readonly stop?: string; readonly finish?: string }
+  return end.stop !== undefined ? `stop:${end.stop}` : `finish:${end.finish}`
+}
 
 const isScalar = (value: unknown): value is JsonScalar =>
   value === null ||
@@ -84,7 +98,7 @@ const isPointer = (value: unknown): boolean =>
  * can only end by its routes, its budget, its deadline or its abort signal.
  */
 export function validateFlowGraph(
-  graph: AgentGraph,
+  graph: Pick<AgentGraph, 'nodes' | 'edges' | 'entry'>,
   registry: PromptRegistry,
   analysts: AnalystRegistry | undefined,
 ): ValidatedGraph {
@@ -134,20 +148,34 @@ export function validateFlowGraph(
   }
   for (const edge of graph.edges) registry.resolve(edge.directive)
 
-  // Edge ids: the ordinal among the routes edges leaving the same node, 1-based.
+  // Edge ids: the ordinal among the routes edges leaving the same source, 1-based. A join's source
+  // is its members, joined by '+'; a fork's target is its nodes, joined by '+'.
+  for (const edge of routes) validateRouteEnds(edge, requireNode)
   const routesById = new Map<string, RoutesEdge>()
+  const bySource = new Map<string, RoutesEdge[]>()
   const routesFrom = new Map<NodeId, RoutesEdge[]>()
   const idOf = new Map<RoutesEdge, string>()
   for (const edge of routes) {
-    requireNode(edge.from, edgeId(edge))
-    const leaving = [...(routesFrom.get(edge.from) ?? []), edge]
-    routesFrom.set(edge.from, leaving)
-    const id = `routes:${edge.from}#${leaving.length}->${routeTargetName(edge.to)}`
+    const source = routeSources(edge.from).join('+')
+    const leaving = [...(bySource.get(source) ?? []), edge]
+    bySource.set(source, leaving)
+    for (const from of routeSources(edge.from)) {
+      routesFrom.set(from, [...(routesFrom.get(from) ?? []), edge])
+    }
+    const id = `routes:${source}#${leaving.length}->${routeTargetName(edge.to)}`
     idOf.set(edge, id)
     routesById.set(id, edge)
   }
   for (const edge of routes) validateRoutesEdge(edge, idOf.get(edge) as string, requireNode)
   for (const [from, leaving] of routesFrom) {
+    const join = leaving.find((edge) => routeSources(edge.from).length > 1)
+    if (join !== undefined && leaving.length > 1) {
+      throw new ValidationError(
+        `runGraph: '${from}' is a member of join ${idOf.get(join)} and has ${leaving.length - 1} ` +
+          'other outgoing routes edge(s) — a join member settles only into its join, so a second ' +
+          'edge would decide its settle twice',
+      )
+    }
     const defaults = leaving.filter((edge) => edge.when === undefined)
     if (defaults.length > 1) {
       throw new ValidationError(
@@ -168,7 +196,7 @@ export function validateFlowGraph(
   const flowNodes = new Map<NodeId, GraphNode>()
   for (const item of entry) flowNodes.set(item.node, byId.get(item.node) as GraphNode)
   for (const edge of routes) {
-    if (typeof edge.to === 'string') flowNodes.set(edge.to, byId.get(edge.to) as GraphNode)
+    for (const to of routeTargets(edge.to)) flowNodes.set(to, byId.get(to) as GraphNode)
   }
   const { mapNodes, mapItemNames } = validateMaps(maps, {
     byId,
@@ -180,11 +208,13 @@ export function validateFlowGraph(
   })
   const joins = new Set(maps.map((edge) => edge.join))
   for (const edge of routes) {
-    if (!flowNodes.has(edge.from) && !joins.has(edge.from)) {
-      throw new ValidationError(
-        `runGraph: ${idOf.get(edge)} leaves '${edge.from}', a map item: its settle goes to its ` +
-          'map, so a route from it could never fire',
-      )
+    for (const from of routeSources(edge.from)) {
+      if (!flowNodes.has(from) && !joins.has(from)) {
+        throw new ValidationError(
+          `runGraph: ${idOf.get(edge)} leaves '${from}', a map item: its settle goes to its ` +
+            'map, so a route from it could never fire',
+        )
+      }
     }
   }
 
@@ -193,7 +223,11 @@ export function validateFlowGraph(
   const link = (from: NodeId, to: NodeId): void => {
     next.set(from, (next.get(from) ?? new Set()).add(to))
   }
-  for (const edge of routes) if (typeof edge.to === 'string') link(edge.from, edge.to)
+  for (const edge of routes) {
+    for (const from of routeSources(edge.from)) {
+      for (const to of routeTargets(edge.to)) link(from, to)
+    }
+  }
   for (const edge of maps) {
     if (edge.to !== undefined) link(edge.from, edge.to)
     link(edge.from, edge.join)
@@ -211,24 +245,41 @@ export function validateFlowGraph(
     }
     return seen
   }
-  const fromEntry = reachableFrom(entry.map((item) => item.node))
-  for (const item of entry) fromEntry.add(item.node)
+  // A join starts its target only once every member can settle, so a node is reachable when some
+  // edge into it has every one of its sources reachable. A join whose member waits on the join's
+  // own target can never fire, and leaves that target unreachable.
+  const fromEntry = new Set<NodeId>(entry.map((item) => item.node))
+  for (let grew = true; grew; ) {
+    grew = false
+    const reach = (sources: ReadonlyArray<NodeId>, targets: ReadonlyArray<NodeId>): void => {
+      if (!sources.every((id) => fromEntry.has(id))) return
+      for (const id of targets) {
+        if (fromEntry.has(id)) continue
+        fromEntry.add(id)
+        grew = true
+      }
+    }
+    for (const edge of routes) reach(routeSources(edge.from), routeTargets(edge.to))
+    for (const edge of maps)
+      reach([edge.from], edge.to === undefined ? [edge.join] : [edge.to, edge.join])
+  }
   for (const node of graph.nodes) {
     if (!fromEntry.has(node.id)) {
       throw new ValidationError(
         `runGraph: node '${node.id}' is unreachable from entry — no entry, routes edge or maps ` +
-          'edge ever starts it',
+          'edge ever starts it (a join starts its target only once every member can settle)',
       )
     }
   }
   refuseUncappedRouteCycles(routes, idOf)
-  // An evidence node must be able to settle before `from` does on some path from entry.
+  // An evidence node must be able to settle before a source does on some path from entry.
   for (const edge of routes) {
     for (const id of edge.evidence ?? []) {
-      if (id === edge.from || reachableFrom([id]).has(edge.from)) continue
+      const sources = routeSources(edge.from)
+      if (sources.includes(id) || sources.some((from) => reachableFrom([id]).has(from))) continue
       throw new ValidationError(
         `runGraph: ${idOf.get(edge)} lists evidence '${id}', which cannot settle before ` +
-          `'${edge.from}' on any path from entry — its result could never ride this edge`,
+          `'${sources.join("' or '")}' on any path from entry — its result could never ride this edge`,
       )
     }
   }
@@ -247,6 +298,10 @@ export function validateFlowGraph(
       task: item.task,
     }
   })
+  const starts = new Map<string, ReadonlySet<NodeId>>()
+  for (const item of entries)
+    starts.set(item.edge, new Set([...(starts.get(item.edge) ?? []), item.node]))
+  for (const [id, edge] of routesById) starts.set(id, new Set(routeTargets(edge.to)))
   return {
     root: undefined,
     workers: new Map(),
@@ -256,7 +311,41 @@ export function validateFlowGraph(
     maps,
     mapNodes,
     mapItemNames,
-    flow: { entries, routes: routesById, nodes: flowNodes, routed, terminals },
+    flow: { entries, routes: routesById, starts, nodes: flowNodes, routed, terminals },
+  }
+}
+
+/** Refuse a malformed source or target: a fork or join names two or more distinct known nodes. */
+function validateRouteEnds(
+  edge: RoutesEdge,
+  requireNode: (id: unknown, where: string) => GraphNode,
+): void {
+  const where = edgeId(edge)
+  const list = (value: unknown, role: 'from' | 'to', kind: 'join' | 'fork'): void => {
+    if (!Array.isArray(value)) return
+    if (value.length < 2) {
+      throw new ValidationError(
+        `runGraph: ${where} has a ${kind} with ${value.length} node(s) in ${role} — a ${kind} ` +
+          `names at least two nodes; write one node as a plain id`,
+      )
+    }
+    for (const id of value) requireNode(id, where)
+    const repeated = value.find((id, index) => value.indexOf(id) !== index)
+    if (repeated !== undefined) {
+      throw new ValidationError(
+        `runGraph: ${where} lists '${repeated}' twice in its ${kind} — each ${kind} member is ` +
+          'one distinct node',
+      )
+    }
+  }
+  if (Array.isArray(edge.from)) list(edge.from, 'from', 'join')
+  else requireNode(edge.from, where)
+  list(edge.to, 'to', 'fork')
+  if (Array.isArray(edge.from) && edge.when !== undefined) {
+    throw new ValidationError(
+      `runGraph: ${where} is a join with a when — a join fires once every member has settled, so ` +
+        'there is no single settle for a condition to read; branch before or after the join',
+    )
   }
 }
 
@@ -270,7 +359,7 @@ function validateRoutesEdge(
   }
   const to = edge.to as unknown
   if (typeof to === 'string') requireNode(to, id)
-  else {
+  else if (!Array.isArray(to)) {
     const target = to as { stop?: unknown; finish?: unknown } | null
     const reason = target?.stop ?? target?.finish
     if (
@@ -280,7 +369,9 @@ function validateRoutesEdge(
       typeof reason !== 'string' ||
       reason.length === 0
     ) {
-      refuse('needs to as a node id, { stop: <reason> } or { finish: <reason> }')
+      refuse(
+        'needs to as a node id, a list of node ids, { stop: <reason> } or { finish: <reason> }',
+      )
     }
   }
   if (
@@ -296,7 +387,9 @@ function validateRoutesEdge(
           "is 'fresh' or 'resume'",
       )
     }
-    if (typeof to !== 'string') refuse('carries continuity, but a stop or finish starts no node')
+    if (routeTargets(edge.to).length === 0) {
+      refuse('carries continuity, but a stop or finish starts no node')
+    }
   }
   const evidence = edge.evidence ?? []
   if (!Array.isArray(evidence)) refuse('needs evidence as an array of node ids')
@@ -321,7 +414,7 @@ function validateRoutesEdge(
     if ('exists' in match && typeof match.exists !== 'boolean') refuse('needs exists as a boolean')
     if (match.node !== undefined) {
       requireNode(match.node, `${id} when.node`)
-      if (match.node !== edge.from && !evidence.includes(match.node)) {
+      if (match.node !== edge.from && !evidence.includes(match.node as NodeId)) {
         refuse(
           `reads when.node '${match.node}', which is not in its evidence — a match reads the ` +
             "edge's source or a node it lists as evidence",
@@ -337,11 +430,14 @@ function refuseUncappedRouteCycles(
   routes: ReadonlyArray<RoutesEdge>,
   idOf: ReadonlyMap<RoutesEdge, string>,
 ): void {
-  const nodeEdges = routes.filter((edge) => typeof edge.to === 'string')
+  // Every (edge, source, target) hop; a fork or join is one hop per member pair.
+  const hops = routes.flatMap((edge) =>
+    routeSources(edge.from).flatMap((from) =>
+      routeTargets(edge.to).map((to) => ({ edge, from, to })),
+    ),
+  )
   const next = new Map<NodeId, NodeId[]>()
-  for (const edge of nodeEdges) {
-    next.set(edge.from, [...(next.get(edge.from) ?? []), edge.to as NodeId])
-  }
+  for (const hop of hops) next.set(hop.from, [...(next.get(hop.from) ?? []), hop.to])
   // Tarjan's strongly connected components.
   const index = new Map<NodeId, number>()
   const low = new Map<NodeId, number>()
@@ -375,9 +471,13 @@ function refuseUncappedRouteCycles(
   }
   for (const id of next.keys()) if (!index.has(id)) visit(id)
   for (const component of components) {
-    const inside = nodeEdges.filter(
-      (edge) => component.has(edge.from) && component.has(edge.to as NodeId),
-    )
+    const inside = [
+      ...new Set(
+        hops
+          .filter((hop) => component.has(hop.from) && component.has(hop.to))
+          .map((hop) => hop.edge),
+      ),
+    ]
     if (inside.length === 0) continue
     if (inside.some((edge) => edge.maxTraversals !== undefined)) continue
     throw new ValidationError(
@@ -397,9 +497,11 @@ export function routeFlowOf(validated: ValidatedGraph): RouteFlow {
     entries: flow.entries.map((item) => ({ ...item, profile: profileOf(item.node) })),
     routes: [...flow.routes].map(([edge, route]) => ({
       edge,
-      from: route.from,
+      from: routeSources(route.from),
       to:
-        typeof route.to === 'string' ? { node: route.to, profile: profileOf(route.to) } : route.to,
+        typeof route.to === 'string' || Array.isArray(route.to)
+          ? { nodes: routeTargets(route.to).map((node) => ({ node, profile: profileOf(node) })) }
+          : (route.to as { readonly stop: string } | { readonly finish: string }),
       ...(route.when === undefined ? {} : { when: route.when }),
       evidence: route.evidence ?? [],
       maxTraversals: route.maxTraversals ?? defaultEdgeTraversalCap,
@@ -407,6 +509,27 @@ export function routeFlowOf(validated: ValidatedGraph): RouteFlow {
     })),
     nodes: flow.routed,
     terminals: [...flow.terminals],
+  }
+}
+
+/** The entry task a maps item's flow graph replaces with the item value. */
+const isItemPlaceholder = (task: unknown): boolean =>
+  typeof task === 'object' &&
+  task !== null &&
+  Object.keys(task).length === 1 &&
+  (task as { item?: unknown }).item === true
+
+/** A subtask's flow: inside a maps item, every `{ item: true }` entry task becomes the item. */
+export function flowOfSubtask(
+  flow: RouteFlow,
+  mapItem: { readonly item: unknown } | undefined,
+): RouteFlow {
+  if (mapItem === undefined) return flow
+  return {
+    ...flow,
+    entries: flow.entries.map((entry) =>
+      isItemPlaceholder(entry.task) ? { ...entry, task: mapItem.item } : entry,
+    ),
   }
 }
 
@@ -429,7 +552,8 @@ export type FlowConclusion =
  * One flow run's outcome. `observe` reads the flow's `route` events as the manager publishes them;
  * `finalizer` replaces `bestDelivered` for a flow: the output is `{ [node]: latest usable result }`
  * over the terminal nodes and `finish` sources that settled, and the graph's deliverable decides
- * between a winner and `no-result-selected`. `conclude` names a stopped flow on its result.
+ * between a winner and `no-result-selected`. `conclude` names a stopped flow on its result;
+ * `failure` says why a flow run as a subtask ended without one.
  */
 export function createFlowRun() {
   const outputs = new Map<NodeId, unknown>()
@@ -472,5 +596,11 @@ export function createFlowRun() {
       stopped,
     }
   }
-  return { observe, finalizer, conclude }
+  const failure = (): string | undefined =>
+    unrouted !== undefined
+      ? `${unrouted.reason} at '${unrouted.node}': ${unrouted.detail}`
+      : stopped !== undefined
+        ? `stopped at '${stopped.at}': ${stopped.reason}`
+        : undefined
+  return { observe, finalizer, conclude, failure }
 }

@@ -53,13 +53,17 @@ A node target receives `{ from: { node, result }, evidence }` and the edge direc
 The output is `{ [node]: latest usable result }` over terminal nodes (no outgoing routes or map edge) and finish sources, and the deliverable decides it.
 Every routes cycle needs an edge with an explicit `maxTraversals`; an edge at its cap is skipped and matching continues, so give a repair loop a fallback edge.
 `continuity: 'resume'` continues the target's latest settled session.
+A fork lists two or more nodes in `to`: one traversal spawns them all at once, each under key `route:<edge>#<traversal>:<node>`.
+A join lists two or more nodes in `from`: it fires once every member has settled usably since it last fired, its target's evidence holds each member's latest result, it carries no `when`, and it is the only routes edge leaving each member.
+A route into a node that still has a running worker throws `GraphRouteError` with reason `target-live`; converging branches use a join.
 A map edge may leave any flow node, and its join may have routes edges.
+A maps edge's `graph` item and a `run_graph` subtask may be flow graphs (`entry` on the topology). Inside a maps item, every entry whose task is `{ item: true }` receives the item value, and a down settle ends that item only, so `onItemFailure` decides the join.
 
 ## Check the result
 
 Inspect delivered, stripped, empty, unpropagated, and failed edge records and their byte counts.
 A map edge records one expansion row, one row per item with its index, and one join row.
-A flow records one `routes:entry-><node>` row per entry and one `routes:<from>#<ordinal>-><target>` row per traversal, cap skip or refused spawn.
+A flow records one `routes:entry-><node>` row per entry and one `routes:<from>#<ordinal>-><target>` row per traversal, cap skip or refused spawn; a fork records one row per spawned node, and a join's `<from>` and a fork's `<target>` join their nodes with `+`.
 Read exhausted edges even when execution ended through completion, budget, or cancellation rather than a thrown error.
 Check journal records when recovery or auditability is part of the task.
 Preserve run, profile, directive, and artifact identity so a resumed or measured run cannot silently change its inputs.

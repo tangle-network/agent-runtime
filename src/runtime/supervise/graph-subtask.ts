@@ -2,14 +2,21 @@
  * `run_graph`: a graph a manager starts as one subtask. The topology is read from model-written
  * data or a stored graph, validated exactly as `runGraph` validates a root graph, and carried on
  * the root profile so the kernel rebuilds the same graph layer on a fresh spawn and on recovery.
+ * A topology with `entry` is a flow graph: its root is Runtime's own flow root, as in `runGraph`.
  */
 
 import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
 import { isRecord } from '../../record-value'
-import type { GraphEdge, GraphNode } from './graph'
-import { graphRootProfile, validateGraphTopology } from './graph-overlay'
+import type { GraphEdge, GraphNode, GraphTopology } from './graph'
+import { flowRootName, flowRootProfile, validateFlowGraph } from './graph-flow'
+import {
+  graphRootProfile,
+  type RootValidatedGraph,
+  type ValidatedGraph,
+  validateGraphTopology,
+} from './graph-overlay'
 import { type PromptHandle, type PromptRegistry, promptHandle } from './prompt-registry'
 import { runtimeGraphMetadataKey } from './provider-visible-profile'
 import type { NodeId } from './types'
@@ -17,14 +24,12 @@ import type { NodeId } from './types'
 type DelegatesEdge = Extract<GraphEdge, { kind: 'delegates' }>
 type AnalyzesEdge = Extract<GraphEdge, { kind: 'analyzes' }>
 type MapsEdge = Extract<GraphEdge, { kind: 'maps' }>
+type RoutesEdge = Extract<GraphEdge, { kind: 'routes' }>
 
 /** A graph as a manager hands it to `run_graph`: the topology only. The tool's own arguments
  *  carry the budget (the subtask's reservation from the caller's pool) and the deliverable (the
  *  root node's task). */
-export interface GraphSubtaskTopology {
-  readonly nodes: ReadonlyArray<GraphNode>
-  readonly edges: ReadonlyArray<GraphEdge>
-}
+export type GraphSubtaskTopology = GraphTopology
 
 /** A validated `run_graph` graph, ready to spawn. */
 export interface PreparedGraphSubtask {
@@ -53,16 +58,18 @@ function parseDirective(raw: unknown, where: string): PromptHandle {
  */
 export function parseGraphSubtaskTopology(raw: unknown): GraphSubtaskTopology {
   if (!isRecord(raw)) {
-    throw new ValidationError('run_graph: graph must be an object { nodes, edges }')
+    throw new ValidationError('run_graph: graph must be an object { nodes, edges, entry? }')
   }
   for (const key of Object.keys(raw)) {
-    if (key === 'nodes' || key === 'edges') continue
+    if (key === 'nodes' || key === 'edges' || key === 'entry') continue
     if (key === 'budget' || key === 'deliverable') {
       throw new ValidationError(
         `run_graph: graph.${key} is not read — pass ${key} as run_graph's own argument`,
       )
     }
-    throw new ValidationError(`run_graph: graph.${key} is not part of a graph; use nodes and edges`)
+    throw new ValidationError(
+      `run_graph: graph.${key} is not part of a graph; use nodes, edges and entry`,
+    )
   }
   if (!Array.isArray(raw.nodes) || !Array.isArray(raw.edges)) {
     throw new ValidationError('run_graph: graph.nodes and graph.edges must be arrays')
@@ -86,9 +93,36 @@ export function parseGraphSubtaskTopology(raw: unknown): GraphSubtaskTopology {
     if (edge.kind === 'maps') {
       return { ...(edge as unknown as MapsEdge), directive }
     }
-    throw new ValidationError(`run_graph: ${where}.kind must be 'delegates', 'analyzes' or 'maps'`)
+    if (edge.kind === 'routes') {
+      return { ...(edge as unknown as RoutesEdge), directive }
+    }
+    throw new ValidationError(
+      `run_graph: ${where}.kind must be 'delegates', 'analyzes', 'maps' or 'routes'`,
+    )
   })
-  return { nodes, edges }
+  if (raw.entry === undefined) return { nodes, edges }
+  if (!Array.isArray(raw.entry)) {
+    throw new ValidationError('run_graph: graph.entry must be an array of { node, task }')
+  }
+  const entry = raw.entry.map((item, index) => {
+    if (!isRecord(item) || typeof item.node !== 'string') {
+      throw new ValidationError(`run_graph: graph.entry[${index}] must be { node, task }`)
+    }
+    return { node: item.node, task: item.task }
+  })
+  return { nodes, edges, entry }
+}
+
+/** Validate a subtask topology: a flow graph (with `entry`) under Runtime's flow root, otherwise a
+ *  graph driven by its root node. */
+export function validateGraphSubtask(
+  topology: GraphSubtaskTopology,
+  registry: PromptRegistry,
+  analysts: AnalystRegistry | undefined,
+): ValidatedGraph {
+  return topology.entry === undefined
+    ? validateGraphTopology(topology.nodes, topology.edges, registry, analysts)
+    : validateFlowGraph(topology, registry, analysts)
 }
 
 /**
@@ -105,18 +139,20 @@ export function prepareGraphSubtask(
     readonly guidance?: (profile: AgentProfile) => AgentProfile
   },
 ): PreparedGraphSubtask {
-  const validated = validateGraphTopology(
-    topology.nodes,
-    topology.edges,
-    opts.registry,
-    opts.analysts,
-  )
-  const brief = graphRootProfile(validated, opts.registry)
+  const validated = validateGraphSubtask(topology, opts.registry, opts.analysts)
+  const brief =
+    validated.root === undefined
+      ? flowRootProfile
+      : graphRootProfile(validated as RootValidatedGraph, opts.registry)
   const marked: AgentProfile = {
     ...brief,
     metadata: {
       ...(brief.metadata ?? {}),
-      [runtimeGraphMetadataKey]: { nodes: topology.nodes, edges: topology.edges },
+      [runtimeGraphMetadataKey]: {
+        nodes: topology.nodes,
+        edges: topology.edges,
+        ...(topology.entry === undefined ? {} : { entry: topology.entry }),
+      },
     },
   }
   const parsed = agentProfileSchema.safeParse(opts.guidance ? opts.guidance(marked) : marked)
@@ -127,7 +163,7 @@ export function prepareGraphSubtask(
   }
   return {
     profile: parsed.data,
-    root: validated.root.id,
+    root: validated.root?.id ?? flowRootName,
     nodes: topology.nodes.map((node) => node.id),
   }
 }

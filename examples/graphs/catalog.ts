@@ -17,7 +17,8 @@
  *      outcomes. Equal topology plus equal ledger shape is a duplicate.
  *
  * A flow graph (one with `entry`) has no root: Runtime starts its entries and traverses its routes
- * edges, so its signature carries the entry width and each routes edge instead.
+ * edges, so its signature carries the entry width and each routes edge instead, a fork's targets
+ * and a join's source included.
  *
  * A graph that is another catalogued graph's topology on purpose says so with `reuses` (an arm of
  * a comparison, the live run of an offline example); the audit checks that the named graph really
@@ -200,8 +201,17 @@ const repeats = (e: { maxTraversals?: number }): string =>
 export function graphSignature(graph: AgentGraph): string {
   const role = rolesOf(graph)
   const nodes = new Set(graph.nodes.map((n) => n.id))
-  // A flow graph's topology is its entries and its routes: each edge's target (a node's role, a
-  // stop or a finish), whether it is conditional, and whether it declares repetition.
+  // A flow graph's topology is its entries and its routes: each edge's source (one node or a
+  // join), its target (a node's role, a fork's roles, a stop or a finish), whether it is
+  // conditional, and whether it declares repetition.
+  const target = (to: Extract<AgentGraph['edges'][number], { kind: 'routes' }>['to']): string =>
+    typeof to === 'string'
+      ? role(to)
+      : Array.isArray(to)
+        ? `fork(${bucketed(to.map(role)).join('+')})`
+        : 'stop' in to
+          ? 'stop'
+          : 'finish'
   const flow =
     graph.entry === undefined
       ? {}
@@ -211,7 +221,7 @@ export function graphSignature(graph: AgentGraph): string {
             graph.edges.flatMap((e) =>
               e.kind === 'routes'
                 ? [
-                    `${typeof e.to === 'string' ? role(e.to) : 'stop' in e.to ? 'stop' : 'finish'}|${e.when === undefined ? 'default' : 'when'}|${repeats(e)}|${e.continuity ?? 'fresh'}`,
+                    `${Array.isArray(e.from) ? 'join|' : ''}${target(e.to)}|${e.when === undefined ? 'default' : 'when'}|${repeats(e)}|${e.continuity ?? 'fresh'}`,
                   ]
                 : [],
             ),
@@ -246,7 +256,8 @@ export async function ledgerShape(run: Required<CatalogRun>): Promise<string> {
   const inner = run.opts.brain
   let res: GraphResult
   if (inner === undefined) {
-    // A flow graph: the entries are one wave, then each route spawn is a wave of its own.
+    // A flow graph: the entries are one wave, then each route traversal is a wave of its own; a
+    // fork's spawns, ledgered one after another under one edge, are one wave.
     res = await runGraph(run.graph, run.opts)
     const spawned = res.ledger.filter(
       (r) =>
@@ -256,8 +267,13 @@ export async function ledgerShape(run: Required<CatalogRun>): Promise<string> {
     )
     const entries = spawned.filter((r) => r.edge.startsWith('routes:entry->'))
     if (entries.length > 0) waves.push(bucketed(entries.map((r) => role(r.to))).join('+'))
-    for (const r of spawned.filter((row) => !entries.includes(row)))
-      waves.push(bucketed([role(r.to)]).join('+'))
+    const traversals: Array<{ edge: string; roles: string[] }> = []
+    for (const r of spawned.filter((row) => !entries.includes(row))) {
+      const last = traversals.at(-1)
+      if (last?.edge === r.edge && r.edge.split('->')[1]?.includes('+')) last.roles.push(role(r.to))
+      else traversals.push({ edge: r.edge, roles: [role(r.to)] })
+    }
+    for (const t of traversals) waves.push(bucketed(t.roles).join('+'))
   } else {
     const brain: ToolLoopChat = async (messages, tools, context) => {
       const turn = await inner(messages, tools, context)

@@ -50,7 +50,11 @@ Scenario coverage lives in `tests/kernel/graph.test.ts` (`run_graph`),
 - Runtime spawns every entry when the root's coordination opens, before the root's first turn, so
   a flow cannot end `no-children-spawned` while an entry is still running.
 - One usable settle fires at most one routes edge: the first in declaration order whose `when`
-  holds. An edge at its cap is skipped and ledgered `unpropagated`; a settle no edge matches throws
+  holds. A fork's one traversal spawns every node it lists; a join fires once each member has
+  settled usably since it last fired. A route into a node that still has a running worker throws
+  `GraphRouteError` with reason `target-live`.
+- A flow inside a maps item or a `run_graph` subtask runs under its own runtime-owned root; when it
+  stops or cannot route, that subtask fails, so a down item is decided by `onItemFailure`. An edge at its cap is skipped and ledgered `unpropagated`; a settle no edge matches throws
   `GraphRouteError`, a `stop` edge returns no winner `'stopped'`, and a down flow node returns no
   winner `'all-children-down'`, each with nothing spawned after it.
 - A `done` settle without a usable result (its deliverable check rejected it, or it has no result)
@@ -63,5 +67,5 @@ Scenario coverage lives in `tests/kernel/graph.test.ts` (`run_graph`),
 - Every entry, traversal, cap skip and refused route spawn is a `routes` row in the edge ledger and
   an `edge` event in the run journal.
 
-Scenario coverage lives in `tests/kernel/graph-routes.test.ts` and the four flow examples in
+Scenario coverage lives in `tests/kernel/graph-routes.test.ts` and the five flow examples in
 `tests/examples/graph-corpus.test.ts`.
