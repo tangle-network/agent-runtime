@@ -119,7 +119,10 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
     ...(input.coordinationMcpHeaders ? { headers: input.coordinationMcpHeaders } : {}),
     metadata: { toolTimeoutMs: COORDINATION_CLIENT_TOOL_TIMEOUT_MS },
   }
-  const factory = await driverAttemptFactory(input, identity.providerProfile.harness)
+  // Only the provider path awaits, as it always did: the others add no tick before the executor.
+  const factory =
+    reusedAttemptFactory(input) ??
+    (await providerAttemptFactory(input, identity.providerProfile.harness))
   const executor = factory(spec, {
     signal: scope.signal,
     node: scopeOwnerExecutorNodeContext(scope),
@@ -252,10 +255,7 @@ function admitDriverProfiles(input: DriverAttemptInput): DriverAttemptIdentity {
  * coordination server is a Runtime-owned attachment that rides the executor's attachment seam, so
  * a resumed run that rebinds the port keeps the profile digest a durable bridge session is bound to.
  */
-async function driverAttemptFactory(
-  input: DriverAttemptInput,
-  providerHarness: AgentProfile['harness'],
-): Promise<ExecutorFactory<unknown>> {
+function reusedAttemptFactory(input: DriverAttemptInput): ExecutorFactory<unknown> | undefined {
   const backend = input.state.boundBackend
   // A bridge keys the harness conversation by session id. A fresh re-entry binds a new one,
   // derived from the owner's attempt id, which is new for every re-entry and every process.
@@ -270,6 +270,15 @@ async function driverAttemptFactory(
       ),
     )
   }
+  return backend.backend === 'provider' ? undefined : input.baseFactory
+}
+
+/** A provider backend's factory, with the coordination attachment and its credential bound. */
+async function providerAttemptFactory(
+  input: DriverAttemptInput,
+  providerHarness: AgentProfile['harness'],
+): Promise<ExecutorFactory<unknown>> {
+  const backend = input.state.boundBackend
   if (backend.backend !== 'provider') return input.baseFactory
   const { coordinationMcpUrl, coordinationMcpHeaders, peerMailUrl } = input
   const credentialName = 'AGENT_RUNTIME_COORDINATION_TOKEN'

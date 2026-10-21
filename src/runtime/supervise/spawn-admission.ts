@@ -117,10 +117,19 @@ export function admitSpawn(
     ...spawnContext,
     ...(childExecution.ref ? { execution: childExecution.ref } : {}),
   })
+  // `resolveDeliverable` callers may serialize this, so its key order is part of the contract.
   const postAuthorizationContext: AuthorizedSpawnContext = freezeDetached({
     profile: authorized,
+    parent,
+    parentIdentity,
     execution: childExecution.identity,
-    ...spawnFacts,
+    parentNodeId: spawnContext.parentNodeId,
+    assignmentId: spawnContext.assignmentId,
+    task: spawnContext.task,
+    budget: spawnContext.budget,
+    label: spawnContext.label,
+    ...(spawnContext.key !== undefined ? { key: spawnContext.key } : {}),
+    depth,
   })
   const security = validateAgentProfileSecurity(authorized, env.securityPolicy)
   if (!security.ok) {

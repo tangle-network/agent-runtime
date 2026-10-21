@@ -599,7 +599,8 @@ export class DriverRetryLoop {
     ) {
       this.barrenReentries += 1
     }
-    if (contract !== 'met' && (await this.wake(attempt, completed))) return true
+    if (run.wait !== undefined && contract !== 'met' && (await this.wake(attempt, completed)))
+      return true
     if (contract === 'unmet' && continuation !== undefined) {
       const decision = await this.decideContinuation(continuation, attempt, after)
       if ('steer' in decision) {

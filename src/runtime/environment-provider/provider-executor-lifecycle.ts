@@ -51,6 +51,13 @@ export function createProviderExecutor(
   const node =
     ctx.node === undefined ? undefined : detachedSnapshot(ctx.node, 'provider executor node')
   const retention = retainedExecutorContext(ctx)
+  // A manager's stop (an accepted `submit_result`, `stop`, a stop rule) ends its turn. The bridge
+  // executor reads this seam at its turn boundary; a retained run asks its backend to cancel the
+  // turn, so the stream ends and the harness session and the turn's usage are still read. Before,
+  // a provider-placed director ran its harness on after acceptance: measured 2026-10-05, accepted
+  // directors settled 13 to 29 minutes after their submissions. A run with no retained control
+  // could only abort locally, which skips those reads, so it keeps running to the end of its turn.
+  const managerStop = readOptionalAbortSignal(ctx, bridgeStopSignalKey, 'provider')
   // The exact bytes this executor hands to `provider.create`. A `profileForCreate` overlay changes
   // them, so the declaration carries the overlaid profile and exact turn execution refuses the run
   // rather than presenting the authored profile as what the provider received.
@@ -65,13 +72,6 @@ export function createProviderExecutor(
   }
   const executionId = retention?.executionId ?? node?.nodeId ?? `provider-run-${randomUUID()}`
   const state = new ProviderExecutorState(ctx.signal, executionId)
-  // A manager's stop (an accepted `submit_result`, `stop`, a stop rule) ends its turn. The bridge
-  // executor reads this seam at its turn boundary; a retained run asks its backend to cancel the
-  // turn, so the stream ends and the harness session and the turn's usage are still read. Before,
-  // a provider-placed director ran its harness on after acceptance: measured 2026-10-05, accepted
-  // directors settled 13 to 29 minutes after their submissions. A run with no retained control
-  // could only abort locally, which skips those reads, so it keeps running to the end of its turn.
-  const managerStop = readOptionalAbortSignal(ctx, bridgeStopSignalKey, 'provider')
   let executor!: Executor<unknown>
   const scope: ProviderExecutorScope = {
     provider,

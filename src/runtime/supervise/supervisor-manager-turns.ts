@@ -361,7 +361,9 @@ async function driveManagerTurn(
     carriedText === undefined
       ? input
       : `${typeof input === 'string' ? input : (JSON.stringify(input) ?? String(input))}\n\n${carriedText}`
-  await invokeManagerHarness(loop, attempt, carried, {
+  // Built inside the harness call's try, as the call argument always was: a throw while composing
+  // still releases the carried lease and ends the attempt as failed.
+  await invokeManagerHarness(loop, attempt, carried, () => ({
     task: withCarried(compose === undefined ? task : compose(UNPROVEN_CONTINUITY)),
     ...(compose === undefined
       ? {}
@@ -376,7 +378,7 @@ async function driveManagerTurn(
             },
           },
         }),
-  })
+  }))
   // Decide this parent's completion before the retry loop reads progress. Cache the checked
   // candidate so neither the finalizer nor its oracle runs twice on return. A turn that ended
   // with work open is a wait: the manager decides when it is done.
@@ -422,7 +424,7 @@ async function invokeManagerHarness(
   loop: ManagerTurnLoop,
   attempt: number,
   carried: InboxLease,
-  input: HarnessTurnInput,
+  input: () => HarnessTurnInput,
 ): Promise<void> {
   const { config, session } = loop
   const { driveHarness, deps } = config
@@ -440,7 +442,7 @@ async function invokeManagerHarness(
         : { registeredProfile: config.registeredProfile }),
       ...(config.profilePrompt !== undefined ? { systemPrompt: config.profilePrompt } : {}),
       ...(continuationSession === undefined ? {} : { session: continuationSession }),
-      ...input,
+      ...input(),
       scope,
       coordinationMcpUrl: mcp.url,
       coordinationMcpHeaders: mcp.headers,
