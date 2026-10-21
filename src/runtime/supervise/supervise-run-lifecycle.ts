@@ -11,6 +11,7 @@ import type { DriverContinuationRecord } from './driver-retry'
 import { authoredAgentIdentity, runtimeOwnedDriveHarnessProviderEvidence } from './materialization'
 import { createSupervisorSpanRecorder, type SupervisorSpanRecorder } from './otel-spans'
 import { ROOT_STREAM_FILE } from './root-stream'
+import type { RunCancelRequest } from './run-cancellation'
 import { watchRunCancellation } from './run-cancellation'
 import { supervisorTurnOptions } from './supervise-agent-options'
 import type { SuperviseOptions } from './supervise-options'
@@ -83,10 +84,7 @@ export function superviseInternal(
   const runControl =
     options.rootHandle ?? (options.runDir === undefined ? undefined : createRootHandle<unknown>())
   const durableCancellation = new AbortController()
-  const cancelDurableRun = (
-    reason: string,
-    request?: import('./run-layout').RunCancelRequest,
-  ): void => {
+  const cancelDurableRun = (reason: string, request?: RunCancelRequest): void => {
     durableCancellation.abort(
       request === undefined
         ? new Error(reason)

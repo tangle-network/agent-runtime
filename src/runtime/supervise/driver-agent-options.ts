@@ -22,6 +22,7 @@ import type { BusRecord } from './event-bus'
 import type { SupervisorFinalizer } from './finalizer'
 import type { Inbox } from './inbox'
 import type { RouterTranscript } from './router-transcript'
+import type { RunCancelRequest } from './run-cancellation'
 import type { StopRule } from './stop-rules'
 import type { Budget, ResultBlobStore } from './types'
 import type { ManagerWakePolicy } from './wake'
@@ -154,10 +155,7 @@ export interface DriverAgentOptions {
   readonly stopRule?: StopRule
   /** Called once with the rule's reason when a `stopRule` ends the run — so a caller can record
    *  WHY a run stopped early instead of inferring it from an unexhausted budget. */
-  readonly onProgressStop?: (
-    reason: string,
-    request?: import('./run-layout').RunCancelRequest,
-  ) => void
+  readonly onProgressStop?: (reason: string, request?: RunCancelRequest) => void
   /** Give the driver brain a chapter-lifecycle on its OWN context window. The LLM-brain front doors
    *  lose to a dumb-Ralph respawn because the brain re-bills its whole coordination transcript every
    *  turn — the same context overflow a single steered agent suffers, one level up. With this set,
@@ -233,5 +231,5 @@ export interface DriverAgentOptions {
    * controller and no poller. Read only by the `'run'`-scoped manager with a `controlDir`; omit
    * and a run-scoped request stays unanswered.
    */
-  readonly abortRun?: (reason: string, request?: import('./run-layout').RunCancelRequest) => void
+  readonly abortRun?: (reason: string, request?: RunCancelRequest) => void
 }

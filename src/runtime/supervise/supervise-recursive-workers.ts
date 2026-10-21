@@ -29,6 +29,7 @@ import {
 import { assertProfileModelsAllowed } from './model-policy'
 import { kernelPromptRegistry } from './prompt-registry'
 import { registerRetainedExecutorPreparation } from './retained-executor'
+import type { RunCancelRequest } from './run-cancellation'
 import { createExecutor, type ExecutorConfig } from './runtime'
 import { authoredSeatStages } from './seat-chain'
 import { supervisorTurnOptions } from './supervise-agent-options'
@@ -66,7 +67,7 @@ import { withWorkerSpawnRetry } from './worker-retry'
 
 export function createSuperviseWorkers(
   setup: ReturnType<typeof prepareSuperviseRun>,
-  cancelDurableRun: (reason: string, request?: import('./run-layout').RunCancelRequest) => void,
+  cancelDurableRun: (reason: string, request?: RunCancelRequest) => void,
 ) {
   const {
     options,
