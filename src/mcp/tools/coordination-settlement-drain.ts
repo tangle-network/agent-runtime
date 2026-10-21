@@ -9,6 +9,7 @@ import { type AnalystRunInFlight, canonicalFindingEvent } from './coordination-a
 import type { CoordinationToolsOptions, SettledWorker } from './coordination-contracts'
 import type { CoordinationEvent } from './coordination-events'
 import type { createMapRouting } from './coordination-map-routing'
+import type { createRouteRouting } from './coordination-route-routing'
 
 export function createSettlementDrain({
   opts,
@@ -17,6 +18,7 @@ export function createSettlementDrain({
   bus,
   analysis,
   maps,
+  routes,
   workerRouteNames,
   projectSettled,
 }: {
@@ -26,6 +28,7 @@ export function createSettlementDrain({
   readonly bus: EventBus<CoordinationEvent>
   readonly analysis: ReturnType<typeof createCoordinationAnalysis>
   readonly maps: ReturnType<typeof createMapRouting>
+  readonly routes: ReturnType<typeof createRouteRouting>
   readonly workerRouteNames: (workerId: string) => Set<string>
   readonly projectSettled: (settled: Settled<unknown>, resumed?: boolean) => SettledWorker
 }) {
@@ -145,8 +148,10 @@ export function createSettlementDrain({
       }
       for (const route of agentRoutes) await analysis.spawnAnalystRun(route, pending.worker)
     }
-    if (advance)
+    if (advance) {
       await maps.runMapStep(() => maps.expandMaps(pending.settled, pending.worker), pending.worker)
+      await routes.route(pending.settled, pending.worker)
+    }
     return true
   }
 

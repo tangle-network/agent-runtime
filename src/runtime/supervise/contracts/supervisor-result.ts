@@ -215,11 +215,15 @@ export type SupervisedResult<Out> =
            * reader of the label learned that banking pages was losing. `all-children-down` now
            * asserts what its name says: the supervisor observed a down child, a tripped breaker,
            * or every child down, before the root settled.
+           *
+           * `stopped`: a flow graph's `stop` edge ended the run (`runGraph` names the edge and its
+           * reason on `GraphResult.stopped`). The run returns; it does not throw.
            */
           reason:
             | 'all-children-down'
             | 'no-children-spawned'
             | 'no-result-selected'
+            | 'stopped'
             | 'budget-exhausted'
             | 'aborted'
         }

@@ -6,6 +6,7 @@ Start from a matching [example](https://github.com/tangle-network/agent-runtime/
 ## Nodes and work
 
 AgentGraph requires nodes, edges, a deliverable, and a shared budget.
+Adding `entry` makes it a flow graph: Runtime spawns each entry node with its task and traverses `routes` edges itself, so no node is a root.
 Each node holds an id and a canonical AgentProfile; its profile name matches the node id for routing.
 Standing roles belong in the profile prompt, with explicit tools and resources.
 Put the concrete mission in the deliverable description and supply an independent completion check that rejects incomplete output.
@@ -43,10 +44,22 @@ A list longer than `maxItems`, a pointer that does not select an array, or a `co
 Each item reserves `itemBudget` from the shared budget.
 Map state is process-local: a restarted run does not re-expand a map whose source settled before the restart.
 
+Routes edges run a flow graph and need `entry`; a flow graph takes no delegation or analysis edge.
+On each usable settle of `from`, its routes edges are tried in declaration order and the first whose `when` holds fires; one settle fires at most one edge.
+`when` compares JSON scalars only (`equals`, `in`, `exists` at an RFC 6901 pointer, or `all` of several); a numeric or stateful rule is a field the node settles, such as a boolean or a counter.
+A match reads `from` unless it names a node listed in the edge's `evidence`; a pointer that does not resolve does not match.
+An edge without `when` is the default branch: at most one per node, and last.
+A node target receives `{ from: { node, result }, evidence }` and the edge directive; `{ stop: reason }` ends the run with no winner; `{ finish: reason }` makes this settle part of the output.
+The output is `{ [node]: latest usable result }` over terminal nodes (no outgoing routes or map edge) and finish sources, and the deliverable decides it.
+Every routes cycle needs an edge with an explicit `maxTraversals`; an edge at its cap is skipped and matching continues, so give a repair loop a fallback edge.
+`continuity: 'resume'` continues the target's latest settled session.
+A map edge may leave any flow node, and its join may have routes edges.
+
 ## Check the result
 
 Inspect delivered, stripped, empty, unpropagated, and failed edge records and their byte counts.
 A map edge records one expansion row, one row per item with its index, and one join row.
+A flow records one `routes:entry-><node>` row per entry and one `routes:<from>#<ordinal>-><target>` row per traversal, cap skip or refused spawn.
 Read exhausted edges even when execution ended through completion, budget, or cancellation rather than a thrown error.
 Check journal records when recovery or auditability is part of the task.
 Preserve run, profile, directive, and artifact identity so a resumed or measured run cannot silently change its inputs.

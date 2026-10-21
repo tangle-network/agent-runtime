@@ -24,7 +24,6 @@ import type { AnalystRegistry, AnalyzeOnSettleRoute } from '../../mcp/tools/coor
 import type { CoordinationEvent } from '../../mcp/tools/coordination-events'
 import type { MapOnSettleRoute } from '../../mcp/tools/coordination-map-contracts'
 import type { AuthorizedDownMessage, ContinuityMode } from '../../mcp/tools/coordination-messages'
-import { isRecord } from '../../record-value'
 import { errMessage } from './error-message'
 import type {
   EdgeDeliveryOutcome,
@@ -33,12 +32,9 @@ import type {
   GraphNode,
   TraversalContinuity,
 } from './graph'
-import {
-  formatPromptHandle,
-  type PromptHandle,
-  type PromptRegistry,
-  promptHandle,
-} from './prompt-registry'
+import type { ValidatedFlow } from './graph-flow'
+import { graphSubtaskOf, parseGraphSubtaskTopology, prepareGraphSubtask } from './graph-subtask'
+import { formatPromptHandle, type PromptRegistry } from './prompt-registry'
 import { coordinationProfileToolPrefix, runtimeGraphMetadataKey } from './provider-visible-profile'
 import type { SuperviseOptions } from './supervise'
 import type { NodeId, SpawnJournal } from './types'
@@ -55,9 +51,10 @@ type SpawnAuthorizationInput = Parameters<SpawnAuthorization>[0]
 
 // ── Validation ─────────────────────────────────────────────────────────────────
 
-/** A topology that passed every structural refusal, indexed for the overlay. */
+/** A topology that passed every structural refusal, indexed for the overlay. A flow graph has no
+ *  root: Runtime schedules its nodes from `flow`. */
 export interface ValidatedGraph {
-  readonly root: GraphNode
+  readonly root: GraphNode | undefined
   readonly workers: ReadonlyMap<NodeId, GraphNode>
   readonly delegatesByWorker: ReadonlyMap<NodeId, DelegatesEdge>
   readonly analyzes: ReadonlyArray<AnalyzesEdge>
@@ -69,31 +66,27 @@ export interface ValidatedGraph {
   readonly mapNodes: ReadonlyMap<NodeId, GraphNode>
   /** By maps edge id: the name an item runs under — the item node, or a graph item's root node. */
   readonly mapItemNames: ReadonlyMap<string, NodeId>
+  /** Present exactly for a flow graph (one with `entry`). */
+  readonly flow?: ValidatedFlow
 }
 
+/** A graph with a root: what `runGraph` drives through a root manager and `run_graph` starts. */
+export type RootValidatedGraph = ValidatedGraph & { readonly root: GraphNode }
+
+/** A routes edge's id needs its ordinal among its source's edges, which only the flow knows; this
+ *  form names a routes edge in a refusal. */
 export function edgeId(edge: GraphEdge): string {
   if (edge.kind === 'delegates') return `delegates:${edge.from}->${edge.to}`
   if (edge.kind === 'maps') return `maps:${edge.from}->${edge.to ?? 'graph'}->${edge.join}`
+  if (edge.kind === 'routes') return `routes:${edge.from}->${JSON.stringify(edge.to)}`
   return `analyzes:${edge.analyst}:${edge.over.join('+')}->${edge.to}`
 }
 
 const isPositiveInteger = (value: unknown): boolean =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
 
-/** Validate a topology and resolve every directive BEFORE any compute is spent — an invalid
- *  topology or an unknown directive is a configuration fault, never a mid-run surprise. */
-export function validateGraphTopology(
-  nodes: ReadonlyArray<GraphNode>,
-  edges: ReadonlyArray<GraphEdge>,
-  registry: PromptRegistry,
-  analysts: AnalystRegistry | undefined,
-): ValidatedGraph {
-  if (!Array.isArray(nodes) || nodes.length === 0) {
-    throw new ValidationError('runGraph: graph.nodes must be a non-empty array')
-  }
-  if (!Array.isArray(edges) || edges.length === 0) {
-    throw new ValidationError('runGraph: graph.edges must be a non-empty array')
-  }
+/** Refuse a node no graph can run, and index the nodes by id. */
+export function validateGraphNodes(nodes: ReadonlyArray<GraphNode>): Map<NodeId, GraphNode> {
   const byId = new Map<NodeId, GraphNode>()
   for (const node of nodes) {
     if (typeof node.id !== 'string' || node.id.length === 0) {
@@ -127,6 +120,24 @@ export function validateGraphTopology(
     }
     byId.set(node.id, node)
   }
+  return byId
+}
+
+/** Validate a topology and resolve every directive BEFORE any compute is spent — an invalid
+ *  topology or an unknown directive is a configuration fault, never a mid-run surprise. */
+export function validateGraphTopology(
+  nodes: ReadonlyArray<GraphNode>,
+  edges: ReadonlyArray<GraphEdge>,
+  registry: PromptRegistry,
+  analysts: AnalystRegistry | undefined,
+): RootValidatedGraph {
+  if (!Array.isArray(nodes) || nodes.length === 0) {
+    throw new ValidationError('runGraph: graph.nodes must be a non-empty array')
+  }
+  if (!Array.isArray(edges) || edges.length === 0) {
+    throw new ValidationError('runGraph: graph.edges must be a non-empty array')
+  }
+  const byId = validateGraphNodes(nodes)
   const requireNode = (id: NodeId, where: string): GraphNode => {
     const node = byId.get(id)
     if (!node) throw new ValidationError(`runGraph: ${where} references unknown node '${id}'`)
@@ -136,9 +147,15 @@ export function validateGraphTopology(
   // silently skipped by every reader below, so it is refused here.
   for (const edge of edges) {
     const kind = (edge as { kind?: unknown }).kind
+    if (kind === 'routes') {
+      throw new ValidationError(
+        `runGraph: ${edgeId(edge as GraphEdge)} is a routes edge, which only a flow graph runs — ` +
+          'set graph.entry to name the nodes Runtime starts',
+      )
+    }
     if (kind !== 'delegates' && kind !== 'analyzes' && kind !== 'maps') {
       throw new ValidationError(
-        `runGraph: edge kind ${JSON.stringify(kind)} is not 'delegates', 'analyzes' or 'maps'`,
+        `runGraph: edge kind ${JSON.stringify(kind)} is not 'delegates', 'analyzes', 'maps' or 'routes'`,
       )
     }
   }
@@ -342,11 +359,11 @@ export function validateGraphTopology(
  * another map: a second way to reach the node would make its ledger rows and its pinning ambiguous.
  * The source must be a node that settles as a worker: a delegates target, or another map's join.
  */
-function validateMaps(
+export function validateMaps(
   maps: ReadonlyArray<MapsEdge>,
   graph: {
     readonly byId: ReadonlyMap<NodeId, GraphNode>
-    readonly root: GraphNode
+    readonly root: GraphNode | undefined
     readonly workers: ReadonlyMap<NodeId, GraphNode>
     readonly analystNodes: ReadonlyMap<NodeId, GraphNode>
     readonly registry: PromptRegistry
@@ -402,7 +419,7 @@ function validateMaps(
       const node = graph.byId.get(nodeId)
       if (!node) refuse(`references unknown node '${nodeId}'`)
       if (
-        nodeId === graph.root.id ||
+        nodeId === graph.root?.id ||
         graph.workers.has(nodeId) ||
         graph.analystNodes.has(nodeId) ||
         mapNodes.has(nodeId)
@@ -453,7 +470,7 @@ function validateMaps(
 /** The root node's canonical profile with the graph brief appended: which nodes the driver may
  *  spawn, by exact name, each with its delegation cap and continuity. */
 export function graphRootProfile(
-  validated: ValidatedGraph,
+  validated: RootValidatedGraph,
   registry: PromptRegistry,
 ): AgentProfile {
   const { root, workers, delegatesByWorker, analyzes, analystNodes, maps, mapItemNames } = validated
@@ -625,8 +642,17 @@ export function createGraphOverlay(
   validated: ValidatedGraph,
   opts: GraphOverlayOptions,
 ): GraphOverlay {
-  const { root, workers, delegatesByWorker, analyzes, analystNodes, maps, mapNodes, mapItemNames } =
-    validated
+  const {
+    root,
+    workers,
+    delegatesByWorker,
+    analyzes,
+    analystNodes,
+    maps,
+    mapNodes,
+    mapItemNames,
+    flow,
+  } = validated
   const { registry, journal, runId, now } = opts
   const mapsById = new Map(maps.map((edge) => [edgeId(edge), edge]))
 
@@ -658,7 +684,13 @@ export function createGraphOverlay(
       kind: 'edge',
       id: nodeIdForEvent,
       ...(graphNodeId === undefined ? {} : { graph: graphNodeId }),
-      edge: { kind: entry.kind, from: entry.from, to: entry.to, directive: entry.directive },
+      edge: {
+        kind: entry.kind,
+        from: entry.from,
+        to: entry.to,
+        // An entry row crosses no edge directive.
+        ...(entry.directive === '' ? {} : { directive: entry.directive }),
+      },
       traversal: entry.traversal,
       outcome: entry.outcome,
       continuity: entry.continuity,
@@ -735,6 +767,7 @@ export function createGraphOverlay(
     // authored by the runtime — spawns the node its maps edge names. The item's content is only the
     // task; what runs is pinned here. Its traversal is ledgered from the map events.
     if (input.map !== undefined) return pinMapSpawn(input, requested)
+    if (input.route !== undefined) return pinRouteSpawn(input, requested)
     if (input.profile.metadata?.[runtimeGraphMetadataKey] !== undefined) {
       throw new ValidationError(
         'runGraph: a node of a graph cannot start another graph — run_graph inside a graph is ' +
@@ -839,6 +872,27 @@ export function createGraphOverlay(
     }
     return input.profile
   }
+  // A flow's entry or route spawn: the flow's route — never a driver; the marker is authored by the
+  // runtime — spawns the node its edge names, with the edge directive appended per traversal.
+  // Its traversal is ledgered from the route events.
+  const pinRouteSpawn = (
+    input: SpawnAuthorizationInput,
+    requested: string | undefined,
+  ): AgentProfile => {
+    const marker = input.route as NonNullable<SpawnAuthorizationInput['route']>
+    const node = requested === undefined ? undefined : flow?.nodes.get(requested)
+    const edge = flow?.routes.get(marker.edge)
+    const entry = flow?.entries.some((e) => e.edge === marker.edge && e.node === requested)
+    if (node === undefined || marker.node !== requested || (edge?.to !== requested && !entry)) {
+      throw new ValidationError(
+        `runGraph: route spawn for ${JSON.stringify(marker.edge)} names ` +
+          `${JSON.stringify(requested)}, which is not the node that edge starts`,
+      )
+    }
+    return edge === undefined
+      ? node.profile
+      : withDirective(node.profile, registry.resolve(edge.directive).text)
+  }
   const composeGuidance = (profile: AgentProfile): AgentProfile =>
     opts.guidance ? opts.guidance(profile) : profile
   // The pre-journal gate (a bridge backend's route/admission check) must judge the profile that
@@ -850,7 +904,10 @@ export function createGraphOverlay(
     const node =
       requested === undefined
         ? undefined
-        : (workers.get(requested) ?? analystNodes.get(requested) ?? mapNodes.get(requested))
+        : (workers.get(requested) ??
+          analystNodes.get(requested) ??
+          mapNodes.get(requested) ??
+          flow?.nodes.get(requested))
     // Unknown names fall through to authorizeSpawn, which refuses them with the full message and
     // a ledger row; the gate just sees the stub and lets that later refusal speak.
     return node ? composeGuidance(node.profile) : authored
@@ -876,10 +933,10 @@ export function createGraphOverlay(
         over: edge.over,
         agent: analystNode.profile,
         directive: registry.resolve(edge.directive).text,
-        ...(edge.to === root.id ? {} : { to: edge.to }),
+        ...(edge.to === root?.id ? {} : { to: edge.to }),
       }
     }
-    return edge.to === root.id
+    return edge.to === root?.id
       ? { kind: edge.analyst, over: edge.over }
       : {
           kind: edge.analyst,
@@ -933,7 +990,7 @@ export function createGraphOverlay(
   const routedAnalyzesByAnalyst = new Map<string, AnalyzesEdge>()
   const driverAnalyzesByAnalyst = new Map<string, AnalyzesEdge>()
   for (const edge of analyzes) {
-    ;(edge.to === root.id ? driverAnalyzesByAnalyst : routedAnalyzesByAnalyst).set(
+    ;(edge.to === root?.id ? driverAnalyzesByAnalyst : routedAnalyzesByAnalyst).set(
       edge.analyst,
       edge,
     )
@@ -979,6 +1036,36 @@ export function createGraphOverlay(
   }
 
   const onCoordinationEvent = (event: CoordinationEvent): void => {
+    if (event.type === 'route') {
+      const step = event.route
+      if (step.kind !== 'traversal') return
+      // An entry row has no routes edge, so it crosses no directive.
+      const edge = flow?.routes.get(step.edge)
+      if (step.workerId !== undefined) nodeByWorkerId.set(step.workerId, step.to)
+      if (step.reason?.startsWith('traversal-cap-exhausted') === true) exhausted.add(step.edge)
+      record(
+        {
+          edge: step.edge,
+          kind: 'routes',
+          from: step.from,
+          to: step.to,
+          directive: edge === undefined ? '' : formatPromptHandle(edge.directive),
+          outcome: step.outcome,
+          continuity: step.continuity,
+          bytes:
+            step.bytes +
+            (edge !== undefined && step.workerId !== undefined
+              ? byteLength(registry.resolve(edge.directive).text)
+              : 0),
+          ...(step.reason !== undefined ? { reason: step.reason } : {}),
+          ...((step.workerId ?? step.sourceWorker) !== undefined
+            ? { workerId: (step.workerId ?? step.sourceWorker) as string }
+            : {}),
+        },
+        true,
+      )
+      return
+    }
     if (event.type === 'map') {
       const step = event.map
       const edge = mapsById.get(step.edge)
@@ -1124,126 +1211,4 @@ export function createGraphOverlay(
     bindSpawn,
     settle,
   }
-}
-
-// ── run_graph: a graph a manager starts as one subtask ────────────────────────
-
-/** A graph as a manager hands it to `run_graph`: the topology only. The tool's own arguments
- *  carry the budget (the subtask's reservation from the caller's pool) and the deliverable (the
- *  root node's task). */
-export interface GraphSubtaskTopology {
-  readonly nodes: ReadonlyArray<GraphNode>
-  readonly edges: ReadonlyArray<GraphEdge>
-}
-
-/** A validated `run_graph` graph, ready to spawn. */
-export interface PreparedGraphSubtask {
-  /** The root node's pinned profile with the graph brief, carrying the topology as Runtime-only
-   *  metadata so the kernel rebuilds the same graph layer on a fresh spawn and on recovery. */
-  readonly profile: AgentProfile
-  readonly root: NodeId
-  readonly nodes: ReadonlyArray<NodeId>
-}
-
-function parseDirective(raw: unknown, where: string): PromptHandle {
-  if (typeof raw === 'string') return promptHandle(raw)
-  if (isRecord(raw) && typeof raw.surface === 'string' && typeof raw.version === 'number') {
-    return { surface: raw.surface, version: raw.version }
-  }
-  throw new ValidationError(
-    `run_graph: ${where}.directive must be a versioned directive reference such as ` +
-      "'delegates/worker-brief/v1'",
-  )
-}
-
-/**
- * Read graph data a model wrote, or a stored graph's topology. Edge directives may be written as
- * `'<surface>/v<n>'` strings. The budget and deliverable are the tool's arguments, so a graph that
- * carries its own is refused rather than one of the two silently ignored.
- */
-export function parseGraphSubtaskTopology(raw: unknown): GraphSubtaskTopology {
-  if (!isRecord(raw)) {
-    throw new ValidationError('run_graph: graph must be an object { nodes, edges }')
-  }
-  for (const key of Object.keys(raw)) {
-    if (key === 'nodes' || key === 'edges') continue
-    if (key === 'budget' || key === 'deliverable') {
-      throw new ValidationError(
-        `run_graph: graph.${key} is not read — pass ${key} as run_graph's own argument`,
-      )
-    }
-    throw new ValidationError(`run_graph: graph.${key} is not part of a graph; use nodes and edges`)
-  }
-  if (!Array.isArray(raw.nodes) || !Array.isArray(raw.edges)) {
-    throw new ValidationError('run_graph: graph.nodes and graph.edges must be arrays')
-  }
-  const nodes = raw.nodes.map((node, index): GraphNode => {
-    if (!isRecord(node) || typeof node.id !== 'string' || !isRecord(node.profile)) {
-      throw new ValidationError(`run_graph: graph.nodes[${index}] must be { id, profile }`)
-    }
-    return { id: node.id, profile: node.profile as AgentProfile }
-  })
-  const edges = raw.edges.map((edge, index): GraphEdge => {
-    const where = `graph.edges[${index}]`
-    if (!isRecord(edge)) throw new ValidationError(`run_graph: ${where} must be an object`)
-    const directive = parseDirective(edge.directive, where)
-    if (edge.kind === 'delegates') {
-      return { ...(edge as unknown as DelegatesEdge), directive }
-    }
-    if (edge.kind === 'analyzes') {
-      return { ...(edge as unknown as AnalyzesEdge), directive }
-    }
-    if (edge.kind === 'maps') {
-      return { ...(edge as unknown as MapsEdge), directive }
-    }
-    throw new ValidationError(`run_graph: ${where}.kind must be 'delegates', 'analyzes' or 'maps'`)
-  })
-  return { nodes, edges }
-}
-
-/**
- * Validate a `run_graph` graph and compose the profile its spawn runs: the root node's canonical
- * profile, the driver brief, and the topology under `metadata.agentRuntimeGraph`. That metadata is
- * part of the profile's identity, so a keyed `run_graph` that resumes runs the same graph, and the
- * provider-visible projection removes it before any provider sees the profile.
- */
-export function prepareGraphSubtask(
-  topology: GraphSubtaskTopology,
-  opts: {
-    readonly registry: PromptRegistry
-    readonly analysts?: AnalystRegistry
-    readonly guidance?: (profile: AgentProfile) => AgentProfile
-  },
-): PreparedGraphSubtask {
-  const validated = validateGraphTopology(
-    topology.nodes,
-    topology.edges,
-    opts.registry,
-    opts.analysts,
-  )
-  const brief = graphRootProfile(validated, opts.registry)
-  const marked: AgentProfile = {
-    ...brief,
-    metadata: {
-      ...(brief.metadata ?? {}),
-      [runtimeGraphMetadataKey]: { nodes: topology.nodes, edges: topology.edges },
-    },
-  }
-  const parsed = agentProfileSchema.safeParse(opts.guidance ? opts.guidance(marked) : marked)
-  if (!parsed.success) {
-    throw new ValidationError(
-      `run_graph: the graph's root profile is not a valid AgentProfile: ${parsed.error.message}`,
-    )
-  }
-  return {
-    profile: parsed.data,
-    root: validated.root.id,
-    nodes: topology.nodes.map((node) => node.id),
-  }
-}
-
-/** The topology a `run_graph` root profile carries, or `undefined` for any other profile. */
-export function graphSubtaskOf(profile: AgentProfile): GraphSubtaskTopology | undefined {
-  const raw = profile.metadata?.[runtimeGraphMetadataKey]
-  return raw === undefined ? undefined : parseGraphSubtaskTopology(raw)
 }

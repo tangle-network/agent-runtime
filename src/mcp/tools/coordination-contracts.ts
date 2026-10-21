@@ -50,6 +50,7 @@ import type {
   QuestionPolicy,
   QuestionRecord,
 } from './coordination-questions'
+import type { RouteFlow, RouteSpawnMarker } from './coordination-route-contracts'
 import type { SpawnResourceReader } from './spawn-resource-paths'
 
 /** A worker whose settlement reached the manager's inbox. */
@@ -140,6 +141,10 @@ export interface WorkerSpawnContext {
    *  the runtime, never accepted from tool arguments. A node-pinning seam reads it to admit the
    *  map's item or join node, which no driver may spawn. */
   readonly map?: MapSpawnMarker
+  /** Present only when a flow's entry or routes edge started this spawn ({@link RouteFlow}) —
+   *  authored by the runtime, never accepted from tool arguments. A node-pinning seam reads it to
+   *  admit the node the edge names, which no driver may spawn. */
+  readonly route?: RouteSpawnMarker
   /**
    * The PEER MAIL capability endpoint minted for this exact spawn, when the run enabled peer mail
    * ({@link CoordinationToolsOptions.peerMail}). It serves `send_mail` / `read_mail` and nothing
@@ -267,6 +272,10 @@ export interface CoordinationToolsOptions {
   /** Maps expanded by the runtime when their source settles (see {@link MapOnSettleRoute}). Omit =
    *  none. */
   readonly mapOnSettle?: ReadonlyArray<MapOnSettleRoute>
+  /** The flow this manager runs (see {@link RouteFlow}): Runtime spawns its entries when the
+   *  coordination opens and routes every settle of a flow node. Set only by `runGraph` for a graph
+   *  with `entry`, whose manager makes no decision of its own. Omit = none. */
+  readonly routeFlow?: RouteFlow
   /**
    * OPT-IN: run the ONLINE detector panel over each spawned worker's live tool trace and raise a
    * `finding` on the bus the moment a detector fires — so the driver learns "this worker is
@@ -619,4 +628,6 @@ export interface SpawnAdmission {
   readonly accepted?: Readonly<Record<string, unknown>>
   /** Set when a map route, never a tool call, started this spawn. */
   readonly map?: MapSpawnMarker
+  /** Set when a flow's entry or routes edge, never a tool call, started this spawn. */
+  readonly route?: RouteSpawnMarker
 }

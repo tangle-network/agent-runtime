@@ -1,11 +1,13 @@
 ---
 name: agent-graphs
-description: Author fixed AgentGraph roles with explicit delegation, analysis, completion, and budgets.
+description: Author fixed AgentGraph roles, routes, delegation, analysis, completion and budgets.
 ---
 
 # Agent Graphs
 
 Use `runGraph` when roles are known before execution and their relationships must be explicit Runtime data.
+When the order, branches, repair loops and stop rules are known too, author a flow graph: `entry` plus `routes` edges, with no root and no brain.
+Keep a root (delegation edges) only when a model must decide what runs next; a root brain that only orders fixed stages is the anti-pattern a flow graph replaces.
 Use a smaller maintained composition when it provides the required behavior.
 Use dynamic supervision when the agent must discover or create roles while working.
 A request for review alone does not require a graph.
@@ -19,7 +21,7 @@ Define the artifact and independent completion check before choosing roles.
 Give each required role a complete AgentProfile and capabilities appropriate to its task.
 Preserve requested parallel instances and independent reviewers rather than collapsing their distinct work into a root prompt.
 
-When authoring nodes, directives, traversal limits, or analyst routes, read [the graph contract](references/authoring.md).
+When authoring nodes, directives, routes, traversal limits, or analyst routes, read [the graph contract](references/authoring.md).
 The runtime validates structure and prompt references before execution.
 Keep the shared budget, per-worker allocation, concurrency, and supported limits in their actual API fields.
 Use measured execution cost when available; do not turn a prior run into a universal minimum budget.
@@ -31,7 +33,8 @@ Then exercise the intended backend, profiles, tools, and completion check on a r
 Offline control-flow tests do not establish that a real agent solves the task.
 
 Inspect the terminal result, complete cost and token accounting, edge delivery records, exhausted edges, and journal evidence.
-An expected edge with zero traversals did not exercise its intended relationship.
+An expected edge with zero traversals did not exercise its intended relationship, unless it is a branch the test chose not to take.
+A flow run that ends early names why on `stopped`; a settle no routes edge matches throws `GraphRouteError` with the ledger.
 Unknown usage is missing evidence, not zero cost.
 A passing check proves only the outcome it actually tests.
 

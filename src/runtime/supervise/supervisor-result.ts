@@ -12,7 +12,7 @@ type NoWinnerReason = (SupervisedResult<unknown> & { kind: 'no-winner' })['reaso
  *  driver's rejection, which no lifecycle observation can establish. */
 type LifecycleNoWinnerReason = Exclude<
   NoWinnerReason,
-  'driver-failed' | 'cancelled' | 'no-children-spawned' | 'no-result-selected'
+  'driver-failed' | 'cancelled' | 'no-children-spawned' | 'no-result-selected' | 'stopped'
 >
 
 /** A captured `act()` rejection. Wrapped rather than passed bare so `throw undefined` — legal, and

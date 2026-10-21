@@ -92,19 +92,22 @@ describe('examples/graphs — structural deduplication audit', () => {
     expect(duplicates).toEqual([])
   }, 120_000)
 
-  it('flags the pairs the review found, and tells them apart by what the run did', async () => {
-    // Same graph data once widths, exact caps and root grants are bucketed away.
-    expect(signatureOf(entry('role-chain'))).toBe(signatureOf(entry('arm-comparison/best-of-3')))
-    expect(signatureOf(entry('conditional-skip'))).toBe(signatureOf(entry('best-of-n')))
+  it('tells a flow graph from a root graph, and the flow examples apart by what they ran', async () => {
+    // The order a root once decided is now graph data, so a flow never shares a root's topology.
+    expect(signatureOf(entry('role-chain'))).not.toBe(
+      signatureOf(entry('arm-comparison/best-of-3')),
+    )
+    expect(signatureOf(entry('conditional-skip'))).not.toBe(signatureOf(entry('best-of-n')))
+    const flows = ['role-chain', 'conditional-skip', 'loop-until-dry', 'proof-gate']
+    expect(new Set(flows.map((name) => signatureOf(entry(name)))).size).toBe(flows.length)
 
     const waves = async (name: string) =>
       ((await exampleShape(entry(name))) ?? []).map((s) => JSON.parse(s).waves)
-    // role-chain spawns one stage per driver turn; best-of-3 spawns every candidate in one turn.
+    // The entry, then one route spawn per settled stage.
     expect(await waves('role-chain')).toEqual([['worker×1…']])
-    expect(await waves('arm-comparison/best-of-3')).toEqual([['worker×many']])
-    // conditional-skip runs the second stage only after, and only if, the first found something;
-    // best-of-n spawns both candidates together.
+    // conditional-skip runs the verifier only when the finder found something.
     expect(await waves('conditional-skip')).toEqual([['worker×1'], ['worker×1…']])
+    expect(await waves('arm-comparison/best-of-3')).toEqual([['worker×many']])
     expect(await waves('best-of-n')).toEqual([['worker×many']])
   }, 60_000)
 
