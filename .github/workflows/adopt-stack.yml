@@ -1,0 +1,21 @@
+name: Adopt stack
+
+# Adopts each new @tangle-network release through agent-eval's reusable
+# workflow, which owns the pinning, peer-range widening and PR rules.
+on:
+  schedule: [{ cron: '*/30 * * * *' }]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  adopt:
+    uses: tangle-network/agent-eval/.github/workflows/adopt-stack.yml@main
+    with:
+      gate: pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
+      runs-on: ubuntu-latest
+      default-branch: main
+      merge: true
+    secrets: inherit
