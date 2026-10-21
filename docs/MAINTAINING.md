@@ -121,7 +121,7 @@ docs:check = docs:api  &&  git diff --exit-code docs/api  &&  docs:freshness
 
 It regenerates the reference, fails if the committed `docs/api/` is stale (you forgot
 to regenerate after a TSDoc change), then runs the freshness gate. CI runs this as the
-last step of the `ci` job (`.github/workflows/ci.yml`); drift is a red build, not a
+last step of the `ci` job ([ci workflow](../.github/workflows/ci.yml)); drift is a red build, not a
 silent lie.
 
 **The pre-commit hook (`.githooks/pre-commit`) is the gate's self-healing companion.**

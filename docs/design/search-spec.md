@@ -11,7 +11,7 @@
 Solo directors, hierarchical trees, wide swarms, collaborative peer roots, and the Stateless Language Agents design
 ([arXiv 2610.07625](https://arxiv.org/abs/2610.07625)) are today assembled by each consumer from `supervise`, `runGraph`,
 continuation, worker slots, peer mail and analysts. Discovery Lab expands its own `topology:` and `leads:` keys into
-profiles and options (`runner/play.mjs`), and writes its own continuation wording. Two consequences:
+profiles and options (Discovery Lab's play runner), and writes its own continuation wording. Two consequences:
 
 - A configuration has no name or digest, so two runs cannot be compared as "the same design on two problems", and an
   axis cannot be ablated from a shared checkpoint.
@@ -114,7 +114,7 @@ before spend, and the settle record carries the spec digest.
 
 | Consumer | Deletable once it adopts SearchSpec |
 |---|---|
-| Discovery Lab | the `topology:`/`leads:` expansion into profiles and options in `runner/play.mjs`; Lab-authored continuation wording that duplicates Runtime's re-entry task |
+| Discovery Lab | the `topology:`/`leads:` expansion into profiles and options in Discovery Lab's play runner; Lab-authored continuation wording that duplicates Runtime's re-entry task |
 | Braid | nothing; it renders the compiled tree and the spec digest |
 | Other products | per-product team assembly around `supervise` and `runGraph` |
 

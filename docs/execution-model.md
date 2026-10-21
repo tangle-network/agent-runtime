@@ -23,7 +23,7 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
    │ no box   │ HTTP     │ opencode │  a leaf    │         │ implements the   │
    └────┬─────┴────┬─────┴────┬─────┴─────┬──────┘         │ port directly    │
         └──────────┴──────────┴───────────┴──── all are Executors ──┴─────────┘
-                              │                       (supervise/runtime.ts)
+                              │                       (src/runtime/supervise/runtime.ts)
    ┌──────────────────────────┴──────────────────────────┐
    │                                                      │
  inlineSandboxClient(exec)                       (the sandbox executor already IS
@@ -43,7 +43,7 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
 
 ### Bridge implementation ownership
 
-`supervise/runtime.ts` keeps backend configuration, factory selection, and the existing public exports.
+`src/runtime/supervise/runtime.ts` keeps backend configuration, factory selection, and the existing public exports.
 Bridge code follows these internal boundaries:
 
 - `bridge-config.ts` captures transport configuration and resolves protected credential references at dispatch.

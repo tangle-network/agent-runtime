@@ -1,6 +1,8 @@
+> History, 2026-10-21: describes a design or plan that no longer matches the code. Do not use it as current guidance; see [canonical-api.md](../canonical-api.md) and [architecture.md](../architecture.md).
+
 # The self-designing atom — cut-list + build-list
 
-> Build plan (2026-06-15). Goal: ONE recursive, self-designing agent atom — succinct, simple, powerful. Secondary: net-negative LOC. Grounded against the real dependency inventory (`wc -l` + `grep -rl` over src/bench/tests). Companion to [long-horizon-agent-map.md](./long-horizon-agent-map.md).
+> Build plan (2026-06-15). Goal: ONE recursive, self-designing agent atom — succinct, simple, powerful. Secondary: net-negative LOC. Grounded against the real dependency inventory (`wc -l` + `grep -rl` over src/bench/tests). Companion to [long-horizon-agent-map.md](../research/long-horizon-agent-map.md).
 
 ## The atom (target)
 

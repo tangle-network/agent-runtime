@@ -55,7 +55,7 @@ Before choosing experiments or deleting mechanisms, read architecture sections 0
 A single-run comparison tests a specific mechanism; it does not establish learning across projects.
 Report which part of the agent changed, the measured effect on fresh tasks, and the comparison's limits.
 
-When present, inspect `.evolve/current.json` and the `memory/` evidence ledger before resuming an experiment.
+When present, inspect the untracked `.evolve` run record and the `memory/` evidence ledger before resuming an experiment.
 These are local run records, not required files in a fresh clone.
 Retain result artifacts, observation context, and commands needed to reproduce claims.
 Resolve conflicting notes against their underlying evidence.

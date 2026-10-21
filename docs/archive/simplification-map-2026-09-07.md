@@ -1,3 +1,5 @@
+> History, 2026-10-21: describes a design or plan that no longer matches the code. Do not use it as current guidance; see [canonical-api.md](../canonical-api.md) and [architecture.md](../architecture.md).
+
 # Simplification map: agent-runtime at 0.196.0
 
 **Verdict: do not rewrite. Cut the surface first, then the duplication, then split the three files that hold most of the churn.**
@@ -81,7 +83,7 @@ These are copies, not variants; the readers diffed them.
 | `isAsyncIterable` | 8 | `util.ts` |
 | FNV-1a content hash | 6 | `durable/content-address` |
 | `errorMessage(unknown)` | 9 | `util.ts` |
-| JSONL append with fsync, read-or-undefined on ENOENT, ENOENT predicate | 5, 6, 7 | `durable/jsonl-file.ts` |
+| JSONL append with fsync, read-or-undefined on ENOENT, ENOENT predicate | 5, 6, 7 | `src/durable/jsonl-file.ts` |
 | sha256 and git object-id regexes | 7 and 4 | `agent-interface` `sha256DigestSchema`, one local constant |
 | `officialGepa` and `officialSkillOpt` bodies | identical after rename | one private factory |
 | profile-experiment sealing and paired measurement | 2 | one `measureProfileCandidate` |
@@ -108,7 +110,7 @@ Keep as is, with their measured reasons: reserve-before-construct with refund-on
 ## Coupling
 
 `runtime` imports `mcp` and `mcp` imports `runtime`; `runtime` and `durable` import each other; `runtime` and `improvement` import each other.
-Entry files reach into sibling internals (`conversation/index.ts` re-exports a runtime file; `tui/index.ts` re-exports a supervise file).
+Entry files reach into sibling internals (`src/conversation/index.ts` re-exports a runtime file; `src/tui/index.ts` re-exports a supervise file).
 None of this blocks the cuts above, and the cuts reduce it: dropping the duplicate coordination-type exports removes the largest `mcp` → `runtime` edge.
 
 ## Docs and scripts

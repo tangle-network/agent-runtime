@@ -8,7 +8,7 @@
 
 **Prior experiment:** an opencode supervisor drove opencode workers through the coordination MCP in `bench/src/atom-mcp-e2e.mts` at `972707f`.
 That script is stale and is not a current distributed acceptance test.
-The durable two-agent recovery run in `agent-managed-compute/validation.md` is the replacement.
+The durable two-agent recovery run in [agent-managed-compute/validation.md](../agent-managed-compute/validation.md) is the replacement.
 
 ## Placement — who owns what (obeys the AgentProfile law + the layering)
 

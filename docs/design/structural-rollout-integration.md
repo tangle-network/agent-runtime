@@ -1,6 +1,6 @@
 # Structural rollout policy — integration design
 
-Status: design accepted 2026-07-09; measured basis in `supervisor-lab/docs/results/structural-lever-humaneval.md`.
+Status: design accepted 2026-07-09; measured basis in the supervisor-lab structural-lever HumanEval result note.
 
 ## Measured basis
 

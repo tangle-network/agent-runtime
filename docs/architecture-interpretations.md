@@ -100,4 +100,4 @@ Only a claim about process transfer requires a corresponding comparison in new d
 The [earlier interpretation](https://github.com/tangle-network/agent-runtime/blob/a16d8a3b91481b140cb552e373d5bde98b34af05/docs/architecture-interpretations.md) records the original critique and its subsequent corrections.
 Its experiment conclusions apply to their recorded tasks, versions, information, and resource conditions.
 The current audit did not rerun those experiments.
-Consult their original records in `.evolve/current.json` and `memory/` before using them to reject or repeat a mechanism.
+Consult their original records in the untracked `.evolve` run record and `memory/` before using them to reject or repeat a mechanism.

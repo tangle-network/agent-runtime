@@ -12,7 +12,7 @@ sparse (1 iff all themes). No deployable ground-truth checker — it's an **orac
 
 - **NOT** the verifier-grounded selector gate (our HumanEval/commit0 headline). The only
   checker is the judge itself, so selecting by it = selecting by the eval metric (an
-  oracle, a Goodhart trap). See `docs/results.md`.
+  oracle, a Goodhart trap). See [docs/archive/results.md](../../../docs/archive/results.md).
 - **IS** admissible: (1) more-compute headroom (pass@k), (2) prompt optimization
   (`improve` with agent-eval's official GEPA method, using disjoint train, selection,
   and final-test partitions), with the honest caveat that an

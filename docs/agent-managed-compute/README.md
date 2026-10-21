@@ -74,7 +74,7 @@ The broader [runtime architecture](../architecture.md), [call-routing protocol](
 
 When a source reference conflicts with this directory about distributed readiness or implementation order, this directory wins.
 
-The older [simplification tracker](../research/simplification-plan.md) is historical and is superseded by [roadmap.md](./roadmap.md) for execution and API convergence.
+The older [simplification tracker](../archive/simplification-plan.md) is historical and is superseded by [roadmap.md](./roadmap.md) for execution and API convergence.
 
 ## Source Document Ledger
 
@@ -91,8 +91,8 @@ This table tracks the existing documents that materially overlap this plan.
 | [Context lifecycle](../research/smart-loops-context-lifecycle.md) | Current source | Long-run context and knowledge transfer research. |
 | [Interactive sessions](../research/interactive-sessions-spec.md) | Historical input | Session UX and tmux exploration. Its completion checklist is not current acceptance evidence. |
 | [Long-horizon agent map](../research/long-horizon-agent-map.md) | Historical input | Earlier product and control design. |
-| [RSI atom masterplan](../research/rsi-atom-masterplan.md) | Historical input | Earlier recursive-agent build plan. |
-| [Simplification plan](../research/simplification-plan.md) | Superseded plan | Earlier API and module inventory. |
+| [RSI atom masterplan](../archive/rsi-atom-masterplan.md) | Historical input | Earlier recursive-agent build plan. |
+| [Simplification plan](../archive/simplification-plan.md) | Superseded plan | Earlier API and module inventory. |
 | [`atom-mcp-e2e.mts`](../../bench/src/atom-mcp-e2e.mts) | Historical experiment | Useful prototype with stale tool names and incomplete result accounting. |
 
 ## Status Summary
@@ -122,7 +122,7 @@ Each durable fact has one owner:
 | Fact | Owner | Not owned here |
 |---|---|---|
 | Accepted run, turn and child identity; the orchestration journal; the run's owner lease and fencing generation; budgets, deadlines and keyed admission; the one accepted result | Runtime (`SpawnJournal`, `createFencedSqlRunContext`, `Scope`) | workspace bytes, processes, native transcripts |
-| Named instance and project identity across host replacement and snapshot restore; the workspace (live, retained stopped, confirmed snapshot); the harness process; the native harness session and its resume | Sandbox: Orchestrator and Sidecar, with the harness session contract in Agent Dev Container `packages/cli-agent-registry/src/native-session-contracts.ts` | run identity, budgets, results |
+| Named instance and project identity across host replacement and snapshot restore; the workspace (live, retained stopped, confirmed snapshot); the harness process; the native harness session and its resume | Sandbox: Orchestrator and Sidecar, with the harness session contract in agent-container [packages/cli-agent-registry/src/native-session-contracts.ts](https://github.com/tangle-network/agent-container/blob/main/packages/cli-agent-registry/src/native-session-contracts.ts) | run identity, budgets, results |
 | Waits for time, a human or an external event; suspensions; the workflow outbox | Platform workflows: the run, suspension, timer and outbox stores. Runtime holds no timers. | executing agent work |
 | Placement: which compute runs an admitted action | Platform `selectPlacement`, once, at admission | moving a live process, or changing the admitted harness or model |
 

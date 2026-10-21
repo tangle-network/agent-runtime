@@ -1080,7 +1080,7 @@ nonzero when its test report fails, while still writing the evidence.
 ## 0.272.0
 
 Runtime redacts with agent-eval's redaction core (`@tangle-network/agent-eval/traces`) instead of three patterns of its own.
-`defaultRedactor`, the candidate-evidence redaction in `candidate-execution/protected-redaction.ts`, and every payload an event sanitizer includes on an opt-in flag now go through it.
+`defaultRedactor`, the candidate-evidence redaction in `src/candidate-execution/protected-redaction.ts`, and every payload an event sanitizer includes on an opt-in flag now go through it.
 Token counts and model limits survive: on 40,704 real records the old `defaultRedactor` replaced 18,018 `input_tokens`, `output_tokens` and cache token counts each, and it let 3 of 7 raw credentials through; the core replaced no count and let no credential through.
 Credentials are replaced whole with `[REDACTED:<detector>]` instead of `[redacted]`, and candidate evidence marks a protected value `[REDACTED:known-secret]` instead of `[redacted:candidate-access]`.
 `defaultRedactorIdentityMaterial()` is now the core's name, profile and `REDACTION_VERSION`, so saved work keyed on it sees the change once.
@@ -1802,7 +1802,7 @@ terminal record, so the two cannot disagree.
   mint an open node's seq for another settlement; a journal that already closes that seq fails the
   resume with `RuntimeRunStateError` and writes nothing.
 - The refund at the reconcile is unchanged. `terminalDownEvent`, `settledNodeEvidence` and the
-  release payload move to `supervise/terminal-record.ts`, the one module both the live sweep and
+  release payload move to `src/runtime/supervise/terminal-record.ts`, the one module both the live sweep and
   the resume heal import.
 
 ## 0.233.1
@@ -4310,7 +4310,7 @@ Known consumers to migrate, none broken until they upgrade:
 
 ### A supervisor tree spans machines
 
-- When span recording is on, a spawned worker's environment carries `TRACE_ID` and `PARENT_SPAN_ID` — the run's trace and the span of the node that spawned it — using the env-var convention `mcp/trace-propagation.ts` already ships and already reads. A worker on a remote sandbox emits spans that join its parent's trace, so one tree assembles across machines with no viewer change and no second propagation format.
+- When span recording is on, a spawned worker's environment carries `TRACE_ID` and `PARENT_SPAN_ID` — the run's trace and the span of the node that spawned it — using the env-var convention `src/mcp/trace-propagation.ts` already ships and already reads. A worker on a remote sandbox emits spans that join its parent's trace, so one tree assembles across machines with no viewer change and no second propagation format.
 - At depth the parent is the IMMEDIATE spawning driver's span, not the root's, so a deep tree nests correctly rather than flattening.
 - A caller that sets its own `TRACE_ID`/`PARENT_SPAN_ID` wins; theirs is never overwritten.
 - Off when recording is off: no stamping, no behavior change.
