@@ -40,6 +40,7 @@ async function callTool(url: string, name: string, args: Record<string, unknown>
 // recursive scopes, tools, HTTP transport, settlement and collector are the public SDK path.
 it('snapshots growing nested spans over a live Supervisor and HTTP worker', async () => {
   const collector = createWaterfallCollector()
+  const settlements: unknown[] = []
   const cancellation = new AbortController()
   let requested!: () => void
   let release!: () => void
@@ -72,7 +73,12 @@ it('snapshots growing nested spans over a live Supervisor and HTTP worker', asyn
   const pending = supervise(profile('root', true), 'deliver through a nested manager', {
     runId: 'waterfall-http',
     signal: cancellation.signal,
-    hooks: collector.hooks,
+    hooks: {
+      onEvent(event, context) {
+        collector.hooks.onEvent?.(event, context)
+        if (event.target === 'agent.child') settlements.push(event.payload)
+      },
+    },
     budget: { maxIterations: 100, maxTokens: 100_000 },
     perWorker: { maxIterations: 10, maxTokens: 10_000 },
     driverRetry: { enabled: false },
@@ -111,7 +117,9 @@ it('snapshots growing nested spans over a live Supervisor and HTTP worker', asyn
     await Promise.race([
       requestArrived,
       pending.then((result) => {
-        throw new Error(`Supervisor settled before worker HTTP request: ${JSON.stringify(result)}`)
+        throw new Error(
+          `Supervisor settled before worker HTTP request: ${JSON.stringify({ result, settlements })}`,
+        )
       }),
     ])
     const first = collector.report()
