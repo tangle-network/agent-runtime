@@ -13,6 +13,7 @@ export interface WaterfallSpan {
   /** The spawn label (`shot:0`, `analyst:1`, a nested agent's label) — the row name. */
   label: string
   runId: string
+  /** Parent agent node identity, matching another span id when that parent is observed. */
   parentId?: string
   startMs: number
   endMs?: number
@@ -24,7 +25,9 @@ export interface WaterfallSpan {
 
 export interface WaterfallReport {
   spans: WaterfallSpan[]
-  /** Wall-clock of the observed window (first spawn → last settle). */
+  /** Instant used to measure spans that are still running. */
+  observedAtMs: number
+  /** Wall-clock from first spawn to last settle, or observation time while running. */
   totalMs: number
   totalUsd: number
   totalTokens: { input: number; output: number }
@@ -50,9 +53,10 @@ interface SettlePayload {
 export interface WaterfallCollector {
   /** Attach these to RunAgenticOptions.hooks / BenchmarkConfig.hooks. */
   hooks: RuntimeHooks
-  report(): WaterfallReport
+  /** Snapshot at the current clock, or an explicit observation instant for replay. */
+  report(opts?: { nowMs?: number }): WaterfallReport
   /** The text waterfall — one row per span, bars scaled to the observed window. */
-  render(opts?: { width?: number; maxRows?: number }): string
+  render(opts?: { width?: number; maxRows?: number; nowMs?: number }): string
   reset(): void
 }
 
@@ -96,10 +100,13 @@ export function createWaterfallCollector(): WaterfallCollector {
     }
   }
 
-  const report = (): WaterfallReport => {
-    const all = [...spans.values()].sort((a, b) => a.startMs - b.startMs)
+  const report = (opts?: { nowMs?: number }): WaterfallReport => {
+    const observedAtMs = opts?.nowMs ?? Date.now()
+    const all = [...spans.values()]
+      .map((span) => ({ ...span, tokens: { ...span.tokens } }))
+      .sort((a, b) => a.startMs - b.startMs)
     const start = all[0]?.startMs ?? 0
-    const end = Math.max(start, ...all.map((s) => s.endMs ?? s.startMs))
+    const end = Math.max(start, ...all.map((s) => s.endMs ?? Math.max(s.startMs, observedAtMs)))
     const byKind: WaterfallReport['byKind'] = {}
     let totalUsd = 0
     const totalTokens = { input: 0, output: 0 }
@@ -114,16 +121,16 @@ export function createWaterfallCollector(): WaterfallCollector {
         byKind[kind] = k
       }
       k.count += 1
-      k.ms += (s.endMs ?? s.startMs) - s.startMs
+      k.ms += (s.endMs ?? Math.max(s.startMs, observedAtMs)) - s.startMs
       k.usd += s.usd
       k.tokens.input += s.tokens.input
       k.tokens.output += s.tokens.output
     }
-    return { spans: all, totalMs: end - start, totalUsd, totalTokens, byKind }
+    return { spans: all, observedAtMs, totalMs: end - start, totalUsd, totalTokens, byKind }
   }
 
-  const render = (opts?: { width?: number; maxRows?: number }): string => {
-    const { spans: all, totalMs, totalUsd, byKind } = report()
+  const render = (opts?: { width?: number; maxRows?: number; nowMs?: number }): string => {
+    const { spans: all, observedAtMs, totalMs, totalUsd, byKind } = report(opts)
     if (all.length === 0) return '(no spans observed)'
     const width = opts?.width ?? 48
     const maxRows = opts?.maxRows ?? 60
@@ -133,7 +140,7 @@ export function createWaterfallCollector(): WaterfallCollector {
     const labelWidth = Math.min(24, Math.max(...all.map((s) => s.label.length)) + 1)
     for (const s of all.slice(0, maxRows)) {
       const offset = Math.round((s.startMs - start) * scale)
-      const dur = (s.endMs ?? s.startMs) - s.startMs
+      const dur = (s.endMs ?? Math.max(s.startMs, observedAtMs)) - s.startMs
       const len = Math.max(1, Math.round(dur * scale))
       const bar = `${' '.repeat(Math.min(offset, width))}${(s.status === 'down' ? '░' : '█').repeat(Math.max(1, Math.min(len, width - Math.min(offset, width) + 1)))}`
       const mark =
