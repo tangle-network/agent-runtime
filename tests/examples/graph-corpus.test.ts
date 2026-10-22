@@ -29,12 +29,12 @@
  *   sandbox-e2e                skips cleanly without credentials
  */
 
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { digestOfGraph, type GraphResult, runGraph } from '@tangle-network/agent-runtime/kernel'
 import { runGraphWithTestBrain } from '@tangle-network/agent-runtime/testing'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { arms, compareArms } from '../../examples/graphs/arm-comparison'
 import { conditionalSkip } from '../../examples/graphs/conditional-skip'
 import { DAG, dependencyWaves } from '../../examples/graphs/dependency-waves'
@@ -63,6 +63,12 @@ const delivered = (res: GraphResult): unknown => {
   if (res.result.kind !== 'winner') throw new Error(`no winner: ${res.result.reason}`)
   return res.result.out
 }
+
+const dirs: string[] = []
+
+afterEach(async () => {
+  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+})
 
 describe('examples/graphs corpus — every pattern runs offline with a truthful ledger', () => {
   it('static-fanout-synthesize: three entries, one join, and the synthesis is the recommendation', async () => {
@@ -356,6 +362,7 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
 
   it('arm-comparison: three recorded runs, the cheapest delivery wins and is what lookup replays', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'arm-comparison-test-'))
+    dirs.push(dir)
     const out = await compareArms(dir)
 
     expect(out.records).toHaveLength(3)

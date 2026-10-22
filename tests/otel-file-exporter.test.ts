@@ -3,7 +3,7 @@
  * silent — the run writes a file, the reader finds nothing in it, and the trace looks empty rather
  * than malformed. So these tests pin the wire shape, not the internals.
  */
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -26,13 +26,18 @@ const span = (over: Partial<OtelSpan> = {}): OtelSpan => ({
 })
 
 function writeAndRead(spans: OtelSpan[]): Record<string, unknown>[] {
-  const path = join(mkdtempSync(join(tmpdir(), 'oi-')), 'spans.otlp.jsonl')
-  const exporter = createOpenInferenceFileExporter(path)
-  for (const s of spans) exporter.exportSpan(s)
-  return readFileSync(path, 'utf8')
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => JSON.parse(l) as Record<string, unknown>)
+  const dir = mkdtempSync(join(tmpdir(), 'oi-'))
+  try {
+    const path = join(dir, 'spans.otlp.jsonl')
+    const exporter = createOpenInferenceFileExporter(path)
+    for (const s of spans) exporter.exportSpan(s)
+    return readFileSync(path, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 describe('createOpenInferenceFileExporter', () => {
