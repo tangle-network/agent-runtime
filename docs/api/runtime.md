@@ -25045,7 +25045,7 @@ Working directory for the subprocess.
 ### CliWorktreeSeam
 
 cli-worktree seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI
-(claude / codex / opencode) on its own git worktree — the leaf `createWorktreeCliExecutor`
+(claude / codex / opencode / pi / kimi-code) on its own git worktree — the leaf `createWorktreeCliExecutor`
 named as data. `repoRoot` is transport data; `AgentProfile.harness` selects the CLI.
 `taskPrompt` remains an optional direct-call fallback for callers that execute with `undefined`.
 The authored

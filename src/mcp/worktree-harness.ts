@@ -1,7 +1,7 @@
 /**
  *
  * The ONE worktree-harness execution core. The physical act — run a supervisor-authored
- * `AgentProfile` on a local coding-harness CLI (claude / codex / opencode) against a fresh git
+ * `AgentProfile` on a local coding-harness CLI (claude / codex / opencode / pi / kimi-code) against a fresh git
  * worktree off `repoRoot`, capture the diff, derive the test/typecheck PASS signals, then clean
  * up — lives here ONCE. Two executors adapt it to two ports without re-implementing it:
  *   - `createWorktreeCliExecutor` — the `Scope`/`Supervisor` leaf `Executor`.
@@ -46,6 +46,7 @@ import type { CodexExecutionPolicy } from './codex-execution-policy'
 import type { CodexTokenUsage } from './codex-token-usage'
 import {
   harnessInvocation,
+  harnessMaterializesProfileMcp,
   harnessSupportsReasoningEffort,
   type LocalHarness,
 } from './local-harness-invocation'
@@ -712,6 +713,13 @@ function assertSupportedWorktreeProfile(profile: AgentProfile, harness: LocalHar
   if (reasoningEffort !== undefined && !harnessSupportsReasoningEffort(harness, reasoningEffort)) {
     unsupportedAxes.push('model.reasoningEffort')
   }
+  // Same row-keyed capability check for MCP: the materializer lowers `profile.mcp` onto each
+  // harness's native config, but only when the row claims that lowering reaches a surface the
+  // installed CLI reads (kimi-code's does not — see its HARNESS_INVOCATIONS entry). A disabled
+  // server carries nothing, so only enabled entries trip the refusal.
+  if (hasEnabledProfileMcpServer(profile) && !harnessMaterializesProfileMcp(harness)) {
+    unsupportedAxes.push('mcp')
+  }
   if (unsupportedAxes.length > 0) {
     throw new Error(
       `runWorktreeHarness: profile requests unsupported worktree behavior: ${unsupportedAxes.join(', ')}`,
@@ -742,6 +750,10 @@ function assertSafeProfileResourcePaths(profile: AgentProfile): void {
 function isGitMetadataSegment(segment: string): boolean {
   const windowsCanonical = segment.replace(/[ .]+$/u, '').toLowerCase()
   return windowsCanonical === '.git' || windowsCanonical.startsWith('.git:')
+}
+
+function hasEnabledProfileMcpServer(profile: AgentProfile): boolean {
+  return Object.values(profile.mcp ?? {}).some((server) => server.enabled !== false)
 }
 
 function profileMaterializationReceipt(

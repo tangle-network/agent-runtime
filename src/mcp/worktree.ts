@@ -3,7 +3,7 @@ import { hasControlCharacter } from '../path-control-characters'
  *
  * Git worktree helpers for the in-process delegation executor. Each
  * delegation runs in its own worktree so multiple parallel harness
- * subprocesses (claude / codex / opencode in a 3-way fanout) don't clobber
+ * subprocesses (claude / codex / opencode / pi / kimi-code in an N-way fanout) don't clobber
  * each other's edits on the shared workspace.
  *
  * Worktrees live under `<repoRoot>/.agent-worktrees/<runId>/`. After the
