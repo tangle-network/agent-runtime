@@ -1,3 +1,9 @@
+## 0.345.0
+
+Fence run-directory durable writes by acquisition generation and let idle supervised runs park for an existing keeper to resume without holding a process. Update AgentGraph factory-design guidance with task/run identity, service slots and throttled triggers.
+
+Patch the MCP SDK and development HTTP, image, documentation, and build dependency chains to remove critical and high advisories while retaining their existing release lines.
+
 ## 0.344.0
 
 Waterfall reports and text rendering advance running spans at one observation instant, retain stable settled durations and parent node identities, and return independent snapshots. Pass nowMs to report or render for replay.
