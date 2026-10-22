@@ -7,7 +7,9 @@ import {
 } from '../runtime/supervise/durable-file'
 import { runCancellationFile, runCancelRequestFile } from '../runtime/supervise/run-cancellation'
 import { workerCancellationsDir } from '../runtime/supervise/run-layout'
-import type { Budget, SpawnEvent, SpawnJournal } from '../runtime/supervise/types'
+import { assertValidBudget } from '../runtime/supervise/spend-validation'
+import { assertResumeLimits } from '../runtime/supervise/supervisor-root-contract'
+import type { Budget, SpawnEvent, SpawnJournal, SupervisorOpts } from '../runtime/supervise/types'
 import type { FileObserverJournal } from './observer-journal'
 import { SETTLE_RECORD_FILE, settleRecordDigest } from './settle-record'
 import { FileSpawnJournal } from './spawn-journal/journal-store'
@@ -19,13 +21,17 @@ import { FileSpawnJournal } from './spawn-journal/journal-store'
  * and `fork` and `versions` each start a new run id in a new directory. Magnetar used 21 run ids
  * from 2026-10-16 to 10-21 for one solve; 16 of those runs settled, 11 of them in under 5 hours.
  *
- * A reopen archives the settled segment and resumes the same journal. Every step is idempotent, so
- * a later call with the same `operationId` finishes a reopen that crashed partway:
+ * A reopen archives the settled segment and resumes the same journal. Before it writes anything it
+ * checks the resume limits (`assertResumeLimits`): a reopen refused for its budget or reservation
+ * policy leaves `result.json`, the cancel files and the journal as they were. The profile's identity
+ * and materialization are checked by `supervise` itself, after these steps. Every step is
+ * idempotent, so a later call with the same `operationId` finishes a reopen that crashed partway:
  *  1. copy `result.json` byte for byte to `settles/<n>.json`;
  *  2. append one `reopened` spawn-journal row naming the operator, the reason and the archive;
  *  3. append one observer event, so the pursuit projection shows one lineage;
- *  4. move the run's cancel request and acknowledgement aside under that request's operation id,
- *     so a new `cancelRun` is accepted (one run carries one run-scoped cancel operation);
+ *  4. move the run's cancel request and acknowledgement aside under this reopen's and that
+ *     request's operation ids, so a new `cancelRun` is accepted (one run carries one run-scoped
+ *     cancel operation) and no later reopen overwrites an earlier segment's cancel;
  *  5. last, remove `result.json`.
  * The caller then runs `supervise` with `resume: true`: settled children replay by key, the pool
  * is restored from the journal, and the next settle writes `result.json` again.
@@ -68,6 +74,7 @@ export function assertRunReopen(
   if (reopen.operationId.trim().length === 0) {
     throw new TypeError('supervisePursuit: reopen.operationId must be non-empty')
   }
+  if (reopen.budget !== undefined) assertValidBudget(reopen.budget, 'reopen.budget')
   if (opts.fork !== undefined || opts.versions !== undefined) {
     throw new TypeError(
       'supervisePursuit: reopen continues this run under its own id; fork and versions start new runs',
@@ -85,6 +92,8 @@ export async function reopenSettledRun(input: {
   readonly runId: string
   readonly reopen: RunReopen
   readonly journal: SpawnJournal | undefined
+  /** The call's budget and reservation policy, checked against the recorded ones before any write. */
+  readonly limits: Pick<SupervisorOpts, 'budget' | 'reservationPolicy'>
   readonly observer: FileObserverJournal
   readonly pursuitId: string
   readonly now: () => number
@@ -93,7 +102,8 @@ export async function reopenSettledRun(input: {
   const operationId = reopen.operationId.trim()
   const settlePath = resolve(runDir, SETTLE_RECORD_FILE)
   const journal = input.journal ?? new FileSpawnJournal(resolve(runDir, 'spawn-journal.jsonl'))
-  const reopened = ((await journal.loadTree(runId)) ?? []).filter(
+  const events = (await journal.loadTree(runId)) ?? []
+  const reopened = events.filter(
     (event): event is Extract<SpawnEvent, { kind: 'reopened' }> =>
       event.kind === 'reopened' && event.id === runId,
   )
@@ -106,6 +116,17 @@ export async function reopenSettledRun(input: {
       `supervisePursuit: ${runDir} holds no ${SETTLE_RECORD_FILE}; nothing to reopen; resume it`,
     )
   }
+  assertResumeLimits(
+    events,
+    {
+      runId,
+      budget: reopen.budget ?? input.limits.budget,
+      ...(input.limits.reservationPolicy === undefined
+        ? {}
+        : { reservationPolicy: input.limits.reservationPolicy }),
+    },
+    mine === undefined ? reopen.budget : undefined,
+  )
   const result = JSON.parse(settled) as { readonly kind?: unknown; readonly reason?: unknown }
   const digest = settleRecordDigest(result)
   if (mine !== undefined && mine.prior.digest !== digest) {
@@ -154,7 +175,7 @@ export async function reopenSettledRun(input: {
       payload: { reopened: { operator: reopen.operator, reason: reopen.reason, archivedAs } },
     })
   }
-  setCancellationAside(runDir)
+  setCancellationAside(runDir, operationId)
   await rm(settlePath)
   syncDurableDirectory(runDir)
 }
@@ -176,9 +197,11 @@ async function archiveName(runDir: string, settled: string): Promise<string> {
   return `${SETTLE_ARCHIVE_DIR}/${(numbers.at(-1) ?? 0) + 1}.json`
 }
 
-/** Move the settled run's cancel request and acknowledgement aside under the request's operation
- *  id, so the reopened run accepts a new `cancelRun`. Idempotent: an absent file is skipped. */
-function setCancellationAside(runDir: string): void {
+/** Move the settled run's cancel request and acknowledgement aside under the reopen's and the
+ *  request's operation ids, so the reopened run accepts a new `cancelRun`. Idempotent: an absent
+ *  file is skipped. A reopen's operation id names one segment, so a later segment cancelled under
+ *  the same cancel operation id lands beside this one instead of over it. */
+function setCancellationAside(runDir: string, reopenOperationId: string): void {
   const requestFile = runCancelRequestFile(runDir)
   const ackFile = runCancellationFile(runDir)
   if (!existsSync(requestFile) && !existsSync(ackFile)) return
@@ -186,11 +209,18 @@ function setCancellationAside(runDir: string): void {
   const { operationId } = JSON.parse(readFileSync(source, 'utf8')) as {
     readonly operationId: string
   }
-  const aside = join(workerCancellationsDir(runDir), 'reopened', encodeURIComponent(operationId))
+  const reopenedDir = join(workerCancellationsDir(runDir), 'reopened')
+  const aside = join(
+    reopenedDir,
+    encodeURIComponent(reopenOperationId),
+    encodeURIComponent(operationId),
+  )
   mkdirSync(aside, { recursive: true })
   if (existsSync(ackFile)) renameSync(ackFile, join(aside, 'run.json'))
   if (existsSync(requestFile)) renameSync(requestFile, join(aside, 'run.request.json'))
   syncDurableDirectory(aside)
+  syncDurableDirectory(join(reopenedDir, encodeURIComponent(reopenOperationId)))
+  syncDurableDirectory(reopenedDir)
   syncDurableDirectory(workerCancellationsDir(runDir))
 }
 

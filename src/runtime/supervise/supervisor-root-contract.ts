@@ -22,36 +22,7 @@ export type SpawnedEvent = Extract<SpawnEvent, { kind: 'spawned' }>
 /** A resumed process may continue only the exact root contract first recorded for this run id. Its
  *  budget is the root's, or the one the run's last budget-carrying `reopened` row recorded. */
 export function assertResumeContract(events: SpawnEvent[], opts: SupervisorOpts): SpawnedEvent {
-  const roots = events.filter(
-    (event): event is SpawnedEvent => event.kind === 'spawned' && event.parent === undefined,
-  )
-  if (roots.length !== 1 || roots[0]?.id !== opts.runId) {
-    throw new RuntimeRunStateError(
-      `supervisor: resumed run '${opts.runId}' must contain exactly one root identity event; found ${roots.length}`,
-    )
-  }
-  const recorded = roots[0]!
-  // A reopen may carry a new budget; the last one that did is the budget this run is held to.
-  const reopenedBudget = events
-    .filter(
-      (event): event is Extract<SpawnEvent, { kind: 'reopened' }> =>
-        event.kind === 'reopened' && event.id === opts.runId && event.budget !== undefined,
-    )
-    .at(-1)?.budget
-  if (contentAddress(reopenedBudget ?? recorded.budget) !== contentAddress(opts.budget)) {
-    throw new RuntimeRunStateError(
-      `supervisor: resume budget mismatch for run '${opts.runId}'; use a new runId to change limits`,
-    )
-  }
-  const expectedAdmission = opts.reservationPolicy ? { policy: opts.reservationPolicy } : undefined
-  if (
-    contentAddress(recorded.recursiveAdmission ?? null) !==
-    contentAddress(expectedAdmission ?? null)
-  ) {
-    throw new RuntimeRunStateError(
-      `supervisor: resume reservation policy mismatch for run '${opts.runId}'; use a new runId`,
-    )
-  }
+  const recorded = assertResumeLimits(events, opts)
   if (!sameOptionalIdentity(recorded.identity, opts.rootIdentity)) {
     throw new RuntimeRunStateError(
       `supervisor: resume identity mismatch for run '${opts.runId}'; ${describeIdentityMismatch(recorded.identity, opts.rootIdentity)}`,
@@ -74,6 +45,51 @@ export function assertResumeContract(events: SpawnEvent[], opts: SupervisorOpts)
   ) {
     throw new RuntimeRunStateError(
       `supervisor: resume materialization mismatch for run '${opts.runId}'; backend, model, execution identity, and plan must match`,
+    )
+  }
+  return recorded
+}
+
+/**
+ * The limits half of the resume contract: one root identity event, the recorded budget and the
+ * reservation policy. A reopen checks them before it archives anything (`durable/run-reopen.ts`);
+ * `reopenBudget` is the budget that reopen is about to record, which then replaces the recorded one.
+ */
+export function assertResumeLimits(
+  events: readonly SpawnEvent[],
+  opts: Pick<SupervisorOpts, 'runId' | 'budget' | 'reservationPolicy'>,
+  reopenBudget?: SupervisorOpts['budget'],
+): SpawnedEvent {
+  const roots = events.filter(
+    (event): event is SpawnedEvent => event.kind === 'spawned' && event.parent === undefined,
+  )
+  if (roots.length !== 1 || roots[0]?.id !== opts.runId) {
+    throw new RuntimeRunStateError(
+      `supervisor: resumed run '${opts.runId}' must contain exactly one root identity event; found ${roots.length}`,
+    )
+  }
+  const recorded = roots[0]!
+  // A reopen may carry a new budget; the last one that did is the budget this run is held to.
+  const reopenedBudget =
+    reopenBudget ??
+    events
+      .filter(
+        (event): event is Extract<SpawnEvent, { kind: 'reopened' }> =>
+          event.kind === 'reopened' && event.id === opts.runId && event.budget !== undefined,
+      )
+      .at(-1)?.budget
+  if (contentAddress(reopenedBudget ?? recorded.budget) !== contentAddress(opts.budget)) {
+    throw new RuntimeRunStateError(
+      `supervisor: resume budget mismatch for run '${opts.runId}'; use a new runId to change limits`,
+    )
+  }
+  const expectedAdmission = opts.reservationPolicy ? { policy: opts.reservationPolicy } : undefined
+  if (
+    contentAddress(recorded.recursiveAdmission ?? null) !==
+    contentAddress(expectedAdmission ?? null)
+  ) {
+    throw new RuntimeRunStateError(
+      `supervisor: resume reservation policy mismatch for run '${opts.runId}'; use a new runId`,
     )
   }
   return recorded

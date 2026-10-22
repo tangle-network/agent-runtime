@@ -85,6 +85,16 @@ function deliveringLeaf(acts: { count: number }): Agent<unknown, unknown> {
   > & { executorSpec: AgentSpec }
 }
 
+/** Every file under the run directory and its bytes, except the directory lock. */
+async function directorySnapshot(runDir: string): Promise<Record<string, string>> {
+  const files = readdirSync(runDir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(entry.parentPath, entry.name))
+    .filter((path) => !path.includes('.lock'))
+    .sort()
+  return Object.fromEntries(files.map((path) => [path, readFileSync(path, 'utf8')]))
+}
+
 interface Harness {
   readonly runDir: string
   readonly runId: string
@@ -280,13 +290,16 @@ describe('supervisePursuit reopen', () => {
     expect(readdirSync(join(run.runDir, 'settles'))).toEqual(['1.json'])
     expect(reopenedRows(await run.events())).toHaveLength(1)
 
-    // 5. A changed budget needs reopen.budget: the resume contract refuses it.
+    // 5. A changed budget needs reopen.budget: the resume contract refuses it before any write.
+    const before = await directorySnapshot(run.runDir)
     await expect(
       run.run({
         budget: { maxIterations: 100, maxTokens: 30_000 },
         reopen: { operator: 'op-b', reason: 'more room', operationId: 'reopen-y' },
       }),
     ).rejects.toThrow(/resume budget mismatch/u)
+    expect(await directorySnapshot(run.runDir)).toEqual(before)
+    expect(reopenedRows(await run.events())).toHaveLength(1)
   }, 30_000)
 
   it('refuses a reopen with nothing to reopen or without an operator', async () => {

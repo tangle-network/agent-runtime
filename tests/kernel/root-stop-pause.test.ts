@@ -2,22 +2,30 @@ import { existsSync, writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { AgentRunCancellationAcknowledgement } from '@tangle-network/agent-interface'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentProvider,
+  AgentTurnInput,
+} from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fullProfileMaterialization } from '../../src/agent/profile-materialization'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { BackendTransportError } from '../../src/errors'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
-import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retained-executor'
 import {
   cancelRun,
   readRunCancellation,
   runCancelRequestFile,
 } from '../../src/runtime/supervise/run-cancellation'
+import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervisorRunDir, writeWorkerSteer } from '../../src/runtime/supervise/run-layout'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type { SpawnEvent, SupervisedResult } from '../../src/runtime/supervise/types'
 import { testContinuation } from '../helpers/continuation'
+import { coordinationProxy } from '../helpers/coordination-proxy'
+import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 /*
@@ -33,8 +41,10 @@ import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 type Paused = Extract<SpawnEvent, { kind: 'paused' }>
 
 const directories: string[] = []
+const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
 afterEach(async () => {
   vi.useRealTimers()
+  await Promise.all(proxies.splice(0).map((proxy) => proxy.close()))
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
   )
@@ -200,14 +210,63 @@ describe('an opted-in root pauses where it used to stop', () => {
   }, 60_000)
 
   it('pauses on a pending invocation it cannot resolve and stays open until a cancel', async () => {
+    // The `:797` case of supervise-retained-owner-pending.test.ts, opted in: the first turn
+    // commits, every replacement stays unresolvable at the provider, and the abandonments run out.
     const dir = await runDirectory()
+    const proxy = await coordinationProxy()
+    proxies.push(proxy)
+    const runDir = join(dir, 'run')
+    const context = createFileRunContext(runDir)
+    const dispatched: AgentTurnInput[] = []
+    const lost = new Set<string>()
+    const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
+      ...environment,
+      dispatch: async (turn) => {
+        const session = await environment.dispatch!(turn)
+        if (!dispatched.some((prior) => prior.executionId === turn.executionId))
+          dispatched.push(turn)
+        if (dispatched.length >= 2 && turn.executionId) lost.add(turn.executionId)
+        return session
+      },
+      session: (id, options) => {
+        const session = environment.session!(id, options)
+        const executionId = options?.controlRef?.executionId
+        return {
+          ...session,
+          result: async () => {
+            if (executionId !== undefined && lost.has(executionId))
+              throw Object.assign(new Error('retained run not found'), { status: 404 })
+            return session.result()
+          },
+          cancelRun: async (request): Promise<AgentRunCancellationAcknowledgement> => ({
+            operationId: request.operationId,
+            requestDigest: request.requestDigest,
+            run: request.run,
+            status: 'accepted',
+            effect: 'cancelled',
+          }),
+        }
+      },
+    })
+    const base = durableRetainedProvider(join(dir, 'provider.json'))
+    const provider: AgentEnvironmentProvider = {
+      ...base,
+      capabilities: async () => ({
+        ...(await base.capabilities()),
+        create: { runtimeAttachments: { mcp: true } },
+      }),
+      create: async (input) => wrap(await base.create(input)),
+      get: async (id) => {
+        const environment = await base.get!(id)
+        return environment ? wrap(environment) : null
+      },
+    }
     const runId = 'stop-pause-pending'
     const rows: Paused[] = []
-    const journal = pacedJournal(dir, (row) => {
+    const journal = pacedJournal(runDir, (row) => {
       rows.push(row)
-      cancelRun(dir, 'stop-pending', { operator: 'test-operator', reason: 'inspect it' })
+      cancelRun(runDir, 'stop-pending', { operator: 'test-operator', reason: 'inspect it' })
     })
-    let drives = 0
     const result = (await supervise(
       testAgentProfile('pending-root', {
         harness: 'codex',
@@ -215,24 +274,39 @@ describe('an opted-in root pauses where it used to stop', () => {
       }),
       'Produce the answer.',
       {
-        runDir: dir,
+        runDir,
         runId,
         journal,
-        budget: { maxIterations: 100, maxTokens: 10_000 },
-        makeWorkerAgent: noWorkers,
-        driveHarness: async () => {
-          drives += 1
-          throw new RetainedExecutionPendingError(
-            new Error('retained run not found'),
-            'unobservable',
-          )
+        blobs: context.blobs,
+        backend: { backend: 'provider', provider },
+        driverBackend: { backend: 'provider', provider },
+        budget: { maxIterations: 100, maxTokens: 1000 },
+        driverRetry: {
+          pauseRootStops: true,
+          transientOutageMs: 0,
+          initialBackoffMs: 0,
+          maxBackoffMs: 0,
+          unavailablePauseMs: 1,
+          maxUnavailablePauseMs: 1,
         },
-        // No abandonment is left, so the second identical reconciliation failure is unresolved.
-        driverRetry: { pauseRootStops: true, maxConsecutiveFailures: 0, initialBackoffMs: 1 },
-        deliverable: { describe: 'the answer', check: () => false },
         continuation: openContinuation(),
+        retainedAtSettlement: 'release',
+        teardownConfirmMs: 0,
+        deliverable: { describe: 'the answer', check: () => false },
+        coordination: {
+          authentication: {
+            signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+          },
+          publicUrl: (address) => {
+            proxy.forwardTo(address.port)
+            return `${proxy.url}/manager`
+          },
+        },
       },
     )) as SupervisedResult<unknown>
+    const events = ((await journal.loadTree(runId)) ?? []).filter((event) => event.id === runId)
+    // The real retained-owner path abandoned each replacement before the stop became a pause.
+    expect(events.filter((event) => event.kind === 'execution-abandoned').length).toBeGreaterThan(0)
     expect(rows).toEqual([
       expect.objectContaining({
         replacesStop: 'pending-unresolved',
@@ -241,13 +315,13 @@ describe('an opted-in root pauses where it used to stop', () => {
         pauseMs: 5 * 60_000,
       }),
     ])
-    expect(drives).toBe(2)
     expect(result).toMatchObject({
       kind: 'no-winner',
       reason: 'cancelled',
       operator: 'test-operator',
     })
-  }, 30_000)
+    expect(result.continuation).toMatchObject({ ended: 'aborted', stopPauses: 1 })
+  }, 60_000)
 
   it.each([false, true])(
     'retries an AbortError the run did not issue, with no pause row (pauseRootStops=%s)',
@@ -299,7 +373,7 @@ describe('an opted-in root pauses where it used to stop', () => {
     const childTools = runtimeToolDeclarations('spawn_worker')
     let rootDrives = 0
     let childDrives = 0
-    const result = (await supervise(
+    await supervise(
       testAgentProfile('root', { harness: 'codex', tools: childTools }),
       'Delegate once.',
       {
@@ -331,10 +405,14 @@ describe('an opted-in root pauses where it used to stop', () => {
         driveHarnessMaterialization: fullProfileMaterialization,
         driverRetry: { pauseRootStops: true, initialBackoffMs: 1 },
       },
-    )) as SupervisedResult<unknown>
+    )
     expect(childDrives).toBe(1)
     expect(rows).toEqual([])
-    expect(JSON.stringify(result)).toContain('down')
+    const settled = ((await journal.loadTree('nested-stop')) ?? []).filter(
+      (event): event is Extract<SpawnEvent, { kind: 'settled' }> =>
+        event.kind === 'settled' && event.id !== 'nested-stop',
+    )
+    expect(settled).toEqual([expect.objectContaining({ status: 'down' })])
   }, 30_000)
 
   it('refuses pauseRootStops with enabled: false before any compute', () => {

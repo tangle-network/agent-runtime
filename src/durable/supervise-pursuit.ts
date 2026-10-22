@@ -92,7 +92,8 @@ export interface SupervisePursuitOptions extends SuperviseOptions {
    * moved aside, and the run resumes from its journal (`resume: true`): settled children replay by
    * key and spend from before the reopen is debited once. `reopen.budget`, when set, replaces the
    * call's `budget` and is recorded for later resumes. Refused with `fork` or `versions`, and on a
-   * directory with no `result.json` ("nothing to reopen; resume it").
+   * directory with no `result.json` ("nothing to reopen; resume it"); a reopen whose budget or
+   * reservation policy the recorded run refuses ("resume budget mismatch") writes nothing.
    */
   readonly reopen?: RunReopen
 }
@@ -207,6 +208,12 @@ export async function supervisePursuit(
             runId: opts.runId ?? 'supervise',
             reopen,
             journal: opts.journal,
+            limits: {
+              budget: opts.budget,
+              ...(opts.reservationPolicy === undefined
+                ? {}
+                : { reservationPolicy: opts.reservationPolicy }),
+            },
             observer,
             pursuitId: opts.pursuitId.trim(),
             now: opts.now ?? Date.now,

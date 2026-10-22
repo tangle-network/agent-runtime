@@ -247,7 +247,8 @@ function rootStopPause(
             listening.abort()
           }
         }
-        if (!unanswered()) return
+        // A pause the timer or a cancel ended was ended by no steer, so none is marked answered.
+        if (signal.aborted || !unanswered()) return
         answeredLead = new Set(controls.queuedLeadMessages())
         answeredInbox = nextTurnInbox.pendingAuthority()
       },
@@ -599,7 +600,12 @@ async function recordManagerAttempt(
   await recordScopeOwnerDriverAttempt(scope, record)
   // A pause on an unavailable upstream is infrastructure time, and a stop-pause is the operator's
   // alarm, so the run's own journal records each; the caller's observer still sees every attempt.
-  if (record.replacesStop !== undefined && record.retryInMs !== undefined) {
+  if (
+    record.replacesStop !== undefined &&
+    record.retryInMs !== undefined &&
+    record.stopPauseStreak !== undefined &&
+    record.resumeAt !== undefined
+  ) {
     await recordScopeOwnerPause(scope, {
       attempt: record.attempt,
       signal: record.replacesStop,
@@ -608,8 +614,8 @@ async function recordManagerAttempt(
       pauseMs: record.retryInMs,
       madeProgress: record.madeProgress,
       replacesStop: record.replacesStop,
-      streak: record.stopPauseStreak ?? 1,
-      resumeAt: record.resumeAt ?? new Date().toISOString(),
+      streak: record.stopPauseStreak,
+      resumeAt: record.resumeAt,
     })
   } else if (record.classification === 'unavailable' && record.retryInMs !== undefined) {
     await recordScopeOwnerPause(scope, {
