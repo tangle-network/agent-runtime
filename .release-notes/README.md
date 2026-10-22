@@ -14,3 +14,6 @@ Use `patch`, `minor`, or `major`. Do not edit `package.json`, `CHANGELOG.md`,
 At release time, `pnpm run release:prepare` consumes every pending note, chooses the highest
 requested semver level, updates the version and changelog once, regenerates derived artifacts,
 and deletes the consumed note files.
+
+Run it from a clean source commit. It qualifies that commit's packed cohort before writing
+release files; the tagged publisher then qualifies the exact prepared release archives.
