@@ -133,6 +133,7 @@
     "check:api-surface-record": "node scripts/check-api-surface.mjs --record",
     "api:surface": "node scripts/check-api-surface.mjs --write",
     "release:prepare": "node scripts/prepare-release.mjs",
+    "release:cohort": "node scripts/verify-release-cohort.mjs",
     "release:tag": "node scripts/tag-release.mjs",
     "verify:static-imports": "node scripts/verify-static-imports.mjs",
     "verify:edge-tool-loop": "node scripts/verify-edge-tool-loop.mjs",
