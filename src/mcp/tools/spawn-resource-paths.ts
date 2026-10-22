@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { type FileHandle, open, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
-import { isRecord } from '../../record-value'
+import { isRecord } from '@tangle-network/agent-core'
 
 /**
  * Inline resources a manager hands a child by PATH instead of by content.

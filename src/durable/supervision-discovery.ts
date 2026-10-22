@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { isRecord } from '../record-value'
+import { isRecord } from '@tangle-network/agent-core'
 import type { NodeId } from '../runtime/supervise/types'
 import { readCommittedJsonLines } from './jsonl-file'
 

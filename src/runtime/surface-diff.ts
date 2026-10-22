@@ -23,9 +23,9 @@
  * @experimental
  */
 
-import { createHash } from 'node:crypto'
 import { readFile, realpath } from 'node:fs/promises'
 import { isAbsolute, resolve, sep } from 'node:path'
+import { sha256Hex } from '@tangle-network/agent-core/node'
 import { readBoxPathWithRetry } from './box-read-retry'
 import type { MountManifestEntry } from './types'
 
@@ -92,8 +92,6 @@ export interface HarvestSurfaceDiffsOptions {
    *  the harvest stays layout-agnostic. */
   watch?: readonly WatchedSurface[]
 }
-
-const sha256Hex = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
 
 /** Contain a reader that violates its typed-outcome contract by THROWING: the module's law is that
  *  a failed read becomes an `unreadable` diff, so one bad path must not reject the whole harvest

@@ -1,5 +1,5 @@
+import { isRecord } from '@tangle-network/agent-core'
 import { ValidationError } from '../errors'
-import { isRecord } from '../record-value'
 
 /**
  * Interface 5.3 admits proxy secrets and private config values, but the current Sandbox SDK

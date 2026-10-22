@@ -1,7 +1,7 @@
 /** Canonical provider request lowering for buffered and streamed completions. */
 
+import { isRecord } from '@tangle-network/agent-core'
 import type { ReasoningEffort } from '@tangle-network/agent-interface'
-import { isRecord } from '../record-value'
 import type { ChatCompletionOptions } from './router-client'
 import type { RouterTransportConfig } from './router-http-transport'
 import type { RouterRetryPolicy } from './router-retry-policy'

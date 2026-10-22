@@ -1,3 +1,4 @@
+import { isRecord } from '@tangle-network/agent-core'
 import {
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
@@ -19,7 +20,6 @@ import type {
   AgentSessionStatus,
   AgentTurnResult,
 } from '@tangle-network/agent-interface/environment-provider'
-import { isRecord } from '../record-value'
 import { armDeadlineTimer } from './supervise/deadline'
 import { abortError } from './util'
 
