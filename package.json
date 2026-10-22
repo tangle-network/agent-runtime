@@ -144,8 +144,8 @@
     "verify:package:static": "pnpm run check:model-execution-boundary && pnpm run verify:static-imports && pnpm run build && pnpm run check:api-surface && pnpm run check:testing-fixture && pnpm run check:skills && publint && attw --pack --profile esm-only .",
     "verify:official-optimizers": "node scripts/verify-official-optimizers.mjs",
     "docs:api": "pnpm run build && typedoc && node scripts/generated-api-links.mjs --write && node scripts/gen-primitive-catalog.mjs",
-    "docs:freshness": "node scripts/check-docs-freshness.mjs",
-    "docs:check": "pnpm run docs:api && git diff --exit-code -- docs/api && pnpm run docs:freshness"
+    "docs:freshness": "pnpm run build && node scripts/check-docs-freshness.mjs",
+    "docs:check": "pnpm run docs:api && git diff --exit-code -- docs/api && node scripts/check-docs-freshness.mjs"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",

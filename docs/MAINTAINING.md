@@ -49,14 +49,16 @@ turns them into a red build. The decision table's "do this, not that" is *judgme
   entry, so it follows aliased re-exports (`S as wilson`) and content-hashed bundle files
   (`statistics-<hash>.d.ts`) — the exact things that rot a hand-written list.
 - The own-surface half resolves types through `dist/`, so **a `pnpm run build` must precede
-  it** (CI builds before `docs:check`; locally, `pnpm run docs:api` after a build).
+  it**; `docs:api` and `docs:freshness` each build first, so a fresh clone or a stale
+  `dist/` cannot make the catalog check fail or pass against the wrong surface.
 - **Never hand-edit it.** Add a TSDoc summary line at the symbol's declaration in source,
   or add the export, then regenerate. To catalog a new substrate surface, add an entry to
   `substrateSurfaces` in the generator.
 
 ## The freshness gate: `scripts/check-docs-freshness.mjs`
 
-Run by `pnpm run docs:freshness`. Pure node, fail-loud (non-zero exit on any drift —
+Run by `pnpm run docs:freshness`, which builds `dist/` first because the catalog class
+(7) reads the own surface from it. Pure node, fail-loud (non-zero exit on any drift —
 matching the repo's `verify:package` / biome / tsc convention; no soft gates). It checks
 the hand-authored judgment docs **and** the generated catalog against ground truth in
 seven classes:
@@ -116,12 +118,12 @@ backticked as a current callable export they are not.
 ## `pnpm run docs:check` — the one command CI runs
 
 ```
-docs:check = docs:api  &&  git diff --exit-code docs/api  &&  docs:freshness
+docs:check = docs:api  &&  git diff --exit-code docs/api  &&  node scripts/check-docs-freshness.mjs
 ```
 
 It regenerates the reference, fails if the committed `docs/api/` is stale (you forgot
-to regenerate after a TSDoc change), then runs the freshness gate. CI runs this as the
-last step of the `ci` job ([ci workflow](../.github/workflows/ci.yml)); drift is a red build, not a
+to regenerate after a TSDoc change), then runs the freshness gate on the build `docs:api`
+just made. CI runs this as the last step of the `ci` job ([ci workflow](../.github/workflows/ci.yml)); drift is a red build, not a
 silent lie.
 
 **The pre-commit hook (`.githooks/pre-commit`) is the gate's self-healing companion.**
