@@ -1,3 +1,7 @@
+## 0.342.1
+
+`subscriptionUsageLimitSignal` recognizes the Z.ai Coding Plan refusal ("Usage limit reached for 5 hour. Your limit will reset at …") as a subscription usage limit, so a seat chain moves past an exhausted GLM plan seat instead of failing the stage (#1986). `docs:freshness` now builds `dist/` first.
+
 ## 0.342.0
 
 The packed-package check qualifies Sandbox 0.63.24 and 0.64.0, the versions the `>=0.63.10 <0.65.0` peer window and the 0.64.0 development pin install. Their SDK-private Agent Interface 4.0.0 and Agent Core 0.11.0 copies are byte-identical to the already qualified ones.
