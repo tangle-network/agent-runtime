@@ -1,3 +1,7 @@
+## 0.343.3
+
+`acquireRunDirectoryLock` and `runDirectoryHolderIsLive` decide whether a `supervise.lock` holder is dead with agent-eval's one dead-owner rule (`@tangle-network/agent-eval/lock-holder`, 0.218.1) instead of a local copy. The lock record keeps `pid`, `startedAt`, `runId` and `processStart` and adds `host`, `bootId`, `pidNamespace` and `lock` (the lock file's inode identity); a holder is reclaimed only when those prove its pid gone, its pid reused, or the host rebooted. A lock written before this release cannot be proved dead and is refused; remove it by hand after confirming its process is gone. The `@tangle-network/agent-eval` peer range is now `>=0.218.1 <0.219.0`.
+
 ## 0.343.2
 
 The packed-cohort check installs the Eval versions the registry actually published in Runtime's peer window, so a skipped `.0` release no longer stops a publish.
