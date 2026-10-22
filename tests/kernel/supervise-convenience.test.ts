@@ -512,9 +512,11 @@ describe('supervise — the deadline warning wakes a waiting manager', () => {
     > & { executorSpec: AgentSpec }
   }
 
-  // Small numbers: a 1 200 ms deadline warned 800 ms ahead is woken about 400 ms in. The heartbeat
-  // is far past the deadline, so nothing but the warning can wake the manager.
-  const timing = { deadlineMs: 1_200, deadlineWarningMs: 800 }
+  // A 6 s deadline warned 1.5 s ahead (also the quarter-of-the-run cap) is woken about 4.5 s in,
+  // leaving the woken turn 1.5 s before the deadline aborts it; a 300 ms window lost the second
+  // turn on a loaded gate host. The heartbeat is far past the deadline, so nothing but the warning
+  // can wake the manager.
+  const timing = { deadlineMs: 6_000, deadlineWarningMs: 1_500 }
 
   async function runStuckManager(
     secondTurn: (url: string, notice: string) => Promise<void>,
@@ -566,7 +568,7 @@ describe('supervise — the deadline warning wakes a waiting manager', () => {
     expect(refusedBeforeWarning).toMatchObject({ accepted: false, error: 'open-work' })
     expect(turns).toHaveLength(2)
     // deadline - deadlineWarningMs after the start, with room for a loaded host.
-    expect(turns[1]?.at).toBeGreaterThanOrEqual(300)
+    expect(turns[1]?.at).toBeGreaterThanOrEqual(4_000)
     expect(turns[1]?.at).toBeLessThan(timing.deadlineMs - 100)
     expect(turns[1]?.task).toContain("The run's deadline is in")
     expect(turns[1]?.task).toContain('Submit your best result now with submit_result')
