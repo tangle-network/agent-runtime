@@ -9,7 +9,10 @@ import { CODEX_REPRODUCIBLE_ARGS } from './codex-execution-policy'
  * lets a `LocalHarness` be handed straight to the profile materializer and the capability table
  * with no translation step.
  */
-export type LocalHarness = Extract<HarnessType, 'claude-code' | 'codex' | 'opencode' | 'pi'>
+export type LocalHarness = Extract<
+  HarnessType,
+  'claude-code' | 'codex' | 'kimi-code' | 'opencode' | 'pi'
+>
 
 /** Result of mapping an `AgentProfile` + task prompt onto a harness invocation. */
 interface HarnessInvocation {
@@ -111,14 +114,23 @@ interface HarnessInvocationSpec {
    *  more than `permissionBypassArgs` grants. Absent means `permissionBypassArgs` already is
    *  full access for this harness (Claude Code's skip-permissions has no OS sandbox to drop). */
   fullAccessArgs?: () => string[]
+  /**
+   * Capability claim: a profile's MCP servers reach this harness through the shared
+   * materializer's plan on this path — the plan's files and flags must name a configuration
+   * surface the installed CLI actually reads. Absent = a profile carrying an enabled MCP
+   * server is REFUSED at admission, before any workspace state, because spawning with config
+   * the harness never loads would run the agent without its granted tools while nothing
+   * reports the loss.
+   */
+  profileMcp?: true
 }
 
 /**
  * Default per-harness command + arg shape. `buildArgs` takes ONLY the task prompt and
  * emits the prompt-only invocation (no model, no system prompt) — the safe default shape
  * the in-process executor's `streamPrompt` drives. `modelArgs` maps a resolved model to
- * the harness's selector flag, which each harness spells for itself: codex and opencode
- * take `-m <model>`, claude-code and pi take `--model <model>`. The §1.5
+ * the harness's selector flag, which each harness spells for itself: codex, kimi-code and
+ * opencode take `-m <model>`, claude-code and pi take `--model <model>`. The §1.5
  * profile-aware mapper `harnessInvocation` composes these to thread the full
  * supervisor-authored profile (systemPrompt + model) into argv.
  *
@@ -141,6 +153,8 @@ export const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = 
       args: (level) => ['--effort', level],
     },
     permissionBypassArgs: () => ['--dangerously-skip-permissions'],
+    // `.tangle/claude-mcp.json` + `--mcp-config/--strict-mcp-config`, real claude flags.
+    profileMcp: true,
   },
   codex: {
     command: 'codex',
@@ -160,6 +174,8 @@ export const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = 
     // 2026-10-19: `git commit` exit 128 even with `--add-dir <git dir>`, and `curl` exit 6), so an
     // in-place caller that commits and pushes its own tree needs the sandbox off, as Claude has.
     fullAccessArgs: () => ['--dangerously-bypass-approvals-and-sandbox'],
+    // `-c mcp_servers={...}` inline TOML overrides — codex's own config channel.
+    profileMcp: true,
   },
   opencode: {
     command: 'opencode',
@@ -174,6 +190,8 @@ export const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = 
     // reads as an agent that gave up rather than a harness that was never granted rights.
     // Measured: three unattended worktree runs produced empty patches for exactly this.
     permissionBypassArgs: () => ['--auto'],
+    // The materializer's generated `opencode.json` `mcp` block, which opencode auto-loads.
+    profileMcp: true,
   },
   pi: {
     command: 'pi',
@@ -189,6 +207,32 @@ export const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = 
     // run in a throwaway worktree needs. It grants no OS-level escape: unlike a full
     // sandbox bypass, the blast radius stays the working directory.
     permissionBypassArgs: () => ['--approve'],
+    // The materializer writes `.pi/mcp.json` for the `pi-mcp-adapter` extension and declares
+    // that prerequisite on the plan's `requires`. This path does not enforce `requires`, so
+    // the claim covers the config surface, not the extension's presence.
+    profileMcp: true,
+  },
+  'kimi-code': {
+    command: 'kimi',
+    // `-p` IS headless prompt mode (verified `kimi --help`, kimi-code 2.2.0): run one prompt
+    // non-interactively and print the response. It CANNOT combine with `-y`/`--auto`, and a
+    // headless run auto-approves its tool calls, so there is no interactive approval gate on
+    // this path and the row contributes no permissionBypassArgs.
+    buildArgs: (taskPrompt) => ['-p', taskPrompt],
+    // `-m, --model <model>` takes an alias from the user's OWN kimi config (`models[modelId]`,
+    // kimi-code 2.3.0 resolveModelForReady); an unknown alias fails at the CLI with
+    // `model.not_found`, so any qualified id passes through whole below.
+    modelArgs: (model) => ['-m', model],
+    // NO reasoning field: kimi-code 2.x exposes no effort flag. `--thinking`/`--no-thinking`
+    // are legacy kimi-cli spellings — 2.2.0 exits 1 with `unknown option` on both — so a
+    // requested effort is refused rather than silently dropped.
+    // NO profileMcp: agent-profile-materialize (0.25.x, the declared range) lowers kimi MCP to
+    // `.kimi/mcp.json` + a `--mcp-config-file` plan flag, but no published kimi-code accepts
+    // that flag (2.2.0 and 2.3.0 exit 1: `unknown option '--mcp-config-file'`) — kimi-code 2.x
+    // auto-loads `<cwd>/.kimi-code/mcp.json` (2.3.0 dist/main.mjs:
+    // `project: join(input.cwd, ".kimi-code", "mcp.json")`). Forwarding the plan would make
+    // every MCP run exit 1 at startup, so a profile carrying MCP servers is refused at
+    // admission until the materializer's kimi lowering targets the real surface.
   },
 }
 
@@ -206,6 +250,16 @@ export function harnessSupportsReasoningEffort(
   reasoningEffort: ReasoningEffort,
 ): boolean {
   return HARNESS_INVOCATIONS[harness].reasoning?.levels[reasoningEffort] !== undefined
+}
+
+/**
+ * Whether a profile's MCP servers reach this harness on the local-harness path — the row's
+ * `profileMcp` claim that the shared materializer's plan names a config surface the installed
+ * CLI reads. Admission checks read this so a profile the spawn would silently disarm is
+ * rejected BEFORE any workspace state is created, against the same table that emits the argv.
+ */
+export function harnessMaterializesProfileMcp(harness: LocalHarness): boolean {
+  return HARNESS_INVOCATIONS[harness].profileMcp === true
 }
 
 function harnessReasoningArgs(harness: LocalHarness, reasoningEffort: ReasoningEffort): string[] {
@@ -323,6 +377,12 @@ function harnessProfileModel(harness: LocalHarness, profile: AgentProfile): stri
   if (!provider) return model
   if (harness === 'opencode') {
     return model.includes('/') ? model : `${provider}/${model}`
+  }
+  // kimi's `-m` resolves an alias against the user's OWN kimi config, whose providers the
+  // operator defines (`kimi provider …`); there is no single native provider to enforce, and
+  // the CLI refuses an unknown alias itself. The qualified id passes through whole.
+  if (harness === 'kimi-code') {
+    return model
   }
   const nativeProvider = harness === 'codex' ? 'openai' : 'anthropic'
   if (provider !== nativeProvider) {

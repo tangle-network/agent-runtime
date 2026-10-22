@@ -1,7 +1,7 @@
 /**
  *
  * The worktree-CLI leaf executor — a supervisor-authored `AgentProfile` driving a local
- * coding-harness CLI (claude / codex / opencode) on its OWN git worktree, surfaced as the open
+ * coding-harness CLI (claude / codex / opencode / pi / kimi-code) on its OWN git worktree, surfaced as the open
  * `Executor<Out>` port (`./types`). It is a LEAF executor: it plugs straight into the
  * `Scope`/`Supervisor` recursion and `gateOnDeliverable`, so it IS the canonical recursive path
  * (no `runAgentRounds`/virtual-SandboxInstance shim in between).

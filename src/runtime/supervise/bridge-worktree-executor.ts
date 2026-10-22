@@ -270,6 +270,6 @@ function bridgeOutputText(out: unknown): string {
 
 /**
  * The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored
- * `AgentProfile` driving claude / codex / opencode on its own worktree. `budgetExempt` like
+ * `AgentProfile` driving claude / codex / opencode / pi / kimi-code on its own worktree. `budgetExempt` like
  * the other CLI leaves; the authored systemPrompt + model reach the harness via §1.5.
  */

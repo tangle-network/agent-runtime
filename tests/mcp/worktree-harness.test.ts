@@ -888,3 +888,103 @@ describe('runWorktreeHarness profile materialization', () => {
     }
   })
 })
+
+describe('runWorktreeHarness kimi-code', () => {
+  it('runs kimi-code with the composed prompt, model alias, and materialized profile files', async () => {
+    const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
+    const runId = 'kimi-code-run'
+    const inputPath = 'profile-context.txt'
+    const inputMarker = 'KIMI_FILE_MARKER_3f9c1d02'
+    const systemMarker = 'KIMI_SYSTEM_0b77a1e4'
+    const taskMarker = 'KIMI_TASK_5c2e88b1'
+    try {
+      const run = await runWorktreeHarness({
+        repoRoot,
+        profile: {
+          prompt: { systemPrompt: systemMarker },
+          model: { provider: 'moonshot', default: 'kimi-code/k3' },
+          resources: {
+            files: [
+              {
+                path: inputPath,
+                resource: { kind: 'inline', name: 'context', content: inputMarker },
+              },
+            ],
+          },
+        },
+        harness: 'kimi-code',
+        taskPrompt: taskMarker,
+        runId,
+        runHarness: async (options) => {
+          expect(options.harness).toBe('kimi-code')
+          expect(options.invocation?.command).toBe('kimi')
+          const args = options.invocation?.args ?? []
+          expect(args[0]).toBe('-p')
+          const prompt = args[1] ?? ''
+          expect(count(prompt, systemMarker)).toBe(1)
+          expect(count(prompt, taskMarker)).toBe(1)
+          expect(args).toContain('-m')
+          expect(args).toContain('kimi-code/k3')
+          // Headless kimi has no approval gate to bypass, and this path consumes plain-text
+          // stdout for every harness — no stream-json flag is added for kimi either.
+          expect(args).not.toContain('--output-format')
+          expect(args).not.toContain('--mcp-config-file')
+          expect(args.some((arg) => arg.includes('--dangerously'))).toBe(false)
+          expect(readFileSync(join(options.cwd, inputPath), 'utf8')).toBe(inputMarker)
+          writeFileSync(join(options.cwd, 'src/value.ts'), 'export const value = 2\n')
+          return successfulHarnessResult()
+        },
+      })
+
+      try {
+        expect(run.result.patch).toContain('+export const value = 2')
+        expect(run.result.patch).not.toContain(inputPath)
+        expect(run.result.profileMaterialization?.writtenPaths).toEqual([inputPath])
+        expect(run.result.profileMaterialization?.unsupported).toEqual([])
+        expect(run.result.harness.name).toBe('kimi-code')
+      } finally {
+        await run.cleanup()
+      }
+      expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
+      expect(git(repoRoot, ['branch', '--list', `delegate/${runId}`])).toBe('')
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses enabled profile MCP servers on kimi-code before creating the worktree', async () => {
+    const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
+    const runId = 'kimi-code-mcp-refused'
+    const runHarness = vi.fn()
+    try {
+      // The materializer's kimi lowering (`.kimi/mcp.json` + `--mcp-config-file`) names a flag
+      // no published kimi-code accepts, so admission refuses rather than spawning disarmed.
+      await expect(
+        runWorktreeHarness({
+          repoRoot,
+          profile: { mcp: { local: { command: 'node', args: ['server.mjs'] } } },
+          harness: 'kimi-code',
+          taskPrompt: 'task',
+          runId,
+          runHarness,
+        }),
+      ).rejects.toThrow(/profile requests unsupported worktree behavior: mcp/u)
+      expect(runHarness).not.toHaveBeenCalled()
+      expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
+      expect(git(repoRoot, ['branch', '--list', `delegate/${runId}`])).toBe('')
+
+      // A disabled server carries nothing and does not trip the refusal.
+      const run = await runWorktreeHarness({
+        repoRoot,
+        profile: { mcp: { off: { enabled: false } } },
+        harness: 'kimi-code',
+        taskPrompt: 'task',
+        runId: 'kimi-code-mcp-disabled',
+        runHarness: async () => successfulHarnessResult(),
+      })
+      await run.cleanup()
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+})
