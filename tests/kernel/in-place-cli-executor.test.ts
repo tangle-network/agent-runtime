@@ -12,12 +12,13 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type {
   LocalHarnessResult,
   RunLocalHarnessOptions,
@@ -40,11 +41,18 @@ function git(repoRoot: string, args: string[]): string {
   return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim()
 }
 
+const workspaces: string[] = []
+
+afterEach(() => {
+  for (const root of workspaces.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
 /** A throwaway git checkout with one committed file, standing in for the candidate worktree a
  *  driver hands the author. `realpathSync` because macOS reports `/var/...` for a directory git
  *  reports as `/private/var/...`, and a raw comparison of the two names is a false mismatch. */
 function scaffoldWorkspace(): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'agent-runtime-in-place-')))
+  workspaces.push(root)
   git(root, ['init', '-q', '--initial-branch=main'])
   git(root, ['config', 'core.hooksPath', '/dev/null'])
   git(root, ['config', 'user.email', 'runtime-test@example.invalid'])

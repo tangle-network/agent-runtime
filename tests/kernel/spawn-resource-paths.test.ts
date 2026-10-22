@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
-import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { createCoordinationTools } from '../../src/mcp/tools/coordination-manager'
 import {
   environmentReader,
@@ -15,8 +15,15 @@ import type { ResultBlobStore, Scope, Spend } from '../../src/runtime'
 
 const sha = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex')
 
+const bases: string[] = []
+
+afterEach(async () => {
+  await Promise.all(bases.splice(0).map((base) => rm(base, { recursive: true, force: true })))
+})
+
 async function workspace(): Promise<{ root: string; outside: string }> {
   const base = await mkdtemp(join(tmpdir(), 'spawn-resource-paths-'))
+  bases.push(base)
   const root = join(base, 'workspace')
   const outside = join(base, 'outside')
   await mkdir(join(root, 'experiments'), { recursive: true })
