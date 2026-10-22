@@ -1,3 +1,11 @@
+## 0.343.4
+
+Admit agent-eval 0.220.x while retaining compatibility with the existing peer floor.
+
+Qualify the clean source cohort before generating versioned release files, so release preparation preserves the cohort verifier's clean-checkout requirement.
+
+release:prepare runs the packed-cohort check before a release is tagged, so a cohort error no longer first appears in Publish.
+
 ## 0.343.3
 
 `acquireRunDirectoryLock` and `runDirectoryHolderIsLive` decide whether a `supervise.lock` holder is dead with agent-eval's one dead-owner rule (`@tangle-network/agent-eval/lock-holder`, 0.218.1) instead of a local copy. The lock record keeps `pid`, `startedAt`, `runId` and `processStart` and adds `host`, `bootId`, `pidNamespace` and `lock` (the lock file's inode identity); a holder is reclaimed only when those prove its pid gone, its pid reused, or the host rebooted. A lock written before this release cannot be proved dead and is refused; remove it by hand after confirming its process is gone. The `@tangle-network/agent-eval` peer range is now `>=0.218.1 <0.219.0`.

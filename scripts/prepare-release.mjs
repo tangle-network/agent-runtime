@@ -32,6 +32,14 @@ else if (level === 'minor') { minor += 1; patch = 0 }
 else patch += 1
 const version = `${major}.${minor}.${patch}`
 
+const run = (script) => {
+  console.log(`\n$ pnpm run ${script}`)
+  execFileSync('pnpm', ['run', script], { cwd: repoRoot, stdio: 'inherit' })
+}
+
+// The cohort archives the clean source commit; qualify it before generating release files.
+run('release:cohort')
+
 const updated = raw.replace(
   /^(\s*"version":\s*)"[^"]+"/m,
   (_match, prefix) => `${prefix}"${version}"`,
@@ -59,15 +67,9 @@ writeFileSync(canonicalPath, canonicalUpdated)
 
 for (const note of notes) rmSync(resolve(repoRoot, '.release-notes', note.name))
 
-const run = (script) => {
-  console.log(`\n$ pnpm run ${script}`)
-  execFileSync('pnpm', ['run', script], { cwd: repoRoot, stdio: 'inherit' })
-}
-
 run('generate:testing-fixture')
 run('docs:api')
 run('api:surface')
-run('release:cohort')
 
 console.log(
   [
