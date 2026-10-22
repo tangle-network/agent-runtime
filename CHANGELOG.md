@@ -1,3 +1,9 @@
+## 0.340.1
+
+Admit Agent Eval 0.216 and 0.217: the Agent Eval peer widens to `>=0.215.0 <0.218.0` and Runtime develops against 0.217.1. Agent Knowledge moves to `^22.0.7`, whose own Agent Eval peer admits 0.217. The Sandbox peer's last window widens from `>=0.63.10 <0.63.11` to `>=0.63.10 <0.65.0`.
+
+Internal restructuring only: no exported name, signature or behaviour changes. The supervisor, scope, driver, worker, environment-provider, private CAS, candidate execution, improvement and coordination-tool factories that ran 300 to 900 lines each are split into named steps and state owners, so no function in `src/` now exceeds 300 lines. Every entry point's export list is unchanged.
+
 ## 0.340.0
 
 A barren streak no longer ends a run. Once `continuation.maxBarren` re-entered drives in a row complete without progress, the root driver pauses before each further continuation and re-enters: 5 minutes, then 10, 20, 40, and 60 at most, bounded only by the deadline, the budget and cancellation, and consuming neither `driverRetry.maxAttempts` nor the streak. Each pause journals one `barren-pause` row against the manager (`attempt`, `streak`, `pauseMs`, `resumeAt`, `lastProgressAt`) for an operator alarm, the continued attempt's `DriverAttemptRecord.barrenPauseMs` records it, and the re-entry tells the root that its last turns delivered nothing and to wait on long work of its own inside the turn. Progress, a delivery or a rise in the check's best composite, resets the streak and the pause. `DriverRepromptRefusal` loses `'no-progress'`, so `repromptRefusedBy: 'no-progress'` is never produced; a consumer that matched on it reads `barren-pause` rows instead. Measured motive: magnetar-rust-20261021a settled `no-winner` 14.3 hours into a 48-hour run while its root waited on its own prove.
