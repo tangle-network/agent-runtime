@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process'
 import { basename } from 'node:path'
+import { isRecord } from '@tangle-network/agent-core'
 import { sha256 } from '../content-digest'
-import { isRecord } from '../record-value'
 import { processGroupExists, terminateProcessTreeAndConfirm } from '../runtime/process-tree'
 import { redactCodexHome } from './codex-diagnostics'
 import {

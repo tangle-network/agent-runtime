@@ -12,7 +12,7 @@
  * speaks HTTP — no SDK weight, no transitive deps.
  */
 
-import { isRecord } from '../record-value'
+import { isRecord } from '@tangle-network/agent-core'
 
 export interface PlatformAuthClientOptions {
   /** Platform base URL, e.g. `https://id.tangle.tools`. */

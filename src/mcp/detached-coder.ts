@@ -17,11 +17,11 @@
  * @experimental
  */
 
+import { isRecord } from '@tangle-network/agent-core'
 import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { ConfigError } from '../errors'
 import { type CoderTask, coderTaskToPrompt } from '../profiles/coder'
-import { isRecord } from '../record-value'
 import { assertExecutableAgentProfile } from '../runtime/supervise/model-policy'
 import { type CoderCheckConstraints, runCoderChecks } from '../runtime/supervise/patch-checks'
 import type { AgentRunSpec, Driver, OutputAdapter, Validator } from '../runtime/types'

@@ -1,5 +1,5 @@
+import { isRecord } from '@tangle-network/agent-core'
 import { ValidationError } from '../errors'
-import { isRecord } from '../record-value'
 import { parseCodexUsageRecord } from '../runtime/harness-usage'
 
 /**

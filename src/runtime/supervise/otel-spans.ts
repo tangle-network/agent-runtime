@@ -23,6 +23,7 @@
  * attribute and set `tangle.supervise.tokens_known` / `cost_known` to `false`.
  */
 
+import { isRecord } from '@tangle-network/agent-core'
 import {
   type AgentIdentity,
   ATTR,
@@ -31,7 +32,6 @@ import {
 import { contentAddress } from '../../durable/content-address'
 import type { OtelExportConfig, OtelExporter, OtelExportStats, OtelSpan } from '../../otel-export'
 import { createOtelExporter, generateSpanId, toOtelAttributes } from '../../otel-export'
-import { isRecord } from '../../record-value'
 import type { RuntimeHookEvent, RuntimeHooks } from '../../runtime-hooks'
 import type { Budget, Spend, SupervisedResult } from './types'
 import type { TraceContext, WorkerTraceResolver } from './worker-trace'

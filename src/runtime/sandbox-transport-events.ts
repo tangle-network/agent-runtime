@@ -1,8 +1,8 @@
 /** Canonical Sandbox/provider wire-envelope decoding and transport identity. */
 
+import { isRecord } from '@tangle-network/agent-core'
 import { CanonicalStreamEventSchema, type StreamEvent } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
-import { isRecord } from '../record-value'
 import { assertRuntimeTimestamp } from './timestamps'
 
 export const CANONICAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set([

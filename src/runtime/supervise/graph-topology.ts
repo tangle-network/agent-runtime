@@ -7,10 +7,10 @@
 
 // Canonical topology validation and profile preparation for root and nested graphs.
 
+import { isRecord } from '@tangle-network/agent-core'
 import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
-import { isRecord } from '../../record-value'
 import { errMessage } from './error-message'
 import type { GraphEdge, GraphNode, GraphTopology } from './graph'
 import { flowRootName, flowRootProfile, type ValidatedFlow, validateFlowGraph } from './graph-flow'

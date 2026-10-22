@@ -4,7 +4,7 @@
  * by the provider before a consumer can use these tokens at a paid API.
  */
 
-import { isRecord } from '../record-value'
+import { isRecord } from '@tangle-network/agent-core'
 import { PlatformAuthError } from './auth.js'
 
 export interface PlatformOidcClientOptions {

@@ -1,12 +1,12 @@
 import { isAbsolute, win32 } from 'node:path'
 import { isAnyArrayBuffer, isSharedArrayBuffer } from 'node:util/types'
+import { isRecord } from '@tangle-network/agent-core'
 import type {
   AgentCandidateCapturedArtifact,
   AgentCandidateWorkspaceSnapshotEvidence,
 } from '@tangle-network/agent-interface'
 import { extract, type Pack, pack, type Extract as TarExtract } from 'tar-stream'
 import { hasControlCharacter } from '../path-control-characters'
-import { isRecord } from '../record-value'
 import { candidateWorkspaceManifest, verifyBytes } from './artifacts'
 import {
   canonicalCandidateBytes,
