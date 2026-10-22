@@ -1,3 +1,7 @@
+## 0.343.1
+
+The release cohort names the Eval 0.218.1 and Knowledge 22.0.11 builds that Runtime admits, so the 0.343 release can publish.
+
 ## 0.343.0
 
 The agent-eval peer range admits 0.218 (`>=0.216.0 <0.219.0`), whose agent-core `^0.13.1` matches Runtime's, so a packed consumer loads one agent-core.
