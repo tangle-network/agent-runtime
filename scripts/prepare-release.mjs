@@ -67,6 +67,7 @@ const run = (script) => {
 run('generate:testing-fixture')
 run('docs:api')
 run('api:surface')
+run('release:cohort')
 
 console.log(
   [
