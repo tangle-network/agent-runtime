@@ -270,7 +270,8 @@ export interface SuperviseOptions {
   readonly onWorkerRetry?: (attempt: WorkerSpawnRetryAttempt) => void
   /**
    * How an EXTERNAL-harness manager with a completion check is sent back when its turn ends with
-   * the check unmet: the deadline, `maxBarren`, and the continuation note's profile and switches.
+   * the check unmet: `maxBarren`, an optional deadline, and the continuation note's profile and
+   * switches.
    *
    * A harness owns its own turn loop, so it decides when it is finished — and it can decide that
    * while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
@@ -281,7 +282,8 @@ export interface SuperviseOptions {
    *
    * A continuation is the retry path, not a second loop: same scope, same coordination server,
    * same live children, and the same budget, deadline, and abort bounds. There is no count: the
-   * loop ends when the check passes, at this deadline, on the budget, or on cancellation. After
+   * loop ends when the check passes, on cancellation, on the budget, or at this deadline when one
+   * is set; with none, no clock ends the run. After
    * `maxBarren` turns in a row without progress, each further continuation waits a barren pause
    * first, journaled `barren-pause`. A turn that ends, a blocked tool, and a lost
    * stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`src/runtime/supervise/continuation.ts`); the

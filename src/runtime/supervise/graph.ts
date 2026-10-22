@@ -948,7 +948,7 @@ export function superviseAgentGraph(
     }
     const result = concluded?.result ?? supervised
     const stopped = concluded?.stopped
-    // A LIFECYCLE ending (caller abort, exhausted budget) is its own complete explanation: the
+    // A LIFECYCLE ending (caller abort, exhausted budget, deadline) is its own complete explanation: the
     // cap did not end that run even when it was exhausted along the way, and blaming it would
     // misattribute the ending (and turn a caller-initiated abort into a throw). The exhaustion
     // stays observable in `exhaustedEdges` either way.
@@ -956,7 +956,8 @@ export function superviseAgentGraph(
       result.kind === 'no-winner' &&
       (result.reason === 'aborted' ||
         result.reason === 'cancelled' ||
-        result.reason === 'budget-exhausted')
+        result.reason === 'budget-exhausted' ||
+        result.reason === 'deadline')
     if (result.kind !== 'winner' && !lifecycleEnded && exhaustedDelegates.length > 0) {
       // Fail LOUD: the backstop, not the task, ended this run. The evidence rides on the error.
       // Only DELEGATES caps refuse spawns, so only they can be the cause named here.

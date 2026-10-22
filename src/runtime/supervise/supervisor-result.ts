@@ -67,11 +67,12 @@ export function classifyNoWinner(
   allChildrenDownAtSettle: boolean,
 ): LifecycleNoWinnerReason | undefined {
   // A tripped breaker is the most specific cause (children kept dying), so it outranks
-  // the abort it raised. A deadline that won the abort race remains budget exhaustion;
-  // then come caller/handle abort and other exhausted pool channels. Then every child down,
-  // which is what `all-children-down` asserts.
+  // the abort it raised. A deadline that won the abort race is `deadline`; then come caller/handle
+  // abort, every child down (what `all-children-down` asserts), a spent pool, and a deadline the
+  // clock passed without its timer winning. `budget-exhausted` names a spent pool only: measured
+  // 2026-10-21, 93 of 98 runs labelled it had ended on the deadline with tokens left (median 99.8%).
   if (breaker.tripped()) return 'all-children-down'
-  if (deadlineExceeded) return 'budget-exhausted'
+  if (deadlineExceeded) return 'deadline'
   if (abortedAtSettle) return 'aborted'
   // Unknown terminal usage correctly seals the remaining pool, but that accounting consequence is
   // not the cause of a run where every child failed. Preserve the lifecycle outcome before asking
@@ -79,6 +80,7 @@ export function classifyNoWinner(
   // still classifies as budget exhaustion below.
   if (allChildrenDownAtSettle) return 'all-children-down'
   if (poolExhausted(pool, opts)) return 'budget-exhausted'
+  if (deadlinePassed(pool, opts)) return 'deadline'
   // One down child among delivered siblings explains nothing about why the root selected no
   // result, and it used to settle `all-children-down` here: verified-agency-20260920b spawned 8,
   // settled 6 done and 2 down to a runtime restart, and carried that reason. The count stays on
@@ -102,13 +104,11 @@ function poolExhausted(pool: BudgetPool, opts: SupervisorOpts): boolean {
   const r = pool.readout()
   if (r.iterationsLeft <= 0) return true
   if (r.tokensLeft <= 0) return true
-  if (opts.budget.maxUsd !== undefined && r.usdLeft <= 0) return true
-  if (
-    opts.budget.deadlineMs !== undefined &&
-    r.deadlineMs > 0 &&
-    (opts.now ?? Date.now)() >= r.deadlineMs
-  ) {
-    return true
-  }
-  return false
+  return opts.budget.maxUsd !== undefined && r.usdLeft <= 0
+}
+
+function deadlinePassed(pool: BudgetPool, opts: SupervisorOpts): boolean {
+  if (opts.budget.deadlineMs === undefined) return false
+  const deadlineMs = pool.readout().deadlineMs
+  return deadlineMs > 0 && (opts.now ?? Date.now)() >= deadlineMs
 }
