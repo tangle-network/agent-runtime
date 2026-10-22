@@ -133,7 +133,12 @@ export function createPrivateCasArtifactPort(
   if (!isAbsolute(root)) throw new Error('private CAS root must be absolute')
   if (!SAFE_NAMESPACE.test(namespace) || namespace === '.' || namespace === '..')
     throw new Error('private CAS namespace must be one safe identifier')
-  const { durable, localBudgetBytes, durableStallMs = DURABLE_STALL_MS, ephemeral = false } = options
+  const {
+    durable,
+    localBudgetBytes,
+    durableStallMs = DURABLE_STALL_MS,
+    ephemeral = false,
+  } = options
   if (!Number.isSafeInteger(durableStallMs) || durableStallMs <= 0)
     throw new Error('private CAS durableStallMs must be a positive integer')
   if (typeof ephemeral !== 'boolean') throw new Error('private CAS ephemeral must be a boolean')

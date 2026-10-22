@@ -677,16 +677,33 @@ it('an ephemeral store streams, publishes and copies its objects off the host wi
   roots.push(root)
   const capture = async (name: string, ephemeral: boolean) => {
     const bucket = await diskS3StreamStore(join(root, `${name}-bucket`))
-    const port = createPrivateCasArtifactPort(join(root, name), 'run-1', { durable: bucket.store, ephemeral })
+    const port = createPrivateCasArtifactPort(join(root, name), 'run-1', {
+      durable: bucket.store,
+      ephemeral,
+    })
     const before = durableSyncCount()
     const refs = []
     // The streaming write path, as a workspace capture stores its files (workspace-streams.ts).
     for (const index of [1, 2, 3]) {
       const bytes = Buffer.from(`file ${index}\n`)
-      refs.push(await port.putStream!({ executionId: 'node-1', purpose: 'candidate-workspace-file', chunks: (async function* () { yield bytes })() }))
+      refs.push(
+        await port.putStream!({
+          executionId: 'node-1',
+          purpose: 'candidate-workspace-file',
+          chunks: (async function* () {
+            yield bytes
+          })(),
+        }),
+      )
     }
     const report = await port.offload()
-    return { port, refs, report, syncs: durableSyncCount() - before, uploads: bucket.counts().uploads }
+    return {
+      port,
+      refs,
+      report,
+      syncs: durableSyncCount() - before,
+      uploads: bucket.counts().uploads,
+    }
   }
   const staged = await capture('staging', true)
   expect(staged.syncs).toBe(0)
@@ -696,7 +713,11 @@ it('an ephemeral store streams, publishes and copies its objects off the host wi
   // Every object is published, readable and has its durable receipt: only the fsyncs are gone.
   for (const ref of staged.refs) {
     expect(Buffer.from(await staged.port.read(ref)).toString()).toMatch(/^file \d\n$/)
-    expect(JSON.parse(await readFile(join(root, 'staging', 'durable', 'sha256', ref.sha256.slice(7)), 'utf8'))).toMatchObject({ digest: ref.sha256, namespace: 'run-1' })
+    expect(
+      JSON.parse(
+        await readFile(join(root, 'staging', 'durable', 'sha256', ref.sha256.slice(7)), 'utf8'),
+      ),
+    ).toMatchObject({ digest: ref.sha256, namespace: 'run-1' })
   }
   // The same capture into a store read after a restart: each object and each receipt is fsynced, with its directory.
   const kept = await capture('run', false)
@@ -706,6 +727,12 @@ it('an ephemeral store streams, publishes and copies its objects off the host wi
 it('ephemeral is a boolean and needs a durable store', async () => {
   const root = await mkdtemp(join(tmpdir(), 'private-cas-ephemeral-'))
   roots.push(root)
-  expect(() => createPrivateCasArtifactPort(join(root, 'a'), 'run-1', { ephemeral: 'false' as unknown as boolean })).toThrow('ephemeral must be a boolean')
-  expect(() => createPrivateCasArtifactPort(join(root, 'b'), 'run-1', { ephemeral: true })).toThrow('ephemeral needs a durable store')
+  expect(() =>
+    createPrivateCasArtifactPort(join(root, 'a'), 'run-1', {
+      ephemeral: 'false' as unknown as boolean,
+    }),
+  ).toThrow('ephemeral must be a boolean')
+  expect(() => createPrivateCasArtifactPort(join(root, 'b'), 'run-1', { ephemeral: true })).toThrow(
+    'ephemeral needs a durable store',
+  )
 })
