@@ -131,8 +131,15 @@ function dispatch(): void {
   }
 }
 
+let syncs = 0
+/** fsyncs this process has asked for so far: a caller measures its own by the difference. */
+export function durableSyncCount(): number {
+  return syncs
+}
+
 /** fsync an open file or directory on a sync thread; keep the handle open until this settles. */
 export function syncHandle(handle: FileHandle): Promise<void> {
+  syncs += 1
   if (threadsUnavailable) return handle.sync()
   return new Promise<void>((resolve, reject) => {
     jobs.push({ handle, settle: (error) => (error === undefined ? resolve() : reject(error)) })
