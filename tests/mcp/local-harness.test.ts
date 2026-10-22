@@ -18,7 +18,11 @@ import { setTimeout as scheduleTimeout } from 'node:timers'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
 import { CodexExecutionDiagnosticError } from '../../src/mcp/codex-diagnostics'
-import { harnessInvocation } from '../../src/mcp/local-harness-invocation'
+import {
+  harnessInvocation,
+  harnessMaterializesProfileMcp,
+  harnessSupportsReasoningEffort,
+} from '../../src/mcp/local-harness-invocation'
 import { runLocalHarness } from '../../src/mcp/local-harness-process'
 
 function makeFakeChild(opts: {
@@ -886,6 +890,51 @@ describe('runLocalHarness', () => {
       }
       rmSync(cwd, { recursive: true, force: true })
       rmSync(authHome, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('kimi-code harness invocation', () => {
+  it('pins the headless prompt-only argv shape', () => {
+    const invocation = harnessInvocation('kimi-code', {}, 'do the task')
+    expect(invocation.command).toBe('kimi')
+    expect(invocation.args).toEqual(['-p', 'do the task'])
+  })
+
+  it('threads the composed prompt and the model alias through whole', () => {
+    const profile: AgentProfile = {
+      prompt: { systemPrompt: 'SYS', instructions: ['RULE ONE'] },
+      // kimi's `-m` resolves an alias from the user's own kimi config, so a provider other
+      // than a fixed native one is NOT a refusal and a qualified id is not rewritten.
+      model: { provider: 'moonshot', default: 'kimi-code/k3' },
+    }
+    const invocation = harnessInvocation('kimi-code', profile, 'task')
+    expect(invocation.command).toBe('kimi')
+    expect(invocation.args).toEqual(['-p', 'SYS\n\nRULE ONE\n\ntask', '-m', 'kimi-code/k3'])
+    expect(invocation.prompt).toBe('SYS\n\nRULE ONE\n\ntask')
+  })
+
+  it('requests no permission-bypass argv: headless -p has no approval gate to bypass', () => {
+    for (const options of [
+      { dangerouslySkipPermissions: true },
+      { dangerouslySkipPermissions: true, fullAccess: true },
+    ] as const) {
+      const invocation = harnessInvocation('kimi-code', {}, 'task', options)
+      expect(invocation.args).toEqual(['-p', 'task'])
+    }
+  })
+
+  it('refuses a reasoning effort kimi-code 2.x cannot express', () => {
+    expect(harnessSupportsReasoningEffort('kimi-code', 'low')).toBe(false)
+    expect(() =>
+      harnessInvocation('kimi-code', { model: { reasoningEffort: 'low' } }, 'task'),
+    ).toThrow(/kimi-code cannot express reasoning effort/)
+  })
+
+  it('declares no MCP materialization capability until the materializer targets a config kimi reads', () => {
+    expect(harnessMaterializesProfileMcp('kimi-code')).toBe(false)
+    for (const harness of ['claude-code', 'codex', 'opencode', 'pi'] as const) {
+      expect(harnessMaterializesProfileMcp(harness)).toBe(true)
     }
   })
 })

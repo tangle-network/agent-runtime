@@ -1,7 +1,7 @@
 /**
  *
  * In-process delegation executor — when `agent-runtime-mcp` runs inside a sandbox whose image
- * carries the local coding-harness CLIs (claude / codex / opencode), delegations spawn the harness
+ * carries the local coding-harness CLIs (claude / codex / opencode / pi / kimi-code), delegations spawn the harness
  * AS A SUBPROCESS against a git worktree on the SAME filesystem instead of provisioning a sibling
  * sandbox. Zero provisioning latency; worker diffs land in-place; multi-harness fanout = N parallel
  * subprocesses in N parallel worktrees. Each authored profile selects its own harness.
