@@ -1,7 +1,8 @@
 /**
  * The local object store of a private CAS: where an object lives, how it is written, read back
  * and verified, and how a locator is checked. An object's name is published only after its bytes
- * are synced, and that order is what makes a name trustworthy: see `createPrivateCasArtifactPort`.
+ * are synced, and that order is what makes a name trustworthy, except in an `ephemeral` store, which
+ * syncs nothing and is never read after its process ends: see `createPrivateCasArtifactPort`.
  * Durable copies build on these.
  */
 
@@ -24,6 +25,8 @@ export interface PrivateCasLayout {
   readonly durable: PrivateCasDurableStore | undefined
   readonly localBudgetBytes: number | undefined
   readonly durableStallMs: number
+  /** No fsync: the root does not outlive its process (PrivateCasOptions.ephemeral). */
+  readonly ephemeral: boolean
 }
 
 export const isMissingPath = (error: unknown): boolean =>
@@ -262,7 +265,7 @@ export async function putPrivateCasStream(
         await file.writeFile(chunk)
       }
       signal?.throwIfAborted()
-      await syncHandle(file)
+      if (!layout.ephemeral) await syncHandle(file)
     } finally {
       await file.close()
     }
@@ -287,7 +290,7 @@ export async function putPrivateCasStream(
         // An existing object must independently match, even when our staged bytes were valid.
       }
     }
-    await syncDirectory(directory)
+    if (!layout.ephemeral) await syncDirectory(directory)
     if (durable !== undefined) await offload.settlePut({ sha, byteLength, linked }, signal)
     return ref
   } finally {
@@ -312,7 +315,7 @@ export async function putPrivateCasBuffered(
   const file = await open(temporary, CREATE_EXCLUSIVE, 0o600)
   try {
     await file.writeFile(bytes)
-    await syncHandle(file)
+    if (!layout.ephemeral) await syncHandle(file)
   } finally {
     await file.close()
   }
@@ -325,7 +328,7 @@ export async function putPrivateCasBuffered(
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
       linked = false
     }
-    await syncDirectory(directory)
+    if (!layout.ephemeral) await syncDirectory(directory)
   } finally {
     await unlink(temporary).catch(() => undefined)
   }

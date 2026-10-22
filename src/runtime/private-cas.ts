@@ -70,6 +70,15 @@ export interface PrivateCasOptions {
   readonly localBudgetBytes?: number
   /** Milliseconds a durable copy may move no bytes before it is abandoned and retried (default 2 min). */
   readonly durableStallMs?: number
+  /**
+   * The root is discarded when its process ends, so nothing written to it must survive a crash:
+   * objects and receipts are written and published without fsync. For a capture's staging, whose
+   * caller removes it and whose dead process's directory is swept, and whose durable record is
+   * kept elsewhere (the durable store, and receipts the caller copies and syncs itself). Never on
+   * a store read after a restart. On drew-gtr-pro on 2026-10-21 a staging store's fsyncs, about
+   * four per object, came to 6,924 in 60 s and held a 150-file capture to about 1.4 files/s.
+   */
+  readonly ephemeral?: boolean
 }
 
 /** One offload pass: what reached the durable store and what the host still holds. */
@@ -111,6 +120,10 @@ export interface PrivateCasArtifactPort extends AgentCandidateOutputArtifactPort
  * runner/evidence-store.mjs commits receipts this way). On drew-gtr-pro's USB SMR disk on
  * 2026-10-21 these per-object fsyncs, 545 ms each on the 16 SYNC_THREADS, set a store's rate at
  * about 26 files/s.
+ *
+ * The one exception is an `ephemeral` store, which syncs nothing: its root is discarded with its
+ * process, so no name in it is ever read after a crash, and nothing durable may be derived from it
+ * but by a caller that copies and syncs what it keeps.
  */
 export function createPrivateCasArtifactPort(
   root: string,
@@ -120,9 +133,18 @@ export function createPrivateCasArtifactPort(
   if (!isAbsolute(root)) throw new Error('private CAS root must be absolute')
   if (!SAFE_NAMESPACE.test(namespace) || namespace === '.' || namespace === '..')
     throw new Error('private CAS namespace must be one safe identifier')
-  const { durable, localBudgetBytes, durableStallMs = DURABLE_STALL_MS } = options
+  const {
+    durable,
+    localBudgetBytes,
+    durableStallMs = DURABLE_STALL_MS,
+    ephemeral = false,
+  } = options
   if (!Number.isSafeInteger(durableStallMs) || durableStallMs <= 0)
     throw new Error('private CAS durableStallMs must be a positive integer')
+  if (typeof ephemeral !== 'boolean') throw new Error('private CAS ephemeral must be a boolean')
+  // Without a durable store an ephemeral root would be the only copy of what it holds.
+  if (ephemeral && durable === undefined)
+    throw new Error('private CAS ephemeral needs a durable store')
   if (
     localBudgetBytes !== undefined &&
     (durable === undefined || !Number.isSafeInteger(localBudgetBytes) || localBudgetBytes < 0)
@@ -135,6 +157,7 @@ export function createPrivateCasArtifactPort(
     durable,
     localBudgetBytes,
     durableStallMs,
+    ephemeral,
   }
   const offload = new PrivateCasOffload(layout)
   const readStream: NonNullable<AgentCandidateOutputArtifactPort['readStream']> = (ref, options) =>

@@ -357,12 +357,12 @@ async function writeReceipt(
     await file.writeFile(
       `${JSON.stringify({ schema: RECEIPT_SCHEMA, location: layout.durable!.location, namespace: layout.namespace, digest, byteLength, storedAt: new Date().toISOString() })}\n`,
     )
-    await syncHandle(file)
+    if (!layout.ephemeral) await syncHandle(file)
   } finally {
     await file.close()
   }
   await rename(temporary, join(receipts, hex))
-  await syncDirectory(receipts)
+  if (!layout.ephemeral) await syncDirectory(receipts)
 }
 
 // One attempt's signal: the caller's, plus a stall that aborts after `idleMs` without progress.
