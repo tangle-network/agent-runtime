@@ -57,7 +57,7 @@ export function sandboxOwnedContractCopies(scopeDir, tuples = qualifiedContractT
     : undefined
   if (!rangeAdmits(peerRange, sandbox.version)) {
     throw new Error(
-      `unqualified Sandbox contract artifact: sandbox@${sandbox.version} outside the Runtime peer range ${peerRange ?? '(none installed)'}`,
+      `unqualified Sandbox contract artifact: sandbox@${sandbox.version} outside the Runtime peer range ${peerRange ?? '(none declared)'}`,
     )
   }
   // Narrow one position at a time so the refusal names the first copy no qualified tuple holds.
