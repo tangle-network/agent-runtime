@@ -28,7 +28,6 @@ import {
   createRunCostLedger,
   fsCampaignStorage,
   isProposedCandidate,
-  type MutableSurface,
   openSearchLedger,
   type ProposeContext,
   type RunCampaignOptions,
@@ -39,7 +38,6 @@ import {
   type Scenario,
   type SearchAllocator,
   type SearchArtifactCodec,
-  type SearchArtifactRef,
   type SearchCellResult,
   type SearchExecutionIdentity,
   type SearchPolicy,
@@ -47,28 +45,19 @@ import {
   SearchRecorder,
   type SearchSourceRef,
   type SearchTask,
-  type SearchUnknown,
   type SurfaceProposer,
   searchClaimReserveUsd,
-  searchNodeId,
   searchProposalExecution,
   searchProposerView,
   searchReceiptAccounting,
 } from '@tangle-network/agent-eval/campaign'
 import {
   defineEvaluationClaim,
+  type EvaluationClaim,
   summarizeEvaluationUnits,
 } from '@tangle-network/agent-eval/experiment'
-import { redact } from '@tangle-network/agent-eval/traces'
-import {
-  type AgentProfile,
-  type AgentProfileDiff,
-  agentProfileSchema,
-  applyAgentProfileDiff,
-  canonicalAgentProfileDigest,
-  diffAgentProfiles,
-} from '@tangle-network/agent-interface'
-import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
+import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
+import { canonicalCandidateDigest } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
 import { privateValuePaths } from './candidate-validation'
 import type {
@@ -88,6 +77,13 @@ import {
   searchExecutor,
   taggedLedger,
 } from './search-executor'
+import {
+  type ProfileNode,
+  profileNodeOf,
+  registeringProfileCodec,
+  type SearchSession,
+  searchRefusalText,
+} from './search-session'
 
 export interface SearchMethodOptions {
   /** Writes each child surface from the parents the policy chose. It reads the
@@ -203,14 +199,6 @@ const SEARCH_METHOD_SOURCE: SearchSourceRef = {
   revision: canonicalCandidateDigest(SEARCH_METHOD_DEFINITION),
 }
 
-/** A search node: the surface a proposer wrote, and the exact profile it
- * materializes to, or why it does not. */
-interface ProfileNode {
-  surface: MutableSurface
-  profile: AgentProfile | null
-  refusal: string | null
-}
-
 export async function runSearchImprovement<TScenario extends Scenario, TArtifact>(
   profile: AgentProfile,
   opts: ImproveSearchOptions<TScenario, TArtifact>,
@@ -242,22 +230,8 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
     trace,
     ...campaignOptions
   } = opts
-  if (!isImproveSearchMethod(method)) {
-    throw new ConfigError('improve(): a search needs method: searchMethod(...)')
-  }
-  const claim = defineEvaluationClaim(inputClaim)
-  if (claim.minimumEffect === undefined) {
-    throw new ConfigError('improve(): a search claim needs minimumEffect for its power check')
-  }
-  for (const [name, split] of [
-    ['trainScenarios', trainScenarios],
-    ['selectionScenarios', selectionScenarios],
-    ['testScenarios', testScenarios],
-  ] as const) {
-    if (!Array.isArray(split) || split.length === 0) {
-      throw new ConfigError(`improve(): a search needs at least one of ${name}`)
-    }
-  }
+  const splitScenarios = { trainScenarios, selectionScenarios, testScenarios }
+  const claim = assertSearchRequest(method, inputClaim, splitScenarios)
   const { allocation, policy, lanes } = method
   const reps = allocation.reps
   const concurrency = lanes.reduce((total, lane) => total + lane.capacity, 0)
@@ -280,43 +254,118 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
   const costLedger =
     inputCostLedger ??
     createRunCostLedger({ storage, runDir: searchDir, costCeilingUsd: costCeiling })
+  const execution = searchExecutionIdentity(prepared)
+  const recorder = await openSearchRecorder({
+    method,
+    prepared,
+    claim,
+    splits: searchSplits(claim, splitScenarios),
+    storage,
+    searchId,
+    searchDir,
+    seed,
+    costCeiling,
+    concurrency,
+    execution,
+  })
+  const session: SearchSession<TScenario, TArtifact> = {
+    method,
+    prepared,
+    searchId,
+    costLedger,
+    recorder,
+  }
 
-  const unitOf = (scenario: TScenario): string =>
-    summarizeEvaluationUnits(claim, [scenario]).units[0]!.id
-  const tasks = (scenarios: readonly TScenario[]): SearchTask[] =>
-    scenarios.map((scenario) => ({
-      taskId: scenario.id,
-      unitId: unitOf(scenario),
-      source: { uri: `scenario://${scenario.id}`, revision: canonicalCandidateDigest(scenario) },
-    }))
-  const splits = {
-    train: tasks(trainScenarios),
-    selection: tasks(selectionScenarios),
-    test: tasks(testScenarios),
+  const profiles = new Map<string, AgentProfile | null>()
+  const codec = registeringProfileCodec(prepared, searchId, profiles)
+  for (const node of (await recorder.state()).nodes()) codec.load(recorder, node)
+  await reconcileInterruptedSearchCalls(costLedger, searchId, lanes)
+  const root = profileNodeOf(prepared, prepared.baselineSurface)
+  if (root.profile) {
+    const refused = laneRefusal(lanes, root.profile)
+    if (refused) throw new ConfigError(`improve(): the baseline profile cannot run: ${refused}`)
   }
-  const developmentUnits = new Set(
-    [...splits.train, ...splits.selection].map((task) => task.unitId),
-  )
-  const execution: SearchExecutionIdentity = {
-    model: prepared.searchIdentity.model,
-    agent: prepared.searchIdentity.agent,
-    benchmark: {
-      uri: 'agent-runtime:improve-splits',
-      revision: canonicalCandidateDigest({
-        development: prepared.identity.developmentSplitDigest,
-        test: prepared.identity.finalTestSplitDigest,
-      }),
+  const scenarios = [...trainScenarios, ...selectionScenarios, ...testScenarios]
+  assertDistinctScenarios(scenarios)
+  const executor = searchExecutor<ProfileNode>({
+    lanes,
+    profileOf(nodeId) {
+      const known = profiles.get(nodeId)
+      if (known === undefined) throw new Error(`improve(): node ${nodeId} was placed unregistered`)
+      return known
     },
-  }
+    costLedger,
+    identity: execution,
+    storage,
+    dir: searchDir,
+    ...(workerSlots ? { workerSlots } : {}),
+    ...(budgetPool ? { budgetPool } : {}),
+    ...(trace ? { trace } : {}),
+    runAttempt: searchCellRunner<TScenario, TArtifact>({
+      campaignOptions: campaignOptions as Omit<
+        RunCampaignOptions<TScenario, TArtifact>,
+        'scenarios' | 'dispatch'
+      >,
+      prepared,
+      agent,
+      executionRunId,
+      recordCell,
+      scenarios,
+      seed,
+      reps,
+      storage,
+      searchDir,
+      evaluationRef,
+      execution,
+    }),
+  })
+
+  const startedAt = Date.now()
+  const result = await runSearch({
+    recorder,
+    root,
+    codec,
+    policy,
+    allocation,
+    proposer: searchProposerPort(session),
+    executor,
+    admit: (node) => admissionRefusal(session, node),
+    maxExpansions: method.maxExpansions,
+    maxAttempts: method.maxAttempts,
+    ...(signal ? { signal } : {}),
+  })
+  return decideSearchResult({ session, codec, result, costCeiling, startedAt })
+}
+
+interface OpenSearchRecorderInput<TScenario extends Scenario, TArtifact> {
+  method: ImproveSearchMethod
+  prepared: PreparedProfileImprovement<TScenario, TArtifact>
+  claim: EvaluationClaim
+  splits: ReturnType<typeof searchSplits>
+  storage: CampaignStorage
+  searchId: string
+  searchDir: string
+  seed: number
+  costCeiling: number | undefined
+  concurrency: number
+  execution: SearchExecutionIdentity
+}
+
+/** Open the search's ledger: a fresh search records its opening, an interrupted one continues. */
+function openSearchRecorder<TScenario extends Scenario, TArtifact>(
+  input: OpenSearchRecorderInput<TScenario, TArtifact>,
+): Promise<SearchRecorder> {
+  const { method, prepared, claim, splits, storage, searchId, searchDir, seed, costCeiling } = input
+  const { policy, allocation, lanes } = method
   const reservedClaimUsd = Math.max(
     method.claimReserveUsd ?? 0,
     searchClaimReserveUsd({
       testTasks: splits.test.length,
-      reps,
+      reps: allocation.reps,
       cellUsd: Math.max(...lanes.map((lane) => lane.cellUsd)),
     }),
   )
-  const recorder = await SearchRecorder.open(
+  return SearchRecorder.open(
     {
       ledger:
         storage.kind === 'filesystem'
@@ -334,64 +383,45 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
         judge: prepared.searchIdentity.judge,
         claim,
       },
-      splits: {
-        ...splits,
-        heldOutUnits: splits.test.every((task) => !developmentUnits.has(task.unitId)),
-      },
+      splits,
       policy: { expansion: policy.name, allocation: allocation.name, seed },
       budget: {
         maxUsd: costCeiling ?? null,
         maxCells: null,
         maxNodes: 1 + method.maxExpansions * method.childrenPerProposal,
         deadline: method.deadline,
-        maxConcurrency: concurrency,
+        maxConcurrency: input.concurrency,
         reservedClaimUsd: costCeiling === undefined ? 0 : reservedClaimUsd,
       },
       containment: null,
       derivedFrom: null,
-      identity: execution,
+      identity: input.execution,
     },
   )
+}
 
-  const nodeOf = (candidateSurface: MutableSurface): ProfileNode => {
-    const surface = immutableCandidateValue(candidateSurface)
-    try {
-      return { surface, profile: prepared.materializeCandidate(surface), refusal: null }
-    } catch (error) {
-      return { surface, profile: null, refusal: refusalText(error) }
+/** The request is a search with a claim that can be powered, and every split has scenarios. */
+function assertSearchRequest<TScenario extends Scenario>(
+  method: unknown,
+  inputClaim: EvaluationClaim,
+  splits: Record<'trainScenarios' | 'selectionScenarios' | 'testScenarios', readonly TScenario[]>,
+): EvaluationClaim {
+  if (!isImproveSearchMethod(method)) {
+    throw new ConfigError('improve(): a search needs method: searchMethod(...)')
+  }
+  const claim = defineEvaluationClaim(inputClaim)
+  if (claim.minimumEffect === undefined) {
+    throw new ConfigError('improve(): a search claim needs minimumEffect for its power check')
+  }
+  for (const [name, split] of Object.entries(splits)) {
+    if (!Array.isArray(split) || split.length === 0) {
+      throw new ConfigError(`improve(): a search needs at least one of ${name}`)
     }
   }
-  // Placement reads each node's profile to skip the lanes that refuse it, so every node the
-  // ledger holds, and every node this process registers, is known before its cells are placed.
-  const profiles = new Map<string, AgentProfile | null>()
-  const profiled = profileCodec(prepared)
-  const codec: SearchArtifactCodec<ProfileNode> = {
-    node(recorder, node) {
-      const registered = profiled.node(recorder, node)
-      profiles.set(searchNodeId(searchId, registered.artifactDigest), node.profile)
-      return registered
-    },
-    diff: profiled.diff,
-    load(recorder, node) {
-      const loaded = profiled.load(recorder, node)
-      profiles.set(node.nodeId, loaded.profile)
-      return loaded
-    },
-  }
-  for (const node of (await recorder.state()).nodes()) codec.load(recorder, node)
-  await reconcileInterruptedSearchCalls(costLedger, searchId, lanes)
-  const laneRefusal = (nodeProfile: AgentProfile): string | null => {
-    const refusals = lanes.map((lane) => `${lane.name}: ${lane.refusal(nodeProfile)}`)
-    return lanes.some((lane) => lane.refusal(nodeProfile) === undefined)
-      ? null
-      : `no lane can run the profile (${refusals.join('; ')})`
-  }
-  const root = nodeOf(prepared.baselineSurface)
-  if (root.profile) {
-    const refused = laneRefusal(root.profile)
-    if (refused) throw new ConfigError(`improve(): the baseline profile cannot run: ${refused}`)
-  }
-  const scenarios = [...trainScenarios, ...selectionScenarios, ...testScenarios]
+  return claim
+}
+
+function assertDistinctScenarios(scenarios: readonly Scenario[]): void {
   const scenarioIds = new Set<string>()
   for (const scenario of scenarios) {
     if (scenarioIds.has(scenario.id)) {
@@ -399,191 +429,90 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
     }
     scenarioIds.add(scenario.id)
   }
-  const executor = searchExecutor<ProfileNode>({
-    lanes,
-    profileOf(nodeId) {
-      const known = profiles.get(nodeId)
-      if (known === undefined) throw new Error(`improve(): node ${nodeId} was placed unregistered`)
-      return known
-    },
-    costLedger,
-    identity: execution,
-    storage,
-    dir: searchDir,
-    ...(workerSlots ? { workerSlots } : {}),
-    ...(budgetPool ? { budgetPool } : {}),
-    ...(trace ? { trace } : {}),
-    async runAttempt({ work, lane, context, costLedger: cellLedger, span }) {
-      const nodeProfile = work.artifact.profile
-      if (!nodeProfile) throw new Error(`improve(): refused node ${work.nodeId} was given a cell`)
-      const profileDigest = canonicalAgentProfileDigest(nodeProfile)
-      let fault: unknown
-      const campaign = await runCampaign<TScenario, TArtifact>({
-        ...(campaignOptions as Omit<
-          RunCampaignOptions<TScenario, TArtifact>,
-          'scenarios' | 'dispatch'
-        >),
-        // A seat's work leaves no receipt, which the campaign would otherwise report as a stub.
-        ...(lane.kind === 'subscription' &&
-        (campaignOptions as { expectUsage?: unknown }).expectUsage === undefined
-          ? { expectUsage: 'off' as const }
-          : {}),
-        scenarios,
-        judges: prepared.judges.map((judge) => ({
-          ...judge,
-          async score(input) {
-            try {
-              return await judge.score(input)
-            } catch (error) {
-              if (isSearchEnvironmentFault(error)) fault = error
-              throw error
-            }
-          },
-        })),
-        seed,
-        reps,
-        storage,
-        runDir: `${searchDir}/nodes/${profileDigest.slice('sha256:'.length)}`,
-        dispatchRef: `improve:${evaluationRef}:${profileDigest}`,
-        async dispatch(scenario, ctx) {
-          try {
-            return await agent(nodeProfile, scenario, { ...ctx, search: context })
-          } catch (error) {
-            if (isSearchEnvironmentFault(error)) fault = error
-            throw error
-          }
-        },
-        cellFilter: ({ scenario, rep }) => scenario.id === work.taskId && rep === work.rep,
-        resumable: true,
-        maxConcurrency: 1,
-        costLedger: cellLedger,
-        costPhase: `search.${work.stage}`,
-        buildTraceWriter: () => ({ span, flush: async () => {} }),
-        signal: work.signal,
-      })
-      const cell = campaign.cells[0]
-      if (!cell) throw new Error(`improve(): cell ${work.cellId} produced no campaign cell`)
-      const result = campaignCellSearchResult(cell, { execution, lane: lane.name })
-      const execRunId = cell.error ? null : (executionRunId?.(cell.artifact) ?? null)
-      const settled = faultResult(
-        execRunId && context.trace
-          ? {
-              ...result,
-              traceRef: {
-                traceId: context.trace.traceId,
-                execRunId,
-                spansWritten: null,
-                spansDropped: null,
-              },
-            }
-          : result,
-        fault,
-      )
-      return recordCell && settled.outcome.status !== 'errored'
-        ? {
-            ...settled,
-            recordCell: (finalResult) => recordCell({ cell, search: context, result: finalResult }),
-          }
-        : settled
-    },
-  })
+}
 
-  const { proposer } = method
-  const proposerSource: SearchSourceRef = {
-    uri: `proposer:${proposer.kind}`,
-    revision: canonicalCandidateDigest({
-      kind: proposer.kind,
-      propose: Function.prototype.toString.call(proposer.propose),
-      decide: proposer.decide ? Function.prototype.toString.call(proposer.decide) : null,
-    }),
+/** The search tasks of each split, and whether the test units are held out of development. */
+function searchSplits<TScenario extends Scenario>(
+  claim: EvaluationClaim,
+  scenarios: Record<
+    'trainScenarios' | 'selectionScenarios' | 'testScenarios',
+    readonly TScenario[]
+  >,
+) {
+  const unitOf = (scenario: TScenario): string =>
+    summarizeEvaluationUnits(claim, [scenario]).units[0]!.id
+  const tasks = (list: readonly TScenario[]): SearchTask[] =>
+    list.map((scenario) => ({
+      taskId: scenario.id,
+      unitId: unitOf(scenario),
+      source: { uri: `scenario://${scenario.id}`, revision: canonicalCandidateDigest(scenario) },
+    }))
+  const splits = {
+    train: tasks(scenarios.trainScenarios),
+    selection: tasks(scenarios.selectionScenarios),
+    test: tasks(scenarios.testScenarios),
   }
-  const proposalPhase = 'search.proposal'
-  const port: SearchProposerPort<ProfileNode> = {
-    name: proposer.kind,
-    kind: 'optimizer',
-    source: proposerSource,
-    execution: { kind: 'deterministic', source: proposerSource },
-    childrenPerProposal: method.childrenPerProposal,
-    async propose(request) {
-      // The proposal's calls carry its operation, so its accounting is exactly them.
-      const tags = searchCallTags(searchId, { operation: request.operationId })
-      // Read the ledger once, synchronously, before any await: the kernel
-      // retires a state view when it appends.
-      const state = await recorder.state()
-      const parents = request.parents.map(({ nodeId, artifact }) => ({
-        nodeId,
-        artifact: artifact.surface,
-      }))
-      const context: ProposeContext<ProposalFinding> = Object.freeze({
-        currentSurface: parents[0]?.artifact ?? prepared.baselineSurface,
-        operator: request.operator,
-        parents,
-        train: searchProposerView(state),
-        summary: renderSearchSummary(state, { split: 'train' }),
-        history: [],
-        findings: prepared.findings,
-        populationSize: method.childrenPerProposal,
-        generation: request.expansion,
-        signal: request.signal,
-        costLedger: taggedLedger(costLedger, tags),
-        costPhase: proposalPhase,
-      })
-      const decision = proposer.decide?.({ history: [] })
-      const proposed = decision?.stop ? [] : await proposer.propose(context)
-      if (!Array.isArray(proposed)) {
-        throw new ConfigError('improve(): the search proposer must return an array')
-      }
-      const fresh = costLedger.list({ phase: proposalPhase, tags })
-      return {
-        children: proposed.slice(0, method.childrenPerProposal).map((child) =>
-          isProposedCandidate(child)
-            ? {
-                artifact: nodeOf(child.surface),
-                label: child.label,
-                rationale: child.rationale,
-                ...(child.attribution ? { attribution: child.attribution } : {}),
-              }
-            : { artifact: nodeOf(child), label: '', rationale: '' },
-        ),
-        ...(decision?.stop ? { stop: decision.reason ?? 'the proposer decided to stop' } : {}),
-        accounting: searchReceiptAccounting(fresh),
-        execution: searchProposalExecution(
-          fresh,
-          prepared.searchIdentity.model.provider,
-          proposerSource,
-        ),
-      }
+  const developmentUnits = new Set(
+    [...splits.train, ...splits.selection].map((task) => task.unitId),
+  )
+  return {
+    ...splits,
+    heldOutUnits: splits.test.every((task) => !developmentUnits.has(task.unitId)),
+  }
+}
+
+function searchExecutionIdentity<TScenario extends Scenario, TArtifact>(
+  prepared: PreparedProfileImprovement<TScenario, TArtifact>,
+): SearchExecutionIdentity {
+  return {
+    model: prepared.searchIdentity.model,
+    agent: prepared.searchIdentity.agent,
+    benchmark: {
+      uri: 'agent-runtime:improve-splits',
+      revision: canonicalCandidateDigest({
+        development: prepared.identity.developmentSplitDigest,
+        test: prepared.identity.finalTestSplitDigest,
+      }),
     },
   }
-  const admit = (node: ProfileNode): string | null => {
-    if (node.refusal !== null || node.profile === null) return node.refusal
-    try {
-      prepared.admitCandidate(node.profile, node.surface)
-    } catch (error) {
-      return refusalText(error)
-    }
-    const paths = privateValuePaths([node.surface])
-    if (paths.length > 0) {
-      return `the surface carries a credential or private value at ${paths.slice(0, 8).join(', ')}`
-    }
-    return laneRefusal(node.profile)
+}
+
+/** Why no lane can run the profile, or null when one can. */
+function laneRefusal(lanes: readonly SearchLane[], nodeProfile: AgentProfile): string | null {
+  const refusals = lanes.map((lane) => `${lane.name}: ${lane.refusal(nodeProfile)}`)
+  return lanes.some((lane) => lane.refusal(nodeProfile) === undefined)
+    ? null
+    : `no lane can run the profile (${refusals.join('; ')})`
+}
+
+/** Why a node is refused admission to the search, or null when it is admitted. */
+function admissionRefusal<TScenario extends Scenario, TArtifact>(
+  { prepared, method }: SearchSession<TScenario, TArtifact>,
+  node: ProfileNode,
+): string | null {
+  if (node.refusal !== null || node.profile === null) return node.refusal
+  try {
+    prepared.admitCandidate(node.profile, node.surface)
+  } catch (error) {
+    return searchRefusalText(error)
   }
+  const paths = privateValuePaths([node.surface])
+  if (paths.length > 0) {
+    return `the surface carries a credential or private value at ${paths.slice(0, 8).join(', ')}`
+  }
+  return laneRefusal(method.lanes, node.profile)
+}
 
-  const startedAt = Date.now()
-  const result = await runSearch({
-    recorder,
-    root,
-    codec,
-    policy,
-    allocation,
-    proposer: port,
-    executor,
-    admit,
-    maxExpansions: method.maxExpansions,
-    maxAttempts: method.maxAttempts,
-    ...(signal ? { signal } : {}),
-  })
-
+/** Read the closed search back from its ledger and decide whether its leader ships. */
+async function decideSearchResult<TScenario extends Scenario, TArtifact>(input: {
+  session: SearchSession<TScenario, TArtifact>
+  codec: SearchArtifactCodec<ProfileNode>
+  result: Awaited<ReturnType<typeof runSearch<ProfileNode>>>
+  costCeiling: number | undefined
+  startedAt: number
+}): Promise<ImproveSearchResult> {
+  const { session, codec, result, costCeiling, startedAt } = input
+  const { method, prepared, searchId, costLedger, recorder } = session
   const { state } = result
   const claimResult = result.claim
   if (!claimResult || !result.claimVerification) {
@@ -635,77 +564,6 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
   }
 }
 
-/** Profiles as search artifacts: nodes by profile digest, edges by profile diffs. */
-function profileCodec<TScenario extends Scenario, TArtifact>(
-  prepared: PreparedProfileImprovement<TScenario, TArtifact>,
-): SearchArtifactCodec<ProfileNode> {
-  const surfaceId = prepared.surface
-  return {
-    node(recorder, node) {
-      if (node.profile) {
-        const artifact = recorder.blob('agent-profile', {
-          kind: 'agent-profile',
-          profile: node.profile,
-        })
-        return {
-          artifactDigest: canonicalAgentProfileDigest(node.profile),
-          artifact,
-          surfaces: [{ surfaceId, kind: 'agent-profile', artifact }],
-        }
-      }
-      const artifact = recorder.blob('surface', {
-        kind: 'unmaterialized-surface',
-        surface: node.surface,
-        refusal: node.refusal,
-      })
-      return {
-        artifactDigest: canonicalCandidateDigest({
-          kind: 'unmaterialized-surface',
-          surface: node.surface,
-        }),
-        artifact,
-        surfaces: [{ surfaceId, kind: 'agent-profile', artifact }],
-      }
-    },
-    diff(recorder, parent, child): SearchArtifactRef | SearchUnknown {
-      if (!parent.profile || !child.profile) {
-        return { unknown: 'a surface that does not materialize has no profile to diff' }
-      }
-      const diffs: AgentProfileDiff[] = diffAgentProfiles(parent.profile, child.profile)
-      const to = canonicalAgentProfileDigest(child.profile)
-      if (canonicalAgentProfileDigest(diffs.reduce(applyAgentProfileDiff, parent.profile)) !== to) {
-        return { unknown: 'the Interface profile diffs do not reproduce the child profile' }
-      }
-      return recorder.blob('diff', {
-        kind: 'agent-profile-diff',
-        from: canonicalAgentProfileDigest(parent.profile),
-        to,
-        diffs,
-      })
-    },
-    load(recorder, node) {
-      const stored = recorder.readBlob(node.artifact) as {
-        kind?: unknown
-        profile?: unknown
-        surface?: MutableSurface
-        refusal?: string | null
-      }
-      if (stored.kind === 'agent-profile') {
-        const parsed = agentProfileSchema.safeParse(stored.profile)
-        if (!parsed.success) {
-          throw new Error(`improve(): node ${node.nodeId} holds an invalid AgentProfile`)
-        }
-        const loaded = immutableCandidateValue(parsed.data)
-        return { surface: prepared.surfaceOf(loaded), profile: loaded, refusal: null }
-      }
-      if (stored.kind === 'unmaterialized-surface' && stored.surface !== undefined) {
-        return { surface: stored.surface, profile: null, refusal: stored.refusal ?? null }
-      }
-      throw new Error(`improve(): node ${node.nodeId} holds no profile search artifact`)
-    },
-  }
-}
-
 /** Everything that decides which search a call continues. */
 function searchMethodDescriptor(method: ImproveSearchMethod): unknown {
   return {
@@ -729,6 +587,175 @@ function searchMethodDescriptor(method: ImproveSearchMethod): unknown {
   }
 }
 
+const PROPOSAL_PHASE = 'search.proposal'
+
+function searchProposerPort<TScenario extends Scenario, TArtifact>(
+  session: SearchSession<TScenario, TArtifact>,
+): SearchProposerPort<ProfileNode> {
+  const { method, prepared, recorder, costLedger, searchId } = session
+  const { proposer } = method
+  const proposerSource: SearchSourceRef = {
+    uri: `proposer:${proposer.kind}`,
+    revision: canonicalCandidateDigest({
+      kind: proposer.kind,
+      propose: Function.prototype.toString.call(proposer.propose),
+      decide: proposer.decide ? Function.prototype.toString.call(proposer.decide) : null,
+    }),
+  }
+  return {
+    name: proposer.kind,
+    kind: 'optimizer',
+    source: proposerSource,
+    execution: { kind: 'deterministic', source: proposerSource },
+    childrenPerProposal: method.childrenPerProposal,
+    async propose(request) {
+      // The proposal's calls carry its operation, so its accounting is exactly them.
+      const tags = searchCallTags(searchId, { operation: request.operationId })
+      // Read the ledger once, synchronously, before any await: the kernel
+      // retires a state view when it appends.
+      const state = await recorder.state()
+      const parents = request.parents.map(({ nodeId, artifact }) => ({
+        nodeId,
+        artifact: artifact.surface,
+      }))
+      const context: ProposeContext<ProposalFinding> = Object.freeze({
+        currentSurface: parents[0]?.artifact ?? prepared.baselineSurface,
+        operator: request.operator,
+        parents,
+        train: searchProposerView(state),
+        summary: renderSearchSummary(state, { split: 'train' }),
+        history: [],
+        findings: prepared.findings,
+        populationSize: method.childrenPerProposal,
+        generation: request.expansion,
+        signal: request.signal,
+        costLedger: taggedLedger(costLedger, tags),
+        costPhase: PROPOSAL_PHASE,
+      })
+      const decision = proposer.decide?.({ history: [] })
+      const proposed = decision?.stop ? [] : await proposer.propose(context)
+      if (!Array.isArray(proposed)) {
+        throw new ConfigError('improve(): the search proposer must return an array')
+      }
+      const fresh = costLedger.list({ phase: PROPOSAL_PHASE, tags })
+      return {
+        children: proposed.slice(0, method.childrenPerProposal).map((child) =>
+          isProposedCandidate(child)
+            ? {
+                artifact: profileNodeOf(prepared, child.surface),
+                label: child.label,
+                rationale: child.rationale,
+                ...(child.attribution ? { attribution: child.attribution } : {}),
+              }
+            : { artifact: profileNodeOf(prepared, child), label: '', rationale: '' },
+        ),
+        ...(decision?.stop ? { stop: decision.reason ?? 'the proposer decided to stop' } : {}),
+        accounting: searchReceiptAccounting(fresh),
+        execution: searchProposalExecution(
+          fresh,
+          prepared.searchIdentity.model.provider,
+          proposerSource,
+        ),
+      }
+    },
+  }
+}
+
+type RunAttempt = Parameters<typeof searchExecutor<ProfileNode>>[0]['runAttempt']
+
+/** What every cell of one search shares. */
+interface SearchCellEnvironment<TScenario extends Scenario, TArtifact> {
+  readonly campaignOptions: Omit<RunCampaignOptions<TScenario, TArtifact>, 'scenarios' | 'dispatch'>
+  readonly prepared: PreparedProfileImprovement<TScenario, TArtifact>
+  readonly agent: ImproveSearchOptions<TScenario, TArtifact>['agent']
+  readonly executionRunId: ImproveSearchOptions<TScenario, TArtifact>['executionRunId']
+  readonly recordCell: ImproveSearchOptions<TScenario, TArtifact>['recordCell']
+  readonly scenarios: TScenario[]
+  readonly seed: number
+  readonly reps: number
+  readonly storage: CampaignStorage
+  readonly searchDir: string
+  readonly evaluationRef: string
+  readonly execution: SearchExecutionIdentity
+}
+
+/** The executor's cell runner for one search. */
+function searchCellRunner<TScenario extends Scenario, TArtifact>(
+  env: SearchCellEnvironment<TScenario, TArtifact>,
+): RunAttempt {
+  const { campaignOptions, prepared, executionRunId, recordCell, execution } = env
+  return async ({ work, lane, context, costLedger: cellLedger, span }) => {
+    const nodeProfile = work.artifact.profile
+    if (!nodeProfile) throw new Error(`improve(): refused node ${work.nodeId} was given a cell`)
+    const profileDigest = canonicalAgentProfileDigest(nodeProfile)
+    let fault: unknown
+    const campaign = await runCampaign<TScenario, TArtifact>({
+      ...campaignOptions,
+      // A seat's work leaves no receipt, which the campaign would otherwise report as a stub.
+      ...(lane.kind === 'subscription' &&
+      (campaignOptions as { expectUsage?: unknown }).expectUsage === undefined
+        ? { expectUsage: 'off' as const }
+        : {}),
+      scenarios: env.scenarios,
+      judges: prepared.judges.map((judge) => ({
+        ...judge,
+        async score(input) {
+          try {
+            return await judge.score(input)
+          } catch (error) {
+            if (isSearchEnvironmentFault(error)) fault = error
+            throw error
+          }
+        },
+      })),
+      seed: env.seed,
+      reps: env.reps,
+      storage: env.storage,
+      runDir: `${env.searchDir}/nodes/${profileDigest.slice('sha256:'.length)}`,
+      dispatchRef: `improve:${env.evaluationRef}:${profileDigest}`,
+      async dispatch(scenario, ctx) {
+        try {
+          return await env.agent(nodeProfile, scenario, { ...ctx, search: context })
+        } catch (error) {
+          if (isSearchEnvironmentFault(error)) fault = error
+          throw error
+        }
+      },
+      cellFilter: ({ scenario, rep }) => scenario.id === work.taskId && rep === work.rep,
+      resumable: true,
+      maxConcurrency: 1,
+      costLedger: cellLedger,
+      costPhase: `search.${work.stage}`,
+      buildTraceWriter: () => ({ span, flush: async () => {} }),
+      signal: work.signal,
+    })
+    const cell = campaign.cells[0]
+    if (!cell) throw new Error(`improve(): cell ${work.cellId} produced no campaign cell`)
+    const result = campaignCellSearchResult(cell, { execution, lane: lane.name })
+    const execRunId = cell.error ? null : (executionRunId?.(cell.artifact) ?? null)
+    const settled = faultResult(
+      execRunId && context.trace
+        ? {
+            ...result,
+            traceRef: {
+              traceId: context.trace.traceId,
+              execRunId,
+              spansWritten: null,
+              spansDropped: null,
+            },
+          }
+        : result,
+      fault,
+    )
+    return recordCell && settled.outcome.status !== 'errored'
+      ? {
+          ...settled,
+          recordCell: (finalResult) => recordCell({ cell, search: context, result: finalResult }),
+        }
+      : settled
+  }
+}
+
 /**
  * An environment fault the agent raised settles retryable. The campaign reports every error as
  * final because it applies its own retry policy; here the kernel owns retries.
@@ -739,13 +766,7 @@ function faultResult(result: SearchCellResult, fault: unknown): SearchCellResult
     ...result,
     outcome: {
       ...result.outcome,
-      error: { code: 'environment-fault', message: refusalText(fault), retryable: true },
+      error: { code: 'environment-fault', message: searchRefusalText(fault), retryable: true },
     },
   }
-}
-
-/** A refusal as the ledger stores it: redacted with the share profile. */
-function refusalText(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  return redact(message, { profile: 'share' }).value
 }

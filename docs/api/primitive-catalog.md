@@ -469,7 +469,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `createScopeAnalyst` | function | Build a `ScopeAnalyst` that spawns the analyst agent through `Scope.spawn` (so its compute is |
 | `createSteerableSandboxSession` | function | One steerable sandbox worker. The returned session is inert until `stream()` is drained. |
 | `createSupervisor` | function | Create a supervisor that owns one recursive agent execution tree. |
-| `createSupervisorSpanRecorder` | function | Build the span recorder for one supervised run, or `undefined` when no exporter resolves — the |
+| `createSupervisorSpanRecorder` | function | Build the span recorder for one run, or `undefined` when no exporter resolves (off by default; "configured but unreachable" also costs nothing). |
 | `createVerifierEnvironment` | function | Any checkable task as an `Environment`, no tool surface required: the artifact is the worker's answer and the domain is one deployable `check` over it. |
 | `createWaterfallCollector` | function | Build a `WaterfallCollector` that records agent spans and renders them as an ASCII timeline. |
 | `createWorkerSlots` | function | Create a worker-slot allocator. `max` omitted, `0`, or negative leaves concurrency bounded by the |
@@ -646,7 +646,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `withUntrackedArtifacts` | function | Wrap a `Workspace` so every `materialize` (the per-worker `git clone` inside |
 | `withWorkerSpawnRetry` | function | Wrap a worker seam so a leaf whose spawn is refused before it runs is re-entered instead of |
 | `workerFromBackend` | function | Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the |
-| `workerFromInteractiveProvider` | function | Build a `MakeWorkerAgent` that starts one exact provider-owned native TUI per worker. |
+| `workerFromInteractiveProvider` | function | Build a `MakeWorkerAgent` that starts one provider-owned native TUI per worker. A Scope supplies |
 | `workerInboxFileFromEventDir` | function | Same, addressed from an already-known run directory (the reader's usual entry point). |
 | `worktreeFanout` | function | Build the worktree fanout combinator. Run it with `runPersonified({ persona, shape, task, budget })` |
 | `writeWorkerSteer` | function | Admit one steer exactly once under a caller-owned operation id. |
@@ -655,9 +655,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `assertTraceDerivedFindings` | const | Reject analyst findings derived from evaluation scores instead of execution traces. |
 | `AUTHORITY_MARKERS` | const | Phrases that mark the run's AUTHORITY in a folded prompt. A peer that writes one of these is |
 | `bestDelivered` | const | Keep-best under the completion oracle — the DEFAULT finalizer and the exact behavior every |
-| `DEFAULT_MAX_DEPTH` | const | The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every |
+| `DEFAULT_MAX_DEPTH` | const | The default recursion-depth ceiling. The conserved pool bounds depth (every level draws its |
 | `DEFAULT_PEER_MAIL_LIMITS` | const | Bounds chosen so a peer channel cannot become the dominant cost of a run: eight sends and |
-| `DEFAULT_SANDBOX_STEERING_MAX_TURNS` | const | Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so |
+| `DEFAULT_SANDBOX_STEERING_MAX_TURNS` | const | Ceiling on continuation turns (turn 0 is the task, each later turn a folded steer). |
 | `DEFAULT_SHARED_BOX_RESOURCES` | const | The box shape the default placement creates: memory for 8 workers at about 0.5 GB each plus |
 | `DEFAULT_SHARED_BOX_WORKERS` | const | The most workers one default box carries at once. |
 | `DEFAULT_STALL_AFTER_MS` | const | How long a worker may produce no metered activity before a `progress()` read calls it stalled. |
@@ -797,7 +797,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `DriveHarness` | interface | How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate |
 | `DriverAttemptRecord` | interface | One attempt's record — the legible failure the issue's third ask names. Emitted per attempt so |
 | `DriverContinuationRecord` | interface | A manager's driver loop as its run's settle record carries it (`SupervisedResult.continuation`). |
-| `DriverRetryPolicy` | interface | How hard the root driver is retried after a transient failure. The defaults retry; a caller |
+| `DriverRetryPolicy` | interface | How hard the root driver is retried after a transient failure; `enabled: false` restores pre-#741 behavior. |
 | `EdgeTraversal` | interface | One recorded edge traversal — the in-memory row; the journal twin is the `edge` SpawnEvent. |
 | `EnvironmentTeardownReceipt` | interface | The receipt for one provider environment an executor held for a RETAINED execution and was |
 | `EqualKArm` | interface | One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole |
@@ -860,7 +860,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `LeaderboardScore` | interface | Structured per-case verdict a `score` function may return (a bare number is |
 | `LeaderboardSpec` | interface | The declarative leaderboard spec. `TArtifact` is the artifact channel the |
 | `LeadMessage` | interface | A steer or an answer this manager received from its lead. |
-| `LeakedReservation` | interface | One reservation still open when a run reached its join barrier — a conserved-pool leak, |
+| `LeakedReservation` | interface | One reservation still open at the join barrier — a pool leak, with the holder to chase. |
 | `LocalMcpMaterialization` | interface | The live same-host materialization of a profile's `mcp` surface. |
 | `LoopCampaignDispatchOptions` | interface | Options for adapting plain agent-eval campaign scenarios into Runtime cells. |
 | `LoopIterationDispatchPayload` | interface | Where the iteration's worker was placed. `sibling` = a fresh sandbox the |
@@ -936,8 +936,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `RemoteSupervisorTree` | interface | Current owned tree, including nested managers and resumed nodes. |
 | `RenderCorpusToInstructionsOptions` | interface | Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel |
 | `ReservationFloor` | interface | The part of each channel a reservation must leave free: a manager's own share of its slice, |
-| `ReservationHolder` | interface | Who holds a reservation. Recorded at `reserve` and refined through `attribute` once admission |
-| `ReservationShortfall` | interface | One budget channel a `budget-exhausted` reservation could not fit, with the amounts that |
+| `ReservationHolder` | interface | Who holds a reservation, recorded at `reserve` and refined through `attribute`, so a ticket |
+| `ReservationShortfall` | interface | One channel a `budget-exhausted` reservation could not fit. A refusal lists every such channel |
 | `ReservationTicket` | interface | Opaque, single-use reservation handle returned by `reserve` and consumed by |
 | `ReserveOptions` | interface | How a caller asks for a reservation. |
 | `ResolvedMcpServerLaunch` | interface | The spawn-ready strings for one stdio MCP server: profile config values |
@@ -989,7 +989,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `SandboxLineageHandle` | interface | A live box plus the session that threads its iterations together. Handed back |
 | `SandboxSeam` | interface | Sandbox executor seam. The `sandboxClient` the composed `runAgentRounds` creates |
 | `SandboxServedBackend` | interface | The provider/model the platform reports it actually bound to a turn, when it reports one. |
-| `SandboxSteeringOptions` | interface | Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`). Absent, the |
+| `SandboxSteeringOptions` | interface | Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`); absent, the single-shot composition is kept. |
 | `SandboxToolPartState` | interface | Cross-event state for {@link mapSandboxToolEvent}. Sandbox backends emit a |
 | `SandboxUsageLedger` | interface | Per-turn usage accounting over BOTH the canonical events and the harness-native ones. |
 | `Scope` | interface | The budget-conserving reactive scope an `Agent.act` runs inside. `spawn` reserves |
@@ -1093,7 +1093,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `AssertTraceDerivedFindings` | type | The firewall assertion contract, re-stated for the reactive seam (PORT of |
 | `AuthoredProfile` | type | What the supervisor AUTHORS per sub-task: one complete canonical profile whose name and |
 | `AxisScoresOf` | type | Decompose ONE record into per-axis scores (e.g. judge dimensions). When set, it REPLACES the |
-| `BudgetReadout` | type | Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`, |
+| `BudgetReadout` | type | Post-reservation pool readout — the shape `Scope.budget` exposes. `deadlineMs` is the ABSOLUTE |
 | `ChatCompletionsTransport` | type | Buffered OpenAI-compatible completion port used only for offline execution. |
 | `CodexForkBoundary` | type | How this reader isolated the session's own rows from the parent rows prepended to its file. |
 | `CombinatorShape` | type | A combinator is just a `LoopShape`: a factory `(ShapeContext) => Agent` whose `Agent.act` |
@@ -1107,9 +1107,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `DispatchStopReason` | type | Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the ordinary end); |
 | `DownMessageDeliveryOutcome` | type | The exact result of one parent→child delivery attempt. |
 | `DriverAttemptStop` | type | Why the retry loop stopped. `completed` is the only non-failure. |
-| `DriverContractState` | type | Whether the run's declared completion check has passed. `'none'` means the caller declared no |
+| `DriverContractState` | type | Whether the declared completion check has passed; `'none'` means the caller declared no check. |
 | `DriverFailureClass` | type | How one driver failure is answered. |
-| `DriverReentry` | type | Why the loop is entering the driver again. Absent on the first attempt only. |
+| `DriverReentry` | type | Why the loop is entering the driver again (absent on the first attempt only). An `unmet-contract` |
 | `DriverRepromptRefusal` | type | Why a completed drive with an unmet contract was not re-entered. `closed` means the run was |
 | `EdgeDeliveryOutcome` | type | `failed` is a maps item or join that ran and settled without a usable result (down, or |
 | `Environment` | type | A checkable task domain — implement these 5 hooks and the suite does the rest. The |
@@ -1150,7 +1150,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `ProviderPromptOptions` | type | Per-run Sandbox prompt options for the provider path — the same field, the same name, and the |
 | `RecoverRetainedRunResult` | type | Outcome of one recovery attempt. |
 | `RemoteWorkerEvents` | type | The same bounded event page served by Scope's live observation owner. |
-| `ReservationRejection` | type | Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it |
+| `ReservationRejection` | type | Why a reservation was refused. `usd-unbudgeted`: the root declared no dollar ceiling, so the |
 | `ReservationStage` | type | Where in the spawn lifecycle a reservation was last seen. `admitted` is the window between |
 | `ResolveSupervisorTools` | type | Product policy for the tools one exact supervisor node may call. Resolved once per node. |
 | `RetainedExecutionState` | type | The recorded fate of a child whose provider execution was RETAINED: admitted durably, with no |
@@ -1186,7 +1186,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `SupervisorFinalizer` | type | The finalization seam: ledger in, output (or `undefined` = nothing deliverable) out. |
 | `SupervisorNodeContextSeed` | type | Context known before `Agent.act`; Runtime adds the concrete node, profile, and task. |
 | `SupervisorProfile` | type | A supervisor is an exact canonical AgentProfile; no looser model/prompt shape exists. |
-| `SupervisorSpanAttributes` | type | OTLP span attribute values. Exported because `SupervisorSpanOptions.attributes` is public and |
+| `SupervisorSpanAttributes` | type | OTLP span attribute values; exported because `SupervisorSpanOptions.attributes` is public. |
 | `SurfaceReader` | type | The read seam: fetch the current bytes at a mounted path. Implemented by a sandbox box's |
 | `SurfaceReadOutcome` | type | Outcome of reading one surface back at settle. `missing: true` means the path no longer exists |
 | `TaskQueueSettlement` | type | Native promise settlement, retaining the exact returned or thrown value. |

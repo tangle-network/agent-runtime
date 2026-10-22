@@ -20,11 +20,7 @@
 import { mkdirSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
 import {
-  asha,
-  beam,
-  createRunCostLedger,
   estimateNode,
-  fsCampaignStorage,
   type NodeEstimate,
   openSearchLedger,
   renderSearchSummary,
@@ -32,49 +28,26 @@ import {
   type SearchAllocator,
   type SearchArtifactCodec,
   type SearchAttemptAccounting,
-  type SearchCellResult,
   type SearchClaim,
   type SearchClaimVerification,
   type SearchCloseReason,
-  type SearchExecutionIdentity,
   type SearchNodeStatus,
   type SearchPolicy,
   type SearchProposerPort,
   SearchRecorder,
-  type SearchSourceRef,
   type SearchSplit,
   type SearchStateView,
-  type SearchTask,
   searchClaimReserveUsd,
   searchModelIdentity,
   surfaceDiff,
 } from '@tangle-network/agent-eval/campaign'
-import {
-  defineEvaluationClaim,
-  type EvaluationClaim,
-  summarizeEvaluationUnits,
-} from '@tangle-network/agent-eval/experiment'
-import { redact } from '@tangle-network/agent-eval/traces'
-import {
-  type AgentProfile,
-  canonicalAgentProfileDigest,
-  type Sha256Digest,
-} from '@tangle-network/agent-interface'
-import {
-  canonicalCandidateDigest,
-  immutableCandidateValue,
-  sha256Bytes,
-} from '../candidate-execution/digest'
-import { ConfigError } from '../errors'
+import type { EvaluationClaim } from '@tangle-network/agent-eval/experiment'
+import type { AgentProfile, Sha256Digest } from '@tangle-network/agent-interface'
+import { canonicalCandidateDigest, sha256Bytes } from '../candidate-execution/digest'
 import { runtimeShipDecision } from '../improvement/search-decision'
-import {
-  dedicatedLane,
-  reconcileInterruptedSearchCalls,
-  searchExecutor,
-} from '../improvement/search-executor'
 import type { RuntimeHooks } from '../runtime-hooks'
 import { type BenchmarkConfig, type Environment, preflightModels } from './run-benchmark'
-import { type AgenticOptions, type AgenticTask, refine, runAgentic } from './strategy'
+import type { AgenticOptions, AgenticTask } from './strategy'
 import {
   loadAuthoredStrategy,
   requestStrategySource,
@@ -82,7 +55,12 @@ import {
   type StrategyAuthorTurn,
   strategyAuthorContract,
 } from './strategy-author'
-import { concreteModelId } from './supervise/model-policy'
+import { openStrategyCellExecutor, type StrategyNode, shareText } from './strategy-evolution-cells'
+import {
+  type EvolutionPlan,
+  planStrategyEvolution,
+  STRATEGY_EVOLUTION_SOURCE,
+} from './strategy-evolution-plan'
 import type { ExecutorConfig } from './supervise/runtime'
 import type { WorkerSlots } from './supervise/worker-slots'
 
@@ -224,187 +202,13 @@ export interface EvolutionReport {
   }
 }
 
-/** A search node: the caller's root, or an authored module and why admission refused it. */
-type StrategyNode =
-  | { kind: 'root'; name: string }
-  | { kind: 'authored'; name: string | null; code: string; refusal: string | null }
-
-/** The rules `runStrategyEvolution` adds to the kernel's; its digest is the process
- * revision every evolution ledger records. */
-const STRATEGY_EVOLUTION_DEFINITION = {
-  name: 'agent-runtime.strategy-evolution.2026-09',
-  node: 'the root strategy by name under the caller executionRef, or an authored module content-addressed by the sha256 of its source',
-  edge: 'a text diff from the parent module source to the child; unknown from the root, which has no source here',
-  admission:
-    'a module is refused when the reply carries none, it breaks the author contract, or it does not load a default Strategy',
-  cell: 'one runAgentic run on one task, metered as one paid call on the search cost ledger through the Runtime search executor; an environment fault during it is errored and retried, a thrown strategy is failed at score 0, anything else passed at its harness-verified score',
-  proposer:
-    'the author reads the strategy contract, the task tools, the train summary, the train results of every strategy and the parent source',
-  ship: 'the claim shipped, re-derives from the ledger, cost accounting is complete, and the shipped finalist test lower bound exceeds 0',
-} as const
-
-const STRATEGY_EVOLUTION_SOURCE: SearchSourceRef = {
-  uri: 'npm:@tangle-network/agent-runtime#runStrategyEvolution',
-  revision: canonicalCandidateDigest(STRATEGY_EVOLUTION_DEFINITION),
-}
-
 const NO_MODULE = 'the author reply carried no fenced ts module'
 
 /** Evolve a strategy on the search kernel and claim once on the sealed test split. */
 export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promise<EvolutionReport> {
-  const root = cfg.root ?? refine
-  const budget = positiveInteger('budget', cfg.budget ?? 3)
-  const concurrency = positiveInteger('concurrency', cfg.concurrency ?? 3)
-  const maxExpansions = nonNegativeInteger('maxExpansions', cfg.maxExpansions ?? 4)
-  const maxAttempts = positiveInteger('maxAttempts', cfg.maxAttempts ?? 3)
-  const seed = nonNegativeInteger('seed', cfg.seed ?? 42)
-  const cellUsd = dollars('cellUsd', cfg.cellUsd) ?? 0
-  const maxUsd = dollars('maxUsd', cfg.maxUsd)
-  const policy = cfg.policy ?? beam({ width: 2 })
-  const allocation = cfg.allocation ?? asha()
-  if (cfg.deadline !== undefined && !Number.isFinite(Date.parse(cfg.deadline))) {
-    throw new ConfigError('evolution: deadline must be an ISO time')
-  }
-  if (!/^sha256:[0-9a-f]{64}$/.test(cfg.executionRef)) {
-    throw new ConfigError('evolution: executionRef must be a lowercase sha256:<64 hex> digest')
-  }
-  if (!root.name.trim() || typeof root.driver !== 'function') {
-    throw new ConfigError('evolution: root must be a named Strategy')
-  }
-  const claim = defineEvaluationClaim(cfg.claim)
-  if (claim.minimumEffect === undefined) {
-    throw new ConfigError('evolution: the claim needs minimumEffect for its power check')
-  }
-  const taskIds = new Set<string>()
-  const splitTasks = (label: string, tasks: AgenticTask[]): AgenticTask[] => {
-    if (!Array.isArray(tasks) || tasks.length === 0) {
-      throw new ConfigError(`evolution: ${label} needs at least one task`)
-    }
-    for (const task of tasks) {
-      if (typeof task.id !== 'string' || !task.id.trim() || taskIds.has(task.id)) {
-        throw new ConfigError(`evolution: task IDs must be non-empty and unique across splits`)
-      }
-      taskIds.add(task.id)
-    }
-    return immutableCandidateValue(tasks)
-  }
-  const train = splitTasks('train', cfg.train)
-  const selection = splitTasks('selection', cfg.selection)
-  const test = splitTasks('test', cfg.test)
-  const taskById = new Map([...train, ...selection, ...test].map((task) => [task.id, task]))
-  const searchTasks = (tasks: AgenticTask[]): SearchTask[] =>
-    tasks.map((task) => ({
-      taskId: task.id,
-      unitId: summarizeEvaluationUnits(claim, [task]).units[0]!.id,
-      source: { uri: `task://${task.id}`, revision: canonicalCandidateDigest(task) },
-    }))
-  const splits = {
-    train: searchTasks(train),
-    selection: searchTasks(selection),
-    test: searchTasks(test),
-  }
-  const developmentUnits = new Set(
-    [...splits.train, ...splits.selection].map((task) => task.unitId),
-  )
-
-  const workerProfile = cfg.worker.workerProfile
-  const analystProfile = cfg.worker.analystProfile ?? workerProfile
-  const workerModel = concreteModelId(workerProfile.model?.default)
-  if (!workerModel) {
-    throw new ConfigError('evolution: worker AgentProfile.model.default must name an exact model')
-  }
-  const authorModel = concreteModelId(cfg.author.profile.model?.default)
-  if (!authorModel) {
-    throw new ConfigError('evolution: author AgentProfile.model.default must name an exact model')
-  }
-  const workerSource: SearchSourceRef = {
-    uri: 'npm:@tangle-network/agent-runtime#runAgentic',
-    revision: canonicalCandidateDigest({
-      worker: canonicalAgentProfileDigest(workerProfile),
-      analyst: canonicalAgentProfileDigest(analystProfile),
-      routerBaseUrl: cfg.worker.routerBaseUrl,
-      corpusTags: cfg.worker.corpusTags ?? [],
-      corpusReadback: cfg.worker.corpusReadback ?? null,
-      budget,
-    }),
-  }
-  const authorSource: SearchSourceRef = {
-    uri: `agent-profile:${cfg.author.profile.name}`,
-    revision: canonicalCandidateDigest({
-      profile: canonicalAgentProfileDigest(cfg.author.profile),
-      fallback: cfg.author.fallbackProfile
-        ? canonicalAgentProfileDigest(cfg.author.fallbackProfile)
-        : null,
-      backend: cfg.author.executor.backend,
-      contract: strategyAuthorContract,
-    }),
-  }
-  const environmentSource: SearchSourceRef = {
-    uri: `environment:${cfg.environment.name}`,
-    revision: cfg.executionRef,
-  }
-  const execution: SearchExecutionIdentity = {
-    model: searchModelIdentity(workerModel, workerProfile.model?.provider ?? 'unknown'),
-    agent: workerSource,
-    benchmark: environmentSource,
-  }
-  const searchKey = canonicalCandidateDigest({
-    process: STRATEGY_EVOLUTION_SOURCE,
-    executionRef: cfg.executionRef,
-    root: root.name,
-    worker: workerSource,
-    author: authorSource,
-    claim,
-    splits,
-    policy: policy.name,
-    allocation: allocation.name,
-    reps: allocation.reps,
-    maxExpansions,
-    concurrency,
-    maxUsd,
-    cellUsd,
-    deadline: cfg.deadline ?? null,
-    maxAttempts,
-    seed,
-  }).slice('sha256:'.length, 'sha256:'.length + 24)
-  const searchId = `evolution-${searchKey}`
-  const searchDir = `${cfg.outDir}/${searchId}`
-  const modulesDir = `${searchDir}/strategies`
-  const ledgerPath = `${searchDir}/ledger.jsonl`
-
-  mkdirSync(searchDir, { recursive: true })
-  const recorder = await SearchRecorder.open(
-    { ledger: openSearchLedger({ path: ledgerPath, searchId }) },
-    {
-      subject: `strategy/${cfg.environment.name}`,
-      process: { name: 'strategy-evolution', executionRef: STRATEGY_EVOLUTION_SOURCE },
-      artifactKind: 'code',
-      objective: { metric: 'score', direction: 'maximize', judge: environmentSource, claim },
-      splits: {
-        ...splits,
-        heldOutUnits: splits.test.every((task) => !developmentUnits.has(task.unitId)),
-      },
-      policy: { expansion: policy.name, allocation: allocation.name, seed },
-      budget: {
-        maxUsd,
-        maxCells: null,
-        maxNodes: 1 + maxExpansions,
-        deadline: cfg.deadline === undefined ? null : new Date(cfg.deadline).toISOString(),
-        maxConcurrency: concurrency,
-        reservedClaimUsd:
-          maxUsd === null
-            ? 0
-            : searchClaimReserveUsd({
-                testTasks: splits.test.length,
-                reps: allocation.reps,
-                cellUsd,
-              }),
-      },
-      containment: null,
-      derivedFrom: null,
-      identity: execution,
-    },
-  )
+  const plan = planStrategyEvolution(cfg)
+  mkdirSync(plan.searchDir, { recursive: true })
+  const recorder = await openEvolutionRecorder(cfg, plan)
   if (!(await recorder.state()).closed) {
     await preflightModels({
       worker: cfg.worker,
@@ -413,151 +217,100 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     })
   }
 
-  const rootNode: StrategyNode = { kind: 'root', name: root.name }
-  const codec: SearchArtifactCodec<StrategyNode> = {
-    node(rec, node) {
-      const artifact = rec.blob('strategy', { ...node })
-      return {
-        artifactDigest:
-          node.kind === 'root'
-            ? canonicalCandidateDigest({ kind: 'root', name: node.name })
-            : sha256Bytes(Buffer.from(node.code, 'utf8')),
-        artifact,
-        surfaces: [{ surfaceId: 'strategy', kind: 'code', artifact }],
-      }
-    },
-    diff(rec, parent, child) {
-      if (parent.kind === 'root' || child.kind === 'root') {
-        return { unknown: 'the root is a caller-supplied strategy with no source here' }
-      }
-      return surfaceDiff(rec, parent.code, child.code)
-    },
-    load(rec, node) {
-      const stored = rec.readBlob(node.artifact) as StrategyNode
-      if (stored.kind === 'root') {
-        if (stored.name !== root.name) {
-          throw new Error(
-            `evolution: node ${node.nodeId} is root '${stored.name}', not '${root.name}'`,
-          )
-        }
-        return rootNode
-      }
-      if (stored.kind === 'authored' && typeof stored.code === 'string') return stored
-      throw new Error(`evolution: node ${node.nodeId} holds no strategy`)
-    },
-  }
+  const rootNode: StrategyNode = { kind: 'root', name: plan.root.name }
+  const codec = strategyNodeCodec(plan.root)
+  const strategyOf = strategyLoader(plan.root, plan.modulesDir)
+  const executor = await openStrategyCellExecutor(cfg, plan, strategyOf)
+  const proposer = strategyAuthorProposer(cfg, plan, recorder, codec)
 
-  const loaded = new Map<string, Promise<Strategy>>()
-  const strategyOf = (node: StrategyNode): Promise<Strategy> => {
-    if (node.kind === 'root') return Promise.resolve(root)
-    let strategy = loaded.get(node.code)
-    if (!strategy) {
-      strategy = loadAuthoredStrategy(node.code, modulesDir).then((module) => module.strategy)
-      loaded.set(node.code, strategy)
-    }
-    return strategy
-  }
-
-  // Cells run in this process on one dedicated lane of Runtime's search executor, which
-  // records each finished attempt under its run id (a restarted search adopts it instead of
-  // running it again), meters it through the search's cost ledger, and traces it.
-  const storage = fsCampaignStorage()
-  const costLedger = createRunCostLedger({ storage, runDir: searchDir })
-  const lanes = [dedicatedLane({ name: 'in-process', capacity: concurrency, cellUsd })]
-  await reconcileInterruptedSearchCalls(costLedger, searchId, lanes)
-  const executor = searchExecutor<StrategyNode>({
-    lanes,
-    profileOf: () => workerProfile,
-    costLedger,
-    identity: execution,
-    storage,
-    dir: searchDir,
-    ...(cfg.workerSlots ? { workerSlots: cfg.workerSlots } : {}),
-    async runAttempt({ work, lane, costLedger: cellLedger }): Promise<SearchCellResult> {
-      if (work.artifact.kind === 'authored' && work.artifact.refusal !== null) {
-        throw new Error(`evolution: refused node ${work.nodeId} was given a cell`)
-      }
-      const strategy = await strategyOf(work.artifact)
-      const task = taskById.get(work.taskId)
-      if (!task) throw new Error(`evolution: cell ${work.cellId} names unknown task ${work.taskId}`)
-      const faults: string[] = []
-      const environment = faultRecording(cfg.environment, faults)
-      // The whole run is one paid call on the attempt's ledger, so its measured spend is the
-      // attempt's accounting, and a run a killed process left pending settles as unknown.
-      const paid = await cellLedger.runPaidCall({
-        channel: 'agent',
-        phase: `search.${work.stage}`,
-        actor: `strategy:${strategy.name}`,
-        model: workerModel,
-        signal: work.signal,
-        execute: () =>
-          runAgentic({
-            ...cfg.worker,
-            surface: environment,
-            task,
-            strategy,
-            budget,
-            ...(cfg.hooks ? { hooks: cfg.hooks } : {}),
-          }),
-        receipt: (run) => ({
-          model: workerModel,
-          inputTokens: run.tokens.input,
-          outputTokens: run.tokens.output,
-          ...(run.usdKnown ? { actualCostUsd: run.usd } : { costUnknown: true }),
-          ...(run.tokensKnown ? {} : { usageUnknown: true }),
-        }),
-        receiptFromError: () => ({
-          model: workerModel,
-          inputTokens: 0,
-          outputTokens: 0,
-          costUnknown: true,
-          usageUnknown: true,
-        }),
-      })
-      const settled = {
-        identity: execution,
-        placement: { lane: lane.name, boxId: null },
-        // The executor replaces this with the receipts the ledger holds for the attempt.
-        accounting: unknownAccounting('replaced by the attempt receipts'),
-        ...(paid.succeeded ? { wallMs: paid.value.ms } : {}),
-      }
-      if (faults.length > 0) return { ...settled, ...environmentFault(faults) }
-      if (!paid.succeeded) {
-        return {
-          ...settled,
-          outcome: {
-            status: 'failed',
-            score: 0,
-            metrics: {},
-            failure: { code: 'strategy-threw', message: shareText(paid.error) },
-          },
-        }
-      }
-      const run = paid.value
-      return {
-        ...settled,
-        outcome: {
-          status: 'passed',
-          score: run.score,
-          metrics: { resolved: run.resolved ? 1 : 0, shots: run.shots },
-        },
-      }
-    },
+  const result = await runSearch({
+    recorder,
+    root: rootNode,
+    codec,
+    policy: plan.policy,
+    allocation: plan.allocation,
+    proposer,
+    executor,
+    admit: (node) => (node.kind === 'authored' ? node.refusal : null),
+    maxExpansions: plan.maxExpansions,
+    maxAttempts: plan.maxAttempts,
+    ...(cfg.signal ? { signal: cfg.signal } : {}),
   })
+  if (!result.claim || !result.claimVerification) {
+    throw new Error(`evolution: search ${plan.searchId} closed without a claim`)
+  }
+  return evolutionReport(plan, recorder, codec, {
+    ...result,
+    claim: result.claim,
+    claimVerification: result.claimVerification,
+  })
+}
 
+function openEvolutionRecorder(
+  cfg: StrategyEvolutionConfig,
+  plan: EvolutionPlan,
+): Promise<SearchRecorder> {
+  const { splits, policy, allocation, maxUsd } = plan
+  return SearchRecorder.open(
+    { ledger: openSearchLedger({ path: plan.ledgerPath, searchId: plan.searchId }) },
+    {
+      subject: `strategy/${cfg.environment.name}`,
+      process: { name: 'strategy-evolution', executionRef: STRATEGY_EVOLUTION_SOURCE },
+      artifactKind: 'code',
+      objective: {
+        metric: 'score',
+        direction: 'maximize',
+        judge: plan.environmentSource,
+        claim: plan.claim,
+      },
+      splits: {
+        ...splits,
+        heldOutUnits: splits.test.every((task) => !plan.developmentUnits.has(task.unitId)),
+      },
+      policy: { expansion: policy.name, allocation: allocation.name, seed: plan.seed },
+      budget: {
+        maxUsd,
+        maxCells: null,
+        maxNodes: 1 + plan.maxExpansions,
+        deadline: cfg.deadline === undefined ? null : new Date(cfg.deadline).toISOString(),
+        maxConcurrency: plan.concurrency,
+        reservedClaimUsd:
+          maxUsd === null
+            ? 0
+            : searchClaimReserveUsd({
+                testTasks: splits.test.length,
+                reps: allocation.reps,
+                cellUsd: plan.cellUsd,
+              }),
+      },
+      containment: null,
+      derivedFrom: null,
+      identity: plan.execution,
+    },
+  )
+}
+
+/** The author model as the search's proposer: it reads the train results and writes a module. */
+function strategyAuthorProposer(
+  cfg: StrategyEvolutionConfig,
+  plan: EvolutionPlan,
+  recorder: SearchRecorder,
+  codec: ReturnType<typeof strategyNodeCodec>,
+): SearchProposerPort<StrategyNode> {
+  const { authorSource } = plan
   let toolCatalog: Promise<string> | undefined
   const catalog = (): Promise<string> => {
-    toolCatalog ??= listToolCatalog(cfg.environment, train[0]!)
+    toolCatalog ??= listToolCatalog(cfg.environment, plan.train[0]!)
     return toolCatalog
   }
   const authorProvider = cfg.author.profile.model?.provider ?? 'unknown'
-  const proposer: SearchProposerPort<StrategyNode> = {
+  return {
     name: 'strategy-author',
     kind: 'frontier-author',
     source: authorSource,
     execution: {
       kind: 'model',
-      model: searchModelIdentity(authorModel, authorProvider),
+      model: searchModelIdentity(plan.authorModel, authorProvider),
       source: authorSource,
     },
     childrenPerProposal: 1,
@@ -589,19 +342,11 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
         contract,
         environmentName: cfg.environment.name,
         lossesJson: losses,
-        budget,
-        outDir: modulesDir,
+        budget: plan.budget,
+        outDir: plan.modulesDir,
         signal: request.signal,
       })
-      let child: StrategyNode = { kind: 'authored', name: null, code: '', refusal: NO_MODULE }
-      if (source.code !== null) {
-        try {
-          const { strategy } = await loadAuthoredStrategy(source.code, modulesDir)
-          child = { kind: 'authored', name: strategy.name, code: source.code, refusal: null }
-        } catch (error) {
-          child = { kind: 'authored', name: null, code: source.code, refusal: shareText(error) }
-        }
-      }
+      const child = await authoredNode(source.code, plan.modulesDir)
       const answered = source.turns.at(-1)
       return {
         children: [
@@ -624,23 +369,34 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
       }
     },
   }
+}
 
-  const result = await runSearch({
-    recorder,
-    root: rootNode,
-    codec,
-    policy,
-    allocation,
-    proposer,
-    executor,
-    admit: (node) => (node.kind === 'authored' ? node.refusal : null),
-    maxExpansions,
-    maxAttempts,
-    ...(cfg.signal ? { signal: cfg.signal } : {}),
-  })
-  if (!result.claim || !result.claimVerification) {
-    throw new Error(`evolution: search ${searchId} closed without a claim`)
+/** The node an author reply makes: admitted when the module loads, else carrying the refusal. */
+async function authoredNode(
+  code: string | null,
+  modulesDir: string,
+): Promise<Extract<StrategyNode, { kind: 'authored' }>> {
+  if (code === null) return { kind: 'authored', name: null, code: '', refusal: NO_MODULE }
+  try {
+    const { strategy } = await loadAuthoredStrategy(code, modulesDir)
+    return { kind: 'authored', name: strategy.name, code, refusal: null }
+  } catch (error) {
+    return { kind: 'authored', name: null, code, refusal: shareText(error) }
   }
+}
+
+type ClaimedSearch = Awaited<ReturnType<typeof runSearch<StrategyNode>>> & {
+  claim: SearchClaim
+  claimVerification: SearchClaimVerification
+}
+
+/** The report: a projection of the ledger the finished search leaves. */
+function evolutionReport(
+  plan: EvolutionPlan,
+  recorder: SearchRecorder,
+  codec: ReturnType<typeof strategyNodeCodec>,
+  result: ClaimedSearch,
+): EvolutionReport {
   const { state } = result
   const names = strategyNames(state, recorder, codec)
   const rootId = state.rootNodeId!
@@ -678,8 +434,8 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     minimumLift: 0,
   })
   return {
-    searchId,
-    ledger: ledgerPath,
+    searchId: plan.searchId,
+    ledger: plan.ledgerPath,
     closeReason: result.reason,
     strategies,
     selected: strategies.find((strategy) => strategy.nodeId === result.leader)!,
@@ -747,58 +503,6 @@ export function strategyTournament(
   return { split, rows: [...rows.values()], perStrategy }
 }
 
-/** Report names: each node's strategy name, suffixed `~<ordinal>` when an earlier node has it. */
-function strategyNames(
-  state: SearchStateView,
-  recorder: SearchRecorder,
-  codec: SearchArtifactCodec<StrategyNode>,
-): Map<string, string> {
-  const names = new Map<string, string>()
-  const taken = new Set<string>()
-  for (const node of state.nodes()) {
-    const artifact = codec.load(recorder, node)
-    const base = artifact.name ?? 'refused-module'
-    const name = taken.has(base) ? `${base}~${node.ordinal}` : base
-    taken.add(name)
-    names.set(node.nodeId, name)
-  }
-  return names
-}
-
-/** The environment as one attempt sees it, recording each throw from `open`, `tools`,
- * `score` or `close`: those are the environment's faults. A `call` that throws is a tool
- * error the agent's loop handles. */
-function faultRecording(environment: Environment, faults: string[]): Environment {
-  const recorded =
-    <A extends unknown[], R>(name: string, method: (...args: A) => Promise<R>) =>
-    async (...args: A): Promise<R> => {
-      try {
-        return await method(...args)
-      } catch (error) {
-        faults.push(`${name}: ${shareText(error)}`)
-        throw error
-      }
-    }
-  return {
-    name: environment.name,
-    open: recorded('open', (task) => environment.open(task)),
-    tools: recorded('tools', (task, handle) => environment.tools(task, handle)),
-    call: (handle, name, args) => environment.call(handle, name, args),
-    score: recorded('score', (task, handle) => environment.score(task, handle)),
-    close: recorded('close', (handle) => environment.close(handle)),
-  }
-}
-
-function environmentFault(faults: string[]): Pick<SearchCellResult, 'outcome'> {
-  return {
-    outcome: {
-      status: 'errored',
-      metrics: {},
-      error: { code: 'environment-fault', message: faults[0]!, retryable: true },
-    },
-  }
-}
-
 function authorAccounting(turns: readonly StrategyAuthorTurn[]): SearchAttemptAccounting {
   let usd = 0
   let costKnown = true
@@ -825,13 +529,6 @@ function authorAccounting(turns: readonly StrategyAuthorTurn[]): SearchAttemptAc
   }
 }
 
-function unknownAccounting(reason: string): SearchAttemptAccounting {
-  return {
-    tokens: { status: 'unknown', reason },
-    cost: { status: 'unknown', knownLowerBoundUsd: 0, reason },
-  }
-}
-
 /** One probe round-trip lists the domain's tools so the author can focus shots, names and
  * descriptions only, never the implementations. */
 async function listToolCatalog(environment: Environment, task: AgenticTask): Promise<string> {
@@ -848,34 +545,78 @@ async function listToolCatalog(environment: Environment, task: AgenticTask): Pro
   }
 }
 
-/** Free text as the ledger stores it: redacted with the share profile and bounded. */
-function shareText(error: unknown): string {
-  const text = error instanceof Error ? error.message : String(error)
-  return redact(text, { profile: 'share' }).value.slice(0, 300)
-}
-
 function compare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
-function positiveInteger(name: string, value: number): number {
-  if (!Number.isSafeInteger(value) || value < 1) {
-    throw new ConfigError(`evolution: ${name} must be a positive integer`)
+/** How the ledger stores a node's artifact and reads it back. */
+function strategyNodeCodec(root: Strategy): SearchArtifactCodec<StrategyNode> {
+  const rootNode: StrategyNode = { kind: 'root', name: root.name }
+  return {
+    node(rec, node) {
+      const artifact = rec.blob('strategy', { ...node })
+      return {
+        artifactDigest:
+          node.kind === 'root'
+            ? canonicalCandidateDigest({ kind: 'root', name: node.name })
+            : sha256Bytes(Buffer.from(node.code, 'utf8')),
+        artifact,
+        surfaces: [{ surfaceId: 'strategy', kind: 'code', artifact }],
+      }
+    },
+    diff(rec, parent, child) {
+      if (parent.kind === 'root' || child.kind === 'root') {
+        return { unknown: 'the root is a caller-supplied strategy with no source here' }
+      }
+      return surfaceDiff(rec, parent.code, child.code)
+    },
+    load(rec, node) {
+      const stored = rec.readBlob(node.artifact) as StrategyNode
+      if (stored.kind === 'root') {
+        if (stored.name !== root.name) {
+          throw new Error(
+            `evolution: node ${node.nodeId} is root '${stored.name}', not '${root.name}'`,
+          )
+        }
+        return rootNode
+      }
+      if (stored.kind === 'authored' && typeof stored.code === 'string') return stored
+      throw new Error(`evolution: node ${node.nodeId} holds no strategy`)
+    },
   }
-  return value
 }
 
-function nonNegativeInteger(name: string, value: number): number {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new ConfigError(`evolution: ${name} must be a non-negative integer`)
+/** Resolve a node to its runnable strategy; an authored module loads once per source. */
+function strategyLoader(
+  root: Strategy,
+  modulesDir: string,
+): (node: StrategyNode) => Promise<Strategy> {
+  const loaded = new Map<string, Promise<Strategy>>()
+  return (node) => {
+    if (node.kind === 'root') return Promise.resolve(root)
+    let strategy = loaded.get(node.code)
+    if (!strategy) {
+      strategy = loadAuthoredStrategy(node.code, modulesDir).then((module) => module.strategy)
+      loaded.set(node.code, strategy)
+    }
+    return strategy
   }
-  return value
 }
 
-function dollars(name: string, value: number | undefined): number | null {
-  if (value === undefined) return null
-  if (!Number.isFinite(value) || value < 0) {
-    throw new ConfigError(`evolution: ${name} must be a finite non-negative number`)
+/** Report names: each node's strategy name, suffixed `~<ordinal>` when an earlier node has it. */
+function strategyNames(
+  state: SearchStateView,
+  recorder: SearchRecorder,
+  codec: SearchArtifactCodec<StrategyNode>,
+): Map<string, string> {
+  const names = new Map<string, string>()
+  const taken = new Set<string>()
+  for (const node of state.nodes()) {
+    const artifact = codec.load(recorder, node)
+    const base = artifact.name ?? 'refused-module'
+    const name = taken.has(base) ? `${base}~${node.ordinal}` : base
+    taken.add(name)
+    names.set(node.nodeId, name)
   }
-  return value
+  return names
 }

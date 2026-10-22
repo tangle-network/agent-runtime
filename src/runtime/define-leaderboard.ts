@@ -321,40 +321,43 @@ function normalizeScore(s: number | LeaderboardScore): LeaderboardScore {
   return typeof s === 'number' ? { composite: s } : s
 }
 
-/**
- * Assemble a declarative spec (`cases` + `prompt` + `score`) into a runnable
- * harness×model leaderboard — `run()` executes the matrix, `toBenchmarkAdapter()`
- * exposes the same domain as a structural `BenchmarkAdapter`.
- */
-export function defineLeaderboard<TCase, TArtifact = string>(
+/** The stable string id of a case. */
+function leaderboardCaseId<TCase, TArtifact>(
   spec: LeaderboardSpec<TCase, TArtifact>,
-): DefinedLeaderboard<TCase, TArtifact> {
-  const caseId = (c: TCase): string => {
-    const id = spec.caseId ? spec.caseId(c) : (c as { id?: unknown }).id
-    if (typeof id !== 'string' || id.length === 0) {
+  c: TCase,
+): string {
+  const id = spec.caseId ? spec.caseId(c) : (c as { id?: unknown }).id
+  if (typeof id !== 'string' || id.length === 0) {
+    throw new Error(
+      `defineLeaderboard(${spec.name}): every case needs a stable string id — ` +
+        'give cases an `id` property or supply spec.caseId',
+    )
+  }
+  return id
+}
+
+/** The cases named by `ids`, in that order; every case when `ids` is omitted. */
+function selectLeaderboardCases<TCase, TArtifact>(
+  spec: LeaderboardSpec<TCase, TArtifact>,
+  ids?: readonly string[],
+): TCase[] {
+  if (!ids) return spec.cases
+  const byId = new Map(spec.cases.map((c) => [leaderboardCaseId(spec, c), c]))
+  return ids.map((id) => {
+    const c = byId.get(id)
+    if (c === undefined) {
       throw new Error(
-        `defineLeaderboard(${spec.name}): every case needs a stable string id — ` +
-          'give cases an `id` property or supply spec.caseId',
+        `defineLeaderboard(${spec.name}): unknown case "${id}" (have: ${[...byId.keys()].join(', ')})`,
       )
     }
-    return id
-  }
+    return c
+  })
+}
 
-  const selectCases = (ids?: readonly string[]): TCase[] => {
-    if (!ids) return spec.cases
-    const byId = new Map(spec.cases.map((c) => [caseId(c), c]))
-    return ids.map((id) => {
-      const c = byId.get(id)
-      if (c === undefined) {
-        throw new Error(
-          `defineLeaderboard(${spec.name}): unknown case "${id}" (have: ${[...byId.keys()].join(', ')})`,
-        )
-      }
-      return c
-    })
-  }
-
-  const scoreJudge: JudgeConfig<TArtifact, LeaderboardScenario<TCase>> = {
+function leaderboardScoreJudge<TCase, TArtifact>(
+  spec: LeaderboardSpec<TCase, TArtifact>,
+): JudgeConfig<TArtifact, LeaderboardScenario<TCase>> {
+  return {
     name: `${spec.name}-score`,
     dimensions: [{ key: 'composite', description: `${spec.name} case score` }],
     score({ artifact, scenario }) {
@@ -366,27 +369,264 @@ export function defineLeaderboard<TCase, TArtifact = string>(
       }
     },
   }
+}
 
+/** The standard flags plus every `spec.flags` entry, read from argv. */
+function parseLeaderboardArgs<TCase, TArtifact>(
+  spec: LeaderboardSpec<TCase, TArtifact>,
+  argv: string[],
+): Record<string, string | undefined> {
+  const args: Record<string, string | undefined> = {}
+  for (const name of [
+    'backend',
+    'harnesses',
+    'models',
+    'cases',
+    'shots',
+    'reps',
+    'model-snapshot',
+    'run-dir',
+    'export-dir',
+  ]) {
+    args[name] = argOf(argv, name)
+  }
+  for (const [name, flag] of Object.entries(spec.flags ?? {})) {
+    args[name] = argOf(argv, name) ?? flag.default
+  }
+  return args
+}
+
+/** The harness×model axes and the executable profiles they expand to. */
+function resolveLeaderboardProfiles<TCase, TArtifact>(
+  spec: LeaderboardSpec<TCase, TArtifact>,
+  args: Record<string, string | undefined>,
+  snapshot: string,
+) {
+  const harnesses =
+    (splitList(args.harnesses) as HarnessType[] | undefined) ??
+    spec.axis?.harnesses ??
+    CODING_HARNESSES
+  const rawModels =
+    splitList(args.models) ??
+    spec.axis?.models ??
+    (spec.baseProfile?.model?.default !== undefined ? [spec.baseProfile.model.default] : undefined)
+  if (!rawModels || rawModels.length === 0) {
+    throw new Error(
+      `defineLeaderboard(${spec.name}): no models — pass --models, set spec.axis.models, ` +
+        'or give spec.baseProfile a model.default',
+    )
+  }
+  const models = rawModels.map((m) => withSnapshot(m, snapshot))
+
+  const profiles = expandProfileAxes({ base: spec.baseProfile, harnesses, models })
+  for (const profile of profiles) {
+    assertExecutableAgentProfile(profile, `defineLeaderboard(${spec.name})`)
+  }
+  return { harnesses, models, profiles }
+}
+
+/** The sandbox client for the named backend: defaults plus spec overrides (spec wins).
+ *  Factories are lazy so an unused backend never resolves credentials. */
+function resolveLeaderboardClient<TCase, TArtifact>(
+  spec: LeaderboardSpec<TCase, TArtifact>,
+  backendName: string,
+): SandboxClient {
+  const backends: Record<string, (() => SandboxClient) | undefined> = {
+    sandbox: () => {
+      throw new Error(
+        `defineLeaderboard(${spec.name}): the 'sandbox' backend needs your product's real ` +
+          'Sandbox client — supply spec.backends.sandbox (e.g. () => new Sandbox({ apiKey, baseUrl }))',
+      )
+    },
+    'cli-bridge': () => {
+      const bearer = process.env.BRIDGE_BEARER ?? process.env.CLI_BRIDGE_BEARER
+      if (!bearer) {
+        throw new Error(
+          `defineLeaderboard(${spec.name}): backend 'cli-bridge' needs BRIDGE_BEARER or CLI_BRIDGE_BEARER set`,
+        )
+      }
+      return resolveSandboxClient({
+        backend: 'bridge',
+        bridge: {
+          url: process.env.CLI_BRIDGE_URL,
+          bearer,
+          timeoutMs: 900_000,
+        },
+      })
+    },
+    ...spec.backends,
+  }
+  const makeClient = backends[backendName]
+  if (!makeClient) {
+    throw new Error(
+      `defineLeaderboard(${spec.name}): unknown backend "${backendName}" (have: ${Object.keys(backends).join(', ')})`,
+    )
+  }
+  return makeClient()
+}
+
+/**
+ * The default dispatch wraps loopDispatch per cell (closures only — no
+ * per-cell resource cost) so the loop's finished iterations can be joined
+ * with the campaign ctx: onCellEvents gets EVERY shot's outcome (a thrown
+ * shot never reaches parse, so parse-time tapping would hide it), and a
+ * the cost receipt records the spec-resolved served model.
+ */
+function leaderboardDispatch<TCase, TArtifact>(
+  spec: LeaderboardSpec<TCase, TArtifact>,
+  sandboxClient: SandboxClient,
+  shots: number,
+  promptOf: (s: LeaderboardScenario<TCase>) => string,
+): ProfileDispatchFn<LeaderboardScenario<TCase>, TArtifact> {
+  // Monotonic per-shot nonce appended to each shot's prompt — defeats router
+  // response-caching of byte-identical prompts across naive-retry shots.
+  let shotNonce = 0
+  const maximumCharge = spec.maximumCharge
+  return (profile, scenario, dispatchCtx) => {
+    const cellDispatch = loopDispatch<
+      LeaderboardScenario<TCase>,
+      TArtifact,
+      NaiveRetryDecision,
+      LeaderboardScenario<TCase>,
+      TArtifact
+    >({
+      sandboxClient,
+      maximumCharge:
+        typeof maximumCharge === 'function'
+          ? (cellScenario, cellProfile) => maximumCharge(cellProfile, cellScenario)
+          : maximumCharge,
+      resolveCostModel: (result, _cellScenario, cellProfile) => {
+        if (!spec.resolveModel) return cellProfile.model?.default
+        const served = new Set(
+          result.iterations
+            .map((iteration) => spec.resolveModel?.(iteration.events))
+            .filter((model): model is string => model !== undefined),
+        )
+        if (served.size > 1) {
+          throw new Error(
+            `defineLeaderboard(${spec.name}): one cell reported multiple served models: ${[...served].join(', ')}`,
+          )
+        }
+        return [...served][0] ?? cellProfile.model?.default
+      },
+      toLoopOptions: (cellScenario, cellProfile) => {
+        return {
+          // The no-signal retry floor: re-run the same case as an independent attempt until
+          // one scores (>0) or the shot cap. The task is re-run verbatim — no grader findings
+          // cross into the next shot.
+          driver: naiveRetryDriver<TCase, TArtifact>(shots),
+          agentRun: {
+            profile: cellProfile,
+            taskToPrompt: (s) => `${promptOf(s)}\n\n<!-- independent-attempt:${shotNonce++} -->`,
+          },
+          output: {
+            parse: (events) =>
+              spec.parseOutput
+                ? spec.parseOutput(events, cellScenario.case)
+                : // The default decode produces string — the TArtifact
+                  // default. A structured-TArtifact spec supplies parseOutput
+                  // (documented on the field), so this cast never lies.
+                  ((collectAgentResponseText(events) ?? '') as TArtifact),
+          },
+          validator: {
+            validate: async (output: TArtifact) => {
+              const s = normalizeScore(spec.score(output, cellScenario.case))
+              return { valid: s.composite > 0, score: s.composite }
+            },
+          },
+          task: cellScenario,
+          maxIterations: shots,
+        }
+      },
+      toArtifact: (result: LoopResult<LeaderboardScenario<TCase>, TArtifact, unknown>) => {
+        for (const iter of result.iterations) {
+          spec.onCellEvents?.(iter.events, scenario.case, {
+            index: iter.index,
+            ...(iter.error ? { error: iter.error.message } : {}),
+            ...(iter.verdict ? { verdict: { score: iter.verdict.score } } : {}),
+          })
+        }
+        // Same as loopDispatch's default: no winner → undefined artifact
+        // (judges skip the cell; usage is still reported).
+        return result.winner?.output as TArtifact
+      },
+    })
+    return cellDispatch(profile, scenario, dispatchCtx)
+  }
+}
+
+/** Hand the result to `spec.export`, or write the default JSON and markdown leaderboard. */
+async function exportLeaderboardResult<TCase, TArtifact>(
+  spec: LeaderboardSpec<TCase, TArtifact>,
+  result: RunProfileMatrixResult<TArtifact, LeaderboardScenario<TCase>>,
+  ctx: LeaderboardRunContext,
+): Promise<void> {
+  if (spec.export) {
+    await spec.export(result, ctx)
+    return
+  }
+  mkdirSync(ctx.exportDir, { recursive: true })
+  writeFileSync(join(ctx.runDir, 'matrix-result.json'), `${JSON.stringify(result, null, 2)}\n`)
+  const table = renderLeaderboardMarkdown(
+    leaderboard(result.records, { title: spec.name, meta: { backend: ctx.backend } }),
+  )
+  writeFileSync(join(ctx.exportDir, 'leaderboard.md'), table)
+  console.log(table)
+}
+
+/** The leaderboard's domain surface in the structural `BenchmarkAdapter` shape. */
+function leaderboardBenchmarkAdapter<TCase, TArtifact>(
+  spec: LeaderboardSpec<TCase, TArtifact>,
+): LeaderboardBenchmarkAdapter<TArtifact> {
+  return {
+    name: spec.name,
+    async preflight(): Promise<void> {
+      // Case-id integrity is the cheap, real check: duplicate or missing ids
+      // corrupt every downstream join.
+      const seen = new Set<string>()
+      for (const c of spec.cases) {
+        const id = leaderboardCaseId(spec, c)
+        if (seen.has(id)) {
+          throw new Error(`defineLeaderboard(${spec.name}): duplicate case id "${id}"`)
+        }
+        seen.add(id)
+      }
+    },
+    async loadTasks(opts): Promise<LeaderboardBenchTask[]> {
+      const selected = selectLeaderboardCases(spec, opts?.ids)
+      const limited = opts?.limit !== undefined ? selected.slice(0, opts.limit) : selected
+      return Promise.all(
+        limited.map(async (c) => ({
+          id: leaderboardCaseId(spec, c),
+          prompt: await spec.prompt(c),
+          metadata: { case: c },
+        })),
+      )
+    },
+    async judge(task, artifact): Promise<LeaderboardBenchScore> {
+      const [c] = selectLeaderboardCases(spec, [task.id])
+      if (c === undefined) throw new Error(`defineLeaderboard(${spec.name}): no case "${task.id}"`)
+      const s = normalizeScore(spec.score(artifact, c))
+      return { resolved: s.composite > 0, score: s.composite, detail: s.notes }
+    },
+    async goldArtifact(): Promise<string | undefined> {
+      return undefined
+    },
+  }
+}
+
+/**
+ * Assemble a declarative spec (`cases` + `prompt` + `score`) into a runnable
+ * harness×model leaderboard — `run()` executes the matrix, `toBenchmarkAdapter()`
+ * exposes the same domain as a structural `BenchmarkAdapter`.
+ */
+export function defineLeaderboard<TCase, TArtifact = string>(
+  spec: LeaderboardSpec<TCase, TArtifact>,
+): DefinedLeaderboard<TCase, TArtifact> {
   async function run(
     argv: string[] = process.argv.slice(2),
   ): Promise<RunProfileMatrixResult<TArtifact, LeaderboardScenario<TCase>>> {
-    const args: Record<string, string | undefined> = {}
-    for (const name of [
-      'backend',
-      'harnesses',
-      'models',
-      'cases',
-      'shots',
-      'reps',
-      'model-snapshot',
-      'run-dir',
-      'export-dir',
-    ]) {
-      args[name] = argOf(argv, name)
-    }
-    for (const [name, flag] of Object.entries(spec.flags ?? {})) {
-      args[name] = argOf(argv, name) ?? flag.default
-    }
+    const args = parseLeaderboardArgs(spec, argv)
 
     const backendName = args.backend ?? 'sandbox'
     const shots = Number(args.shots ?? spec.shots ?? 1)
@@ -400,36 +640,15 @@ export function defineLeaderboard<TCase, TArtifact = string>(
     const exportDir = args['export-dir'] ?? join(runDir, 'export')
     mkdirSync(runDir, { recursive: true })
 
-    const cases = selectCases(splitList(args.cases))
+    const cases = selectLeaderboardCases(spec, splitList(args.cases))
     if (cases.length === 0) throw new Error(`defineLeaderboard(${spec.name}): no cases to run`)
     const scenarios: LeaderboardScenario<TCase>[] = cases.map((c) => ({
-      id: caseId(c),
+      id: leaderboardCaseId(spec, c),
       kind: spec.name,
       case: c,
     }))
 
-    const harnesses =
-      (splitList(args.harnesses) as HarnessType[] | undefined) ??
-      spec.axis?.harnesses ??
-      CODING_HARNESSES
-    const rawModels =
-      splitList(args.models) ??
-      spec.axis?.models ??
-      (spec.baseProfile?.model?.default !== undefined
-        ? [spec.baseProfile.model.default]
-        : undefined)
-    if (!rawModels || rawModels.length === 0) {
-      throw new Error(
-        `defineLeaderboard(${spec.name}): no models — pass --models, set spec.axis.models, ` +
-          'or give spec.baseProfile a model.default',
-      )
-    }
-    const models = rawModels.map((m) => withSnapshot(m, snapshot))
-
-    const profiles = expandProfileAxes({ base: spec.baseProfile, harnesses, models })
-    for (const profile of profiles) {
-      assertExecutableAgentProfile(profile, `defineLeaderboard(${spec.name})`)
-    }
+    const { harnesses, models, profiles } = resolveLeaderboardProfiles(spec, args, snapshot)
 
     const ctx: LeaderboardRunContext = {
       name: spec.name,
@@ -444,40 +663,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
       reps,
     }
 
-    // Backend registry: defaults + spec overrides (spec wins). Factories are
-    // lazy so an unused backend never resolves credentials.
-    const backends: Record<string, (() => SandboxClient) | undefined> = {
-      sandbox: () => {
-        throw new Error(
-          `defineLeaderboard(${spec.name}): the 'sandbox' backend needs your product's real ` +
-            'Sandbox client — supply spec.backends.sandbox (e.g. () => new Sandbox({ apiKey, baseUrl }))',
-        )
-      },
-      'cli-bridge': () => {
-        const bearer = process.env.BRIDGE_BEARER ?? process.env.CLI_BRIDGE_BEARER
-        if (!bearer) {
-          throw new Error(
-            `defineLeaderboard(${spec.name}): backend 'cli-bridge' needs BRIDGE_BEARER or CLI_BRIDGE_BEARER set`,
-          )
-        }
-        return resolveSandboxClient({
-          backend: 'bridge',
-          bridge: {
-            url: process.env.CLI_BRIDGE_URL,
-            bearer,
-            timeoutMs: 900_000,
-          },
-        })
-      },
-      ...spec.backends,
-    }
-    const makeClient = backends[backendName]
-    if (!makeClient) {
-      throw new Error(
-        `defineLeaderboard(${spec.name}): unknown backend "${backendName}" (have: ${Object.keys(backends).join(', ')})`,
-      )
-    }
-    const sandboxClient = makeClient()
+    const sandboxClient = resolveLeaderboardClient(spec, backendName)
 
     // Prompts resolve ONCE per case, up front — spec.prompt may be async
     // (shelling out to a reference implementation) but the loop kernel's
@@ -491,88 +677,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
       return p
     }
 
-    // Monotonic per-shot nonce appended to each shot's prompt — defeats router
-    // response-caching of byte-identical prompts across naive-retry shots.
-    let shotNonce = 0
-
-    // The default dispatch wraps loopDispatch per cell (closures only — no
-    // per-cell resource cost) so the loop's finished iterations can be joined
-    // with the campaign ctx: onCellEvents gets EVERY shot's outcome (a thrown
-    // shot never reaches parse, so parse-time tapping would hide it), and a
-    // the cost receipt records the spec-resolved served model.
-    const maximumCharge = spec.maximumCharge
-    const dispatch: ProfileDispatchFn<LeaderboardScenario<TCase>, TArtifact> = spec.dispatch ??
-    ((profile, scenario, dispatchCtx) => {
-      const cellDispatch = loopDispatch<
-        LeaderboardScenario<TCase>,
-        TArtifact,
-        NaiveRetryDecision,
-        LeaderboardScenario<TCase>,
-        TArtifact
-      >({
-        sandboxClient,
-        maximumCharge:
-          typeof maximumCharge === 'function'
-            ? (cellScenario, cellProfile) => maximumCharge(cellProfile, cellScenario)
-            : maximumCharge,
-        resolveCostModel: (result, _cellScenario, cellProfile) => {
-          if (!spec.resolveModel) return cellProfile.model?.default
-          const served = new Set(
-            result.iterations
-              .map((iteration) => spec.resolveModel?.(iteration.events))
-              .filter((model): model is string => model !== undefined),
-          )
-          if (served.size > 1) {
-            throw new Error(
-              `defineLeaderboard(${spec.name}): one cell reported multiple served models: ${[...served].join(', ')}`,
-            )
-          }
-          return [...served][0] ?? cellProfile.model?.default
-        },
-        toLoopOptions: (cellScenario, cellProfile) => {
-          return {
-            // The no-signal retry floor: re-run the same case as an independent attempt until
-            // one scores (>0) or the shot cap. The task is re-run verbatim — no grader findings
-            // cross into the next shot.
-            driver: naiveRetryDriver<TCase, TArtifact>(shots),
-            agentRun: {
-              profile: cellProfile,
-              taskToPrompt: (s) => `${promptOf(s)}\n\n<!-- independent-attempt:${shotNonce++} -->`,
-            },
-            output: {
-              parse: (events) =>
-                spec.parseOutput
-                  ? spec.parseOutput(events, cellScenario.case)
-                  : // The default decode produces string — the TArtifact
-                    // default. A structured-TArtifact spec supplies parseOutput
-                    // (documented on the field), so this cast never lies.
-                    ((collectAgentResponseText(events) ?? '') as TArtifact),
-            },
-            validator: {
-              validate: async (output: TArtifact) => {
-                const s = normalizeScore(spec.score(output, cellScenario.case))
-                return { valid: s.composite > 0, score: s.composite }
-              },
-            },
-            task: cellScenario,
-            maxIterations: shots,
-          }
-        },
-        toArtifact: (result: LoopResult<LeaderboardScenario<TCase>, TArtifact, unknown>) => {
-          for (const iter of result.iterations) {
-            spec.onCellEvents?.(iter.events, scenario.case, {
-              index: iter.index,
-              ...(iter.error ? { error: iter.error.message } : {}),
-              ...(iter.verdict ? { verdict: { score: iter.verdict.score } } : {}),
-            })
-          }
-          // Same as loopDispatch's default: no winner → undefined artifact
-          // (judges skip the cell; usage is still reported).
-          return result.winner?.output as TArtifact
-        },
-      })
-      return cellDispatch(profile, scenario, dispatchCtx)
-    })
+    const dispatch = spec.dispatch ?? leaderboardDispatch(spec, sandboxClient, shots, promptOf)
 
     await spec.setup?.(ctx)
     try {
@@ -580,68 +685,18 @@ export function defineLeaderboard<TCase, TArtifact = string>(
         profiles,
         scenarios,
         dispatch,
-        judges: spec.judges ?? [scoreJudge],
+        judges: spec.judges ?? [leaderboardScoreJudge(spec)],
         runDir,
         commitSha: gitSha(),
         reps,
         ...spec.matrix,
       })
-
-      if (spec.export) {
-        await spec.export(result, ctx)
-      } else {
-        mkdirSync(exportDir, { recursive: true })
-        writeFileSync(join(runDir, 'matrix-result.json'), `${JSON.stringify(result, null, 2)}\n`)
-        const table = renderLeaderboardMarkdown(
-          leaderboard(result.records, { title: spec.name, meta: { backend: backendName } }),
-        )
-        writeFileSync(join(exportDir, 'leaderboard.md'), table)
-        console.log(table)
-      }
+      await exportLeaderboardResult(spec, result, ctx)
       return result
     } finally {
       await spec.teardown?.(ctx)
     }
   }
 
-  function toBenchmarkAdapter(): LeaderboardBenchmarkAdapter<TArtifact> {
-    return {
-      name: spec.name,
-      async preflight(): Promise<void> {
-        // Case-id integrity is the cheap, real check: duplicate or missing ids
-        // corrupt every downstream join.
-        const seen = new Set<string>()
-        for (const c of spec.cases) {
-          const id = caseId(c)
-          if (seen.has(id)) {
-            throw new Error(`defineLeaderboard(${spec.name}): duplicate case id "${id}"`)
-          }
-          seen.add(id)
-        }
-      },
-      async loadTasks(opts): Promise<LeaderboardBenchTask[]> {
-        const selected = selectCases(opts?.ids)
-        const limited = opts?.limit !== undefined ? selected.slice(0, opts.limit) : selected
-        return Promise.all(
-          limited.map(async (c) => ({
-            id: caseId(c),
-            prompt: await spec.prompt(c),
-            metadata: { case: c },
-          })),
-        )
-      },
-      async judge(task, artifact): Promise<LeaderboardBenchScore> {
-        const [c] = selectCases([task.id])
-        if (c === undefined)
-          throw new Error(`defineLeaderboard(${spec.name}): no case "${task.id}"`)
-        const s = normalizeScore(spec.score(artifact, c))
-        return { resolved: s.composite > 0, score: s.composite, detail: s.notes }
-      },
-      async goldArtifact(): Promise<string | undefined> {
-        return undefined
-      },
-    }
-  }
-
-  return { run, toBenchmarkAdapter }
+  return { run, toBenchmarkAdapter: () => leaderboardBenchmarkAdapter(spec) }
 }

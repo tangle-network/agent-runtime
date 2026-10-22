@@ -1,14 +1,9 @@
 import type { TraceStore } from '@tangle-network/agent-eval'
-import type {
-  AgentCandidateTaskOutcomeSpec,
-  AgentCandidateTermination,
-} from '@tangle-network/agent-interface'
 import { errorMessage } from '../runtime/util'
 import type {
   AgentCandidateExecutionClaim,
   AgentCandidateExecutionClaimStore,
   AgentCandidateExecutionFailureClass,
-  AgentCandidateExecutionLease,
   AgentCandidateExecutionTerminalResult,
 } from './claim'
 import { candidateExecutionClaim } from './claim-plan'
@@ -19,18 +14,23 @@ import {
   withinCandidateCleanupDeadline,
   withinCandidateResultDeadline,
 } from './cleanup'
-import { candidatePostRunWindowMs, candidateTerminalWindowMs } from './execution-window'
 import {
-  type SealedAgentCandidateExecutorFinalCapture,
-  sealAgentCandidateExecutorFinalCapture,
-  sealAgentCandidateExecutorStopAcknowledgement,
-  sealAgentCandidateProtectedRunCapture,
-} from './executor-capture'
+  type ActivatedAccess,
+  closeMemoryAccess,
+  type ExecutionRun,
+  failBeforeActivation,
+  failClaimedExecution,
+  finishClaim,
+  joinErrors,
+  protectedEnvironmentValues,
+  settleModelGrant,
+} from './execute-cleanup'
+import { type ExecutorOutcome, runAndStopExecutor } from './execute-executor'
+import { candidatePostRunWindowMs, candidateTerminalWindowMs } from './execution-window'
 import { failedAgentCandidateRun, finalizeAgentCandidateRun } from './finalize'
 import {
   appendAuthoritativeModelSettlementSpans,
   type SealedAgentCandidateModelSettlement,
-  sealAgentCandidateModelSettlement,
 } from './model-settlement'
 import {
   type PersistedAgentCandidateModelSettlement,
@@ -58,7 +58,6 @@ import type {
   AgentCandidateExecutorRequest,
   AgentCandidateOutputArtifactPort,
   AgentCandidateProtectedModelActivation,
-  AgentCandidateProtectedRunCapture,
   AgentCandidateRunFinalization,
   PreparedAgentCandidateExecution,
 } from './types'
@@ -74,6 +73,36 @@ export interface ExecutePreparedAgentCandidateOptions {
   cleanupTimeoutMs?: number
   /** Maximum time for task verification, executable grading, and receipt construction. */
   resultTimeoutMs?: number
+}
+
+/** A phase's outcome: its value, or the final result that ends the execution. */
+type Step<T> = { ok: true; value: T } | { ok: false; result: AgentCandidateRunFinalization }
+
+type AcquiredClaim = Extract<
+  Awaited<ReturnType<AgentCandidateExecutionClaimStore['tryClaim']>>,
+  { acquired: true }
+>
+
+interface ClaimedExecution {
+  readonly acquired: AcquiredClaim
+  /** The task deadline recovered from the claim's lease. */
+  readonly deadlineAtMs: number
+}
+
+interface LaunchableCandidate extends ActivatedAccess {
+  readonly activation: AgentCandidateProtectedModelActivation
+  readonly request: AgentCandidateExecutorRequest
+}
+
+/** An executor run whose process is stopped and whose protected access is closed and settled. */
+interface SettledExecution {
+  readonly execution: ExecutorOutcome
+  readonly settlement: SealedAgentCandidateModelSettlement
+  readonly protectedValues: string[]
+  readonly persistedTrace: ReturnType<
+    ReturnType<typeof createProtectedAgentCandidateTraceAccess>['identity']
+  >
+  readonly protectedTrace: ReturnType<typeof createProtectedAgentCandidateTraceAccess>
 }
 
 /** Executes and finalizes one durably claimed candidate without exposing an unproven result. */
@@ -101,13 +130,135 @@ export async function executePreparedAgentCandidate(
   } catch (error) {
     return failedAgentCandidateRun(initialState, errorMessage(error))
   }
+  const run: ExecutionRun = {
+    prepared,
+    state,
+    claimStore: options.claimStore,
+    outputArtifacts: options.outputArtifacts,
+    cleanupTimeoutMs,
+    resultTimeoutMs,
+  }
 
+  const claimed = await claimExecution(run, options)
+  if (!claimed.ok) return claimed.result
+  const launchable = await activateAccess(run, claimed.value)
+  if (!launchable.ok) return launchable.result
+  const settled = await runAndSettle(run, options, claimed.value, launchable.value)
+  if (!settled.ok) return settled.result
+
+  const { execution, settlement } = settled.value
+  let modelSettlement: PersistedAgentCandidateModelSettlement
+  try {
+    modelSettlement = await withinCandidateCleanupDeadline(
+      () => persistCandidateModelSettlement(state, settlement, options.outputArtifacts),
+      candidateCleanupDeadline(cleanupTimeoutMs),
+      'candidate model settlement persistence',
+    )
+  } catch (error) {
+    consumePreparedCandidateExecution(prepared, 'failed')
+    return failedAgentCandidateRun(
+      state,
+      redactProtectedReason(
+        joinErrors(
+          error,
+          new Error('candidate claim remains recoverable until settlement evidence is durable'),
+        ),
+        settled.value.protectedValues,
+      ),
+      execution.termination,
+      settlement.usage,
+    )
+  }
+
+  const result = await finalizeEvidence(run, options, claimed.value, settled.value, modelSettlement)
+  return recordTerminal(run, claimed.value, settled.value, modelSettlement, result)
+}
+
+/** Stage and publish the attempt's terminal record, then consume the prepared execution. */
+async function recordTerminal(
+  run: ExecutionRun,
+  claimed: ClaimedExecution,
+  settled: SettledExecution,
+  modelSettlement: PersistedAgentCandidateModelSettlement,
+  result: AgentCandidateRunFinalization,
+): Promise<AgentCandidateRunFinalization> {
+  const { prepared, state } = run
+  const { execution, settlement } = settled
+  const { lease } = claimed.acquired
+  const failureClass: AgentCandidateExecutionFailureClass =
+    execution.kind === 'error' ? 'execution' : 'post-model-infrastructure'
+  let terminal: AgentCandidateExecutionTerminalResult
+  try {
+    terminal = result.succeeded
+      ? {
+          status: 'succeeded',
+          usage: settlement.usage,
+          modelSettlement: result.artifacts.modelSettlement,
+          taskOutcome: result.artifacts.taskOutcome,
+          benchmarkResult: result.artifacts.benchmarkResult,
+          runReceipt: result.artifacts.runReceipt,
+        }
+      : {
+          status: 'failed',
+          failureClass,
+          usage: settlement.usage,
+          modelSettlement: modelSettlement.artifact,
+          failureEvidence: await withinCandidateCleanupDeadline(
+            () =>
+              persistFailureEvidence(
+                state,
+                result.reason,
+                failureClass,
+                execution.termination,
+                run.outputArtifacts,
+              ),
+            lease.expiresAtMs,
+            'candidate failure-evidence persistence',
+          ),
+        }
+  } catch (error) {
+    consumePreparedCandidateExecution(prepared, 'failed')
+    return failedAgentCandidateRun(
+      state,
+      redactProtectedReason(
+        joinErrors(
+          error,
+          new Error('candidate claim remains recoverable until terminal evidence is durable'),
+        ),
+        settled.protectedValues,
+      ),
+      execution.termination,
+      settlement.usage,
+    )
+  }
+
+  const finished = await finishClaim(run.claimStore, lease, terminal, lease.expiresAtMs)
+  if (finished) {
+    consumePreparedCandidateExecution(prepared, result.succeeded ? 'succeeded' : 'failed')
+    return result
+  }
+
+  consumePreparedCandidateExecution(prepared, 'failed')
+  return failedAgentCandidateRun(
+    state,
+    'candidate execution terminal record could not be persisted',
+    execution.termination,
+    settlement.usage,
+  )
+}
+
+/** Persist the plan and receipt, claim the attempt, and check the claim covers the run. */
+async function claimExecution(
+  run: ExecutionRun,
+  options: ExecutePreparedAgentCandidateOptions,
+): Promise<Step<ClaimedExecution>> {
+  const { prepared, state, cleanupTimeoutMs, resultTimeoutMs } = run
   try {
     // Mutable staging is only a preparation check. The executor receives the
     // detached file bytes sealed in private state, never these host paths.
     await assertPreparedCandidateWorkspaces(state)
   } catch (error) {
-    return await failBeforeActivation(prepared, state, error, 'failed', cleanupTimeoutMs)
+    return { ok: false, result: await failBeforeActivation(run, error, 'failed') }
   }
 
   let preparationEvidence: AgentCandidateExecutionClaim['preparationEvidence']
@@ -126,7 +277,7 @@ export async function executePreparedAgentCandidate(
     ])
     preparationEvidence = Object.freeze({ executionPlan, materializationReceipt })
   } catch (error) {
-    return await failBeforeActivation(prepared, state, error, 'failed', cleanupTimeoutMs)
+    return { ok: false, result: await failBeforeActivation(run, error, 'failed') }
   }
 
   let acquired: Awaited<ReturnType<AgentCandidateExecutionClaimStore['tryClaim']>>
@@ -135,20 +286,21 @@ export async function executePreparedAgentCandidate(
       candidateExecutionClaim(prepared, preparationEvidence),
     )
   } catch (error) {
-    return await failBeforeActivation(prepared, state, error, 'failed', cleanupTimeoutMs)
+    return { ok: false, result: await failBeforeActivation(run, error, 'failed') }
   }
   if (!acquired.acquired) {
-    return await failBeforeActivation(
-      prepared,
-      state,
-      new Error(
-        acquired.reason === 'retry-not-eligible'
-          ? `candidate execution retry is not eligible: ${acquired.detail}`
-          : 'candidate execution attempt is already claimed',
+    return {
+      ok: false,
+      result: await failBeforeActivation(
+        run,
+        new Error(
+          acquired.reason === 'retry-not-eligible'
+            ? `candidate execution retry is not eligible: ${acquired.detail}`
+            : 'candidate execution attempt is already claimed',
+        ),
+        'replayed',
       ),
-      'replayed',
-      cleanupTimeoutMs,
-    )
+    }
   }
 
   markPreparedCandidateClaimed(prepared)
@@ -165,18 +317,35 @@ export async function executePreparedAgentCandidate(
     deadlineAtMs > state.reservationExpiresAtMs ||
     requiredLeaseExpiry > acquired.lease.expiresAtMs
   ) {
-    return await failClaimedExecution(
-      prepared,
-      state,
-      acquired.lease,
-      options.claimStore,
-      options.outputArtifacts,
-      new Error('candidate claim no longer covers its full execution and cleanup window'),
-      'failed',
-      cleanupTimeoutMs,
-      'pre-model-infrastructure',
-    )
+    return {
+      ok: false,
+      result: await failClaimedExecution(
+        run,
+        acquired.lease,
+        new Error('candidate claim no longer covers its full execution and cleanup window'),
+        'pre-model-infrastructure',
+      ),
+    }
   }
+  return { ok: true, value: { acquired, deadlineAtMs } }
+}
+
+/** Activate model and memory access, build the executor request, and persist that it may run. */
+async function activateAccess(
+  run: ExecutionRun,
+  claimed: ClaimedExecution,
+): Promise<Step<LaunchableCandidate>> {
+  const { prepared, state, cleanupTimeoutMs } = run
+  const { acquired, deadlineAtMs } = claimed
+  const fail = async (
+    error: unknown,
+    failureClass: AgentCandidateExecutionFailureClass,
+    access?: ActivatedAccess,
+  ): Promise<Step<never>> => ({
+    ok: false,
+    result: await failClaimedExecution(run, acquired.lease, error, failureClass, access),
+  })
+
   let activation: AgentCandidateProtectedModelActivation
   try {
     const activated = await withinCandidateCleanupDeadline(
@@ -193,15 +362,8 @@ export async function executePreparedAgentCandidate(
     )
     activation = Object.freeze({ env: Object.freeze({ ...activated.env }) })
   } catch (error) {
-    return await failClaimedExecution(
-      prepared,
-      state,
-      acquired.lease,
-      options.claimStore,
-      options.outputArtifacts,
+    return fail(
       new Error('protected model activation failed', { cause: error }),
-      'failed',
-      cleanupTimeoutMs,
       'pre-model-infrastructure',
     )
   }
@@ -225,77 +387,56 @@ export async function executePreparedAgentCandidate(
       )
       memoryActivation = Object.freeze({ env: Object.freeze({ ...activated.env }) })
     } catch (error) {
-      return await failClaimedExecution(
-        prepared,
-        state,
-        acquired.lease,
-        options.claimStore,
-        options.outputArtifacts,
+      return fail(
         new Error('isolated memory activation failed', { cause: error }),
-        'failed',
-        cleanupTimeoutMs,
         'pre-model-infrastructure',
-        activation,
+        { activation },
       )
     }
   }
+  const access = { activation, memoryActivation }
 
   let request: AgentCandidateExecutorRequest
   try {
     request = beginPreparedCandidateRun(prepared, activation, memoryActivation).request
   } catch (error) {
-    return await failClaimedExecution(
-      prepared,
-      state,
-      acquired.lease,
-      options.claimStore,
-      options.outputArtifacts,
-      error,
-      'failed',
-      cleanupTimeoutMs,
-      'pre-model-infrastructure',
-      activation,
-      memoryActivation,
-    )
+    return fail(error, 'pre-model-infrastructure', access)
   }
 
   try {
-    const phase = await options.claimStore.markCandidateMayRun(acquired.lease)
+    const phase = await run.claimStore.markCandidateMayRun(acquired.lease)
     if (phase.phase !== 'candidate-may-run') {
       throw new Error('candidate claim did not persist the candidate-may-run phase')
     }
   } catch (error) {
-    return await failClaimedExecution(
-      prepared,
-      state,
-      acquired.lease,
-      options.claimStore,
-      options.outputArtifacts,
+    return fail(
       new Error('candidate execution phase persistence failed', { cause: error }),
-      'failed',
-      cleanupTimeoutMs,
       'pre-model-infrastructure',
-      activation,
-      memoryActivation,
+      access,
     )
   }
   if (Date.now() >= deadlineAtMs) {
-    return await failClaimedExecution(
-      prepared,
-      state,
-      acquired.lease,
-      options.claimStore,
-      options.outputArtifacts,
+    return fail(
       new Error('candidate execution deadline elapsed while persisting its launch phase'),
-      'failed',
-      cleanupTimeoutMs,
       'unknown',
-      activation,
-      memoryActivation,
+      access,
     )
   }
+  return { ok: true, value: { ...access, request } }
+}
 
-  const protectedValues = protectedEnvironmentValues(activation, memoryActivation)
+/** Run the executor, prove its process stopped, and close and settle the protected access. */
+async function runAndSettle(
+  run: ExecutionRun,
+  options: ExecutePreparedAgentCandidateOptions,
+  claimed: ClaimedExecution,
+  launchable: LaunchableCandidate,
+): Promise<Step<SettledExecution>> {
+  const { prepared, state, cleanupTimeoutMs } = run
+  const protectedValues = protectedEnvironmentValues(
+    launchable.activation,
+    launchable.memoryActivation,
+  )
   const protectedTrace = createProtectedAgentCandidateTraceAccess(
     options.traceStore,
     protectedValues,
@@ -303,10 +444,10 @@ export async function executePreparedAgentCandidate(
   const persistedTrace = protectedTrace.identity(state.trace)
   const execution = await runAndStopExecutor(
     options.executor,
-    request,
+    launchable.request,
     state.benchmarkTask.outcome,
     protectedTrace.store,
-    deadlineAtMs,
+    claimed.deadlineAtMs,
     cleanupTimeoutMs,
   )
   beginPreparedCandidateSettlement(prepared)
@@ -338,650 +479,131 @@ export async function executePreparedAgentCandidate(
     !memoryClose.closed
   ) {
     consumePreparedCandidateExecution(prepared, 'failed')
-    return failedAgentCandidateRun(
-      state,
-      redactProtectedReason(
-        joinErrors(
-          execution.error,
-          !execution.processStopped
-            ? new Error('candidate process termination is not proven')
-            : undefined,
-          traceClose.error,
-          memoryClose.error,
-          settlementResult.error ??
-            (!settlementResult.settlement ? new Error('model settlement failed') : undefined),
-          new Error('candidate claim remains recoverable until protected cleanup is proven'),
+    return {
+      ok: false,
+      result: failedAgentCandidateRun(
+        state,
+        redactProtectedReason(
+          joinErrors(
+            execution.error,
+            !execution.processStopped
+              ? new Error('candidate process termination is not proven')
+              : undefined,
+            traceClose.error,
+            memoryClose.error,
+            settlementResult.error ??
+              (!settlementResult.settlement ? new Error('model settlement failed') : undefined),
+            new Error('candidate claim remains recoverable until protected cleanup is proven'),
+          ),
+          protectedValues,
         ),
-        protectedValues,
+        execution.termination,
+        settlementResult.settlement?.usage ?? null,
       ),
-      execution.termination,
-      settlementResult.settlement?.usage ?? null,
-    )
+    }
   }
-
-  let modelSettlement: PersistedAgentCandidateModelSettlement
-  try {
-    modelSettlement = await withinCandidateCleanupDeadline(
-      () =>
-        persistCandidateModelSettlement(
-          state,
-          settlementResult.settlement as SealedAgentCandidateModelSettlement,
-          options.outputArtifacts,
-        ),
-      candidateCleanupDeadline(cleanupTimeoutMs),
-      'candidate model settlement persistence',
-    )
-  } catch (error) {
-    consumePreparedCandidateExecution(prepared, 'failed')
-    return failedAgentCandidateRun(
-      state,
-      redactProtectedReason(
-        joinErrors(
-          error,
-          new Error('candidate claim remains recoverable until settlement evidence is durable'),
-        ),
-        protectedValues,
-      ),
-      execution.termination,
-      settlementResult.settlement.usage,
-    )
+  return {
+    ok: true,
+    value: {
+      execution,
+      settlement: settlementResult.settlement,
+      protectedValues,
+      persistedTrace,
+      protectedTrace,
+    },
   }
+}
 
-  let result: AgentCandidateRunFinalization
-  const failureClass: AgentCandidateExecutionFailureClass =
-    execution.kind === 'error' ? 'execution' : 'post-model-infrastructure'
+/** Verify and grade the captured evidence into the run's result; a failure is a failed run. */
+async function finalizeEvidence(
+  run: ExecutionRun,
+  options: ExecutePreparedAgentCandidateOptions,
+  claimed: ClaimedExecution,
+  settled: SettledExecution,
+  modelSettlement: PersistedAgentCandidateModelSettlement,
+): Promise<AgentCandidateRunFinalization> {
+  const { state, cleanupTimeoutMs, resultTimeoutMs } = run
+  const { execution, settlement, protectedValues, persistedTrace, protectedTrace } = settled
   if (execution.kind === 'error') {
-    result = failedAgentCandidateRun(
+    return failedAgentCandidateRun(
       state,
       redactProtectedReason(errorMessage(execution.error), protectedValues),
       execution.termination,
-      settlementResult.settlement.usage,
+      settlement.usage,
     )
-  } else if (!execution.finalCapture.taskOutcome) {
-    result = failedAgentCandidateRun(
+  }
+  if (!execution.finalCapture.taskOutcome) {
+    return failedAgentCandidateRun(
       state,
       'candidate executor stopped without a captured task outcome',
       execution.termination,
-      settlementResult.settlement.usage,
+      settlement.usage,
     )
-  } else {
-    const capture =
-      execution.kind === 'capture'
-        ? execution.capture
-        : {
-            executionId: state.executionId,
-            termination: execution.termination,
-          }
-    try {
-      const resultDeadlineAtMs = Math.min(
-        Date.now() + resultTimeoutMs,
-        acquired.lease.expiresAtMs - candidateTerminalWindowMs(cleanupTimeoutMs),
-      )
-      result = await withinCandidateResultDeadline(
-        async (signal) => {
-          await appendAuthoritativeModelSettlementSpans(
-            options.traceStore,
-            persistedTrace.runId,
-            settlementResult.settlement as SealedAgentCandidateModelSettlement,
-          )
-          const { persistedCapture, taskOutcome } =
-            await persistVerifiedAgentCandidateExecutorCapture(
-              state,
-              execution.finalCapture,
-              options.outputArtifacts,
-              protectedValues,
-              signal,
-            )
-          const benchmarkResult = await persistCandidateBenchmarkResult(
+  }
+  const capture =
+    execution.kind === 'capture'
+      ? execution.capture
+      : {
+          executionId: state.executionId,
+          termination: execution.termination,
+        }
+  try {
+    const resultDeadlineAtMs = Math.min(
+      Date.now() + resultTimeoutMs,
+      claimed.acquired.lease.expiresAtMs - candidateTerminalWindowMs(cleanupTimeoutMs),
+    )
+    return await withinCandidateResultDeadline(
+      async (signal) => {
+        await appendAuthoritativeModelSettlementSpans(
+          options.traceStore,
+          persistedTrace.runId,
+          settlement,
+        )
+        const { persistedCapture, taskOutcome } =
+          await persistVerifiedAgentCandidateExecutorCapture(
             state,
-            capture.termination,
-            taskOutcome,
-            options.grader,
+            execution.finalCapture,
             options.outputArtifacts,
             protectedValues,
             signal,
           )
-          return await finalizeAgentCandidateRun(
-            state,
-            capture,
-            options.traceStore,
-            persistedTrace,
-            settlementResult.settlement as SealedAgentCandidateModelSettlement,
-            {
-              finalCapture: execution.finalCapture,
-              persistedCapture,
-              modelSettlement,
-              taskOutcome,
-              benchmarkResult,
-              outputArtifacts: options.outputArtifacts,
-            },
-            protectedValues,
-            protectedTrace.report(),
-            signal,
-          )
-        },
-        resultDeadlineAtMs,
-        'candidate evidence finalization',
-      )
-    } catch (error) {
-      result = failedAgentCandidateRun(
-        state,
-        redactProtectedReason(errorMessage(error), protectedValues),
-        execution.termination,
-        settlementResult.settlement.usage,
-      )
-    }
-  }
-
-  let terminal: AgentCandidateExecutionTerminalResult
-  try {
-    terminal = result.succeeded
-      ? {
-          status: 'succeeded',
-          usage: settlementResult.settlement.usage,
-          modelSettlement: result.artifacts.modelSettlement,
-          taskOutcome: result.artifacts.taskOutcome,
-          benchmarkResult: result.artifacts.benchmarkResult,
-          runReceipt: result.artifacts.runReceipt,
-        }
-      : {
-          status: 'failed',
-          failureClass,
-          usage: settlementResult.settlement.usage,
-          modelSettlement: modelSettlement.artifact,
-          failureEvidence: await withinCandidateCleanupDeadline(
-            () =>
-              persistFailureEvidence(
-                state,
-                result.reason,
-                failureClass,
-                execution.termination,
-                options.outputArtifacts,
-              ),
-            acquired.lease.expiresAtMs,
-            'candidate failure-evidence persistence',
-          ),
-        }
+        const benchmarkResult = await persistCandidateBenchmarkResult(
+          state,
+          capture.termination,
+          taskOutcome,
+          options.grader,
+          options.outputArtifacts,
+          protectedValues,
+          signal,
+        )
+        return await finalizeAgentCandidateRun(
+          state,
+          capture,
+          options.traceStore,
+          persistedTrace,
+          settlement,
+          {
+            finalCapture: execution.finalCapture,
+            persistedCapture,
+            modelSettlement,
+            taskOutcome,
+            benchmarkResult,
+            outputArtifacts: options.outputArtifacts,
+          },
+          protectedValues,
+          protectedTrace.report(),
+          signal,
+        )
+      },
+      resultDeadlineAtMs,
+      'candidate evidence finalization',
+    )
   } catch (error) {
-    consumePreparedCandidateExecution(prepared, 'failed')
     return failedAgentCandidateRun(
       state,
-      redactProtectedReason(
-        joinErrors(
-          error,
-          new Error('candidate claim remains recoverable until terminal evidence is durable'),
-        ),
-        protectedValues,
-      ),
+      redactProtectedReason(errorMessage(error), protectedValues),
       execution.termination,
-      settlementResult.settlement.usage,
+      settlement.usage,
     )
-  }
-
-  const finished = await finishClaim(
-    options.claimStore,
-    acquired.lease,
-    terminal,
-    acquired.lease.expiresAtMs,
-  )
-  if (finished) {
-    consumePreparedCandidateExecution(prepared, result.succeeded ? 'succeeded' : 'failed')
-    return result
-  }
-
-  consumePreparedCandidateExecution(prepared, 'failed')
-  return failedAgentCandidateRun(
-    state,
-    'candidate execution terminal record could not be persisted',
-    execution.termination,
-    settlementResult.settlement.usage,
-  )
-}
-
-type ExecutorOutcome =
-  | {
-      kind: 'capture'
-      capture: AgentCandidateProtectedRunCapture
-      termination: AgentCandidateTermination
-      finalCapture: SealedAgentCandidateExecutorFinalCapture
-      processStopped: true
-      error?: undefined
-    }
-  | {
-      kind: 'timeout'
-      termination: AgentCandidateTermination & { kind: 'timeout' }
-      finalCapture: SealedAgentCandidateExecutorFinalCapture
-      processStopped: true
-      error?: undefined
-    }
-  | {
-      kind: 'error'
-      error: unknown
-      termination?: AgentCandidateTermination
-      finalCapture?: SealedAgentCandidateExecutorFinalCapture
-      processStopped: boolean
-    }
-
-async function runAndStopExecutor(
-  executor: AgentCandidateExecutorPort,
-  request: AgentCandidateExecutorRequest,
-  expectedOutcome: AgentCandidateTaskOutcomeSpec,
-  traceStore: TraceStore,
-  deadlineAtMs: number,
-  cleanupTimeoutMs: number,
-): Promise<ExecutorOutcome> {
-  const timeoutMs = request.hardLimits.timeoutMs
-  const timeoutError = new CandidateExecutionDeadlineError(timeoutMs)
-  if (Date.now() >= deadlineAtMs) {
-    return {
-      kind: 'error',
-      error: timeoutError,
-      termination: { kind: 'timeout', timeoutMs },
-      processStopped: true,
-    }
-  }
-  const controller = new AbortController()
-  let timer: ReturnType<typeof setTimeout> | undefined
-  let timedOut = false
-  let capture: AgentCandidateProtectedRunCapture | undefined
-  let executionError: unknown
-  const executionPromise = Promise.resolve().then(() =>
-    executor.execute(request, {
-      traceStore,
-      signal: controller.signal,
-      deadlineAtMs,
-    }),
-  )
-  // A stopped process may still leave a buggy adapter promise pending. Attach a
-  // terminal handler now so the deadline path cannot create an unhandled rejection.
-  void executionPromise.catch(() => undefined)
-  const deadlinePromise = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => {
-        timedOut = true
-        controller.abort(timeoutError)
-        reject(timeoutError)
-      },
-      Math.max(0, deadlineAtMs - Date.now()),
-    )
-  })
-  void deadlinePromise.catch(() => undefined)
-  try {
-    capture = sealAgentCandidateProtectedRunCapture(
-      await Promise.race([executionPromise, deadlinePromise]),
-    )
-  } catch (error) {
-    executionError = error
-  }
-
-  if (!timedOut && capture && capture.executionId !== request.executionId) {
-    executionError = new Error('candidate execution capture id does not match the request')
-    capture = undefined
-  } else if (!timedOut && capture && Date.now() >= deadlineAtMs) {
-    // Promise resolution at the boundary is ambiguous under event-loop delay.
-    // Fail closed unless completion is observed strictly before the deadline.
-    timedOut = true
-    executionError = timeoutError
-    capture = undefined
-  } else if (!timedOut && capture?.termination.kind === 'timeout') {
-    executionError = new Error('candidate executor cannot declare the runtime-owned timeout')
-    capture = undefined
-  }
-
-  if (!capture || timedOut) controller.abort(executionError)
-  const stopReason = timedOut ? 'timeout' : capture ? 'completed' : 'failed'
-  const cleanupDeadlineAtMs = Date.now() + cleanupTimeoutMs
-  try {
-    const stopped = await withinCandidateCleanupDeadline(
-      (cleanupSignal) =>
-        executor.stop(
-          {
-            executionId: request.executionId,
-            executionPlanDigest: request.executionPlan.value.digest,
-          },
-          {
-            traceStore,
-            reason: stopReason,
-            signal: cleanupSignal,
-            deadlineAtMs: cleanupDeadlineAtMs,
-          },
-        ),
-      cleanupDeadlineAtMs,
-      'candidate process termination',
-    )
-    sealAgentCandidateExecutorStopAcknowledgement(stopped)
-  } catch (stopError) {
-    let disposalError: unknown
-    try {
-      await disposeExecutor(executor, request, cleanupDeadlineAtMs)
-    } catch (error) {
-      disposalError = error
-    }
-    if (timer) clearTimeout(timer)
-    controller.abort(stopError)
-    return {
-      kind: 'error',
-      error: new Error(joinErrors(executionError, stopError, disposalError)),
-      ...(timedOut ? { termination: { kind: 'timeout', timeoutMs } } : {}),
-      processStopped: false,
-    }
-  }
-
-  let finalCapture: SealedAgentCandidateExecutorFinalCapture | undefined
-  let finalCaptureError: unknown
-  try {
-    finalCapture = sealAgentCandidateExecutorFinalCapture(
-      await withinCandidateCleanupDeadline(
-        (cleanupSignal) =>
-          executor.capture(
-            {
-              executionId: request.executionId,
-              executionPlanDigest: request.executionPlan.value.digest,
-            },
-            {
-              traceStore,
-              signal: cleanupSignal,
-            },
-          ),
-        cleanupDeadlineAtMs,
-        'candidate final evidence capture',
-      ),
-      expectedOutcome,
-    )
-  } catch (captureError) {
-    finalCaptureError = captureError
-  }
-
-  let disposalError: unknown
-  try {
-    await disposeExecutor(executor, request, cleanupDeadlineAtMs)
-  } catch (disposeError) {
-    disposalError = disposeError
-  }
-  if (finalCaptureError || disposalError || !finalCapture) {
-    if (timer) clearTimeout(timer)
-    controller.abort(finalCaptureError ?? disposalError)
-    return {
-      kind: 'error',
-      error: new Error(joinErrors(executionError, finalCaptureError, disposalError)),
-      ...(timedOut ? { termination: { kind: 'timeout', timeoutMs } } : {}),
-      processStopped: true,
-    }
-  }
-
-  if (Date.now() >= deadlineAtMs) {
-    timedOut = true
-    executionError = timeoutError
-    capture = undefined
-    controller.abort(timeoutError)
-  }
-  if (timer) clearTimeout(timer)
-
-  if (timedOut) {
-    return {
-      kind: 'timeout',
-      termination: { kind: 'timeout', timeoutMs },
-      finalCapture,
-      processStopped: true,
-    }
-  }
-  if (executionError || !capture) {
-    return {
-      kind: 'error',
-      error: executionError ?? new Error('candidate executor returned no capture'),
-      finalCapture,
-      processStopped: true,
-    }
-  }
-  return {
-    kind: 'capture',
-    capture,
-    termination: capture.termination,
-    finalCapture,
-    processStopped: true,
-  }
-}
-
-async function disposeExecutor(
-  executor: AgentCandidateExecutorPort,
-  request: AgentCandidateExecutorRequest,
-  cleanupDeadlineAtMs: number,
-): Promise<void> {
-  const dispose = executor.dispose
-  if (!dispose) return
-  const disposed = await withinCandidateCleanupDeadline(
-    (cleanupSignal) =>
-      dispose.call(
-        executor,
-        {
-          executionId: request.executionId,
-          executionPlanDigest: request.executionPlan.value.digest,
-        },
-        { signal: cleanupSignal },
-      ),
-    cleanupDeadlineAtMs,
-    'candidate execution resource disposal',
-  )
-  if (disposed?.disposed !== true || Object.keys(disposed).some((key) => key !== 'disposed')) {
-    throw new Error('candidate executor did not acknowledge resource disposal')
-  }
-}
-
-async function failBeforeActivation(
-  prepared: PreparedAgentCandidateExecution,
-  state: PreparedCandidateState,
-  error: unknown,
-  reason: 'failed' | 'replayed',
-  cleanupTimeoutMs: number,
-): Promise<AgentCandidateRunFinalization> {
-  beginPreparedCandidateSettlement(prepared)
-  const cleanupDeadlineAtMs = candidateCleanupDeadline(cleanupTimeoutMs)
-  const [memoryClose, settled] = await Promise.all([
-    closeMemoryAccess(state, reason, cleanupDeadlineAtMs),
-    settleModelGrant(state, reason, cleanupDeadlineAtMs),
-  ])
-  const cleanupProven = memoryClose.closed && settled.settlement !== undefined
-  consumePreparedCandidateExecution(prepared, cleanupProven ? 'failed' : 'cleanup-failed')
-  return failedAgentCandidateRun(
-    state,
-    redactProtectedReason(
-      joinErrors(
-        error,
-        memoryClose.error,
-        settled.error,
-        !cleanupProven
-          ? new Error('prepared access cleanup remains incomplete and may be retried by disposal')
-          : undefined,
-      ),
-      [],
-    ),
-    undefined,
-    settled.settlement?.usage ?? null,
-  )
-}
-
-async function failClaimedExecution(
-  prepared: PreparedAgentCandidateExecution,
-  state: PreparedCandidateState,
-  lease: AgentCandidateExecutionLease,
-  claimStore: AgentCandidateExecutionClaimStore,
-  outputArtifacts: AgentCandidateOutputArtifactPort,
-  error: unknown,
-  reason: 'failed',
-  cleanupTimeoutMs: number,
-  failureClass: AgentCandidateExecutionFailureClass,
-  activation?: AgentCandidateProtectedModelActivation,
-  memoryActivation?: { env: Readonly<Record<string, string>> },
-): Promise<AgentCandidateRunFinalization> {
-  beginPreparedCandidateSettlement(prepared)
-  const cleanupDeadlineAtMs = candidateCleanupDeadline(cleanupTimeoutMs)
-  const [memoryClose, settled] = await Promise.all([
-    closeMemoryAccess(state, reason, cleanupDeadlineAtMs),
-    settleModelGrant(state, reason, cleanupDeadlineAtMs),
-  ])
-  const protectedValues = protectedEnvironmentValues(activation, memoryActivation)
-  const safeReason = redactProtectedReason(
-    joinErrors(error, memoryClose.error, settled.error),
-    protectedValues,
-  )
-  let finishFailed = false
-  let persistenceFailure: unknown
-  if (settled.settlement && memoryClose.closed) {
-    try {
-      const modelSettlement = await withinCandidateCleanupDeadline(
-        () => persistCandidateModelSettlement(state, settled.settlement!, outputArtifacts),
-        lease.expiresAtMs,
-        'candidate pre-run model-settlement persistence',
-      )
-      const failureEvidence = await withinCandidateCleanupDeadline(
-        () => persistFailureEvidence(state, safeReason, failureClass, undefined, outputArtifacts),
-        lease.expiresAtMs,
-        'candidate pre-run failure-evidence persistence',
-      )
-      finishFailed = !(await finishClaim(
-        claimStore,
-        lease,
-        {
-          status: 'failed',
-          failureClass,
-          usage: settled.settlement.usage,
-          modelSettlement: modelSettlement.artifact,
-          failureEvidence,
-        },
-        lease.expiresAtMs,
-      ))
-    } catch (persistenceError) {
-      finishFailed = true
-      persistenceFailure = persistenceError
-    }
-  }
-  consumePreparedCandidateExecution(prepared, 'failed')
-  return failedAgentCandidateRun(
-    state,
-    redactProtectedReason(
-      joinErrors(
-        safeReason,
-        persistenceFailure,
-        memoryClose.error,
-        settled.error,
-        !memoryClose.closed || !settled.settlement
-          ? new Error('candidate claim remains recoverable until protected cleanup is proven')
-          : undefined,
-        finishFailed
-          ? new Error('candidate execution terminal record could not be persisted')
-          : undefined,
-      ),
-      protectedValues,
-    ),
-    undefined,
-    settled.settlement?.usage ?? null,
-  )
-}
-
-async function closeMemoryAccess(
-  state: PreparedCandidateState,
-  reason: 'completed' | 'failed' | 'timeout' | 'replayed',
-  cleanupDeadlineAtMs: number,
-): Promise<{ closed: true; error?: undefined } | { closed: false; error: unknown }> {
-  if (state.memory.mode === 'disabled') return { closed: true }
-  try {
-    const reservation = state.memoryReservation
-    if (!reservation) throw new Error('isolated memory reservation is missing')
-    const closed = await withinCandidateCleanupDeadline(
-      () =>
-        state.ports.memory.close({
-          executionId: state.executionId,
-          preparationId: reservation.preparationId,
-          accessDigest: reservation.accessDigest,
-          effectiveNamespace: reservation.effectiveNamespace,
-          reason,
-        }),
-      cleanupDeadlineAtMs,
-      'isolated memory closure',
-    )
-    if (closed.closed !== true || Object.keys(closed).some((key) => key !== 'closed')) {
-      throw new Error('isolated memory access did not acknowledge closure')
-    }
-    return { closed: true }
-  } catch (error) {
-    return { closed: false, error }
-  }
-}
-
-async function settleModelGrant(
-  state: PreparedCandidateState,
-  reason: 'completed' | 'failed' | 'timeout' | 'replayed',
-  cleanupDeadlineAtMs: number,
-): Promise<{
-  settlement?: SealedAgentCandidateModelSettlement
-  error?: unknown
-}> {
-  try {
-    const value = await withinCandidateCleanupDeadline(
-      () =>
-        state.ports.models.settleGrant({
-          executionId: state.executionId,
-          preparationId: state.preparationId,
-          grantDigest: state.modelReservation.digest,
-          resolved: state.resolvedModel,
-          reason,
-        }),
-      cleanupDeadlineAtMs,
-      'protected model settlement',
-    )
-    return {
-      settlement: sealAgentCandidateModelSettlement(value, {
-        preparationId: state.preparationId,
-        grantDigest: state.modelReservation.digest,
-        model: state.resolvedModel.model,
-      }),
-    }
-  } catch (error) {
-    return { error: new Error('protected model settlement failed', { cause: error }) }
-  }
-}
-
-async function finishClaim(
-  store: AgentCandidateExecutionClaimStore,
-  lease: AgentCandidateExecutionLease,
-  terminal: AgentCandidateExecutionTerminalResult,
-  deadlineAtMs?: number,
-): Promise<boolean> {
-  try {
-    const staged = await withinCandidateCleanupDeadline(
-      () => store.stageTerminal(lease, terminal),
-      deadlineAtMs ?? lease.expiresAtMs,
-      'candidate terminal staging',
-    )
-    if (!staged.staged && !staged.exactReplay) return false
-    const result = await withinCandidateCleanupDeadline(
-      () => store.finish(lease, staged.terminal.terminalDigest),
-      deadlineAtMs ?? lease.expiresAtMs,
-      'candidate terminal publication',
-    )
-    return result.finished || result.exactReplay
-  } catch {
-    return false
-  }
-}
-
-function protectedEnvironmentValues(
-  activation?: AgentCandidateProtectedModelActivation,
-  memoryActivation?: { env: Readonly<Record<string, string>> },
-): string[] {
-  return [...Object.values(activation?.env ?? {}), ...Object.values(memoryActivation?.env ?? {})]
-}
-
-function joinErrors(...errors: unknown[]): string {
-  return errors
-    .filter((error) => error !== undefined)
-    .map(errorMessage)
-    .join('; ')
-}
-
-class CandidateExecutionDeadlineError extends Error {
-  constructor(timeoutMs: number) {
-    super(`candidate execution reached its frozen ${timeoutMs}ms deadline`)
-    this.name = 'CandidateExecutionDeadlineError'
   }
 }

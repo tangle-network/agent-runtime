@@ -197,54 +197,65 @@ function isLocalTestTarget(path, target) {
   return isTestFile(path) && /(?:localhost|127\.0\.0\.1|\[::1\]|\.test)(?::\d+)?\//i.test(target)
 }
 
-export function checkJavaScript(path, text) {
-  const kind = path.endsWith('.tsx')
-    ? ts.ScriptKind.TSX
-    : path.endsWith('.jsx')
-      ? ts.ScriptKind.JSX
-      : path.endsWith('.ts') || path.endsWith('.mts') || path.endsWith('.cts')
-        ? ts.ScriptKind.TS
-        : ts.ScriptKind.JS
-  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, kind)
-  const initializers = new Map()
-  const lowLevelBindings = new Map()
-  const lowLevelNamespaces = new Set()
-  const processLaunchBindings = new Set()
-  const childProcessNamespaces = new Set()
-  const ownedModelFetchCounts = new Map()
-  const failures = []
+function scriptKindOf(path) {
+  if (path.endsWith('.tsx')) return ts.ScriptKind.TSX
+  if (path.endsWith('.jsx')) return ts.ScriptKind.JSX
+  if (path.endsWith('.ts') || path.endsWith('.mts') || path.endsWith('.cts')) return ts.ScriptKind.TS
+  return ts.ScriptKind.JS
+}
 
-  function collect(node) {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer !== undefined
-    ) {
-      const declarations = initializers.get(node.name.text) ?? []
-      declarations.push(node)
-      initializers.set(node.name.text, declarations)
-    }
-    ts.forEachChild(node, collect)
+/** Index every initialized variable by name, so a call target can be traced to its value. */
+function collectInitializers(scan, node) {
+  if (
+    ts.isVariableDeclaration(node) &&
+    ts.isIdentifier(node.name) &&
+    node.initializer !== undefined
+  ) {
+    const declarations = scan.initializers.get(node.name.text) ?? []
+    declarations.push(node)
+    scan.initializers.set(node.name.text, declarations)
   }
-  collect(source)
+  ts.forEachChild(node, (child) => collectInitializers(scan, child))
+}
 
-  function initializerFor(identifier) {
-    const declarations = initializers.get(identifier.text) ?? []
-    let closest
-    for (const declaration of declarations) {
-      if (declaration.pos >= identifier.pos) continue
-      if (!closest || declaration.pos > closest.pos) closest = declaration
-    }
-    return closest?.initializer
+/** The closest initializer declared before `identifier`. */
+function initializerFor(scan, identifier) {
+  const declarations = scan.initializers.get(identifier.text) ?? []
+  let closest
+  for (const declaration of declarations) {
+    if (declaration.pos >= identifier.pos) continue
+    if (!closest || declaration.pos > closest.pos) closest = declaration
   }
+  return closest?.initializer
+}
 
-  for (const statement of source.statements) {
+/** Record the names a module brings in that reach a model or launch a process. */
+function recordModuleBinding(scan, moduleName, imported, local) {
+  if (
+    moduleName !== undefined &&
+    isLowLevelModelModule(moduleName) &&
+    lowLevelModelCalls.has(imported)
+  ) {
+    scan.lowLevelBindings.set(local, imported)
+  }
+  if (
+    moduleName !== undefined &&
+    childProcessModules.has(moduleName) &&
+    processLaunchCalls.has(imported)
+  ) {
+    scan.processLaunchBindings.add(local)
+  }
+}
+
+/** Public low-level exports, provider SDK imports, and the import bindings the call checks follow. */
+function collectModuleStatements(scan) {
+  for (const statement of scan.source.statements) {
     if (ts.isExportDeclaration(statement) && statement.exportClause) {
       if (ts.isNamedExports(statement.exportClause)) {
         for (const element of statement.exportClause.elements) {
           const exported = element.propertyName?.text ?? element.name.text
           if (forbiddenPublicModelCalls.has(exported) && !element.isTypeOnly) {
-            failures.push({
+            scan.failures.push({
               node: element,
               detail: `public low-level model executor ${JSON.stringify(exported)}`,
             })
@@ -257,293 +268,287 @@ export function checkJavaScript(path, text) {
       ? statement.moduleSpecifier.text
       : undefined
     if (moduleName !== undefined && providerSdkModules.has(moduleName)) {
-      failures.push({ node: statement, detail: `provider SDK import ${JSON.stringify(moduleName)}` })
+      scan.failures.push({
+        node: statement,
+        detail: `provider SDK import ${JSON.stringify(moduleName)}`,
+      })
     }
     if (!statement.importClause?.namedBindings) continue
     const bindings = statement.importClause.namedBindings
     if (ts.isNamespaceImport(bindings)) {
       if (moduleName !== undefined && isLowLevelModelModule(moduleName)) {
-        lowLevelNamespaces.add(bindings.name.text)
+        scan.lowLevelNamespaces.add(bindings.name.text)
       }
       if (moduleName !== undefined && childProcessModules.has(moduleName)) {
-        childProcessNamespaces.add(bindings.name.text)
+        scan.childProcessNamespaces.add(bindings.name.text)
       }
     } else {
       for (const element of bindings.elements) {
         const imported = element.propertyName?.text ?? element.name.text
-        if (
-          moduleName !== undefined &&
-          isLowLevelModelModule(moduleName) &&
-          lowLevelModelCalls.has(imported)
-        ) {
-          lowLevelBindings.set(element.name.text, imported)
-        }
-        if (
-          moduleName !== undefined &&
-          childProcessModules.has(moduleName) &&
-          processLaunchCalls.has(imported)
-        ) {
-          processLaunchBindings.add(element.name.text)
-        }
+        recordModuleBinding(scan, moduleName, imported, element.name.text)
       }
     }
   }
+}
 
-  function isRequireCall(node) {
-    return (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === 'require'
-    )
+function isRequireCall(node) {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === 'require'
+  )
+}
+
+/** The member `require(<module>).member` names when `isModule` accepts the module, else undefined. */
+function requiredMember(node, isModule) {
+  if (
+    ts.isIdentifier(node.name) &&
+    ts.isPropertyAccessExpression(node.initializer) &&
+    isRequireCall(node.initializer.expression) &&
+    node.initializer.expression.arguments[0] !== undefined &&
+    ts.isStringLiteral(node.initializer.expression.arguments[0]) &&
+    isModule(node.initializer.expression.arguments[0].text)
+  ) {
+    return node.initializer.name.text
   }
+  return undefined
+}
 
-  function collectCommonJs(node) {
-    if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
-      if (isRequireCall(node.initializer)) {
-        const moduleArg = node.initializer.arguments[0]
-        const moduleName = ts.isStringLiteral(moduleArg) ? moduleArg.text : undefined
-        if (moduleName !== undefined && providerSdkModules.has(moduleName)) {
-          failures.push({
-            node: node.initializer,
-            detail: `provider SDK require ${JSON.stringify(moduleName)}`,
-          })
-        }
-        if (
-          moduleName !== undefined &&
-          isLowLevelModelModule(moduleName) &&
-          ts.isIdentifier(node.name)
-        ) {
-          lowLevelNamespaces.add(node.name.text)
-        }
-        if (
-          moduleName !== undefined &&
-          childProcessModules.has(moduleName) &&
-          ts.isIdentifier(node.name)
-        ) {
-          childProcessNamespaces.add(node.name.text)
-        }
-        if (ts.isObjectBindingPattern(node.name)) {
-          for (const element of node.name.elements) {
-            if (!ts.isIdentifier(element.name)) continue
-            const imported = element.propertyName?.getText(source) ?? element.name.text
-            if (
-              moduleName !== undefined &&
-              isLowLevelModelModule(moduleName) &&
-              lowLevelModelCalls.has(imported)
-            ) {
-              lowLevelBindings.set(element.name.text, imported)
-            }
-            if (
-              moduleName !== undefined &&
-              childProcessModules.has(moduleName) &&
-              processLaunchCalls.has(imported)
-            ) {
-              processLaunchBindings.add(element.name.text)
-            }
-          }
-        }
-      }
-      if (
-        ts.isIdentifier(node.name) &&
-        ts.isPropertyAccessExpression(node.initializer) &&
-        isRequireCall(node.initializer.expression) &&
-        node.initializer.expression.arguments[0] !== undefined &&
-        ts.isStringLiteral(node.initializer.expression.arguments[0]) &&
-        isLowLevelModelModule(node.initializer.expression.arguments[0].text) &&
-        lowLevelModelCalls.has(node.initializer.name.text)
-      ) {
-        lowLevelBindings.set(node.name.text, node.initializer.name.text)
-      }
-      if (
-        ts.isIdentifier(node.name) &&
-        ts.isPropertyAccessExpression(node.initializer) &&
-        isRequireCall(node.initializer.expression) &&
-        node.initializer.expression.arguments[0] !== undefined &&
-        ts.isStringLiteral(node.initializer.expression.arguments[0]) &&
-        childProcessModules.has(node.initializer.expression.arguments[0].text) &&
-        processLaunchCalls.has(node.initializer.name.text)
-      ) {
-        processLaunchBindings.add(node.name.text)
-      }
+/** Follow `const x = require(...)` forms the way the import statements are followed. */
+function collectCommonJs(scan, node) {
+  if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
+    if (isRequireCall(node.initializer)) recordRequireDeclaration(scan, node)
+    const lowLevel = requiredMember(node, isLowLevelModelModule)
+    if (lowLevel !== undefined && lowLevelModelCalls.has(lowLevel)) {
+      scan.lowLevelBindings.set(node.name.text, lowLevel)
     }
-    ts.forEachChild(node, collectCommonJs)
+    const launch = requiredMember(node, (name) => childProcessModules.has(name))
+    if (launch !== undefined && processLaunchCalls.has(launch)) {
+      scan.processLaunchBindings.add(node.name.text)
+    }
   }
-  collectCommonJs(source)
+  ts.forEachChild(node, (child) => collectCommonJs(scan, child))
+}
 
-  function staticString(node, seen = new Set()) {
-    if (ts.isStringLiteralLike(node)) return node.text
-    if (ts.isIdentifier(node)) {
-      if (seen.has(node.text)) return undefined
-      const initializer = initializerFor(node)
-      if (initializer === undefined) return undefined
-      const nextSeen = new Set(seen)
-      nextSeen.add(node.text)
-      return staticString(initializer, nextSeen)
-    }
-    if (ts.isParenthesizedExpression(node)) return staticString(node.expression, seen)
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-      const left = staticString(node.left, seen)
-      const right = staticString(node.right, seen)
-      return left === undefined || right === undefined ? undefined : left + right
-    }
-    if (ts.isTemplateExpression(node)) {
-      let value = node.head.text
-      for (const span of node.templateSpans) {
-        const expression = staticString(span.expression, seen)
-        if (expression === undefined) return undefined
-        value += expression + span.literal.text
-      }
-      return value
-    }
-    return undefined
+function recordRequireDeclaration(scan, node) {
+  const moduleArg = node.initializer.arguments[0]
+  const moduleName = ts.isStringLiteral(moduleArg) ? moduleArg.text : undefined
+  if (moduleName !== undefined && providerSdkModules.has(moduleName)) {
+    scan.failures.push({
+      node: node.initializer,
+      detail: `provider SDK require ${JSON.stringify(moduleName)}`,
+    })
   }
-
-  function expressionText(node, seen = new Set()) {
-    if (ts.isIdentifier(node)) {
-      if (seen.has(node.text)) return node.getText(source)
-      const initializer = initializerFor(node)
-      if (initializer !== undefined) {
-        seen.add(node.text)
-        return `${node.getText(source)}=${expressionText(initializer, seen)}`
-      }
-    }
-    return node.getText(source)
+  if (moduleName !== undefined && isLowLevelModelModule(moduleName) && ts.isIdentifier(node.name)) {
+    scan.lowLevelNamespaces.add(node.name.text)
   }
+  if (moduleName !== undefined && childProcessModules.has(moduleName) && ts.isIdentifier(node.name)) {
+    scan.childProcessNamespaces.add(node.name.text)
+  }
+  if (ts.isObjectBindingPattern(node.name)) {
+    for (const element of node.name.elements) {
+      if (!ts.isIdentifier(element.name)) continue
+      const imported = element.propertyName?.getText(scan.source) ?? element.name.text
+      recordModuleBinding(scan, moduleName, imported, element.name.text)
+    }
+  }
+}
 
-  function lowLevelModelCallName(node) {
-    if (ts.isIdentifier(node.expression)) return lowLevelBindings.get(node.expression.text)
+/** The string `node` evaluates to when every part is statically readable. */
+function staticString(scan, node, seen = new Set()) {
+  if (ts.isStringLiteralLike(node)) return node.text
+  if (ts.isIdentifier(node)) {
+    if (seen.has(node.text)) return undefined
+    const initializer = initializerFor(scan, node)
+    if (initializer === undefined) return undefined
+    const nextSeen = new Set(seen)
+    nextSeen.add(node.text)
+    return staticString(scan, initializer, nextSeen)
+  }
+  if (ts.isParenthesizedExpression(node)) return staticString(scan, node.expression, seen)
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = staticString(scan, node.left, seen)
+    const right = staticString(scan, node.right, seen)
+    return left === undefined || right === undefined ? undefined : left + right
+  }
+  if (ts.isTemplateExpression(node)) {
+    let value = node.head.text
+    for (const span of node.templateSpans) {
+      const expression = staticString(scan, span.expression, seen)
+      if (expression === undefined) return undefined
+      value += expression + span.literal.text
+    }
+    return value
+  }
+  return undefined
+}
+
+function expressionText(scan, node, seen = new Set()) {
+  if (ts.isIdentifier(node)) {
+    if (seen.has(node.text)) return node.getText(scan.source)
+    const initializer = initializerFor(scan, node)
+    if (initializer !== undefined) {
+      seen.add(node.text)
+      return `${node.getText(scan.source)}=${expressionText(scan, initializer, seen)}`
+    }
+  }
+  return node.getText(scan.source)
+}
+
+function lowLevelModelCallName(scan, node) {
+  if (ts.isIdentifier(node.expression)) return scan.lowLevelBindings.get(node.expression.text)
+  if (
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    scan.lowLevelNamespaces.has(node.expression.expression.text) &&
+    lowLevelModelCalls.has(node.expression.name.text)
+  ) {
+    return node.expression.name.text
+  }
+  if (
+    ts.isElementAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    scan.lowLevelNamespaces.has(node.expression.expression.text) &&
+    ts.isStringLiteral(node.expression.argumentExpression) &&
+    lowLevelModelCalls.has(node.expression.argumentExpression.text)
+  ) {
+    return node.expression.argumentExpression.text
+  }
+  return undefined
+}
+
+function isProcessLaunchExpression(scan, node, seen = new Set()) {
+  if (ts.isIdentifier(node)) {
+    if (processLaunchCalls.has(node.text) || scan.processLaunchBindings.has(node.text)) return true
+    if (seen.has(node.text)) return false
+    const initializer = initializerFor(scan, node)
+    if (initializer === undefined) return false
+    const nextSeen = new Set(seen)
+    nextSeen.add(node.text)
+    return isProcessLaunchExpression(scan, initializer, nextSeen)
+  }
+  return (
+    ts.isPropertyAccessExpression(node) &&
+    processLaunchCalls.has(node.name.text) &&
+    (!ts.isIdentifier(node.expression) || scan.childProcessNamespaces.has(node.expression.text))
+  )
+}
+
+function isGlobalFetchExpression(scan, node, seen = new Set()) {
+  if (ts.isIdentifier(node)) {
+    if (node.text === 'fetch') return true
+    if (seen.has(node.text)) return false
+    const initializer = initializerFor(scan, node)
+    if (initializer === undefined) return false
+    const nextSeen = new Set(seen)
+    nextSeen.add(node.text)
+    return isGlobalFetchExpression(scan, initializer, nextSeen)
+  }
+  return (
+    ts.isPropertyAccessExpression(node) &&
+    node.name.text === 'fetch' &&
+    ts.isIdentifier(node.expression) &&
+    ['global', 'globalThis', 'window'].includes(node.expression.text)
+  )
+}
+
+function enclosingFunctionName(node) {
+  let parent = node.parent
+  while (parent) {
+    if (ts.isFunctionDeclaration(parent) && parent.name) return parent.name.text
     if (
-      ts.isPropertyAccessExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      lowLevelNamespaces.has(node.expression.expression.text) &&
-      lowLevelModelCalls.has(node.expression.name.text)
+      (ts.isFunctionExpression(parent) || ts.isArrowFunction(parent)) &&
+      ts.isVariableDeclaration(parent.parent) &&
+      ts.isIdentifier(parent.parent.name)
     ) {
-      return node.expression.name.text
+      return parent.parent.name.text
     }
-    if (
-      ts.isElementAccessExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      lowLevelNamespaces.has(node.expression.expression.text) &&
-      ts.isStringLiteral(node.expression.argumentExpression) &&
-      lowLevelModelCalls.has(node.expression.argumentExpression.text)
-    ) {
-      return node.expression.argumentExpression.text
-    }
-    return undefined
+    parent = parent.parent
   }
+  return undefined
+}
 
-  function isAllowedLowLevelModelCall(name) {
-    return lowLevelModelCallOwners.get(name)?.has(path) === true
-  }
+/** Counts each owner's model fetch sites, so a second raw request in the owner fails. */
+function isAllowedOwnedModelFetch(scan, node) {
+  if (!ts.isIdentifier(node.expression) || node.expression.text !== 'fetch') return false
+  const functionName = enclosingFunctionName(node)
+  if (functionName === undefined) return false
+  const maximum = ownedModelFetchAllowances.get(scan.path)?.get(functionName)
+  if (maximum === undefined) return false
+  const key = `${scan.path}:${functionName}`
+  const count = (scan.ownedModelFetchCounts.get(key) ?? 0) + 1
+  scan.ownedModelFetchCounts.set(key, count)
+  return count <= maximum
+}
 
-  function isProcessLaunchExpression(node, seen = new Set()) {
-    if (ts.isIdentifier(node)) {
-      if (processLaunchCalls.has(node.text) || processLaunchBindings.has(node.text)) return true
-      if (seen.has(node.text)) return false
-      const initializer = initializerFor(node)
-      if (initializer === undefined) return false
-      const nextSeen = new Set(seen)
-      nextSeen.add(node.text)
-      return isProcessLaunchExpression(initializer, nextSeen)
-    }
-    return (
-      ts.isPropertyAccessExpression(node) &&
-      processLaunchCalls.has(node.name.text) &&
-      (!ts.isIdentifier(node.expression) || childProcessNamespaces.has(node.expression.text))
+/** Whether a call reaches a model endpoint, provider SDK, low-level executor, or model CLI. */
+function isModelExecutionCall(scan, node) {
+  const { path, source } = scan
+  const callee = node.expression.getText(source)
+  const first = node.arguments[0]
+  const target = first === undefined ? '' : expressionText(scan, first)
+  const resolvedTarget = first === undefined ? undefined : staticString(scan, first)
+  const call = node.getText(source)
+  const isGlobalFetch = isGlobalFetchExpression(scan, node.expression)
+  const directFetch =
+    isGlobalFetch &&
+    (namesModelEndpoint(resolvedTarget ?? target) ||
+      (resolvedTarget === undefined && !dynamicNonModelFetchOwners.has(path))) &&
+    !isLocalTestTarget(path, resolvedTarget ?? target) &&
+    !isAllowedOwnedModelFetch(scan, node)
+  const providerSdk =
+    /(?:^|\.)(?:chat\.completions\.create|responses\.(?:create|stream)|messages\.(?:create|stream)|generateContent)$/.test(
+      callee,
     )
-  }
-
-  function isGlobalFetchExpression(node, seen = new Set()) {
-    if (ts.isIdentifier(node)) {
-      if (node.text === 'fetch') return true
-      if (seen.has(node.text)) return false
-      const initializer = initializerFor(node)
-      if (initializer === undefined) return false
-      const nextSeen = new Set(seen)
-      nextSeen.add(node.text)
-      return isGlobalFetchExpression(initializer, nextSeen)
-    }
-    return (
-      ts.isPropertyAccessExpression(node) &&
-      node.name.text === 'fetch' &&
-      ts.isIdentifier(node.expression) &&
-      ['global', 'globalThis', 'window'].includes(node.expression.text)
+  const rawHttp =
+    /^(?:https?|request|axios)(?:\.|$)/.test(callee) &&
+    namesModelEndpoint(call) &&
+    !isLocalTestTarget(path, call)
+  const lowLevelCallName = lowLevelModelCallName(scan, node)
+  const lowLevelRuntimeCall =
+    lowLevelCallName !== undefined &&
+    lowLevelModelCallOwners.get(lowLevelCallName)?.has(path) !== true
+  const cliLaunch =
+    !directCliOwners.has(path) &&
+    isProcessLaunchExpression(scan, node.expression) &&
+    namesModelCliInvocation(
+      [callee, ...node.arguments.map((argument) => expressionText(scan, argument))].join(' '),
     )
-  }
+  return directFetch || providerSdk || rawHttp || lowLevelRuntimeCall || cliLaunch
+}
 
-  function enclosingFunctionName(node) {
-    let parent = node.parent
-    while (parent) {
-      if (ts.isFunctionDeclaration(parent) && parent.name) return parent.name.text
-      if (
-        (ts.isFunctionExpression(parent) || ts.isArrowFunction(parent)) &&
-        ts.isVariableDeclaration(parent.parent) &&
-        ts.isIdentifier(parent.parent.name)
-      ) {
-        return parent.parent.name.text
-      }
-      parent = parent.parent
-    }
-    return undefined
+function inspectNode(scan, node) {
+  const { source } = scan
+  if (ts.isCallExpression(node) && isModelExecutionCall(scan, node)) {
+    scan.failures.push({ node, detail: node.getText(source).slice(0, 180).replace(/\s+/g, ' ') })
   }
+  if (ts.isNewExpression(node) && /^(?:OpenAI|Anthropic)$/.test(node.expression.getText(source))) {
+    scan.failures.push({ node, detail: node.getText(source).slice(0, 180).replace(/\s+/g, ' ') })
+  }
+  ts.forEachChild(node, (child) => inspectNode(scan, child))
+}
 
-  function isAllowedOwnedModelFetch(node) {
-    if (!ts.isIdentifier(node.expression) || node.expression.text !== 'fetch') return false
-    const functionName = enclosingFunctionName(node)
-    if (functionName === undefined) return false
-    const maximum = ownedModelFetchAllowances.get(path)?.get(functionName)
-    if (maximum === undefined) return false
-    const key = `${path}:${functionName}`
-    const count = (ownedModelFetchCounts.get(key) ?? 0) + 1
-    ownedModelFetchCounts.set(key, count)
-    return count <= maximum
+export function checkJavaScript(path, text) {
+  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, scriptKindOf(path))
+  const scan = {
+    path,
+    source,
+    initializers: new Map(),
+    lowLevelBindings: new Map(),
+    lowLevelNamespaces: new Set(),
+    processLaunchBindings: new Set(),
+    childProcessNamespaces: new Set(),
+    ownedModelFetchCounts: new Map(),
+    failures: [],
   }
-
-  function inspect(node) {
-    if (ts.isCallExpression(node)) {
-      const callee = node.expression.getText(source)
-      const first = node.arguments[0]
-      const target = first === undefined ? '' : expressionText(first)
-      const resolvedTarget = first === undefined ? undefined : staticString(first)
-      const call = node.getText(source)
-      const isGlobalFetch = isGlobalFetchExpression(node.expression)
-      const directFetch =
-        isGlobalFetch &&
-        (namesModelEndpoint(resolvedTarget ?? target) ||
-          (resolvedTarget === undefined && !dynamicNonModelFetchOwners.has(path))) &&
-        !isLocalTestTarget(path, resolvedTarget ?? target) &&
-        !isAllowedOwnedModelFetch(node)
-      const providerSdk =
-        /(?:^|\.)(?:chat\.completions\.create|responses\.(?:create|stream)|messages\.(?:create|stream)|generateContent)$/.test(
-          callee,
-        )
-      const rawHttp =
-        /^(?:https?|request|axios)(?:\.|$)/.test(callee) &&
-        namesModelEndpoint(call) &&
-        !isLocalTestTarget(path, call)
-      const lowLevelCallName = lowLevelModelCallName(node)
-      const lowLevelRuntimeCall =
-        lowLevelCallName !== undefined && !isAllowedLowLevelModelCall(lowLevelCallName)
-      const cliLaunch =
-        !directCliOwners.has(path) &&
-        isProcessLaunchExpression(node.expression) &&
-        namesModelCliInvocation(
-          [callee, ...node.arguments.map((argument) => expressionText(argument))].join(' '),
-        )
-      if (directFetch || providerSdk || rawHttp || lowLevelRuntimeCall || cliLaunch) {
-        failures.push({ node, detail: call.slice(0, 180).replace(/\s+/g, ' ') })
-      }
-    }
-    if (
-      ts.isNewExpression(node) &&
-      /^(?:OpenAI|Anthropic)$/.test(node.expression.getText(source))
-    ) {
-      failures.push({ node, detail: node.getText(source).slice(0, 180).replace(/\s+/g, ' ') })
-    }
-    ts.forEachChild(node, inspect)
-  }
-  inspect(source)
-  return failures.map(({ node, detail }) => ({ location: sourceLocation(source, node), detail }))
+  collectInitializers(scan, source)
+  collectModuleStatements(scan)
+  collectCommonJs(scan, source)
+  inspectNode(scan, source)
+  return scan.failures.map(({ node, detail }) => ({
+    location: sourceLocation(source, node),
+    detail,
+  }))
 }
 
 function namesModelCliInvocation(text) {

@@ -42,12 +42,7 @@
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import type {
-  CostReceipt,
-  CostReceiptInput,
-  MaximumCharge,
-  ProposalFinding,
-} from '@tangle-network/agent-eval'
+import type { CostReceipt, MaximumCharge, ProposalFinding } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
   agentProfileSchema,
@@ -55,7 +50,6 @@ import {
   type HarnessType,
   type ReasoningEffort,
 } from '@tangle-network/agent-interface'
-import { sha256 } from '../content-digest'
 import { runSettledCommand } from '../mcp/worktree-harness'
 import {
   type AgentTurnUsage,
@@ -69,6 +63,14 @@ import {
 } from '../runtime/supervise/model-policy'
 import { createExecutor, type ExecutorConfig } from '../runtime/supervise/runtime'
 import { detachedSnapshot } from '../runtime/supervise/snapshot'
+import {
+  costReceiptFromTurn,
+  emitShotDisposition,
+  emitShotReceipt,
+  rethrowShotSetupError,
+  shotFailure,
+  shotReceipt,
+} from './agentic-shot-evidence'
 import type { CandidateGenerator } from './improvement-driver'
 import { restoreWorktreeTree, snapshotWorktreeTree, worktreeChangedPaths } from './worktree-tree'
 
@@ -242,11 +244,15 @@ export function agenticGenerator(opts: AgenticGeneratorOptions): CandidateGenera
   )
   assertExecutableAgentProfile(profile, 'agenticGenerator')
   const harness = profile.harness!
-  const provider = profile.model!.provider!.trim()
-  const model = concreteProfileModel(profile)!
-  const profileDigest = canonicalAgentProfileDigest(profile)
-  const dirty = opts.isDirty ?? worktreeDirty
-  const verify = opts.verify
+  const author: AuthorContext = {
+    opts,
+    profile,
+    harness,
+    provider: profile.model!.provider!.trim(),
+    model: concreteProfileModel(profile)!,
+    profileDigest: canonicalAgentProfileDigest(profile),
+    dirty: opts.isDirty ?? worktreeDirty,
+  }
 
   return {
     kind: `agentic:${harness}`,
@@ -256,309 +262,387 @@ export function agenticGenerator(opts: AgenticGeneratorOptions): CandidateGenera
     // empty-findings guard short-circuits and generates ZERO candidates on the
     // first (and, for a single-generation run, only) proposal round.
     proposesWithoutFindings: true,
-    async generate({
-      worktreePath,
-      findings,
-      maxShots,
-      signal,
+    generate: (request) => generateCandidate(author, request),
+  }
+}
+
+/** The exact author one `agenticGenerator` runs, fixed when it is built. */
+interface AuthorContext {
+  readonly opts: AgenticGeneratorOptions
+  readonly profile: AgentProfile
+  readonly harness: HarnessType
+  readonly provider: string
+  readonly model: string
+  readonly profileDigest: string
+  readonly dirty: (worktreePath: string) => boolean
+}
+
+type GenerateRequest = Parameters<CandidateGenerator['generate']>[0]
+type AcceptedCandidate = ReturnType<typeof acceptedCandidate>
+
+/** What one candidate carries from shot to shot. */
+interface CandidateState {
+  /** Feedback appended to the base prompt for the NEXT shot — empty on shot 0. */
+  attemptNote: string
+  /** The best tree this candidate has produced, and where it lives. Only a
+   * verifier that returns `keepGoing` can put more than one tree here: a
+   * passing tree that ends the budget is banked and shipped in one step. */
+  best: BankedTree | null
+  /** Whether the verifier scores its trees. Set by the first passing tree;
+   * a later tree that disagrees cannot be ranked and fails the run. */
+  scored: boolean | null
+  lastReceipt: AgenticGeneratorShotReceipt | null
+}
+
+/** Where a settled shot stands in the budget. */
+interface ShotPosition {
+  readonly shot: number
+  readonly shots: number
+  readonly needsRawTraceEvidence: boolean
+}
+
+/** How a settled shot ends: a candidate to ship, or the note the next shot starts from. */
+type ShotStep = { candidate: AcceptedCandidate } | { note: string }
+
+async function generateCandidate(
+  author: AuthorContext,
+  request: GenerateRequest,
+): Promise<AcceptedCandidate | { applied: false; summary: string }> {
+  const { opts, harness, provider, model, profile, profileDigest } = author
+  const { findings, maxShots, signal, generation, candidateIndex } = request
+  signal.throwIfAborted()
+  const { basePrompt, factory } = prepareAuthoring(author, request)
+  const needsRawTraceEvidence = requiresRawTraceEvidence(findings)
+  const shots = Math.max(1, maxShots)
+  const state: CandidateState = { attemptNote: '', best: null, scored: null, lastReceipt: null }
+
+  for (let shot = 0; shot < shots; shot++) {
+    signal.throwIfAborted()
+    // This shot may write over whatever the worktree held.
+    if (state.best) state.best.onDisk = false
+    const taskPrompt = state.attemptNote ? `${basePrompt}\n\n${state.attemptNote}` : basePrompt
+    const startedAt = new Date()
+    const ran = await runAuthorShot(author, request, factory, taskPrompt, shot)
+    const execution = ran.turn
+      ? detachedSnapshot(ran.turn, 'agenticGenerator shot execution')
+      : null
+    const receipt = shotReceipt({
       generation,
       candidateIndex,
-      costLedger,
-      costPhase,
-    }) {
-      signal.throwIfAborted()
-      if (opts.maximumCharge && !costLedger) {
-        throw new Error(
-          'agenticGenerator: maximumCharge requires the run-wide CostLedger supplied by agent-eval',
-        )
-      }
-      const basePrompt = opts.buildPrompt({ findings })
-      if (typeof basePrompt !== 'string' || basePrompt.trim().length === 0) {
-        throw new Error('agenticGenerator: buildPrompt must return a non-empty string')
-      }
-      const executorConfig = opts.executorForWorktree(worktreePath)
-      if (executorConfig.backend === 'bridge' && !samePath(executorConfig.cwd, worktreePath)) {
-        throw new Error(
-          'agenticGenerator: bridge executor cwd must equal the candidate worktree path',
-        )
-      }
-      if (
-        executorConfig.backend === 'cli-in-place' &&
-        !samePath(executorConfig.workspacePath, worktreePath)
-      ) {
-        throw new Error(
-          'agenticGenerator: cli-in-place executor workspacePath must equal the candidate worktree path',
-        )
-      }
-      const factory = createExecutor(executorConfig)
-      const needsRawTraceEvidence = requiresRawTraceEvidence(findings)
-      const shots = Math.max(1, maxShots)
-      // Feedback appended to the base prompt for the NEXT shot — empty on shot 0.
-      let attemptNote = ''
-      // The best tree this candidate has produced, and where it lives. Only a
-      // verifier that returns `keepGoing` can put more than one tree here: a
-      // passing tree that ends the budget is banked and shipped in one step.
-      let best: BankedTree | null = null
-      // Whether the verifier scores its trees. Set by the first passing tree;
-      // a later tree that disagrees cannot be ranked and fails the run.
-      let scored: boolean | null = null
-      let lastReceipt: AgenticGeneratorShotReceipt | null = null
+      shot,
+      maxShots: shots,
+      harness,
+      provider,
+      model,
+      profile,
+      profileDigest,
+      prompt: taskPrompt,
+      startedAt,
+      completedAt: new Date(),
+      result: execution,
+      costCallId: ran.costCallId,
+      costReceipt: ran.costReceipt,
+      error: ran.shotError,
+    })
+    state.lastReceipt = receipt
+    await emitShotReceipt(opts.onShotCompleted, receipt, execution, ran.shotError)
+    signal.throwIfAborted()
 
-      /** Ship the best tree this candidate produced, restoring it when a later
-       *  shot wrote over it. */
-      const shipBankedTree = async (
-        receipt: AgenticGeneratorShotReceipt,
-        banked: BankedTree,
-      ): Promise<ReturnType<typeof acceptedCandidate>> => {
-        const restoredFromShot = banked.onDisk ? null : banked.shot
-        if (!banked.onDisk) {
-          if (banked.tree === null) {
-            throw new Error(
-              `agenticGenerator: shot ${banked.shot} produced the best tree but it was never snapshotted`,
-            )
-          }
-          restoreWorktreeTree(worktreePath, banked.tree)
-          banked.onDisk = true
-        }
-        signal.throwIfAborted()
-        await emitShotDisposition(opts.onShotDisposition, receipt, {
-          kind: 'accepted',
-          worktreePath,
-          verified: true,
-          restoredFromShot,
-        })
-        signal.throwIfAborted()
-        return acceptedCandidate(findings)
-      }
+    if (!execution) {
+      throw new Error('agenticGenerator: author shot completed without a Runtime turn')
+    }
 
-      for (let shot = 0; shot < shots; shot++) {
-        signal.throwIfAborted()
-        // This shot may write over whatever the worktree held.
-        if (best) best.onDisk = false
-        const taskPrompt = attemptNote ? `${basePrompt}\n\n${attemptNote}` : basePrompt
-        const startedAt = new Date()
-        let turn: CollectedAgentTurn | null = null
-        let costReceipt: CostReceipt | null = null
-        let costCallId: string | null = null
-        let shotError: Error | null = null
-        try {
-          const execute = async (
-            executionSignal: AbortSignal,
-            callId?: string,
-          ): Promise<CollectedAgentTurn> => {
-            turn = await collectAgentTurn(
-              streamAgentTurn(
-                { kind: 'executor', profile, factory },
-                { prompt: taskPrompt },
-                {
-                  signal: executionSignal,
-                  ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-                  ...(callId ? { callId } : {}),
-                },
-              ),
-            )
-            const failure = shotFailure(turn)
-            if (failure) throw failure
-            return turn
-          }
-
-          if (costLedger) {
-            const paid = await costLedger.runPaidCall({
-              channel: 'driver',
-              phase: costPhase ?? 'search.proposal',
-              actor: `agentic-generator:${harness}`,
-              model,
-              tags: {
-                generation: String(generation ?? -1),
-                candidateIndex: String(candidateIndex ?? -1),
-                shot: String(shot + 1),
-              },
-              signal,
-              ...(opts.maximumCharge ? { maximumCharge: opts.maximumCharge } : {}),
-              execute: (executionSignal, callId) => execute(executionSignal, callId),
-              receipt: (result) => costReceiptFromTurn(result, model),
-              receiptFromError: () => (turn ? costReceiptFromTurn(turn, model) : undefined),
-            })
-            costCallId = paid.callId ?? null
-            costReceipt = paid.receipt ?? null
-            if (!paid.succeeded) throw paid.error
-            turn = paid.value
-          } else {
-            turn = await execute(signal)
-          }
-        } catch (cause) {
-          shotError = cause instanceof Error ? cause : new Error(String(cause))
-        }
-        const execution = turn ? detachedSnapshot(turn, 'agenticGenerator shot execution') : null
-        const receipt = shotReceipt({
-          generation,
-          candidateIndex,
-          shot,
-          maxShots: shots,
-          harness,
-          provider,
-          model,
-          profile,
-          profileDigest,
-          prompt: taskPrompt,
-          startedAt,
-          completedAt: new Date(),
-          result: execution,
-          costCallId,
-          costReceipt,
-          error: shotError,
-        })
-        lastReceipt = receipt
-        await emitShotReceipt(opts.onShotCompleted, receipt, execution, shotError)
-        signal.throwIfAborted()
-
-        if (!execution) {
-          throw new Error('agenticGenerator: author shot completed without a Runtime turn')
-        }
-
-        let worktreeChanged: boolean
-        try {
-          worktreeChanged = dirty(worktreePath)
-        } catch (cause) {
-          signal.throwIfAborted()
-          return rethrowShotSetupError(
-            opts.onShotDisposition,
-            receipt,
-            worktreePath,
-            'worktree-inspection',
-            cause,
-          )
-        }
-
-        // The worktree IS the signal: no edits ⇒ tell the next shot to act.
-        if (!worktreeChanged) {
-          signal.throwIfAborted()
-          await emitShotDisposition(opts.onShotDisposition, receipt, {
-            kind: 'clean',
-            worktreePath,
-          })
-          signal.throwIfAborted()
-          attemptNote = EMPTY_TREE_NOTE
-          continue
-        }
-
-        if (needsRawTraceEvidence) {
-          let problem: string | null
-          try {
-            problem = rawTraceEvidenceProblem(worktreePath, findings)
-          } catch (cause) {
-            signal.throwIfAborted()
-            return rethrowShotSetupError(
-              opts.onShotDisposition,
-              receipt,
-              worktreePath,
-              'raw-trace-evidence',
-              cause,
-            )
-          }
-          if (problem) {
-            signal.throwIfAborted()
-            await emitShotDisposition(opts.onShotDisposition, receipt, {
-              kind: 'rejected',
-              worktreePath,
-              stage: 'raw-trace-evidence',
-              feedback: problem,
-            })
-            signal.throwIfAborted()
-            attemptNote = problem
-            continue
-          }
-        }
-
-        // Dirty: with no verifier the diff IS the candidate (we trust the diff,
-        // not the model's response text). With a verifier the candidate must pass it.
-        if (!verify) {
-          signal.throwIfAborted()
-          await emitShotDisposition(opts.onShotDisposition, receipt, {
-            kind: 'accepted',
-            worktreePath,
-            verified: false,
-            restoredFromShot: null,
-          })
-          signal.throwIfAborted()
-          return acceptedCandidate(findings)
-        }
-        let result: VerifyResult
-        try {
-          signal.throwIfAborted()
-          result = await verify(worktreePath, signal)
-          signal.throwIfAborted()
-        } catch (cause) {
-          signal.throwIfAborted()
-          return rethrowShotSetupError(
-            opts.onShotDisposition,
-            receipt,
-            worktreePath,
-            'verification',
-            cause,
-          )
-        }
-        if (result.ok) {
-          const score = admittedScore(result, scored, shot)
-          scored = score !== null
-          const previousBest = best
-          let banked: BankedTree
-          // A tie keeps the LATER tree: it is already on disk, and it is the
-          // author's own refinement of the tree it tied with. `admittedScore`
-          // refuses a mix of scored and unscored trees, so an unscored set is a
-          // flat 0 and this rule reduces to "the later tree wins".
-          if (previousBest === null || (score ?? 0) >= (previousBest.score ?? 0)) {
-            banked = { shot: shot + 1, score, tree: null, onDisk: true }
-          } else {
-            banked = previousBest
-          }
-          const becomesBest = banked !== previousBest
-          best = banked
-          if (result.keepGoing !== true) {
-            signal.throwIfAborted()
-            return await shipBankedTree(receipt, banked)
-          }
-          // Shots remain, so a later one can write over this tree. Bank the
-          // bytes now, while they are still on disk.
-          if (becomesBest && shot < shots - 1) banked.tree = snapshotWorktreeTree(worktreePath)
-          signal.throwIfAborted()
-          await emitShotDisposition(opts.onShotDisposition, receipt, {
-            kind: 'kept',
-            worktreePath,
-            score,
-            best: becomesBest,
-            feedback: result.feedback ?? null,
-          })
-          signal.throwIfAborted()
-          attemptNote = keptNote(result.feedback)
-          continue
-        }
-        signal.throwIfAborted()
-        await emitShotDisposition(opts.onShotDisposition, receipt, {
-          kind: 'rejected',
-          worktreePath,
-          stage: 'verification',
-          feedback: result.feedback ?? null,
-        })
-        signal.throwIfAborted()
-        // Dirty but failing — resume next shot atop these edits with the error.
-        attemptNote = failureNote(result.feedback)
-      }
-
-      // Shots exhausted. A banked tree passed verification, so it ships even
-      // though the last shot did not end the budget on it — discarding paid,
-      // verified work because a later shot broke or reverted it is the loss
-      // best-of-n exists to prevent.
-      if (best !== null) {
-        if (!lastReceipt) {
-          throw new Error('agenticGenerator: a tree was banked without a shot receipt')
-        }
-        return await shipBankedTree(lastReceipt, best)
-      }
-      // No verified candidate (or, sans verifier, no edits).
-      return { applied: false, summary: '' }
-    },
+    const step = await settleShot(author, request, state, receipt, {
+      shot,
+      shots,
+      needsRawTraceEvidence,
+    })
+    if ('candidate' in step) return step.candidate
+    state.attemptNote = step.note
   }
+
+  // Shots exhausted. A banked tree passed verification, so it ships even
+  // though the last shot did not end the budget on it — discarding paid,
+  // verified work because a later shot broke or reverted it is the loss
+  // best-of-n exists to prevent.
+  if (state.best !== null) {
+    if (!state.lastReceipt) {
+      throw new Error('agenticGenerator: a tree was banked without a shot receipt')
+    }
+    return await shipBankedTree(author, request, state.lastReceipt, state.best)
+  }
+  // No verified candidate (or, sans verifier, no edits).
+  return { applied: false, summary: '' }
+}
+
+/** Check the request and build the author's prompt and executor, before any shot spends. */
+function prepareAuthoring(author: AuthorContext, request: GenerateRequest) {
+  const { opts } = author
+  const { worktreePath, findings, costLedger } = request
+  if (opts.maximumCharge && !costLedger) {
+    throw new Error(
+      'agenticGenerator: maximumCharge requires the run-wide CostLedger supplied by agent-eval',
+    )
+  }
+  const basePrompt = opts.buildPrompt({ findings })
+  if (typeof basePrompt !== 'string' || basePrompt.trim().length === 0) {
+    throw new Error('agenticGenerator: buildPrompt must return a non-empty string')
+  }
+  const executorConfig = opts.executorForWorktree(worktreePath)
+  if (executorConfig.backend === 'bridge' && !samePath(executorConfig.cwd, worktreePath)) {
+    throw new Error('agenticGenerator: bridge executor cwd must equal the candidate worktree path')
+  }
+  if (
+    executorConfig.backend === 'cli-in-place' &&
+    !samePath(executorConfig.workspacePath, worktreePath)
+  ) {
+    throw new Error(
+      'agenticGenerator: cli-in-place executor workspacePath must equal the candidate worktree path',
+    )
+  }
+  return { basePrompt, factory: createExecutor(executorConfig) }
+}
+
+/** Run one author shot through the run-wide ledger when there is one. A failure is returned, not thrown. */
+async function runAuthorShot(
+  author: AuthorContext,
+  request: GenerateRequest,
+  factory: ReturnType<typeof createExecutor>,
+  taskPrompt: string,
+  shot: number,
+) {
+  const { opts, profile, harness, model } = author
+  const { signal, generation, candidateIndex, costLedger, costPhase } = request
+  let turn: CollectedAgentTurn | null = null
+  let costReceipt: CostReceipt | null = null
+  let costCallId: string | null = null
+  let shotError: Error | null = null
+  try {
+    const execute = async (
+      executionSignal: AbortSignal,
+      callId?: string,
+    ): Promise<CollectedAgentTurn> => {
+      turn = await collectAgentTurn(
+        streamAgentTurn(
+          { kind: 'executor', profile, factory },
+          { prompt: taskPrompt },
+          {
+            signal: executionSignal,
+            ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+            ...(callId ? { callId } : {}),
+          },
+        ),
+      )
+      const failure = shotFailure(turn)
+      if (failure) throw failure
+      return turn
+    }
+
+    if (costLedger) {
+      const paid = await costLedger.runPaidCall({
+        channel: 'driver',
+        phase: costPhase ?? 'search.proposal',
+        actor: `agentic-generator:${harness}`,
+        model,
+        tags: {
+          generation: String(generation ?? -1),
+          candidateIndex: String(candidateIndex ?? -1),
+          shot: String(shot + 1),
+        },
+        signal,
+        ...(opts.maximumCharge ? { maximumCharge: opts.maximumCharge } : {}),
+        execute: (executionSignal, callId) => execute(executionSignal, callId),
+        receipt: (result) => costReceiptFromTurn(result, model),
+        receiptFromError: () => (turn ? costReceiptFromTurn(turn, model) : undefined),
+      })
+      costCallId = paid.callId ?? null
+      costReceipt = paid.receipt ?? null
+      if (!paid.succeeded) throw paid.error
+      turn = paid.value
+    } else {
+      turn = await execute(signal)
+    }
+  } catch (cause) {
+    shotError = cause instanceof Error ? cause : new Error(String(cause))
+  }
+  return { turn, costReceipt, costCallId, shotError }
+}
+
+/** Decide what a completed shot's worktree means: ship it, or the note the next shot starts from. */
+async function settleShot(
+  author: AuthorContext,
+  request: GenerateRequest,
+  state: CandidateState,
+  receipt: AgenticGeneratorShotReceipt,
+  position: ShotPosition,
+): Promise<ShotStep> {
+  const { opts, dirty } = author
+  const { worktreePath, findings, signal } = request
+  let worktreeChanged: boolean
+  try {
+    worktreeChanged = dirty(worktreePath)
+  } catch (cause) {
+    signal.throwIfAborted()
+    return rethrowShotSetupError(
+      opts.onShotDisposition,
+      receipt,
+      worktreePath,
+      'worktree-inspection',
+      cause,
+    )
+  }
+
+  // The worktree IS the signal: no edits ⇒ tell the next shot to act.
+  if (!worktreeChanged) {
+    signal.throwIfAborted()
+    await emitShotDisposition(opts.onShotDisposition, receipt, { kind: 'clean', worktreePath })
+    signal.throwIfAborted()
+    return { note: EMPTY_TREE_NOTE }
+  }
+
+  if (position.needsRawTraceEvidence) {
+    let problem: string | null
+    try {
+      problem = rawTraceEvidenceProblem(worktreePath, findings)
+    } catch (cause) {
+      signal.throwIfAborted()
+      return rethrowShotSetupError(
+        opts.onShotDisposition,
+        receipt,
+        worktreePath,
+        'raw-trace-evidence',
+        cause,
+      )
+    }
+    if (problem) {
+      signal.throwIfAborted()
+      await emitShotDisposition(opts.onShotDisposition, receipt, {
+        kind: 'rejected',
+        worktreePath,
+        stage: 'raw-trace-evidence',
+        feedback: problem,
+      })
+      signal.throwIfAborted()
+      return { note: problem }
+    }
+  }
+
+  // Dirty: with no verifier the diff IS the candidate (we trust the diff,
+  // not the model's response text). With a verifier the candidate must pass it.
+  if (!opts.verify) {
+    signal.throwIfAborted()
+    await emitShotDisposition(opts.onShotDisposition, receipt, {
+      kind: 'accepted',
+      worktreePath,
+      verified: false,
+      restoredFromShot: null,
+    })
+    signal.throwIfAborted()
+    return { candidate: acceptedCandidate(findings) }
+  }
+  return settleVerifiedShot(author, request, state, receipt, position, opts.verify)
+}
+
+/** Run the verifier on a dirty tree, then ship, bank or reject it. */
+async function settleVerifiedShot(
+  author: AuthorContext,
+  request: GenerateRequest,
+  state: CandidateState,
+  receipt: AgenticGeneratorShotReceipt,
+  { shot, shots }: ShotPosition,
+  verify: Verifier,
+): Promise<ShotStep> {
+  const { opts } = author
+  const { worktreePath, signal } = request
+  let result: VerifyResult
+  try {
+    signal.throwIfAborted()
+    result = await verify(worktreePath, signal)
+    signal.throwIfAborted()
+  } catch (cause) {
+    signal.throwIfAborted()
+    return rethrowShotSetupError(
+      opts.onShotDisposition,
+      receipt,
+      worktreePath,
+      'verification',
+      cause,
+    )
+  }
+  if (result.ok) {
+    const score = admittedScore(result, state.scored, shot)
+    state.scored = score !== null
+    const previousBest = state.best
+    let banked: BankedTree
+    // A tie keeps the LATER tree: it is already on disk, and it is the
+    // author's own refinement of the tree it tied with. `admittedScore`
+    // refuses a mix of scored and unscored trees, so an unscored set is a
+    // flat 0 and this rule reduces to "the later tree wins".
+    if (previousBest === null || (score ?? 0) >= (previousBest.score ?? 0)) {
+      banked = { shot: shot + 1, score, tree: null, onDisk: true }
+    } else {
+      banked = previousBest
+    }
+    const becomesBest = banked !== previousBest
+    state.best = banked
+    if (result.keepGoing !== true) {
+      signal.throwIfAborted()
+      return { candidate: await shipBankedTree(author, request, receipt, banked) }
+    }
+    // Shots remain, so a later one can write over this tree. Bank the
+    // bytes now, while they are still on disk.
+    if (becomesBest && shot < shots - 1) banked.tree = snapshotWorktreeTree(worktreePath)
+    signal.throwIfAborted()
+    await emitShotDisposition(opts.onShotDisposition, receipt, {
+      kind: 'kept',
+      worktreePath,
+      score,
+      best: becomesBest,
+      feedback: result.feedback ?? null,
+    })
+    signal.throwIfAborted()
+    return { note: keptNote(result.feedback) }
+  }
+  signal.throwIfAborted()
+  await emitShotDisposition(opts.onShotDisposition, receipt, {
+    kind: 'rejected',
+    worktreePath,
+    stage: 'verification',
+    feedback: result.feedback ?? null,
+  })
+  signal.throwIfAborted()
+  // Dirty but failing — resume next shot atop these edits with the error.
+  return { note: failureNote(result.feedback) }
+}
+
+/** Ship the best tree this candidate produced, restoring it when a later
+ *  shot wrote over it. */
+async function shipBankedTree(
+  author: AuthorContext,
+  request: GenerateRequest,
+  receipt: AgenticGeneratorShotReceipt,
+  banked: BankedTree,
+): Promise<AcceptedCandidate> {
+  const { worktreePath, findings, signal } = request
+  const restoredFromShot = banked.onDisk ? null : banked.shot
+  if (!banked.onDisk) {
+    if (banked.tree === null) {
+      throw new Error(
+        `agenticGenerator: shot ${banked.shot} produced the best tree but it was never snapshotted`,
+      )
+    }
+    restoreWorktreeTree(worktreePath, banked.tree)
+    banked.onDisk = true
+  }
+  signal.throwIfAborted()
+  await emitShotDisposition(author.opts.onShotDisposition, receipt, {
+    kind: 'accepted',
+    worktreePath,
+    verified: true,
+    restoredFromShot,
+  })
+  signal.throwIfAborted()
+  return acceptedCandidate(findings)
 }
 
 /** A tree that passed verification, and whether the worktree still holds it. */
@@ -589,166 +673,6 @@ function admittedScore(result: VerifyResult, scored: boolean | null, shot: numbe
     )
   }
   return result.score
-}
-
-async function emitShotReceipt(
-  callback: AgenticGeneratorOptions['onShotCompleted'],
-  receipt: AgenticGeneratorShotReceipt,
-  execution: AgenticGeneratorShotExecution | null,
-  primaryError: Error | null,
-): Promise<void> {
-  try {
-    await callback?.(receipt, execution)
-  } catch (callbackError) {
-    if (primaryError !== null) {
-      throw new AggregateError(
-        [primaryError, callbackError],
-        'agenticGenerator: author shot failed and its receipt could not be persisted',
-      )
-    }
-    throw callbackError
-  }
-  if (primaryError !== null) throw primaryError
-}
-
-async function emitShotDisposition(
-  callback: AgenticGeneratorOptions['onShotDisposition'],
-  receipt: AgenticGeneratorShotReceipt,
-  disposition: AgenticGeneratorShotDisposition,
-): Promise<void> {
-  await callback?.(receipt, disposition)
-}
-
-async function rethrowShotSetupError(
-  callback: AgenticGeneratorOptions['onShotDisposition'],
-  receipt: AgenticGeneratorShotReceipt,
-  worktreePath: string,
-  stage: Extract<AgenticGeneratorShotDisposition, { kind: 'setup-error' }>['stage'],
-  cause: unknown,
-): Promise<never> {
-  const error = cause instanceof Error ? cause : new Error(String(cause))
-  try {
-    await emitShotDisposition(callback, receipt, {
-      kind: 'setup-error',
-      worktreePath,
-      stage,
-      error: { name: error.name, message: error.message },
-    })
-  } catch (callbackError) {
-    throw new AggregateError(
-      [cause, callbackError],
-      'agenticGenerator: shot processing failed and its worktree disposition could not be persisted',
-    )
-  }
-  throw cause
-}
-
-function shotReceipt(input: {
-  readonly generation: number | undefined
-  readonly candidateIndex: number | undefined
-  readonly shot: number
-  readonly maxShots: number
-  readonly harness: HarnessType
-  readonly provider: string
-  readonly model: string
-  readonly profile: AgentProfile
-  readonly profileDigest: string
-  readonly prompt: string
-  readonly startedAt: Date
-  readonly completedAt: Date
-  readonly result: AgenticGeneratorShotExecution | null
-  readonly costCallId: string | null
-  readonly costReceipt: CostReceipt | null
-  readonly error: unknown
-}): AgenticGeneratorShotReceipt {
-  const error = input.error
-    ? {
-        name: input.error instanceof Error ? input.error.name : 'Error',
-        message: input.error instanceof Error ? input.error.message : String(input.error),
-      }
-    : null
-  const result = input.result
-  const costBasis = costBasisFor(input.costReceipt, result)
-  const costUsd =
-    input.costReceipt?.costUsd ?? result?.usage.costUsd ?? result?.usage.estimatedCostUsd ?? null
-  return {
-    generation: input.generation ?? null,
-    candidateIndex: input.candidateIndex ?? null,
-    shot: input.shot + 1,
-    maxShots: input.maxShots,
-    profileDigest: input.profileDigest,
-    harness: input.harness,
-    provider: input.provider,
-    model: input.model,
-    reasoningEffort: input.profile.model?.reasoningEffort ?? null,
-    promptSha256: `sha256:${sha256(input.prompt)}`,
-    startedAt: input.startedAt.toISOString(),
-    completedAt: input.completedAt.toISOString(),
-    durationMs: input.completedAt.getTime() - input.startedAt.getTime(),
-    status: result?.status ?? null,
-    usage: result ? { ...result.usage } : null,
-    transportAttempts: result?.transportAttempts ?? null,
-    costCallId: input.costCallId,
-    costBasis,
-    costUsd: costBasis === 'unknown' ? null : costUsd,
-    costUsdKnown: costBasis === 'provider-reported',
-    error,
-  }
-}
-
-function costBasisFor(
-  receipt: CostReceipt | null,
-  turn: AgenticGeneratorShotExecution | null,
-): AgenticGeneratorShotReceipt['costBasis'] {
-  if (receipt) {
-    if (receipt.costUnknown) return 'unknown'
-    return receipt.actualCostUsd === undefined ? 'estimated-pricing' : 'provider-reported'
-  }
-  if (turn?.usage.usdKnown !== false && turn?.usage.costUsd !== undefined) {
-    return 'provider-reported'
-  }
-  return turn?.usage.estimatedCostUsd !== undefined ? 'estimated-pricing' : 'unknown'
-}
-
-function shotFailure(result: CollectedAgentTurn): Error | null {
-  if (result.status === 'completed') return null
-  if (result.status === 'aborted') {
-    return new Error('agenticGenerator: author shot was cancelled by the caller')
-  }
-  return new Error(
-    `agenticGenerator: author shot failed${result.error?.message ? `: ${result.error.message}` : ''}`,
-  )
-}
-
-function costReceiptFromTurn(result: CollectedAgentTurn, model: string): CostReceiptInput {
-  const tokensKnown = result.usage.tokensKnown !== false
-  const actualCostUsd = result.usage.usdKnown === false ? undefined : result.usage.costUsd
-  const cachedTokens = promptCacheReadTokens(result.usage)
-  return {
-    model,
-    inputTokens: tokensKnown ? Math.max(0, result.usage.input - (cachedTokens ?? 0)) : 0,
-    outputTokens: tokensKnown ? result.usage.output : 0,
-    ...(tokensKnown ? {} : { usageUnknown: true }),
-    ...(cachedTokens !== undefined ? { cachedTokens } : {}),
-    ...(result.usage.reasoningTokens !== undefined
-      ? { reasoningTokens: result.usage.reasoningTokens }
-      : {}),
-    ...(actualCostUsd !== undefined
-      ? { actualCostUsd }
-      : result.usage.estimatedCostUsd !== undefined
-        ? { estimatedCostUsd: result.usage.estimatedCostUsd }
-        : { costUnknown: true }),
-  }
-}
-
-function promptCacheReadTokens(usage: AgentTurnUsage): number | undefined {
-  const cache = usage.promptCache
-  if (!cache) return undefined
-  for (const field of ['readTokens', 'cachedInputTokens', 'cacheReadInputTokens']) {
-    const value = cache[field]
-    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
-  }
-  return undefined
 }
 
 const EMPTY_TREE_NOTE =

@@ -1,28 +1,22 @@
 /**
- *
  * Serve the coordination verbs (spawn_worker / observe_agent / steer_agent / submit_result / stop)
- * as a real HTTP MCP server over a LIVE `Scope`. This is the keystone that lets a coding-harness
- * agent (opencode via the cli-bridge, claude-code, codex) BE the supervisor: it mounts this MCP
- * (`mcp.mcpServers.coordination`) and calls `spawn_worker` as a native tool, which lands on
- * `Scope.spawn` — a real box driving real boxes, not emulated function-tools.
+ * as a real HTTP MCP server over a LIVE `Scope`, so a coding-harness agent (opencode via the
+ * cli-bridge, claude-code, codex) can BE the supervisor: it mounts this MCP
+ * (`mcp.mcpServers.coordination`) and `spawn_worker` lands on `Scope.spawn`.
  *
  * Coordination vs DELEGATION (`../../mcp/delegates.ts`): coordination SPAWNS workers in a CHOSEN
- * backend (`createExecutor({ backend })` — sandbox OR cli-bridge) and live-drives them — observe /
- * steer / resume, recursive sub-drivers, one conserved budget. To instead delegate a coding task
- * INSIDE the agent's OWN sandbox (a durable fire-and-poll job that survives an MCP restart), use the
- * delegation MCP. Coordination is the live, cross-backend supervisor; delegation is own-sandbox async.
+ * backend (sandbox OR cli-bridge) and live-drives them (observe / steer / resume, recursive
+ * sub-drivers, one conserved budget); delegation runs a durable fire-and-poll coding job INSIDE
+ * the agent's OWN sandbox.
  *
- * Transport: JSON-RPC over HTTP POST (the MCP streamable-HTTP shape — `application/json` for a
- * single response). The server is created INSIDE an agent's `act(task, scope)` so it fronts that
- * agent's live scope; tear it down when the act returns.
+ * Transport: JSON-RPC over HTTP POST (MCP streamable-HTTP, single `application/json` response).
+ * The server is created INSIDE an agent's `act(task, scope)` and torn down when the act returns.
  *
  * @experimental
  */
 
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { ConfigError, ValidationError } from '../../errors'
+import { ConfigError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import { createStdioToolServer } from '../../mcp/tool-server'
 import type {
@@ -52,18 +46,16 @@ import type {
 } from '../../mcp/tools/coordination-questions'
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import { runAbortable } from './abortable'
+import { createCoordinationCredentials } from './coordination-credentials'
+import { type CoordinationHttpOptions, coordinationHttpLimits } from './coordination-http'
 import {
-  type CoordinationHttpOptions,
-  type CoordinationRejection,
-  coordinationHttpHandler,
-  coordinationHttpLimits,
-} from './coordination-http'
+  type CoordinationListenerContext,
+  createCoordinationListener,
+  openCoordinationListenerState,
+} from './coordination-mcp-listener'
+import { bindServedTools, coordinationToolOptions } from './coordination-mcp-tools'
 import { preflightPublicCoordination } from './coordination-preflight'
-import {
-  noteScopeRetainedOwnerCoordination,
-  scopeRetainedOwnerResourceReader,
-} from './retained-scope-owner'
-import { singleFlightTools } from './single-flight-tools'
+import { scopeRetainedOwnerResourceReader } from './retained-scope-owner'
 
 export type {
   CoordinationHttpAudit,
@@ -112,10 +104,8 @@ export interface CoordinationMcpHandle {
   close(): Promise<void>
 }
 
-/** Hosts that reach only this machine, including the IPv4-mapped and bracketed IPv6 spellings a
- *  caller may pass through from config. A name that is not recognizably loopback counts as REMOTE:
- *  whether it resolves to a loopback interface is not knowable here, and the safe direction of that
- *  doubt is "exposed". */
+/** Hosts that reach only this machine (incl. IPv4-mapped and bracketed IPv6 spellings). A name not
+ *  recognizably loopback counts as REMOTE: whether it resolves to loopback is unknowable here. */
 export function isLoopbackHost(host: string): boolean {
   const h = host.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '')
   if (h === 'localhost' || h === '::1' || h === '0:0:0:0:0:0:0:1' || h === '::ffff:127.0.0.1') {
@@ -219,26 +209,12 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
   coordinationHttpLimits(options)
 }
 
-/**
- * The coordination verb that runs an injected deliverable's check inside its request, so its work
- * can outlast one request and it is served like `nodeTools`. src/mcp/tools/coordination.ts builds it
- * exactly when a deliverable is injected.
- */
-const DELIVERABLE_VERB = 'submit_result'
-
 /** The longest any coordination call holds its response, whatever the request timeout: under the
  *  60 s MCP tool-call timeout Claude Code and Codex apply by default. */
 const RESPONSE_FENCE_CAP_MS = 45_000
 
-/**
- * The longest a fenced coordination call (`submit_result` and every method-supplied node tool)
- * holds its HTTP response before it answers with a receipt instead. The call keeps running, and
- * its outcome reaches the manager in its next wake.
- *
- * It is half of `requestTimeoutMs`, so the answer leaves before the transport's own 504 at
- * `requestTimeoutMs`, with the other half left for body transfer, admission, and serialization,
- * and at most {@link RESPONSE_FENCE_CAP_MS}.
- */
+/** The longest a fenced call (`submit_result`, node tools) holds its response before answering with
+ *  a receipt: half of `requestTimeoutMs` (beating the transport's 504), at most {@link RESPONSE_FENCE_CAP_MS}. */
 function coordinationResponseFenceMs(requestTimeoutMs: number): number {
   return Math.max(1, Math.min(RESPONSE_FENCE_CAP_MS, Math.floor(requestTimeoutMs / 2)))
 }
@@ -255,10 +231,8 @@ export async function serveCoordinationMcp(
     graphs?: GraphSubtasks
     authorizeDownMessage?: AuthorizeDownMessage
     perWorker: Budget
-    /** Independent completion check exposed to the driver as `submit_result`. The check runs
-     *  inside that call, so the call is served single-flight and fenced like `nodeTools`: a check
-     *  still running at the fence returns a receipt, and the verdict reaches the manager in its
-     *  next wake. */
+    /** Independent completion check exposed as `submit_result`; served single-flight and fenced like
+     *  `nodeTools` (a check still running at the fence returns a receipt). */
     deliverable?: DeliverableSpec<unknown>
     /** Serve `read_continuation` from the manager's continuation records. */
     readContinuation?: (continuation: number | undefined) => unknown
@@ -302,27 +276,20 @@ export async function serveCoordinationMcp(
     priorJournal?: ReadonlyArray<BusRecord<CoordinationEvent>>
     /** Lenses this manager defined in a prior process — seeds the menu and the definition cap. */
     priorAnalystDefinitions?: ReadonlyArray<DefinedAnalystRecord>
-    /** Product-selected tools already bound to this exact supervisor node. They share this server
-     *  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen.
-     *  Each is served single-flight and fenced (`./single-flight-tools`): an identical call joins
-     *  the running call, and a call still running at the fence returns a receipt whose outcome
-     *  reaches the manager in its next wake. */
+    /** Product-selected tools bound to this supervisor node. They share this server with the
+     *  coordination verbs (the MCP duplicate-name guard applies before listen) and are served
+     *  single-flight and fenced (`./single-flight-tools`): an identical call joins the running one. */
     nodeTools?: ReadonlyArray<McpToolDescriptor>
     /** Exact bare tool names to expose from the coordination and node-tool set. Runtime never
      *  grants an implicit complete tool set. An unknown name fails before the listener opens. */
     toolNames: ReadonlyArray<string>
     /**
-     * OPT-IN peer mail: let this manager's workers message each other directly, bounded and audited
+     * OPT-IN peer mail: workers message each other directly, bounded and audited
      * (`runtime/supervise/peer-mail`). Each spawn receives a capability URL on
-     * `WorkerSpawnContext.peerMailUrl`.
-     *
-     * It uses a separate capability path on the coordination listener. The manager endpoint
-     * grants spawn, steer and stop; the mail path serves only `send_mail` and `read_mail`,
-     * bound to one worker identity. A mail capability cannot authorize a manager request.
-     *
-     * The residual, stated plainly: the boundary is between AGENTS, not between processes. A worker
-     * that can read another worker's environment or process memory still holds that worker's
-     * capability. Loopback plus an unguessable path is what this layer can honestly enforce.
+     * `WorkerSpawnContext.peerMailUrl`, a separate path on the listener serving only `send_mail`
+     * and `read_mail` for one worker identity; it cannot authorize a manager request. The boundary
+     * is between AGENTS, not processes: a worker that can read another's environment or memory
+     * holds its capability. Loopback plus an unguessable path is what this layer can enforce.
      */
     peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
     /** OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
@@ -353,6 +320,69 @@ export async function serveCoordinationMcp(
   return (await serveCoordinationMcpForManager(opts)).handle
 }
 
+/**
+ * Resolve the address the server advertises, then bind its audiences and paths and the credential
+ * to it, and prove a caller-supplied public address reaches this server. Returns the advertised URL.
+ */
+async function bindCoordinationAddress(
+  ctx: CoordinationListenerContext,
+  port: number,
+  addressSignal: AbortSignal,
+): Promise<string> {
+  const { opts, host, identity, state } = ctx
+  const urlHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+  const localUrl = `http://${urlHost}:${port}/mcp`
+  const resolver = opts.publicUrl
+  const configured =
+    typeof resolver === 'function'
+      ? await runAbortable(
+          async () => resolver({ host, port, ...identity, signal: addressSignal }),
+          opts.scope.signal,
+          'coordination public address resolution aborted',
+        )
+      : resolver
+  const publicAddress = new URL(configured ?? localUrl)
+  if (
+    !['http:', 'https:'].includes(publicAddress.protocol) ||
+    publicAddress.username ||
+    publicAddress.password ||
+    publicAddress.search ||
+    publicAddress.hash
+  ) {
+    throw new ConfigError(
+      'coordination publicUrl must be an HTTP endpoint without credentials, query, or fragment',
+    )
+  }
+  if (
+    configured !== undefined &&
+    publicAddress.protocol !== 'https:' &&
+    !isLoopbackHost(publicAddress.hostname)
+  ) {
+    throw new ConfigError('remote coordination publicUrl must use HTTPS')
+  }
+  const url = publicAddress.href
+  ctx.credentials.setAudience(url)
+  if (opts.authentication) ctx.credentials.rotate()
+  state.audiences.add(new URL(localUrl).host)
+  state.audiences.add(publicAddress.host)
+  if (host === '0.0.0.0' || host === '::') state.audiences.add(`127.0.0.1:${port}`)
+  state.paths.add(publicAddress.pathname)
+  for (const path of state.paths) {
+    state.readPaths.add(path.replace(/\/$/, '') + '/read')
+    state.mailPaths.add(path.replace(/\/$/, '') + '/mail')
+  }
+  if (configured !== undefined) {
+    await preflightPublicCoordination({
+      url,
+      headers: ctx.credentials.headers,
+      signal: opts.scope.signal,
+      requestTimeoutMs: ctx.requestTimeoutMs,
+      toolNames: opts.toolNames,
+    })
+  }
+  return url
+}
+
 /** Runtime-only binding: operator controls stay off the public MCP handle and tool grants. */
 export async function serveCoordinationMcpForManager(
   opts: Parameters<typeof serveCoordinationMcp>[0],
@@ -374,113 +404,25 @@ export async function serveCoordinationMcpForManager(
   ) {
     throw new ConfigError('authenticated coordination requires a trusted run and actor identity')
   }
-  const auth = typeof opts.authentication === 'object' ? opts.authentication : undefined
-  const signingKeys = auth?.signingKeys
-    ? { activeKeyId: auth.signingKeys.activeKeyId, keys: { ...auth.signingKeys.keys } }
-    : undefined
-  let readerToken = Buffer.from(randomBytes(32).toString('base64url'))
-  let token: Buffer | undefined
-  let credentialExpiresAt: number | undefined
-  let headers: Readonly<Record<string, string>> = Object.freeze({})
-  let credentialAudience = ''
-  let closed = false
-  const revoked = new Map<string, number>()
-  const grantDigest = createHash('sha256')
-    .update(JSON.stringify([...opts.toolNames].sort()))
-    .digest('hex')
-  const rotateCredential = () => {
-    if (!opts.authentication) throw new ConfigError('coordination authentication is not configured')
-    if (closed) throw new ConfigError('coordination server is closed')
-    // Without `ttlMs` the credential carries no expiry: it lives as long as the scope
-    // (`refusedCredential`), and a scope's deadline is not always its stop.
-    const expiresAt = auth?.ttlMs === undefined ? undefined : Date.now() + auth.ttlMs
-    if (expiresAt !== undefined && !Number.isSafeInteger(expiresAt)) {
-      throw new ConfigError('coordination credential expiry must remain a safe integer')
-    }
-    for (const [credential, expiry] of revoked) {
-      if (expiry <= Date.now()) revoked.delete(credential)
-    }
-    if (token) revoked.set(token.toString(), credentialExpiresAt ?? Number.POSITIVE_INFINITY)
-    credentialExpiresAt = expiresAt
-    const nonce = randomBytes(32).toString('base64url')
-    let text = nonce
-    if (signingKeys) {
-      const payload = Buffer.from(
-        JSON.stringify({
-          key: signingKeys.activeKeyId,
-          run: identity.runId,
-          actor: identity.actorId,
-          audience: credentialAudience,
-          grants: grantDigest,
-          expires: credentialExpiresAt ?? null,
-          nonce,
-        }),
-      ).toString('base64url')
-      const signature = createHmac('sha256', signingKeys.keys[signingKeys.activeKeyId]!)
-        .update(payload)
-        .digest('base64url')
-      text = `${payload}.${signature}`
-    }
-    readerToken = Buffer.from(randomBytes(32).toString('base64url'))
-    token = Buffer.from(text)
-    headers = Object.freeze({ Authorization: `Bearer ${text}` })
+  const state = openCoordinationListenerState()
+  const credentials = createCoordinationCredentials({
+    authentication: opts.authentication,
+    identity,
+    toolNames: opts.toolNames,
+    scopeSignal: opts.scope.signal,
+    isClosed: () => state.closed,
+  })
+  const ctx: CoordinationListenerContext = {
+    opts,
+    host,
+    identity,
+    requestTimeoutMs,
+    credentials,
+    state,
   }
-  /**
-   * Why a supplied credential is refused, or undefined when it is valid. A credential lives as
-   * long as the scope it fronts: until the scope's signal aborts, within an explicit `ttlMs`, and
-   * until rotation revokes it. Every stop aborts that signal: cancellation, the run's deadline, and
-   * a lead stopping its child. A child's own time box does not: its lead checks it in and keeps it
-   * running (`deadline.ts` `DeadlineCheckIn`), and the check-in asks it to record its state and
-   * submit through these very tools. Refusing at the time box left a checked-in child unable to do
-   * either (2026-10-10: eu-datacenter-power-2030-20261010b:s3, every call for its last 41 minutes).
-   */
-  const refusedCredential = (
-    supplied: Buffer,
-  ): 'scope-stopped' | 'credential-refused' | undefined => {
-    if (opts.scope.signal.aborted) return 'scope-stopped'
-    return validCredential(supplied) ? undefined : 'credential-refused'
-  }
-  const validCredential = (supplied: Buffer): boolean => {
-    if (revoked.has(supplied.toString())) return false
-    if (!signingKeys)
-      return (
-        token !== undefined &&
-        (credentialExpiresAt === undefined || Date.now() < credentialExpiresAt) &&
-        supplied.length === token.length &&
-        timingSafeEqual(supplied, token)
-      )
-    if (supplied.length > 8192) return false
-    try {
-      const parts = supplied.toString().split('.')
-      if (parts.length !== 2) return false
-      const payload = parts[0]!
-      const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
-      if (!claims || typeof claims.key !== 'string' || !Object.hasOwn(signingKeys.keys, claims.key))
-        return false
-      const expected = createHmac('sha256', signingKeys.keys[claims.key]!).update(payload).digest()
-      const signature = Buffer.from(parts[1]!, 'base64url')
-      return (
-        // Revocation keys use the wire token; alternate encodings must not alias it.
-        signature.toString('base64url') === parts[1] &&
-        signature.length === expected.length &&
-        timingSafeEqual(signature, expected) &&
-        claims.run === identity.runId &&
-        claims.actor === identity.actorId &&
-        claims.audience === credentialAudience &&
-        claims.grants === grantDigest &&
-        ((claims.expires === null && auth?.ttlMs === undefined) ||
-          (Number.isSafeInteger(claims.expires) && claims.expires > Date.now()))
-      )
-    } catch {
-      return false
-    }
-  }
-  const audiences = new Set<string>()
-  const paths = new Set(['/mcp'])
-  // Same precedence as the router arm in coordination-driver: a caller-supplied reader, else a
-  // host directory, else the manager's own environment through its scope's retained owner. A
-  // provider-backed root and every nested manager come through THIS arm, so a fallback wired
-  // only in the driver arm would leave a sandbox director refused by path exactly as before.
+  // Same precedence as the router arm in coordination-driver: caller reader, else host directory,
+  // else the manager's own environment via its retained owner. Provider-backed roots and every
+  // nested manager come through THIS arm, so a driver-arm-only fallback would leave them refused.
   const ownerReader =
     opts.spawnResourceReader ??
     (opts.spawnResourceRoot === undefined
@@ -489,231 +431,22 @@ export async function serveCoordinationMcpForManager(
   // Bound once the served set exists: `report_blocked` probes only what this manager was granted.
   let probeableByName: ReadonlyMap<string, McpToolDescriptor> | undefined
   const coord = createCoordinationToolsForManager(
-    {
-      resolveProbeTool: (name) => probeableByName?.get(name),
-      scope: opts.scope,
-      blobs: opts.blobs,
-      makeWorkerAgent: opts.makeWorkerAgent,
-      ...(opts.graphs ? { graphs: opts.graphs } : {}),
-      ...(opts.authorizeDownMessage ? { authorizeDownMessage: opts.authorizeDownMessage } : {}),
-      perWorker: opts.perWorker,
-      ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
-      ...(opts.readContinuation ? { readContinuation: opts.readContinuation } : {}),
-      ...(opts.onStop ? { onStop: opts.onStop } : {}),
-      ...(opts.analysts ? { analysts: opts.analysts } : {}),
-      ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
-      ...(opts.mapOnSettle ? { mapOnSettle: opts.mapOnSettle } : {}),
-      ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
-      ...(opts.peerAudit ? { peerAudit: opts.peerAudit } : {}),
-      ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
-      ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
-      ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
-      ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
-      ...(opts.replaySettlements ? { replaySettlements: true } : {}),
-      ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
-      ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),
-      ...(opts.onChildQuestionInbox ? { onChildQuestionInbox: opts.onChildQuestionInbox } : {}),
-      ...(opts.priorEscalations?.length ? { priorEscalations: opts.priorEscalations } : {}),
-      ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
-      ...(opts.priorJournal?.length ? { priorJournal: opts.priorJournal } : {}),
-      ...(opts.priorAnalystDefinitions?.length
-        ? { priorAnalystDefinitions: opts.priorAnalystDefinitions }
-        : {}),
-      ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
-      ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
-      ...(opts.composeSpawnProfile ? { composeSpawnProfile: opts.composeSpawnProfile } : {}),
-      ...(opts.profiles ? { profiles: opts.profiles } : {}),
-      ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
-      ...(ownerReader ? { spawnResourceReader: ownerReader } : {}),
-      ...(opts.peerMail
-        ? {
-            peerMail:
-              typeof opts.peerMail === 'object' && opts.peerMail.limits
-                ? { limits: opts.peerMail.limits }
-                : {},
-          }
-        : {}),
-    },
+    coordinationToolOptions(opts, ownerReader, (name) => probeableByName?.get(name)),
     lifetime,
   )
   await coord.ready()
-  const reservedNames = new Set<string>(coord.tools.map((tool) => tool.name))
-  for (const tool of opts.nodeTools ?? []) {
-    if (reservedNames.has(tool.name)) {
-      throw new ValidationError(
-        `serveCoordinationMcp: node tool ${JSON.stringify(tool.name)} shadows a coordination verb or another node tool`,
-      )
-    }
-    reservedNames.add(tool.name)
-  }
-  const nodeTools = singleFlightTools(opts.nodeTools ?? [], {
-    fenceMs: responseFenceMs,
-    receipts: coord,
-  })
-  // `submit_result` runs the injected completion check inside its request, and a product check can
-  // re-run a build and a model review for minutes. Unfenced, the transport answered 504 at
-  // `requestTimeoutMs` while the check kept running, so the manager never saw the verdict or its
-  // reason: 25 of 25 submits in one 2026-09-22 factory run. Fenced, the call answers with a receipt
-  // and the verdict reaches the manager in its next wake, from the same check.
-  const fencedVerbs = singleFlightTools(
-    coord.tools.filter((tool) => tool.name === DELIVERABLE_VERB),
-    { fenceMs: responseFenceMs, receipts: coord },
-  )
-  // A rename in src/mcp/tools/coordination.ts must fail here, not leave the check unfenced and bring
-  // back the 504. The test is the one that passed the deliverable to the coordination tools above.
-  if (opts.deliverable && fencedVerbs.tools.length !== 1) {
-    throw new ValidationError(
-      `serveCoordinationMcp: a deliverable is injected but the coordination verbs lack ${DELIVERABLE_VERB}, so its check would run unfenced`,
-    )
-  }
-  const fencedByName = new Map(fencedVerbs.tools.map((tool) => [tool.name, tool]))
-  const availableTools = [
-    ...coord.tools.map((tool) => fencedByName.get(tool.name) ?? tool),
-    ...nodeTools.tools,
-  ]
-  const availableByName = new Map(availableTools.map((tool) => [tool.name, tool]))
-  if (!Array.isArray(opts.toolNames)) {
-    throw new ValidationError(
-      'serveCoordinationMcp: toolNames must name every granted tool explicitly',
-    )
-  }
-  const selectedNames = opts.toolNames
-  if (new Set(selectedNames).size !== selectedNames.length) {
-    throw new ValidationError('serveCoordinationMcp: toolNames contains a duplicate name')
-  }
-  const servedTools = selectedNames.map((name) => {
-    const tool = availableByName.get(name)
-    if (tool === undefined) {
-      throw new ValidationError(
-        `serveCoordinationMcp: requested tool ${JSON.stringify(name)} is unavailable`,
-      )
-    }
-    return tool
-  })
+  const { servedTools, background } = bindServedTools(opts, coord, responseFenceMs)
   probeableByName = new Map(servedTools.map((tool) => [tool.name, tool]))
   const mcp = createStdioToolServer({
     serverName: 'coordination',
     serverVersion: '1',
     tools: servedTools,
   })
-  // Before the listener opens: a node tool invoked on the first request must already be able to
-  // call these verbs. Read back the server's ordered set so every consumer records the exact MCP
-  // surface.
+  // Before the listener opens, so a node tool on the first request can call these verbs; read back
+  // the ordered set so every consumer records the exact MCP surface.
   opts.onCoordinationTools?.([...mcp.tools.values()], coord)
 
-  const authority = (req: IncomingMessage): CoordinationRejection | undefined => {
-    // A proxy may use the destination IP as Host. A wildcard bind must
-    // recognize its actual socket address without trusting forwarded names.
-    const address = req.socket.localAddress?.replace(/^::ffff:/, '')
-    const localAuthority = address?.includes(':')
-      ? `[${address}]:${req.socket.localPort}`
-      : `${address}:${req.socket.localPort}`
-    const boundAuthority =
-      audiences.size > 0 &&
-      (host === '0.0.0.0' || host === '::') &&
-      address !== undefined &&
-      req.socket.localPort !== undefined &&
-      req.headers.host === localAuthority
-    if (!audiences.has(req.headers.host ?? '') && !boundAuthority)
-      return { status: 403, reason: 'wrong-host' }
-    if (closed) return { status: 401, reason: 'listener-closed' }
-    return undefined
-  }
-  const readMcp = createStdioToolServer({
-    serverName: 'supervisor-reader',
-    serverVersion: '1',
-    tools: coord.tools.filter(
-      (tool) => tool.name === 'observe_agent' || tool.name === 'read_journal',
-    ),
-  })
-  const readPaths = new Set<string>()
-  const readHandler = coordinationHttpHandler({
-    options: opts,
-    identity,
-    toolNames: new Set(['observe_agent', 'read_journal']),
-    backgroundActions: () => 0,
-    authorize: (req) => {
-      const refused = authority(req)
-      if (refused) return refused
-      const supplied =
-        typeof req.headers.authorization === 'string' &&
-        req.headers.authorization.startsWith('Bearer ')
-          ? Buffer.from(req.headers.authorization.slice(7))
-          : Buffer.alloc(0)
-      if (
-        supplied.length !== readerToken.length ||
-        !timingSafeEqual(supplied, readerToken) ||
-        (credentialExpiresAt !== undefined && credentialExpiresAt <= Date.now())
-      )
-        return { status: 401, reason: 'credential-refused' }
-      return undefined
-    },
-    handle: (message) => readMcp.handle(message),
-  })
-  const peerHandlers = new Map<string, ReturnType<typeof coordinationHttpHandler>>()
-  const mailPaths = new Set<string>()
-  const mainHandler = coordinationHttpHandler({
-    options: opts,
-    identity,
-    toolNames: new Set(servedTools.map((tool) => tool.name)),
-    handle: async (message) => {
-      const response = await mcp.handle(message)
-      // A coordination call is where a manager commits work, so it is when its workspace is
-      // worth a checkpoint (`retained-scope-owner`, rate-limited, off the request path).
-      if (message.method === 'tools/call') noteScopeRetainedOwnerCoordination(opts.scope)
-      return response
-    },
-    backgroundActions: () => nodeTools.background() + fencedVerbs.background(),
-    authorize: (req) => {
-      if (!paths.has(req.url ?? '')) return { status: 404, reason: 'unknown-path' }
-      const refusedAuthority = authority(req)
-      if (refusedAuthority) return refusedAuthority
-      if (!opts.authentication) return undefined
-      const authorization = req.headers.authorization
-      const supplied =
-        typeof authorization === 'string' && authorization.startsWith('Bearer ')
-          ? Buffer.from(authorization.slice(7))
-          : Buffer.alloc(0)
-      const refused = refusedCredential(supplied)
-      return refused === undefined ? undefined : { status: 401, reason: refused }
-    },
-  })
-  const server: Server = createServer((req, res) => {
-    if (readPaths.has(req.url ?? '')) return readHandler(req, res)
-    for (const base of mailPaths) {
-      if (!(req.url ?? '').startsWith(base + '/')) continue
-      const capabilityId = (req.url ?? '').slice(base.length + 1)
-      const mailbox = coord.peerMail
-      if (!/^[0-9a-f]{32}$/.test(capabilityId) || !mailbox?.hasCapability(capabilityId)) {
-        res.writeHead(404).end()
-        return
-      }
-      let handler = peerHandlers.get(capabilityId)
-      if (!handler) {
-        const peerMcp = createStdioToolServer({
-          serverName: 'peer-mail',
-          serverVersion: '1',
-          tools: mailbox.tools(capabilityId),
-        })
-        handler = coordinationHttpHandler({
-          options: opts,
-          identity: { runId: identity.runId, actorId: 'peer' },
-          toolNames: new Set(['send_mail', 'read_mail']),
-          backgroundActions: () => 0,
-          authorize: (request) =>
-            authority(request) ??
-            (!mailbox.hasCapability(capabilityId)
-              ? { status: 401, reason: 'credential-refused' }
-              : undefined),
-          handle: (message) => peerMcp.handle(message),
-        })
-        peerHandlers.set(capabilityId, handler)
-      }
-      return handler(req, res)
-    }
-    return mainHandler(req, res)
-  })
-
+  const server = createCoordinationListener(ctx, { coord, mcp, servedTools, background })
   server.requestTimeout = requestTimeoutMs
   server.headersTimeout = requestTimeoutMs
 
@@ -735,61 +468,12 @@ export async function serveCoordinationMcpForManager(
       addressLifetime.abort(new Error('coordination listener closed'))
   }
 
-  const urlHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
-  const localUrl = `http://${urlHost}:${port}/mcp`
   let url: string
   try {
-    const resolver = opts.publicUrl
-    const configured =
-      typeof resolver === 'function'
-        ? await runAbortable(
-            async () => resolver({ host, port, ...identity, signal: addressLifetime.signal }),
-            opts.scope.signal,
-            'coordination public address resolution aborted',
-          )
-        : resolver
-    const publicAddress = new URL(configured ?? localUrl)
-    if (
-      !['http:', 'https:'].includes(publicAddress.protocol) ||
-      publicAddress.username ||
-      publicAddress.password ||
-      publicAddress.search ||
-      publicAddress.hash
-    ) {
-      throw new ConfigError(
-        'coordination publicUrl must be an HTTP endpoint without credentials, query, or fragment',
-      )
-    }
-    if (
-      configured !== undefined &&
-      publicAddress.protocol !== 'https:' &&
-      !isLoopbackHost(publicAddress.hostname)
-    ) {
-      throw new ConfigError('remote coordination publicUrl must use HTTPS')
-    }
-    url = publicAddress.href
-    credentialAudience = url
-    if (opts.authentication) rotateCredential()
-    audiences.add(new URL(localUrl).host)
-    audiences.add(publicAddress.host)
-    if (host === '0.0.0.0' || host === '::') audiences.add(`127.0.0.1:${port}`)
-    paths.add(publicAddress.pathname)
-    for (const path of paths) {
-      readPaths.add(path.replace(/\/$/, '') + '/read')
-      mailPaths.add(path.replace(/\/$/, '') + '/mail')
-    }
-    if (configured !== undefined) {
-      await preflightPublicCoordination({
-        url,
-        headers,
-        signal: opts.scope.signal,
-        requestTimeoutMs,
-        toolNames: selectedNames,
-      })
-    }
+    url = await bindCoordinationAddress(ctx, port, addressLifetime.signal)
   } catch (error) {
     releaseAddress()
-    closed = true
+    state.closed = true
     await new Promise<void>((resolve) => {
       server.close(() => resolve())
       server.closeAllConnections()
@@ -808,16 +492,16 @@ export async function serveCoordinationMcpForManager(
         throw new ConfigError('coordination read access requires authentication')
       return {
         url: url.replace(/\/$/, '') + '/read',
-        headers: Object.freeze({ Authorization: `Bearer ${readerToken.toString()}` }),
+        headers: Object.freeze({ Authorization: `Bearer ${credentials.readerToken.toString()}` }),
       }
     },
     get headers() {
-      return headers
+      return credentials.headers
     },
     get credentialExpiresAt() {
-      return credentialExpiresAt
+      return credentials.expiresAt
     },
-    rotateCredential,
+    rotateCredential: credentials.rotate,
     settled: () => coord.settled(),
     submittedResult: () => coord.submittedResult(),
     drainResolved: () => coord.drainResolved(),
@@ -830,7 +514,7 @@ export async function serveCoordinationMcpForManager(
     stopMailThread: (threadId) => mailbox?.stopThread(threadId) ?? false,
     close: async () => {
       releaseAddress()
-      closed = true
+      state.closed = true
       await new Promise<void>((resolve) => {
         server.close(() => resolve())
       })
