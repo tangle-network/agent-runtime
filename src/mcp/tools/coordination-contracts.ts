@@ -555,8 +555,9 @@ export interface CoordinationTools {
   endDriverAttempt(outcome: 'completed' | 'failed'): Promise<void>
   /** True while this manager has work it must hear back about: a worker running, a result or
    *  question not yet delivered, or a tool call still running past its response fence. A turn
-   *  that ends with open work is a wait, not a completion. */
-  hasOpenWork(): boolean
+   *  that ends with open work is a wait, not a completion. Parking can exclude settlement
+   *  notifications already committed through drainResolved; all other pending work still counts. */
+  hasOpenWork(options?: { readonly includeSettled?: boolean }): boolean
   /** Wait, with no model turn, until something reaches this manager's inbox, the heartbeat
    *  elapses, or the deadline warning comes due; then deliver everything that arrived. Undefined
    *  when no work is open or the signal aborted. */

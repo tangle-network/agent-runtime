@@ -93,7 +93,8 @@ Funded nested managers restore their descendants before acting; deferred manager
 Parents and children resume together through Scope, including reconstructed nested managers.
 Provider managers can recover their original invocation and reuse an accepted result.
 Recovery preserves unresolved work when the provider cannot prove its identity or completion.
-The file run lock coordinates one local owner; this does not implement distributed fencing.
+The file run lock coordinates one local owner and fences its durable writes by acquisition generation.
+Shared-SQL ownership remains the cross-host lease path.
 **This recursive execution tree is the execution substrate, not the success criterion.**
 The product succeeds when retained learning improves future outcomes under the resource and
 verification conditions in sections 0.5 and 9. More nodes or more machinery do not establish that.

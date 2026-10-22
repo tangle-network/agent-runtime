@@ -1,6 +1,6 @@
 ---
 name: agent-graphs
-description: Author fixed AgentGraph roles, routes, delegation, analysis, completion and budgets.
+description: Design factories and fixed AgentGraph roles, routes, delegation, checks and budgets.
 ---
 
 # Agent Graphs
@@ -9,7 +9,7 @@ Use `runGraph` when roles are known before execution and their relationships mus
 When the order, branches, repair loops and stop rules are known too, author a flow graph: `entry` plus `routes` edges, with no root and no brain.
 Parallel stages are a fork (`to` lists several nodes, spawned at once) and waiting for all of them is a join (`from` lists several nodes); converging plain routes into one running node throw `GraphRouteError` with reason `target-live`.
 A loop per item is a flow graph inside a maps item, and a flow graph can run as a `run_graph` subtask.
-A human approval in a flow is a gate (`gates: [{ id, question, choices }]` with one routes edge per choice matching `/choice`), answered by the caller's `decideGate` while the run is held; a wait of days without a held process belongs to a Platform workflow `wait.*` or `decision` action.
+A caller-decided branch can use a gate (`gates: [{ id, question, choices }]` with one routes edge per choice matching `/choice`), answered by `decideGate` while the run is held. For factory human review, end the run as described below.
 Keep a root (delegation edges) only when a model must decide what runs next; a root brain that only orders fixed stages is the anti-pattern a flow graph replaces.
 Use a smaller maintained composition when it provides the required behavior.
 Use dynamic supervision when the agent must discover or create roles while working.
@@ -17,6 +17,42 @@ A request for review alone does not require a graph.
 
 Read the current [API decision table](https://github.com/tangle-network/agent-runtime/blob/main/docs/canonical-api.md), [AgentGraph contract](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/graph.ts), and a relevant [runnable example](https://github.com/tangle-network/agent-runtime/tree/main/examples/graphs).
 These distinguish the fixed AgentGraph API from other graph or supervision contracts.
+
+## Design a factory
+
+Use the vocabulary from the [software-factory design reference](https://github.com/mattpocock/skills/pull/1316) when a consumer needs recurring work across graph executions.
+A **task** defines repeatable work, such as implementation or review, on a ticket, PR, or codebase.
+A **run** is one execution of that task, including any graph nodes and agent sessions it needs.
+A **trigger** starts a run; a **runner** supplies its execution environment.
+Keep task identity stable across runs and record each run's own identity and result.
+
+Name the product that owns each service slot before authoring the task's graph:
+
+| Slot | Responsibility |
+| --- | --- |
+| Ticket tracker | Durable work requests, discussion, and human decisions |
+| Ticket source | External feedback or signals that create tickets |
+| Git host | Source revisions, branches, PRs, and reviews |
+| Orchestrator | Admit triggers, start runs, and retain their status |
+| Observability platform | Inspect run logs, traces, and failures; choose none explicitly if existing run pages suffice |
+
+One product may fill several slots. Reuse each existing owner and its durable records.
+Name the runner too; retain work and decisions through the owning services before its process exits.
+An observability signal that should change work must reach the tracker or git host through an explicit task or ticket source.
+
+Treat triggers as **accelerators** and checks as **brakes**.
+Deterministic checks establish required behavior; independent automated review examines the change; human review supplies decisions and findings that improve both.
+Honor the consumer's existing merge and release policy rather than adding approval gates.
+Introduce automated triggers individually with an explicit throttle, such as a sampling rate, schedule, or concurrency cap; increase admission only after reviewing failures and accepted outcomes.
+Bound repair cycles by attempts and budget, then record unresolved work for human review.
+
+Factory runs never wait for a human.
+Publish the question or review request durably and finish; a later human decision triggers a new run that reads that record.
+An in-run graph gate holds execution and therefore does not implement this factory boundary.
+
+Before implementation, answer for every task: what triggers it; which services it reads and writes; what runs next; where humans re-enter; and how overlapping runs avoid duplicate work.
+For each ticket source, name how duplicate tickets are prevented.
+The design is complete when every slot has an owner, every task has those answers, and trigger throttles and repair limits are explicit.
 
 ## Author the required relationships
 

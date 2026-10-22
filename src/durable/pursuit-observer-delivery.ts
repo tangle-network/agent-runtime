@@ -77,8 +77,8 @@ async function deliverPursuitObserver(
 export interface PursuitObserverDeliverer {
   /** Queue a delivery of the current projection. Deliveries never overlap; a burst collapses to one. */
   push(state: PursuitObserverState): void
-  /** Stop the liveness timer, deliver the terminal state, and wait for it within the timeout. */
-  close(state: Exclude<PursuitObserverState, 'running'>): Promise<PursuitObserverDeliveryOutcome>
+  /** Stop liveness delivery and deliver the final snapshot. A parked run remains nonterminal. */
+  close(state: PursuitObserverState): Promise<PursuitObserverDeliveryOutcome>
 }
 
 /**

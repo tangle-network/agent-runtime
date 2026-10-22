@@ -55,6 +55,12 @@ export {
   readRootStream,
   readRootStreamReceipt,
 } from '../runtime/supervise/root-stream'
+export type {
+  ParkedRun,
+  RunParkingPolicy,
+  RunParkingRecord,
+} from '../runtime/supervise/run-parking'
+export { RunParkedError, readRunParking } from '../runtime/supervise/run-parking'
 export type { SeatSelection, SeatSelectionInput, SelectSeat } from '../runtime/supervise/seat-chain'
 export type {
   AuthorizedSpawn,

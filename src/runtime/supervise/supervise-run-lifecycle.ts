@@ -12,6 +12,7 @@ import { createSupervisorSpanRecorder, type SupervisorSpanRecorder } from './ote
 import { ROOT_STREAM_FILE } from './root-stream'
 import type { RunCancelRequest } from './run-cancellation'
 import { watchRunCancellation } from './run-cancellation'
+import { withRunParking } from './run-parking'
 import { supervisorTurnOptions } from './supervise-agent-options'
 import type { SuperviseOptions } from './supervise-options'
 import { createSuperviseWorkers } from './supervise-recursive-workers'
@@ -113,7 +114,17 @@ async function startSupervisedRun(run: SupervisedRun) {
     cancellation?.close()
     throw error
   }
-  const result = supervisor.run(agent, canonicalTask, rootRunOptions(run, runDir, hooks, recorder))
+  const result = withRunParking(
+    options.parking,
+    runDir,
+    runId,
+    setup.journal,
+    setup.now,
+    options.signal === undefined
+      ? run.durableCancellation.signal
+      : AbortSignal.any([options.signal, run.durableCancellation.signal]),
+    () => supervisor.run(agent, canonicalTask, rootRunOptions(run, runDir, hooks, recorder)),
+  )
   const settle = () => settleSupervisedRun(run, result, cancellation)
   if (!recorder) return settle()
   // The recorder closes the root span on BOTH exits and never rethrows.

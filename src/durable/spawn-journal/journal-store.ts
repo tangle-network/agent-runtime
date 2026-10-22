@@ -1,7 +1,8 @@
-import type { BigIntStats } from 'node:fs'
+import { type BigIntStats, fstatSync, statSync } from 'node:fs'
 import { detachedSnapshot } from '../../runtime/supervise/snapshot'
 import type { NodeId, SpawnEvent, SpawnJournal } from '../../runtime/supervise/types'
 import { appendCommittedJsonLine, isNoEntError, readCommittedJsonLines } from '../jsonl-file'
+import { captureRunWriteContext } from '../run-fence'
 import { SpawnEventIndex } from './event-index'
 
 /**
@@ -28,6 +29,7 @@ export async function appendSpawnEvents(
  * @stable
  */
 export class FileSpawnJournal implements SpawnJournal {
+  private readonly writeContext = captureRunWriteContext()
   private appendTail: Promise<void> = Promise.resolve()
   // Rebuildable validation state, not another journal or a copy of event payloads.
   private appendIndex:
@@ -134,7 +136,7 @@ export class FileSpawnJournal implements SpawnJournal {
   }
 
   private async serializeAppend(operation: () => Promise<void>): Promise<void> {
-    const append = this.appendTail.then(operation)
+    const append = this.appendTail.then(() => this.writeContext(operation))
     this.appendTail = append.catch(() => undefined)
     return append
   }
@@ -144,9 +146,9 @@ export class FileSpawnJournal implements SpawnJournal {
     const { dirname } = await import('node:path')
     try {
       await fs.mkdir(dirname(this.path), { recursive: true })
-      return await appendCommittedJsonLine(this.path, record, async (handle) => {
-        const stamp = journalFileStamp(await handle.stat({ bigint: true }))
-        if ((await this.fileStamp()) !== stamp) {
+      return await appendCommittedJsonLine(this.path, record, (fd) => {
+        const stamp = journalFileStamp(fstatSync(fd, { bigint: true }))
+        if (journalFileStamp(statSync(this.path, { bigint: true })) !== stamp) {
           throw new Error('spawn journal changed while acknowledging its append')
         }
         return stamp

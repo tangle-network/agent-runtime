@@ -1579,6 +1579,19 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`runDir`](runtime.md#rundir-2)
 
+##### parking?
+
+> `readonly` `optional` **parking?**: [`RunParkingPolicy`](durable.md#runparkingpolicy)
+
+Hand a root with only a long wait and no live descendants to the caller's existing keeper.
+Requires runDir. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
+the spawn journal without writing a terminal result. The caller must handle parking and
+resume the same runDir/runId at wakeAt. Omit to keep waits in this process.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`parking`](runtime.md#parking-1)
+
 ##### resume?
 
 > `readonly` `optional` **resume?**: `boolean`
@@ -2793,6 +2806,19 @@ resumable run per directory but collides across concurrent runs sharing one `run
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`runDir`](runtime.md#rundir-2)
+
+##### parking?
+
+> `readonly` `optional` **parking?**: [`RunParkingPolicy`](durable.md#runparkingpolicy)
+
+Hand a root with only a long wait and no live descendants to the caller's existing keeper.
+Requires runDir. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
+the spawn journal without writing a terminal result. The caller must handle parking and
+resume the same runDir/runId at wakeAt. Omit to keep waits in this process.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`parking`](runtime.md#parking-1)
 
 ##### resume?
 

@@ -1,6 +1,7 @@
 import { ValidationError } from '../../errors'
 import type { ToolLoopChat } from '../tool-loop'
 import { withRunContext } from './run-context'
+import { assertRunParking } from './run-parking'
 import { freezeDetached } from './supervise-identity'
 import { captureSuperviseOptions } from './supervise-option-capture'
 import type { SuperviseOptions, SuperviseTestOptions } from './supervise-options'
@@ -41,6 +42,7 @@ function superviseWithContext(
   opts: SuperviseOptions,
   brain?: ToolLoopChat,
 ): ReturnType<typeof superviseInternal> {
+  assertRunParking(opts.parking, opts.runDir !== undefined)
   if (opts.driverRetry?.pauseRootStops === true && opts.driverRetry.enabled === false) {
     throw new ValidationError(
       'supervise: driverRetry.pauseRootStops pauses where a retry would stop; it cannot be combined with driverRetry.enabled: false',

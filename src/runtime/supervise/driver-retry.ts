@@ -98,6 +98,7 @@ import type { ContinuationContext } from './continuation'
 import type { DriverAttemptRecord } from './driver-attempt-evidence'
 import { DriverRetryLoop, driverRetryLimits } from './driver-retry-loop'
 import type { RetainedExecutionPendingError } from './retained-executor'
+import { RunParkedError } from './run-parking'
 import type { Scope } from './types'
 import type { UnavailablePausePolicy } from './upstream-unavailable'
 
@@ -341,6 +342,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     try {
       await run.drive(attempt, loop.reentry)
     } catch (error) {
+      if (error instanceof RunParkedError) throw error
       await loop.afterFailure(error, attempt, before, startedAt)
       continue
     }

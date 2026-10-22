@@ -267,6 +267,50 @@ A failed Runtime execution whose complete third-person projection was retained.
 
 `failure.json` in the run directory: the record of this throw.
 
+***
+
+### RunParkedError
+
+A resumable wait, with no terminal result or failure. Catch it and let the coordinator exit.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new RunParkedError**(`runId`, `parking`): [`RunParkedError`](#runparkederror)
+
+###### Parameters
+
+###### runId
+
+`string`
+
+###### parking
+
+[`RunParkingRecord`](#runparkingrecord)
+
+###### Returns
+
+[`RunParkedError`](#runparkederror)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### parking
+
+> `readonly` **parking**: [`RunParkingRecord`](#runparkingrecord)
+
 ## Interfaces
 
 ### ChatStreamEvent
@@ -1705,6 +1749,12 @@ What the lock file records about its holder.
 
 > `readonly` **pid**: `number`
 
+##### generation?
+
+> `readonly` `optional` **generation?**: `number`
+
+Monotonic acquisition generation; absent on legacy lock records.
+
 ##### startedAt
 
 > `readonly` **startedAt**: `string`
@@ -1825,11 +1875,43 @@ Inode identity of the lock file this record was written into.
 
 [`RunDirectoryLockHolder`](#rundirectorylockholder).[`lock`](#lock)
 
+##### generation
+
+> `readonly` **generation**: `number`
+
+Monotonic acquisition generation; absent on legacy lock records.
+
+###### Overrides
+
+[`RunDirectoryLockHolder`](#rundirectorylockholder).[`generation`](#generation)
+
 ##### path
 
 > `readonly` **path**: `string`
 
 #### Methods
+
+##### run()
+
+> **run**\<`T`\>(`operation`): `T`
+
+Bind durable writes to this acquisition, including work queued before release.
+
+###### Type Parameters
+
+###### T
+
+`T`
+
+###### Parameters
+
+###### operation
+
+() => `T`
+
+###### Returns
+
+`T`
 
 ##### release()
 
@@ -2959,6 +3041,19 @@ Worker output store. Defaults to in-memory.
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-7)
+
+##### parking?
+
+> `readonly` `optional` **parking?**: [`RunParkingPolicy`](#runparkingpolicy)
+
+Hand a root with only a long wait and no live descendants to the caller's existing keeper.
+Requires runDir. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
+the spawn journal without writing a terminal result. The caller must handle parking and
+resume the same runDir/runId at wakeAt. Omit to keep waits in this process.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`parking`](runtime.md#parking-1)
 
 ##### resume?
 
@@ -4121,6 +4216,19 @@ How Runtime wakes a manager that ended its turn with work open: the heartbeat, t
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`wake`](runtime.md#wake-1)
 
+##### parking?
+
+> `readonly` `optional` **parking?**: [`RunParkingPolicy`](#runparkingpolicy)
+
+Hand a root with only a long wait and no live descendants to the caller's existing keeper.
+Requires runDir. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
+the spawn journal without writing a terminal result. The caller must handle parking and
+resume the same runDir/runId at wakeAt. Omit to keep waits in this process.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`parking`](runtime.md#parking-1)
+
 ##### resume?
 
 > `readonly` `optional` **resume?**: `boolean`
@@ -4906,6 +5014,84 @@ Required for remote binds. Each server mints a distinct run/actor credential.
 > `readonly` `optional` **publicUrl?**: `string` \| ((`address`) => `string` \| `Promise`\<`string`\>)
 
 Caller-owned reachable endpoint or mapping, awaited before dispatch. Runtime creates no tunnel.
+
+***
+
+### RunParkingPolicy
+
+Release a durable coordinator after it has only waited this long. The caller's keeper owns wakeup.
+
+#### Properties
+
+##### afterMs?
+
+> `readonly` `optional` **afterMs?**: `number`
+
+Milliseconds of idle waiting before returning RunParkedError. Runtime owns the default idle threshold.
+
+***
+
+### RunParkingRecord
+
+The durable handoff from a waiting coordinator to its existing keeper.
+
+#### Extended by
+
+- [`ParkedRun`](#parkedrun)
+
+#### Properties
+
+##### reason
+
+> `readonly` **reason**: `"deadline"` \| `"seat-wait"` \| `"paused-root"`
+
+##### since
+
+> `readonly` **since**: `string`
+
+##### wakeAt
+
+> `readonly` **wakeAt**: `string`
+
+***
+
+### ParkedRun
+
+The current parked root, read without loading its journal.
+
+#### Extends
+
+- [`RunParkingRecord`](#runparkingrecord)
+
+#### Properties
+
+##### reason
+
+> `readonly` **reason**: `"deadline"` \| `"seat-wait"` \| `"paused-root"`
+
+###### Inherited from
+
+[`RunParkingRecord`](#runparkingrecord).[`reason`](#reason-4)
+
+##### since
+
+> `readonly` **since**: `string`
+
+###### Inherited from
+
+[`RunParkingRecord`](#runparkingrecord).[`since`](#since)
+
+##### wakeAt
+
+> `readonly` **wakeAt**: `string`
+
+###### Inherited from
+
+[`RunParkingRecord`](#runparkingrecord).[`wakeAt`](#wakeat)
+
+##### runId
+
+> `readonly` **runId**: `string`
 
 ***
 
@@ -5791,3 +5977,21 @@ Every committed line of the root stream, in order, or `undefined` when there is 
 #### Returns
 
 `Promise`\<[`RootStreamRecord`](#rootstreamrecord)[] \| `undefined`\>
+
+***
+
+### readRunParking()
+
+> **readRunParking**(`runDir`): `Promise`\<[`ParkedRun`](#parkedrun) \| `undefined`\>
+
+Read the journal's bounded parking projection. Undefined means no current parking handoff.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+#### Returns
+
+`Promise`\<[`ParkedRun`](#parkedrun) \| `undefined`\>

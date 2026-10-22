@@ -17,6 +17,7 @@
  */
 
 import { appendCommittedJsonLine, readCommittedJsonLines } from '../../durable/jsonl-file'
+import { captureRunWriteContext } from '../../durable/run-fence'
 import type {
   AnalystFindingEvent,
   DefinedAnalystRecord,
@@ -106,6 +107,7 @@ function persisted(event: CoordinationEvent): boolean {
 
 /** FS-backed `CoordinationLog`: append-only JSONL, fsynced per record. */
 export class FileCoordinationLog implements CoordinationLog {
+  private readonly writeContext = captureRunWriteContext()
   private appendTail: Promise<void> = Promise.resolve()
 
   constructor(private readonly path: string) {}
@@ -116,7 +118,9 @@ export class FileCoordinationLog implements CoordinationLog {
     ownerId?: CoordinationOwnerId,
   ): Promise<void> {
     if (!persisted(record.event)) return
-    const append = this.appendTail.then(() => this.appendRecord(runId, record, ownerId))
+    const append = this.appendTail.then(() =>
+      this.writeContext(() => this.appendRecord(runId, record, ownerId)),
+    )
     this.appendTail = append.catch(() => undefined)
     return append
   }

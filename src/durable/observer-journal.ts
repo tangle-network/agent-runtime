@@ -8,6 +8,7 @@ import {
   withPursuitContext,
 } from '../runtime-hooks'
 import { appendCommittedJsonLine, readCommittedJsonLines } from './jsonl-file'
+import { captureRunWriteContext } from './run-fence'
 
 export type ObserverRecordKind = 'event' | 'decision'
 
@@ -50,6 +51,7 @@ type UnsignedObserverRecord = Omit<ObserverRecord, 'digest'>
 export class FileObserverJournal implements ObserverJournal {
   readonly path: string
   readonly pursuitId: string
+  private readonly writeContext = captureRunWriteContext()
   private tail: Promise<void> = Promise.resolve()
   private initialized = false
   private sequence = 0
@@ -114,43 +116,45 @@ export class FileObserverJournal implements ObserverJournal {
     }
 
     let result: ObserverRecord | undefined
-    const operation = this.tail.then(async () => {
-      this.assertComplete()
-      try {
-        await this.initialize()
-      } catch (error) {
-        this.appendFailure ??= toError(error)
-        throw error
-      }
+    const operation = this.tail.then(() =>
+      this.writeContext(async () => {
+        this.assertComplete()
+        try {
+          await this.initialize()
+        } catch (error) {
+          this.appendFailure ??= toError(error)
+          throw error
+        }
 
-      const unsigned: UnsignedObserverRecord = {
-        schemaVersion: 1,
-        pursuitId: this.pursuitId,
-        sequence: this.sequence + 1,
-        kind,
-        observedAt: Date.now(),
-        ...(this.previousDigest ? { previousDigest: this.previousDigest } : {}),
-        ...(kind === 'event'
-          ? { event: snapshot as RuntimeHookEvent }
-          : { decision: snapshot as RuntimeDecisionPoint }),
-      }
-      const record: ObserverRecord = Object.freeze({
-        ...unsigned,
-        digest: observerRecordDigest(unsigned),
-      })
-      try {
-        const fs = await import('node:fs/promises')
-        const { dirname } = await import('node:path')
-        await fs.mkdir(dirname(this.path), { recursive: true })
-        await appendCommittedJsonLine(this.path, record)
-      } catch (error) {
-        this.appendFailure ??= toError(error)
-        throw error
-      }
-      this.sequence = record.sequence
-      this.previousDigest = record.digest
-      result = record
-    })
+        const unsigned: UnsignedObserverRecord = {
+          schemaVersion: 1,
+          pursuitId: this.pursuitId,
+          sequence: this.sequence + 1,
+          kind,
+          observedAt: Date.now(),
+          ...(this.previousDigest ? { previousDigest: this.previousDigest } : {}),
+          ...(kind === 'event'
+            ? { event: snapshot as RuntimeHookEvent }
+            : { decision: snapshot as RuntimeDecisionPoint }),
+        }
+        const record: ObserverRecord = Object.freeze({
+          ...unsigned,
+          digest: observerRecordDigest(unsigned),
+        })
+        try {
+          const fs = await import('node:fs/promises')
+          const { dirname } = await import('node:path')
+          await fs.mkdir(dirname(this.path), { recursive: true })
+          await appendCommittedJsonLine(this.path, record)
+        } catch (error) {
+          this.appendFailure ??= toError(error)
+          throw error
+        }
+        this.sequence = record.sequence
+        this.previousDigest = record.digest
+        result = record
+      }),
+    )
     this.tail = operation.then(
       () => undefined,
       () => undefined,

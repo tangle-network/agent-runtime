@@ -6,6 +6,7 @@ import { detachedSnapshot } from '../../runtime/supervise/snapshot'
 import type { ResultBlobStore } from '../../runtime/supervise/types'
 import { contentAddress } from '../content-address'
 import { isNoEntError } from '../jsonl-file'
+import { captureRunWriteContext } from '../run-fence'
 
 /**
  * FS `ResultBlobStore`. One JSON file per artifact under `dir`, named by a
@@ -15,19 +16,23 @@ import { isNoEntError } from '../jsonl-file'
  * @stable
  */
 export class FileResultBlobStore implements ResultBlobStore {
+  private readonly writeContext = captureRunWriteContext()
+
   constructor(private readonly dir: string) {}
 
   async put(outRef: string, artifact: unknown): Promise<void> {
-    const { text } = encodeResultBlob(outRef, artifact)
-    const filePath = this.blobPath(outRef)
-    assertNoSymlinkDescendant(this.dir, filePath, 'result blob')
-    const fs = await import('node:fs/promises')
-    await fs.mkdir(this.dir, { recursive: true })
-    assertNoSymlinkDescendant(this.dir, filePath, 'result blob')
-    if (!publishExclusiveDurableFile(filePath, text, { mode: 0o600 })) {
-      const existing = await this.get(outRef)
-      assertContentAddress(outRef, existing)
-    }
+    return this.writeContext(async () => {
+      const { text } = encodeResultBlob(outRef, artifact)
+      const filePath = this.blobPath(outRef)
+      assertNoSymlinkDescendant(this.dir, filePath, 'result blob')
+      const fs = await import('node:fs/promises')
+      await fs.mkdir(this.dir, { recursive: true })
+      assertNoSymlinkDescendant(this.dir, filePath, 'result blob')
+      if (!publishExclusiveDurableFile(filePath, text, { mode: 0o600 })) {
+        const existing = await this.get(outRef)
+        assertContentAddress(outRef, existing)
+      }
+    })
   }
 
   async get(outRef: string): Promise<unknown | undefined> {

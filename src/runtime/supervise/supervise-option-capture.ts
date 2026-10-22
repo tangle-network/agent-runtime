@@ -80,6 +80,7 @@ const superviseOptionKeys = [
   'rootHandle',
   'router',
   'runDir',
+  'parking',
   'resume',
   'segment',
   'runContext',

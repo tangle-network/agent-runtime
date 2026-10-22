@@ -29,7 +29,7 @@ Remote MCP uses scoped credentials, bounded requests, and caller-provided networ
 Providers must advertise runtime MCP attachment support before receiving coordination tools beside the unchanged profile.
 One-shot providers remain nonsteerable.
 
-The file run lock coordinates local ownership.
+The file run lock coordinates local ownership and fences durable writes by acquisition generation.
 `createFencedSqlRunContext` adds a SQL ownership lease, generation-checked publications, and a durable coordination log.
 A second live process cannot acquire the run; after owner loss, a contender can take over without local files.
 This requires a shared durable SQL service and a retained provider with idempotent create/dispatch.

@@ -38,6 +38,46 @@ Durable work breaks into six separate questions. Each has one owner.
 
 ### Runtime-owned file persistence
 
+Each `acquireRunDirectoryLock` advances the durable `supervise.generation` counter. The returned
+lock's `run` binds work to that immutable generation; both pursuit entrypoints apply it around
+their whole execution. Spawn, observer and blob stores capture that claim at construction or
+first write so callbacks from an unrelated event emitter cannot shed their ownership.
+The committed-JSONL and durable-file writers check the generation and lock inode while holding
+the same crash-recoverable mutation lock used by acquisition and release. A stale claim cannot
+truncate a torn journal tail, append evidence, publish a blob or replace a run record. Payload
+formats and content-addressed artifact bytes stay unchanged. Standalone stores without a claim
+keep their existing caller-owned single-writer contract; use `lock.run` when owning a directory.
+
+Eval's `lockHolderVerdict` remains the sole dead-owner decision for both the directory claim and
+its mutation lock. `runDirectoryHolderIsLive` remains advisory for listing; taking ownership or
+writing never relies on its unlocked result. Legacy unowned `supervise.lock.guard` directories
+still require inspection rather than guessing whether an old writer is active.
+`tests/durability/file-generation-fence.test.ts` covers live-process takeover after release,
+stale store callbacks, and reclaiming both a killed holder and its in-flight mutation claim.
+
+Durable `supervise` and `supervisePursuit` callers with an existing keeper can opt into
+`parking: {}`. `RunParkingPolicy.afterMs` changes the idle threshold; its default belongs to
+the Runtime implementation. A root waiting for a subscription seat, a retry/stop pause, or its
+deadline may park when it has no live descendants, no unconfirmed child cleanup, no uncertain
+retained invocation, and no pending coordination effects or unread authority. Committed child
+settlement notifications remain replayable. Active work keeps its coordinator. This deliberately does not suspend
+working children or move workflow timers into Runtime.
+
+Parking appends one nonterminal `run-parked` journal event with `reason`, `since`, and `wakeAt`,
+then writes the bounded `parking.json` projection through the durable file writer. The caller
+receives `RunParkedError` with `runId` and `parking`, catches it, and lets its process exit.
+`supervisePursuit` releases the directory lock and writes neither `failure.json` nor `result.json`
+for this outcome. No parking timer or watcher survives the call.
+
+The caller's existing keeper reads `readRunParking(runDir)` from `/durable`, defers ordinary
+resume until `wakeAt`, and invokes its existing resume path with the same directory, run id,
+profile, task, and budget. The helper reads only the small projection, not the whole journal.
+An early normal entry returns the same parked outcome without another model turn. A due entry
+checks the journal first, marks the projection resuming, restores committed work and the original
+absolute deadline, and rechecks the original seat chain. An already-recorded cancellation still
+settles normally. Callers must handle this outcome before enabling parking; omitting the option
+retains their existing in-process waits.
+
 Spawn, observer, coordination, and corpus stores share the committed-JSONL writer for torn-tail
 recovery, complete writes, and fsync before acknowledgement. Each store still owns its validation,
 append ordering, and failure policy. The root stream retains its distinct per-attempt fsync boundary.
@@ -176,7 +216,7 @@ Runtime's file run context survives only if its directory does. The fenced SQL c
 
 Agent App's recovery manager shows the user which of these is available. It does not take snapshots.
 
-**Who owns timers and events?** Platform Workflows. Provider events, schedules, webhooks and timers park a run in the suspension store, outside customer compute, and wake that exact run. Its actions keep their `wf_<run>_a<step>` keys. Runtime has no sleeping waits since #1622. Inside a live supervised run, a manager waits by ending its turn, and Runtime starts its next turn when its workers report. That wait lasts only as long as its coordinator. A resumed coordinator rebuilds it from the journal.
+**Who owns timers and events?** Platform Workflows. Provider events, schedules, webhooks and timers park a run in the suspension store, outside customer compute, and wake that exact run. Its actions keep their `wf_<run>_a<step>` keys. Runtime has no general workflow timer API since #1622. Idle root execution waits can hand off to the caller's existing keeper through `parking`, as described above. Inside a live supervised run, a manager waits by ending its turn, and Runtime starts its next turn when its workers report. That wait lasts only as long as its coordinator. A resumed coordinator rebuilds it from the journal.
 
 **How are external effects made retry-safe?** One effect key goes from admission to the effect site, and every retry and recovery keeps it:
 - `SpawnOpts.key` and keyed tools in Runtime;

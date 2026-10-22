@@ -169,7 +169,7 @@ Import from `@tangle-network/agent-runtime/agent` — 30 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 90 exports.
+Import from `@tangle-network/agent-runtime/durable` — 95 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -184,6 +184,7 @@ Import from `@tangle-network/agent-runtime/durable` — 90 exports.
 | `readRootStream` | function | Every committed line of the root stream, in order, or `undefined` when there is no file. A |
 | `readRootStreamReceipt` | function | The receipt for the root stream a run directory holds, recomputed from the file's bytes, or |
 | `readRunDirectoryLock` | function | Read the holder a lock file names, or `undefined` when no lock file names one. |
+| `readRunParking` | function | Read the journal's bounded parking projection. Undefined means no current parking handoff. |
 | `readSettleRecord` | function | Read the settle record a run directory holds, or `undefined` when it holds none. A file that |
 | `runDirectoryHolderIsLive` | function | Whether a run directory is still held by the live process that took its lock. |
 | `superviseGraphPursuit` | function | One-call durable execution of an `AgentGraph`: the graph twin of {@link supervisePursuit}. |
@@ -191,6 +192,7 @@ Import from `@tangle-network/agent-runtime/durable` — 90 exports.
 | `RUN_FORK_CORRELATION_KEYS` | const | The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that |
 | `FileObserverJournal` | class | Durable, append-only third-person history for one concrete Runtime execution. |
 | `RunDirectoryLockedError` | class | The directory is held by a live process. `holder` is what that process recorded. |
+| `RunParkedError` | class | A resumable wait, with no terminal result or failure. Catch it and let the coordinator exit. |
 | `SettledRunDirectoryError` | class | The directory already holds a settle record, so the run it records must not be re-entered. |
 | `SupervisePursuitError` | class | A failed Runtime execution whose complete third-person projection was retained. |
 | `AnalyzeOnSettleRoute` | interface | One analyst-on-settle ROUTE: which lens runs (`kind`), over WHICH settled workers (`over`), |
@@ -209,6 +211,7 @@ Import from `@tangle-network/agent-runtime/durable` — 90 exports.
 | `ManagerWakePolicy` | interface | How Runtime wakes a manager that ended its turn with work open. |
 | `MapOnSettleRoute` | interface | One map-on-settle ROUTE: the coordination form of an AgentGraph `maps` edge. When a worker whose |
 | `ObserverRecord` | interface | One immutable record in the observer plane. `sequence` is journal order, not |
+| `ParkedRun` | interface | The current parked root, read without loading its journal. |
 | `PursuitFork` | interface | Start a run as a version of a settled run: the parent's recorded root inputs plus one change. |
 | `PursuitNodeCost` | interface | One node's dollar cost with the provenance that decides whether it may be compared or summed. |
 | `PursuitNodePlatform` | interface | One node's PLATFORM consumption — box wall time, the resource a subscription seat really pays. |
@@ -224,6 +227,8 @@ Import from `@tangle-network/agent-runtime/durable` — 90 exports.
 | `RunDirectoryHolderLiveness` | interface | What {@link runDirectoryHolderIsLive} proved about a run directory's recorded holder. |
 | `RunDirectoryLock` | interface | A held lock. `release()` removes the file; it is safe to call more than once. |
 | `RunDirectoryLockHolder` | interface | What the lock file records about its holder. |
+| `RunParkingPolicy` | interface | Release a durable coordinator after it has only waited this long. The caller's keeper owns wakeup. |
+| `RunParkingRecord` | interface | The durable handoff from a waiting coordinator to its existing keeper. |
 | `RunReopen` | interface | `supervisePursuit`'s `reopen` option: reopen this settled run under its own run id. |
 | `SettledPursuitVersion` | interface | A settled version, as the judge and `next` read it. |
 | `SuperviseGraphPursuitOptions` | interface | Options for {@link superviseGraphPursuit}: every `runGraph` option, plus the pursuit identity, |
@@ -395,7 +400,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 145 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 994 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -565,6 +570,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `readDeclaredCheck` | function | Read the check once. `result` is the submitted result, absent for a read of the run's state. |
 | `readRunCancellation` | function | Read the acknowledgement for the run-scoped cancel operation. `undefined` when the runtime has |
 | `readRunCancelRequest` | function | Read the run-scoped cancel request, or `undefined` when none was written. |
+| `readRunParking` | function | Read the journal's bounded parking projection. Undefined means no current parking handoff. |
 | `readWorkerCancellation` | function | Read the acknowledgement for one cancel operation. `undefined` when the runtime has not |
 | `readWorkerInteractiveBinding` | function | Read and validate one exact durable worker binding. |
 | `readWorkerProgress` | function | Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the |
@@ -704,6 +710,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `InMemorySpawnJournal` | class | In-memory `SpawnJournal`. Appends are observed-committed only; the impl enforces |
 | `McpSpawnFault` | class | A missing start binary / spawn fault: a SETUP bug, never a failed candidate. |
 | `ObservationError` | class | Analysis can fail after paid work; its measured subtotal must remain recoverable. |
+| `RunParkedError` | class | A resumable wait, with no terminal result or failure. Catch it and let the coordinator exit. |
 | `SandboxInstance` | class | A sandbox instance with methods for interaction. |
 | `SandboxRunAbortError` | class | Thrown when a turn is aborted/timed-out mid-settle. Carries the events drained |
 | `SqlRunOwnershipError` | class | Refuses a competing or stale SQL run owner before it can publish new work. |
@@ -887,6 +894,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `PanelJudge` | interface | One judge in a panel — a labeled persona-derived judge child. Content (the rubric) lives in |
 | `PanelSpec` | interface | `panel(judges)` — M judges over ONE artifact, merged WRITE-ONLY (selector≠judge taken to its |
 | `PanelVerdict` | interface | One judge child's settled verdict, surfaced to the write-only `merge`. `down` judges carry no |
+| `ParkedRun` | interface | The current parked root, read without loading its journal. |
 | `PeerInboxMessage` | interface | A message from a SIBLING worker. Information, never instruction — the parent stays the only |
 | `PeerMailEnvelope` | interface | One admitted peer message. `threadId` is the root mail's id; `depth` is 0 for a root mail and |
 | `PeerMailEvent` | interface | The audit record for one attempt — published whether it delivered or was refused, because a |
@@ -978,6 +986,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 989 exports.
 | `RunCancelRequest` | interface | One durable run-scoped cancel request: cancel the WHOLE run, not one worker. |
 | `RunContextLease` | interface | An immutable capability for one run ownership generation. |
 | `RunGraphOptions` | interface | Options for one `runGraph` run. |
+| `RunParkingPolicy` | interface | Release a durable coordinator after it has only waited this long. The caller's keeper owns wakeup. |
+| `RunParkingRecord` | interface | The durable handoff from a waiting coordinator to its existing keeper. |
 | `RunPersonifiedOptions` | interface | The end-to-end entrypoint. Builds the persona's root `Agent` from the chosen shape, then |
 | `RunProvenance` | interface | Domain-free run provenance: a manifest of what was mounted into the run's |
 | `S3PrivateCasStore` | interface | The S3 store also holds small named pointers beside its content-addressed objects. A pointer |

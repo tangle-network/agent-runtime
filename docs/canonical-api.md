@@ -78,7 +78,8 @@ Recovery does not grant more execution time.
 The built-in nonsteering provider path in `supervise` supplies recovery for children, nested managers, and the root manager invocation.
 Live descendants regain their original reservations before the parent resumes, without waiting for their terminal results.
 Recovery uses original durable inputs and exact provider references; missing proof leaves the invocation unresolved.
-The file run lock supports one local coordinator, without distributed fencing.
+The file run lock supports one local coordinator and generation-fenced durable writes.
+Shared-SQL ownership remains the cross-host lease path.
 
 (The original one-sentence compressed form of this spine is preserved in [design.md](./design.md).)
 

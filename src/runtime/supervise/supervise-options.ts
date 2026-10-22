@@ -464,6 +464,11 @@ export interface SuperviseOptions {
    * resumable run per directory but collides across concurrent runs sharing one `runDir`.
    */
   readonly runDir?: string
+  /** Hand a root with only a long wait and no live descendants to the caller's existing keeper.
+   * Requires runDir. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
+   * the spawn journal without writing a terminal result. The caller must handle parking and
+   * resume the same runDir/runId at wakeAt. Omit to keep waits in this process. */
+  readonly parking?: import('./run-parking').RunParkingPolicy
   /** Advanced test seam: opt into resume-first when the durable stores are caller-supplied
    * (`journal` + `blobs` / `runContext`) instead of derived from `runDir`. The normal durable path
    * is `runDir` or a `runContext` (see `docs/durability.md`). Exactly what the file

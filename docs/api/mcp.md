@@ -3211,11 +3211,20 @@ Mark the end of the current driver attempt. A completed turn acknowledges what i
 
 ##### hasOpenWork()
 
-> **hasOpenWork**(): `boolean`
+> **hasOpenWork**(`options?`): `boolean`
 
 True while this manager has work it must hear back about: a worker running, a result or
  question not yet delivered, or a tool call still running past its response fence. A turn
- that ends with open work is a wait, not a completion.
+ that ends with open work is a wait, not a completion. Parking can exclude settlement
+ notifications already committed through drainResolved; all other pending work still counts.
+
+###### Parameters
+
+###### options?
+
+###### includeSettled?
+
+`boolean`
 
 ###### Returns
 

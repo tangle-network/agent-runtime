@@ -651,6 +651,8 @@ export {
   workerInboxFileFromEventDir,
   writeWorkerSteer,
 } from './supervise/run-layout'
+export type { ParkedRun, RunParkingPolicy, RunParkingRecord } from './supervise/run-parking'
+export { RunParkedError, readRunParking } from './supervise/run-parking'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {

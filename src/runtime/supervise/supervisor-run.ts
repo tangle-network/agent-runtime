@@ -4,7 +4,12 @@ import { abortReason, RunCancellationReason, runAbortable } from './abortable'
 import type { BudgetPool } from './budget'
 import { ACCEPTED_RESULT_GRACE_MS, armDeadlineTimer, ROOT_DEADLINE_REASON } from './deadline'
 import { runTree } from './finalizer'
-import { retainedOwnerWorkspaceRetentionSeamKey } from './retained-scope-owner'
+import {
+  retainedOwnerWorkspaceRetentionSeamKey,
+  scopeRetainedOwnerCheckpointing,
+  scopeRetainedOwnerSettled,
+} from './retained-scope-owner'
+import { RunParkedError } from './run-parking'
 import {
   closeScopeAdmission,
   createScope,
@@ -324,11 +329,16 @@ async function executeRoot<Out>(root: RootExecution): Promise<RootSettled<Out>> 
   }
   let executionAborted = controller.signal.aborted
   let allChildrenDownAtSettle = false
+  let parked = false
   try {
     await startScopeRecoveries(scope)
     const out = (await runAbortable(root.run, controller.signal, 'supervisor aborted')) as Out
     actOutcome = { ok: true, out }
   } catch (error) {
+    if (error instanceof RunParkedError && error.runId === opts.runId) {
+      parked = true
+      throw error
+    }
     // act()'s rejection is the PRIMARY error, captured before the join barrier can overwrite it.
     actOutcome = { ok: false, error }
   } finally {
@@ -350,26 +360,33 @@ async function executeRoot<Out>(root: RootExecution): Promise<RootSettled<Out>> 
     // deadline. It covers a root that RETURNED with children live too (a harness root ends its
     // turn when it stops speaking; 7 of 17 lead runs on 2026-09-03 tore children down at zero
     // tokens). `drainLiveChildren` returns at once when nothing is live.
-    const settleGraceMs = !controller.signal.aborted
-      ? boundedSettleGrace(opts.childSettleGraceMs, deadline.atMs, now)
-      : 0
-    try {
-      await joinRunChildren(join, settleGraceMs)
-    } catch (error) {
-      if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
-    }
-    if (!persistence.failed) {
+    if (!parked) {
+      const settleGraceMs = !controller.signal.aborted
+        ? boundedSettleGrace(opts.childSettleGraceMs, deadline.atMs, now)
+        : 0
       try {
-        await finalizeScopeOwnerMaterialization(scope)
+        await joinRunChildren(join, settleGraceMs)
       } catch (error) {
         if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
       }
-    }
-    if (persistence.failed) {
-      // A failed journal proves no terminal outcome: join local observers and admitted writes;
-      // retained providers keep their invocation alive.
-      await waitForScopeChildren(scope)
-      await persistence.drain()
+      if (!persistence.failed) {
+        try {
+          await finalizeScopeOwnerMaterialization(scope)
+        } catch (error) {
+          if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
+        }
+      }
+      if (persistence.failed) {
+        // A failed journal proves no terminal outcome: join local observers and admitted writes;
+        // retained providers keep their invocation alive.
+        await waitForScopeChildren(scope)
+        await persistence.drain()
+      }
+    } else {
+      // Parking keeps the provider environment, but must join its capture and stop this
+      // coordinator's evidence retry loop before handing the run back to its keeper.
+      await scopeRetainedOwnerCheckpointing(scope)
+      await scopeRetainedOwnerSettled(scope)
     }
     // Explicit cancellation can arrive during the join barrier; its cleanup abort is distinct.
     executionAborted ||= cascade.aborted()

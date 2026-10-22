@@ -3,6 +3,7 @@ import { errorMessage } from '../util'
 import type { CoordinationMcpHandle } from './coordination-mcp'
 import { attestRuntimeOwnedScopeOwner, runtimeOwnedScopeOwnerRuntime } from './materialization'
 import { providerVisibleProfile } from './provider-visible-profile'
+import { RunParkedError } from './run-parking'
 import { detachedSnapshot } from './snapshot'
 import type { SupervisorAgentDeps } from './supervisor-agent-contracts'
 import {
@@ -122,6 +123,7 @@ async function actExternalManager(
     })
     return await settleManagerOutput(config, mcp, contractDeclared, finalize, candidate)
   } catch (error) {
+    if (error instanceof RunParkedError && error.runId === scope.view.root) throw error
     await mcp.finishAnalysis({
       status: 'down',
       reason: errorMessage(error),

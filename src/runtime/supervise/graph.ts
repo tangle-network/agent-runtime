@@ -414,6 +414,7 @@ const GRAPH_REFUSED_SUPERVISE_OPTIONS = ['registry'] as const
  * above belongs here — the default is "a graph honors it", not "someone remembered to add it".
  */
 const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
+  'parking',
   'backend',
   // Forwarded: composes guidance into the root and into profiles a manager authors. The graph also
   // composes each PINNED node profile, because pinning replaces the composed `{ name }` stub.
