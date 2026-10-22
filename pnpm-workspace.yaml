@@ -16,6 +16,13 @@ minimumReleaseAgeExclude:
   - 'rolldown-plugin-dts@0.27.14'
   - 'zod@4.6.5'
 minimumReleaseAgeIgnoreMissingTime: false
+# These Miniflare releases pin vulnerable HTTP and image dependencies.
+overrides:
+  'miniflare@4.20260722.0>undici': 7.29.1
+  'miniflare@5.20260826.0-alpha>undici': 7.29.1
+  'miniflare@4.20260722.0>sharp': 0.35.5
+  'miniflare@5.20260826.0-alpha>sharp': 0.35.5
+
 allowBuilds:
   '@ax-llm/ax': false
   esbuild: true
@@ -23,7 +30,7 @@ allowBuilds:
 
 catalog:
   '@arethetypeswrong/cli': 0.18.5
-  '@modelcontextprotocol/sdk': 1.30.0
+  '@modelcontextprotocol/sdk': 1.32.0
   '@tangle-network/agent-core': '>=0.13.1 <0.14.0'
   '@types/node': 26.4.0
   '@tangle-network/agent-eval': '>=0.220.1 <0.221.0'
