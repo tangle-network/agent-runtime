@@ -356,7 +356,9 @@ export function subscriptionUsageLimitSignal(failure: {
     return 'subscription-usage-limit'
   }
   // Native Codex and Claude Code often expose their limit only as an exact CLI stop message.
-  if (/\bYou've hit your (?:usage|weekly|session) limit\b/iu.test(failure.error)) {
+  // Claude Code reports exhausted extra-usage credits as "You've hit your monthly spend limit ·
+  // raise it at https://claude.ai/settings/usage" (drew-gtr-pro, 2026-10-22).
+  if (/\bYou've hit your (?:usage|weekly|session|monthly spend) limit\b/iu.test(failure.error)) {
     return 'subscription-usage-limit'
   }
   // The Z.ai Coding Plan (OpenCode, zai-coding-plan/*) states its rolling-window refusal only in words:

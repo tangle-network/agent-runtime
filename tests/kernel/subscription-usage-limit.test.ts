@@ -11,6 +11,15 @@ describe('subscriptionUsageLimitSignal', () => {
     ).toBe('subscription-usage-limit')
   })
 
+  it('moves past the Claude Code monthly spend refusal', () => {
+    expect(
+      subscriptionUsageLimitSignal({
+        error:
+          "claude-code exited 1: You've hit your monthly spend limit · raise it at https://claude.ai/settings/usage",
+      }),
+    ).toBe('subscription-usage-limit')
+  })
+
   it('does not treat a bare rate limit or an unrelated API error as a plan limit', () => {
     expect(subscriptionUsageLimitSignal({ error: '429 Too Many Requests' })).toBeUndefined()
     expect(subscriptionUsageLimitSignal({ error: 'AI_APICallError: Bad Request' })).toBeUndefined()
