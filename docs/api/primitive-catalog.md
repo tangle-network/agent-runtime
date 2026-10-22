@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.343.3` and `@tangle-network/agent-eval@0.218.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.343.4` and `@tangle-network/agent-eval@0.220.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1623,7 +1623,7 @@ Import from `@tangle-network/agent-eval` — 57 exports.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
-Import from `@tangle-network/agent-eval/campaign` — 492 exports.
+Import from `@tangle-network/agent-eval/campaign` — 494 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1684,6 +1684,7 @@ Import from `@tangle-network/agent-eval/campaign` — 492 exports.
 | `loadEvalFixture` | function | Load ONE fixture by name: reads `PROMPT.md` (plus `EVAL.ts`/`EVAL.tsx` and `package.json` under |
 | `loadEvalFixtureScenarios` | function | Load fixtures (all discovered, or just `names`) as campaign `Scenario`s tagged `eval-fixture`. |
 | `makeProposalFinding` | function | Build a finding whose source is explicitly allowed during candidate generation. |
+| `measureCampaignCost` | function | Read the source rates for this execution, never a copied model price table. |
 | `neutralizationGate` | function | Composable placebo gate: ships only when the candidate's held-out lift is NOT |
 | `neutralizeText` | function | Blank every non-whitespace character to a 1-byte filler while preserving all |
 | `openSearchLedger` | function | Open a durable filesystem search ledger. Construction performs no I/O; the |
@@ -1768,6 +1769,7 @@ Import from `@tangle-network/agent-eval/campaign` — 492 exports.
 | `CodeSurface` | interface | A tier-4 code surface — a finalized candidate change to the agent's |
 | `ComparisonCost` | interface | Cost reported by a method or by final test scoring. |
 | `ComponentSurface` | interface | Named text components optimized together as one candidate. |
+| `CostBreakdown` | interface | Separate units and evidence for a matrix cell; credits are never USD. |
 | `CrossSurfaceCandidate` | interface | Immutable identity for a single candidate or a materialized composition. |
 | `CrossSurfaceComponent` | interface | One independently proposed change on one caller-defined surface. |
 | `CrossSurfaceComponentEvidence` | interface | Per-component trace evidence captured during one task attempt. |
