@@ -19,14 +19,14 @@ catalogs:
       specifier: '>=5.7.0 <6.0.0'
       version: 5.7.0
     '@tangle-network/agent-knowledge':
-      specifier: ^22.0.7
-      version: 22.0.7
+      specifier: ^22.0.8
+      version: 22.0.8
     '@tangle-network/agent-trace-contract':
       specifier: ^2.1.0
       version: 2.1.0
     '@tangle-network/sandbox':
-      specifier: '>=0.64.0 <0.65.0'
-      version: 0.64.0
+      specifier: '>=0.64.1 <0.65.0'
+      version: 0.64.1
     '@types/node':
       specifier: 26.4.0
       version: 26.4.0
@@ -57,8 +57,8 @@ importers:
         specifier: '>=0.12.0 <0.13.0'
         version: 0.12.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
       '@tangle-network/agent-knowledge':
-        specifier: ^22.0.7
-        version: 22.0.7(@tangle-network/agent-eval@0.217.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.7.0)
+        specifier: ^22.0.8
+        version: 22.0.8(@tangle-network/agent-eval@0.217.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.7.0)
       '@tangle-network/agent-profile-materialize':
         specifier: '>=0.25.2 <0.26.0'
         version: 0.25.2(@tangle-network/agent-interface@5.7.0)
@@ -98,10 +98,10 @@ importers:
         version: 0.6.0
       '@tangle-network/agent-provider-tangle':
         specifier: 4.4.6
-        version: 4.4.6(@tangle-network/sandbox@0.64.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))
+        version: 4.4.6(@tangle-network/sandbox@0.64.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))
       '@tangle-network/sandbox':
-        specifier: 0.64.0
-        version: 0.64.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
+        specifier: 0.64.1
+        version: 0.64.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
       '@types/node':
         specifier: 'catalog:'
         version: 26.4.0
@@ -155,13 +155,13 @@ importers:
         version: 5.7.0
       '@tangle-network/agent-knowledge':
         specifier: 'catalog:'
-        version: 22.0.7(@tangle-network/agent-eval@0.217.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.7.0)
+        version: 22.0.8(@tangle-network/agent-eval@0.217.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.7.0)
       '@tangle-network/agent-runtime':
         specifier: workspace:^
         version: link:..
       '@tangle-network/sandbox':
         specifier: 'catalog:'
-        version: 0.64.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
+        version: 0.64.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: 'catalog:'
@@ -1335,8 +1335,8 @@ packages:
   '@tangle-network/agent-interface@5.7.0':
     resolution: {integrity: sha512-3EfyerzPylg7p8levrtSVgc7HU80VqGKsmKMr0hXmqBK7hu3bDrb8p9eabZzQMPkJHFM/HK1doGlxYOUrjcN1w==}
 
-  '@tangle-network/agent-knowledge@22.0.7':
-    resolution: {integrity: sha512-1wqu7zBWahsxN3zbZug2UVRzwC/niUXXkXZdbetpn6TxLDT8Wr0QiYu9tYUqo7SqjZXK2MzTEy3XqDOeXuAjPQ==}
+  '@tangle-network/agent-knowledge@22.0.8':
+    resolution: {integrity: sha512-EPvhc8kTuevjzCMv0xDp4n00B3VpLITJaXi10KJYhHVdKI6I3Hvt8W/1lb4YI6PObdO531npnX0M3n6iGRQSnw==}
     engines: {node: '>=22.12.0'}
     hasBin: true
     peerDependencies:
@@ -1381,8 +1381,8 @@ packages:
     engines: {node: '>=22.13.0'}
     hasBin: true
 
-  '@tangle-network/sandbox@0.64.0':
-    resolution: {integrity: sha512-5TH83yQdbdKKxsraUKv326yPNafwXMsiHtJ6ZQfSw2/7Yc/nTYWCsP0flHKKWdC7mXIdY3jL9yMtgCYdnE1uYw==}
+  '@tangle-network/sandbox@0.64.1':
+    resolution: {integrity: sha512-uWhhQmc1cpd69ar8krtzVoa3bTLF5tgyPJGZxFBccPwY2FJG2HNO0dLSklnQTMA+pXpYR7TTARLPT8PDFcBAIw==}
     peerDependencies:
       '@mastra/core': ^1.36.0
       '@modelcontextprotocol/sdk': ^1.30.0
@@ -3693,7 +3693,7 @@ snapshots:
       spdx-expression-parse: 5.0.0
       zod: 4.6.5
 
-  '@tangle-network/agent-knowledge@22.0.7(@tangle-network/agent-eval@0.217.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.7.0)':
+  '@tangle-network/agent-knowledge@22.0.8(@tangle-network/agent-eval@0.217.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5)))(@tangle-network/agent-interface@5.7.0)':
     dependencies:
       '@tangle-network/agent-eval': 0.217.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
       '@tangle-network/agent-interface': 5.7.0
@@ -3718,10 +3718,10 @@ snapshots:
     dependencies:
       '@tangle-network/agent-interface': 5.7.0
 
-  '@tangle-network/agent-provider-tangle@4.4.6(@tangle-network/sandbox@0.64.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))':
+  '@tangle-network/agent-provider-tangle@4.4.6(@tangle-network/sandbox@0.64.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))':
     dependencies:
       '@tangle-network/agent-interface': 5.7.0
-      '@tangle-network/sandbox': 0.64.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
+      '@tangle-network/sandbox': 0.64.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
 
   '@tangle-network/agent-trace-contract@2.1.0': {}
 
@@ -3729,7 +3729,7 @@ snapshots:
     dependencies:
       '@tangle-network/agent-trace-contract': 2.1.0
 
-  '@tangle-network/sandbox@0.64.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))':
+  '@tangle-network/sandbox@0.64.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))':
     dependencies:
       '@tangle-network/agent-core': 0.11.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))
       '@tangle-network/agent-interface': 4.0.0
