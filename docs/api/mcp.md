@@ -3278,6 +3278,34 @@ Queue a steer or answer from this manager's lead for its next wake. False when t
 
 `boolean`
 
+##### queuedLeadMessages()
+
+> **queuedLeadMessages**(): readonly `number`[]
+
+The bus sequence numbers of the lead messages (steers and answers) queued for this manager's
+ next wake and not yet delivered.
+
+###### Returns
+
+readonly `number`[]
+
+##### awaitLeadMessage()
+
+> **awaitLeadMessage**(`signal`): `Promise`\<`void`\>
+
+Resolve when the next lead message is queued for this manager, or when `signal` aborts.
+ Takes nothing from the inbox.
+
+###### Parameters
+
+###### signal
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`void`\>
+
 ##### openToolReceipt()
 
 > **openToolReceipt**(`tool`): `string`
