@@ -290,7 +290,9 @@ describe('supervisePursuit reopen', () => {
     expect(readdirSync(join(run.runDir, 'settles'))).toEqual(['1.json'])
     expect(reopenedRows(await run.events())).toHaveLength(1)
 
-    // 5. A changed budget needs reopen.budget: the resume contract refuses it before any write.
+    // 5. A changed budget needs reopen.budget. Acquisition advances the operational fence,
+    // but the refused resume must leave every durable data file unchanged.
+    const generationPath = join(run.runDir, 'supervise.generation')
     const before = await directorySnapshot(run.runDir)
     await expect(
       run.run({
@@ -298,7 +300,9 @@ describe('supervisePursuit reopen', () => {
         reopen: { operator: 'op-b', reason: 'more room', operationId: 'reopen-y' },
       }),
     ).rejects.toThrow(/resume budget mismatch/u)
-    expect(await directorySnapshot(run.runDir)).toEqual(before)
+    const after = await directorySnapshot(run.runDir)
+    expect(after[generationPath]).toBe(`${Number(before[generationPath]) + 1}\n`)
+    expect(after).toEqual({ ...before, [generationPath]: after[generationPath] })
     expect(reopenedRows(await run.events())).toHaveLength(1)
   }, 30_000)
 

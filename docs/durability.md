@@ -81,6 +81,10 @@ retains their existing in-process waits.
 Spawn, observer, coordination, and corpus stores share the committed-JSONL writer for torn-tail
 recovery, complete writes, and fsync before acknowledgement. Each store still owns its validation,
 append ordering, and failure policy. The root stream retains its distinct per-attempt fsync boundary.
+The file spawn journal publishes initialization events as one committed JSONL group through
+`appendEvents`, while retaining reads of historical single-event records. A torn group exposes
+none of its events. This lets recovery adopt a journaled child with its exact input even when
+the coordinator died before its first provider admission, without minting a replacement key.
 
 Graph and profile run registries keep keyed JSONL snapshots, with replacements ordered newest last.
 They share Corpus's canonical-path cross-process file lock and the existing durable atomic file writer.
@@ -181,6 +185,8 @@ A product keeps a store only for what the platform cannot know: when to send, wh
 - a workflow run's claim and checkpoint in Platform.
 
 Each record keeps the original identity, so recovery never mints a replacement.
+
+Native managers drain their existing durable-control observer after each harness turn, before choosing the next wake or continuation pause. An already admitted steer reaches the next turn even when the harness finishes before the observer timer fires. A parking handoff has sealed admission and skips this turn-end pass.
 
 **What survives a process crash?** Everything in those records. On restart, `supervise` with the same `runDir` or run context replays:
 - committed settlements and keyed assignments;

@@ -48,6 +48,7 @@ export interface ManagerTurnInputs {
   readonly finalize: () => Promise<unknown>
   readonly coordinationTools: ReturnType<ManagerSession['state']['slot']['descriptors']>
   readonly providerProfile: SupervisorProfile
+  readonly controlPass?: () => Promise<void>
 }
 
 /** The turn loop's own record of what its drives did, read when the loop settles. */
@@ -169,7 +170,19 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
   try {
     await runDriverWithRetry({
       ...(reentered === undefined ? {} : { reentered }),
-      drive: (attempt, reentry) => driveManagerTurn(loop, attempt, reentry),
+      drive: async (attempt, reentry) => {
+        let handedOff = false
+        try {
+          await driveManagerTurn(loop, attempt, reentry)
+        } catch (error) {
+          handedOff = error instanceof RunParkedError && error.runId === scope.view.root
+          throw error
+        } finally {
+          // A native turn may finish before the observer's timer runs. Admit controls before
+          // choosing the next wake or barren pause. Parking has already sealed admission.
+          if (!handedOff) await loop.controlPass?.()
+        }
+      },
       progress: () => readManagerProgress(loop),
       budget: () => scope.budget,
       signal: scope.signal,

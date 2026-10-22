@@ -99,6 +99,7 @@ export function sessionBackedLeafSeam(
       const reattaching = viaRecover || (retained?.admissions?.length ?? 0) > 0
       const prior = readSession(sessionFile)
       if (reattaching && prior.steps > 0) record(reattachLogPath, label)
+      kill(`session:${label}:before-admission`)
       // The durable admission chain, journaled BEFORE any session work in the journal's
       // retained order (intent, then environment) — what a resume recovers this child by.
       await retained?.onAdmission?.({

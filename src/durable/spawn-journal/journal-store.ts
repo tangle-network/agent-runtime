@@ -4,6 +4,7 @@ import type { NodeId, SpawnEvent, SpawnJournal } from '../../runtime/supervise/t
 import { appendCommittedJsonLine, isNoEntError, readCommittedJsonLines } from '../jsonl-file'
 import { captureRunWriteContext } from '../run-fence'
 import { SpawnEventIndex } from './event-index'
+import { spawnJournalRecordEvents } from './record-events'
 
 /**
  * Append every event as one grouped publication where the journal supports it (`appendEvents`),
@@ -21,7 +22,7 @@ export async function appendSpawnEvents(
 
 /**
  * JSONL on disk. One line per record: the first record is `begin`, subsequent records
- * are `event` envelopes wrapping a `SpawnEvent`. `loadTree` replays the whole file,
+ * are `event` or atomic `events` envelopes. `loadTree` replays the whole file,
  * filtering by `root`, and applies the same begin-precedes-events + unique-seq
  * corruption guards as the in-memory impl. Each append fsyncs so a crash between
  * writes never loses an acknowledged event.
@@ -54,9 +55,11 @@ export class FileSpawnJournal implements SpawnJournal {
             `spawn journal corrupted: event for tree '${root}' precedes its begin record`,
           )
         }
-        index.assert(record.event)
-        index.add(record.event)
-        events.push(record.event)
+        for (const event of spawnJournalRecordEvents(record)) {
+          index.assert(event)
+          index.add(event)
+          events.push(event)
+        }
       }
     }
     return begun ? events : undefined
@@ -95,6 +98,31 @@ export class FileSpawnJournal implements SpawnJournal {
     })
   }
 
+  async appendEvents(root: NodeId, events: ReadonlyArray<SpawnEvent>): Promise<void> {
+    const captured = detachedSnapshot(events, 'spawn events')
+    return this.serializeAppend(async () => {
+      const state = await this.validationIndex()
+      const tree = state.trees.get(root)
+      if (tree === undefined) {
+        throw new Error(
+          `appendEvents called for unknown spawn tree '${root}'; call beginTree first`,
+        )
+      }
+      try {
+        // This queue exclusively owns the private index. Stage validation without copying the
+        // entire tree per spawn; any rejection discards it before another append can use it.
+        for (const event of captured) {
+          tree.index.assert(event)
+          tree.index.add(event)
+        }
+        state.stamp = await this.writeRecord({ kind: 'events', root, events: captured })
+      } catch (error) {
+        this.appendIndex = undefined
+        throw error
+      }
+    })
+  }
+
   private async validationIndex() {
     const stamp = await this.fileStamp()
     if (this.appendIndex && this.appendIndex.stamp === stamp) return this.appendIndex
@@ -113,8 +141,10 @@ export class FileSpawnJournal implements SpawnJournal {
               `spawn journal corrupted: event for tree '${record.root}' precedes its begin record`,
             )
           }
-          tree.index.assert(record.event)
-          tree.index.add(record.event)
+          for (const event of spawnJournalRecordEvents(record)) {
+            tree.index.assert(event)
+            tree.index.add(event)
+          }
         }
       }
     }
@@ -168,3 +198,4 @@ function journalFileStamp(stat: BigIntStats): string {
 type SpawnJournalRecord =
   | { kind: 'begin'; root: NodeId; at: string }
   | { kind: 'event'; root: NodeId; event: SpawnEvent }
+  | { kind: 'events'; root: NodeId; events: ReadonlyArray<SpawnEvent> }

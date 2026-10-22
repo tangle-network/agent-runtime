@@ -8,6 +8,7 @@ import {
 } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { FileSpawnJournal } from '../../durable/spawn-journal/journal-store'
+import { spawnJournalRecordEvents } from '../../durable/spawn-journal/record-events'
 import { loadSpawnForest } from '../../durable/spawn-journal/spawn-forest'
 import type { AgentEnvironmentProviderRegistry } from '../environment-provider/provider-registry'
 import { reconnectRetainedInteractiveRun } from '../retained-interactive'
@@ -301,10 +302,11 @@ function workerLifecycle(
     const text = line.trim()
     if (!text) continue
     try {
-      const record = JSON.parse(text) as { kind?: unknown; event?: Record<string, unknown> }
-      if (record.kind !== 'event' || record.event?.id !== workerId) continue
-      if (record.event.kind === 'spawned') spawned = true
-      if (record.event.kind === 'settled' || record.event.kind === 'cancelled') terminal = true
+      for (const event of spawnJournalRecordEvents(JSON.parse(text))) {
+        if (event?.id !== workerId) continue
+        if (event.kind === 'spawned') spawned = true
+        if (event.kind === 'settled' || event.kind === 'cancelled') terminal = true
+      }
     } catch {
       // A partial tail cannot erase earlier committed lifecycle evidence.
     }

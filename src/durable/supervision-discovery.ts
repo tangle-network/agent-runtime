@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import { isRecord } from '@tangle-network/agent-core'
 import type { NodeId } from '../runtime/supervise/types'
 import { readCommittedJsonLines } from './jsonl-file'
+import { spawnJournalRecordEvents } from './spawn-journal/record-events'
 
 export interface DurableCoordinationStreamIdentity {
   readonly runId: string
@@ -72,16 +73,16 @@ export async function discoverDurableSupervisionRun(
       rootsBegunAt.set(record.root as NodeId, typeof record.at === 'string' ? record.at : null)
       continue
     }
-    if (record.kind !== 'event') continue
-    const event = record.event
-    if (!isRecord(event) || event.kind !== 'spawned') continue
-    if (!Object.hasOwn(event, 'ownedTreeRoot')) continue
-    if (typeof event.ownedTreeRoot !== 'string' || event.ownedTreeRoot.length === 0) {
-      throw new Error(
-        `${spawnJournalPath}: spawned event ownedTreeRoot must be a non-empty string when present`,
-      )
+    for (const event of spawnJournalRecordEvents(record)) {
+      if (!isRecord(event) || event.kind !== 'spawned') continue
+      if (!Object.hasOwn(event, 'ownedTreeRoot')) continue
+      if (typeof event.ownedTreeRoot !== 'string' || event.ownedTreeRoot.length === 0) {
+        throw new Error(
+          `${spawnJournalPath}: spawned event ownedTreeRoot must be a non-empty string when present`,
+        )
+      }
+      nestedRoots.add(event.ownedTreeRoot as NodeId)
     }
-    nestedRoots.add(event.ownedTreeRoot as NodeId)
   }
 
   const streams = new Map<

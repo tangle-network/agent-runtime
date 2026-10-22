@@ -203,7 +203,7 @@ async function rewriteEvents(directory: string, rewrite: (event: SpawnEvent) => 
     .map((line) => JSON.parse(line))
   await writeFile(
     path,
-    `${records.map((record) => JSON.stringify(record.event ? { ...record, event: rewrite(record.event) } : record)).join('\n')}\n`,
+    `${records.map((record) => JSON.stringify(record.kind === 'events' ? { ...record, events: record.events.map(rewrite) } : record.event ? { ...record, event: rewrite(record.event) } : record)).join('\n')}\n`,
   )
 }
 

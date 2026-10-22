@@ -19,6 +19,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
+import { spawnJournalRecordEvents } from '../durable/spawn-journal/record-events'
 import {
   legacySupervisorRunsRoot,
   safeWorkerFile,
@@ -309,8 +310,11 @@ function readJournal(eventDir: string): SourceRead<TopJournalEvent[]> {
     if (!trimmed) continue
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>
-      const event = (parsed.event ?? parsed) as Record<string, unknown>
-      if (isSpawnEvent(event)) out.push(event)
+      const events =
+        parsed.kind === 'event' || parsed.kind === 'events'
+          ? spawnJournalRecordEvents(parsed)
+          : [parsed]
+      for (const event of events) if (isSpawnEvent(event)) out.push(event)
     } catch {
       // A corrupt line is expected while the writer is mid-append; keep the lines that parsed.
       partial = true
@@ -718,7 +722,8 @@ function isSupervisorState(value: Partial<SupervisorState> | undefined): value i
   )
 }
 
-function isSpawnEvent(value: Record<string, unknown>): value is TopJournalEvent {
+function isSpawnEvent(value: unknown): value is TopJournalEvent {
+  if (!isRecord(value)) return false
   return (
     (value.kind === 'spawned' && typeof value.id === 'string') ||
     (value.kind === 'settled' && typeof value.id === 'string') ||

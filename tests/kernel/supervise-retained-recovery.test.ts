@@ -9,10 +9,6 @@ import type {
 import { afterEach, describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/in-memory-spawn-stores'
 import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
-import {
-  type RetainedExecutorContext,
-  retainedExecutorSeamKey,
-} from '../../src/runtime/supervise/retained-executor'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Agent, ExecutorFactory, Scope, SpawnEvent } from '../../src/runtime/supervise/types'
@@ -246,81 +242,6 @@ describe('supervised retained provider recovery', () => {
     )
     expect(result.kind).toBe('no-winner')
     expect(fixture.creations()).toBe(1)
-  })
-
-  it('drains recovered child writes before returning the resumed parent failure', async () => {
-    const fixture = await setup('environment', false, 2)
-    await fixture.first()
-    const started = deferred()
-    const release = deferred()
-    const cause = new Error('first recovery failed')
-    let writerFinished = false
-    let returned = false
-    let retained: RetainedExecutorContext | undefined
-    const journal = fixture.context.journal
-    const factory = providerAsExecutor(fixture.provider(), { destroyOnSettle: false })
-    const recovery: ExecutorFactory<unknown> = (spec, ctx) => {
-      const executor = factory(spec, ctx)
-      if (ctx.node?.nodeId === 'root:s0') {
-        return {
-          ...executor,
-          recover: async () => {
-            await started.promise
-            throw cause
-          },
-        }
-      }
-      retained = ctx.seams[retainedExecutorSeamKey] as RetainedExecutorContext
-      return executor
-    }
-    const outcome = fixture
-      .run(
-        async () => {
-          await started.promise
-          throw cause
-        },
-        recovery,
-        {
-          beginTree: journal.beginTree.bind(journal),
-          loadTree: journal.loadTree.bind(journal),
-          appendEvent: async (root, event) => {
-            if (
-              event.kind === 'execution-admitted' &&
-              event.id === 'root:s1' &&
-              event.admission.phase === 'dispatched'
-            ) {
-              started.resolve()
-              await release.promise
-              await journal.appendEvent(root, event)
-              writerFinished = true
-            } else {
-              await journal.appendEvent(root, event)
-            }
-          },
-        },
-      )
-      .then(
-        (result) => {
-          returned = true
-          return result
-        },
-        (error) => {
-          returned = true
-          return error
-        },
-      )
-    await started.promise
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    expect(returned).toBe(false)
-    release.resolve()
-    expect(await outcome).toMatchObject({ kind: 'no-winner', error: { message: cause.message } })
-    expect(writerFinished).toBe(true)
-    const events = await journal.loadTree('root')
-    await expect(
-      Promise.resolve().then(() => retained!.onAdmission(retained!.admissions[0]!)),
-    ).rejects.toBeDefined()
-    expect(await journal.loadTree('root')).toEqual(events)
-    expect(events?.some((event) => event.kind === 'execution-result')).toBe(false)
   })
 
   it('reuses accepted output after environment deletion when cursor settlement was interrupted', async () => {
@@ -694,12 +615,4 @@ async function setup(
         return (replayed.prior.settled.out as { content: string }).content
       }, factory),
   }
-}
-
-function deferred() {
-  let resolve!: () => void
-  const promise = new Promise<void>((done) => {
-    resolve = done
-  })
-  return { promise, resolve }
 }

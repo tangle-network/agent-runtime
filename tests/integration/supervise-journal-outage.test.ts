@@ -22,7 +22,7 @@ describe.skipIf(process.platform !== 'linux')(
   'durable storage outage across controller processes',
   () => {
     it.each(['dispatch', 'partial', 'result', 'root-dispatch', 'root-result'])(
-      'preserves the exact native child across a real ENOSPC at %s',
+      'preserves the exact native child across a real process storage limit at %s',
       async (fault) => {
         const directory = await mkdtemp(join(tmpdir(), 'journal-outage-consumer-'))
         roots.push(directory)
@@ -39,7 +39,7 @@ describe.skipIf(process.platform !== 'linux')(
         const receipt = JSON.parse(await readFile(join(directory, 'receipt.json'), 'utf8'))
         expect(receipt).toMatchObject({
           passed: true,
-          fault: { code: 'ENOSPC' },
+          fault: { code: 'EFBIG' },
           first: { status: 'interrupted', resultExists: false },
           second: { status: 'settled', resultExists: true },
           finalCreates: 1,

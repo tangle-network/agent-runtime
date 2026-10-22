@@ -120,6 +120,7 @@ async function actExternalManager(
       finalize,
       coordinationTools,
       providerProfile,
+      controlPass: () => controlObserver?.pass() ?? Promise.resolve(),
     })
     return await settleManagerOutput(config, mcp, contractDeclared, finalize, candidate)
   } catch (error) {
