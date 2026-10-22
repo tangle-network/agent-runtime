@@ -20,21 +20,9 @@
  * @stable
  */
 
-import { contentHash } from '@tangle-network/agent-eval'
 import type { AgentProfile, CandidateExecutionEvidence } from '@tangle-network/agent-interface'
-import { ATTR, agentIdentityAttributes } from '@tangle-network/agent-trace-contract'
-import {
-  buildLoopOtelSpans,
-  buildRuntimeEventOtelSpans,
-  createOtelExporter,
-  flatOtelSpan,
-  type OtelExporter,
-  type OtelExportStats,
-  type OtelSpan,
-  toOtelAttributes,
-} from '../otel-export'
+import { createOtelExporter, type OtelExporter, type OtelExportStats } from '../otel-export'
 import { type Redactor, resolveRedactor } from '../redact'
-import { authoredAgentIdentity } from '../runtime/supervise/materialization'
 import type { LoopTraceEvent } from '../runtime/types'
 import type { RuntimeTelemetryOptions } from '../sanitize'
 import type { RuntimeStreamEvent } from '../types'
@@ -47,6 +35,13 @@ import {
   isIntelligenceOff,
   resolveEffort,
 } from './effort'
+import {
+  exportLoopSpans,
+  exportRunRecordSpans,
+  exportTraceSpan,
+  type TraceExportSettings,
+  type TraceOutcome,
+} from './otel-run-export'
 import { mergeReportedUsage, normalizeReportedUsage } from './usage'
 
 export type {
@@ -220,26 +215,6 @@ export interface UsageSplit {
   estimatedInferenceUsd?: number
 }
 
-function usageAttributes(
-  usage: UsageSplit,
-  intelligenceOff: boolean,
-): Record<string, number | boolean> {
-  const normalized = normalizeReportedUsage(usage, intelligenceOff)
-  return {
-    'tangle.usage.inference_usd': normalized.inferenceUsd,
-    'tangle.usage.intelligence_usd': normalized.intelligenceUsd,
-    ...(normalized.inferenceUsdKnown === false
-      ? { 'tangle.usage.inference_usd_known': false }
-      : {}),
-    ...(normalized.intelligenceUsdKnown === false
-      ? { 'tangle.usage.intelligence_usd_known': false }
-      : {}),
-    ...(normalized.estimatedInferenceUsd !== undefined
-      ? { 'tangle.usage.inference_usd_estimated': normalized.estimatedInferenceUsd }
-      : {}),
-  }
-}
-
 /**
  * The typed record `withIntelligence` sends per call — serialized through the
  * shipped OTLP builders to the plane's `/v1/otlp` ingest. `input`/`output` are
@@ -407,22 +382,6 @@ export interface RecordTraceMeta {
   rootParentSpanId?: string
 }
 
-/** The resolved outcome of one traced run, surfaced on the export span and
- *  available to the caller for downstream billing assertions. */
-interface TraceOutcome {
-  runId: string
-  traceId: string
-  project: string
-  /** The resolved effort settings this run executed under. */
-  effort: EffortSettings
-  /** True when this run ran as pure passthrough (the OFF floor). */
-  intelligenceOff: boolean
-  success?: boolean
-  score?: number
-  /** Per-class billing split. `intelligenceUsd` is `0` at the OFF tier. */
-  usage: UsageSplit
-}
-
 /** The Observe-mode Intelligence client. */
 export interface IntelligenceClient {
   /** The resolved project id. */
@@ -507,32 +466,6 @@ function freshRunId(): string {
   return `run-${randomHex(16)}`
 }
 
-/** Serialize a redacted value without dropping customer trace content. */
-function serializeJson(value: unknown): string {
-  let s: string
-  if (typeof value === 'string') s = value
-  else {
-    try {
-      s = JSON.stringify(value) ?? String(value)
-    } catch {
-      s = String(value)
-    }
-  }
-  return s
-}
-
-function addPayloadAttributes(
-  labels: Record<string, string | number | boolean>,
-  key: string,
-  value: unknown,
-  includeFullPayload: boolean,
-): void {
-  const serialized = serializeJson(value)
-  labels[`${key}_hash`] = contentHash(serialized)
-  labels[`${key}_bytes`] = Buffer.byteLength(serialized, 'utf8')
-  if (includeFullPayload) labels[key] = serialized
-}
-
 function randomHex(chars: number): string {
   const bytes = new Uint8Array(Math.ceil(chars / 2))
   if (typeof globalThis.crypto?.getRandomValues === 'function') {
@@ -544,6 +477,45 @@ function randomHex(chars: number): string {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
     .slice(0, chars)
+}
+
+/** The `doctor()` readiness report for a client's config, with no network call. */
+function doctorReport(
+  config: IntelligenceConfig,
+  effort: EffortSettings,
+  apiKey: string | undefined,
+): DoctorReport {
+  const hasRepo = Boolean(config.repo?.owner && config.repo?.name && config.repo?.baseBranch)
+  const hasChecks = Boolean(config.checks && config.checks.length > 0)
+  const hasSurfaces = Boolean(config.surfaces && config.surfaces.length > 0)
+
+  const prMissing: string[] = []
+  if (!hasChecks) prMissing.push('checks')
+  if (!hasSurfaces) prMissing.push('surfaces')
+  if (!hasRepo) prMissing.push('repo')
+
+  // Recommend needs real outcomes to cluster. In the Observe slice the only
+  // outcome source is `recordOutcome`; we can't introspect future calls, so
+  // readiness reflects that outcome capture is WIRED (the API exists),
+  // gated on the client emitting them — surfaced as the honest dependency.
+  const recommendMissing: string[] = []
+  if (isIntelligenceOff(effort)) recommendMissing.push('effort above off')
+
+  return {
+    project: config.project,
+    effort,
+    // Send ships only with a tenant key — the honest "will export actually
+    // land" signal (the base URL always resolves to the plane default).
+    exportConfigured: Boolean(apiKey),
+    modes: {
+      observe: { ready: true, missing: [] },
+      recommend: {
+        ready: recommendMissing.length === 0,
+        missing: recommendMissing,
+      },
+      pr: { ready: prMissing.length === 0, missing: prMissing },
+    },
+  }
 }
 
 /**
@@ -566,6 +538,19 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
   // `${base}/v1/otlp` and the exporter appends `/v1/traces` → `${base}/v1/otlp/v1/traces`.
   const otlpEndpoint = `${resolveIntelligenceBaseUrl(config.baseUrl)}/v1/otlp`
 
+  const exportSettings: TraceExportSettings = {
+    project: config.project,
+    intelligenceOff,
+    redactor,
+    includeFullPayload,
+    get repo() {
+      return config.repo
+    },
+    get runtimeTelemetry() {
+      return config.runtimeTelemetry
+    },
+  }
+
   // Built lazily: a client with no tenant key never allocates an exporter timer.
   let exporter: OtelExporter | undefined
   let exporterResolved = false
@@ -586,37 +571,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
     const ex = getExporter()
     if (!ex) return
     try {
-      const labels: Record<string, string | number | boolean> = {
-        project: config.project,
-        'tangle.effort.intelligence_off': outcome.intelligenceOff,
-        ...usageAttributes(outcome.usage, intelligenceOff),
-        ...(meta.model ? { 'gen_ai.request.model': meta.model } : {}),
-        ...(meta.provider ? { 'provider.name': meta.provider } : {}),
-        ...(typeof outcome.success === 'boolean'
-          ? { 'tangle.outcome.success': outcome.success }
-          : {}),
-        ...(typeof outcome.score === 'number' ? { 'tangle.outcome.score': outcome.score } : {}),
-        ...(meta.labels ?? {}),
-      }
-      const redactedInput = meta.input !== undefined ? redactor(meta.input) : undefined
-      const redactedOutput = output !== undefined ? redactor(output) : undefined
-      if (redactedInput !== undefined) {
-        addPayloadAttributes(labels, 'tangle.input', redactedInput, includeFullPayload)
-      }
-      if (redactedOutput !== undefined) {
-        addPayloadAttributes(labels, 'tangle.output', redactedOutput, includeFullPayload)
-      }
-      // Flat span with VERBATIM attribute keys — the plane's session/model/
-      // cost readers exact-match `tangle.sessionId` / `gen_ai.request.model`,
-      // so the loop-namespacing builder must not be used here.
-      ex.exportSpan(
-        flatOtelSpan(
-          'tangle.intelligence.run',
-          { 'tangle.runId': outcome.runId, ...labels, [ATTR.spanKind]: 'AGENT' },
-          outcome.traceId,
-          Date.now(),
-        ),
-      )
+      exportTraceSpan(ex, exportSettings, meta, outcome, output)
     } catch {
       // Best-effort — telemetry export must never fail the agent's turn.
     }
@@ -626,145 +581,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
     const ex = getExporter()
     if (!ex) return record.traceId
     try {
-      // Clamp the OFF billing invariant on export — the proof holds even if a
-      // caller mis-reports an intelligence split at the OFF tier.
-      const repository =
-        record.repository ?? (config.repo ? `${config.repo.owner}/${config.repo.name}` : undefined)
-      const labels: Record<string, string | number | boolean> = {
-        project: record.project,
-        'tangle.target': record.target,
-        'tangle.effort.intelligence_off': intelligenceOff,
-        ...usageAttributes(record.outcome.usage, intelligenceOff),
-        ...(record.model ? { 'gen_ai.request.model': record.model } : {}),
-        ...(record.provider ? { 'provider.name': record.provider } : {}),
-        ...(record.sessionId
-          ? {
-              'tangle.sessionId': record.sessionId,
-              'gen_ai.conversation.id': record.sessionId,
-            }
-          : {}),
-        ...(record.harness ? { 'tangle.agent.harness': record.harness } : {}),
-        ...(repository ? { 'vcs.repository.name': repository } : {}),
-        ...(record.commitSha ? { 'vcs.ref.head.revision': record.commitSha } : {}),
-        ...(record.timing
-          ? {
-              'tangle.started_at_ms': record.timing.startedAt,
-              'tangle.completed_at_ms': record.timing.completedAt,
-              'tangle.duration_ms': record.timing.durationMs,
-            }
-          : {}),
-        ...(record.tokens
-          ? {
-              'gen_ai.usage.input_tokens': record.tokens.input,
-              'gen_ai.usage.output_tokens': record.tokens.output,
-              ...(record.tokens.tokensKnown === false
-                ? { 'tangle.usage.tokens_known': false }
-                : {}),
-              ...(record.tokens.cachedInput !== undefined
-                ? { 'gen_ai.usage.cache_read_input_tokens': record.tokens.cachedInput }
-                : {}),
-              ...(record.tokens.reasoning !== undefined
-                ? { 'gen_ai.usage.reasoning_tokens': record.tokens.reasoning }
-                : {}),
-            }
-          : {}),
-        ...(typeof record.outcome.success === 'boolean'
-          ? { 'tangle.outcome.success': record.outcome.success }
-          : {}),
-        ...(typeof record.outcome.score === 'number'
-          ? { 'tangle.outcome.score': record.outcome.score }
-          : {}),
-        ...(record.error
-          ? {
-              'error.type': record.error.code ?? record.error.name,
-              'error.message': serializeJson(redactor(record.error.message)),
-            }
-          : {}),
-        ...(record.runtimeEvents
-          ? { 'tangle.runtime.event_count': record.runtimeEvents.length }
-          : {}),
-        ...(record.candidateExecution
-          ? {
-              'tangle.candidate.bundle_digest': record.candidateExecution.receipt.bundleDigest,
-              'tangle.candidate.experiment_digest':
-                record.candidateExecution.materializationReceipt.executionPlan.material.runCell
-                  .experimentDigest,
-              'tangle.candidate.execution_id':
-                record.candidateExecution.materializationReceipt.executionPlan.material.executionId,
-              'tangle.candidate.execution_plan_digest':
-                record.candidateExecution.receipt.executionPlanDigest,
-              'tangle.candidate.materialization_receipt_digest':
-                record.candidateExecution.receipt.materializationReceiptDigest,
-              'tangle.candidate.succeeded':
-                record.candidateExecution.receipt.termination.kind === 'exit' &&
-                record.candidateExecution.receipt.termination.exitCode === 0 &&
-                record.candidateExecution.receipt.benchmarkResult.material.passed,
-              'tangle.candidate.run_receipt_digest': record.candidateExecution.receipt.digest,
-            }
-          : {}),
-      }
-      if (record.profile) {
-        addPayloadAttributes(
-          labels,
-          'tangle.agent.profile',
-          redactor(record.profile),
-          includeFullPayload,
-        )
-        if (record.profile.name) labels['gen_ai.agent.name'] = record.profile.name
-      }
-      // Who acted, on the run span and on every span under it: the profile, and the harness the
-      // record says actually ran it.
-      const identity = agentIdentityAttributes({
-        ...authoredAgentIdentity(record.profile),
-        ...(record.harness ? { harness: record.harness } : {}),
-      })
-      const attributed = (span: OtelSpan): OtelSpan => withMissingAttributes(span, identity)
-      Object.assign(labels, identity)
-      const redactedInput = record.input !== undefined ? redactor(record.input) : undefined
-      const redactedOutput = record.output !== undefined ? redactor(record.output) : undefined
-      if (redactedInput !== undefined) {
-        addPayloadAttributes(labels, 'tangle.input', redactedInput, includeFullPayload)
-      }
-      if (redactedOutput !== undefined) {
-        addPayloadAttributes(labels, 'tangle.output', redactedOutput, includeFullPayload)
-      }
-      const now = Date.now()
-      const runSpan = flatOtelSpan(
-        'tangle.intelligence.run',
-        // Declared AGENT: this span carries the run's model and token TOTAL, and an undeclared span
-        // with tokens reads as one LLM call, which counts every call beneath it a second time.
-        { 'tangle.runId': record.runId, ...labels, [ATTR.spanKind]: 'AGENT' },
-        record.traceId,
-        record.timing?.startedAt ?? now,
-        undefined,
-        record.timing?.completedAt ?? now,
-      )
-      ex.exportSpan(runSpan)
-      if (record.runtimeEvents && record.runtimeEvents.length > 0) {
-        const spans = buildRuntimeEventOtelSpans(
-          record.runtimeEvents,
-          record.traceId,
-          runSpan.spanId,
-          { ...config.runtimeTelemetry, redact: redactor },
-        )
-        for (const span of spans) ex.exportSpan(attributed(span))
-      }
-      // The loop topology (when present) exports under the SAME traceId, parented
-      // under the run span — reusing the shipped builder, never a second one.
-      if (record.loopEvents && record.loopEvents.length > 0) {
-        const spans = buildLoopOtelSpans(
-          record.loopEvents as ReadonlyArray<{
-            kind: string
-            runId: string
-            timestamp: number
-            payload: object
-          }>,
-          record.traceId,
-          runSpan.spanId,
-          redactor,
-        )
-        for (const span of spans) ex.exportSpan(attributed(span))
-      }
+      exportRunRecordSpans(ex, exportSettings, record)
     } catch {
       // Best-effort — a send failure must never fail the agent's turn.
     }
@@ -824,56 +641,14 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       // Reuse the shipped topology builder — loop → round → iteration span tree —
       // so the structure matches the kernel's, never a second parallel builder.
       try {
-        const spans = buildLoopOtelSpans(
-          events as ReadonlyArray<{
-            kind: string
-            runId: string
-            timestamp: number
-            payload: object
-          }>,
-          traceId,
-          meta?.rootParentSpanId,
-        )
-        for (const span of spans) ex.exportSpan(span)
+        exportLoopSpans(ex, events, traceId, meta?.rootParentSpanId)
       } catch {
         // Best-effort — a trace export must never fail the caller's run.
       }
       return traceId
     },
 
-    doctor(): DoctorReport {
-      const hasRepo = Boolean(config.repo?.owner && config.repo?.name && config.repo?.baseBranch)
-      const hasChecks = Boolean(config.checks && config.checks.length > 0)
-      const hasSurfaces = Boolean(config.surfaces && config.surfaces.length > 0)
-
-      const prMissing: string[] = []
-      if (!hasChecks) prMissing.push('checks')
-      if (!hasSurfaces) prMissing.push('surfaces')
-      if (!hasRepo) prMissing.push('repo')
-
-      // Recommend needs real outcomes to cluster. In the Observe slice the only
-      // outcome source is `recordOutcome`; we can't introspect future calls, so
-      // readiness reflects that outcome capture is WIRED (the API exists),
-      // gated on the client emitting them — surfaced as the honest dependency.
-      const recommendMissing: string[] = []
-      if (intelligenceOff) recommendMissing.push('effort above off')
-
-      return {
-        project: config.project,
-        effort,
-        // Send ships only with a tenant key — the honest "will export actually
-        // land" signal (the base URL always resolves to the plane default).
-        exportConfigured: Boolean(apiKey),
-        modes: {
-          observe: { ready: true, missing: [] },
-          recommend: {
-            ready: recommendMissing.length === 0,
-            missing: recommendMissing,
-          },
-          pr: { ready: prMissing.length === 0, missing: prMissing },
-        },
-      }
-    },
+    doctor: () => doctorReport(config, effort, apiKey),
 
     async flush(): Promise<void> {
       const ex = getExporter()
@@ -889,16 +664,6 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       return getExporter()?.stats()
     },
   }
-}
-
-/** `span` plus each of `attributes` it does not already carry; its own values win. */
-function withMissingAttributes(span: OtelSpan, attributes: Record<string, string>): OtelSpan {
-  const present = new Set((span.attributes ?? []).map((attribute) => attribute.key))
-  const missing = Object.fromEntries(
-    Object.entries(attributes).filter(([key]) => !present.has(key)),
-  )
-  if (Object.keys(missing).length === 0) return span
-  return { ...span, attributes: [...(span.attributes ?? []), ...toOtelAttributes(missing)] }
 }
 
 export type { PrepareAgentCandidateExecutionOptions } from '../candidate-execution/prepare'

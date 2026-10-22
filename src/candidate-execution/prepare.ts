@@ -1,40 +1,22 @@
 import { randomBytes } from 'node:crypto'
-import { lstat, mkdtemp, readdir, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { isAbsolute, join, relative, resolve as resolveHostPath } from 'node:path'
-import type {
-  AgentCandidateConfigValue,
-  AgentCandidateEffectiveMemory,
-  AgentCandidateExecutionLimits,
-  AgentCandidateExecutionPlanEvidence,
-  AgentCandidateExecutionPlanMaterial,
-  AgentCandidateMaterializationReceipt,
-  AgentCandidateModelAccessNetwork,
-  AgentCandidateResolvedModel,
-} from '@tangle-network/agent-interface'
+import { isAbsolute, relative, resolve as resolveHostPath } from 'node:path'
 import {
+  type AgentCandidateEffectiveMemory,
+  type AgentCandidateExecutionLimits,
+  type AgentCandidateResolvedModel,
   agentCandidateBenchmarkSuiteSchema,
   agentCandidateBenchmarkTaskSchema,
   agentCandidateContainerSchema,
   agentCandidateExecutionLimitsSchema,
-  agentCandidateExecutionPlanEvidenceSchema,
-  agentCandidateExecutionPlanMaterialSchema,
-  agentCandidateMaterializationReceiptSchema,
   agentCandidateModelAccessNetworkSchema,
   agentCandidateRunCellSchema,
   agentCandidateTaskOutcomeSpecSchema,
   agentCandidateWorkspaceSnapshotEvidenceSchema,
+  type Sha256Digest,
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
-import { applyAgentCandidateWorkspacePlan } from '@tangle-network/agent-profile-materialize'
 import { errorMessage } from '../runtime/util'
-import {
-  readMaterializedWorkspaceFiles,
-  readVerifiedArtifact,
-  verifyMaterializedProfileWorkspace,
-  verifyMaterializedWorkspace,
-  verifyWorkspaceSnapshotArtifacts,
-} from './artifacts'
+import { readVerifiedArtifact, verifyWorkspaceSnapshotArtifacts } from './artifacts'
 import {
   candidateCleanupDeadline,
   candidateCleanupTimeout,
@@ -42,53 +24,40 @@ import {
   MAX_CANDIDATE_TIMER_INTERVAL_MS,
   withinCandidateCleanupDeadline,
 } from './cleanup'
-import {
-  canonicalCandidateBytes,
-  canonicalCandidateDigest,
-  canonicalCandidateDocument,
-  embeddedCandidateArtifact,
-  omitTopLevelDigest,
-  sha256Bytes,
-} from './digest'
+import { canonicalCandidateDigest, omitTopLevelDigest } from './digest'
 import { isWellFormedUnicode } from './exact-object'
 import { assertAgentCandidateExecutionRoots, executionPathsOverlap } from './execution-roots'
 import { candidateExecutionOwnerWindowMs } from './execution-window'
-import { verifyTaskCheckout } from './git-materialize'
-import {
-  CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV,
-  CANDIDATE_KNOWLEDGE_ROOT_ENV,
-  candidateKnowledgeExecutionPaths,
-  prepareAgentCandidateKnowledge,
-} from './knowledge'
+import { candidateKnowledgeExecutionPaths, prepareAgentCandidateKnowledge } from './knowledge'
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
-import { createPreparedCandidateExecution } from './prepared-state'
 import {
-  absoluteExecutionCwd,
-  buildLaunch,
-  candidateEntrypointReceipt,
-  candidateProfileAgentPaths,
-  exactProfileExecutorFiles,
-  materializeAgentCandidateProfilePlan,
-  modelRoutes,
-  PI_CANDIDATE_AGENT_DIR_ENV,
-  PI_CANDIDATE_SESSION_DIR_ENV,
-} from './profile'
+  candidateTraceBindings,
+  executionPlanMaterial,
+  launchEnvironment,
+  type ModelReservation,
+  sealExecutionPlan,
+  sealMaterializationReceipt,
+  unwrapPublicEnvironment,
+} from './prepare-plan'
+import {
+  type ExecutorWorkspaceFiles,
+  type MaterializedCandidateProfile,
+  materializeCandidateWorkspace,
+  materializeTaskWorkspace,
+  stageCandidateProfile,
+} from './prepare-workspaces'
+import { createPreparedCandidateExecution } from './prepared-state'
+import { absoluteExecutionCwd, buildLaunch, exactProfileExecutorFiles } from './profile'
 import { modelLimits } from './protected-model-port'
 import { requirePublicCandidateConfigValue } from './public-config'
-import {
-  type AgentCandidateExecutionPorts,
-  type AgentCandidateTaskExecution,
-  CANDIDATE_TRACE_ENV,
-  CANDIDATE_TRACE_TAGS,
-  type PreparedAgentCandidateExecution,
-  type ResolvedAgentCandidateContainer,
-  type VerifiedAgentCandidate,
+import type {
+  AgentCandidateExecutionPorts,
+  AgentCandidateTaskExecution,
+  PreparedAgentCandidateExecution,
+  ResolvedAgentCandidateContainer,
+  VerifiedAgentCandidate,
 } from './types'
-import {
-  getVerifiedCandidateState,
-  verifiedArtifactBytes,
-  verifiedResourceTextByDigest,
-} from './verify'
+import { getVerifiedCandidateState, verifiedArtifactBytes } from './verify'
 
 const MIN_RESERVATION_TTL_MS = 15 * 60_000
 const PREPARED_HOLD_MARGIN_MS = 5 * 60_000
@@ -106,145 +75,18 @@ export async function prepareAgentCandidateExecution(
   ports: AgentCandidateExecutionPorts,
   options: PrepareAgentCandidateExecutionOptions = {},
 ): Promise<PreparedAgentCandidateExecution> {
-  const cleanupTimeoutMs = candidateCleanupTimeout(options.cleanupTimeoutMs)
-  const verifiedState = getVerifiedCandidateState(candidate)
-  assertSameVerificationPorts(verifiedState.ports, ports)
+  const { cleanupTimeoutMs, resultTimeoutMs, reservationWindowMs } = checkPreparation(
+    candidate,
+    task,
+    ports,
+    options,
+  )
   const bundle = candidate.bundle
-  if (task.runCell.bundleDigest !== bundle.digest) {
-    throw new Error('candidate experiment cell does not bind the verified bundle')
-  }
   const benchmarkTask = task.task
-  const attempt = {
-    number: task.runCell.attempt,
-    maxAttempts: benchmarkTask.attempt.maxAttempts,
-    retryPolicy: benchmarkTask.attempt.retryPolicy,
-  } as const
-  assertTaskInput(task, bundle.execution.instructionDelivery)
-  const resultTimeoutMs = candidateResultTimeout(
-    options.resultTimeoutMs,
-    benchmarkTask.limits.timeoutMs,
-  )
-  const ownerWindowMs = candidateExecutionOwnerWindowMs(
-    benchmarkTask.limits.timeoutMs,
-    cleanupTimeoutMs,
-    resultTimeoutMs,
-  )
-  const reservationWindowMs = ownerWindowMs + PREPARED_HOLD_MARGIN_MS
-  if (reservationWindowMs > MAX_CANDIDATE_TIMER_INTERVAL_MS) {
-    throw new Error('candidate reservation window exceeds the supported timer range')
-  }
-  assertDisjointHostStagingRoots(task)
-
   const instructionBytes = Buffer.from(benchmarkTask.instruction, 'utf8')
-
-  const taskArtifacts = await verifyWorkspaceSnapshotArtifacts(
-    benchmarkTask.workspace,
-    ports.artifacts,
-  )
-  await ports.workspaces.materialize({
-    role: 'task',
-    snapshot: benchmarkTask.workspace,
-    archive: taskArtifacts.archive,
-    destination: task.stagingRoots.taskRoot,
-  })
-  await verifyMaterializedWorkspace(task.stagingRoots.taskRoot, benchmarkTask.workspace.material, {
-    ignoredProtectedRootEntries: ['.git', '.sidecar'],
-  })
-  if (benchmarkTask.repository) {
-    await verifyTaskCheckout(task.stagingRoots.taskRoot, benchmarkTask.repository)
-  }
-  const taskExecutorFiles = await readMaterializedWorkspaceFiles(
-    task.stagingRoots.taskRoot,
-    benchmarkTask.workspace.material,
-    { ignoredProtectedRootEntries: ['.git', '.sidecar'] },
-  )
-
-  let candidateArchive: Uint8Array | undefined
-  let candidateExecutorFiles:
-    | ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>
-    | undefined
-  if (bundle.execution.workspace) {
-    if (!task.stagingRoots.candidateRoot || !task.executionRoots.candidateRoot) {
-      throw new Error('active candidate execution requires host and container candidate roots')
-    }
-    candidateArchive = await verifiedArtifactBytes(candidate, bundle.execution.workspace.archive)
-    await ports.workspaces.materialize({
-      role: 'candidate',
-      snapshot: bundle.execution.workspace,
-      archive: candidateArchive,
-      destination: task.stagingRoots.candidateRoot,
-    })
-    await verifyMaterializedWorkspace(
-      task.stagingRoots.candidateRoot,
-      bundle.execution.workspace.material,
-    )
-    candidateExecutorFiles = await readMaterializedWorkspaceFiles(
-      task.stagingRoots.candidateRoot,
-      bundle.execution.workspace.material,
-    )
-  } else if (task.stagingRoots.candidateRoot || task.executionRoots.candidateRoot) {
-    throw new Error('disabled code cannot receive a candidate workspace root')
-  }
-
-  await assertEmptyDirectory(task.stagingRoots.profileRoot)
-  const profileWorkspacePlan = materializeAgentCandidateProfilePlan({
-    profile: bundle.profile,
-    harness: bundle.execution.harness,
-    launch: bundle.execution.launch,
-    workspace: bundle.execution.cwd.workspace,
-    workspaces: {
-      taskRoot: task.executionRoots.taskRoot,
-      ...(task.executionRoots.candidateRoot
-        ? { candidateRoot: task.executionRoots.candidateRoot }
-        : {}),
-    },
-    resolvedResources: verifiedResourceTextByDigest(candidate),
-  })
-  const profileAgentPaths = candidateProfileAgentPaths(
-    profileWorkspacePlan,
-    task.executionRoots.profileRoot,
-  )
-  const profileAgentStagingRoot = profileWorkspacePlan.files.some((file) => file.root === 'agent')
-    ? await mkdtemp(join(tmpdir(), 'tangle-candidate-profile-agent-'))
-    : undefined
-  let profileApplication: ReturnType<typeof applyAgentCandidateWorkspacePlan>
-  try {
-    profileApplication = applyAgentCandidateWorkspacePlan(
-      profileWorkspacePlan,
-      task.stagingRoots.profileRoot,
-      bundle.execution.cwd.workspace,
-      profileAgentStagingRoot ? { agentDir: profileAgentStagingRoot } : undefined,
-    )
-    await verifyMaterializedProfileWorkspace(
-      task.stagingRoots.profileRoot,
-      profileApplication.profileActivation.profilePlan.material,
-    )
-    if (profileAgentStagingRoot) {
-      await verifyMaterializedProfileWorkspace(
-        profileAgentStagingRoot,
-        profileApplication.profileActivation.profilePlan.material,
-        'agent',
-      )
-    }
-  } finally {
-    if (profileAgentStagingRoot) {
-      await rm(profileAgentStagingRoot, { recursive: true, force: true })
-    }
-  }
-  const profilePlanBytes = await readVerifiedArtifact(
-    profileApplication.profileActivation.profilePlan.artifact,
-    ports.artifacts,
-  )
-  if (
-    !Buffer.from(profilePlanBytes).equals(
-      Buffer.from(
-        canonicalCandidateBytes(profileApplication.profileActivation.profilePlan.material),
-      ),
-    )
-  ) {
-    throw new Error('profile materializer did not capture exact canonical plan bytes')
-  }
-  const profileActivation = profileApplication.profileActivation
+  const taskExecutorFiles = await materializeTaskWorkspace(task, ports)
+  const candidateExecutorFiles = await materializeCandidateWorkspace(candidate, task, ports)
+  const profile = await stageCandidateProfile(candidate, task, ports)
 
   const container = await resolveContainer(candidate, task, ports)
   const resolvedModel = await resolveModel(candidate, task, ports)
@@ -256,7 +98,7 @@ export async function prepareAgentCandidateExecution(
         executionId: task.executionId,
         preparationId,
         expiresAtMs: reservationExpiresAtMs,
-        attempt,
+        attempt: attemptOf(task),
         bundleDigest: bundle.digest,
         resolved: resolvedModel,
         limits: modelLimits(benchmarkTask.limits),
@@ -280,289 +122,218 @@ export async function prepareAgentCandidateExecution(
       reservationExpiresAtMs,
       cleanupTimeoutMs,
     )
-    const memory = preparedMemory.value
-    const knowledge = await prepareAgentCandidateKnowledge(candidate, ports, task.runCell.arm)
-    const knowledgePaths = knowledge
-      ? candidateKnowledgeExecutionPaths(
-          task.executionRoots.taskRoot,
-          knowledge.retrievalConfig !== undefined,
-        )
-      : undefined
-    const baseLaunch = buildLaunch(candidate, task, profileApplication.flags)
-    const publicEnv = mergePublicEnvironment(
-      bundle.execution.env ?? {},
-      profileApplication.env,
-      profileAgentPaths
-        ? {
-            [PI_CANDIDATE_AGENT_DIR_ENV]: {
-              kind: 'public' as const,
-              value: profileAgentPaths.agentDir,
-            },
-            [PI_CANDIDATE_SESSION_DIR_ENV]: {
-              kind: 'public' as const,
-              value: profileAgentPaths.sessionDir,
-            },
-          }
-        : {},
-      bundle.execution.instructionDelivery.kind === 'utf8-file'
-        ? {
-            [bundle.execution.instructionDelivery.env]: {
-              kind: 'public',
-              value: bundle.execution.instructionDelivery.path,
-            },
-          }
-        : {},
-      knowledgePaths
-        ? {
-            [CANDIDATE_KNOWLEDGE_ROOT_ENV]: {
-              kind: 'public',
-              value: knowledgePaths.root,
-            },
-            ...(knowledgePaths.retrievalConfig
-              ? {
-                  [CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV]: {
-                    kind: 'public' as const,
-                    value: knowledgePaths.retrievalConfig,
-                  },
-                }
-              : {}),
-          }
-        : {},
-    )
-    const routes = modelRoutes(bundle.profile, benchmarkTask.model.requested)
-    const executionMaterial: AgentCandidateExecutionPlanMaterial = {
-      kind: 'agent-candidate-execution-plan-material',
-      runCell: task.runCell,
-      executionId: task.executionId,
-      workspaces: {
-        taskRoot: task.executionRoots.taskRoot,
-        ...(task.executionRoots.candidateRoot
-          ? { candidateRoot: task.executionRoots.candidateRoot }
-          : {}),
-      },
-      codeKind: bundle.code.kind,
-      ...(bundle.execution.workspace ? { candidateWorkspace: bundle.execution.workspace } : {}),
-      profile: profileApplication.application,
-      harness: bundle.execution.harness,
-      harnessVersion: bundle.execution.harnessVersion,
-      instructionDelivery: bundle.execution.instructionDelivery,
-      limits: benchmarkTask.limits,
-      container,
-      model: {
-        policy: 'single',
-        resolved: resolvedModel,
-        access: {
-          kind: 'evaluator-mediated',
-          grantDigest: modelReservation.digest,
-          network: modelReservation.network,
-        },
-        routes,
-      },
-      launch: {
-        executable: baseLaunch.executable,
-        args: baseLaunch.args,
-        env: publicEnv,
-        cwd: bundle.execution.cwd,
-      },
-      ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.snapshot.digest } : {}),
-      memory,
-      network: { mode: 'disabled' },
-    }
-    agentCandidateExecutionPlanMaterialSchema.parse(executionMaterial)
-    const executionBytes = canonicalCandidateBytes(executionMaterial)
-    const executionDigest = canonicalCandidateDigest(executionMaterial)
-    if (sha256Bytes(executionBytes) !== executionDigest) {
-      throw new Error('execution plan canonical serializers disagree')
-    }
-    const executionPlan: AgentCandidateExecutionPlanEvidence =
-      agentCandidateExecutionPlanEvidenceSchema.parse({
-        kind: 'agent-candidate-execution-plan',
-        digest: executionDigest,
-        material: executionMaterial,
-        artifact: embeddedCandidateArtifact(executionBytes),
-      })
-
-    const entrypoint = candidateEntrypointReceipt(candidate)
-    const materializationReceipt = canonicalCandidateDocument<AgentCandidateMaterializationReceipt>(
-      {
-        kind: 'agent-candidate-materialization',
-        digestAlgorithm: 'rfc8785-sha256',
-        bundleDigest: bundle.digest,
-        benchmark: {
-          suite: {
-            digest: task.benchmarkSuite.digest,
-            material: embeddedCandidateArtifact(
-              canonicalCandidateBytes(omitTopLevelDigest(task.benchmarkSuite)),
-            ),
-          },
-          task: {
-            digest: benchmarkTask.digest,
-            material: embeddedCandidateArtifact(
-              canonicalCandidateBytes(omitTopLevelDigest(benchmarkTask)),
-            ),
-          },
-        },
-        profileActivation,
-        executionPlan,
-        ...(bundle.execution.workspace ? { candidateWorkspace: bundle.execution.workspace } : {}),
-        codeKind: bundle.code.kind,
-        ...(candidate.materializedTree ? { materializedTree: candidate.materializedTree } : {}),
-        harness: bundle.execution.harness,
-        harnessVersion: bundle.execution.harnessVersion,
-        container,
-        resolvedModel,
-        ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.snapshot.digest } : {}),
-        ...(entrypoint ? { entrypoint } : {}),
-      },
-    )
-    agentCandidateMaterializationReceiptSchema.parse(materializationReceipt.value)
-
-    const traceRunId = `${task.executionId}:attempt-${attempt.number}:${canonicalCandidateDigest({ preparationId }).slice(7, 23)}`
-    const traceTags = {
-      [CANDIDATE_TRACE_TAGS.executionId]: task.executionId,
-      [CANDIDATE_TRACE_TAGS.bundleDigest]: bundle.digest,
-      [CANDIDATE_TRACE_TAGS.executionPlanDigest]: executionPlan.digest,
-      [CANDIDATE_TRACE_TAGS.materializationReceiptDigest]: materializationReceipt.digest,
-    }
-    const traceEnv = {
-      [CANDIDATE_TRACE_ENV.executionId]: task.executionId,
-      [CANDIDATE_TRACE_ENV.bundleDigest]: bundle.digest,
-      [CANDIDATE_TRACE_ENV.executionPlanDigest]: executionPlan.digest,
-      [CANDIDATE_TRACE_ENV.materializationReceiptDigest]: materializationReceipt.digest,
-      [CANDIDATE_TRACE_ENV.traceRunId]: traceRunId,
-    }
-    assertEnvironmentDisjoint(publicEnv, traceEnv)
-
-    return createPreparedCandidateExecution({
+    return await assemblePrepared({
+      candidate,
+      task,
       ports,
-      bundle,
-      benchmarkSuite: task.benchmarkSuite,
-      benchmarkTask,
-      executionId: task.executionId,
-      roots: {
-        execution: { ...task.executionRoots },
-        staging: { ...task.stagingRoots },
-      },
-      profilePlan: {
-        value: profileApplication.profileActivation.profilePlan,
-        bytes: profilePlanBytes,
-        written: [...profileApplication.application.mountPaths],
-      },
-      profileActivation,
-      executionPlan: { value: executionPlan, bytes: executionBytes },
-      materializationReceipt,
-      launch: {
-        executable: baseLaunch.executable,
-        args: baseLaunch.args.map((value, index) =>
-          requirePublicCandidateConfigValue(value, `launch.args[${index}]`),
-        ),
-        env: unwrapPublicEnvironment(publicEnv),
-        flags: profileApplication.flags.map((value, index) =>
-          requirePublicCandidateConfigValue(value, `profile.flags[${index}]`),
-        ),
-        cwd: absoluteExecutionCwd(bundle.execution.cwd, task.executionRoots),
-      },
-      instruction: {
-        bytes: Uint8Array.from(instructionBytes),
-        delivery: bundle.execution.instructionDelivery,
-      },
+      cleanupTimeoutMs,
+      resultTimeoutMs,
+      taskExecutorFiles,
+      candidateExecutorFiles,
+      profile,
+      container,
       resolvedModel,
       preparationId,
       reservationExpiresAtMs,
-      cleanupTimeoutMs,
-      resultTimeoutMs,
-      modelReservation: {
-        preparationId: modelReservation.preparationId,
-        digest: modelReservation.digest,
-        expiresAtMs: modelReservation.expiresAtMs,
-        enforcedLimits: modelReservation.enforcedLimits,
-        network: modelReservation.network,
-      },
-      executorInputs: {
-        taskFiles: taskExecutorFiles,
-        ...(candidateExecutorFiles ? { candidateFiles: candidateExecutorFiles } : {}),
-        profileFiles: exactProfileExecutorFiles(
-          profileWorkspacePlan.files,
-          profileApplication.profileActivation.profilePlan.material.files,
-        ),
-      },
-      ...(preparedMemory.accessDigest && preparedMemory.value.mode === 'isolated'
-        ? {
-            memoryReservation: {
-              preparationId,
-              accessDigest: preparedMemory.accessDigest,
-              expiresAtMs: reservationExpiresAtMs,
-              effectiveNamespace: preparedMemory.value.effectiveNamespace,
-            },
-          }
-        : {}),
-      ...(knowledge ? { knowledge } : {}),
-      trace: { runId: traceRunId, tags: traceTags, env: traceEnv },
-      memory,
+      modelReservation,
+      preparedMemory,
+      instructionBytes,
     })
   } catch (error) {
-    const cleanupDeadlineAtMs = candidateCleanupDeadline(cleanupTimeoutMs)
-    const cleanup: Array<Promise<unknown>> = []
-    if (preparedMemory?.value.mode === 'isolated') {
-      const accessDigest = preparedMemory.accessDigest
-      const effectiveNamespace = preparedMemory.value.effectiveNamespace
-      if (!accessDigest) throw new Error('isolated memory preparation is missing access identity')
-      cleanup.push(
-        withinCandidateCleanupDeadline(
-          async () => {
-            const closed = await ports.memory.close({
-              executionId: task.executionId,
-              preparationId,
-              accessDigest,
-              effectiveNamespace,
-              reason: 'preparation-failed',
-            })
-            if (closed.closed !== true || Object.keys(closed).some((key) => key !== 'closed')) {
-              throw new Error('failed preparation did not close isolated memory access')
+    await cleanupFailedPreparation(
+      {
+        task,
+        ports,
+        preparationId,
+        cleanupTimeoutMs,
+        modelGrantDigest: modelReservation.digest,
+        resolvedModel,
+        ...(preparedMemory?.value.mode === 'isolated'
+          ? {
+              memory: {
+                accessDigest: preparedMemory.accessDigest,
+                effectiveNamespace: preparedMemory.value.effectiveNamespace,
+              },
             }
-          },
-          cleanupDeadlineAtMs,
-          'failed preparation memory cleanup',
-        ),
-      )
-    }
-    cleanup.push(
-      withinCandidateCleanupDeadline(
-        async () => {
-          const settlement = sealAgentCandidateModelSettlement(
-            await ports.models.settleGrant({
-              executionId: task.executionId,
-              preparationId,
-              grantDigest: modelReservation.digest,
-              resolved: resolvedModel,
-              reason: 'preparation-failed',
-            }),
-            {
-              preparationId,
-              grantDigest: modelReservation.digest,
-              model: resolvedModel.model,
-            },
-          )
-          if (settlement.usage.modelCalls !== 0) {
-            throw new Error('failed preparation unexpectedly contains model calls')
-          }
-        },
-        cleanupDeadlineAtMs,
-        'failed preparation model cleanup',
-      ),
+          : {}),
+      },
+      error,
     )
-    const cleanupResults = await Promise.allSettled(cleanup)
-    const cleanupErrors = cleanupResults
-      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-      .map((result) => result.reason)
-    if (cleanupErrors.length > 0) {
-      throw new Error(
-        `candidate preparation failed and protected access cleanup failed: ${cleanupErrors.map(errorMessage).join('; ')}`,
-        { cause: error },
-      )
-    }
     throw error
   }
+}
+
+const attemptOf = (task: AgentCandidateTaskExecution) =>
+  ({
+    number: task.runCell.attempt,
+    maxAttempts: task.task.attempt.maxAttempts,
+    retryPolicy: task.task.attempt.retryPolicy,
+  }) as const
+
+/** Check the call before any compute, and size its timeouts and reservation window. */
+function checkPreparation(
+  candidate: VerifiedAgentCandidate,
+  task: AgentCandidateTaskExecution,
+  ports: AgentCandidateExecutionPorts,
+  options: PrepareAgentCandidateExecutionOptions,
+): { cleanupTimeoutMs: number; resultTimeoutMs: number; reservationWindowMs: number } {
+  const cleanupTimeoutMs = candidateCleanupTimeout(options.cleanupTimeoutMs)
+  const verifiedState = getVerifiedCandidateState(candidate)
+  assertSameVerificationPorts(verifiedState.ports, ports)
+  const bundle = candidate.bundle
+  if (task.runCell.bundleDigest !== bundle.digest) {
+    throw new Error('candidate experiment cell does not bind the verified bundle')
+  }
+  const benchmarkTask = task.task
+  assertTaskInput(task, bundle.execution.instructionDelivery)
+  const resultTimeoutMs = candidateResultTimeout(
+    options.resultTimeoutMs,
+    benchmarkTask.limits.timeoutMs,
+  )
+  const ownerWindowMs = candidateExecutionOwnerWindowMs(
+    benchmarkTask.limits.timeoutMs,
+    cleanupTimeoutMs,
+    resultTimeoutMs,
+  )
+  const reservationWindowMs = ownerWindowMs + PREPARED_HOLD_MARGIN_MS
+  if (reservationWindowMs > MAX_CANDIDATE_TIMER_INTERVAL_MS) {
+    throw new Error('candidate reservation window exceeds the supported timer range')
+  }
+  assertDisjointHostStagingRoots(task)
+  return { cleanupTimeoutMs, resultTimeoutMs, reservationWindowMs }
+}
+
+/** Everything a preparation holds once its protected access is reserved. */
+interface PreparationHold {
+  candidate: VerifiedAgentCandidate
+  task: AgentCandidateTaskExecution
+  ports: AgentCandidateExecutionPorts
+  cleanupTimeoutMs: number
+  resultTimeoutMs: number
+  taskExecutorFiles: ExecutorWorkspaceFiles
+  candidateExecutorFiles: ExecutorWorkspaceFiles | undefined
+  profile: MaterializedCandidateProfile
+  container: ResolvedAgentCandidateContainer
+  resolvedModel: AgentCandidateResolvedModel
+  preparationId: string
+  reservationExpiresAtMs: number
+  modelReservation: ModelReservation
+  preparedMemory: Awaited<ReturnType<typeof prepareMemory>>
+  instructionBytes: Buffer
+}
+
+/** Seal the plan and receipt over what the preparation staged and reserved, and freeze it. */
+async function assemblePrepared(hold: PreparationHold): Promise<PreparedAgentCandidateExecution> {
+  const { candidate, task, ports, profile, container, resolvedModel, preparedMemory } = hold
+  const { bundle } = candidate
+  const memory = preparedMemory.value
+  const knowledge = await prepareAgentCandidateKnowledge(candidate, ports, task.runCell.arm)
+  const knowledgePaths = knowledge
+    ? candidateKnowledgeExecutionPaths(
+        task.executionRoots.taskRoot,
+        knowledge.retrievalConfig !== undefined,
+      )
+    : undefined
+  const baseLaunch = buildLaunch(candidate, task, profile.application.flags)
+  const publicEnv = launchEnvironment(candidate, profile, knowledgePaths)
+  const executionPlan = sealExecutionPlan(
+    executionPlanMaterial({
+      candidate,
+      task,
+      profile,
+      container,
+      resolvedModel,
+      modelReservation: hold.modelReservation,
+      launch: baseLaunch,
+      publicEnv,
+      memory,
+    }),
+  )
+  const materializationReceipt = sealMaterializationReceipt({
+    candidate,
+    task,
+    profile,
+    executionPlan: executionPlan.evidence,
+    container,
+    resolvedModel,
+  })
+  const trace = candidateTraceBindings({
+    task,
+    bundleDigest: bundle.digest,
+    attemptNumber: task.runCell.attempt,
+    preparationId: hold.preparationId,
+    executionPlanDigest: executionPlan.evidence.digest,
+    materializationReceiptDigest: materializationReceipt.digest,
+    publicEnv,
+  })
+  const { modelReservation } = hold
+  return createPreparedCandidateExecution({
+    ports,
+    bundle,
+    benchmarkSuite: task.benchmarkSuite,
+    benchmarkTask: task.task,
+    executionId: task.executionId,
+    roots: {
+      execution: { ...task.executionRoots },
+      staging: { ...task.stagingRoots },
+    },
+    profilePlan: {
+      value: profile.application.profileActivation.profilePlan,
+      bytes: profile.planBytes,
+      written: [...profile.application.application.mountPaths],
+    },
+    profileActivation: profile.application.profileActivation,
+    executionPlan: { value: executionPlan.evidence, bytes: executionPlan.bytes },
+    materializationReceipt,
+    launch: {
+      executable: baseLaunch.executable,
+      args: baseLaunch.args.map((value, index) =>
+        requirePublicCandidateConfigValue(value, `launch.args[${index}]`),
+      ),
+      env: unwrapPublicEnvironment(publicEnv),
+      flags: profile.application.flags.map((value, index) =>
+        requirePublicCandidateConfigValue(value, `profile.flags[${index}]`),
+      ),
+      cwd: absoluteExecutionCwd(bundle.execution.cwd, task.executionRoots),
+    },
+    instruction: {
+      bytes: Uint8Array.from(hold.instructionBytes),
+      delivery: bundle.execution.instructionDelivery,
+    },
+    resolvedModel,
+    preparationId: hold.preparationId,
+    reservationExpiresAtMs: hold.reservationExpiresAtMs,
+    cleanupTimeoutMs: hold.cleanupTimeoutMs,
+    resultTimeoutMs: hold.resultTimeoutMs,
+    modelReservation: {
+      preparationId: modelReservation.preparationId,
+      digest: modelReservation.digest,
+      expiresAtMs: modelReservation.expiresAtMs,
+      enforcedLimits: modelReservation.enforcedLimits,
+      network: modelReservation.network,
+    },
+    executorInputs: {
+      taskFiles: hold.taskExecutorFiles,
+      ...(hold.candidateExecutorFiles ? { candidateFiles: hold.candidateExecutorFiles } : {}),
+      profileFiles: exactProfileExecutorFiles(
+        profile.workspacePlan.files,
+        profile.application.profileActivation.profilePlan.material.files,
+      ),
+    },
+    ...(preparedMemory.accessDigest && memory.mode === 'isolated'
+      ? {
+          memoryReservation: {
+            preparationId: hold.preparationId,
+            accessDigest: preparedMemory.accessDigest,
+            expiresAtMs: hold.reservationExpiresAtMs,
+            effectiveNamespace: memory.effectiveNamespace,
+          },
+        }
+      : {}),
+    ...(knowledge ? { knowledge } : {}),
+    trace,
+    memory,
+  })
 }
 
 function assertSameVerificationPorts(
@@ -747,16 +518,6 @@ function isContainedPath(parent: string, child: string): boolean {
   return path !== '' && !path.startsWith('..') && !isAbsolute(path)
 }
 
-async function assertEmptyDirectory(path: string): Promise<void> {
-  const stats = await lstat(path)
-  if (!stats.isDirectory() || stats.isSymbolicLink()) {
-    throw new Error('profile staging root must be a real directory')
-  }
-  if ((await readdir(path)).length !== 0) {
-    throw new Error('profile staging root must be empty before materialization')
-  }
-}
-
 async function resolveContainer(
   candidate: VerifiedAgentCandidate,
   task: AgentCandidateTaskExecution,
@@ -894,47 +655,8 @@ async function prepareMemory(
   }
 }
 
-function mergePublicEnvironment(
-  ...records: Array<Record<string, AgentCandidateConfigValue>>
-): Record<string, AgentCandidateConfigValue> {
-  const output: Record<string, AgentCandidateConfigValue> = {}
-  for (const record of records) {
-    for (const [name, value] of Object.entries(record)) {
-      const previous = output[name]
-      const publicValue = requirePublicCandidateConfigValue(value, `env.${name}`)
-      if (previous && requirePublicCandidateConfigValue(previous, `env.${name}`) !== publicValue) {
-        throw new Error(`candidate and profile environment disagree on ${name}`)
-      }
-      output[name] = value
-    }
-  }
-  return output
-}
-
-function unwrapPublicEnvironment(
-  values: Record<string, AgentCandidateConfigValue>,
-): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(values).map(([name, value]) => [
-      name,
-      requirePublicCandidateConfigValue(value, `env.${name}`),
-    ]),
-  )
-}
-
 function validateProtectedModelReservation(
-  reservation: {
-    preparationId: string
-    digest: string
-    expiresAtMs: number
-    enforcedLimits: {
-      maxModelCalls: number
-      maxInputTokens: number
-      maxOutputTokens: number
-      maxCostUsd: number
-    }
-    network: AgentCandidateModelAccessNetwork
-  },
+  reservation: ModelReservation,
   expectedLimits: AgentCandidateExecutionLimits,
   preparationId: string,
   expiresAtMs: number,
@@ -956,13 +678,84 @@ function validateProtectedModelReservation(
   }
 }
 
-function assertEnvironmentDisjoint(
-  publicEnv: Record<string, AgentCandidateConfigValue>,
-  traceEnv: Record<string, string>,
-): void {
-  const seen = new Set(Object.keys(publicEnv))
-  for (const name of Object.keys(traceEnv)) {
-    if (seen.has(name)) throw new Error(`evaluator environment binding collides with ${name}`)
-    seen.add(name)
+/** The reservations a preparation holds, as far as it got. */
+interface HeldPreparationAccess {
+  readonly task: AgentCandidateTaskExecution
+  readonly ports: AgentCandidateExecutionPorts
+  readonly preparationId: string
+  readonly cleanupTimeoutMs: number
+  readonly modelGrantDigest: Sha256Digest
+  readonly resolvedModel: AgentCandidateResolvedModel
+  /** The isolated memory reservation, once prepared. */
+  readonly memory?: { accessDigest: Sha256Digest | undefined; effectiveNamespace: string }
+}
+
+/**
+ * Close the isolated memory and settle the model grant of a preparation that failed. Throws a
+ * combined error, with `cause` set to the preparation's own, when a cleanup fails too.
+ */
+async function cleanupFailedPreparation(
+  held: HeldPreparationAccess,
+  error: unknown,
+): Promise<void> {
+  const { task, ports, preparationId, resolvedModel } = held
+  const cleanupDeadlineAtMs = candidateCleanupDeadline(held.cleanupTimeoutMs)
+  const cleanup: Array<Promise<unknown>> = []
+  if (held.memory !== undefined) {
+    const { accessDigest, effectiveNamespace } = held.memory
+    if (!accessDigest) throw new Error('isolated memory preparation is missing access identity')
+    cleanup.push(
+      withinCandidateCleanupDeadline(
+        async () => {
+          const closed = await ports.memory.close({
+            executionId: task.executionId,
+            preparationId,
+            accessDigest,
+            effectiveNamespace,
+            reason: 'preparation-failed',
+          })
+          if (closed.closed !== true || Object.keys(closed).some((key) => key !== 'closed')) {
+            throw new Error('failed preparation did not close isolated memory access')
+          }
+        },
+        cleanupDeadlineAtMs,
+        'failed preparation memory cleanup',
+      ),
+    )
+  }
+  cleanup.push(
+    withinCandidateCleanupDeadline(
+      async () => {
+        const settlement = sealAgentCandidateModelSettlement(
+          await ports.models.settleGrant({
+            executionId: task.executionId,
+            preparationId,
+            grantDigest: held.modelGrantDigest,
+            resolved: resolvedModel,
+            reason: 'preparation-failed',
+          }),
+          {
+            preparationId,
+            grantDigest: held.modelGrantDigest,
+            model: resolvedModel.model,
+          },
+        )
+        if (settlement.usage.modelCalls !== 0) {
+          throw new Error('failed preparation unexpectedly contains model calls')
+        }
+      },
+      cleanupDeadlineAtMs,
+      'failed preparation model cleanup',
+    ),
+  )
+  const cleanupResults = await Promise.allSettled(cleanup)
+  const cleanupErrors = cleanupResults
+    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map((result) => result.reason)
+  if (cleanupErrors.length > 0) {
+    throw new Error(
+      `candidate preparation failed and protected access cleanup failed: ${cleanupErrors.map(errorMessage).join('; ')}`,
+      { cause: error },
+    )
   }
 }

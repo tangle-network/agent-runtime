@@ -19,6 +19,7 @@ export function createUpstreamContractProvider(interfaceModule) {
     interactiveClaims: 0,
     interactiveStops: 0,
   }
+  const context = { interfaceModule, counters, environments }
 
   const provider = {
     name: PROVIDER,
@@ -40,11 +41,11 @@ export function createUpstreamContractProvider(interfaceModule) {
           interactive: undefined,
         })
       }
-      return environmentView(environments.get(id), 'created')
+      return environmentView(context, environments.get(id), 'created')
     },
     async get(id) {
       const state = environments.get(id)
-      return state ? environmentView(state) : null
+      return state ? environmentView(context, state) : null
     },
     async list() {
       return [...environments.values()].map((state) => ({
@@ -57,330 +58,352 @@ export function createUpstreamContractProvider(interfaceModule) {
   }
 
   return { provider, counters, environments }
+}
 
-  function environmentView(state, creation) {
-    return {
-      id: state.id,
-      provider: PROVIDER,
-      ...(creation === undefined ? {} : { creation }),
-      metadata: { ...state.metadata },
-      status: async () => 'running',
-      async *stream() {},
-      async dispatch(input) {
-        counters.dispatches += 1
-        if (!input.turnId) throw new Error('contract provider requires a turn id')
-        const sessionId = input.sessionId ?? `session-${input.turnId}`
-        const executionId = input.executionId ?? `execution-${input.turnId}`
-        const prior = state.sessions.get(sessionId)
-        if (prior) {
-          if (prior.controlRef.executionId !== executionId) {
-            throw new Error('contract provider session identity changed')
-          }
-          return { id: sessionId, provider: PROVIDER, controlRef: prior.controlRef }
+function environmentView(context, state, creation) {
+  const { interfaceModule, counters, environments } = context
+  return {
+    id: state.id,
+    provider: PROVIDER,
+    ...(creation === undefined ? {} : { creation }),
+    metadata: { ...state.metadata },
+    status: async () => 'running',
+    async *stream() {},
+    async dispatch(input) {
+      counters.dispatches += 1
+      if (!input.turnId) throw new Error('contract provider requires a turn id')
+      const sessionId = input.sessionId ?? `session-${input.turnId}`
+      const executionId = input.executionId ?? `execution-${input.turnId}`
+      const prior = state.sessions.get(sessionId)
+      if (prior) {
+        if (prior.controlRef.executionId !== executionId) {
+          throw new Error('contract provider session identity changed')
         }
-        const controlRef = {
-          runId: `run-${input.turnId}`,
-          provider: PROVIDER,
+        return { id: sessionId, provider: PROVIDER, controlRef: prior.controlRef }
+      }
+      const controlRef = {
+        runId: `run-${input.turnId}`,
+        provider: PROVIDER,
+        environmentId: state.id,
+        sessionId,
+        executionId,
+        requestDigest: interfaceModule.canonicalCandidateDigest({
+          kind: 'upstream-contract-run',
           environmentId: state.id,
           sessionId,
           executionId,
-          requestDigest: interfaceModule.canonicalCandidateDigest({
-            kind: 'upstream-contract-run',
-            environmentId: state.id,
-            sessionId,
-            executionId,
-            turnId: input.turnId,
-            prompt: input.prompt ?? null,
-            parts: input.parts ?? null,
+          turnId: input.turnId,
+          prompt: input.prompt ?? null,
+          parts: input.parts ?? null,
+        }),
+      }
+      state.sessions.set(sessionId, makeRetainedSession(context, state, controlRef))
+      return { id: sessionId, provider: PROVIDER, controlRef }
+    },
+    session(sessionId, options) {
+      const session = state.sessions.get(sessionId)
+      if (!session) throw new Error(`unknown contract session ${sessionId}`)
+      if (
+        options?.controlRef &&
+        interfaceModule.canonicalCandidateDigest(options.controlRef) !==
+          interfaceModule.canonicalCandidateDigest(session.controlRef)
+      ) {
+        throw new Error('contract provider received the wrong control reference')
+      }
+      return session.view()
+    },
+    async destroy() {
+      environments.delete(state.id)
+    },
+    async startInteractive(request) {
+      counters.interactiveStarts += 1
+      if (!state.interactive) {
+        state.interactive = makeInteractiveSession(context, request)
+      } else if (
+        interfaceModule.canonicalCandidateDigest(state.interactive.ref.run) !==
+        interfaceModule.canonicalCandidateDigest(request.run)
+      ) {
+        throw new Error('contract provider interactive identity changed')
+      }
+      return state.interactive.ref
+    },
+    interactive() {
+      if (!state.interactive) throw new Error('interactive session has not started')
+      return state.interactive.view()
+    },
+  }
+}
+
+/** The result a retained session reports for the run it currently points at. */
+function retainedResult(session, text) {
+  const { controlRef, currentControlRef } = session
+  return {
+    text,
+    success: true,
+    sessionId: controlRef.sessionId,
+    metadata: {
+      runId: currentControlRef.runId,
+      executionId: currentControlRef.executionId,
+      requestDigest: currentControlRef.requestDigest,
+    },
+  }
+}
+
+/** A retained session: its admitted control reference, replayable operations, and the live view. */
+function makeRetainedSession({ interfaceModule, counters }, state, controlRef) {
+  const interaction = makeInteraction(interfaceModule, controlRef)
+  const session = {
+    controlRef,
+    interaction,
+    events: makeCanonicalEvents(interfaceModule, controlRef, interaction),
+    interactionOperations: new Map(),
+    cancellationOperations: new Map(),
+    nativeOperations: new Map(),
+    currentControlRef: controlRef,
+    status: 'running',
+    view: () => retainedSessionView({ interfaceModule, counters }, state, session),
+  }
+  return session
+}
+
+function retainedSessionView(context, state, session) {
+  const { interfaceModule, counters } = context
+  const { controlRef } = session
+  return {
+    id: controlRef.sessionId,
+    // Reconnect starts from the originally admitted reference. The provider keeps the
+    // latest execution internally so a restarted client can replay a committed operation.
+    controlRef,
+    async status() {
+      return session.status
+    },
+    async *events(options) {
+      const currentEvents = rebindInteractionEvents(
+        interfaceModule,
+        session.events,
+        session.currentControlRef,
+      )
+      const start =
+        options?.since === undefined
+          ? 0
+          : currentEvents.findIndex((event) => event.id === options.since) + 1
+      if (options?.since !== undefined && start === 0) {
+        throw new Error(`unknown contract event cursor ${options.since}`)
+      }
+      for (const event of currentEvents.slice(start)) yield structuredClone(event)
+    },
+    async result() {
+      return retainedResult(session, 'upstream contract result')
+    },
+    async prompt() {
+      return retainedResult(session, 'prompt accepted')
+    },
+    async respondToInteraction(command) {
+      counters.interactionResponses += 1
+      return respondToRetainedInteraction(context, state, session, command)
+    },
+    async contextBoundary() {
+      return boundaryFor(session.currentControlRef, interfaceModule)
+    },
+    async continueNative(request, options) {
+      counters.nativeContinuations += 1
+      return continueRetainedNative(context, session, request, options)
+    },
+    async cancelRun(request) {
+      counters.cancellations += 1
+      return cancelRetainedRun(session, request)
+    },
+    async cancel() {
+      session.status = 'cancelled'
+    },
+  }
+}
+
+/** Acknowledge an interaction response once per operation id; a replay reports whether it matches. */
+function respondToRetainedInteraction({ interfaceModule }, state, session, command) {
+  const digest = interfaceModule.canonicalCandidateDigest(command)
+  const prior = session.interactionOperations.get(command.operationId)
+  if (prior) {
+    return {
+      ...(prior.digest === digest
+        ? prior.acknowledgement
+        : {
+            operationId: command.operationId,
+            binding: command.binding,
+            commandDigest: command.commandDigest,
+            status: 'already_resolved_different',
           }),
-        }
-        const session = makeRetainedSession(state, controlRef, input)
-        state.sessions.set(sessionId, session)
-        return { id: sessionId, provider: PROVIDER, controlRef }
-      },
-      session(sessionId, options) {
-        const session = state.sessions.get(sessionId)
-        if (!session) throw new Error(`unknown contract session ${sessionId}`)
-        if (
-          options?.controlRef &&
-          interfaceModule.canonicalCandidateDigest(options.controlRef) !==
-            interfaceModule.canonicalCandidateDigest(session.controlRef)
-        ) {
-          throw new Error('contract provider received the wrong control reference')
-        }
-        return session.view()
-      },
-      async destroy() {
-        environments.delete(state.id)
-      },
-      async startInteractive(request) {
-        counters.interactiveStarts += 1
-        if (!state.interactive) {
-          state.interactive = makeInteractiveSession(state, request)
-        } else if (
-          interfaceModule.canonicalCandidateDigest(state.interactive.ref.run) !==
-          interfaceModule.canonicalCandidateDigest(request.run)
-        ) {
-          throw new Error('contract provider interactive identity changed')
-        }
-        return state.interactive.ref
-      },
-      interactive() {
-        if (!state.interactive) throw new Error('interactive session has not started')
-        return state.interactive.view()
+      ...(prior.digest === digest ? { status: 'already_resolved_same' } : {}),
+    }
+  }
+  const { currentControlRef } = session
+  const isExact =
+    command.binding.runId === currentControlRef.runId &&
+    command.binding.provider === PROVIDER &&
+    command.binding.environmentId === state.id &&
+    command.binding.sessionId === session.controlRef.sessionId &&
+    command.binding.executionId === currentControlRef.executionId &&
+    command.binding.interactionId === session.interaction.id
+  const acknowledgement = {
+    operationId: command.operationId,
+    binding: command.binding,
+    commandDigest: command.commandDigest,
+    status: isExact ? 'accepted' : 'unknown_interaction',
+  }
+  session.interactionOperations.set(command.operationId, { digest, acknowledgement })
+  return acknowledgement
+}
+
+/** Continue the session natively under a new run, replaying a committed operation. */
+function continueRetainedNative({ interfaceModule }, session, request, options) {
+  const prior = session.nativeOperations.get(request.operationId)
+  if (prior) {
+    options.onAdmission?.(prior.controlRef)
+    return {
+      ...structuredClone(prior),
+      acknowledgement: { ...prior.acknowledgement, status: 'replayed' },
+    }
+  }
+  if (options?.turn?.prompt === undefined && options?.turn?.parts === undefined) {
+    return {
+      acknowledgement: {
+        operationId: request.operationId,
+        requestDigest: request.requestDigest,
+        status: 'transport_failure',
+        historyMessagesSent: 0,
+        message: 'continuation turn is empty',
+        retryable: true,
       },
     }
   }
-
-  function makeRetainedSession(state, controlRef, input) {
-    const interaction = makeInteraction(interfaceModule, controlRef)
-    const events = makeCanonicalEvents(interfaceModule, controlRef, interaction)
-    const interactionOperations = new Map()
-    const cancellationOperations = new Map()
-    const nativeOperations = new Map()
-    let currentControlRef = controlRef
-    let status = 'running'
-
-    return {
-      controlRef,
-      view() {
-        return {
-          id: controlRef.sessionId,
-          // Reconnect starts from the originally admitted reference. The provider keeps the
-          // latest execution internally so a restarted client can replay a committed operation.
-          controlRef,
-          async status() {
-            return status
-          },
-          async *events(options) {
-            const currentEvents = rebindInteractionEvents(interfaceModule, events, currentControlRef)
-            const start =
-              options?.since === undefined
-                ? 0
-                : currentEvents.findIndex((event) => event.id === options.since) + 1
-            if (options?.since !== undefined && start === 0) {
-              throw new Error(`unknown contract event cursor ${options.since}`)
-            }
-            for (const event of currentEvents.slice(start)) yield structuredClone(event)
-          },
-          async result() {
-            return {
-              text: 'upstream contract result',
-              success: true,
-              sessionId: controlRef.sessionId,
-              metadata: {
-                runId: currentControlRef.runId,
-                executionId: currentControlRef.executionId,
-                requestDigest: currentControlRef.requestDigest,
-              },
-            }
-          },
-          async prompt() {
-            return {
-              text: 'prompt accepted',
-              success: true,
-              sessionId: controlRef.sessionId,
-              metadata: {
-                runId: currentControlRef.runId,
-                executionId: currentControlRef.executionId,
-                requestDigest: currentControlRef.requestDigest,
-              },
-            }
-          },
-          async respondToInteraction(command) {
-            counters.interactionResponses += 1
-            const digest = interfaceModule.canonicalCandidateDigest(command)
-            const prior = interactionOperations.get(command.operationId)
-            if (prior) {
-              return {
-                ...(prior.digest === digest
-                  ? prior.acknowledgement
-                  : {
-                      operationId: command.operationId,
-                      binding: command.binding,
-                      commandDigest: command.commandDigest,
-                      status: 'already_resolved_different',
-                    }),
-                ...(prior.digest === digest ? { status: 'already_resolved_same' } : {}),
-              }
-            }
-            const isExact =
-              command.binding.runId === currentControlRef.runId &&
-              command.binding.provider === PROVIDER &&
-              command.binding.environmentId === state.id &&
-              command.binding.sessionId === controlRef.sessionId &&
-              command.binding.executionId === currentControlRef.executionId &&
-              command.binding.interactionId === interaction.id
-            const acknowledgement = {
-              operationId: command.operationId,
-              binding: command.binding,
-              commandDigest: command.commandDigest,
-              status: isExact ? 'accepted' : 'unknown_interaction',
-            }
-            interactionOperations.set(command.operationId, { digest, acknowledgement })
-            return acknowledgement
-          },
-          async contextBoundary() {
-            return boundaryFor(currentControlRef, interfaceModule)
-          },
-          async continueNative(request, options) {
-            counters.nativeContinuations += 1
-            const prior = nativeOperations.get(request.operationId)
-            if (prior) {
-              options.onAdmission?.(prior.controlRef)
-              return {
-                ...structuredClone(prior),
-                acknowledgement: { ...prior.acknowledgement, status: 'replayed' },
-              }
-            }
-            if (options?.turn?.prompt === undefined && options?.turn?.parts === undefined) {
-              return {
-                acknowledgement: {
-                  operationId: request.operationId,
-                  requestDigest: request.requestDigest,
-                  status: 'transport_failure',
-                  historyMessagesSent: 0,
-                  message: 'continuation turn is empty',
-                  retryable: true,
-                },
-              }
-            }
-            const nextControlRef = {
-              ...currentControlRef,
-              runId: `native-${request.operationId}`,
-              executionId: `native-execution-${request.operationId}`,
-              requestDigest: request.requestDigest,
-            }
-            const result = {
-              acknowledgement: {
-                operationId: request.operationId,
-                requestDigest: request.requestDigest,
-                status: 'accepted',
-                historyMessagesSent: 0,
-                actualBoundary: boundaryFor(currentControlRef, interfaceModule),
-              },
-              result: {
-                text: 'native continuation accepted',
-                success: true,
-                sessionId: controlRef.sessionId,
-                metadata: {
-                  runId: nextControlRef.runId,
-                  executionId: nextControlRef.executionId,
-                  requestDigest: nextControlRef.requestDigest,
-                },
-              },
-              controlRef: nextControlRef,
-            }
-            nativeOperations.set(request.operationId, structuredClone(result))
-            currentControlRef = nextControlRef
-            options.onAdmission?.(nextControlRef)
-            return result
-          },
-          async cancelRun(request) {
-            counters.cancellations += 1
-            const prior = cancellationOperations.get(request.operationId)
-            if (prior) {
-              return {
-                operationId: request.operationId,
-                requestDigest: request.requestDigest,
-                run: request.run,
-                status: prior.digest === request.requestDigest ? 'replayed' : 'conflict',
-                effect: prior.digest === request.requestDigest ? prior.effect : 'unknown',
-              }
-            }
-            const effect = status === 'running' ? 'cancelled' : 'not_live'
-            if (effect === 'cancelled') status = 'cancelled'
-            cancellationOperations.set(request.operationId, {
-              digest: request.requestDigest,
-              effect,
-            })
-            return {
-              operationId: request.operationId,
-              requestDigest: request.requestDigest,
-              run: request.run,
-              status: 'accepted',
-              effect,
-            }
-          },
-          async cancel() {
-            status = 'cancelled'
-          },
-        }
+  const nextControlRef = {
+    ...session.currentControlRef,
+    runId: `native-${request.operationId}`,
+    executionId: `native-execution-${request.operationId}`,
+    requestDigest: request.requestDigest,
+  }
+  const result = {
+    acknowledgement: {
+      operationId: request.operationId,
+      requestDigest: request.requestDigest,
+      status: 'accepted',
+      historyMessagesSent: 0,
+      actualBoundary: boundaryFor(session.currentControlRef, interfaceModule),
+    },
+    result: {
+      text: 'native continuation accepted',
+      success: true,
+      sessionId: session.controlRef.sessionId,
+      metadata: {
+        runId: nextControlRef.runId,
+        executionId: nextControlRef.executionId,
+        requestDigest: nextControlRef.requestDigest,
       },
+    },
+    controlRef: nextControlRef,
+  }
+  session.nativeOperations.set(request.operationId, structuredClone(result))
+  session.currentControlRef = nextControlRef
+  options.onAdmission?.(nextControlRef)
+  return result
+}
+
+/** Cancel the run once per operation id; a replay reports whether it matches. */
+function cancelRetainedRun(session, request) {
+  const prior = session.cancellationOperations.get(request.operationId)
+  if (prior) {
+    return {
+      operationId: request.operationId,
+      requestDigest: request.requestDigest,
+      run: request.run,
+      status: prior.digest === request.requestDigest ? 'replayed' : 'conflict',
+      effect: prior.digest === request.requestDigest ? prior.effect : 'unknown',
     }
   }
+  const effect = session.status === 'running' ? 'cancelled' : 'not_live'
+  if (effect === 'cancelled') session.status = 'cancelled'
+  session.cancellationOperations.set(request.operationId, {
+    digest: request.requestDigest,
+    effect,
+  })
+  return {
+    operationId: request.operationId,
+    requestDigest: request.requestDigest,
+    run: request.run,
+    status: 'accepted',
+    effect,
+  }
+}
 
-  function makeInteractiveSession(state, request) {
-    let generation = 0
-    let running = true
-    const ref = makeInteractiveRef(interfaceModule, request)
-    return {
-      ref,
-      view() {
-        return {
-          ref,
-          async claimControl(command) {
-            counters.interactiveClaims += 1
-            generation += 1
-            return {
-              operationId: command.operationId,
-              requestDigest: command.requestDigest,
-              ref,
-              status: 'accepted',
-              control: controlFor(interfaceModule, ref, generation),
-            }
-          },
-          async status() {
-            return running
-              ? { state: 'running', ref }
-              : {
-                  state: 'exited',
-                  ref,
-                  endedAt: '2026-08-28T00:00:00.000Z',
-                  reason: 'stopped',
-                }
-          },
-          async attach() {
-            return {
-              ref,
-              control: controlFor(interfaceModule, ref, generation),
-              cursors: { earliest: 0, latest: 0 },
-              async *events() {},
-              async input() {},
-              async resize() {},
-              async detach() {
-                return { status: 'detached', terminalSessionId: 'contract-terminal' }
-              },
-              async close() {
-                running = false
-                return { status: 'closed', terminalSessionId: 'contract-terminal' }
-              },
-            }
-          },
-          async sendPrompt(command) {
-            return {
-              operationId: command.operationId,
-              requestDigest: command.requestDigest,
-              ref,
-              control: command.control,
-              status: 'accepted',
-            }
-          },
-          async stop(command) {
-            counters.interactiveStops += 1
-            running = false
-            return {
-              operationId: command.operationId,
-              requestDigest: command.requestDigest,
-              ref,
-              control: command.control,
-              status: 'accepted',
-              effect: 'stopped',
-            }
-          },
-        }
-      },
-    }
+function makeInteractiveSession({ interfaceModule, counters }, request) {
+  const live = { generation: 0, running: true }
+  const ref = makeInteractiveRef(interfaceModule, request)
+  return {
+    ref,
+    view() {
+      return {
+        ref,
+        async claimControl(command) {
+          counters.interactiveClaims += 1
+          live.generation += 1
+          return {
+            operationId: command.operationId,
+            requestDigest: command.requestDigest,
+            ref,
+            status: 'accepted',
+            control: controlFor(interfaceModule, ref, live.generation),
+          }
+        },
+        async status() {
+          return live.running
+            ? { state: 'running', ref }
+            : {
+                state: 'exited',
+                ref,
+                endedAt: '2026-08-28T00:00:00.000Z',
+                reason: 'stopped',
+              }
+        },
+        async attach() {
+          return {
+            ref,
+            control: controlFor(interfaceModule, ref, live.generation),
+            cursors: { earliest: 0, latest: 0 },
+            async *events() {},
+            async input() {},
+            async resize() {},
+            async detach() {
+              return { status: 'detached', terminalSessionId: 'contract-terminal' }
+            },
+            async close() {
+              live.running = false
+              return { status: 'closed', terminalSessionId: 'contract-terminal' }
+            },
+          }
+        },
+        async sendPrompt(command) {
+          return {
+            operationId: command.operationId,
+            requestDigest: command.requestDigest,
+            ref,
+            control: command.control,
+            status: 'accepted',
+          }
+        },
+        async stop(command) {
+          counters.interactiveStops += 1
+          live.running = false
+          return {
+            operationId: command.operationId,
+            requestDigest: command.requestDigest,
+            ref,
+            control: command.control,
+            status: 'accepted',
+            effect: 'stopped',
+          }
+        },
+      }
+    },
   }
 }
 
