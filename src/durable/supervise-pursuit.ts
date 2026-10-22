@@ -7,6 +7,7 @@ import {
 } from '../runtime/supervise/graph'
 import { readRootStreamReceipt } from '../runtime/supervise/root-stream'
 import { supervisorRunDir } from '../runtime/supervise/run-layout'
+import { RunParkedError } from '../runtime/supervise/run-parking'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import { errorMessage } from '../runtime/util'
@@ -331,110 +332,116 @@ async function runDurablePursuit<Result>(
   // The lock is taken before the settle record is read so a run that settles between the read
   // and the lock cannot be re-entered; both refusals happen before the observer journal is touched.
   const lock = await acquireRunDirectoryLock(runDir, runId, now)
-  let delivery: PursuitObserverDeliverer | undefined
-  let terminalState: 'done' | 'failed' = 'failed'
-  try {
-    const observer = createFileObserverHooks(observerPath, pursuitId)
-    if (reopen !== undefined) await reopen(observer.journal)
-    else {
-      const prior = await readSettleRecord(runDir)
-      if (prior !== undefined) {
-        throw new SettledRunDirectoryError(settlePath, prior.tree.root, runId)
-      }
-    }
-
-    // Root lifecycle is an observer-plane fact, not something the manager has to
-    // narrate about itself. This also makes a zero-spawn/single-agent run observable.
-    await observer.journal.appendEvent(rootEvent(pursuitId, runId, 'before', now()))
-    delivery =
-      opts.observerDelivery === undefined
-        ? undefined
-        : startPursuitObserverDelivery(opts.observerDelivery, async () =>
-            projectPursuit(await observer.journal.read()),
-          )
-
-    let result: Result
+  return lock.run(async () => {
+    let delivery: PursuitObserverDeliverer | undefined
+    let terminalState: 'done' | 'failed' | 'running' = 'failed'
     try {
-      result = await execute({
-        // The observer runs first so a caller hook that throws cannot prevent the
-        // canonical lifecycle fact from entering the durable journal.
-        hooks: withPursuitContext(pursuitId, composeRuntimeHooks(observer.hooks, opts.hooks)),
-        // `runDir` owns the pursuit journal and terminal records. The public steer writer
-        // addresses the canonical per-run event directory beneath that root, so keep its control
-        // plane there without moving the durable pursuit records.
-        steerDir: opts.steerDir ?? supervisorRunDir(runDir, runId),
-      })
-    } catch (error) {
-      let pursuit: PursuitProjection | undefined
-      let observerError: unknown
-      try {
-        // The journal fact is raw evidence and lands first; the failure record summarizes it.
-        await observer.journal.appendEvent(
-          rootEvent(pursuitId, runId, 'error', now(), {
-            status: 'failed',
-            error: errorMessage(error),
-          }),
-        )
-        pursuit = projectPursuit(await observer.journal.read())
-      } catch (failure) {
-        observerError = failure
+      const observer = createFileObserverHooks(observerPath, pursuitId)
+      if (reopen !== undefined) await reopen(observer.journal)
+      else {
+        const prior = await readSettleRecord(runDir)
+        if (prior !== undefined) {
+          throw new SettledRunDirectoryError(settlePath, prior.tree.root, runId)
+        }
       }
-      if (observerError !== undefined || pursuit === undefined) {
-        const causes = observerError === undefined ? [error] : [error, observerError]
-        throw new Error(
-          'supervisePursuit: Runtime failed and durable observer completeness could not be proven',
-          { cause: new AggregateError(causes) },
-        )
-      }
-      // A failure record that cannot be written must not hide the journal fact above; it is
-      // reported as its own cause beside the run's error.
+
+      // Root lifecycle is an observer-plane fact, not something the manager has to
+      // narrate about itself. This also makes a zero-spawn/single-agent run observable.
+      await observer.journal.appendEvent(rootEvent(pursuitId, runId, 'before', now()))
+      delivery =
+        opts.observerDelivery === undefined
+          ? undefined
+          : startPursuitObserverDelivery(opts.observerDelivery, async () =>
+              projectPursuit(await observer.journal.read()),
+            )
+
+      let result: Result
       try {
-        // The root's stream is already on disk whether or not the run settled; the record names
-        // it so a root that died mid-turn keeps what it had streamed.
-        const rootStream = await readRootStreamReceipt(runDir)
-        await writeFailureRecord(runDir, {
-          runId,
-          pursuitId,
-          at: new Date(now()).toISOString(),
-          error: { name: errorName(error), message: errorMessage(error) },
-          ...(rootStream === undefined ? {} : { rootStream }),
+        result = await execute({
+          // The observer runs first so a caller hook that throws cannot prevent the
+          // canonical lifecycle fact from entering the durable journal.
+          hooks: withPursuitContext(pursuitId, composeRuntimeHooks(observer.hooks, opts.hooks)),
+          // `runDir` owns the pursuit journal and terminal records. The public steer writer
+          // addresses the canonical per-run event directory beneath that root, so keep its control
+          // plane there without moving the durable pursuit records.
+          steerDir: opts.steerDir ?? supervisorRunDir(runDir, runId),
         })
-      } catch (recordError) {
+      } catch (error) {
+        if (error instanceof RunParkedError && error.runId === runId) {
+          terminalState = 'running'
+          throw error
+        }
+        let pursuit: PursuitProjection | undefined
+        let observerError: unknown
+        try {
+          // The journal fact is raw evidence and lands first; the failure record summarizes it.
+          await observer.journal.appendEvent(
+            rootEvent(pursuitId, runId, 'error', now(), {
+              status: 'failed',
+              error: errorMessage(error),
+            }),
+          )
+          pursuit = projectPursuit(await observer.journal.read())
+        } catch (failure) {
+          observerError = failure
+        }
+        if (observerError !== undefined || pursuit === undefined) {
+          const causes = observerError === undefined ? [error] : [error, observerError]
+          throw new Error(
+            'supervisePursuit: Runtime failed and durable observer completeness could not be proven',
+            { cause: new AggregateError(causes) },
+          )
+        }
+        // A failure record that cannot be written must not hide the journal fact above; it is
+        // reported as its own cause beside the run's error.
+        try {
+          // The root's stream is already on disk whether or not the run settled; the record names
+          // it so a root that died mid-turn keeps what it had streamed.
+          const rootStream = await readRootStreamReceipt(runDir)
+          await writeFailureRecord(runDir, {
+            runId,
+            pursuitId,
+            at: new Date(now()).toISOString(),
+            error: { name: errorName(error), message: errorMessage(error) },
+            ...(rootStream === undefined ? {} : { rootStream }),
+          })
+        } catch (recordError) {
+          throw new Error(
+            `supervisePursuit: Runtime failed and the failure record ${failurePath} could not be written`,
+            { cause: new AggregateError([error, recordError]) },
+          )
+        }
+        throw new SupervisePursuitError(error, pursuit, observerPath, failurePath)
+      }
+
+      // The settle record is the re-entry guard, so it is durable before the journal says `done`.
+      // A record that cannot be written leaves the attempt open in the journal and the run
+      // re-enterable, which replays the settled children and settles again.
+      try {
+        await writeSettleRecord(runDir, settled(result))
+      } catch (cause) {
         throw new Error(
-          `supervisePursuit: Runtime failed and the failure record ${failurePath} could not be written`,
-          { cause: new AggregateError([error, recordError]) },
+          `supervisePursuit: Runtime settled but the settle record ${settlePath} could not be written`,
+          { cause },
         )
       }
-      throw new SupervisePursuitError(error, pursuit, observerPath, failurePath)
-    }
-
-    // The settle record is the re-entry guard, so it is durable before the journal says `done`.
-    // A record that cannot be written leaves the attempt open in the journal and the run
-    // re-enterable, which replays the settled children and settles again.
-    try {
-      await writeSettleRecord(runDir, settled(result))
-    } catch (cause) {
-      throw new Error(
-        `supervisePursuit: Runtime settled but the settle record ${settlePath} could not be written`,
-        { cause },
+      await observer.journal.appendEvent(
+        rootEvent(pursuitId, runId, 'after', now(), { status: 'done' }),
       )
+      terminalState = 'done'
+      return Object.freeze({
+        result,
+        pursuit: projectPursuit(await observer.journal.read()),
+        observerPath,
+        settlePath,
+      })
+    } finally {
+      // The terminal delivery reads the journal after its last fact, and is bounded so an
+      // unreachable Intelligence delays the return by at most twice its timeout.
+      await delivery?.close(terminalState)
+      await lock.release()
     }
-    await observer.journal.appendEvent(
-      rootEvent(pursuitId, runId, 'after', now(), { status: 'done' }),
-    )
-    terminalState = 'done'
-    return Object.freeze({
-      result,
-      pursuit: projectPursuit(await observer.journal.read()),
-      observerPath,
-      settlePath,
-    })
-  } finally {
-    // The terminal delivery reads the journal after its last fact, and is bounded so an
-    // unreachable Intelligence delays the return by at most twice its timeout.
-    await delivery?.close(terminalState)
-    await lock.release()
-  }
+  })
 }
 
 function rootEvent(

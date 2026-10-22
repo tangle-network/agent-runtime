@@ -318,6 +318,7 @@ const outsideCursorNamespaceKinds = [
   'seat-segment',
   'seat-materialized',
   'seat-paused',
+  'run-parked',
   'root-segment',
   'root-reentered',
   'reopened',

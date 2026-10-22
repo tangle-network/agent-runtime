@@ -27,6 +27,7 @@ import {
   writeSync,
 } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
+import { fenceRunWrite } from '../../durable/run-fence'
 
 interface DurableFileOptions {
   readonly mode?: number
@@ -43,6 +44,14 @@ type DurableFileContent = string | ((file: BigIntStats) => string)
  * of the temporary file, so a content function sees the published file's inode.
  */
 export function publishExclusiveDurableFile(
+  filePath: string,
+  content: DurableFileContent,
+  options: DurableFileOptions = {},
+): boolean {
+  return fenceRunWrite(() => publishExclusiveDurableFileUnchecked(filePath, content, options))
+}
+
+function publishExclusiveDurableFileUnchecked(
   filePath: string,
   content: DurableFileContent,
   options: DurableFileOptions = {},
@@ -102,6 +111,14 @@ export function appendDurableFile(
   content: string,
   options: DurableFileOptions = {},
 ): void {
+  fenceRunWrite(() => appendDurableFileUnchecked(filePath, content, options))
+}
+
+function appendDurableFileUnchecked(
+  filePath: string,
+  content: string,
+  options: DurableFileOptions = {},
+): void {
   const flags =
     fsConstants.O_APPEND |
     fsConstants.O_CREAT |
@@ -149,6 +166,14 @@ export function assertNoSymlinkDescendant(root: string, target: string, label = 
  * preserveMode retains ordinary access permissions despite the current umask; a new
  * file keeps normal creation semantics. Callers still own path validation and write exclusion. */
 export function writeAtomicDurableFile(
+  filePath: string,
+  content: string,
+  options: DurableFileOptions & { readonly preserveMode?: boolean } = {},
+): void {
+  fenceRunWrite(() => writeAtomicDurableFileUnchecked(filePath, content, options))
+}
+
+function writeAtomicDurableFileUnchecked(
   filePath: string,
   content: string,
   options: DurableFileOptions & { readonly preserveMode?: boolean } = {},

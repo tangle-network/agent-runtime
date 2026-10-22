@@ -33,7 +33,7 @@
  * profile, not this file, decides how blunt the words are.
  */
 
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { TraceAnalysisStore } from '@tangle-network/agent-eval'
 import { sha256 } from '../../content-digest'
@@ -41,6 +41,7 @@ import { ValidationError } from '../../errors'
 import { isFiniteNumber } from '../../finite-number'
 import type { CheckVerdict } from './completion-gate'
 import type { DriverBudgetReadout, DriverProgressMark } from './driver-retry'
+import { writeAtomicDurableFile } from './durable-file'
 
 /** Read a check function's return value into a verdict. Anything but `true` or a passing verdict
  *  is a failure: a check fails closed. */
@@ -718,17 +719,15 @@ async function writeContinuationFiles(
 ): Promise<void> {
   const at = join(dir, String(continuation))
   await mkdir(at, { recursive: true })
-  await writeFile(join(at, 'note.md'), `${files.note}\n`, 'utf8')
-  await writeFile(
+  writeAtomicDurableFile(join(at, 'note.md'), `${files.note}\n`)
+  writeAtomicDurableFile(
     join(at, 'verdict.json'),
     `${JSON.stringify(files.verdict ?? null, null, 2)}\n`,
-    'utf8',
   )
   if (files.panel !== undefined) {
-    await writeFile(
+    writeAtomicDurableFile(
       join(at, 'panel.jsonl'),
       files.panel.map((line) => JSON.stringify(line)).join('\n') + (files.panel.length ? '\n' : ''),
-      'utf8',
     )
   }
 }

@@ -1,4 +1,6 @@
 import type { FileHandle } from 'node:fs/promises'
+import { commitJsonLine, prepareJsonlTail } from './jsonl-append'
+import { fenceRunWrite } from './run-fence'
 
 /** Parse in-memory evidence with the same commit boundary as streamed journal reads. */
 export function parseCommittedJsonLines<T>(text: string, source: string): T[] {
@@ -109,23 +111,14 @@ export function appendCommittedJsonLine(path: string, record: unknown): Promise<
 export function appendCommittedJsonLine<T>(
   path: string,
   record: unknown,
-  acknowledge: (handle: FileHandle) => Promise<T>,
+  acknowledge: (fd: number) => T,
 ): Promise<T>
 export async function appendCommittedJsonLine<T>(
   path: string,
   record: unknown,
-  acknowledge?: (handle: FileHandle) => Promise<T>,
+  acknowledge?: (fd: number) => T,
 ): Promise<T | undefined> {
-  const fs = await import('node:fs/promises')
-  const needsSeparator = await prepareJsonlAppend(path)
-  const handle = await fs.open(path, 'a')
-  try {
-    await writeAllBytes(handle, `${needsSeparator ? '\n' : ''}${JSON.stringify(record)}\n`)
-    await handle.sync()
-    return await acknowledge?.(handle)
-  } finally {
-    await handle.close()
-  }
+  return commitJsonLine(path, record, acknowledge)
 }
 
 /** Serialize JSONL file updates across processes and aliases using Eval's existing file lock.
@@ -206,84 +199,9 @@ export async function upsertCommittedJsonLine<T>(
   })
 }
 
-/** FileHandle.write may legally make a short write. Loop until every byte is appended. */
-async function writeAllBytes(
-  handle: Pick<FileHandle, 'write'>,
-  value: string | Uint8Array,
-): Promise<void> {
-  const bytes = typeof value === 'string' ? Buffer.from(value) : Buffer.from(value)
-  let offset = 0
-  while (offset < bytes.byteLength) {
-    const { bytesWritten } = await handle.write(bytes, offset, bytes.byteLength - offset, null)
-    if (bytesWritten <= 0) {
-      throw new Error(`append-only file write made no progress at byte ${offset}`)
-    }
-    offset += bytesWritten
-  }
-}
-
-/** Prepare the tail under the journal owner's existing single-writer discipline.
- * Healthy appends read one byte, regardless of history size. Only recovery scans backward,
- * retaining a valid unterminated value or truncating an uncommitted torn tail. */
+/** Recover a torn tail under the same generation fence as durable publications. @internal */
 export async function prepareJsonlAppend(path: string): Promise<boolean> {
-  const fs = await import('node:fs/promises')
-  let handle: FileHandle
-  try {
-    handle = await fs.open(path, 'r+')
-  } catch (error) {
-    if (isNoEntError(error)) return false
-    throw error
-  }
-  try {
-    const size = (await handle.stat()).size
-    if (size === 0) return false
-    const lastByte = Buffer.allocUnsafe(1)
-    await readAt(handle, lastByte, size - 1)
-    if (lastByte[0] === 0x0a) return false
-
-    const chunks: Buffer[] = []
-    let end = size
-    let tailStart = 0
-    while (end > 0) {
-      const start = Math.max(0, end - 65_536)
-      const chunk = Buffer.allocUnsafe(end - start)
-      await readAt(handle, chunk, start)
-      const newline = chunk.lastIndexOf(0x0a)
-      chunks.push(chunk.subarray(newline + 1))
-      if (newline >= 0) {
-        tailStart = start + newline + 1
-        break
-      }
-      end = start
-    }
-    const tail = Buffer.concat(chunks.reverse()).toString('utf8')
-    try {
-      JSON.parse(tail)
-      return true
-    } catch (error) {
-      if (!(error instanceof SyntaxError)) throw error
-      await handle.truncate(tailStart)
-      await handle.sync()
-      return false
-    }
-  } finally {
-    await handle.close()
-  }
-}
-
-/** A short read is legal; an unexpected EOF means the owner's snapshot changed. */
-async function readAt(handle: FileHandle, buffer: Buffer, position: number): Promise<void> {
-  let offset = 0
-  while (offset < buffer.length) {
-    const { bytesRead } = await handle.read(
-      buffer,
-      offset,
-      buffer.length - offset,
-      position + offset,
-    )
-    if (bytesRead === 0) throw new Error('journal changed while preparing its append tail')
-    offset += bytesRead
-  }
+  return fenceRunWrite(() => prepareJsonlTail(path))
 }
 
 /** True for a filesystem error meaning "the file is not there yet" — the one condition an

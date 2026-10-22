@@ -2,7 +2,6 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
-import { sleep as runtimeSleep } from '../util'
 import { harnessTurnFailure } from './driver-execution-attempt'
 import { createActivityLog, type ExecutorProgress } from './progress'
 import {
@@ -11,6 +10,7 @@ import {
   scopeRetainedOwnerJournalRoot,
   scopeRetainedOwnerResult,
 } from './retained-scope-owner'
+import { sleepScopeWait } from './run-parking'
 import {
   bindReusableExecutorExecutionId,
   captureReusableExecutorConfig,
@@ -280,7 +280,16 @@ export class ManagerDriveSession {
     usageLimit: boolean,
     now: () => number,
   ): Promise<ActiveSeat> {
-    let afterRecheck = false
+    const events = (await seatSelection.journal.loadTree(seatJournalRoot)) ?? []
+    const paused = [...events]
+      .reverse()
+      .find(
+        (event) =>
+          event.id === scope.view.root &&
+          (event.kind === 'seat-paused' ||
+            (event.kind === 'seat-segment' && event.phase === 'started')),
+      )
+    let afterRecheck = paused?.kind === 'seat-paused' && Date.parse(paused.resumeAt) <= now()
     for (;;) {
       try {
         const seat = await seatChain.next(usageLimit && !afterRecheck, afterRecheck)
@@ -298,7 +307,7 @@ export class ManagerDriveSession {
         })
         await seatSelection.onPause(scope.view.root, error.resumeAt, 'paused')
         const waitMs = Math.max(1_000, Date.parse(error.resumeAt) - now())
-        await runtimeSleep(waitMs, scope.signal, false)
+        await sleepScopeWait(scope, waitMs, scope.signal, 'seat-wait')
         afterRecheck = true
       }
     }

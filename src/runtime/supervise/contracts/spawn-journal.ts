@@ -746,6 +746,13 @@ export type SpawnEvent =
       seq: number
       at: string
     }
+  | ({
+      /** A nonterminal root wait handed to the caller's keeper after its idle threshold. */
+      kind: 'run-parked'
+      id: NodeId
+      seq: number
+      at: string
+    } & import('../run-parking').RunParkingRecord)
   | {
       /** The root entered a new segment of its run (`SupervisorOpts.rootSegment`): its model,
        *  reasoning effort, harness or the caller's stack differs from the segment it last ran. The

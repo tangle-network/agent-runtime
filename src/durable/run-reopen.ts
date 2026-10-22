@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs'
-import { readFile, rm } from 'node:fs/promises'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import {
   publishExclusiveDurableFile,
@@ -11,6 +11,7 @@ import { assertValidBudget } from '../runtime/supervise/spend-validation'
 import { assertResumeLimits } from '../runtime/supervise/supervisor-root-contract'
 import type { Budget, SpawnEvent, SpawnJournal, SupervisorOpts } from '../runtime/supervise/types'
 import type { FileObserverJournal } from './observer-journal'
+import { fenceRunWrite } from './run-fence'
 import { SETTLE_RECORD_FILE, settleRecordDigest } from './settle-record'
 import { FileSpawnJournal } from './spawn-journal/journal-store'
 
@@ -175,16 +176,18 @@ export async function reopenSettledRun(input: {
       payload: { reopened: { operator: reopen.operator, reason: reopen.reason, archivedAs } },
     })
   }
-  setCancellationAside(runDir, operationId)
-  await rm(settlePath)
-  syncDurableDirectory(runDir)
+  fenceRunWrite(() => {
+    setCancellationAside(runDir, operationId)
+    unlinkSync(settlePath)
+    syncDurableDirectory(runDir)
+  })
 }
 
 /** The next free `settles/<n>.json`, or the archive that already holds these bytes (a reopen that
  *  crashed after archiving and before its journal row). */
 async function archiveName(runDir: string, settled: string): Promise<string> {
   const dir = resolve(runDir, SETTLE_ARCHIVE_DIR)
-  mkdirSync(dir, { recursive: true })
+  fenceRunWrite(() => mkdirSync(dir, { recursive: true }))
   const numbers = readdirSync(dir)
     .map((name) => /^(\d+)\.json$/u.exec(name)?.[1])
     .filter((n): n is string => n !== undefined)

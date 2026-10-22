@@ -1,4 +1,12 @@
-import { mkdir, open, rmdir, unlink } from 'node:fs/promises'
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  unlinkSync,
+} from 'node:fs'
 import { resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import {
@@ -9,8 +17,12 @@ import {
   parseLockHolderRecord,
   readLockHolderIdentity,
 } from '@tangle-network/agent-eval/lock-holder'
-import { publishExclusiveDurableFile } from '../runtime/supervise/durable-file'
+import {
+  publishExclusiveDurableFile,
+  writeAtomicDurableFile,
+} from '../runtime/supervise/durable-file'
 import { isNoEntError } from './jsonl-file'
+import { mutateRunClaim, runGenerationPath, runWithWriteClaim } from './run-fence'
 
 /*
  * Exclusive ownership of one durable run directory for the life of one `supervisePursuit` call.
@@ -32,7 +44,7 @@ import { isNoEntError } from './jsonl-file'
  * that, such as one written before these fields existed, is refused and is removed by hand.
  *
  * The lock is operational state, not evidence: replay, projection, and the settle record ignore
- * it. A holder whose process is gone is reclaimed, except when it dies during a guarded mutation; that guard requires manual recovery.
+ * it. A holder whose process is gone is reclaimed through Eval's crash-recoverable mutation lock.
  */
 
 /** The lock file `supervisePursuit` holds inside a run directory for the life of one call. */
@@ -41,6 +53,8 @@ export const RUN_DIRECTORY_LOCK_FILE = 'supervise.lock'
 /** What the lock file records about its holder. */
 export interface RunDirectoryLockHolder {
   readonly pid: number
+  /** Monotonic acquisition generation; absent on legacy lock records. */
+  readonly generation?: number
   /** ISO instant the holder took the lock. */
   readonly startedAt: string
   readonly runId: string
@@ -56,7 +70,10 @@ export interface RunDirectoryLockHolder {
 
 /** A held lock. `release()` removes the file; it is safe to call more than once. */
 export interface RunDirectoryLock extends RunDirectoryLockHolder {
+  readonly generation: number
   readonly path: string
+  /** Bind durable writes to this acquisition, including work queued before release. */
+  run<T>(operation: () => T): T
   release(): Promise<void>
 }
 
@@ -92,20 +109,36 @@ export async function acquireRunDirectoryLock(
 ): Promise<RunDirectoryLock> {
   const dir = resolve(runDir)
   const path = resolve(dir, RUN_DIRECTORY_LOCK_FILE)
-  await mkdir(dir, { recursive: true })
+  mkdirSync(dir, { recursive: true })
   const { pid, ...identity } = readLockHolderIdentity(process.pid)
   const owner = { pid, startedAt: new Date(now()).toISOString(), runId, ...identity }
-  return withMutationGuard(path, async () => {
-    const existing = await readLockFile(path)
+  return mutateRunClaim(path, () => {
+    const existing = readLockFile(path)
     if (existing.state === 'holder' && !holderIsDead(existing)) {
       throw new RunDirectoryLockedError(path, existing.holder)
     }
-    if (existing.state !== 'missing') await removeIfPresent(path)
+    let previousGeneration = 0
+    try {
+      previousGeneration = Number(readFileSync(runGenerationPath(dir), 'utf8'))
+      if (!Number.isSafeInteger(previousGeneration) || previousGeneration < 1) {
+        throw new Error('invalid run directory generation counter')
+      }
+    } catch (error) {
+      if (!isNoEntError(error)) throw error
+    }
+    const generation =
+      Math.max(
+        previousGeneration,
+        existing.state === 'holder' ? (existing.holder.generation ?? 0) : 0,
+      ) + 1
+    if (!Number.isSafeInteger(generation)) throw new Error('run directory generation exhausted')
+    writeAtomicDurableFile(runGenerationPath(dir), `${generation}\n`)
+    if (existing.state !== 'missing') removeIfPresent(path)
     const written: { holder?: RunDirectoryLockHolder } = {}
     // The lock file is a hard link of the temporary file, so the temporary file's inode identity
     // is the lock's, and a later verdict can prove this record was written for this very lock.
     const published = publishExclusiveDurableFile(path, (file) => {
-      written.holder = Object.freeze({ ...owner, lock: lockIdentity(file) })
+      written.holder = Object.freeze({ ...owner, generation, lock: lockIdentity(file) })
       return `${JSON.stringify(written.holder)}\n`
     })
     const holder = written.holder
@@ -115,7 +148,12 @@ export async function acquireRunDirectoryLock(
     let released = false
     return Object.freeze({
       ...holder,
+      generation,
       path,
+      run: <T>(operation: () => T): T => {
+        if (holder.lock === undefined) throw new Error('run lock has no inode identity')
+        return runWithWriteClaim({ path, generation, lock: holder.lock }, operation)
+      },
       release: async () => {
         if (released) return
         await releaseHolder(path, holder)
@@ -176,16 +214,16 @@ type LockFileState =
       readonly current: LockIdentity
     }
 
-async function readLockFile(path: string): Promise<LockFileState> {
+function readLockFile(path: string): LockFileState {
   let text: string
   let current: LockIdentity
   try {
-    const file = await open(path, 'r')
+    const file = openSync(path, 'r')
     try {
-      current = lockIdentity(await file.stat({ bigint: true }))
-      text = await file.readFile('utf8')
+      current = lockIdentity(fstatSync(file, { bigint: true }))
+      text = readFileSync(file, 'utf8')
     } finally {
-      await file.close()
+      closeSync(file)
     }
   } catch (error) {
     if (isNoEntError(error)) return { state: 'missing' }
@@ -211,7 +249,9 @@ async function readLockFile(path: string): Promise<LockFileState> {
     record.pid <= 0 ||
     typeof record.startedAt !== 'string' ||
     typeof record.runId !== 'string' ||
-    (record.processStart !== undefined && typeof record.processStart !== 'string')
+    (record.processStart !== undefined && typeof record.processStart !== 'string') ||
+    (record.generation !== undefined &&
+      (!Number.isSafeInteger(record.generation) || record.generation < 1))
   ) {
     throw new Error(`supervisePursuit: ${path} is not a readable lock file; remove it by hand`)
   }
@@ -225,6 +265,7 @@ async function readLockFile(path: string): Promise<LockFileState> {
       pid,
       startedAt,
       runId,
+      ...(record.generation === undefined ? {} : { generation: record.generation }),
       ...(processStart === undefined ? {} : { processStart }),
       ...identity,
     }),
@@ -240,61 +281,29 @@ function holderIsDead(existing: Extract<LockFileState, { state: 'holder' }>): bo
 
 /** Remove the lock only while it still names this holder; a reclaimed lock belongs to its new owner. */
 async function releaseHolder(path: string, holder: RunDirectoryLockHolder): Promise<void> {
-  await withMutationGuard(
-    path,
-    async () => {
-      const existing = await readLockFile(path)
-      if (existing.state !== 'holder') return
-      if (
-        existing.holder.pid !== holder.pid ||
-        existing.holder.startedAt !== holder.startedAt ||
-        existing.holder.runId !== holder.runId ||
-        existing.holder.processStart !== holder.processStart
-      )
-        return
-      await removeIfPresent(path)
-    },
-    true,
-  )
+  const deadline = performance.now() + 1_000
+  while (existsSync(`${path}.guard`) && performance.now() < deadline) await delay(10)
+  mutateRunClaim(path, () => {
+    const existing = readLockFile(path)
+    if (existing.state !== 'holder') return
+    if (
+      existing.holder.pid !== holder.pid ||
+      existing.holder.startedAt !== holder.startedAt ||
+      existing.holder.runId !== holder.runId ||
+      existing.holder.processStart !== holder.processStart ||
+      existing.holder.generation !== holder.generation ||
+      existing.holder.lock?.dev !== holder.lock?.dev ||
+      existing.holder.lock?.ino !== holder.lock?.ino ||
+      existing.holder.lock?.birthtimeNs !== holder.lock?.birthtimeNs
+    )
+      return
+    removeIfPresent(path)
+  })
 }
 
-/** Serialize stale reclamation and release; an abandoned guard requires operator recovery. */
-async function withMutationGuard<T>(
-  path: string,
-  mutate: () => Promise<T>,
-  waitForRelease = false,
-): Promise<T> {
-  const guard = `${path}.guard`
-  const deadline = performance.now() + (waitForRelease ? 1_000 : 0)
-  for (;;) {
-    try {
-      await mkdir(guard)
-      break
-    } catch (cause) {
-      if (
-        waitForRelease &&
-        (cause as { code?: unknown }).code === 'EEXIST' &&
-        performance.now() < deadline
-      ) {
-        await delay(10)
-        continue
-      }
-      throw new Error(
-        `supervisePursuit: cannot mutate ${path}; inspect ${guard} and remove it only after confirming no lock mutation is active`,
-        { cause },
-      )
-    }
-  }
+function removeIfPresent(path: string): void {
   try {
-    return await mutate()
-  } finally {
-    await rmdir(guard)
-  }
-}
-
-async function removeIfPresent(path: string): Promise<void> {
-  try {
-    await unlink(path)
+    unlinkSync(path)
   } catch (error) {
     if (!isNoEntError(error)) throw error
   }

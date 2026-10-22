@@ -62,13 +62,22 @@ async function settledWithoutDrain({ state, settlements }: WaitingEnv): Promise<
   await state.inFlightDrain
 }
 
-function hasOpenWork(env: WaitingEnv): boolean {
+function hasOpenWork(env: WaitingEnv, options?: { readonly includeSettled?: boolean }): boolean {
   const { running, unqueued, queued } = env.workers.openWork()
+  const includeSettled = options?.includeSettled !== false
+  const queuedWork = includeSettled
+    ? queued.length > 0
+    : queued.some((record) => record.event.type !== 'settled')
+  const pending = includeSettled
+    ? env.bus.pending(wakeEventKinds) > 0
+    : env.bus
+        .queued([...wakeEventKinds, 'question'])
+        .some((record) => record.event.type !== 'settled')
   return (
     running.length > 0 ||
     unqueued.length > 0 ||
-    queued.length > 0 ||
-    env.bus.pending(wakeEventKinds) > 0 ||
+    queuedWork ||
+    pending ||
     env.openReceiptCount() > 0 ||
     env.leadPublishing() > 0 ||
     // A settlement taken from the cursor and still being published, with its analysis.

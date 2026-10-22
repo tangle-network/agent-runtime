@@ -26,6 +26,7 @@ import { composeReentryTask, type ReentryContinuity, UNPROVEN_CONTINUITY } from 
 import { abandonScopeRetainedOwnerInvocation } from './retained-scope-owner'
 import { readRootStream } from './root-stream'
 import { applyRunCancellation } from './run-cancellation'
+import { bindScopeParkingDrain, RunParkedError, sleepScopeWait } from './run-parking'
 import { runTraceAnalysisStore } from './run-traces'
 import {
   beginScopeOwnerAttempt,
@@ -143,6 +144,15 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
     reported: false,
   }
   const { mcp } = session
+  bindScopeParkingDrain(
+    scope,
+    async () => {
+      await mcp.drainResolved()
+    },
+    () =>
+      !session.controls.hasOpenWork({ includeSettled: false }) &&
+      session.state.nextTurnInbox.pendingAuthority() === 0,
+  )
   const keeper = session.state.keeper
   // A run this process took over after the process driving it stopped: its first drive names the
   // workers that were open, and which of them this process re-places.
@@ -155,6 +165,7 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
           modelEvents: () => loop.modelEvents,
         }
   let driverFailed = true
+  let parked = false
   try {
     await runDriverWithRetry({
       ...(reentered === undefined ? {} : { reentered }),
@@ -163,6 +174,7 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
       budget: () => scope.budget,
       signal: scope.signal,
       stopSignal: session.state.stopController.signal,
+      sleep: (ms, signal) => sleepScopeWait(scope, ms, signal, 'paused-root'),
       ...rootStopPause(config, session),
       resolvePending: (failure, failures) =>
         abandonScopeRetainedOwnerInvocation(scope, failure, failures),
@@ -196,11 +208,16 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
       onBarrenPause: (pause) => recordScopeOwnerBarrenPause(loop.session.state.scope, pause),
     })
     driverFailed = false
+  } catch (error) {
+    parked = error instanceof RunParkedError && error.runId === scope.view.root
+    throw error
   } finally {
-    await driveHarness.closeSeatSegment?.(
-      scope.signal.aborted ? 'cancelled' : driverFailed ? 'failed' : 'completed',
-    )
-    if (!loop.reported) reportManagerLoop(loop)
+    if (!parked) {
+      await driveHarness.closeSeatSegment?.(
+        scope.signal.aborted ? 'cancelled' : driverFailed ? 'failed' : 'completed',
+      )
+      if (!loop.reported) reportManagerLoop(loop)
+    }
   }
   return loop.candidate
 }

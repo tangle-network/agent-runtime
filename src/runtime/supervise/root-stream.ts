@@ -37,6 +37,7 @@ import { closeSync, constants as fsConstants, fsyncSync, openSync, writeSync } f
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { isNoEntError, prepareJsonlAppend, readCommittedJsonLines } from '../../durable/jsonl-file'
+import { captureRunWriteContext, fenceRunWrite } from '../../durable/run-fence'
 import { errorMessage } from '../util'
 import { assertNoSymlinkDescendant } from './durable-file'
 import type { ExecutorProgressEvent, RootStreamReceipt } from './types'
@@ -77,6 +78,7 @@ export interface RootStreamSink {
 /** Create the writer for `<runDir>/root-stream.jsonl`. Nothing touches disk until the first
  *  `beginAttempt`, so a run whose root never drives leaves no file and no receipt. */
 export function createRootStreamSink(runDir: string, now: () => number): RootStreamSink {
+  const withClaim = captureRunWriteContext()
   const dir = resolve(runDir)
   const path = resolve(dir, ROOT_STREAM_FILE)
   let fd: number | undefined
@@ -97,67 +99,85 @@ export function createRootStreamSink(runDir: string, now: () => number): RootStr
     })) {
       seq += 1
     }
-    fd = openSync(
-      path,
-      fsConstants.O_APPEND |
-        fsConstants.O_CREAT |
-        fsConstants.O_WRONLY |
-        (typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0),
-      0o600,
-    )
-    if (needsSeparator) writeLine(fd, '')
+    fd = fenceRunWrite(() => {
+      const writer = openSync(
+        path,
+        fsConstants.O_APPEND |
+          fsConstants.O_CREAT |
+          fsConstants.O_WRONLY |
+          (typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0),
+        0o600,
+      )
+      try {
+        if (needsSeparator) writeLine(writer, '')
+        return writer
+      } catch (error) {
+        closeSync(writer)
+        throw error
+      }
+    })
   }
 
   return {
     async beginAttempt() {
-      if (closed) throw new Error('root stream: beginAttempt after close')
-      attempt += 1
-      // A retry re-enters the harness after the previous attempt's lines; make them durable
-      // before the next attempt appends after them.
-      if (fd !== undefined) fsyncSync(fd)
-      await openOnce()
+      return withClaim(async () => {
+        if (closed) throw new Error('root stream: beginAttempt after close')
+        attempt += 1
+        // A retry re-enters the harness after the previous attempt's lines; make them durable
+        // before the next attempt appends after them.
+        const writer = fd
+        if (writer !== undefined) fenceRunWrite(() => fsyncSync(writer))
+        await openOnce()
+      })
     },
     append(event) {
-      if (closed) throw new Error('root stream: append after close')
-      if (fd === undefined) throw new Error('root stream: append before beginAttempt')
-      const at = new Date(now()).toISOString()
-      const record = { seq: seq + 1, at, attempt, event }
-      // A progress payload is JSON the wire already parsed, so this branch is a guard, not a
-      // path: a value JSON cannot encode (a BigInt, a cycle, a hostile `toJSON`) is recorded as
-      // a dropped line so the turn continues and the file still says something was lost.
-      let line: string | undefined
-      try {
-        line = JSON.stringify(record)
-      } catch (error) {
-        line = JSON.stringify({
-          seq: seq + 1,
-          at,
-          attempt,
-          dropped: { kind: event.kind, reason: errorMessage(error) },
-        })
-      }
-      if (line === undefined) {
-        line = JSON.stringify({
-          seq: seq + 1,
-          at,
-          attempt,
-          dropped: { kind: event.kind, reason: 'event serialized to nothing' },
-        })
-      }
-      writeLine(fd, line)
-      seq += 1
+      return withClaim(() =>
+        fenceRunWrite(() => {
+          if (closed) throw new Error('root stream: append after close')
+          if (fd === undefined) throw new Error('root stream: append before beginAttempt')
+          const at = new Date(now()).toISOString()
+          const record = { seq: seq + 1, at, attempt, event }
+          // A progress payload is JSON the wire already parsed, so this branch is a guard, not a
+          // path: a value JSON cannot encode (a BigInt, a cycle, a hostile `toJSON`) is recorded as
+          // a dropped line so the turn continues and the file still says something was lost.
+          let line: string | undefined
+          try {
+            line = JSON.stringify(record)
+          } catch (error) {
+            line = JSON.stringify({
+              seq: seq + 1,
+              at,
+              attempt,
+              dropped: { kind: event.kind, reason: errorMessage(error) },
+            })
+          }
+          if (line === undefined) {
+            line = JSON.stringify({
+              seq: seq + 1,
+              at,
+              attempt,
+              dropped: { kind: event.kind, reason: 'event serialized to nothing' },
+            })
+          }
+          writeLine(fd, line)
+          seq += 1
+        }),
+      )
     },
     async close() {
-      if (closed) throw new Error('root stream: closed twice')
-      closed = true
-      if (fd === undefined) return undefined
-      try {
-        fsyncSync(fd)
-      } finally {
-        closeSync(fd)
-        fd = undefined
-      }
-      return readRootStreamReceipt(dir)
+      return withClaim(async () => {
+        if (closed) throw new Error('root stream: closed twice')
+        closed = true
+        const writer = fd
+        if (writer === undefined) return undefined
+        try {
+          fenceRunWrite(() => fsyncSync(writer))
+        } finally {
+          closeSync(writer)
+          fd = undefined
+        }
+        return readRootStreamReceipt(dir)
+      })
     },
   }
 }
