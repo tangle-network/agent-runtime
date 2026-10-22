@@ -3497,7 +3497,7 @@ snapshots:
   '@tangle-network/agent-provider-tangle@4.4.6(@tangle-network/sandbox@0.64.14(@modelcontextprotocol/sdk@1.32.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5)))':
     dependencies:
       '@tangle-network/agent-interface': 5.7.0
-      '@tangle-network/sandbox': 0.64.13(@modelcontextprotocol/sdk@1.32.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
+      '@tangle-network/sandbox': 0.64.14(@modelcontextprotocol/sdk@1.32.0(supports-color@10.2.2)(zod@4.6.5))(viem@2.56.9(typescript@6.0.3)(zod@4.6.5))
 
   '@tangle-network/agent-trace-contract@2.1.0': {}
 
