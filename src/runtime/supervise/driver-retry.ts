@@ -194,8 +194,9 @@ export interface DriverContinuationPolicy {
   /** Re-entered drives in a row that may complete without progress before each further
    *  continuation waits {@link barrenPauseMs}. Minimum 1. */
   readonly maxBarren: number
-  /** Epoch ms at or after which no continuation starts. */
-  readonly deadlineMs: number
+  /** Epoch ms at or after which no continuation starts. Absent: no clock bounds the
+   *  continuations; the check, cancellation and the budget do. */
+  readonly deadlineMs?: number
   /** Write the continuation note for this re-entry. */
   readonly compose: (context: ContinuationContext) => Promise<string>
   /** True when the run is already closed (the manager's `stop`, a progress stop rule). */
@@ -259,8 +260,11 @@ export interface DriverRetryRun {
 
 function assertContinuationPolicy(continuation: DriverContinuationPolicy | undefined): void {
   if (continuation === undefined) return
-  if (!Number.isFinite(continuation.deadlineMs) || continuation.deadlineMs <= 0) {
-    throw new ValidationError('runDriverWithRetry: a continuation needs a finite positive deadline')
+  const { deadlineMs } = continuation
+  if (deadlineMs !== undefined && (!Number.isFinite(deadlineMs) || deadlineMs <= 0)) {
+    throw new ValidationError(
+      'runDriverWithRetry: continuation.deadlineMs, when set, must be a finite positive deadline',
+    )
   }
   if (!Number.isInteger(continuation.maxBarren) || continuation.maxBarren < 1) {
     throw new ValidationError('runDriverWithRetry: continuation.maxBarren must be an integer >= 1')
@@ -270,8 +274,10 @@ function assertContinuationPolicy(continuation: DriverContinuationPolicy | undef
 /**
  * Run the driver until it completes WITH ITS CONTRACT MET, or until the budget, the deadline, an
  * abort, a terminal error, or a ceiling stops it. Transient failures are retried. A drive that
- * returns with its completion check unmet is re-entered with Runtime's continuation note until the
- * continuation's deadline, pausing first once `maxBarren` turns in a row made no progress. Throws
+ * returns with its completion check unmet is re-entered with Runtime's continuation note until a
+ * bound ends it (cancellation, the budget, or a deadline when one is set), pausing first once
+ * `maxBarren` turns in a row made no progress. A failure after the run was aborted ends the loop
+ * `deadline` when a deadline cut it and `aborted` otherwise, never `terminal-error`. Throws
  * `DriverAttemptsExhaustedError` (cause = the last real failure) when a FAILURE ends the loop; a
  * completed drive returns, met contract or not, because deciding what an undelivered run is worth
  * belongs to the finalizer, not to this loop.

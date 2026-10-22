@@ -16010,8 +16010,8 @@ How a manager with a completion check is sent back when its turn ends unmet.
 
 Required for an external manager with a check: Runtime supplies no default, because a retry
 default in source is a research decision the record must make. There is no re-prompt count.
-The loop re-enters until the check passes or a bound ends it: this deadline, the budget, or
-cancellation. After `maxBarren` turns in a row without progress, each further continuation
+The loop re-enters until the check passes or a bound ends it: cancellation, the budget, or
+this deadline when one is set. After `maxBarren` turns in a row without progress, each further continuation
 waits a barren pause first (5 minutes, doubling to 60) and is journaled `barren-pause`; a
 barren streak never ends the run. A tool `report_blocked` shows
 really failed is recorded and the loop goes on: a blocked tool is not a terminal condition.
@@ -16019,11 +16019,12 @@ Progress means the check's best composite rose, an accepted result, or a worker 
 
 #### Properties
 
-##### deadline
+##### deadline?
 
-> `readonly` **deadline**: `string` \| `number`
+> `readonly` `optional` **deadline?**: `string` \| `number`
 
-No re-entry starts at or after this instant: epoch ms, or an ISO 8601 time.
+No re-entry starts at or after this instant: epoch ms, or an ISO 8601 time. Absent: no clock
+ ends the run; it ends when its check passes, on cancellation, or on a spent budget.
 
 ##### maxBarren
 
@@ -21847,7 +21848,8 @@ Per-re-entry record for every retried worker spawn — what makes a saturated ex
 > `readonly` `optional` **continuation?**: [`ContinuationPolicy`](#continuationpolicy)
 
 How an EXTERNAL-harness manager with a completion check is sent back when its turn ends with
-the check unmet: the deadline, `maxBarren`, and the continuation note's profile and switches.
+the check unmet: `maxBarren`, an optional deadline, and the continuation note's profile and
+switches.
 
 A harness owns its own turn loop, so it decides when it is finished — and it can decide that
 while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
@@ -21858,7 +21860,8 @@ director heard held no line of the check's verdict.
 
 A continuation is the retry path, not a second loop: same scope, same coordination server,
 same live children, and the same budget, deadline, and abort bounds. There is no count: the
-loop ends when the check passes, at this deadline, on the budget, or on cancellation. After
+loop ends when the check passes, on cancellation, on the budget, or at this deadline when one
+is set; with none, no clock ends the run. After
 `maxBarren` turns in a row without progress, each further continuation waits a barren pause
 first, journaled `barren-pause`. A turn that ends, a blocked tool, and a lost
 stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`src/runtime/supervise/continuation.ts`); the
@@ -26132,12 +26135,12 @@ select `code`: the caller's brain that makes every root call (`RunGraphOptions.b
 
 The completion check. Every spec's run has one: the continuation is sent back by it.
 
-##### deadline
+##### deadline?
 
-> `readonly` **deadline**: `string` \| `number`
+> `readonly` `optional` **deadline?**: `string` \| `number`
 
 No re-entry starts at or after this instant (epoch ms or ISO 8601). It is the run's time
- bound, not design, so two runs of one spec share a digest.
+ bound, not design, so two runs of one spec share a digest. Absent: no clock ends the run.
 
 ##### continuation
 
@@ -26997,7 +27000,8 @@ Per-re-entry record for every retried worker spawn — what makes a saturated ex
 > `readonly` `optional` **continuation?**: [`ContinuationPolicy`](#continuationpolicy)
 
 How an EXTERNAL-harness manager with a completion check is sent back when its turn ends with
-the check unmet: the deadline, `maxBarren`, and the continuation note's profile and switches.
+the check unmet: `maxBarren`, an optional deadline, and the continuation note's profile and
+switches.
 
 A harness owns its own turn loop, so it decides when it is finished — and it can decide that
 while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
@@ -27008,7 +27012,8 @@ director heard held no line of the check's verdict.
 
 A continuation is the retry path, not a second loop: same scope, same coordination server,
 same live children, and the same budget, deadline, and abort bounds. There is no count: the
-loop ends when the check passes, at this deadline, on the budget, or on cancellation. After
+loop ends when the check passes, on cancellation, on the budget, or at this deadline when one
+is set; with none, no clock ends the run. After
 `maxBarren` turns in a row without progress, each further continuation waits a barren pause
 first, journaled `barren-pause`. A turn that ends, a blocked tool, and a lost
 stream are segment boundaries, never the end of the run. Runtime writes the note from the check's verdict (`src/runtime/supervise/continuation.ts`); the
@@ -28418,7 +28423,7 @@ Called once when the external driver loop ends, returned or thrown, with what it
 > `readonly` `optional` **continuation?**: [`ContinuationPolicy`](#continuationpolicy)
 
 How an EXTERNAL manager with `deliverable` is sent back when its turn ends with the check
- unmet: the deadline, `maxBarren`, and the note's profile and switches (`src/runtime/supervise/continuation.ts`).
+ unmet: `maxBarren`, an optional deadline, and the note's profile and switches (`src/runtime/supervise/continuation.ts`).
  Required with `deliverable` on the external arm, refused without one, and refused for a
  router-brained supervisor, which runs its own turn loop in process. The harness owns its own
  turn loop, so it can end while the run has delivered nothing — 376 of 376 winning
@@ -36454,7 +36459,7 @@ Durable provider identity evidence, independent from the planned materialization
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; \} \| `object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"stopped"` \| `"budget-exhausted"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; \} \| `object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"stopped"` \| `"budget-exhausted"` \| `"deadline"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -36586,7 +36591,7 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ***
 
-`object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"stopped"` \| `"budget-exhausted"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \}
+`object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"stopped"` \| `"budget-exhausted"` \| `"deadline"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \}
 
 ***
 
@@ -41829,9 +41834,10 @@ score is not marked `failed`; a `failed` score means the judge itself did not ru
 
 ### admitContinuationPolicy()
 
-> **admitContinuationPolicy**(`policy`, `context`): `number`
+> **admitContinuationPolicy**(`policy`, `context`): `number` \| `undefined`
 
-Resolve and check a policy before any compute. Returns the deadline in epoch ms.
+Resolve and check a policy before any compute. Returns the deadline in epoch ms, or undefined
+ when the policy sets none.
 
 #### Parameters
 
@@ -41845,7 +41851,7 @@ Resolve and check a policy before any compute. Returns the deadline in epoch ms.
 
 #### Returns
 
-`number`
+`number` \| `undefined`
 
 ***
 
@@ -43657,7 +43663,7 @@ a stamp asserting something that never happened.
 
 ### supervise()
 
-> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \}\>
+> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"deadline"` \| `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \}\>
 
 **`Stable`**
 
@@ -43679,7 +43685,7 @@ One-call supervisor: build + run a supervisor from its exact profile.
 
 #### Returns
 
-`Promise`\<\{ `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \}\>
+`Promise`\<\{ `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"deadline"` \| `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \}\>
 
 ***
 

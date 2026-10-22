@@ -581,7 +581,7 @@ describe("a root's environment at run settlement", () => {
     })
     deadlineAt = tree.deadlineAt
     const result = await tree.settling
-    expect(result).toMatchObject({ kind: 'no-winner', reason: 'budget-exhausted' })
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'deadline' })
     // The turn the deadline ended has no result; the capture it handed over is its receipt.
     const events = (await tree.rootEvents()).filter(
       (event) => event.id === 'root-deadline-mid-turn',
