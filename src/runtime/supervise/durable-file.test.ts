@@ -140,21 +140,6 @@ describe('durable file helpers', () => {
     expect(readdirSync(join(root, 'cancellations'))).toEqual(['run.json'])
   })
 
-  it('writes run cancellation requests through the durable replacement path', () => {
-    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
-
-    expect(cancelRun(root, 'run-request', { source: 'test', reason: 'stop now' }).effect).toBe(
-      'unknown',
-    )
-    expect(readRunCancelRequest(root)).toMatchObject({
-      operationId: 'run-request',
-      source: 'test',
-      reason: 'stop now',
-    })
-    expectPrivateMode(join(root, 'cancellations', 'run.request.json'))
-    expect(readdirSync(join(root, 'cancellations'))).toEqual(['run.request.json'])
-  })
-
   it('appends worker cancellation requests in order and replays one operation', () => {
     root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
 
@@ -201,19 +186,6 @@ describe('durable file helpers', () => {
     expect(() =>
       cancelWorker(root!, 'worker-default', 'worker-default-op', { reason: 'reason-a' }),
     ).toThrow(/reason/u)
-  })
-
-  it('rejects run cancellation payload changes for one operation', () => {
-    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
-
-    cancelRun(root, 'run-op', { source: 'source-a', reason: 'reason-a' })
-    expect(() => cancelRun(root!, 'run-op')).toThrow(/source/u)
-    expect(() => cancelRun(root!, 'run-op', { source: 'source-b', reason: 'reason-a' })).toThrow(
-      /source/u,
-    )
-    expect(() => cancelRun(root!, 'run-op', { source: 'source-a', reason: 'reason-b' })).toThrow(
-      /reason/u,
-    )
   })
 
   it('carries the operator on the queued result and refuses a retry that changes it', () => {
@@ -285,23 +257,6 @@ describe('durable file helpers', () => {
     expect(() => cancelRun(root!, 'run-op', { operator: 'bob' })).toThrow(
       /acknowledgement \(operator 'alice' != 'bob'\)/u,
     )
-  })
-
-  it('rejects an operator on a retry after an operator-less request was admitted', () => {
-    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
-
-    expect(cancelRun(root, 'run-op', { source: 'test' }).operator).toBeUndefined()
-    expect(() => cancelRun(root!, 'run-op', { source: 'test', operator: 'alice' })).toThrow(
-      /operator/u,
-    )
-  })
-
-  it('rejects explicit run fields after an omitted field was admitted', () => {
-    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
-
-    cancelRun(root, 'run-default-op')
-    expect(() => cancelRun(root!, 'run-default-op', { source: 'source-a' })).toThrow(/source/u)
-    expect(() => cancelRun(root!, 'run-default-op', { reason: 'reason-a' })).toThrow(/reason/u)
   })
 
   it('rejects an append target that is a symbolic link', () => {

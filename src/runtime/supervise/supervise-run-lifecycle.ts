@@ -68,7 +68,7 @@ export function superviseInternal(
     durableCancellation.abort(
       request === undefined
         ? new Error(reason)
-        : new RunCancellationReason(request.source, reason, request.operationId),
+        : new RunCancellationReason(request.source, reason, request.operationId, request.operator),
     )
   }
   // Every configuration fault above throws SYNCHRONOUSLY (no compute starts); only the durable
@@ -198,6 +198,8 @@ function rootSupervisorAgent(
     ...(options.decideGate ? { decideGate: options.decideGate } : {}),
     ...(options.continuityByProfile ? { continuityByProfile: options.continuityByProfile } : {}),
     ...supervisorTurnOptions(options),
+    // The root alone pauses where it would stop; nested deps are built without this key.
+    ...(options.pauseRootStops === true ? { pauseRootStops: true } : {}),
     ...(deliverable && options.continuation && setup.externalRoot
       ? {
           continuation: options.continuation,

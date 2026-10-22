@@ -11,7 +11,7 @@ import {
 describe('external run cancellation observation', () => {
   it('does not acknowledge a callback that failed to issue cancellation', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'run-cancel-observer-'))
-    cancelRun(dir, 'rejected')
+    cancelRun(dir, 'rejected', { operator: 'test-operator' })
     const observer = watchRunCancellation(dir, () => {
       throw new Error('not bound')
     })
@@ -28,11 +28,17 @@ describe('external run cancellation observation', () => {
     const dir = await mkdtemp(join(tmpdir(), 'run-cancel-observer-'))
     try {
       for (const deadlineMs of [-1, NaN, Infinity]) {
-        expect(() => cancelRun(dir, 'deadline', { deadlineMs })).toThrow(/deadlineMs/)
+        expect(() => cancelRun(dir, 'deadline', { operator: 'test-operator', deadlineMs })).toThrow(
+          /deadlineMs/,
+        )
       }
-      cancelRun(dir, 'deadline', { deadlineMs: 50 })
-      expect(() => cancelRun(dir, 'deadline', { deadlineMs: 51 })).toThrow(/deadlineMs/)
-      expect(cancelRun(dir, 'deadline', { deadlineMs: 50 }).effect).toBe('unknown')
+      cancelRun(dir, 'deadline', { operator: 'test-operator', deadlineMs: 50 })
+      expect(() =>
+        cancelRun(dir, 'deadline', { operator: 'test-operator', deadlineMs: 51 }),
+      ).toThrow(/deadlineMs/)
+      expect(cancelRun(dir, 'deadline', { operator: 'test-operator', deadlineMs: 50 }).effect).toBe(
+        'unknown',
+      )
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

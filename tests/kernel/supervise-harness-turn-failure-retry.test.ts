@@ -368,6 +368,7 @@ describe('a root harness turn that ends with a failed outcome', () => {
       ])
       if (record.attempt === 1) {
         cancelRun(fixture.runDir, 'stop-dispatch-retries', {
+          operator: 'test-operator',
           source: 'operator',
           reason: 'inspect failure',
         })

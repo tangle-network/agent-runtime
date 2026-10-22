@@ -99,7 +99,11 @@ it.each([true, false])(
       await childStarted
       await directorEnded
       await new Promise<void>((resolve) => setImmediate(resolve))
-      cancelRun(dir, 'cancel-drain', { reason: 'operator', source: 'test' })
+      cancelRun(dir, 'cancel-drain', {
+        operator: 'test-operator',
+        reason: 'operator',
+        source: 'test',
+      })
       await expect.poll(() => aborted, { timeout: 2_000 }).toBe(true)
       const settled = await pending
       expect(aborted).toBe(true)
@@ -151,7 +155,11 @@ it('fences a nested driver retry when durable cancellation races a backend failu
         }
         return async () => {
           attempts += 1
-          cancelRun(dir, 'retry-race', { reason: 'operator', source: 'test' })
+          cancelRun(dir, 'retry-race', {
+            operator: 'test-operator',
+            reason: 'operator',
+            source: 'test',
+          })
           throw new Error('bridge execution cancelled')
         }
       },
@@ -456,7 +464,11 @@ describe('supervisePursuit durable terminal records', () => {
   it('leaves a queued cancel to the live holder: a second entry is refused before it settles anything', async () => {
     const held = await acquireRunDirectoryLock(runDir, 'run:record:holder')
     try {
-      cancelRun(runDir, 'held-cancel', { reason: 'operator', source: 'test' })
+      cancelRun(runDir, 'held-cancel', {
+        operator: 'test-operator',
+        reason: 'operator',
+        source: 'test',
+      })
       const refused = await run(runDir, 'run:record:holder').catch((error) => error)
       expect(refused).toBeInstanceOf(RunDirectoryLockedError)
       // Only the holder applies the cancel: the refused entry wrote no acknowledgement or record.

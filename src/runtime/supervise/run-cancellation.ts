@@ -119,7 +119,8 @@ export interface RunCancelRequest {
   /** Requested observation target, measured by the acknowledgement's deadlineExceeded field.
    * The observer always cascades eagerly. This does not guarantee scheduler latency or cleanup. */
   readonly deadlineMs?: number
-  /** Stable operator/requester identity for audit trails. */
+  /** Who stops the run. `cancelRun` requires it on every new request; it is optional here only
+   *  so a request written before that rule still reads. The settle record carries it. */
   readonly operator?: string
   readonly reason?: string
 }
@@ -240,6 +241,10 @@ export function writeRunCancellation(eventDir: string, record: RunCancellation):
  *
  * A run carries ONE run-scoped operation: a second request under a different `operationId` throws
  * rather than silently replacing the pending one, because both would claim the same single abort.
+ * Reopening a settled run (`supervisePursuit`'s `reopen`) moves that operation aside.
+ *
+ * A NEW request must name its `operator`, so every stop says who made it. A replay of a request
+ * or acknowledgement written before that rule is answered as it was.
  */
 export function cancelRun(
   eventDir: string,
@@ -283,6 +288,11 @@ export function cancelRun(
     }
     assertRunCancellationMatchesCandidate(acknowledged, candidate)
     return acknowledged
+  }
+  // A new request names who stops the run. A replay of a request written before this rule keeps
+  // its absent operator: it was admitted above against the file it replays.
+  if (pending === undefined && (options.operator === undefined || options.operator.trim() === '')) {
+    throw new Error('cancelRun: operator is required; name who stops the run')
   }
   const source = options.source ?? 'human'
   const request: RunCancelRequest = pending ?? {

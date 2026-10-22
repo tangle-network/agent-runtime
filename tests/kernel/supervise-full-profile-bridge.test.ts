@@ -689,7 +689,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     })
     try {
       await firstRequest
-      expect(cancelRun(directory, 'cancel-active', { source: 'test' }).effect).toBe('unknown')
+      expect(cancelRun(directory, 'cancel-active', { operator: 'test' }).effect).toBe('unknown')
       await expect.poll(() => cancelled.length, { timeout: 1000 }).toBe(1)
       const result = await running
       expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })

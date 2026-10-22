@@ -277,7 +277,11 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
     const [harness] = [...live.processes.values()]
     expect(running(harness!)).toBe(true)
 
-    cancelRun(runDir, 'operator-cancel', { source: 'operator', reason: 'no subscription spend' })
+    cancelRun(runDir, 'operator-cancel', {
+      operator: 'test-operator',
+      source: 'operator',
+      reason: 'no subscription spend',
+    })
     const result = await settling
 
     expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })

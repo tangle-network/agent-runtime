@@ -437,6 +437,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'driveHarness',
   'selectSeat',
   'driverRetry',
+  'pauseRootStops',
   'onDriverAttempt',
   'workerRetry',
   'onWorkerRetry',
