@@ -1807,6 +1807,44 @@ The holder the lock file names. Absent when no lock file names one, which reads 
 
 ***
 
+### RunReopen
+
+`supervisePursuit`'s `reopen` option: reopen this settled run under its own run id.
+
+#### Properties
+
+##### operator
+
+> `readonly` **operator**: `string`
+
+Who reopens the run. Required and non-empty.
+
+##### reason
+
+> `readonly` **reason**: `string`
+
+Why. Required and non-empty.
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+Idempotency key: calling again with it finishes a reopen that crashed partway.
+
+##### budget?
+
+> `readonly` `optional` **budget?**: [`Budget`](runtime.md#budget-10)
+
+The budget the reopened run is held to, recorded on its `reopened` row, which a later resume
+must then match. Omit and the call's `budget` must equal the recorded one: the root's, or the
+last budget a reopen recorded. A run that settled `budget-exhausted` and reopens without a
+larger budget pauses at once (with `driverRetry.pauseRootStops`) or settles
+`budget-exhausted` again. A deadline is measured from the original root instant, so a run
+whose recorded deadline has passed settles `deadline` at once unless this budget drops the
+deadline or moves it.
+
+***
+
 ### DurableFailureRecord
 
 What `failure.json` records about the most recent throw.
@@ -1878,9 +1916,10 @@ Intelligence joins those isolated projections without a shared write head.
 
 > `readonly` `optional` **retainedAtSettlement?**: `"release"`
 
-Always `'release'`. The settle record refuses re-entry, so no later call resumes a settled
-pursuit and nothing else would release the provider environments its retained children hold.
-`'keep'` is refused rather than ignored.
+Always `'release'`. A settle record is written once per segment and refuses re-entry, so no
+later call resumes a settled pursuit unless an explicit `reopen` archives it; nothing else
+would release the provider environments its retained children hold. `'keep'` is refused
+rather than ignored.
 
 ###### Overrides
 
@@ -1920,6 +1959,19 @@ Deliver this run's observer projection to Intelligence at start, every `interval
 runs, and at settlement or failure, so the run is findable by its pursuit id from wherever it
 was started. Optional and fail-open: a delivery that fails is reported once and never changes
 the run. Each version of a `versions` chain delivers its own run under the same pursuit.
+
+##### reopen?
+
+> `readonly` `optional` **reopen?**: [`RunReopen`](#runreopen)
+
+Reopen this settled run under its own run id instead of refusing it (`./run-reopen.ts`).
+Under the directory lock, `result.json` is archived byte for byte to `settles/<n>.json`, one
+`reopened` journal row names the operator and reason, the run's settled cancel operation is
+moved aside, and the run resumes from its journal (`resume: true`): settled children replay by
+key and spend from before the reopen is debited once. `reopen.budget`, when set, replaces the
+call's `budget` and is recorded for later resumes. Refused with `fork` or `versions`, and on a
+directory with no `result.json` ("nothing to reopen; resume it"); a reopen whose budget or
+reservation policy the recorded run refuses ("resume budget mismatch") writes nothing.
 
 ##### runContext?
 
@@ -2408,6 +2460,15 @@ deadline, an abort, or a run of attempts that changed nothing at all.
 
 Omit = retry under the defaults. `{ enabled: false }` = the historical behavior where the first
 driver failure ends the run. Applies to the root manager and every recursive manager under it.
+
+`driverRetry.pauseRootStops: true` makes the external ROOT pause where this policy would stop
+it: a terminal failure, no progress, the attempt ceilings, a repeated failure, an unresolved
+pending invocation and a spent budget each journal one `paused` row (`replacesStop`, `streak`,
+`resumeAt`) and wait 5 minutes, doubling to 60, before the next drive. Only a solve, a cancel
+(`cancelRun`) or a declared deadline then ends the run; a root steer ends any pause at once,
+and a pool still spent then pauses again. Nested managers ignore the field, keep their stops
+and settle `down` for their parent. Refused with `driverRetry.enabled: false`. Default off:
+leave it off when the run must return on its own.
 
 ###### Inherited from
 
@@ -3674,6 +3735,15 @@ deadline, an abort, or a run of attempts that changed nothing at all.
 
 Omit = retry under the defaults. `{ enabled: false }` = the historical behavior where the first
 driver failure ends the run. Applies to the root manager and every recursive manager under it.
+
+`driverRetry.pauseRootStops: true` makes the external ROOT pause where this policy would stop
+it: a terminal failure, no progress, the attempt ceilings, a repeated failure, an unresolved
+pending invocation and a spent budget each journal one `paused` row (`replacesStop`, `streak`,
+`resumeAt`) and wait 5 minutes, doubling to 60, before the next drive. Only a solve, a cancel
+(`cancelRun`) or a declared deadline then ends the run; a root steer ends any pause at once,
+and a pool still spent then pauses again. Nested managers ignore the field, keep their stops
+and settle `down` for their parent. Refused with `driverRetry.enabled: false`. Default off:
+leave it off when the run must return on its own.
 
 ###### Inherited from
 
@@ -5533,7 +5603,7 @@ Read the most recent failure record, or `undefined` when the directory holds non
 
 ### supervisePursuit()
 
-> **supervisePursuit**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"deadline"` \| `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error`: [`NoWinnerError`](runtime.md#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend-1); `childWork`: [`Spend`](runtime.md#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \}\>\>
+> **supervisePursuit**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"deadline"` \| `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error`: [`NoWinnerError`](runtime.md#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend-1); `childWork`: [`Spend`](runtime.md#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \}\>\>
 
 One-call durable pursuit execution over the canonical `supervise()` kernel.
 
@@ -5570,7 +5640,7 @@ An abandoned `supervise.lock.guard` requires removal after confirming no lock mu
 
 #### Returns
 
-`Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"deadline"` \| `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error`: [`NoWinnerError`](runtime.md#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend-1); `childWork`: [`Spend`](runtime.md#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \}\>\>
+`Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"deadline"` \| `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error`: [`NoWinnerError`](runtime.md#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend-1); `childWork`: [`Spend`](runtime.md#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \}\>\>
 
 ***
 

@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.342.2` and `@tangle-network/agent-eval@0.217.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.343.0` and `@tangle-network/agent-eval@0.218.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -169,7 +169,7 @@ Import from `@tangle-network/agent-runtime/agent` — 30 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 89 exports.
+Import from `@tangle-network/agent-runtime/durable` — 90 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -224,6 +224,7 @@ Import from `@tangle-network/agent-runtime/durable` — 89 exports.
 | `RunDirectoryHolderLiveness` | interface | What {@link runDirectoryHolderIsLive} proved about a run directory's recorded holder. |
 | `RunDirectoryLock` | interface | A held lock. `release()` removes the file; it is safe to call more than once. |
 | `RunDirectoryLockHolder` | interface | What the lock file records about its holder. |
+| `RunReopen` | interface | `supervisePursuit`'s `reopen` option: reopen this settled run under its own run id. |
 | `SettledPursuitVersion` | interface | A settled version, as the judge and `next` read it. |
 | `SuperviseGraphPursuitOptions` | interface | Options for {@link superviseGraphPursuit}: every `runGraph` option, plus the pursuit identity, |
 | `VersionJudge` | interface | An outside judge. Runtime calls it after a version's settle record exists, never inside the |
@@ -1626,7 +1627,7 @@ Import from `@tangle-network/agent-eval/campaign` — 492 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `acquireSingleRunLock` | function | Acquire the lock or throw naming the live holder. A stale lock (holder pid |
+| `acquireSingleRunLock` | function | Acquire the lock or throw naming the holder. A lock whose holder is proved |
 | `aide` | function | AIDE's search_policy with three changes |
 | `analyzeCrossSurfaceInteractions` | function | Build the complete cross-surface evidence matrix and derive all three frozen |
 | `asha` | function | Asynchronous successive halving (Li et al., 2020) over one seeded |
@@ -1668,7 +1669,7 @@ Import from `@tangle-network/agent-eval/campaign` — 492 exports.
 | `externalTextOptimizationMethod` | function | Adapt a third-party text optimizer without reimplementing its search. |
 | `finalizeProfileMatrix` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `fsCampaignStorage` | function | Node-filesystem storage — the default. Lazily requires `node:fs` so the |
-| `gepaOptimizationMethod` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `gepaOptimizationMethod` | function | Environment for a bridge child that spawns `claude` CLI subprocesses. |
 | `gitWorktreeAdapter` | function | Git-backed `WorktreeAdapter`: creates isolated worktrees on fresh branches, commits agent changes, and discards losers. |
 | `heldOutGate` | function | Composable held-out gate: ships only when the lower bound of the DECIDING |
 | `heldoutSignificance` | function | Significance of the held-out composite lift: ship only when the lower bound |
