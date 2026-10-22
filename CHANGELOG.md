@@ -1,3 +1,7 @@
+## 0.343.2
+
+The packed-cohort check installs the Eval versions the registry actually published in Runtime's peer window, so a skipped `.0` release no longer stops a publish.
+
 ## 0.343.1
 
 The release cohort names the Eval 0.218.1 and Knowledge 22.0.11 builds that Runtime admits, so the 0.343 release can publish.
