@@ -118,11 +118,12 @@ export function peerWindowVersions(name, range, developmentVersion) {
   if (floorMinor > devMinor || (floorMinor === devMinor && floorPatch > devPatch)) {
     throw new Error(`${name} peer ${range} does not admit its development pin ${developmentVersion}`)
   }
-  const registryVersions = floor === developmentVersion ? [] : [floor]
-  for (let minor = floorMinor + 1; minor < devMinor; minor += 1) {
-    registryVersions.push(`${devMajor}.${minor}.0`)
-  }
-  return registryVersions
+  // A minor's `.0` may never have been published (Eval skipped 0.217.0), so the versions come
+  // from the registry: the floor and the newest published patch of each earlier minor.
+  return publishedCompatibilityVersions(name, range).filter((version) => {
+    const [, minor] = stableVersionTuple(version)
+    return version !== developmentVersion && (version === floor || minor < devMinor)
+  })
 }
 
 const interfacePeerRange = declaredPeerRange('@tangle-network/agent-interface')
