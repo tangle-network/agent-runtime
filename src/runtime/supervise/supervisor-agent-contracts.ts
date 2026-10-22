@@ -251,6 +251,10 @@ export interface SupervisorAgentDeps {
    *  under the defaults; `{ enabled: false }` = the historical first-failure-ends-the-run behavior.
    *  The router arm is unaffected: its transport already retries. */
   readonly driverRetry?: DriverRetryPolicy
+  /** This manager is a ROOT that pauses where `driverRetry` would stop it
+   *  (`driverRetry.pauseRootStops`). `supervise()` sets it on the root's deps alone; nested
+   *  managers' deps never carry it, so they keep their stops. */
+  readonly pauseRootStops?: boolean
   /** The profile this manager was registered with, when it executes another segment of it (a resumed root moved
    *  to another model or harness, `SuperviseOptions.segment`). Its materialization stays attributed to the
    *  registered profile, as a seat's does to the profile that authored the seat; the executed profile is its

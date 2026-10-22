@@ -119,9 +119,13 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       call += 1
       if (index === 1) {
         await workerLive
-        expect(cancelRun(dir, 'op-run', { reason: 'operator', source: 'test' }).effect).toBe(
-          'unknown',
-        )
+        expect(
+          cancelRun(dir, 'op-run', {
+            operator: 'test-operator',
+            reason: 'operator',
+            source: 'test',
+          }).effect,
+        ).toBe('unknown')
       }
       return script(messages, tools, context)
     }
@@ -146,7 +150,9 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     // `cancelled`, and repeating the operation is a pure lookup.
     const record = readRunCancellation(dir, 'op-run')
     expect(record?.effect).toBe('cancelled')
-    expect(cancelRun(dir, 'op-run', { reason: 'operator', source: 'test' })).toEqual(record)
+    expect(
+      cancelRun(dir, 'op-run', { operator: 'test-operator', reason: 'operator', source: 'test' }),
+    ).toEqual(record)
   })
 
   it('cancellation on the final router turn preserves already delivered child evidence', async () => {
@@ -161,7 +167,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       const index = call
       call += 1
       if (index === 2) {
-        cancelRun(dir, 'op-late', { source: 'test' })
+        cancelRun(dir, 'op-late', { operator: 'test-operator', source: 'test' })
         await expect
           .poll(() => readRunCancellation(dir, 'op-late')?.effect)
           .toBe('cancel_requested')
@@ -216,7 +222,11 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     try {
       await finalized
       await new Promise<void>((resolve) => setImmediate(resolve))
-      cancelRun(dir, 'router-drain-cancel', { reason: 'operator', source: 'test' })
+      cancelRun(dir, 'router-drain-cancel', {
+        operator: 'test-operator',
+        reason: 'operator',
+        source: 'test',
+      })
       await expect
         .poll(() => readRunCancellation(dir, 'router-drain-cancel')?.effect, { timeout: 2_000 })
         .toBe('cancelled')
@@ -275,7 +285,11 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       },
     })
     await live
-    cancelRun(dir, 'long-turn-stop', { source: 'operator', deadlineMs: 50 })
+    cancelRun(dir, 'long-turn-stop', {
+      operator: 'test-operator',
+      source: 'operator',
+      deadlineMs: 50,
+    })
     const result = await pending
     expect(result).toMatchObject({ reason: 'cancelled', source: 'operator' })
     expect(readRunCancellation(dir, 'long-turn-stop')).toMatchObject({ effect: 'cancelled' })
@@ -330,17 +344,21 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
 
     // Nothing is live to apply it and no process will answer: `unknown` is the honest state, and
     // the client can see the run is over from the same layout.
-    const queued = cancelRun(dir, 'op-after', { source: 'test' })
+    const queued = cancelRun(dir, 'op-after', { operator: 'test-operator', source: 'test' })
     expect(queued.effect).toBe('unknown')
     expect(readRunCancellation(dir, 'op-after')).toBeUndefined()
   })
 
   it('one run carries one run-scoped operation: a second operationId fails loud', async () => {
     const dir = await runDir()
-    cancelRun(dir, 'op-first', { source: 'test' })
-    expect(() => cancelRun(dir, 'op-second', { source: 'test' })).toThrow(/already pending/u)
+    cancelRun(dir, 'op-first', { operator: 'test-operator', source: 'test' })
+    expect(() =>
+      cancelRun(dir, 'op-second', { operator: 'test-operator', source: 'test' }),
+    ).toThrow(/already pending/u)
     // The first operation still reads as itself.
-    expect(cancelRun(dir, 'op-first', { source: 'test' }).operationId).toBe('op-first')
+    expect(
+      cancelRun(dir, 'op-first', { operator: 'test-operator', source: 'test' }).operationId,
+    ).toBe('op-first')
   })
 
   it('the TUI run-cancel key writes the same acknowledged request the runtime reads', async () => {
@@ -349,6 +367,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     // makes — so the operator's cancel is the acknowledged contract, not an unread file.
     const operationId = randomUUID()
     const queued = cancelRun(dir, operationId, {
+      operator: 'test-operator',
       reason: 'operator requested cancel from TUI',
       source: 'agent-runtime-top',
     })

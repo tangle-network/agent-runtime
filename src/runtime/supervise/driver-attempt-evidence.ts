@@ -51,6 +51,13 @@ export interface DriverAttemptRecord {
   readonly madeProgress: boolean
   /** Set when this attempt ended the loop. */
   readonly stop?: DriverAttemptStop
+  /** Set when this stop would have ended the loop and an opted-in root paused instead
+   *  (`driverRetry.pauseRootStops`); `retryInMs` is the pause and `resumeAt` its end. The
+   *  run's journal holds one `paused` row for it. An admission or continuation refusal has no
+   *  failure, so its record carries no `error`. */
+  readonly replacesStop?: DriverAttemptStop
+  /** With `replacesStop`: stop-pauses in a row since an attempt last made progress, 1-based. */
+  readonly stopPauseStreak?: number
   /** True when this attempt's pending invocation was abandoned rather than retried: see
    *  `DriverRetryRun.resolvePending`. */
   readonly abandoned?: boolean
@@ -70,8 +77,8 @@ export interface DriverAttemptRecord {
   readonly unavailableSignal?: string
   /** For a `credential-unavailable` pause: the exit code of the command that failed. */
   readonly exitCode?: number
-  /** For an `unavailable` attempt whose refusal named its reset time, or a
-   *  `credential-unavailable` pause: the pause holds until then. */
+  /** For an `unavailable` attempt whose refusal named its reset time, a
+   *  `credential-unavailable` pause, or a stop-pause: the pause holds until then. */
   readonly resumeAt?: string
   /** The completion check's verdict after this attempt. Absent when the caller declares none. */
   readonly contract?: DriverContractState
@@ -298,8 +305,17 @@ function isUpstreamUnavailable(error: unknown): boolean {
  * consumers may branch on it: a 5xx/408 is the upstream having a bad moment, a 429/503/529 is the
  * upstream out of capacity, and a 401/404/422 is a request that will fail identically forever. The
  * bridge's own never-retry classes are terminal whether or not a status rides with them.
+ *
+ * An `AbortError` is the run's own only when `signal` (the run) or `stopSignal` (the manager's own
+ * stop: an accepted result, `stop`, a stop rule) has fired. Any other is a lost stream and is
+ * retried: on magnetar-rust-20261019b a 4.0 h root turn ended "bridgeExecutor: turn aborted" and,
+ * classed terminal, settled the run after one attempt.
  */
-export function classifyDriverFailure(error: unknown, signal?: AbortSignal): DriverFailureClass {
+export function classifyDriverFailure(
+  error: unknown,
+  signal?: AbortSignal,
+  stopSignal?: AbortSignal,
+): DriverFailureClass {
   if (signal?.aborted) return 'terminal'
   // A failed retained read does not settle or replace its execution. A contract violation
   // requires a repaired reader/provider; repeating that read unchanged cannot recover it.
@@ -312,8 +328,10 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   // the session. A run never starts a turn beside an execution that owns its session, so it stops
   // with the refusal named. The refusal reaches this check only from a retained admission.
   if (admission !== undefined && isDispatchNotAdmitted(admission)) return 'terminal'
-  if (admission !== undefined) return classifyDriverFailure(admission, signal)
-  if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') return 'terminal'
+  if (admission !== undefined) return classifyDriverFailure(admission, signal, stopSignal)
+  if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') {
+    return stopSignal?.aborted === true ? 'terminal' : 'transient'
+  }
   if (error instanceof Error && isProviderSchemaRejection(error)) return 'terminal'
   if (isCredentialRefusal(error)) return 'terminal'
   // A profile the box cannot be provisioned for fails the same way on every attempt and every box.
@@ -488,12 +506,15 @@ export class DriverAttemptsExhaustedError extends RuntimeRunStateError {
  * failed turns. One `attempts` number hid which was which.
  */
 export interface DriverLoopRecord {
-  /** Driver invocations started. */
+  /** Driver invocations started (the attempt numbers the loop reached). */
   readonly attempts: number
   /** Genuine continuations: completed drives with the contract unmet that were re-entered. */
   readonly reprompts: number
-  /** Re-entries after a failed drive. A pause on an unavailable upstream is not one. */
+  /** Re-entries after a failed drive. A pause on an unavailable upstream is not one, nor is a
+   *  stop-pause. */
   readonly failureRetries: number
+  /** Stops an opted-in root paused on instead of ending (`DriverAttemptRecord.replacesStop`). */
+  readonly stopPauses: number
   /** Re-entries after the upstream refused a drive for capacity. Each is a pause, not a failure. */
   readonly unavailablePauses: number
   /** Infrastructure time the unavailable upstream cost this loop: every pause, plus every refused
@@ -552,16 +573,22 @@ export function summarizeDriverAttempts(
       barren += 1
   }
   const last = records.at(-1)
-  const refused = records.filter((record) => record.classification === 'unavailable')
+  const stopPauses = records.filter((record) => record.replacesStop !== undefined)
+  const refused = records.filter(
+    (record) => record.classification === 'unavailable' && record.replacesStop === undefined,
+  )
   return {
-    attempts: records.length,
+    // A stop-pause before an admission, or before a continuation, adds a record to its attempt.
+    attempts: new Set(records.map((record) => record.attempt)).size,
     reprompts: records.filter((record) => record.reprompted === true).length,
     failureRetries: records.filter(
       (record) =>
         record.error !== undefined &&
         record.retryInMs !== undefined &&
-        record.classification !== 'unavailable',
+        record.classification !== 'unavailable' &&
+        record.replacesStop === undefined,
     ).length,
+    stopPauses: stopPauses.length,
     unavailablePauses: refused.filter((record) => record.retryInMs !== undefined).length,
     unavailableMs: refused.reduce(
       (sum, record) =>

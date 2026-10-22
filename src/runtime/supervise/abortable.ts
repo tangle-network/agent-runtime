@@ -4,6 +4,8 @@ export class RunCancellationReason extends Error {
     readonly source: string,
     reason: string,
     readonly operationId?: string,
+    /** Who stopped the run, from the durable cancel request; absent for an in-process abort. */
+    readonly operator?: string,
   ) {
     super(reason)
     this.name = 'RunCancellationReason'

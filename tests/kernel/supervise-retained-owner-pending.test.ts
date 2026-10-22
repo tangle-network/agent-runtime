@@ -592,7 +592,7 @@ describe('supervised root with a pending retained turn', () => {
       ).rejects.toThrow('supervisor process died')
       const directory = directories.at(-1)!
       const runDir = join(directory, 'run')
-      cancelRun(runDir, 'dead-cancel', { reason: 'operator', source: 'test' })
+      cancelRun(runDir, 'dead-cancel', { reason: 'operator', operator: 'test' })
       // The process that acknowledged the request died before the run settled.
       if (staleAcknowledgement) {
         applyRunCancellation(

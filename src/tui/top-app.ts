@@ -16,6 +16,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { hostname, userInfo } from 'node:os'
 import { resolve } from 'node:path'
 import { emitKeypressEvents } from 'node:readline'
 import { cancelRun } from '../runtime/supervise/run-cancellation'
@@ -382,6 +383,7 @@ function requestCancel(): void {
     const record = cancelRun(supervisor.stateDir, randomUUID(), {
       reason: 'operator requested cancel from TUI',
       source: 'agent-runtime-top',
+      operator: `${userInfo().username}@${hostname()}`,
     })
     state.notice =
       record.effect === 'unknown'

@@ -8,10 +8,12 @@
  * backend reattaches the harness session because the execution id is bound durably per node.
  *
  * Failure classes (all conservative):
- *  - TERMINAL: Runtime's own refusals (`ValidationError`/`ConfigError`, exhausted budget, abort, a
- *    client-side transport status such as 401/404/422). Retrying re-runs a decision. Fails at once.
+ *  - TERMINAL: Runtime's own refusals (`ValidationError`/`ConfigError`, exhausted budget, the run's
+ *    own abort, a client-side transport status such as 401/404/422). Retrying re-runs a decision.
+ *    Fails at once.
  *  - TRANSIENT: everything foreign (harness exit without a reason, a stream cut mid-turn, a 5xx, a
- *    socket reset). A harness turn that RETURNED a failed outcome is the same accident reported as
+ *    socket reset, an `AbortError` that neither the run's signal nor the manager's own stop
+ *    issued). A harness turn that RETURNED a failed outcome is the same accident reported as
  *    a value, so the drive raises {@link HarnessTurnFailedError} and it is classified like any other.
  *  - UNAVAILABLE: the upstream said "not now" (429, 503, 529, or the router's own codes: quota,
  *    rate limit, overload). The driver PAUSES and re-enters; a pause consumes neither `maxAttempts`
@@ -74,6 +76,21 @@
  *
  * Every wait, a failure backoff or a pause, is jittered over its upper half so drivers that one
  * outage cut off together do not re-enter together.
+ *
+ * STOP-PAUSE. A run started with `driverRetry.pauseRootStops` hands its ROOT a `stopPause`;
+ * no other manager gets one. It turns every stop except `completed`, `aborted` and a declared `deadline` into a wait that alarms:
+ * `terminal-error`, `no-progress`, `max-attempts`, `repeated-failure`, `pending-unresolved` and
+ * `budget-exhausted` each emit one record with `replacesStop` and pause 5 minutes, doubling per
+ * stop-pause in a row up to 60, never past a declared deadline and not jittered. An attempt that
+ * made progress resets the streak. A cancel ends the pause and settles the run; a root steer ends
+ * any pause at once, a budget pause included, because a steer is how an operator changes a live
+ * run. Ending a pause admits nothing by itself: the next admission reads the pool again, a pool
+ * still spent pauses again with its own row, and the steer stays queued until a turn reads it.
+ * After the pause the per-window counters start over and the driver is re-entered: after
+ * a failure as `driver-failure` with `pausedMs`, after an admission or continuation refusal as the
+ * re-entry it was about to use. Drew, 2026-10-21: "why do these runs keep failing early its
+ * unacceptable!" Measured 2026-10-21 over 259 runs since 10-14: 8 of the 10 stops settled runs that
+ * nobody solved or stopped, including 17 roots whose harness never streamed.
  */
 
 import { ValidationError } from '../../errors'
@@ -109,6 +126,11 @@ export interface DriverRetryPolicy extends UnavailablePausePolicy {
    *  as an infrastructure outage before `maxAttempts` and `maxConsecutiveFailures` apply. Default
    *  900000ms (15 minutes), longer than a routine Platform restart. */
   readonly transientOutageMs?: number
+  /** `true` makes the external ROOT pause where this policy would stop it (STOP-PAUSE in the
+   *  header). The policy reaches every manager in the tree, but only the root reads this field, so
+   *  a nested manager keeps its stops and settles `down` for its parent. Refused with
+   *  `enabled: false`. Default off: leave it off when the run must return on its own. */
+  readonly pauseRootStops?: boolean
 }
 
 /** The mark compared to decide whether an attempt moved the run TOWARD ITS DELIVERABLE (see the header). */
@@ -148,6 +170,8 @@ export type DriverReentry =
       readonly failure: string
       /** 1-based: which failure retry this is. */
       readonly retry: number
+      /** Present when the failure would have stopped the run and the root paused instead. */
+      readonly pausedMs?: number
     }
   | {
       /** The previous turn ended with work open and Runtime woke the manager; `input` is what it waited for. */
@@ -213,6 +237,12 @@ interface DriverWaitPolicy {
   ) => Promise<{ readonly input: string; readonly idleMs: number } | undefined>
 }
 
+/** How an opted-in root waits where it would stop (`driverRetry.pauseRootStops`). */
+export interface DriverStopPause {
+  /** Resolves when a root steer is waiting, or once `signal` aborts. */
+  readonly steered: (signal: AbortSignal) => Promise<void>
+}
+
 export interface DriverRetryRun {
   /** Run one attempt; rejects as the un-retried driver would. `reentry` is present on every attempt
    *  after the first and on the first of a re-entered run. */
@@ -233,6 +263,12 @@ export interface DriverRetryRun {
   readonly budget: () => DriverBudgetReadout
   /** The scope's cancellation signal. An aborted scope is terminal, never retried. */
   readonly signal: AbortSignal
+  /** The manager's own stop (an accepted result, `stop`, a stop rule). An `AbortError` is the run's
+   *  own only when this or `signal` fired; any other is a lost stream and is retried. Once it fires,
+   *  a stop stays a stop under `stopPause`. */
+  readonly stopSignal?: AbortSignal
+  /** Present for an opted-in root: the stops named in the header pause instead of ending the loop. */
+  readonly stopPause?: DriverStopPause
   readonly policy?: DriverRetryPolicy
   /** How a COMPLETED drive with its check unmet is re-entered. Omit = never, which is correct
    *  only for a manager with no check. */
@@ -280,7 +316,8 @@ function assertContinuationPolicy(continuation: DriverContinuationPolicy | undef
  * `deadline` when a deadline cut it and `aborted` otherwise, never `terminal-error`. Throws
  * `DriverAttemptsExhaustedError` (cause = the last real failure) when a FAILURE ends the loop; a
  * completed drive returns, met contract or not, because deciding what an undelivered run is worth
- * belongs to the finalizer, not to this loop.
+ * belongs to the finalizer, not to this loop. With `stopPause`, every stop but `completed`,
+ * `aborted` and a declared `deadline` pauses instead (STOP-PAUSE in the header).
  */
 export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   const limits = driverRetryLimits(run)
@@ -293,7 +330,14 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     // The completed-drive arm lives OUTSIDE this try: a configuration fault deciding the re-prompt
     // is the caller's and must not be classified as a driver failure. Nothing async separates this
     // check from dispatch; it covers re-entry after onAttempt, whose observer may exhaust resources.
-    if (loop.admissionRefused()) return
+    const admission = loop.admission()
+    if (admission === 'refused') return
+    if (admission !== undefined) {
+      // An opted-in root pauses where admission would stop it, then asks again for this attempt.
+      await loop.pauseAdmission(admission, attempt)
+      attempt -= 1
+      continue
+    }
     try {
       await run.drive(attempt, loop.reentry)
     } catch (error) {

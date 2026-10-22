@@ -8,7 +8,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import type { HarnessTranscriptEvidence } from '../../harness-transcript'
 import type { RetainedRunEffect } from '../../retained-run-types'
-import type { DriverAttemptRecord } from '../driver-attempt-evidence'
+import type { DriverAttemptRecord, DriverAttemptStop } from '../driver-attempt-evidence'
 import type { EvidencePendingEvent, RetainedPendingCause } from '../retained-executor'
 import type { Budget, BudgetViolation, Spend } from './accounting'
 import type {
@@ -776,23 +776,59 @@ export type SpawnEvent =
       at: string
     }
   | {
-      /** A manager's driver turn was refused by an unavailable upstream (an exhausted quota, a
-       *  rate limit, an overload), and the driver paused before re-entering instead of failing.
-       *  Both durations are infrastructure time: `attemptMs` is the refused turn, `pauseMs` the
-       *  wait that followed. Informational: replay, `materializeTreeView`, and cost readers skip
-       *  it; `seq` counts this node's pauses. */
+      /** An operator reopened this settled run under its own run id (`supervisePursuit`'s
+       *  `reopen`): the settle record was archived byte for byte as `prior.archivedAs`, and the
+       *  run resumed from this journal. `budget`, when present, is the budget the reopened run is
+       *  held to and the one a later resume must match. Infrastructure evidence: replay and cost
+       *  readers skip it; `seq` counts this run's reopens. */
+      kind: 'reopened'
+      id: NodeId
+      operator: string
+      reason: string
+      /** The caller's idempotency key: a reopen that crashed partway finishes under the same id. */
+      operationId: string
+      prior: {
+        /** The archived result's `kind` and, when it has one, its `reason`. */
+        readonly kind: string
+        readonly reason?: string
+        /** `settleRecordDigest` of the archived result. */
+        readonly digest: string
+        /** The archive, relative to the run directory, such as `settles/1.json`. */
+        readonly archivedAs: string
+      }
+      budget?: Budget
+      seq: number
+      at: string
+    }
+  | {
+      /** A manager's driver paused before re-entering instead of failing or stopping. Either an
+       *  unavailable upstream refused its turn (an exhausted quota, a rate limit, an overload), or
+       *  an opted-in root met a stop and paused in its place (`driverRetry.pauseRootStops`): such
+       *  a stop-pause carries `replacesStop`, `streak` and `resumeAt`, and is the operator's
+       *  alarm. `attemptMs` is the attempt (0 for an admission refusal), `pauseMs` the wait that
+       *  followed. Informational: replay, `materializeTreeView`, and cost readers skip it; `seq`
+       *  counts this node's pauses. */
       kind: 'paused'
       id: NodeId
       /** The driver attempt that was refused, 1-based. */
       attempt: number
-      /** The code or HTTP status that classified the refusal, such as `provider_quota_exhausted`. */
+      /** The code or HTTP status that classified the refusal, such as `provider_quota_exhausted`;
+       *  for a stop-pause, the stop it replaced, such as `terminal-error`. */
       signal: string
-      /** The refusal as the driver saw it, redacted and bounded. */
+      /** The refusal or failure as the driver saw it, redacted and bounded; for a stop-pause with
+       *  no failure (an admission or continuation refusal), the stop's name. */
       cause: string
       attemptMs: number
       pauseMs: number
       /** Whether the refused attempt still moved the run toward its deliverable. */
       madeProgress: boolean
+      /** The stop an opted-in root paused on instead of ending the run. */
+      replacesStop?: DriverAttemptStop
+      /** With `replacesStop`: stop-pauses in a row since an attempt last made progress, 1-based. */
+      streak?: number
+      /** With `replacesStop`: ISO 8601, when the next drive starts unless a steer or a cancel comes
+       *  first. */
+      resumeAt?: string
       seq: number
       at: string
     }

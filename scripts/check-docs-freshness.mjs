@@ -613,13 +613,26 @@ if (!existsSync(catalogPath)) {
     'api/primitive-catalog.md',
   )
 } else {
+  // The generator reads this package's own surface from dist. A checkout with no dist
+  // (a fresh clone, or a gate host that runs `docs:freshness` without a build step) builds
+  // it first, so the regenerated catalog describes the current source. An existing dist is
+  // used as-is; CI builds it before this step.
   const genScript = join(repoRoot, 'scripts', 'gen-primitive-catalog.mjs')
   const tmpOut = join(tmpdir(), `primitive-catalog-check-${process.pid}.md`)
-  const res = spawnSync(process.execPath, [genScript], {
-    cwd: repoRoot,
-    env: { ...process.env, PRIMITIVE_CATALOG_OUT: tmpOut },
-    encoding: 'utf8',
-  })
+  const build = existsSync(join(repoRoot, 'dist', 'index.d.ts'))
+    ? { status: 0 }
+    : spawnSync('pnpm', ['run', 'build'], { cwd: repoRoot, encoding: 'utf8' })
+  const res =
+    build.status === 0
+      ? spawnSync(process.execPath, [genScript], {
+          cwd: repoRoot,
+          env: { ...process.env, PRIMITIVE_CATALOG_OUT: tmpOut },
+          encoding: 'utf8',
+        })
+      : {
+          status: `pnpm run build ${build.status}`,
+          stderr: `${build.error?.message ?? ''}${build.stdout ?? ''}${build.stderr ?? ''}`.slice(-600),
+        }
   if (res.status !== 0) {
     report(
       'CATALOG',

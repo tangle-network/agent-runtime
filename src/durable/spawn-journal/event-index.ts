@@ -320,6 +320,7 @@ const outsideCursorNamespaceKinds = [
   'seat-paused',
   'root-segment',
   'root-reentered',
+  'reopened',
   'paused',
   'barren-pause',
   'driver-attempt',

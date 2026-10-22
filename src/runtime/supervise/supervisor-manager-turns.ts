@@ -13,7 +13,12 @@ import {
   type DriverContinuationRecord,
   summarizeDriverAttempts,
 } from './driver-attempt-evidence'
-import { type DriverProgressMark, type DriverReentry, runDriverWithRetry } from './driver-retry'
+import {
+  type DriverProgressMark,
+  type DriverReentry,
+  type DriverStopPause,
+  runDriverWithRetry,
+} from './driver-retry'
 import { bestDelivered, runFinalizer, runTree } from './finalizer'
 import type { InboxLease } from './inbox'
 import { isLiveNodeStatus } from './node-status'
@@ -64,6 +69,8 @@ interface ManagerTurnLoop extends ManagerTurnInputs {
   environmentReplacements: number
   workspaceRestores: number
   modelEvents: number
+  /** Set once the loop's record went to `onDriverLoopSettled`. */
+  reported: boolean
 }
 
 /** The finalizer over this act's settled workers; the check it runs is recorded as a check read. */
@@ -133,6 +140,7 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
     describe: deps.deliverable?.describe,
     continuationSession: deps.continuation?.session,
     modelEvents: 0,
+    reported: false,
   }
   const { mcp } = session
   const keeper = session.state.keeper
@@ -154,6 +162,8 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
       progress: () => readManagerProgress(loop),
       budget: () => scope.budget,
       signal: scope.signal,
+      stopSignal: session.state.stopController.signal,
+      ...rootStopPause(config, session),
       resolvePending: (failure, failures) =>
         abandonScopeRetainedOwnerInvocation(scope, failure, failures),
       wait: {
@@ -190,9 +200,67 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
     await driveHarness.closeSeatSegment?.(
       scope.signal.aborted ? 'cancelled' : driverFailed ? 'failed' : 'completed',
     )
-    reportManagerLoop(loop)
+    if (!loop.reported) reportManagerLoop(loop)
   }
   return loop.candidate
+}
+
+/**
+ * The stop-pause of an opted-in ROOT (`SupervisorAgentDeps.pauseRootStops`, which `supervise()`
+ * sets on the root's deps alone); a nested manager keeps its stops and settles `down` for its
+ * parent. A root steer between turns reaches the coordinator as a lead message, and one an ended
+ * invocation still held waits in `nextTurnInbox`. Either ends a pause once and stays queued for
+ * the next turn: a steer that turn never read, or a pool still spent, would otherwise end every
+ * later pause at once.
+ */
+function rootStopPause(
+  config: ExternalManagerConfig,
+  session: ManagerSession,
+): { stopPause?: DriverStopPause } {
+  if (config.deps.pauseRootStops !== true) return {}
+  const { controls } = session
+  const { nextTurnInbox } = session.state
+  // The steers that already ended a pause: queued lead messages by bus sequence, and how many
+  // authority messages `nextTurnInbox` then held (a completed drive consumes them).
+  let answeredLead = new Set<number>()
+  let answeredInbox = 0
+  const unanswered = (): boolean =>
+    controls.queuedLeadMessages().some((seq) => !answeredLead.has(seq)) ||
+    nextTurnInbox.pendingAuthority() > answeredInbox
+  return {
+    stopPause: {
+      steered: async (signal) => {
+        answeredInbox = Math.min(answeredInbox, nextTurnInbox.pendingAuthority())
+        if (!unanswered()) {
+          const listening = new AbortController()
+          const until = AbortSignal.any([signal, listening.signal])
+          try {
+            await Promise.race([
+              controls.awaitLeadMessage(until),
+              (async () => {
+                while (!until.aborted && !unanswered()) {
+                  await Promise.race([nextTurnInbox.nextDelivery(), abortedSignal(until)])
+                }
+              })(),
+            ])
+          } finally {
+            listening.abort()
+          }
+        }
+        // A pause the timer or a cancel ended was ended by no steer, so none is marked answered.
+        if (signal.aborted || !unanswered()) return
+        answeredLead = new Set(controls.queuedLeadMessages())
+        answeredInbox = nextTurnInbox.pendingAuthority()
+      },
+    },
+  }
+}
+
+function abortedSignal(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) resolve()
+    else signal.addEventListener('abort', () => resolve(), { once: true })
+  })
 }
 
 function createManagerKeeper(
@@ -292,6 +360,7 @@ async function readCheckAtTurnEnd(loop: ManagerTurnLoop, attempt: number): Promi
 }
 
 function reportManagerLoop(loop: ManagerTurnLoop): void {
+  loop.reported = true
   const { mcp, controls, state } = loop.session
   const stopReason = controls.stopReason() ?? state.progressStopReason
   const closedBy: DriverContinuationRecord['closedBy'] = mcp.submittedResult()
@@ -525,10 +594,30 @@ async function recordManagerAttempt(
 ): Promise<void> {
   const { scope } = loop.session.state
   loop.records.push(record)
+  // The record that ends the loop is reported at once: a cancel settles the run without waiting
+  // for the root's act to unwind, and the settle record must still carry how the loop ended.
+  if (record.stop !== undefined) reportManagerLoop(loop)
   await recordScopeOwnerDriverAttempt(scope, record)
-  // A pause on an unavailable upstream is infrastructure time, so the run's own journal records
-  // it; the caller's observer still sees every attempt.
-  if (record.classification === 'unavailable' && record.retryInMs !== undefined) {
+  // A pause on an unavailable upstream is infrastructure time, and a stop-pause is the operator's
+  // alarm, so the run's own journal records each; the caller's observer still sees every attempt.
+  if (
+    record.replacesStop !== undefined &&
+    record.retryInMs !== undefined &&
+    record.stopPauseStreak !== undefined &&
+    record.resumeAt !== undefined
+  ) {
+    await recordScopeOwnerPause(scope, {
+      attempt: record.attempt,
+      signal: record.replacesStop,
+      cause: record.error ?? record.replacesStop,
+      attemptMs: record.durationMs,
+      pauseMs: record.retryInMs,
+      madeProgress: record.madeProgress,
+      replacesStop: record.replacesStop,
+      streak: record.stopPauseStreak,
+      resumeAt: record.resumeAt,
+    })
+  } else if (record.classification === 'unavailable' && record.retryInMs !== undefined) {
     await recordScopeOwnerPause(scope, {
       attempt: record.attempt,
       signal: record.unavailableSignal ?? 'unavailable',
