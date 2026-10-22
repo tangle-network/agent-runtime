@@ -8933,6 +8933,17 @@ store outage keeps every byte on the host. Requires `durable`.
 
 Milliseconds a durable copy may move no bytes before it is abandoned and retried (default 2 min).
 
+##### ephemeral?
+
+> `readonly` `optional` **ephemeral?**: `boolean`
+
+The root is discarded when its process ends, so nothing written to it must survive a crash:
+objects and receipts are written and published without fsync. For a capture's staging, whose
+caller removes it and whose dead process's directory is swept, and whose durable record is
+kept elsewhere (the durable store, and receipts the caller copies and syncs itself). Never on
+a store read after a restart. On drew-gtr-pro on 2026-10-21 a staging store's fsyncs, about
+four per object, came to 6,924 in 60 s and held a 150-file capture to about 1.4 files/s.
+
 ***
 
 ### PrivateCasOffloadReport
@@ -40024,6 +40035,10 @@ write under temporary names, sync, publish the names, sync again (discovery-lab
 runner/evidence-store.mjs commits receipts this way). On drew-gtr-pro's USB SMR disk on
 2026-10-21 these per-object fsyncs, 545 ms each on the 16 SYNC_THREADS, set a store's rate at
 about 26 files/s.
+
+The one exception is an `ephemeral` store, which syncs nothing: its root is discarded with its
+process, so no name in it is ever read after a crash, and nothing durable may be derived from it
+but by a caller that copies and syncs what it keeps.
 
 #### Parameters
 
