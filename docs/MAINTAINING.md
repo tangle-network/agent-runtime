@@ -104,7 +104,9 @@ seven classes:
    byte-compares it to the committed `docs/api/primitive-catalog.md`. Any difference means a
    live export was added/removed/renamed (or a TSDoc summary changed) without regenerating —
    a red build. This is the enforcement that makes "a new public export absent from the
-   catalog" impossible to ship: the inventory cannot drift behind the code by hand.
+   catalog" impossible to ship: the inventory cannot drift behind the code by hand. The
+   generator reads this package's own surface from `dist`, so on a checkout with no `dist`
+   the gate runs `pnpm run build` first; an existing `dist` is used as-is.
 
 The gate does **not** read line numbers exactly (they drift on every edit) and does
 **not** touch the judgment prose. It only catches a renamed/removed/fabricated symbol, a
