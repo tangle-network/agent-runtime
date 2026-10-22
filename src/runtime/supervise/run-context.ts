@@ -124,7 +124,7 @@ export function createInMemoryRunContext(opts: InMemoryRunContextOptions = {}): 
  * resumes when it is re-run with the SAME `runId` and the SAME `dir`: the committed children come
  * back on `Scope.resume` (rehydrated by `replaySpawnTree`) instead of being re-executed.
  *
- * Layout: `${dir}/spawn-journal.jsonl` (one JSONL record per event), `${dir}/blobs/` (one
+ * Layout: `${dir}/spawn-journal.jsonl` (single-event or atomic-group JSONL records), `${dir}/blobs/` (one
  * content-addressed JSON file per settled result), and `${dir}/coordination-log.jsonl`
  * (questions, findings, answer decisions, and authorized continuation receipts retained as
  * evidence). The directory is created on first write.

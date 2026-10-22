@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import { createServer, request as proxyRequest } from 'node:http'
 import { tmpdir } from 'node:os'
-import { syncBuiltinESMExports } from 'node:module'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 
 const [mode, directory, endpoint, fault = 'dispatch'] = process.argv.slice(2)
@@ -64,41 +64,9 @@ if (mode === 'controller') {
   const phase = fault.split(':')[0]
   const faultPoint = fault.split(':')[1]
   const rootOwner = fault.split(':')[2] === 'root'
-  let injected = false
-  if (phase === 'interrupt') {
-    const open = fs.open.bind(fs)
-    fs.open = async (path, flags, ...rest) => {
-      const handle = await open(path, flags, ...rest)
-      if (String(path) !== join(directory, 'spawn-journal.jsonl') || flags !== 'a') return handle
-      const write = handle.write.bind(handle)
-      handle.write = async (...args) => {
-        const text = args[0].toString()
-        const matched =
-          faultPoint === 'result'
-            ? text.includes('"kind":"execution-result"')
-            : text.includes('"phase":"dispatched"')
-        if (injected || !matched) return write(...args)
-        injected = true
-        if (faultPoint === 'partial')
-          await write(Buffer.from(text.slice(0, Math.floor(text.length / 2))))
-        // Linux supplies a real bounded ENOSPC; no mount, host disk filling, or source deletion.
-        const full = await open('/dev/full', 'w')
-        try {
-          await full.write(Buffer.from('bounded journal fault'))
-        } catch (error) {
-          await fs.writeFile(
-            join(directory, 'injected.json'),
-            JSON.stringify({ code: error.code, syscall: error.syscall, faultPoint }),
-          )
-          throw error
-        } finally {
-          await full.close()
-        }
-      }
-      return handle
-    }
-  }
-  syncBuiltinESMExports()
+  // A process-scoped kernel capacity limit is armed by the parent over the provider boundary.
+  // Keep the controller alive to report EFBIG and release its claim after the failed write.
+  process.on('SIGXFSZ', () => {})
   const rpc = async (method, input) => {
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -228,17 +196,24 @@ if (mode === 'controller') {
     )
     outcome = { status: 'settled', kind: result.result.kind }
   } catch (error) {
-    outcome = { status: 'interrupted', name: error.name, message: error.message }
+    const errorCodes = []
+    const collect = (cause) => {
+      if (!cause || typeof cause !== 'object') return
+      if (typeof cause.code === 'string') errorCodes.push(cause.code)
+      if (cause.cause) collect(cause.cause)
+      if (Array.isArray(cause.errors)) cause.errors.forEach(collect)
+    }
+    collect(error)
+    outcome = { status: 'interrupted', name: error.name, message: error.message, errorCodes }
   }
   console.log(
     JSON.stringify({
       ...outcome,
-      injected,
       resultExists: existsSync(join(directory, 'result.json')),
     }),
   )
 } else {
-  assert.equal(process.platform, 'linux', 'the bounded kernel ENOSPC fixture uses /dev/full')
+  assert.equal(process.platform, 'linux', 'the bounded storage fault uses Linux resource.prlimit')
   const root = directory
     ? resolve(directory)
     : await fs.mkdtemp(join(tmpdir(), 'runtime-journal-outage-'))
@@ -254,6 +229,21 @@ if (mode === 'controller') {
   let createMaterial
   let coordinationPort
   let worker
+  let controllerPid
+  let controllerPhase
+  let injected
+  const execute = promisify(execFile)
+  const exhaustControllerJournal = async () => {
+    if (controllerPhase !== 'interrupt' || injected) return
+    const journalPath = join(root, 'spawn-journal.jsonl')
+    const size = (await fs.stat(journalPath)).size
+    // One byte of room produces a real short write followed by EFBIG on the next write.
+    const limit = size + (faultPoint === 'partial' ? 1 : 0)
+    await execute('python3', ['-c',
+      'import resource,sys; pid=int(sys.argv[1]); soft,hard=resource.prlimit(pid,resource.RLIMIT_FSIZE); resource.prlimit(pid,resource.RLIMIT_FSIZE,(int(sys.argv[2]),hard))',
+      String(controllerPid), String(limit)])
+    injected = { mechanism: 'RLIMIT_FSIZE', pid: controllerPid, size, limit, faultPoint }
+  }
   let done
   const completed = new Promise((resolveDone) => {
     done = resolveDone
@@ -331,6 +321,7 @@ if (mode === 'controller') {
           })
           if (faultPoint === 'result') await fs.writeFile(join(root, 'complete'), '')
         }
+        if (faultPoint !== 'result') await exhaustControllerJournal()
         value = { id: controlRef.sessionId, provider: 'local-process', controlRef }
       } else if (method === 'status') value = alive ? 'running' : 'completed'
       else if (method === 'events') {
@@ -347,6 +338,7 @@ if (mode === 'controller') {
         // The exact result waits for native completion independently of event observation.
         if (alive) await completed
         assert.equal(alive, false)
+        if (faultPoint === 'result') await exhaustControllerJournal()
         value = {
           success: true,
           text: '42',
@@ -385,6 +377,8 @@ if (mode === 'controller') {
         ],
         { stdio: ['ignore', 'pipe', 'pipe'], env: process.env },
       )
+      controllerPid = child.pid
+      controllerPhase = name
       let stdout = ''
       let stderr = ''
       child.stdout.on('data', (bytes) => {
@@ -410,64 +404,60 @@ if (mode === 'controller') {
     receipt.firstCreates = creates
     receipt.firstStarts = starts
     receipt.firstDestroys = destroys
-    receipt.fault = JSON.parse(await fs.readFile(join(root, 'injected.json'), 'utf8'))
+    assert.ok(injected, 'the parent armed the process storage limit')
+    assert.ok(receipt.first.errorCodes?.includes('EFBIG'), 'the controller reported a real kernel write refusal')
+    receipt.fault = { ...injected, code: 'EFBIG' }
+    await fs.writeFile(join(root, 'injected.json'), JSON.stringify(receipt.fault))
     const journal = new kernel.FileSpawnJournal(join(root, 'spawn-journal.jsonl'))
     const before = await journal.loadTree(runId)
     const originalBytes = await fs.readFile(join(root, 'spawn-journal.jsonl'))
+    receipt.journalSizeAfterFault = originalBytes.length
+    assert.equal(originalBytes.length, injected.limit)
     const committedPrefix = originalBytes.subarray(0, originalBytes.lastIndexOf(10) + 1)
+    if (faultPoint === 'partial') assert.equal(originalBytes.length - committedPrefix.length, 1)
     await fs.writeFile(join(root, 'interrupted-journal.jsonl'), originalBytes)
     receipt.pendingAdmissions = before
       .filter((event) => event.kind === 'execution-admitted')
       .map((event) => event.admission)
-    assert.equal(receipt.fault.code, 'ENOSPC')
-    if (process.env.RUNTIME_EXPECT_LEGACY_FAILURE === '1') {
-      assert.equal(receipt.first.status, 'settled')
-      assert.equal(receipt.first.resultExists, true)
-      receipt.second = await phase('resume')
-      assert.equal(receipt.second.status, 'interrupted')
-      assert.match(receipt.second.message, /settled/)
-      receipt.legacyTerminalGuardBlockedRecovery = true
-      receipt.passed = true
-    } else {
-      assert.equal(receipt.first.status, 'interrupted')
-      assert.equal(receipt.first.resultExists, false)
-      assert.equal(destroys, 0)
-      if (faultPoint !== 'result') assert.equal(alive, true)
-      assert.equal(starts, 1)
-      assert.equal(
-        receipt.pendingAdmissions.find((entry) => entry.phase === 'environment').executionId,
-        controlRef.executionId,
-      )
-      await fs.writeFile(join(root, 'complete'), '')
-      assert.equal(await completed, 0)
-      receipt.second = await phase('resume')
-      const after = await journal.loadTree(runId)
-      receipt.settlements = after.filter((event) => event.kind === 'settled')
-      receipt.finalCreates = creates
-      receipt.finalDispatchCalls = dispatchCalls
-      receipt.finalStarts = starts
-      receipt.finalNativeAlive = alive
-      receipt.finalDestroys = destroys
-      receipt.nativeResult = JSON.parse(await fs.readFile(join(root, 'native-result.json'), 'utf8'))
-      assert.equal(receipt.second.status, 'settled')
-      assert.equal(receipt.second.resultExists, true)
-      assert.equal(receipt.nativeResult.answer, 42)
-      assert.equal(creates, 1)
-      assert.equal(starts, 1)
-      assert.equal(receipt.settlements.length, rootOwner ? 0 : 1)
-      if (!rootOwner) assert.equal(receipt.settlements[0].status, 'done')
-      const finalBytes = await fs.readFile(join(root, 'spawn-journal.jsonl'))
-      assert.ok(finalBytes.subarray(0, committedPrefix.length).equals(committedPrefix))
-      assert.deepEqual(
-        after.filter((event) => event.kind === 'spawned'),
-        before.filter((event) => event.kind === 'spawned'),
-      )
-      assert.equal(after.filter((event) => event.kind === 'execution-input').length, 1)
-      assert.equal(after.filter((event) => event.kind === 'execution-result').length, 1)
-      receipt.originalIdentityAndDeadlinePreserved = true
-      receipt.committedPrefixPreserved = true
-      receipt.passed = true
-    }
+    assert.equal(receipt.fault.code, 'EFBIG')
+    assert.equal(receipt.first.status, 'interrupted')
+    assert.equal(receipt.first.resultExists, false)
+    assert.equal(destroys, 0)
+    if (faultPoint !== 'result') assert.equal(alive, true)
+    assert.equal(starts, 1)
+    assert.equal(
+      receipt.pendingAdmissions.find((entry) => entry.phase === 'environment').executionId,
+      controlRef.executionId,
+    )
+    await fs.writeFile(join(root, 'complete'), '')
+    assert.equal(await completed, 0)
+    receipt.second = await phase('resume')
+    const after = await journal.loadTree(runId)
+    receipt.settlements = after.filter((event) => event.kind === 'settled')
+    receipt.finalCreates = creates
+    receipt.finalDispatchCalls = dispatchCalls
+    receipt.finalStarts = starts
+    receipt.finalNativeAlive = alive
+    receipt.finalDestroys = destroys
+    receipt.nativeResult = JSON.parse(await fs.readFile(join(root, 'native-result.json'), 'utf8'))
+    assert.equal(receipt.second.status, 'settled')
+    assert.equal(receipt.second.resultExists, true)
+    assert.equal(receipt.nativeResult.answer, 42)
+    assert.equal(creates, 1)
+    assert.equal(starts, 1)
+    assert.equal(receipt.settlements.length, rootOwner ? 0 : 1)
+    if (!rootOwner) assert.equal(receipt.settlements[0].status, 'done')
+    const finalBytes = await fs.readFile(join(root, 'spawn-journal.jsonl'))
+    assert.ok(finalBytes.subarray(0, committedPrefix.length).equals(committedPrefix))
+    assert.deepEqual(
+      after.filter((event) => event.kind === 'spawned'),
+      before.filter((event) => event.kind === 'spawned'),
+    )
+    assert.equal(after.filter((event) => event.kind === 'execution-input').length, 1)
+    assert.equal(after.filter((event) => event.kind === 'execution-result').length, 1)
+    receipt.originalIdentityAndDeadlinePreserved = true
+    receipt.committedPrefixPreserved = true
+    receipt.passed = true
   } catch (error) {
     receipt.passed = false
     receipt.error = String(error)

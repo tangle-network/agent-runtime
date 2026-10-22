@@ -4660,7 +4660,7 @@ reviewer-only strategy this path keeps that the generic selector does not expres
 
 ### LocalHarness
 
-> **LocalHarness** = `Extract`\<`HarnessType`, `"claude-code"` \| `"codex"` \| `"opencode"` \| `"pi"`\>
+> **LocalHarness** = `Extract`\<`HarnessType`, `"claude-code"` \| `"codex"` \| `"kimi-code"` \| `"opencode"` \| `"pi"`\>
 
 Local coding harness available inside the sandbox — a narrowing of the shared `HarnessType`
 vocabulary, NOT a private spelling of it. The harness id is `claude-code`; `claude` is the

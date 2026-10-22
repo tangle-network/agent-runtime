@@ -19,7 +19,7 @@ export function observeWorkerControls(options: {
   /** Root delivery readiness; checked before a durable steer is claimed. */
   deliverRootReady?: () => boolean
   onError: (error: unknown) => void
-}): { close(): Promise<void> } {
+}): { pass(): Promise<void>; close(): Promise<void> } {
   const { dir, coord, scope, signal, controlScope, onError } = options
   const steerDir = options.steerDir ?? dir
   const deps = { coord, scope, signal, now: Date.now, ownerId: scope.view.root, controlScope }
@@ -87,6 +87,12 @@ export function observeWorkerControls(options: {
     if (failure) throw failure.error
   }
   return {
+    async pass() {
+      await inFlight
+      poll()
+      await inFlight
+      if (failure) throw failure.error
+    },
     close: () => (closing ??= finish()),
   }
 }

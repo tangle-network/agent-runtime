@@ -176,7 +176,7 @@ the corruption guards a durable replay rests on:
 **`Stable`**
 
 JSONL on disk. One line per record: the first record is `begin`, subsequent records
-are `event` envelopes wrapping a `SpawnEvent`. `loadTree` replays the whole file,
+are `event` or atomic `events` envelopes. `loadTree` replays the whole file,
 filtering by `root`, and applies the same begin-precedes-events + unique-seq
 corruption guards as the in-memory impl. Each append fsyncs so a crash between
 writes never loses an acknowledged event.
@@ -264,6 +264,30 @@ writes never loses an acknowledged event.
 ###### Implementation of
 
 [`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-2)
+
+##### appendEvents()
+
+> **appendEvents**(`root`, `events`): `Promise`\<`void`\>
+
+Publish all events together or none; SQL contexts use this for initialization records.
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### events
+
+readonly [`SpawnEvent`](#spawnevent)[]
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`appendEvents`](#appendevents-1)
 
 ***
 
@@ -25021,7 +25045,7 @@ Working directory for the subprocess.
 ### CliWorktreeSeam
 
 cli-worktree seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI
-(claude / codex / opencode) on its own git worktree — the leaf `createWorktreeCliExecutor`
+(claude / codex / opencode / pi / kimi-code) on its own git worktree — the leaf `createWorktreeCliExecutor`
 named as data. `repoRoot` is transport data; `AgentProfile.harness` selects the CLI.
 `taskPrompt` remains an optional direct-call fallback for callers that execute with `undefined`.
 The authored
@@ -43235,7 +43259,7 @@ per append/write) under `dir`, and the context carries `resume: true` so spreadi
 resumes when it is re-run with the SAME `runId` and the SAME `dir`: the committed children come
 back on `Scope.resume` (rehydrated by `replaySpawnTree`) instead of being re-executed.
 
-Layout: `${dir}/spawn-journal.jsonl` (one JSONL record per event), `${dir}/blobs/` (one
+Layout: `${dir}/spawn-journal.jsonl` (single-event or atomic-group JSONL records), `${dir}/blobs/` (one
 content-addressed JSON file per settled result), and `${dir}/coordination-log.jsonl`
 (questions, findings, answer decisions, and authorized continuation receipts retained as
 evidence). The directory is created on first write.

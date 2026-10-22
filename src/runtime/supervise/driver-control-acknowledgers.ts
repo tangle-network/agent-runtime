@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { spawnJournalRecordEvents } from '../../durable/spawn-journal/record-events'
 import type { SettledWorker } from '../../mcp/tools/coordination-contracts'
 import type { DownMessageEvent } from '../../mcp/tools/coordination-messages'
 import type { InboxReceipt } from './inbox'
@@ -518,19 +519,17 @@ function terminatedDescendants(dir: string, nodeId: string, sinceIso: string): s
   for (const line of raw.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
-    let parsed: { kind?: unknown; event?: Record<string, unknown> }
     try {
-      parsed = JSON.parse(trimmed) as { kind?: unknown; event?: Record<string, unknown> }
-    } catch {
-      continue
-    }
-    if (parsed.kind !== 'event' || parsed.event === undefined) continue
-    const event = parsed.event
-    const died = (event.kind === 'settled' && event.status === 'down') || event.kind === 'cancelled'
-    if (!died) continue
-    if (typeof event.id !== 'string' || !event.id.startsWith(prefix)) continue
-    if (typeof event.at !== 'string' || event.at < sinceIso) continue
-    ids.add(event.id)
+      for (const event of spawnJournalRecordEvents(JSON.parse(trimmed))) {
+        if (event === undefined) continue
+        const died =
+          (event.kind === 'settled' && event.status === 'down') || event.kind === 'cancelled'
+        if (!died) continue
+        if (typeof event.id !== 'string' || !event.id.startsWith(prefix)) continue
+        if (typeof event.at !== 'string' || event.at < sinceIso) continue
+        ids.add(event.id)
+      }
+    } catch {}
   }
   return [...ids].sort()
 }

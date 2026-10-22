@@ -118,7 +118,7 @@ export class SpawnEventIndex {
     }
   }
 
-  /** Called only after validation and, for the file writer, a successful durable append. */
+  /** Called after validation; a file writer discards staged state if grouped publication fails. */
   add(event: SpawnEvent): void {
     if (!outsideCursorNamespace(event)) this.cursors.add(event.seq)
     if (
