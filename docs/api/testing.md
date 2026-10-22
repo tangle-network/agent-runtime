@@ -3281,7 +3281,7 @@ Called once when the external driver loop ends, returned or thrown, with what it
 > `readonly` `optional` **continuation?**: [`ContinuationPolicy`](runtime.md#continuationpolicy)
 
 How an EXTERNAL manager with `deliverable` is sent back when its turn ends with the check
- unmet: the deadline, `maxBarren`, and the note's profile and switches (`src/runtime/supervise/continuation.ts`).
+ unmet: `maxBarren`, an optional deadline, and the note's profile and switches (`src/runtime/supervise/continuation.ts`).
  Required with `deliverable` on the external arm, refused without one, and refused for a
  router-brained supervisor, which runs its own turn loop in process. The harness owns its own
  turn loop, so it can end while the run has delivered nothing — 376 of 376 winning

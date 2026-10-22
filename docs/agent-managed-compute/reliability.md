@@ -67,7 +67,7 @@ Completed director invocations reset the consecutive transport-failure counter e
 The failure-attempt, deadline, cancellation, and resource bounds still apply.
 Successful incomplete invocations do not consume `driverRetry.maxAttempts`; only failed invocations consume that allowance.
 A manager with a completion check declares a `continuation` policy: `maxBarren` and an optional deadline, with no continuation count.
-The loop ends when the check passes, at the deadline, on the budget, or on cancellation.
+The loop ends when the check passes, at a deadline when one is set, on a spent budget, or on cancellation.
 After `maxBarren` turns in a row without progress, each further continuation waits a barren pause (5 minutes, doubling to 60) journaled as `barren-pause`; a barren streak never ends the run.
 A turn that ends, a lost stream and a blocked tool are boundaries, never the end of the run.
 
