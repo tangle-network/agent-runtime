@@ -94,6 +94,10 @@ it('snapshots growing nested spans over a live Supervisor and HTTP worker', asyn
             profile: profile(depth === 0 ? 'manager' : 'worker', depth === 0),
             task: 'deliver',
             label: depth === 0 ? 'manager:0' : 'worker:0',
+            budget:
+              depth === 0
+                ? { maxIterations: 20, maxTokens: 20_000 }
+                : { maxIterations: 1, maxTokens: 100 },
           })
           if (typeof spawned?.workerId !== 'string')
             throw new Error(`spawn refused: ${JSON.stringify(spawned)}`)
