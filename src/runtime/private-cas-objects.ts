@@ -24,6 +24,8 @@ export interface PrivateCasLayout {
   readonly durable: PrivateCasDurableStore | undefined
   readonly localBudgetBytes: number | undefined
   readonly durableStallMs: number
+  /** No fsync: the root does not outlive its process (PrivateCasOptions.ephemeral). */
+  readonly ephemeral: boolean
 }
 
 export const isMissingPath = (error: unknown): boolean =>
@@ -262,7 +264,7 @@ export async function putPrivateCasStream(
         await file.writeFile(chunk)
       }
       signal?.throwIfAborted()
-      await syncHandle(file)
+      if (!layout.ephemeral) await syncHandle(file)
     } finally {
       await file.close()
     }
@@ -287,7 +289,7 @@ export async function putPrivateCasStream(
         // An existing object must independently match, even when our staged bytes were valid.
       }
     }
-    await syncDirectory(directory)
+    if (!layout.ephemeral) await syncDirectory(directory)
     if (durable !== undefined) await offload.settlePut({ sha, byteLength, linked }, signal)
     return ref
   } finally {
@@ -312,7 +314,7 @@ export async function putPrivateCasBuffered(
   const file = await open(temporary, CREATE_EXCLUSIVE, 0o600)
   try {
     await file.writeFile(bytes)
-    await syncHandle(file)
+    if (!layout.ephemeral) await syncHandle(file)
   } finally {
     await file.close()
   }
@@ -325,7 +327,7 @@ export async function putPrivateCasBuffered(
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
       linked = false
     }
-    await syncDirectory(directory)
+    if (!layout.ephemeral) await syncDirectory(directory)
   } finally {
     await unlink(temporary).catch(() => undefined)
   }
