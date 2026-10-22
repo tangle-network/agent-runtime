@@ -1,9 +1,8 @@
 /**
- * createWaterfallCollector — 100% trajectory observability from the lifecycle stream:
- * every spawn/settle (shots, analysts, nested agents) becomes one timed, billed span.
- * The sum of spans IS the run's cost story — what each step cost in dollars, tokens,
- * and wall-clock, rendered as a text waterfall or exported as structured rows for any
- * chart. Attach the collector's `hooks` to `runAgentic`/`runBenchmark`; spans accumulate
+ * createWaterfallCollector records timed spans from the spawn/settle lifecycle stream.
+ * Settlement receipts supply each span's cost and tokens; nested manager receipts can
+ * include child work, and separately metered manager inference is not captured here.
+ * Render the observed spans as a text waterfall or export structured rows for a chart. Attach the collector's `hooks` to `runAgentic`/`runBenchmark`; spans accumulate
  * across every task the hooks observe.
  */
 import type { RuntimeHookEvent, RuntimeHooks } from '../runtime-hooks'
@@ -29,6 +28,7 @@ export interface WaterfallReport {
   observedAtMs: number
   /** Wall-clock from first spawn to last settle, or observation time while running. */
   totalMs: number
+  /** Sum of observed settlement receipts; nested receipts may include the same child work. */
   totalUsd: number
   totalTokens: { input: number; output: number }
   /** Rollup by label prefix (the part before ':') — shots vs analysts vs anything else. */

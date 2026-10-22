@@ -16,7 +16,7 @@ const profile = (name: string, manager: boolean): AgentProfile => ({
           agent_runtime_coordination_stop: true,
         },
       }
-    : { tools: { agent_runtime_coordination_spawn_worker: false } }),
+    : {}),
 })
 
 async function callTool(url: string, name: string, args: Record<string, unknown> = {}) {
@@ -82,6 +82,7 @@ it('snapshots growing nested spans over a live Supervisor and HTTP worker', asyn
     budget: { maxIterations: 100, maxTokens: 100_000 },
     perWorker: { maxIterations: 10, maxTokens: 10_000 },
     driverRetry: { enabled: false },
+    inheritSpawnRights: false,
     backend: {
       backend: 'router',
       routerBaseUrl: `http://127.0.0.1:${address.port}/v1`,
@@ -133,8 +134,8 @@ it('snapshots growing nested spans over a live Supervisor and HTTP worker', asyn
     )
     await delay(30)
     const growing = collector.report()
-    expect(growing.observedAtMs).toBeGreaterThan(first.observedAtMs)
     expect(growing.totalMs).toBeGreaterThan(first.totalMs)
+    expect(growing.observedAtMs).toBeGreaterThan(first.observedAtMs)
     expect(growing.byKind.worker?.ms).toBeGreaterThan(first.byKind.worker!.ms)
     const replay = collector.report({ nowMs: worker.startMs + 1_000 })
     expect(replay.byKind.worker?.ms).toBe(1_000)
