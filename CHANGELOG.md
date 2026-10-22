@@ -1,3 +1,7 @@
+## 0.345.0
+
+Fence run-directory durable writes by acquisition generation and let idle supervised runs park for an existing keeper to resume without holding a process. Update AgentGraph factory-design guidance with task/run identity, service slots and throttled triggers.
+
 ## 0.344.1
 
 Patch the MCP SDK and development HTTP, image, documentation, and build dependency chains to remove critical and high advisories while retaining their existing release lines.
