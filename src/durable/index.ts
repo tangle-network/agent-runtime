@@ -125,6 +125,7 @@ export {
   readRunDirectoryLock,
   runDirectoryHolderIsLive,
 } from './run-lock'
+export type { RunReopen } from './run-reopen'
 export {
   type DurableFailureRecord,
   readFailureRecord,
