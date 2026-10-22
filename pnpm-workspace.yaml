@@ -16,7 +16,7 @@ minimumReleaseAgeExclude:
   - 'rolldown-plugin-dts@0.27.14'
   - 'zod@4.6.5'
 minimumReleaseAgeIgnoreMissingTime: false
-# Stable Miniflare 4 pins vulnerable Undici; retain its workerd release.
+# These Miniflare releases pin vulnerable HTTP and image dependencies.
 overrides:
   'miniflare@4.20260722.0>undici': 7.29.1
   'miniflare@5.20260826.0-alpha>undici': 7.29.1
