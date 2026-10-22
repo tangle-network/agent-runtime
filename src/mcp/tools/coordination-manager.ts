@@ -327,6 +327,23 @@ function managerSurface(parts: ManagerParts, tools: McpToolDescriptor[]): Coordi
     awaitWake: waiting.awaitWake,
     awaitSettlement: waiting.awaitSettlement,
     receiveLeadMessage: intake.receiveLeadMessage,
+    queuedLeadMessages: () => bus.queued(['lead-message']).map((record) => record.seq),
+    awaitLeadMessage: (signal) =>
+      new Promise<void>((resolve) => {
+        if (signal.aborted) {
+          resolve()
+          return
+        }
+        const done = (): void => {
+          unsubscribe()
+          signal.removeEventListener('abort', done)
+          resolve()
+        }
+        const unsubscribe = bus.onQueued((record) => {
+          if (record.event.type === 'lead-message') done()
+        })
+        signal.addEventListener('abort', done, { once: true })
+      }),
     openToolReceipt: intake.openToolReceipt,
     settleToolReceipt: intake.settleToolReceipt,
     reentryState: () =>

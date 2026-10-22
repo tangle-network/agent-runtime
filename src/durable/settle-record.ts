@@ -22,9 +22,10 @@ import { isNoEntError } from './jsonl-file'
  * (RFC 8785, stable key order), so its bytes hash to `settleRecordDigest(result)`. A result that
  * carries a value JSON cannot represent faithfully (a Map, a Set, a Date, a typed array, a class
  * instance) is refused rather than silently rewritten, because the file is raw terminal evidence.
- * It is written once with
+ * It is written once per segment with
  * `O_EXCL`, fsynced, and never replaced: a second settle in the same directory is refused before
- * any compute. `failure.json` records the most recent throw and is replaced by a later throw; the
+ * any compute. An explicit reopen (`supervisePursuit`'s `reopen`, `./run-reopen.ts`) archives it
+ * byte for byte to `settles/<n>.json` and removes it, and the reopened segment writes its own. `failure.json` records the most recent throw and is replaced by a later throw; the
  * history of every attempt stays in `observer.jsonl`. A failure record alone never blocks
  * re-entry, because r1's first attempt threw on a caller input error before any spawn and the
  * corrected attempt on the same directory produced all of the run's evidence.
@@ -56,7 +57,7 @@ export class SettledRunDirectoryError extends Error {
   constructor(path: string, recordedRunId: string, requestedRunId: string) {
     super(
       recordedRunId === requestedRunId
-        ? `supervisePursuit: ${path} records that run '${recordedRunId}' already settled; a settled run is not re-entered`
+        ? `supervisePursuit: ${path} records that run '${recordedRunId}' already settled; a settled run is not re-entered unless the call passes reopen: { operator, reason, operationId }`
         : `supervisePursuit: ${path} records that run '${recordedRunId}' already settled in this directory; a directory holds one settle record, so run '${requestedRunId}' needs its own runDir`,
     )
     this.name = 'SettledRunDirectoryError'

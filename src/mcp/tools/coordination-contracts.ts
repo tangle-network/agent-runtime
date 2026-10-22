@@ -571,6 +571,12 @@ export interface CoordinationTools {
   /** Queue a steer or answer from this manager's lead for its next wake. False when the message
    *  is neither. The publish is in-process; a durable subscriber records it. */
   receiveLeadMessage(message: unknown): boolean
+  /** The bus sequence numbers of the lead messages (steers and answers) queued for this manager's
+   *  next wake and not yet delivered. */
+  queuedLeadMessages(): ReadonlyArray<number>
+  /** Resolve when the next lead message is queued for this manager, or when `signal` aborts.
+   *  Takes nothing from the inbox. */
+  awaitLeadMessage(signal: AbortSignal): Promise<void>
   /** Register a tool call that outlived its response fence; returns the receipt its caller is
    *  given. The call is open work until {@link CoordinationTools.settleToolReceipt}. */
   openToolReceipt(tool: string): string

@@ -39,6 +39,17 @@ const DEFAULT_TRANSIENT_OUTAGE_MS = 900_000
 const BARREN_PAUSE_FIRST_MS = 5 * 60_000
 const BARREN_PAUSE_MAX_MS = 60 * 60_000
 
+/** The stops an opted-in root pauses on (`DriverRetryRun.stopPause`). `completed`, `aborted` and a
+ *  declared `deadline` end the run; `retry-disabled` cannot be opted in beside a pause. */
+const PAUSED_STOPS: ReadonlySet<DriverAttemptStop> = new Set<DriverAttemptStop>([
+  'terminal-error',
+  'no-progress',
+  'max-attempts',
+  'repeated-failure',
+  'pending-unresolved',
+  'budget-exhausted',
+])
+
 /**
  * The pause before a continuation once `streak` re-entered drives in a row have completed without
  * progress: 5 minutes at `maxBarren`, doubling per further barren drive, 60 minutes at most.
@@ -98,6 +109,11 @@ function budgetStop(budget: DriverBudgetReadout, atMs: number): DriverAttemptSto
   )
     return 'budget-exhausted'
   return undefined
+}
+
+/** The cause an admission or continuation refusal carries: it has no failure of its own. */
+function admissionError(stop: DriverAttemptStop): ValidationError {
+  return new ValidationError(`driver admission: ${stop}`)
 }
 
 function contractOf(mark: DriverProgressMark): DriverContractState {
@@ -195,6 +211,8 @@ export class DriverRetryLoop {
   // The current streak of identical `PartialFailureError` attempts that gained nothing.
   private samePartial: { readonly error: string; readonly count: number } | undefined
   private abandonments = 0
+  // Stop-pauses in a row since the last attempt that made progress, for the stop-pause ladder.
+  private stopPauses = 0
   // Every pause this loop took, for the re-entry it names.
   private pauses = 0
   private continuations = 0
@@ -224,22 +242,137 @@ export class DriverRetryLoop {
     await this.run.onAttempt?.(stamped)
   }
 
-  /** True when the loop returns before this attempt; throws when no attempt ever completed. */
-  admissionRefused(): boolean {
+  /**
+   * Whether the next attempt may run: `undefined` admits it, `'refused'` returns before it, and a
+   * stop is one an opted-in root pauses on before asking again. Throws when no attempt ever
+   * completed. Synchronous, so nothing separates an admitted attempt from its dispatch.
+   */
+  admission(): 'refused' | DriverAttemptStop | undefined {
     const { run } = this
     const admissionStop = run.signal.aborted
       ? abortStop(run.signal)
       : budgetStop(run.budget(), this.limits.now())
-    if (admissionStop === undefined) return false
+    if (admissionStop === undefined) return undefined
+    if (this.pausesStop(admissionStop)) return admissionStop
     // A completed-but-unmet invocation remains completed; its finalizer owns acceptance.
-    if (this.attempts.length > 0) return true
+    if (this.attempts.length > 0) return 'refused'
     throw new DriverAttemptsExhaustedError(
-      run.signal.aborted
-        ? run.signal.reason
-        : new ValidationError(`driver admission: ${admissionStop}`),
+      run.signal.aborted ? run.signal.reason : admissionError(admissionStop),
       this.attempts,
       admissionStop,
     )
+  }
+
+  /** Pause an opted-in root where admission would have stopped it; the re-entry is kept. */
+  async pauseAdmission(stop: DriverAttemptStop, attempt: number): Promise<void> {
+    await this.stopPause(admissionError(stop), stop, {
+      attempt,
+      durationMs: 0,
+      madeProgress: false,
+    })
+  }
+
+  /** True when `stop` becomes a pause: the caller opted in, the stop is one the header names, and
+   *  neither the run nor the manager's own stop has fired. */
+  private pausesStop(stop: DriverAttemptStop): boolean {
+    const { run } = this
+    return (
+      run.stopPause !== undefined &&
+      PAUSED_STOPS.has(stop) &&
+      !run.signal.aborted &&
+      run.stopSignal?.aborted !== true
+    )
+  }
+
+  /** End the loop on `stop` with `record` (when the stop has one), or pause an opted-in root. */
+  private async stopOrPause(
+    error: unknown,
+    stop: DriverAttemptStop,
+    record: DriverAttemptRecord,
+  ): Promise<void> {
+    if (!this.pausesStop(stop)) {
+      await this.emit({ ...record, stop })
+      throw new DriverAttemptsExhaustedError(error, this.attempts, stop)
+    }
+    await this.stopPause(error, stop, record)
+  }
+
+  /** The earlier of the continuation deadline and the budget's deadline; infinite when neither is set. */
+  private deadlineAt(): number {
+    const budgetDeadline = this.run.budget().deadlineMs
+    return Math.min(
+      this.run.continuation?.deadlineMs ?? Number.POSITIVE_INFINITY,
+      budgetDeadline > 0 ? budgetDeadline : Number.POSITIVE_INFINITY,
+    )
+  }
+
+  /**
+   * The wait an opted-in root takes where it would stop (STOP-PAUSE in `./driver-retry.ts`). Emits
+   * one record carrying `replacesStop`, sleeps until the ladder ends, a cancel or a root steer, and
+   * resets the per-window counters. A cancel during the pause emits one `aborted` record and
+   * throws; so does a declared deadline the pause reached. A failure re-enters as `driver-failure`.
+   */
+  private async stopPause(
+    error: unknown,
+    stop: DriverAttemptStop,
+    record: DriverAttemptRecord,
+  ): Promise<void> {
+    const { run, limits } = this
+    const steering = run.stopPause
+    if (steering === undefined) throw new DriverAttemptsExhaustedError(error, this.attempts, stop)
+    this.stopPauses += 1
+    const pausedAt = limits.now()
+    const pauseMs = Math.max(
+      0,
+      Math.min(
+        cappedDoublingMs(this.stopPauses, BARREN_PAUSE_FIRST_MS, BARREN_PAUSE_MAX_MS),
+        this.deadlineAt() - pausedAt,
+      ),
+    )
+    await this.emit({
+      ...record,
+      replacesStop: stop,
+      stopPauseStreak: this.stopPauses,
+      retryInMs: pauseMs,
+      resumeAt: new Date(pausedAt + pauseMs).toISOString(),
+    })
+    // A steer cannot buy budget: a budget pause waiting on one would wake, find the pool still
+    // spent, and pause again at once for as long as the steer stays unread.
+    const steered = new AbortController()
+    const wait = AbortSignal.any([run.signal, steered.signal])
+    if (stop !== 'budget-exhausted') {
+      void steering.steered(wait).then(() => steered.abort())
+    }
+    try {
+      await limits.sleep(pauseMs, wait)
+    } finally {
+      steered.abort()
+    }
+    const ended = run.signal.aborted
+      ? abortStop(run.signal)
+      : limits.now() >= this.deadlineAt()
+        ? 'deadline'
+        : undefined
+    if (ended !== undefined) {
+      await this.emit({ attempt: record.attempt, durationMs: 0, madeProgress: false, stop: ended })
+      throw new DriverAttemptsExhaustedError(error, this.attempts, ended)
+    }
+    this.chargedFailures = 0
+    this.consecutiveBarren = 0
+    this.sameFailure = undefined
+    this.samePartial = undefined
+    this.samePending = undefined
+    this.abandonments = 0
+    this.outageSince = undefined
+    // The same rule as a failure retry: the failed drive may never have read a re-prompt.
+    if (record.error !== undefined) {
+      this.reentry = {
+        reason: 'driver-failure',
+        failure: errMessage(error),
+        retry: this.failures,
+        pausedMs: pauseMs,
+      }
+    }
   }
 
   private failureRecord(failure: DriverFailure) {
@@ -258,7 +391,9 @@ export class DriverRetryLoop {
       throw new DriverAttemptsExhaustedError(error, this.attempts, abortStop(run.signal))
     }
     const afterWait = budgetStop(run.budget(), this.limits.now())
-    if (afterWait) {
+    // A stop an opted-in root pauses on is left to the next admission, which pauses with the
+    // re-entry this wait set.
+    if (afterWait && !this.pausesStop(afterWait)) {
       throw new DriverAttemptsExhaustedError(error, this.attempts, afterWait)
     }
   }
@@ -271,11 +406,12 @@ export class DriverRetryLoop {
     startedAt: number,
   ): Promise<void> {
     const durationMs = this.limits.now() - startedAt
-    const classification = classifyDriverFailure(error, this.run.signal)
+    const classification = classifyDriverFailure(error, this.run.signal, this.run.stopSignal)
     const after = this.run.progress()
     const progressed = madeProgress(before, after)
     if (progressed) {
       this.abandonments = 0
+      this.stopPauses = 0
       this.lastProgressAt = this.limits.now()
     }
     const pending = abandonablePending(error)
@@ -315,8 +451,8 @@ export class DriverRetryLoop {
     })()
     const unavailableSignal = upstreamUnavailableSignal(error) ?? 'unavailable'
     if (stop !== undefined) {
-      await this.emit({ ...this.failureRecord(failure), unavailableSignal, stop })
-      throw new DriverAttemptsExhaustedError(error, this.attempts, stop)
+      await this.stopOrPause(error, stop, { ...this.failureRecord(failure), unavailableSignal })
+      return
     }
     this.pauses += 1
     this.consecutivePauses = progressed ? 1 : this.consecutivePauses + 1
@@ -376,12 +512,11 @@ export class DriverRetryLoop {
 
     if (progressed) this.barrenReentries = 0
     if (retryStop !== undefined) {
-      await this.emit({
+      await this.stopOrPause(error, retryStop, {
         ...this.failureRecord(failure),
-        stop: retryStop,
         ...(retainedFailure === undefined ? {} : { pendingCause: retainedFailure.pendingCause }),
       })
-      throw new DriverAttemptsExhaustedError(error, this.attempts, retryStop)
+      return
     }
 
     if (!abandoned) this.consecutiveBarren = progressed ? 0 : this.consecutiveBarren + 1
@@ -551,14 +686,9 @@ export class DriverRetryLoop {
     if (this.barrenReentries < policy.maxBarren) return undefined
     const { run } = this
     const pausedAt = this.limits.now()
-    const budgetDeadline = run.budget().deadlineMs
-    const until = Math.min(
-      policy.deadlineMs ?? Number.POSITIVE_INFINITY,
-      budgetDeadline > 0 ? budgetDeadline : Number.POSITIVE_INFINITY,
-    )
     const pauseMs = Math.max(
       0,
-      Math.min(barrenPauseMs(this.barrenReentries, policy.maxBarren), until - pausedAt),
+      Math.min(barrenPauseMs(this.barrenReentries, policy.maxBarren), this.deadlineAt() - pausedAt),
     )
     const pause: DriverBarrenPause = {
       attempt,
@@ -602,6 +732,7 @@ export class DriverRetryLoop {
     }
     if (progressed) {
       this.barrenReentries = 0
+      this.stopPauses = 0
       this.lastProgressAt = this.limits.now()
     } else if (
       !this.beforeModelEvent &&
@@ -614,7 +745,17 @@ export class DriverRetryLoop {
     if (run.wait !== undefined && contract !== 'met' && (await this.wake(attempt, completed)))
       return true
     if (contract === 'unmet' && continuation !== undefined) {
-      const decision = await this.decideContinuation(continuation, attempt, after)
+      let decision = await this.decideContinuation(continuation, attempt, after)
+      // An opted-in root pauses on a spent budget and reads the bounds again once it ends.
+      while ('refusedBy' in decision && decision.refusedBy === 'budget-exhausted') {
+        if (!this.pausesStop('budget-exhausted')) break
+        await this.stopPause(admissionError('budget-exhausted'), 'budget-exhausted', {
+          attempt,
+          durationMs,
+          madeProgress: false,
+        })
+        decision = await this.decideContinuation(continuation, attempt, after)
+      }
       if ('steer' in decision) {
         this.continuations += 1
         // No failure backoff: the driver is not failing, it finished early. A barren pause, when

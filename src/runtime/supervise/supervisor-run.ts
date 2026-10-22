@@ -480,6 +480,7 @@ async function noWinner<Out>(
       source: cancellation.source,
       cancellationReason: cancellation.message,
       ...(cancellation.operationId === undefined ? {} : { operationId: cancellation.operationId }),
+      ...(cancellation.operator === undefined ? {} : { operator: cancellation.operator }),
     }
   }
   if (lifecycle !== undefined) return { ...common, reason: lifecycle }

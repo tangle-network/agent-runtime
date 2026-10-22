@@ -240,6 +240,14 @@ export interface SuperviseOptions {
    *
    * Omit = retry under the defaults. `{ enabled: false }` = the historical behavior where the first
    * driver failure ends the run. Applies to the root manager and every recursive manager under it.
+   *
+   * `driverRetry.pauseRootStops: true` makes the ROOT pause where it would stop: a terminal
+   * failure, no progress, the attempt ceilings, a repeated failure, an unresolved pending
+   * invocation and a spent budget each journal one `paused` row (`replacesStop`, `streak`,
+   * `resumeAt`) and wait 5 minutes, doubling to 60, before the next drive. Only a solve, a cancel
+   * (`cancelRun`) or a declared deadline then ends the run; a root steer ends a pause at once. A
+   * nested manager keeps its stops. Refused with `enabled: false`. Leave it off when the run must
+   * return on its own.
    */
   readonly driverRetry?: DriverRetryPolicy
   /** Per-attempt record for every external driver in the tree — what makes "failed after N

@@ -16,7 +16,7 @@ import {
   type RuntimeHooks,
   withPursuitContext,
 } from '../runtime-hooks'
-import { createFileObserverHooks } from './observer-journal'
+import { createFileObserverHooks, type FileObserverJournal } from './observer-journal'
 import { type PursuitProjection, projectPursuit } from './observer-projection'
 import {
   type PursuitObserverDeliverer,
@@ -30,6 +30,7 @@ import {
 } from './pursuit-versions'
 import { type PursuitFork, prepareRunFork } from './run-fork'
 import { acquireRunDirectoryLock } from './run-lock'
+import { assertRunReopen, type RunReopen, reopenSettledRun } from './run-reopen'
 import {
   FAILURE_RECORD_FILE,
   readSettleRecord,
@@ -49,9 +50,10 @@ export interface SupervisePursuitOptions extends SuperviseOptions {
    */
   readonly runDir: string
   /**
-   * Always `'release'`. The settle record refuses re-entry, so no later call resumes a settled
-   * pursuit and nothing else would release the provider environments its retained children hold.
-   * `'keep'` is refused rather than ignored.
+   * Always `'release'`. A settle record is written once per segment and refuses re-entry, so no
+   * later call resumes a settled pursuit unless an explicit `reopen` archives it; nothing else
+   * would release the provider environments its retained children hold. `'keep'` is refused
+   * rather than ignored.
    */
   readonly retainedAtSettlement?: 'release'
   /**
@@ -83,6 +85,16 @@ export interface SupervisePursuitOptions extends SuperviseOptions {
    * the run. Each version of a `versions` chain delivers its own run under the same pursuit.
    */
   readonly observerDelivery?: PursuitObserverDelivery
+  /**
+   * Reopen this settled run under its own run id instead of refusing it (`./run-reopen.ts`).
+   * Under the directory lock, `result.json` is archived byte for byte to `settles/<n>.json`, one
+   * `reopened` journal row names the operator and reason, the run's settled cancel operation is
+   * moved aside, and the run resumes from its journal (`resume: true`): settled children replay by
+   * key and spend from before the reopen is debited once. `reopen.budget`, when set, replaces the
+   * call's `budget` and is recorded for later resumes. Refused with `fork` or `versions`, and on a
+   * directory with no `result.json` ("nothing to reopen; resume it").
+   */
+  readonly reopen?: RunReopen
 }
 
 export interface SupervisedPursuitResult<Result> {
@@ -142,6 +154,7 @@ export async function supervisePursuit(
   opts: SupervisePursuitOptions,
 ): Promise<SupervisedPursuitResult<Awaited<ReturnType<typeof supervise>>>> {
   assertPursuitDirectory(opts, 'supervisePursuit')
+  if (opts.reopen !== undefined) assertRunReopen(opts.reopen, opts)
 
   if (opts.versions !== undefined) {
     return runPursuitVersions(
@@ -158,6 +171,7 @@ export async function supervisePursuit(
     fork,
     versions: _versions,
     observerDelivery: _observerDelivery,
+    reopen,
     ...superviseOptions
   } = opts
 
@@ -173,6 +187,9 @@ export async function supervisePursuit(
       supervise(forked?.profile ?? profile, task, {
         ...superviseOptions,
         ...(forked === undefined ? {} : { execution: forked.execution }),
+        ...(reopen === undefined
+          ? {}
+          : { resume: true, ...(reopen.budget === undefined ? {} : { budget: reopen.budget }) }),
         steerDir,
         // The settle record written at settlement makes this settlement final, so the
         // environments a retained child holds are released at the barrier instead of kept for a
@@ -182,6 +199,18 @@ export async function supervisePursuit(
         hooks,
       }),
     (result) => result,
+    reopen === undefined
+      ? undefined
+      : (observer) =>
+          reopenSettledRun({
+            runDir: opts.runDir.trim(),
+            runId: opts.runId ?? 'supervise',
+            reopen,
+            journal: opts.journal,
+            observer,
+            pursuitId: opts.pursuitId.trim(),
+            now: opts.now ?? Date.now,
+          }),
   )
 }
 
@@ -282,6 +311,7 @@ async function runDurablePursuit<Result>(
   },
   execute: (seams: { readonly hooks: RuntimeHooks; readonly steerDir: string }) => Promise<Result>,
   settled: (result: Result) => unknown,
+  reopen?: (observer: FileObserverJournal) => Promise<void>,
 ): Promise<SupervisedPursuitResult<Result>> {
   const pursuitId = opts.pursuitId.trim()
   const runDir = opts.runDir.trim()
@@ -297,12 +327,14 @@ async function runDurablePursuit<Result>(
   let delivery: PursuitObserverDeliverer | undefined
   let terminalState: 'done' | 'failed' = 'failed'
   try {
-    const prior = await readSettleRecord(runDir)
-    if (prior !== undefined) {
-      throw new SettledRunDirectoryError(settlePath, prior.tree.root, runId)
-    }
-
     const observer = createFileObserverHooks(observerPath, pursuitId)
+    if (reopen !== undefined) await reopen(observer.journal)
+    else {
+      const prior = await readSettleRecord(runDir)
+      if (prior !== undefined) {
+        throw new SettledRunDirectoryError(settlePath, prior.tree.root, runId)
+      }
+    }
 
     // Root lifecycle is an observer-plane fact, not something the manager has to
     // narrate about itself. This also makes a zero-spawn/single-agent run observable.

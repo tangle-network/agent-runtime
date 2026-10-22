@@ -68,7 +68,7 @@ export function superviseInternal(
     durableCancellation.abort(
       request === undefined
         ? new Error(reason)
-        : new RunCancellationReason(request.source, reason, request.operationId),
+        : new RunCancellationReason(request.source, reason, request.operationId, request.operator),
     )
   }
   // Every configuration fault above throws SYNCHRONOUSLY (no compute starts); only the durable

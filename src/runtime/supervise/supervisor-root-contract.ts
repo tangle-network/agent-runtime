@@ -19,7 +19,8 @@ import type {
 
 export type SpawnedEvent = Extract<SpawnEvent, { kind: 'spawned' }>
 
-/** A resumed process may continue only the exact root contract first recorded for this run id. */
+/** A resumed process may continue only the exact root contract first recorded for this run id. Its
+ *  budget is the root's, or the one the run's last budget-carrying `reopened` row recorded. */
 export function assertResumeContract(events: SpawnEvent[], opts: SupervisorOpts): SpawnedEvent {
   const roots = events.filter(
     (event): event is SpawnedEvent => event.kind === 'spawned' && event.parent === undefined,
@@ -30,7 +31,14 @@ export function assertResumeContract(events: SpawnEvent[], opts: SupervisorOpts)
     )
   }
   const recorded = roots[0]!
-  if (contentAddress(recorded.budget) !== contentAddress(opts.budget)) {
+  // A reopen may carry a new budget; the last one that did is the budget this run is held to.
+  const reopenedBudget = events
+    .filter(
+      (event): event is Extract<SpawnEvent, { kind: 'reopened' }> =>
+        event.kind === 'reopened' && event.id === opts.runId && event.budget !== undefined,
+    )
+    .at(-1)?.budget
+  if (contentAddress(reopenedBudget ?? recorded.budget) !== contentAddress(opts.budget)) {
     throw new RuntimeRunStateError(
       `supervisor: resume budget mismatch for run '${opts.runId}'; use a new runId to change limits`,
     )

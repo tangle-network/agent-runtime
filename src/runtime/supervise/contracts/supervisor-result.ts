@@ -235,6 +235,9 @@ export type SupervisedResult<Out> =
           readonly source: string
           readonly cancellationReason: string
           readonly operationId?: string
+          /** Who stopped the run, as its durable cancel request named them. Absent for an
+           *  in-process abort and for a request written before `cancelRun` required one. */
+          readonly operator?: string
         }
     ))
   | {
