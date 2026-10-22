@@ -1,3 +1,9 @@
+## 0.342.3
+
+`subscriptionUsageLimitSignal` reads Claude Code's "You've hit your monthly spend limit" refusal as `subscription-usage-limit`, so a seat chain moves to the next account when one account's extra-usage credits are capped instead of failing the stage. A bare HTTP 429 still is not a plan limit.
+
+`isRecord` and `sha256Hex` come from `@tangle-network/agent-core` instead of private copies. No behaviour change; the `agent-core` range is now `>=0.13.1 <0.14.0`.
+
 ## 0.342.2
 
 The packed-consumer gate qualifies an installed Sandbox by its contract copies: a Sandbox inside Runtime's declared peer range whose SDK-private and shared `agent-interface` and `agent-core` copies are the reviewed bytes passes, so a Sandbox patch release no longer blocks a Runtime release. Changed contract bytes, unknown contract versions and Sandboxes outside the peer range still refuse.
