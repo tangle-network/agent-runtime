@@ -41,9 +41,9 @@ function superviseWithContext(
   opts: SuperviseOptions,
   brain?: ToolLoopChat,
 ): ReturnType<typeof superviseInternal> {
-  if (opts.pauseRootStops === true && opts.driverRetry?.enabled === false) {
+  if (opts.driverRetry?.pauseRootStops === true && opts.driverRetry.enabled === false) {
     throw new ValidationError(
-      'supervise: pauseRootStops pauses where a retry would stop; it cannot be combined with driverRetry.enabled: false',
+      'supervise: driverRetry.pauseRootStops pauses where a retry would stop; it cannot be combined with driverRetry.enabled: false',
     )
   }
   if (opts.runContext?.acquire === undefined) return superviseInternal(profile, task, opts, brain)

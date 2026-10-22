@@ -44,7 +44,6 @@ const superviseOptionKeys = [
   'driveHarnessMaterialization',
   'driverBackend',
   'driverRetry',
-  'pauseRootStops',
   'executeExtraTool',
   'execution',
   'extraTools',

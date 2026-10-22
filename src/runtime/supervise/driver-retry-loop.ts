@@ -40,7 +40,7 @@ const BARREN_PAUSE_FIRST_MS = 5 * 60_000
 const BARREN_PAUSE_MAX_MS = 60 * 60_000
 
 /** The stops an opted-in root pauses on (`DriverRetryRun.stopPause`). `completed`, `aborted` and a
- *  declared `deadline` end the run; `supervise()` refuses `pauseRootStops` beside `retry-disabled`. */
+ *  declared `deadline` end the run; `supervise()` refuses `driverRetry.pauseRootStops` beside `retry-disabled`. */
 const PAUSED_STOPS: ReadonlySet<DriverAttemptStop> = new Set<DriverAttemptStop>([
   'terminal-error',
   'no-progress',

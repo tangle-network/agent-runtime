@@ -38,7 +38,7 @@ import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 /*
  * An opted-in root pauses where it used to stop. Drew, 2026-10-21: "why do these runs keep failing
  * early its unacceptable!" Over 259 runs since 10-14, 8 of the 10 driver stops settled runs that
- * nobody solved or stopped. With `pauseRootStops`, each such stop journals one `paused`
+ * nobody solved or stopped. With `driverRetry.pauseRootStops`, each such stop journals one `paused`
  * row the operator alarms on, and only a solve, a named cancel or a declared deadline settles.
  *
  * Every case runs through `supervise()` with a real run directory and journal; the harness drive
@@ -199,8 +199,12 @@ describe('an opted-in root pauses where it used to stop', () => {
         budget: { maxIterations: 100, maxTokens: 10_000 },
         makeWorkerAgent: noWorkers,
         driveHarness,
-        pauseRootStops: true,
-        driverRetry: { initialBackoffMs: 1, maxBackoffMs: 1, transientOutageMs: 1 },
+        driverRetry: {
+          pauseRootStops: true,
+          initialBackoffMs: 1,
+          maxBackoffMs: 1,
+          transientOutageMs: 1,
+        },
         deliverable: {
           describe: 'The word done.',
           check: (out: unknown) => out === 'done',
@@ -302,8 +306,7 @@ describe('an opted-in root pauses where it used to stop', () => {
           if (tasks.length === 3)
             cancelRun(dir, 'stop-budget', { operator: 'test-operator', reason: 'steer read' })
         },
-        pauseRootStops: true,
-        driverRetry: { initialBackoffMs: 1, maxBackoffMs: 1 },
+        driverRetry: { pauseRootStops: true, initialBackoffMs: 1, maxBackoffMs: 1 },
         deliverable: { describe: 'The word done.', check: (out: unknown) => out === 'done' },
         continuation: openContinuation(),
       },
@@ -403,8 +406,8 @@ describe('an opted-in root pauses where it used to stop', () => {
         backend: { backend: 'provider', provider },
         driverBackend: { backend: 'provider', provider },
         budget: { maxIterations: 100, maxTokens: 1000 },
-        pauseRootStops: true,
         driverRetry: {
+          pauseRootStops: true,
           transientOutageMs: 0,
           initialBackoffMs: 0,
           maxBackoffMs: 0,
@@ -473,8 +476,7 @@ describe('an opted-in root pauses where it used to stop', () => {
             }
             await callTool(coordinationMcpUrl, 'submit_result', { result: 'done' })
           },
-          pauseRootStops,
-          driverRetry: { initialBackoffMs: 1, maxBackoffMs: 1 },
+          driverRetry: { pauseRootStops, initialBackoffMs: 1, maxBackoffMs: 1 },
           deliverable: { describe: 'The word done.', check: (out: unknown) => out === 'done' },
           continuation: openContinuation(),
           onDriverAttempt: (record) => void attempts.push(record),
@@ -526,8 +528,7 @@ describe('an opted-in root pauses where it used to stop', () => {
           }
         },
         driveHarnessMaterialization: fullProfileMaterialization,
-        pauseRootStops: true,
-        driverRetry: { initialBackoffMs: 1 },
+        driverRetry: { pauseRootStops: true, initialBackoffMs: 1 },
       },
     )
     expect(childDrives).toBe(1)
@@ -544,8 +545,7 @@ describe('an opted-in root pauses where it used to stop', () => {
       supervise(testAgentProfile('root', { harness: 'codex' }), 'task', {
         budget: { maxIterations: 1, maxTokens: 10 },
         driveHarness: async () => undefined,
-        pauseRootStops: true,
-        driverRetry: { enabled: false },
+        driverRetry: { pauseRootStops: true, enabled: false },
       }),
     ).toThrow(/pauseRootStops/u)
   })

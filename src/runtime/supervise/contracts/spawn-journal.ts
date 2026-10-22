@@ -803,7 +803,7 @@ export type SpawnEvent =
   | {
       /** A manager's driver paused before re-entering instead of failing or stopping. Either an
        *  unavailable upstream refused its turn (an exhausted quota, a rate limit, an overload), or
-       *  an opted-in root met a stop and paused in its place (`SuperviseOptions.pauseRootStops`): such
+       *  an opted-in root met a stop and paused in its place (`driverRetry.pauseRootStops`): such
        *  a stop-pause carries `replacesStop`, `streak` and `resumeAt`, and is the operator's
        *  alarm. `attemptMs` is the attempt (0 for an admission refusal), `pauseMs` the wait that
        *  followed. Informational: replay, `materializeTreeView`, and cost readers skip it; `seq`

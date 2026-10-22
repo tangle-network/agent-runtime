@@ -52,7 +52,7 @@ export interface DriverAttemptRecord {
   /** Set when this attempt ended the loop. */
   readonly stop?: DriverAttemptStop
   /** Set when this stop would have ended the loop and an opted-in root paused instead
-   *  (`SuperviseOptions.pauseRootStops`); `retryInMs` is the pause and `resumeAt` its end. The
+   *  (`driverRetry.pauseRootStops`); `retryInMs` is the pause and `resumeAt` its end. The
    *  run's journal holds one `paused` row for it. An admission or continuation refusal has no
    *  failure, so its record carries no `error`. */
   readonly replacesStop?: DriverAttemptStop

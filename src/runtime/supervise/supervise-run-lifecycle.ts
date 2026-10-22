@@ -198,8 +198,9 @@ function rootSupervisorAgent(
     ...(options.decideGate ? { decideGate: options.decideGate } : {}),
     ...(options.continuityByProfile ? { continuityByProfile: options.continuityByProfile } : {}),
     ...supervisorTurnOptions(options),
-    // The root alone pauses where it would stop; nested deps are built without this key.
-    ...(options.pauseRootStops === true ? { pauseRootStops: true } : {}),
+    // The root alone pauses where it would stop: `driverRetry` reaches every manager, but nested
+    // deps are built without this key.
+    ...(options.driverRetry?.pauseRootStops === true ? { pauseRootStops: true } : {}),
     ...(deliverable && options.continuation && setup.externalRoot
       ? {
           continuation: options.continuation,

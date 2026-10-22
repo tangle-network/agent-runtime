@@ -252,7 +252,7 @@ export interface SupervisorAgentDeps {
    *  The router arm is unaffected: its transport already retries. */
   readonly driverRetry?: DriverRetryPolicy
   /** This manager is a ROOT that pauses where `driverRetry` would stop it
-   *  (`SuperviseOptions.pauseRootStops`). `supervise()` sets it on the root's deps alone; nested
+   *  (`driverRetry.pauseRootStops`). `supervise()` sets it on the root's deps alone; nested
    *  managers' deps never carry it, so they keep their stops. */
   readonly pauseRootStops?: boolean
   /** The profile this manager was registered with, when it executes another segment of it (a resumed root moved

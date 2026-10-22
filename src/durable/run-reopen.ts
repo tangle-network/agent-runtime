@@ -49,7 +49,7 @@ export interface RunReopen {
    * The budget the reopened run is held to, recorded on its `reopened` row, which a later resume
    * must then match. Omit and the call's `budget` must equal the recorded one: the root's, or the
    * last budget a reopen recorded. A run that settled `budget-exhausted` and reopens without a
-   * larger budget pauses at once (with `pauseRootStops`) or settles
+   * larger budget pauses at once (with `driverRetry.pauseRootStops`) or settles
    * `budget-exhausted` again. A deadline is measured from the original root instant, so a run
    * whose recorded deadline has passed settles `deadline` at once unless this budget drops the
    * deadline or moves it.

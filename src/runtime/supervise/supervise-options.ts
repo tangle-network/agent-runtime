@@ -240,20 +240,17 @@ export interface SuperviseOptions {
    *
    * Omit = retry under the defaults. `{ enabled: false }` = the historical behavior where the first
    * driver failure ends the run. Applies to the root manager and every recursive manager under it.
-   * `pauseRootStops` turns the root's stops into pauses.
-   */
-  readonly driverRetry?: DriverRetryPolicy
-  /**
-   * `true` makes this run's external ROOT pause where `driverRetry` would stop it: a terminal
-   * failure, no progress, the attempt ceilings, a repeated failure, an unresolved pending
-   * invocation and a spent budget each journal one `paused` row (`replacesStop`, `streak`,
+   *
+   * `driverRetry.pauseRootStops: true` makes the external ROOT pause where this policy would stop
+   * it: a terminal failure, no progress, the attempt ceilings, a repeated failure, an unresolved
+   * pending invocation and a spent budget each journal one `paused` row (`replacesStop`, `streak`,
    * `resumeAt`) and wait 5 minutes, doubling to 60, before the next drive. Only a solve, a cancel
    * (`cancelRun`) or a declared deadline then ends the run; a root steer ends any pause at once,
-   * and a pool still spent then pauses again. Nested managers keep their stops and settle `down`
-   * for their parent. Refused with `driverRetry.enabled: false`. Default off: leave it off when
-   * the run must return on its own.
+   * and a pool still spent then pauses again. Nested managers ignore the field, keep their stops
+   * and settle `down` for their parent. Refused with `driverRetry.enabled: false`. Default off:
+   * leave it off when the run must return on its own.
    */
-  readonly pauseRootStops?: boolean
+  readonly driverRetry?: DriverRetryPolicy
   /** Per-attempt record for every external driver in the tree — what makes "failed after N
    *  attempts, last cause X" visible instead of one backend's last words. */
   readonly onDriverAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
