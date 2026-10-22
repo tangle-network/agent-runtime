@@ -29,6 +29,8 @@ The package scripts in [package.json](package.json) are the only command invento
 
 Work on a feature branch and run relevant checks while developing. Land authorized PRs into `main` with `gh pr merge <PR> --merge --match-head-commit <INTENDED_HEAD_SHA>`. Capture the intended head first; read back `mergedAt` and `mergeCommit` before reporting a completed merge. No additional merge wrapper or host installation is required.
 
+A PR that changes Runtime source or its published manifest adds one `.release-notes/<slug>.md` ([format](.release-notes/README.md)); `release:prepare` builds the version and changelog only from those notes, so a merged change without one is never released.
+
 Ordinary internal source PRs do not wait for CI, local signoff, a version bump or package publication. Release PRs and external contributions retain verification. Drafts, explicit holds, conflicts and native repository restrictions still apply; do not use an administrator bypass or fabricate passing checks. A skipped job is not test evidence.
 
 Publication is a separate authorized operation. The existing publisher qualifies the frozen tagged revision and exact package artifacts, including cohort compatibility and credential isolation. Advancing main does not retarget that candidate. A source merge is neither a package release nor a production result.
