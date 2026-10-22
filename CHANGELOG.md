@@ -1,3 +1,7 @@
+## 0.344.1
+
+Patch the MCP SDK and development HTTP, image, documentation, and build dependency chains to remove critical and high advisories while retaining their existing release lines.
+
 ## 0.344.0
 
 Waterfall reports and text rendering advance running spans at one observation instant, retain stable settled durations and parent node identities, and return independent snapshots. Pass nowMs to report or render for replay.
