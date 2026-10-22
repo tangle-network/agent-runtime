@@ -1,3 +1,0 @@
-type: minor
----
-Add `kimi-code` to the local-harness invocation table: a profile selecting it now runs `kimi -p <prompt> -m <model>` on the worktree and in-place CLI paths, with the shared materializer plan applied as for the other local harnesses. kimi-code 2.x has no reasoning-effort flag, so a requested effort is refused at admission. Profile MCP servers are refused on kimi-code for now: the shared materializer's kimi lowering targets a `--mcp-config-file` flag no published kimi-code accepts (2.2.0/2.3.0 exit 1 on it), while kimi-code 2.x auto-loads `<cwd>/.kimi-code/mcp.json`; the refusal lifts once the materializer lowers to that surface. Harness rows now declare that MCP capability explicitly (`profileMcp`), and admission fails closed for a row without it.
