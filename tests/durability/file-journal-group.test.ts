@@ -71,6 +71,25 @@ describe('file journal atomic publication and cold replay', () => {
     expect(await restarted.loadTree('root')).toEqual([root, input('root')])
   })
 
+  it('refuses an unknown committed envelope during replay and warm append without changing bytes', async () => {
+    const path = await journalFile()
+    const journal = new FileSpawnJournal(path)
+    await journal.beginTree('root', at)
+    await journal.appendEvents('root', [root, input('root')])
+    const records = (await readFile(path, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    records[1].kind = 'corrupted-events'
+    const corrupted = `${records.map((record) => JSON.stringify(record)).join('\n')}\n`
+    await writeFile(path, corrupted)
+    await expect(new FileSpawnJournal(path).loadTree('root')).rejects.toThrow('unknown record kind')
+    await expect(
+      journal.appendEvent('root', { ...root, id: 'later', parent: 'root' }),
+    ).rejects.toThrow('unknown record kind')
+    expect(await readFile(path, 'utf8')).toBe(corrupted)
+  })
+
   it('discards an entire torn group before appending and replaying a complete group', async () => {
     const path = await journalFile()
     const journal = new FileSpawnJournal(path)
