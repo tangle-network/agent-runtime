@@ -31585,6 +31585,8 @@ The spawn label (`shot:0`, `analyst:1`, a nested agent's label) — the row name
 
 > `optional` **parentId?**: `string`
 
+Parent agent node identity, matching another span id when that parent is observed.
+
 ##### startMs
 
 > **startMs**: `number`
@@ -31627,15 +31629,23 @@ The spawn label (`shot:0`, `analyst:1`, a nested agent's label) — the row name
 
 > **spans**: [`WaterfallSpan`](#waterfallspan)[]
 
+##### observedAtMs
+
+> **observedAtMs**: `number`
+
+Instant used to measure spans that are still running.
+
 ##### totalMs
 
 > **totalMs**: `number`
 
-Wall-clock of the observed window (first spawn → last settle).
+Wall-clock from first spawn to last settle, or observation time while running.
 
 ##### totalUsd
 
 > **totalUsd**: `number`
+
+Sum of observed settlement receipts; nested receipts may include the same child work.
 
 ##### totalTokens
 
@@ -31671,7 +31681,17 @@ Attach these to RunAgenticOptions.hooks / BenchmarkConfig.hooks.
 
 ##### report()
 
-> **report**(): [`WaterfallReport`](#waterfallreport)
+> **report**(`opts?`): [`WaterfallReport`](#waterfallreport)
+
+Snapshot at the current clock, or an explicit observation instant for replay.
+
+###### Parameters
+
+###### opts?
+
+###### nowMs?
+
+`number`
 
 ###### Returns
 
@@ -31692,6 +31712,10 @@ The text waterfall — one row per span, bars scaled to the observed window.
 `number`
 
 ###### maxRows?
+
+`number`
+
+###### nowMs?
 
 `number`
 

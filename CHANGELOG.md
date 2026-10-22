@@ -1,3 +1,7 @@
+## 0.344.0
+
+Waterfall reports and text rendering advance running spans at one observation instant, retain stable settled durations and parent node identities, and return independent snapshots. Pass nowMs to report or render for replay.
+
 ## 0.343.4
 
 Admit agent-eval 0.220.x while retaining compatibility with the existing peer floor.
