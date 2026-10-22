@@ -1,7 +1,8 @@
 /**
  * The local object store of a private CAS: where an object lives, how it is written, read back
  * and verified, and how a locator is checked. An object's name is published only after its bytes
- * are synced, and that order is what makes a name trustworthy: see `createPrivateCasArtifactPort`.
+ * are synced, and that order is what makes a name trustworthy, except in an `ephemeral` store, which
+ * syncs nothing and is never read after its process ends: see `createPrivateCasArtifactPort`.
  * Durable copies build on these.
  */
 

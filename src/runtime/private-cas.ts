@@ -120,6 +120,10 @@ export interface PrivateCasArtifactPort extends AgentCandidateOutputArtifactPort
  * runner/evidence-store.mjs commits receipts this way). On drew-gtr-pro's USB SMR disk on
  * 2026-10-21 these per-object fsyncs, 545 ms each on the 16 SYNC_THREADS, set a store's rate at
  * about 26 files/s.
+ *
+ * The one exception is an `ephemeral` store, which syncs nothing: its root is discarded with its
+ * process, so no name in it is ever read after a crash, and nothing durable may be derived from it
+ * but by a caller that copies and syncs what it keeps.
  */
 export function createPrivateCasArtifactPort(
   root: string,
@@ -132,6 +136,10 @@ export function createPrivateCasArtifactPort(
   const { durable, localBudgetBytes, durableStallMs = DURABLE_STALL_MS, ephemeral = false } = options
   if (!Number.isSafeInteger(durableStallMs) || durableStallMs <= 0)
     throw new Error('private CAS durableStallMs must be a positive integer')
+  if (typeof ephemeral !== 'boolean') throw new Error('private CAS ephemeral must be a boolean')
+  // Without a durable store an ephemeral root would be the only copy of what it holds.
+  if (ephemeral && durable === undefined)
+    throw new Error('private CAS ephemeral needs a durable store')
   if (
     localBudgetBytes !== undefined &&
     (durable === undefined || !Number.isSafeInteger(localBudgetBytes) || localBudgetBytes < 0)
