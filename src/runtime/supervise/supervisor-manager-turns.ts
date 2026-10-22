@@ -166,11 +166,13 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
         wake: (nextAttempt) => wakeManager(loop, nextAttempt),
       },
       ...(deps.driverRetry ? { policy: deps.driverRetry } : {}),
-      ...(continuation !== undefined && keeper !== undefined && config.continuationDeadlineMs
+      ...(continuation !== undefined && keeper !== undefined
         ? {
             continuation: {
               maxBarren: continuation.maxBarren,
-              deadlineMs: config.continuationDeadlineMs,
+              ...(config.continuationDeadlineMs === undefined
+                ? {}
+                : { deadlineMs: config.continuationDeadlineMs }),
               compose: (context) => (keeper as ContinuationKeeper).compose(context),
               // A run the coordination server closed ended on purpose — the manager's own
               // `stop` (served only without a check), or a progress stop rule that aborted

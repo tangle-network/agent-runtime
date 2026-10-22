@@ -149,9 +149,11 @@ export type SupervisedResult<Out> =
       /**
        * The LIFECYCLE no-winner arms: the supervisor itself proved why nothing was delivered, so
        * the reason is complete on its own and there is no driver rejection to hand back. A tripped
-       * breaker or every child down is `all-children-down`, a cascaded abort is `aborted`, an
-       * empty pool is `budget-exhausted`. These outrank `driver-failed`: when the driver threw
-       * BECAUSE the pool emptied or the run was aborted, the lifecycle cause is the explanation.
+       * breaker or every child down is `all-children-down`, a cascaded abort is `aborted`, the
+       * run's own `budget.deadlineMs` passing is `deadline`, and a spent token, iteration, dollar
+       * or resource pool is `budget-exhausted`. A run with no `deadlineMs` has no deadline ending.
+       * These outrank `driver-failed`: when the driver threw BECAUSE the pool emptied, the
+       * deadline passed or the run was aborted, the lifecycle cause is the explanation.
        * One down child among delivered siblings is not a lifecycle cause; it rides `downCount`.
        */
       kind: 'no-winner'
@@ -225,6 +227,7 @@ export type SupervisedResult<Out> =
             | 'no-result-selected'
             | 'stopped'
             | 'budget-exhausted'
+            | 'deadline'
             | 'aborted'
         }
       | {

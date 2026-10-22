@@ -173,7 +173,13 @@ async function hashFile(
     const hash = createHash('sha256')
     const chunks: Buffer[] = []
     let bytes = 0
-    for await (const chunk of file.createReadStream({ autoClose: false, signal })) {
+    // The signal is read here and per chunk, never handed to the stream: a stream given a signal
+    // that aborted during `open` or `stat` raises its AbortError before the iterator listens, as an
+    // uncaught exception (the training timeout firing during the dataset stage). An abort therefore
+    // lands within one 64 KiB chunk read.
+    signal.throwIfAborted()
+    for await (const chunk of file.createReadStream({ autoClose: false })) {
+      signal.throwIfAborted()
       bytes += chunk.length
       if (bytes > maximum) throw new Error('artifact exceeded its byte limit')
       if (bytes > before.size) throw new Error('artifact changed while being hashed')
