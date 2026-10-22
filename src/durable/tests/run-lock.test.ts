@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { lockIdentity, readLockHolderIdentity } from '@tangle-network/agent-eval/lock-holder'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   acquireRunDirectoryLock,
@@ -16,6 +17,25 @@ function deadPid(): number {
   const child = spawnSync(process.execPath, ['-e', '0'])
   if (child.pid === undefined || child.status !== 0) throw new Error('helper process failed')
   return child.pid
+}
+
+/**
+ * Write a lock file the way a holder with these fields would: this host's identity and the
+ * file's own inode identity, so a dead or reused pid is provably dead.
+ */
+async function writeHolder(
+  runDir: string,
+  fields: { pid: number; startedAt: string; runId: string; processStart?: string },
+): Promise<Record<string, unknown>> {
+  const file = await open(join(runDir, RUN_DIRECTORY_LOCK_FILE), 'wx')
+  try {
+    const lock = lockIdentity(await file.stat({ bigint: true }))
+    const record = { ...readLockHolderIdentity(process.pid), ...fields, lock }
+    await file.writeFile(`${JSON.stringify(record)}\n`)
+    return record
+  } finally {
+    await file.close()
+  }
 }
 
 describe('acquireRunDirectoryLock', () => {
@@ -59,8 +79,11 @@ describe('acquireRunDirectoryLock', () => {
   })
 
   it('reclaims a lock whose holder process is gone', async () => {
-    const stale = { pid: deadPid(), startedAt: '2026-09-06T06:14:43.597Z', runId: 'run:killed' }
-    await writeFile(join(runDir, RUN_DIRECTORY_LOCK_FILE), `${JSON.stringify(stale)}\n`)
+    await writeHolder(runDir, {
+      pid: deadPid(),
+      startedAt: '2026-09-06T06:14:43.597Z',
+      runId: 'run:killed',
+    })
 
     const lock = await acquireRunDirectoryLock(runDir, 'run:resumed')
     expect(lock.pid).toBe(process.pid)
@@ -72,10 +95,7 @@ describe('acquireRunDirectoryLock', () => {
   })
 
   it('grants only one concurrent stale-lock reclaimer', async () => {
-    await writeFile(
-      join(runDir, RUN_DIRECTORY_LOCK_FILE),
-      JSON.stringify({ pid: deadPid(), startedAt: 'old', runId: 'dead' }),
-    )
+    await writeHolder(runDir, { pid: deadPid(), startedAt: 'old', runId: 'dead' })
     const outcomes = await Promise.allSettled(
       Array.from({ length: 12 }, (_, index) => acquireRunDirectoryLock(runDir, `run:${index}`)),
     )
@@ -146,15 +166,12 @@ describe('acquireRunDirectoryLock', () => {
   })
 
   it('reclaims a reused pid with a different process start token', async () => {
-    await writeFile(
-      join(runDir, RUN_DIRECTORY_LOCK_FILE),
-      JSON.stringify({
-        pid: process.pid,
-        processStart: 'old-process',
-        startedAt: 'old',
-        runId: 'dead',
-      }),
-    )
+    await writeHolder(runDir, {
+      pid: process.pid,
+      processStart: 'old-process',
+      startedAt: 'old',
+      runId: 'dead',
+    })
     const lock = await acquireRunDirectoryLock(runDir, 'run:new')
     expect(lock.runId).toBe('run:new')
     await lock.release()
@@ -199,13 +216,12 @@ describe('runDirectoryHolderIsLive', () => {
     // The pid exists — it is this test process — so `process.kill(pid, 0)` would report a live
     // holder. Only the start token separates the holder that took the lock from whoever holds
     // its pid now, which is why a caller must not hand-roll the signal probe.
-    const holder = {
+    const holder = await writeHolder(runDir, {
       pid: process.pid,
       processStart: 'old-process',
       startedAt: '2026-09-06T06:14:43.597Z',
       runId: 'dead',
-    }
-    await writeFile(join(runDir, RUN_DIRECTORY_LOCK_FILE), `${JSON.stringify(holder)}\n`)
+    })
 
     const liveness = await runDirectoryHolderIsLive(runDir)
     expect(liveness.live).toBe(false)
@@ -226,8 +242,11 @@ describe('runDirectoryHolderIsLive', () => {
   })
 
   it('reads a lock whose holder process is gone as not live', async () => {
-    const holder = { pid: deadPid(), startedAt: '2026-09-06T06:14:43.597Z', runId: 'run:killed' }
-    await writeFile(join(runDir, RUN_DIRECTORY_LOCK_FILE), `${JSON.stringify(holder)}\n`)
+    const holder = await writeHolder(runDir, {
+      pid: deadPid(),
+      startedAt: '2026-09-06T06:14:43.597Z',
+      runId: 'run:killed',
+    })
 
     const liveness = await runDirectoryHolderIsLive(runDir)
     expect(liveness.live).toBe(false)

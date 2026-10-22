@@ -1719,8 +1719,27 @@ ISO instant the holder took the lock.
 
 > `readonly` `optional` **processStart?**: `string`
 
-The OS's start token for `pid` when the host reports one (`readProcessStart`). A holder
-without one is judged by pid liveness alone, which cannot detect a reused pid.
+The OS's start token for `pid` when the host reports one. A holder without one is never proved dead.
+
+##### host?
+
+> `readonly` `optional` **host?**: `string`
+
+Hostname of the holder. Records written before it existed are never proved dead.
+
+##### bootId?
+
+> `readonly` `optional` **bootId?**: `string`
+
+##### pidNamespace?
+
+> `readonly` `optional` **pidNamespace?**: `string`
+
+##### lock?
+
+> `readonly` `optional` **lock?**: `LockIdentity`
+
+Inode identity of the lock file this record was written into.
 
 ***
 
@@ -1764,12 +1783,47 @@ ISO instant the holder took the lock.
 
 > `readonly` `optional` **processStart?**: `string`
 
-The OS's start token for `pid` when the host reports one (`readProcessStart`). A holder
-without one is judged by pid liveness alone, which cannot detect a reused pid.
+The OS's start token for `pid` when the host reports one. A holder without one is never proved dead.
 
 ###### Inherited from
 
 [`RunDirectoryLockHolder`](#rundirectorylockholder).[`processStart`](#processstart)
+
+##### host?
+
+> `readonly` `optional` **host?**: `string`
+
+Hostname of the holder. Records written before it existed are never proved dead.
+
+###### Inherited from
+
+[`RunDirectoryLockHolder`](#rundirectorylockholder).[`host`](#host)
+
+##### bootId?
+
+> `readonly` `optional` **bootId?**: `string`
+
+###### Inherited from
+
+[`RunDirectoryLockHolder`](#rundirectorylockholder).[`bootId`](#bootid)
+
+##### pidNamespace?
+
+> `readonly` `optional` **pidNamespace?**: `string`
+
+###### Inherited from
+
+[`RunDirectoryLockHolder`](#rundirectorylockholder).[`pidNamespace`](#pidnamespace)
+
+##### lock?
+
+> `readonly` `optional` **lock?**: `LockIdentity`
+
+Inode identity of the lock file this record was written into.
+
+###### Inherited from
+
+[`RunDirectoryLockHolder`](#rundirectorylockholder).[`lock`](#lock)
 
 ##### path
 
@@ -1797,7 +1851,7 @@ What [runDirectoryHolderIsLive](#rundirectoryholderislive) proved about a run di
 
 > `readonly` **live**: `boolean`
 
-True only while the process that took the lock is still the process that holds the pid.
+False only when the holder that took the lock is proved dead; a holder that cannot be proved dead reads as live.
 
 ##### holder?
 
@@ -5490,10 +5544,10 @@ a caller that records the option as data can run it at preflight.
 Take `runDir/supervise.lock`, or refuse.
 
 The file is published with its full content or not at all, so a contender never reads a
-half-written holder. A lock whose holder is gone (its pid no longer exists, or the pid now
-belongs to a process with a different start token) is stale and is removed under the mutation guard;
-a pid this process may not signal (`EPERM`) is alive and refuses. An empty file names no
-holder and is reclaimed. A file with unreadable content is left in place and refused:
+half-written holder. A lock whose holder is proved dead (its pid no longer exists, the pid now
+belongs to a process with a different start token, or the host rebooted) is stale and is removed
+under the mutation guard; a holder that is alive or cannot be proved dead refuses. An empty file
+names no holder and is reclaimed. A file with unreadable content is left in place and refused:
 reclaiming it could evict a live holder written by something other than this module.
 
 #### Parameters

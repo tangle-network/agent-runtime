@@ -10,10 +10,12 @@
 
 import { randomUUID } from 'node:crypto'
 import {
+  type BigIntStats,
   closeSync,
   existsSync,
   fchmodSync,
   constants as fsConstants,
+  fstatSync,
   fsyncSync,
   linkSync,
   lstatSync,
@@ -30,10 +32,19 @@ interface DurableFileOptions {
   readonly mode?: number
 }
 
-/** Publish a new file without replacing a concurrent winner. */
+/**
+ * File content, or content computed from the new file's own stat when it must name the file's
+ * inode (a lock record that later proves it was written for this very file).
+ */
+type DurableFileContent = string | ((file: BigIntStats) => string)
+
+/**
+ * Publish a new file without replacing a concurrent winner. The published entry is a hard link
+ * of the temporary file, so a content function sees the published file's inode.
+ */
 export function publishExclusiveDurableFile(
   filePath: string,
-  content: string,
+  content: DurableFileContent,
   options: DurableFileOptions = {},
 ): boolean {
   const temporaryPath = `${filePath}.${randomUUID()}.tmp`
@@ -176,14 +187,16 @@ export function writeAtomicDurableFile(
 
 function writeExclusiveDurableFile(
   filePath: string,
-  content: string,
+  content: DurableFileContent,
   options: DurableFileOptions,
   exactMode = false,
 ): void {
-  if (options.mode === undefined) {
-    writeFileSync(filePath, content, { encoding: 'utf8', flag: 'wx' })
-  } else {
-    writeFileSync(filePath, content, { encoding: 'utf8', flag: 'wx', mode: options.mode })
+  const fd = openSync(filePath, 'wx', options.mode ?? 0o666)
+  try {
+    const text = typeof content === 'string' ? content : content(fstatSync(fd, { bigint: true }))
+    writeFileSync(fd, text, 'utf8')
+  } finally {
+    closeSync(fd)
   }
   syncDurableFile(filePath, exactMode ? options.mode : undefined)
 }

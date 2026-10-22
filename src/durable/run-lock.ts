@@ -1,8 +1,14 @@
-import { execFile } from 'node:child_process'
-import { mkdir, readFile, rmdir, unlink } from 'node:fs/promises'
+import { mkdir, open, rmdir, unlink } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { promisify } from 'node:util'
+import {
+  type LockHolderRecord,
+  type LockIdentity,
+  lockHolderVerdict,
+  lockIdentity,
+  parseLockHolderRecord,
+  readLockHolderIdentity,
+} from '@tangle-network/agent-eval/lock-holder'
 import { publishExclusiveDurableFile } from '../runtime/supervise/durable-file'
 import { isNoEntError } from './jsonl-file'
 
@@ -19,9 +25,11 @@ import { isNoEntError } from './jsonl-file'
  * The holder is identified by its pid and the OS's start token for that pid. r1 ran in a
  * container whose pids are small (1527, 2058) and restart from 1, so a pid alone names the wrong
  * process after enough spawns: a lock left by a killed run would then match an unrelated live
- * process and hold the directory until an operator removed the file. The start token (Linux
- * `/proc/<pid>/stat` starttime, otherwise `ps` lstart) is the same for a process's whole life
- * and differs for every later holder of its pid, so a reused pid is reclaimed like a dead one.
+ * process and hold the directory until an operator removed the file. Whether a holder is dead is
+ * agent-eval's one dead-owner rule (`@tangle-network/agent-eval/lock-holder`): the record carries
+ * the start token, host, boot id, pid namespace and the lock file's own inode identity, and a
+ * holder is reclaimed only when those prove it gone or its pid reused. A record that cannot prove
+ * that, such as one written before these fields existed, is refused and is removed by hand.
  *
  * The lock is operational state, not evidence: replay, projection, and the settle record ignore
  * it. A holder whose process is gone is reclaimed, except when it dies during a guarded mutation; that guard requires manual recovery.
@@ -36,11 +44,14 @@ export interface RunDirectoryLockHolder {
   /** ISO instant the holder took the lock. */
   readonly startedAt: string
   readonly runId: string
-  /**
-   * The OS's start token for `pid` when the host reports one (`readProcessStart`). A holder
-   * without one is judged by pid liveness alone, which cannot detect a reused pid.
-   */
+  /** The OS's start token for `pid` when the host reports one. A holder without one is never proved dead. */
   readonly processStart?: string
+  /** Hostname of the holder. Records written before it existed are never proved dead. */
+  readonly host?: string
+  readonly bootId?: string
+  readonly pidNamespace?: string
+  /** Inode identity of the lock file this record was written into. */
+  readonly lock?: LockIdentity
 }
 
 /** A held lock. `release()` removes the file; it is safe to call more than once. */
@@ -68,10 +79,10 @@ export class RunDirectoryLockedError extends Error {
  * Take `runDir/supervise.lock`, or refuse.
  *
  * The file is published with its full content or not at all, so a contender never reads a
- * half-written holder. A lock whose holder is gone (its pid no longer exists, or the pid now
- * belongs to a process with a different start token) is stale and is removed under the mutation guard;
- * a pid this process may not signal (`EPERM`) is alive and refuses. An empty file names no
- * holder and is reclaimed. A file with unreadable content is left in place and refused:
+ * half-written holder. A lock whose holder is proved dead (its pid no longer exists, the pid now
+ * belongs to a process with a different start token, or the host rebooted) is stale and is removed
+ * under the mutation guard; a holder that is alive or cannot be proved dead refuses. An empty file
+ * names no holder and is reclaimed. A file with unreadable content is left in place and refused:
  * reclaiming it could evict a live holder written by something other than this module.
  */
 export async function acquireRunDirectoryLock(
@@ -82,20 +93,23 @@ export async function acquireRunDirectoryLock(
   const dir = resolve(runDir)
   const path = resolve(dir, RUN_DIRECTORY_LOCK_FILE)
   await mkdir(dir, { recursive: true })
-  const processStart = await readProcessStart(process.pid)
-  const holder: RunDirectoryLockHolder = Object.freeze({
-    pid: process.pid,
-    startedAt: new Date(now()).toISOString(),
-    runId,
-    ...(processStart === undefined ? {} : { processStart }),
-  })
+  const { pid, ...identity } = readLockHolderIdentity(process.pid)
+  const owner = { pid, startedAt: new Date(now()).toISOString(), runId, ...identity }
   return withMutationGuard(path, async () => {
     const existing = await readLockFile(path)
-    if (existing.state === 'holder' && (await holderIsLive(existing.holder))) {
+    if (existing.state === 'holder' && !holderIsDead(existing)) {
       throw new RunDirectoryLockedError(path, existing.holder)
     }
     if (existing.state !== 'missing') await removeIfPresent(path)
-    if (!publishExclusiveDurableFile(path, `${JSON.stringify(holder)}\n`)) {
+    const written: { holder?: RunDirectoryLockHolder } = {}
+    // The lock file is a hard link of the temporary file, so the temporary file's inode identity
+    // is the lock's, and a later verdict can prove this record was written for this very lock.
+    const published = publishExclusiveDurableFile(path, (file) => {
+      written.holder = Object.freeze({ ...owner, lock: lockIdentity(file) })
+      return `${JSON.stringify(written.holder)}\n`
+    })
+    const holder = written.holder
+    if (!published || holder === undefined) {
       throw new Error(`supervisePursuit: could not take ${path}`)
     }
     let released = false
@@ -121,7 +135,7 @@ export async function readRunDirectoryLock(
 
 /** What {@link runDirectoryHolderIsLive} proved about a run directory's recorded holder. */
 export interface RunDirectoryHolderLiveness {
-  /** True only while the process that took the lock is still the process that holds the pid. */
+  /** False only when the holder that took the lock is proved dead; a holder that cannot be proved dead reads as live. */
   readonly live: boolean
   /** The holder the lock file names. Absent when no lock file names one, which reads as not live. */
   readonly holder?: RunDirectoryLockHolder
@@ -147,53 +161,32 @@ export async function runDirectoryHolderIsLive(
 ): Promise<RunDirectoryHolderLiveness> {
   const existing = await readLockFile(resolve(runDir, RUN_DIRECTORY_LOCK_FILE))
   if (existing.state !== 'holder') return { live: false }
-  return { live: await holderIsLive(existing.holder), holder: existing.holder }
-}
-
-const execFileAsync = promisify(execFile)
-
-/**
- * The OS's start token for a live pid: on Linux the `starttime` field of `/proc/<pid>/stat`
- * (clock ticks since boot), elsewhere the `ps` `lstart` column. The same process reports the
- * same token for its whole life and a later holder of the pid reports a different one.
- * `undefined` when the host cannot report one: the pid is gone, there is no `/proc` and no
- * `ps`, or the platform is Windows.
- */
-async function readProcessStart(pid: number): Promise<string | undefined> {
-  if (!Number.isInteger(pid) || pid <= 0 || process.platform === 'win32') return undefined
-  if (process.platform === 'linux') {
-    let stat: string
-    try {
-      stat = await readFile(`/proc/${pid}/stat`, 'utf8')
-    } catch {
-      return undefined
-    }
-    // The comm field is parenthesized and may hold spaces, so fields are counted after its close.
-    const fields = stat
-      .slice(stat.lastIndexOf(')') + 1)
-      .trim()
-      .split(/\s+/u)
-    const startTime = fields[19]
-    return startTime !== undefined && /^\d+$/u.test(startTime) ? startTime : undefined
-  }
-  try {
-    const { stdout } = await execFileAsync('ps', ['-o', 'lstart=', '-p', String(pid)])
-    const token = stdout.trim()
-    return token.length === 0 ? undefined : token
-  } catch {
-    return undefined
-  }
+  return { live: !holderIsDead(existing), holder: existing.holder }
 }
 
 type LockFileState =
   | { readonly state: 'missing' }
   | { readonly state: 'empty' }
-  | { readonly state: 'holder'; readonly holder: RunDirectoryLockHolder }
+  | {
+      readonly state: 'holder'
+      readonly holder: RunDirectoryLockHolder
+      /** The holder as agent-eval's rule reads it; absent when the record names no host. */
+      readonly record: LockHolderRecord | undefined
+      /** Inode identity of the file the holder was read from. */
+      readonly current: LockIdentity
+    }
 
 async function readLockFile(path: string): Promise<LockFileState> {
   let text: string
+  let current: LockIdentity
   try {
-    text = await readFile(path, 'utf8')
+    const file = await open(path, 'r')
+    try {
+      current = lockIdentity(await file.stat({ bigint: true }))
+      text = await file.readFile('utf8')
+    } finally {
+      await file.close()
+    }
   } catch (error) {
     if (isNoEntError(error)) return { state: 'missing' }
     throw error
@@ -223,6 +216,9 @@ async function readLockFile(path: string): Promise<LockFileState> {
     throw new Error(`supervisePursuit: ${path} is not a readable lock file; remove it by hand`)
   }
   const { pid, startedAt, runId, processStart } = record
+  // A missing or malformed identity field is dropped, which leaves the holder never provably dead.
+  const verdictRecord = parseLockHolderRecord(parsed)
+  const { pid: _pid, ...identity } = verdictRecord ?? { pid }
   return {
     state: 'holder',
     holder: Object.freeze({
@@ -230,27 +226,16 @@ async function readLockFile(path: string): Promise<LockFileState> {
       startedAt,
       runId,
       ...(processStart === undefined ? {} : { processStart }),
+      ...identity,
     }),
+    record: verdictRecord,
+    current,
   }
 }
 
-async function holderIsLive(holder: RunDirectoryLockHolder): Promise<boolean> {
-  if (!processExists(holder.pid)) return false
-  if (holder.processStart === undefined) return true
-  const current = await readProcessStart(holder.pid)
-  // A pid that exists but reports no token cannot be shown to be reused, so it stays live.
-  return current === undefined || current === holder.processStart
-}
-
-function processExists(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    // EPERM means the process exists but belongs to another user; only ESRCH means gone.
-    return (error as { code?: unknown }).code !== 'ESRCH'
-  }
+/** agent-eval's dead-owner rule: only a holder proved dead is stale; alive or unknown stays held. */
+function holderIsDead(existing: Extract<LockFileState, { state: 'holder' }>): boolean {
+  return lockHolderVerdict(existing.record, existing.current).liveness === 'dead'
 }
 
 /** Remove the lock only while it still names this holder; a reclaimed lock belongs to its new owner. */
