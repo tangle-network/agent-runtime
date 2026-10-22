@@ -1,3 +1,19 @@
+## 0.343.1
+
+The release cohort names the Eval 0.218.1 and Knowledge 22.0.11 builds that Runtime admits, so the 0.343 release can publish.
+
+## 0.343.0
+
+The agent-eval peer range admits 0.218 (`>=0.216.0 <0.219.0`), whose agent-core `^0.13.1` matches Runtime's, so a packed consumer loads one agent-core.
+
+`subscriptionUsageLimitSignal` reads Claude Code's "You've hit your monthly spend limit" refusal as `subscription-usage-limit`, so a seat chain moves to the next account when one account's extra-usage credits are capped instead of failing the stage. A bare HTTP 429 still is not a plan limit.
+
+`RunReopen`, the type of `supervisePursuit`'s `reopen` option, is exported from `@tangle-network/agent-runtime/durable`, so a caller can name it and the API reference documents it.
+
+A run ends when its check passes or an operator stops it; every other stop can become a wait that alarms. `driverRetry.pauseRootStops: true` (refused with `driverRetry.enabled: false`) makes the root pause where it would stop — `terminal-error`, `no-progress`, `max-attempts`, `repeated-failure`, `pending-unresolved` and `budget-exhausted` — for 5 minutes, doubling to 60, never past a declared deadline; each pause journals one `paused` row with `replacesStop`, `streak` and `resumeAt`, a root steer ends it at once (a budget pause included; a pool still spent pauses again and the steer stays queued), and `continuation.stopPauses` counts them; `createCoordinationTools` also returns `queuedLeadMessages()` and `awaitLeadMessage(signal)`, which the pause uses to wake on a steer. Nested managers and callers that do not opt in keep their stops. For every caller, an `AbortError` that neither the run nor the manager's own stop issued is a lost stream and is retried. `supervisePursuit` gains `reopen: { operator, reason, operationId, budget? }`, which archives a settled `result.json` to `settles/<n>.json`, journals a `reopened` row and resumes the same run id; a resume after a budget-carrying reopen must match that budget. Breaking: `cancelRun` refuses a new request that has no `operator`; a replay of a request written before this release is answered as before, and the `no-winner/cancelled` result now carries the request's `operator`. Measured motive, 2026-10-21 over 259 runs since 10-14: 8 of the 10 driver stops settled runs nobody solved or stopped, 11 of 60 operator cancels named nobody, and Magnetar used 21 run ids for one solve.
+
+`isRecord` and `sha256Hex` come from `@tangle-network/agent-core` instead of private copies. No behaviour change; the `agent-core` range is now `>=0.13.1 <0.14.0`.
+
 ## 0.342.2
 
 The packed-consumer gate qualifies an installed Sandbox by its contract copies: a Sandbox inside Runtime's declared peer range whose SDK-private and shared `agent-interface` and `agent-core` copies are the reviewed bytes passes, so a Sandbox patch release no longer blocks a Runtime release. Changed contract bytes, unknown contract versions and Sandboxes outside the peer range still refuse.

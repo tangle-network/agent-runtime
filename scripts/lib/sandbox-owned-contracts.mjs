@@ -22,6 +22,14 @@ const qualifiedContractTuples = [
     ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
     ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
   ],
+  // The shared agent-core moved to 0.13.1 with the stack (agent-runtime #1994, agent-eval #1054); the SDK-private
+  // copies the refusal depends on are unchanged.
+  [
+    ['agent-interface', '5.7.0', '4f662a47917b3057a4f38b4fbf719e8a97590b9d9213c80dd36a7cafa6ea1e0f'],
+    ['agent-core', '0.13.1', '0837760f6e9dd26299e93247ce5db351ee94a09a38838b23c7c71074e60daece'],
+    ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
+    ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
+  ],
 ]
 
 function ownFiles(directory) {
