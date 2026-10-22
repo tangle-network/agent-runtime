@@ -106,8 +106,8 @@ it('snapshots growing nested spans over a live Supervisor and HTTP worker', asyn
   try {
     await Promise.race([
       requestArrived,
-      pending.then(() => {
-        throw new Error('Supervisor settled before worker HTTP request')
+      pending.then((result) => {
+        throw new Error(`Supervisor settled before worker HTTP request: ${JSON.stringify(result)}`)
       }),
     ])
     const first = collector.report()
