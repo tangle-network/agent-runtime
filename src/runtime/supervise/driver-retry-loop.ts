@@ -1,5 +1,6 @@
 import { ValidationError } from '../../errors'
 import { sleep } from '../util'
+import { isDeadlineAbortReason } from './deadline'
 import {
   abandonablePending,
   causedByPartialFailure,
@@ -71,6 +72,16 @@ const SAME_PENDING_LIMIT = 2
  * proves what a third repeats; a different failure, or any progress, restarts the count.
  */
 const SAME_PARTIAL_FAILURE_LIMIT = 2
+
+/**
+ * Why an aborted run stopped: `deadline` when the root's or the node's own deadline cut it, else
+ * `aborted`. Read before any failure classification, which calls every failure after an abort
+ * terminal: measured 2026-10-21, 61 of 62 runs that ended `terminal-error` were a deadline that cut
+ * a turn.
+ */
+function abortStop(signal: AbortSignal): 'deadline' | 'aborted' {
+  return isDeadlineAbortReason(signal.reason) ? 'deadline' : 'aborted'
+}
 
 /** The budget's own verdict on whether another attempt may run at all. */
 function budgetStop(budget: DriverBudgetReadout, atMs: number): DriverAttemptStop | undefined {
@@ -217,7 +228,7 @@ export class DriverRetryLoop {
   admissionRefused(): boolean {
     const { run } = this
     const admissionStop = run.signal.aborted
-      ? 'aborted'
+      ? abortStop(run.signal)
       : budgetStop(run.budget(), this.limits.now())
     if (admissionStop === undefined) return false
     // A completed-but-unmet invocation remains completed; its finalizer owns acceptance.
@@ -244,7 +255,7 @@ export class DriverRetryLoop {
   private throwIfRetryBoundsReached(error: unknown): void {
     const { run } = this
     if (run.signal.aborted) {
-      throw new DriverAttemptsExhaustedError(error, this.attempts, 'aborted')
+      throw new DriverAttemptsExhaustedError(error, this.attempts, abortStop(run.signal))
     }
     const afterWait = budgetStop(run.budget(), this.limits.now())
     if (afterWait) {
@@ -298,8 +309,8 @@ export class DriverRetryLoop {
     const { error, progressed } = failure
     if (progressed) this.barrenReentries = 0
     const stop = ((): DriverAttemptStop | undefined => {
+      if (run.signal.aborted) return abortStop(run.signal)
       if (!limits.retryEnabled) return 'retry-disabled'
-      if (run.signal.aborted) return 'aborted'
       return budgetStop(run.budget(), limits.now())
     })()
     const unavailableSignal = upstreamUnavailableSignal(error) ?? 'unavailable'
@@ -430,9 +441,10 @@ export class DriverRetryLoop {
           }
         : undefined
     this.samePartial = samePartial
+    // An aborted run failed because it was stopped, so the abort names the stop, not the failure.
+    if (run.signal.aborted) return abortStop(run.signal)
     if (classification === 'terminal') return 'terminal-error'
     if (!limits.retryEnabled) return 'retry-disabled'
-    if (run.signal.aborted) return 'aborted'
     const byBudget = budgetStop(run.budget(), failedAt)
     if (byBudget) return byBudget
     // The same failed box twice with nothing gained: the outage window below would retry it
@@ -497,8 +509,8 @@ export class DriverRetryLoop {
     const now = this.limits.now
     const bounds = (): DriverRepromptRefusal | undefined => {
       if (policy.closed()) return 'closed'
-      if (run.signal.aborted) return 'aborted'
-      if (now() >= policy.deadlineMs) return 'deadline'
+      if (run.signal.aborted) return abortStop(run.signal)
+      if (policy.deadlineMs !== undefined && now() >= policy.deadlineMs) return 'deadline'
       const byBudget = budgetStop(run.budget(), now())
       return byBudget === 'deadline' || byBudget === 'budget-exhausted' ? byBudget : undefined
     }
@@ -541,7 +553,7 @@ export class DriverRetryLoop {
     const pausedAt = this.limits.now()
     const budgetDeadline = run.budget().deadlineMs
     const until = Math.min(
-      policy.deadlineMs,
+      policy.deadlineMs ?? Number.POSITIVE_INFINITY,
       budgetDeadline > 0 ? budgetDeadline : Number.POSITIVE_INFINITY,
     )
     const pauseMs = Math.max(

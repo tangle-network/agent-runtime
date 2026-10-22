@@ -359,6 +359,11 @@ export function subscriptionUsageLimitSignal(failure: {
   if (/\bYou've hit your (?:usage|weekly|session) limit\b/iu.test(failure.error)) {
     return 'subscription-usage-limit'
   }
+  // The Z.ai Coding Plan (OpenCode, zai-coding-plan/*) states its rolling-window refusal only in words:
+  // "Usage limit reached for 5 hour. Your limit will reset at ..." (drew-gtr-pro, 2026-07-28).
+  if (/\bUsage limit reached for \d+ hours?\b/iu.test(failure.error)) {
+    return 'subscription-usage-limit'
+  }
   return undefined
 }
 

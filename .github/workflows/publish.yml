@@ -147,7 +147,42 @@ jobs:
           ref: ${{ steps.cohort.outputs.agent_knowledge_ref }}
           path: .cohort/agent-knowledge
           persist-credentials: false
+      # The cohort builds each package with the pnpm its own repository pins, which corepack
+      # downloads from npm. The 0.341.1 publish failed twice on that download (a 30 s timeout,
+      # then HTTP 503). The pinned managers now come from a cache keyed on the pins, and a miss
+      # warms them with bounded retries. Running each pin once is what caches pnpm 12's native
+      # binary; `corepack prepare` alone leaves it to be downloaded at first use.
+      - name: Read cohort package-manager pins
+        id: package-managers
+        run: |
+          pins=$(for dir in . .cohort/agent-sdk .cohort/agent-eval .cohort/agent-knowledge; do
+            node -p "require('./$dir/package.json').packageManager"
+          done | sort -u | tr '\n' ' ')
+          echo "pins=$pins" >> "$GITHUB_OUTPUT"
+          echo "key=corepack-${RUNNER_OS}-$(echo "$pins" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Restore cohort package managers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/corepack
+          key: ${{ steps.package-managers.outputs.key }}
+      - name: Warm cohort package managers
+        env:
+          COREPACK_HOME: ${{ runner.temp }}/corepack
+          PINS: ${{ steps.package-managers.outputs.pins }}
+        run: |
+          for pin in $PINS; do
+            dir="$RUNNER_TEMP/corepack-warm/$pin"
+            mkdir -p "$dir"
+            printf '{"packageManager":"%s"}\n' "$pin" > "$dir/package.json"
+            for attempt in 1 2 3 4 5 6; do
+              (cd "$dir" && corepack pnpm --version) && break
+              if [ "$attempt" = 6 ]; then echo "::error::corepack could not fetch $pin"; exit 1; fi
+              sleep $((attempt * 30))
+            done
+          done
       - name: Verify exact Interface, Eval, Knowledge, and Runtime archives together
+        env:
+          COREPACK_HOME: ${{ runner.temp }}/corepack
         run: >-
           node scripts/verify-packed-cohort.mjs
           --agent-interface-repo .cohort/agent-sdk

@@ -1,3 +1,17 @@
+## 0.342.2
+
+The packed-consumer gate qualifies an installed Sandbox by its contract copies: a Sandbox inside Runtime's declared peer range whose SDK-private and shared `agent-interface` and `agent-core` copies are the reviewed bytes passes, so a Sandbox patch release no longer blocks a Runtime release. Changed contract bytes, unknown contract versions and Sandboxes outside the peer range still refuse.
+
+## 0.342.1
+
+`subscriptionUsageLimitSignal` recognizes the Z.ai Coding Plan refusal ("Usage limit reached for 5 hour. Your limit will reset at …") as a subscription usage limit, so a seat chain moves past an exhausted GLM plan seat instead of failing the stage (#1986). `docs:freshness` now builds `dist/` first.
+
+## 0.342.0
+
+The packed-package check qualifies Sandbox 0.63.24 and 0.64.0, the versions the `>=0.63.10 <0.65.0` peer window and the 0.64.0 development pin install. Their SDK-private Agent Interface 4.0.0 and Agent Core 0.11.0 copies are byte-identical to the already qualified ones.
+
+A run needs no deadline, and each ending carries its own name. `ContinuationPolicy.deadline`, `SearchSpecInputs.deadline` and `DriverContinuationPolicy.deadlineMs` are optional, and `admitContinuationPolicy` returns `number | undefined`; with neither a continuation deadline nor `budget.deadlineMs`, Runtime arms no root or worker deadline timer, so only the check passing, cancellation, or a spent token, iteration or dollar budget ends the run. Breaking: the lifecycle no-winner union gains `'deadline'`. A run whose `budget.deadlineMs` passed settles `reason: 'deadline'`, and `'budget-exhausted'` now means a spent pool only, so a consumer that matched `'budget-exhausted'` to catch deadline endings matches `'deadline'` as well, and an exhaustive `switch` over the reason needs the new arm. A drive that fails, pauses or is refused after its run was aborted ends the driver loop `'deadline'` when a deadline cut it and `'aborted'` otherwise, never `'terminal-error'` or `'retry-disabled'`. Profile training no longer raises an uncaught `AbortError` when its timeout fires while a file is being opened for hashing. Measured motive, 2026-10-21 over 259 runs: 93 settled on the play's deadline and were labelled `budget-exhausted` with a median 99.8% of their tokens left, and 61 of the 62 `ended: terminal-error` loops were that deadline cutting a turn.
+
 ## 0.341.1
 
 No behaviour change: the ephemeral private CAS code and its test take biome's formatting, which held the 0.341.0 publish at lint.
