@@ -425,4 +425,82 @@ describe('durable worker controls during a native harness invocation', () => {
     expect(rootWorker.aborted).toHaveBeenCalledTimes(1)
     expect(nestedWorker.aborted).toHaveBeenCalledTimes(1)
   })
+
+  it('expires late controls and stops observing after the harness ends', async () => {
+    // Hold interval polls so these commands are first seen at the turn-end drain or close,
+    // neither of which may apply them to an already-finished worker.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      const { root, dir } = layout()
+      const worker = controlledLeaf('worker')
+      let workerId = ''
+      await runHarness(
+        dir,
+        turns(async ({ coordinationMcpUrl }) => {
+          const spawned = await call(coordinationMcpUrl, 'spawn_worker', {
+            profile: testAgentProfile('worker'),
+            task: 'wait',
+          })
+          workerId = spawned.workerId
+          await worker.started.promise
+          worker.completed.resolve()
+          cancelWorker(dir, workerId, 'late-cancel')
+          writeWorkerSteer(root, runId, workerId, {
+            operationId: 'late-steer',
+            message: 'too late',
+          })
+        }),
+        () => worker.agent,
+      )
+      expect(readWorkerCancellation(dir, 'late-cancel')).toMatchObject({
+        effect: 'not_live',
+        terminated: [],
+      })
+      expect(readWorkerSteerAcknowledgement(dir, 'late-steer')).toMatchObject({
+        effect: 'not_live',
+      })
+      expect(worker.delivered).not.toHaveBeenCalled()
+      writeWorkerSteer(root, runId, workerId, {
+        operationId: 'after-close',
+        message: 'already closed',
+      })
+      await vi.advanceTimersByTimeAsync(150)
+      expect(readWorkerSteerAcknowledgement(dir, 'after-close')).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('admits a root steer written during a fast turn before the pause decision', async () => {
+    // Hold interval polls so only the turn-end drain can admit the steer: without it the run
+    // would end with the steer unread, expiring it not_live.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      const { root, dir } = layout()
+      const woken: string[] = []
+      await runHarness(
+        dir,
+        turns(
+          async () => {
+            writeWorkerSteer(root, runId, runId, {
+              operationId: 'root-steer',
+              message: 'fold this in',
+            })
+          },
+          async ({ task }) => {
+            woken.push(task)
+          },
+        ),
+        () => controlledLeaf('unused').agent,
+      )
+      // The drain admitted the steer as open work: one more turn ran and consumed it.
+      expect(woken).toHaveLength(1)
+      expect(woken[0]).toContain('fold this in')
+      expect(readWorkerSteerAcknowledgement(dir, 'root-steer')).toMatchObject({
+        effect: 'delivered',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

@@ -92,7 +92,11 @@ interface SteerAcknowledgerDeps {
  * safer than replaying a mutation whose first delivery may already have succeeded.
  */
 export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
-  pass(phase: 'turn' | 'final'): Promise<void>
+  /** `'turn'` = a live control pass (claims and delivers every owned request); `'boundary'` = a
+   *  native turn-end drain, which admits only a steer addressed to the root's own inbox — the
+   *  destination still live between turns — and never awaits a worker delivery; `'final'` = the
+   *  close pass, which expires everything still pending as `not_live`. */
+  pass(phase: 'turn' | 'boundary' | 'final'): Promise<void>
 } {
   const iso = () => new Date(deps.now()).toISOString()
   // Root steers this process queued and the root has not yet answered, by operation id.
@@ -129,6 +133,10 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
       for (const request of readWorkerSteerRequests(deps.dir)) {
         if (phase === 'turn' && deps.signal?.aborted) return
         const rootRequest = request.worker === deps.ownerId && deps.deliverRoot !== undefined
+        // A boundary pass leaves worker-addressed steers to the live timer (run continues) or to
+        // close's `not_live` expiry (run ended): delivering one here could reach a worker whose
+        // execution already finished but whose settlement has not been delivered yet.
+        if (phase === 'boundary' && !rootRequest) continue
         if (!rootRequest && !isDirectChildNodeId(deps, request.worker)) continue
         const queued = awaiting.get(request.operationId)
         if (phase === 'final' && queued !== undefined) {
@@ -272,9 +280,12 @@ function steerAcknowledgementDetail(outcome: Pick<DownMessageEvent, 'outcome'>):
  * acknowledgement is returned as-is and never re-applied.
  */
 export function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
-  /** `'turn'` = a live manager control pass (the only phase that APPLIES a request); `'final'` = the
-   *  post-drain pass, which only reconciles records the run already wrote. */
-  pass(phase: 'turn' | 'final'): void
+  /** `'turn'` = a live manager control pass (the only phase that APPLIES a request); `'boundary'`
+   *  = a native turn-end drain, which only reconciles records already written — a request first
+   *  seen at a boundary is never applied there, so a worker that already finished keeps its
+   *  result and the request expires `not_live` at close; `'final'` = the post-drain pass, which
+   *  also only reconciles. */
+  pass(phase: 'turn' | 'boundary' | 'final'): void
   finish(): void
 } {
   const tracked = new Map<string, WorkerCancellation>()
@@ -418,7 +429,7 @@ export function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
     runTracked = applyRunCancellation(deps.dir, deps.abortRun, iso)
   }
 
-  const pass = (phase: 'turn' | 'final'): void => {
+  const pass = (phase: 'turn' | 'boundary' | 'final'): void => {
     if (phase === 'turn') passRun()
     for (const request of readWorkerCancelRequests(deps.dir)) {
       if (!owned(request.worker)) continue

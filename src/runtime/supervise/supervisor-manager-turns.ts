@@ -178,8 +178,12 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
           handedOff = error instanceof RunParkedError && error.runId === scope.view.root
           throw error
         } finally {
-          // A native turn may finish before the observer's timer runs. Admit controls before
-          // choosing the next wake or barren pause. Parking has already sealed admission.
+          // A native turn may finish before the observer's timer runs. Drain it before choosing
+          // the next wake or barren pause: admit a steer addressed to the root's own inbox and
+          // reconcile what live polls applied. A control first seen here is never applied — the
+          // live timer owns that while the run continues, close expires it once the run ends —
+          // and the drain never awaits a worker delivery still in flight. Parking has already
+          // sealed admission.
           if (!handedOff) await loop.controlPass?.()
         }
       },
