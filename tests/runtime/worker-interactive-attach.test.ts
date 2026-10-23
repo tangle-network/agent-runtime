@@ -537,7 +537,9 @@ describe('scope.interactive — attaching to the exact process one worker runs i
       if (!spawned.ok) throw new Error(`spawn failed: ${spawned.reason}`)
       await Promise.race([
         entered.opened,
-        joined.then(() => { throw new Error('worker settled before execution entry') }),
+        joined.then(() => {
+          throw new Error('worker settled before execution entry')
+        }),
       ])
       await vi.waitFor(async () => {
         expect(existsSync(workerInteractiveBindingFile(dir, spawned.handle.id))).toBe(true)
@@ -609,28 +611,40 @@ describe('scope.interactive — attaching to the exact process one worker runs i
       }
     }
     const headless = scope.spawn(
-      unsupported('headless-durable', {
-        status: 'unavailable',
-        reason: 'executor-exposes-no-interactive-session',
-      }, headlessEntered.open),
+      unsupported(
+        'headless-durable',
+        {
+          status: 'unavailable',
+          reason: 'executor-exposes-no-interactive-session',
+        },
+        headlessEntered.open,
+      ),
       'work',
       { budget: { maxIterations: 2, maxTokens: 100 }, label: 'headless-durable' },
     )
     const unsupportedSpawn = scope.spawn(
-      unsupported('unsupported-durable', {
-        status: 'unavailable',
-        reason: 'provider-has-no-interactive-contract',
-      }, unsupportedEntered.open),
+      unsupported(
+        'unsupported-durable',
+        {
+          status: 'unavailable',
+          reason: 'provider-has-no-interactive-contract',
+        },
+        unsupportedEntered.open,
+      ),
       'work',
       { budget: { maxIterations: 2, maxTokens: 100 }, label: 'unsupported-durable' },
     )
     const firstJoined = scope.next()
-    const joined = firstJoined.then(async () => { await scope.next() })
+    const joined = firstJoined.then(async () => {
+      await scope.next()
+    })
     try {
       if (!headless.ok || !unsupportedSpawn.ok) throw new Error('spawn failed')
       await Promise.race([
         Promise.all([headlessEntered.opened, unsupportedEntered.opened]),
-        firstJoined.then(() => { throw new Error('worker settled before both executions entered') }),
+        firstJoined.then(() => {
+          throw new Error('worker settled before both executions entered')
+        }),
       ])
       await vi.waitFor(async () => {
         await expect(
@@ -642,7 +656,9 @@ describe('scope.interactive — attaching to the exact process one worker runs i
       })
       await vi.waitFor(async () => {
         await expect(
-          attachWorker(dir, unsupportedSpawn.handle.id, { providers: interactiveProvider('unused') }),
+          attachWorker(dir, unsupportedSpawn.handle.id, {
+            providers: interactiveProvider('unused'),
+          }),
         ).resolves.toEqual({
           status: 'unavailable',
           reason: 'provider-has-no-interactive-contract',
@@ -726,7 +742,9 @@ describe('scope.interactive — attaching to the exact process one worker runs i
       if (!spawned.ok) throw new Error(`spawn failed: ${spawned.reason}`)
       await Promise.race([
         entered.opened,
-        joined.then(() => { throw new Error('worker settled before execution entry') }),
+        joined.then(() => {
+          throw new Error('worker settled before execution entry')
+        }),
       ])
       await vi.waitFor(async () => {
         await expect(

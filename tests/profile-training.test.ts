@@ -309,7 +309,12 @@ describe('checkpoint training through improve', () => {
           // A descendant can produce .late only AFTER abort and the trainer outcome have returned.
           await writeFile(
             `${checkpointPath}.armed`,
-            JSON.stringify({ what: 'cancel-outcome-returned', at: new Date().toISOString(), identities, outcome }),
+            JSON.stringify({
+              what: 'cancel-outcome-returned',
+              at: new Date().toISOString(),
+              identities,
+              outcome,
+            }),
           )
           await sleep(700)
           await assert.rejects(() => readFile(`${checkpointPath}.late`), { code: 'ENOENT' })
@@ -319,10 +324,16 @@ describe('checkpoint training through improve', () => {
         } catch (error) {
           failures.push(error)
         } finally {
-          try { controller.abort() }
-          catch (error) { failures.push(error) }
-          try { await pending }
-          catch (error) { failures.push(error) }
+          try {
+            controller.abort()
+          } catch (error) {
+            failures.push(error)
+          }
+          try {
+            await pending
+          } catch (error) {
+            failures.push(error)
+          }
           if (process.platform === 'linux') {
             let recorded = identities
             if (recorded === undefined) {
@@ -337,19 +348,25 @@ describe('checkpoint training through improve', () => {
             const cleanup = await Promise.allSettled(
               (recorded ? [recorded.descendant, recorded.parent] : []).map(async (identity) => {
                 let stat: string
-                try { stat = await readFile(`/proc/${identity.pid}/stat`, 'utf8') }
-                catch (error) {
+                try {
+                  stat = await readFile(`/proc/${identity.pid}/stat`, 'utf8')
+                } catch (error) {
                   if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
                   throw error
                 }
-                const fields = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/u)
+                const fields = stat
+                  .slice(stat.lastIndexOf(')') + 2)
+                  .trim()
+                  .split(/\s+/u)
                 if (fields[19] !== identity.startTime || Number(fields[2]) !== identity.pgid) return
-                try { process.kill(identity.pid, 'SIGKILL') }
-                catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error }
+                try {
+                  process.kill(identity.pid, 'SIGKILL')
+                } catch (error) {
+                  if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+                }
               }),
             )
-            for (const item of cleanup)
-              if (item.status === 'rejected') failures.push(item.reason)
+            for (const item of cleanup) if (item.status === 'rejected') failures.push(item.reason)
           }
         }
         if (failures.length === 1) throw failures[0]
