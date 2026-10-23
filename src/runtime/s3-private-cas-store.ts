@@ -2,15 +2,16 @@ import { createHash } from 'node:crypto'
 import { Readable } from 'node:stream'
 import type { Sha256Digest } from '@tangle-network/agent-interface'
 import type { PrivateCasDurableStore } from './private-cas'
-import { createPrivateCasS3Transport } from './s3-private-cas-request'
 import {
-  privateCasNamespaceOperations,
   type PrivateCasNamespaceOperations,
+  privateCasNamespaceOperations,
 } from './s3-private-cas-namespace'
+import { createPrivateCasS3Transport } from './s3-private-cas-request'
+
 export type {
   PrivateCasNamespaceInventory,
-  PrivateCasNamespaceRetirement,
   PrivateCasNamespaceObject,
+  PrivateCasNamespaceRetirement,
 } from './s3-private-cas-namespace'
 
 const DIGEST = /^sha256:([0-9a-f]{64})$/u
