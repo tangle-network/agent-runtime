@@ -25,7 +25,7 @@ concurrency:
 jobs:
   release-source:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci-public]
     timeout-minutes: 10
     outputs:
       sha: ${{ steps.release.outputs.sha }}
@@ -91,7 +91,7 @@ jobs:
 
   verify:
     needs: release-source
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci-public]
     outputs:
       release-version: ${{ needs.release-source.outputs.version }}
       package-sha256: ${{ steps.package.outputs.sha256 }}
@@ -239,7 +239,7 @@ jobs:
 
   verify-official-optimizers:
     needs: release-source
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci-public]
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -261,7 +261,7 @@ jobs:
 
   verify-runtime-bench:
     needs: release-source
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci-public]
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -385,7 +385,7 @@ jobs:
   verify-agent-bench:
     # Manual dispatch remains root-only; bench retries use their tag run.
     if: startsWith(github.ref, 'refs/tags/agent-bench-v')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci-public]
     outputs:
       release-version: ${{ steps.release.outputs.version }}
       package-sha256: ${{ steps.package.outputs.sha256 }}
