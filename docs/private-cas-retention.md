@@ -5,7 +5,9 @@
 `createS3PrivateCasStore` owns objects and named pointers below the configured
 prefix and an exact namespace. `inspectNamespace({namespace})` reads every
 ListObjectsV2 page and returns current keys, ETags, payload lengths and a stable
-inventory digest. It refuses malformed, incomplete or cross-namespace answers.
+inventory digest. An opaque store identity binds the normalized endpoint origin,
+bucket and prefix; a same-named bucket in another account is a different store.
+It refuses malformed, incomplete or cross-namespace answers.
 
 The consumer owns eligibility: disposition, terminal state, holds, references,
 customer ownership and an exclusive writer fence. Fence every writer before
