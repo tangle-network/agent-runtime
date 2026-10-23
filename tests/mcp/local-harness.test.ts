@@ -931,9 +931,8 @@ describe('kimi-code harness invocation', () => {
     ).toThrow(/kimi-code cannot express reasoning effort/)
   })
 
-  it('declares no MCP materialization capability until the materializer targets a config kimi reads', () => {
-    expect(harnessMaterializesProfileMcp('kimi-code')).toBe(false)
-    for (const harness of ['claude-code', 'codex', 'opencode', 'pi'] as const) {
+  it('declares MCP materialization capability on every row whose CLI reads the materialized surface', () => {
+    for (const harness of ['claude-code', 'codex', 'kimi-code', 'opencode', 'pi'] as const) {
       expect(harnessMaterializesProfileMcp(harness)).toBe(true)
     }
   })
