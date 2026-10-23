@@ -87,10 +87,31 @@ export function observeWorkerControls(options: {
     if (failure) throw failure.error
   }
   return {
+    // A native turn boundary, before the loop chooses the next wake or pause. Reconciles what
+    // live polls applied and admits a steer addressed to the root's own inbox — the one
+    // destination still live between turns. A control first seen here is never APPLIED: the
+    // live timer owns that while the run continues, and close expires it once the run ends, so
+    // an already-finished worker is never retroactively terminated at a boundary.
     async pass() {
-      // Admission happens synchronously in poll. Delivery can await an event subscriber that
-      // only manager teardown can abort, so a turn boundary must not join that delivery.
-      poll()
+      if (!active) return
+      try {
+        cancellations?.pass('boundary')
+        if (steers !== undefined && !steering) {
+          steering = true
+          // A boundary pass admits synchronously and never awaits a worker delivery: delivery
+          // can block on an event subscriber that only manager teardown (coordinationLifetime)
+          // aborts, so a turn boundary must not join it.
+          inFlight = steers
+            .pass('boundary')
+            .catch(fail)
+            .finally(() => {
+              steering = false
+            })
+          await inFlight
+        }
+      } catch (error) {
+        fail(error)
+      }
       if (failure) throw failure.error
     },
     close: () => (closing ??= finish()),
