@@ -11,6 +11,8 @@ export interface PrivateCasNamespaceObject {
 export interface PrivateCasNamespaceInventory {
   readonly namespace: string
   readonly location: string
+  /** Opaque identity of the endpoint/account, bucket and prefix that supplied this inventory. */
+  readonly storeIdentity: string
   readonly objects: readonly PrivateCasNamespaceObject[]
   readonly sha256: string
 }
@@ -43,9 +45,10 @@ const MAX_PAGE_BYTES = 2 * 1024 * 1024
 const fingerprint = (
   namespace: string,
   location: string,
+  storeIdentity: string,
   objects: readonly PrivateCasNamespaceObject[],
 ) =>
-  `sha256:${createHash('sha256').update(JSON.stringify({ namespace, location, objects })).digest('hex')}`
+  `sha256:${createHash('sha256').update(JSON.stringify({ namespace, location, storeIdentity, objects })).digest('hex')}`
 
 function xmlText(text: string): string {
   return text.replace(/&([^;]*);/gu, (_, entity: string) => {
@@ -125,9 +128,11 @@ export function privateCasNamespaceOperations({
   refusal,
   prefix,
   location,
+  storeIdentity,
 }: ReturnType<typeof createPrivateCasS3Transport> & {
   prefix: string
   location: string
+  storeIdentity: string
 }): PrivateCasNamespaceOperations {
   const namespacePrefix = (namespace: string) => {
     if (!NAMESPACE.test(namespace)) throw new Error('S3 private CAS namespace is invalid')
@@ -183,7 +188,13 @@ export function privateCasNamespaceOperations({
       if (next) tokens.add(next)
     } while (next)
     objects.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
-    return { namespace, location, objects, sha256: fingerprint(namespace, location, objects) }
+    return {
+      namespace,
+      location,
+      storeIdentity,
+      objects,
+      sha256: fingerprint(namespace, location, storeIdentity, objects),
+    }
   }
   return {
     inspectNamespace,
@@ -192,7 +203,8 @@ export function privateCasNamespaceOperations({
       const scope = namespacePrefix(namespace)
       if (
         inventory.location !== location ||
-        inventory.sha256 !== fingerprint(namespace, location, objects)
+        inventory.storeIdentity !== storeIdentity ||
+        inventory.sha256 !== fingerprint(namespace, location, storeIdentity, objects)
       )
         throw new Error('S3 private CAS retirement inventory does not match this store')
       const reviewed = new Map<string, PrivateCasNamespaceObject>()
