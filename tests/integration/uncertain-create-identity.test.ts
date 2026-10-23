@@ -99,9 +99,15 @@ describe('actual Tangle SDK uncertain root create identities', () => {
     async (scenario) => {
       await withFixture(scenario, executables, async (fixture) => {
         await fixture.wait(
-          'at least six actual SDK create requests',
+          'at least six SDK requests and three failed Runtime root attempts',
           async () =>
-            (await fixture.state()).requests.filter((row) => row.kind === 'create').length >= 6,
+            (await fixture.state()).requests.filter((row) => row.kind === 'create').length >= 6 &&
+            (await fixture.events()).filter(
+              (event) =>
+                event.kind === 'driver-attempt' &&
+                event.id === rootId &&
+                event.record.error !== undefined,
+            ).length >= 3,
         )
         const identity = await assertOneIdentity(fixture)
         const before = (await fixture.state()).requests.filter(
@@ -112,6 +118,12 @@ describe('actual Tangle SDK uncertain root create identities', () => {
         ).pid
         const previousPid = fixture.coordinator!.pid
         await fixture.killCoordinator()
+        const beforeAttempts = (await fixture.events()).filter(
+          (event) =>
+            event.kind === 'driver-attempt' &&
+            event.id === rootId &&
+            event.record.error !== undefined,
+        ).length
         await fixture.resume()
         expect(fixture.coordinator!.pid).not.toBe(previousPid)
         expect(
@@ -121,7 +133,14 @@ describe('actual Tangle SDK uncertain root create identities', () => {
           'same invocation actually retried in replacement process',
           async () =>
             (await fixture.state()).requests.filter((row) => row.kind === 'create').length >=
-            before + 4,
+              before + 4 &&
+            (await fixture.events()).filter(
+              (event) =>
+                event.kind === 'driver-attempt' &&
+                event.id === rootId &&
+                event.record.error !== undefined,
+            ).length >=
+              beforeAttempts + 3,
         )
         await assertOneIdentity(fixture, identity)
         expect((await fixture.events()).some((event) => event.kind === 'root-reentered')).toBe(true)
@@ -293,15 +312,43 @@ describe('actual Tangle SDK uncertain root create identities', () => {
 describe('typed real command credential refusal and accepted evidence', () => {
   it('UC5 unsupported route before SDK create settles the nested manager once without abandon', async () => {
     await withFixture('unsupported-intent', executables, async (fixture) => {
-      await fixture.wait('typed nested manager down settlement', async () =>
-        (await fixture.events()).some(
+      const child = `${rootId}:s0`
+      await fixture.wait('typed nested refusal disposition', async () => {
+        const events = await fixture.events()
+        const down = events.some(
+          (event) => event.kind === 'settled' && event.id === child && event.status === 'down',
+        )
+        const retained = events.some(
           (event) =>
-            event.kind === 'settled' && event.id === `${rootId}:s0` && event.status === 'down',
-        ),
-      )
+            event.kind === 'reconciled' &&
+            event.id === child &&
+            event.retainedPendingCause === 'nested-recovery',
+        )
+        const terminalRefusal = events.some(
+          (event) =>
+            event.kind === 'driver-attempt' &&
+            event.id === child &&
+            event.record.stop === 'terminal-error' &&
+            event.record.pendingCause === 'request-rejected',
+        )
+        const commanded = readRecords(join(fixture.directory, 'credential-calls.jsonl')).some(
+          (row) => row.kind === 'credential-command' && row.profile === 'credential-manager',
+        )
+        // Baseline closes this cursor only on later recovery/release, so its fsynced retained
+        // disposition is the causal frontier; another command invocation is not guaranteed.
+        return down || (retained && terminalRefusal && commanded)
+      })
       await fixture.killCoordinator()
       const events = await fixture.events()
-      const child = `${rootId}:s0`
+      const down = events.filter(
+        (event) => event.kind === 'settled' && event.id === child && event.status === 'down',
+      )
+      expect(
+        down,
+        'definitive intent-only refusal must settle once without nested recovery',
+      ).toHaveLength(1)
+      expect(down[0]).not.toHaveProperty('retainedExecution')
+      expect(down[0]).not.toHaveProperty('retainedPendingCause')
       expect(inputs(events, child)).toHaveLength(1)
       expect(intents(events, child)).toHaveLength(1)
       expect(abandoned(events, child)).toHaveLength(0)
