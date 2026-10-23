@@ -23,11 +23,11 @@ import {
   assertPeerMatchesDevelopmentDependency,
   assertPublishableDependencySpecs,
   createStrictNodeConsumerTsconfig,
-  peerCompatibility,
   requiredPackedDevelopmentDependency,
   requiredPackedPackageVersion,
   requiredPackedPeerCandidateVersion,
 } from './lib/packed-package-test.mjs'
+import { peerCompatibility } from './lib/dependency-contract.mjs'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
 const suppliedTarball = process.argv[2] ? resolve(process.argv[2]) : undefined

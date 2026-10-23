@@ -11,7 +11,10 @@ const workflowPath = process.argv[2]
 const workflow = readWorkflow(workflowPath, 'publish')
 const jobs = workflow.jobs
 if (!jobs || typeof jobs !== 'object') throw new Error('publish workflow has no jobs')
-const qualification = readWorkflow(resolve(repoRoot, '.github/workflows/qualify-release.yml'), 'qualification')
+const qualificationPath = process.argv[3]
+  ? resolve(process.argv[3])
+  : resolve(repoRoot, '.github/workflows/qualify-release.yml')
+const qualification = readWorkflow(qualificationPath, 'qualification')
 const qualifierJobs = qualification.jobs
 if (!qualifierJobs || typeof qualifierJobs !== 'object') throw new Error('qualification workflow has no jobs')
 const qualifier = requireJob('qualify')
@@ -48,6 +51,26 @@ for (const [jobName, requiredJob] of Object.entries(publishJobs)) {
   for (const [variable, output] of [['EXPECTED_VERSION', 'release-version'], ['EXPECTED_SHA256', 'package-sha256']]) {
     assertEqual(job.env?.[variable], `\${{ needs.qualify.outputs.${prefix}-${output} }}`, `${jobName} ${variable}`)
   }
+
+  const verifier = requireJob(requiredJob, qualifierJobs)
+  assertEqual(
+    verifier.outputs?.['publication-pending'],
+    '${{ steps.npm.outputs.pending }}',
+    `${requiredJob} publication admission output`,
+  )
+  const admission = requireSteps(requiredJob, verifier).filter((step) => step.id === 'npm')
+  assertEqual(admission.length, 1, `${requiredJob} publication admission step count`)
+  assertEqual(
+    admission[0].run,
+    `node scripts/check-npm-publication.mjs "$RUNNER_TEMP/${prefix === 'runtime' ? 'agent-runtime' : 'agent-bench'}-package"`,
+    `${requiredJob} exact archive admission`,
+  )
+  assertEqual(admission[0].if, undefined, `${requiredJob} admission cannot be conditional`)
+  assertEqual(
+    admission[0]['continue-on-error'],
+    undefined,
+    `${requiredJob} admission cannot ignore failure`,
+  )
 
   const steps = requireSteps(jobName, job)
   const actionNames = steps.flatMap((step) => (typeof step.uses === 'string' ? [step.uses] : []))
