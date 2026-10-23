@@ -11604,6 +11604,90 @@ The headline when both `refine` and `sample` ran: paired-bootstrap lift of refin
 
 ***
 
+### PrivateCasNamespaceObject
+
+#### Properties
+
+##### key
+
+> `readonly` **key**: `string`
+
+##### etag
+
+> `readonly` **etag**: `string`
+
+##### byteLength
+
+> `readonly` **byteLength**: `number`
+
+***
+
+### PrivateCasNamespaceInventory
+
+A complete current-object inventory. Callers must fence all namespace writers before retirement.
+
+#### Properties
+
+##### namespace
+
+> `readonly` **namespace**: `string`
+
+##### location
+
+> `readonly` **location**: `string`
+
+##### storeIdentity
+
+> `readonly` **storeIdentity**: `string`
+
+Opaque identity of the endpoint/account, bucket and prefix that supplied this inventory.
+
+##### objects
+
+> `readonly` **objects**: readonly [`PrivateCasNamespaceObject`](#privatecasnamespaceobject)[]
+
+##### sha256
+
+> `readonly` **sha256**: `string`
+
+***
+
+### PrivateCasNamespaceRetirement
+
+#### Properties
+
+##### namespace
+
+> `readonly` **namespace**: `string`
+
+##### location
+
+> `readonly` **location**: `string`
+
+##### deletedObjects
+
+> `readonly` **deletedObjects**: `number`
+
+##### deletedBytes
+
+> `readonly` **deletedBytes**: `number`
+
+##### remainingObjects
+
+> `readonly` **remainingObjects**: `number`
+
+##### remainingBytes
+
+> `readonly` **remainingBytes**: `number`
+
+##### complete
+
+> `readonly` **complete**: `boolean`
+
+Current objects only; a versioned bucket may retain older versions.
+
+***
+
 ### S3PrivateCasStoreOptions
 
 An S3-compatible bucket (Amazon S3, Cloudflare R2) addressed with path-style requests.
@@ -11674,7 +11758,7 @@ reader finds the newest copy with one GET instead of listing and opening every o
 
 #### Extends
 
-- [`PrivateCasDurableStore`](#privatecasdurablestore)
+- [`PrivateCasDurableStore`](#privatecasdurablestore).`PrivateCasNamespaceOperations`
 
 #### Properties
 
@@ -11822,6 +11906,56 @@ The stored bytes, or undefined when the store holds no object for this digest.
 ###### Inherited from
 
 [`PrivateCasDurableStore`](#privatecasdurablestore).[`get`](#get-4)
+
+##### inspectNamespace()
+
+> **inspectNamespace**(`input`): `Promise`\<[`PrivateCasNamespaceInventory`](#privatecasnamespaceinventory)\>
+
+###### Parameters
+
+###### input
+
+###### namespace
+
+`string`
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`PrivateCasNamespaceInventory`](#privatecasnamespaceinventory)\>
+
+###### Inherited from
+
+`PrivateCasNamespaceOperations.inspectNamespace`
+
+##### retireNamespace()
+
+> **retireNamespace**(`input`): `Promise`\<[`PrivateCasNamespaceRetirement`](#privatecasnamespaceretirement)\>
+
+Refuses changed/unreviewed objects. Retry the same inventory after a partial failure.
+
+###### Parameters
+
+###### input
+
+###### inventory
+
+[`PrivateCasNamespaceInventory`](#privatecasnamespaceinventory)
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`PrivateCasNamespaceRetirement`](#privatecasnamespaceretirement)\>
+
+###### Inherited from
+
+`PrivateCasNamespaceOperations.retireNamespace`
 
 ##### putPointer()
 
@@ -14338,7 +14472,7 @@ Optional completion transport (see `RouterConfig.complete`): when set, BOTH legs
 
 ###### Inherited from
 
-[`AgenticOptions`](#agenticoptions).[`complete`](#complete-1)
+[`AgenticOptions`](#agenticoptions).[`complete`](#complete-2)
 
 ##### analystProfile?
 

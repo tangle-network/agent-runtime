@@ -1,3 +1,13 @@
+## 0.347.0
+
+Keep native turn completion and cancellation responsive while a steer waits for durable event capture. Preserve complete child-process diagnostics during storage recovery checks.
+
+Add complete current-object namespace inventory and reviewed retirement to the existing S3 private CAS store. Consumers fence writers and enforce evidence retention policy; retirement refuses changed inventories and reports remaining objects and payload bytes.
+
+Bind reviewed namespace inventories to the configured S3 endpoint/account as well as bucket and prefix, refusing an inventory from another store even when its object bytes and ETags match.
+
+Qualify the current Sandbox SDK release with the maintained provider and execution package graph.
+
 ## 0.346.0
 
 Publish file-journal initialization events atomically so a resumed controller can recover a child interrupted before provider admission with its original identity, input, and deadline. Native managers also admit durable controls at turn boundaries so fast continuations consume accepted steers before entering a pause. Requires the compatible Eval grouped-journal reader from the declared peer minimum.
