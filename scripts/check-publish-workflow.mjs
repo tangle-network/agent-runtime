@@ -13,16 +13,46 @@ const jobs = workflow.jobs
 if (!jobs || typeof jobs !== 'object') throw new Error('publish workflow has no jobs')
 const releaseCohort = readReleaseCohort()
 
+const runtimeReleaseEvent =
+  "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'"
 const publishJobs = {
-  'publish-npm': 'verify',
-  'publish-agent-bench': 'verify-agent-bench',
+  'publish-npm': { verifier: 'verify', event: `(${runtimeReleaseEvent})` },
+  'publish-agent-bench': {
+    verifier: 'verify-agent-bench',
+    event: "startsWith(github.ref, 'refs/tags/agent-bench-v')",
+  },
 }
 
-for (const [jobName, requiredJob] of Object.entries(publishJobs)) {
+for (const [jobName, { verifier: requiredJob, event }] of Object.entries(publishJobs)) {
   const job = requireJob(jobName)
   assertEqual(job.permissions?.contents, 'read', `${jobName} contents permission`)
   assertEqual(job.permissions?.['id-token'], 'write', `${jobName} id-token permission`)
   assertNeeds(job, requiredJob)
+  assertEqual(
+    job.if,
+    `${event} && needs.${requiredJob}.outputs.publication-pending == 'true'`,
+    `${jobName} must retain default success gating and unpublished archive admission`,
+  )
+
+  const verifier = requireJob(requiredJob)
+  assertEqual(
+    verifier.outputs?.['publication-pending'],
+    '${{ steps.npm.outputs.pending }}',
+    `${requiredJob} publication admission output`,
+  )
+  const admission = requireSteps(requiredJob, verifier).filter((step) => step.id === 'npm')
+  assertEqual(admission.length, 1, `${requiredJob} publication admission step count`)
+  assertEqual(
+    admission[0].run,
+    `node scripts/check-npm-publication.mjs "$RUNNER_TEMP/${jobName === 'publish-npm' ? 'agent-runtime' : 'agent-bench'}-package"`,
+    `${requiredJob} exact archive admission`,
+  )
+  assertEqual(admission[0].if, undefined, `${requiredJob} admission cannot be conditional`)
+  assertEqual(
+    admission[0]['continue-on-error'],
+    undefined,
+    `${requiredJob} admission cannot ignore failure`,
+  )
 
   const steps = requireSteps(jobName, job)
   const actionNames = steps.flatMap((step) => (typeof step.uses === 'string' ? [step.uses] : []))
@@ -111,7 +141,7 @@ assertEqual(
 )
 assertEqual(
   source.if,
-  "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'",
+  runtimeReleaseEvent,
   'release source event selection',
 )
 assertEqual(source['continue-on-error'], undefined, 'release source cannot ignore failure')
@@ -169,11 +199,6 @@ for (const [name, command] of Object.entries(releaseChecks)) {
   assertEqual(checks[0].if, undefined, `${name} required check condition`)
   assertEqual(checks[0]['continue-on-error'], undefined, `${name} required check failure`)
 }
-assertEqual(
-  requireJob('publish-npm').if,
-  "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'",
-  'publish must retain default success gating',
-)
 for (const name of ['release-source', ...Object.keys(releaseChecks)]) {
   for (const step of requireSteps(name, requireJob(name))) {
     if (step.uses && !/@[a-f0-9]{40}$/.test(step.uses))

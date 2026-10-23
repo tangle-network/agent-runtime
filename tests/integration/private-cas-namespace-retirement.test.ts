@@ -21,6 +21,7 @@ it.skipIf(!process.env.PRIVATE_CAS_MINIO_IMAGE)(
     const directory = await mkdtemp(join(tmpdir(), 'cas-namespace-'))
     const name = `cas-namespace-${randomUUID()}`
     let stopTls: (() => Promise<void>) | undefined
+    const failures: unknown[] = []
     try {
       const image = process.env.PRIVATE_CAS_MINIO_IMAGE
       if (!image)
@@ -222,6 +223,8 @@ it.skipIf(!process.env.PRIVATE_CAS_MINIO_IMAGE)(
       await expect(
         store.retireNamespace({ inventory: { ...final, namespace: `${namespace}-research` } }),
       ).rejects.toThrow('inventory')
+    } catch (error) {
+      failures.push(error)
     } finally {
       const cleanup = await Promise.allSettled([
         stopTls?.(),
@@ -230,12 +233,13 @@ it.skipIf(!process.env.PRIVATE_CAS_MINIO_IMAGE)(
         }),
         rm(directory, { recursive: true, force: true }),
       ])
-      const failures = cleanup
+      const cleanupFailures = cleanup
         .filter((item) => item.status === 'rejected')
         .map((item) => item.reason)
-      // biome-ignore lint/correctness/noUnsafeFinally: fixture teardown failure must fail the test even when the body already threw.
-      if (failures.length) throw new AggregateError(failures, 'private CAS fixture teardown failed')
+      failures.push(...cleanupFailures)
     }
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) throw new AggregateError(failures, 'private CAS fixture failures')
   },
   180_000,
 )

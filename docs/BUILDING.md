@@ -78,6 +78,12 @@ An archive for a prerelease of the newest matrix Sandbox adds a strict-install r
 Pass `--sandbox-repo` to pack a clean ADC checkout after its workspace dependency build.
 The cohort gate strict-installs the selected archive and runs its proposal across the declared Sandbox matrix.
 
+Packed-package manifest assertions perform no registry discovery. Cohort and package-export qualification import the live compatibility selections directly from [their owner](../scripts/lib/dependency-contract.mjs); conformance uses that same owner. Eval peer-window policy remains in those live compatibility checks. Official optimizer qualification checks authored peer ranges against actual workspace, packed and installed consumer versions.
+
+The publish workflow checker preserves default successful-dependency gating and the
+unpublished-archive condition for both packages. Each verifier exposes that condition
+only through its required exact-archive npm admission step.
+
 `verify:package` also installs the declared CLI Bridge, Tangle, Daytona and E2B development
 versions beside the packed Runtime with strict peers. Its provider consumer compiles their
 public types without casts and exercises transfer receipt and restart lookup through the

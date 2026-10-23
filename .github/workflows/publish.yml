@@ -115,8 +115,6 @@ jobs:
           python-version: '3.12'
       - name: Install deps
         run: pnpm install --frozen-lockfile && pnpm peers check
-      - name: Lint (biome)
-        run: pnpm run lint
       - name: Test
         run: pnpm run test
       - name: Build

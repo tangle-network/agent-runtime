@@ -131,7 +131,7 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
   return {
     async pass(phase): Promise<void> {
       for (const request of readWorkerSteerRequests(deps.dir)) {
-        if (phase === 'turn' && deps.signal?.aborted) return
+        if (phase !== 'final' && deps.signal?.aborted) return
         const rootRequest = request.worker === deps.ownerId && deps.deliverRoot !== undefined
         // A boundary pass leaves worker-addressed steers to the live timer (run continues) or to
         // close's `not_live` expiry (run ended): delivering one here could reach a worker whose

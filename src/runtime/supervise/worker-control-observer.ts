@@ -96,19 +96,10 @@ export function observeWorkerControls(options: {
       if (!active) return
       try {
         cancellations?.pass('boundary')
-        if (steers !== undefined && !steering) {
-          steering = true
-          // A boundary pass admits synchronously and never awaits a worker delivery: delivery
-          // can block on an event subscriber that only manager teardown (coordinationLifetime)
-          // aborts, so a turn boundary must not join it.
-          inFlight = steers
-            .pass('boundary')
-            .catch(fail)
-            .finally(() => {
-              steering = false
-            })
-          await inFlight
-        }
+        // Root-only admission is synchronous up to its durable claim and inbox delivery. It
+        // may run while a worker steer waits for capture; that worker keeps its own inFlight
+        // promise so close still joins it after the manager aborts the coordination lifetime.
+        await steers?.pass('boundary')
       } catch (error) {
         fail(error)
       }

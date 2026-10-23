@@ -16,7 +16,6 @@ import {
   assertPeerMatchesDevelopmentDependency,
   cohortRange,
   isExactVersionSpec,
-  peerCompatibility,
   rangeAdmits,
   requiredPackedDevelopmentDependency,
   requiredPackedPackageVersion,
@@ -87,7 +86,9 @@ try {
     '@tangle-network/agent-interface',
     '@tangle-network/sandbox',
   ]) {
-    assertPeerMatchesDevelopmentDependency(packedPackageJson, name, peerCompatibility[name])
+    assertPeerMatchesDevelopmentDependency(packedPackageJson, name, {
+      expectedRange: runtimePeerRange(name),
+    })
   }
   const packedAgentEvalVersion = requiredPackedDevelopmentDependency(
     packedPackageJson,
@@ -318,23 +319,19 @@ function runtimeDependencyRange(packageName) {
   return cohortRange(spec)
 }
 
+function runtimePeerRange(packageName) {
+  const range = packageJson.peerDependencies?.[packageName]
+  if (typeof range !== 'string' || range.length === 0) {
+    throw new Error(`Runtime package.json must declare the ${packageName} peer range`)
+  }
+  return range
+}
+
 function assertCohortRange(packageName, installedVersion) {
-  const peerRange = peerCompatibility[packageName]?.expectedRange ?? runtimeDependencyRange(packageName)
-  assertVersion(
-    packageJson.peerDependencies?.[packageName],
-    peerRange,
-    `${packageName} peer dependency range`,
-  )
+  const peerRange = runtimePeerRange(packageName)
   assertRuntimeDependencyAdmits(packageName, installedVersion)
   if (!rangeAdmits(peerRange, installedVersion)) {
     throw new Error(`installed ${packageName}@${installedVersion} is outside its peer range ${peerRange}`)
-  }
-  for (const version of peerCompatibility[packageName]?.admittedVersions ?? []) {
-    if (!rangeAdmits(peerRange, version)) {
-      throw new Error(
-        `${packageJson.name} peer dependency range does not admit ${packageName}@${version}`,
-      )
-    }
   }
 }
 

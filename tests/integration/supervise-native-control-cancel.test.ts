@@ -12,7 +12,16 @@ import {
 } from '../../src/runtime'
 import type { Agent, AgentSpec, Executor } from '../../src/runtime/supervise/types'
 
-it('closes a native turn after cancelling a real child whose steer capture is blocked', async () => {
+it.each([
+  {
+    title: 'closes a native turn after cancelling a real child whose steer capture is blocked',
+    rootSteerAtBoundary: false,
+  },
+  {
+    title: 'consumes one root steer at the boundary while a real child steer capture is blocked',
+    rootSteerAtBoundary: true,
+  },
+])('$title', async ({ rootSteerAtBoundary }) => {
   const directory = mkdtempSync(join(tmpdir(), 'native-control-cancel-'))
   const delivered = join(directory, 'delivered')
   const model = { provider: 'offline', default: 'offline-process' }
@@ -73,15 +82,35 @@ it('closes a native turn after cancelling a real child whose steer capture is bl
     executorSpec: { profile, harness: null, executor },
   }
   const runId = 'native-control-cancel'
+  const rootOperationId = 'root-during-worker-capture'
+  const rootMessage = 'Consume this root correction while the worker capture is still blocked.'
+  const tasks: string[] = []
+  let instructionCaptures = 0
+  let rootPublications = 0
+  let captureReleased = false
+  let rootAdmitted = false
   let drives = 0
   let workerId = ''
   let guard: ReturnType<typeof setTimeout> | undefined
+  let guardDeadline = Number.POSITIVE_INFINITY
+  let guardExpired = false
+  const stages: { phase: string; at: number }[] = []
+  const mark = (phase: string) => stages.push({ phase, at: Date.now() })
+  const controller = new AbortController()
+  let failBoundary!: (error: unknown) => void
+  const boundaryFailure = new Promise<never>((_resolve, reject) => {
+    failBoundary = reject
+  })
+  let verified = false
   const run = supervisePursuit(
     {
       name: 'native-controller',
       harness: 'opencode',
       model,
-      tools: { agent_runtime_coordination_spawn_worker: true },
+      tools: {
+        agent_runtime_coordination_spawn_worker: true,
+        ...(rootSteerAtBoundary ? { agent_runtime_coordination_stop: true } : {}),
+      },
     },
     'cancel the child before closing this native turn',
     {
@@ -89,18 +118,73 @@ it('closes a native turn after cancelling a real child whose steer capture is bl
       runId,
       runDir: directory,
       steerDir: directory,
+      signal: controller.signal,
       budget: { maxIterations: 10, maxTokens: 1000 },
       perWorker: { maxIterations: 2, maxTokens: 100 },
       driverRetry: { enabled: false },
+      ...(rootSteerAtBoundary ? { wake: { heartbeatMs: 50, debounceMs: 0 } } : {}),
+      onDriverAttempt: (record) => {
+        mark(`attempt-${record.attempt}`)
+        if (
+          rootSteerAtBoundary &&
+          record.attempt === 1 &&
+          record.error === undefined &&
+          rootAdmitted
+        ) {
+          const acknowledgement = readWorkerSteerAcknowledgement(directory, rootOperationId)
+          if (!guardExpired && !controller.signal.aborted && Date.now() < guardDeadline) {
+            try {
+              expect(
+                acknowledgement,
+                'ROOT_BOUNDARY_ADMISSION_MISSING: first live attempt must queue the root steer',
+              ).toMatchObject({ effect: 'unknown' })
+            } catch (error) {
+              // Surface the public observer's failure even if manager error teardown is waiting
+              // for the intentionally held capture; cleanup still aborts and joins that lifetime.
+              failBoundary(error)
+              throw error
+            }
+          }
+        }
+      },
       makeWorkerAgent: () => worker,
       onCoordinationEvent: async (_context, _eventId, record) => {
         if (record.event.type === 'instruction') {
+          mark('worker-capture')
+          instructionCaptures += 1
           captured()
           await capture
         }
+        if (
+          record.event.type === 'lead-message' &&
+          record.event.message.messageId === rootOperationId
+        ) {
+          rootPublications += 1
+        }
       },
-      driveHarness: async ({ coordinationMcpUrl }) => {
-        if (drives++ > 0) return
+      driveHarness: async ({ coordinationMcpUrl, task }) => {
+        mark(`drive-${drives + 1}`)
+        tasks.push(String(task))
+        if (drives++ > 0) {
+          if (rootSteerAtBoundary && String(task).includes(rootMessage)) {
+            expect(captureReleased).toBe(false)
+            const stopped = await fetch(coordinationMcpUrl, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tools/call',
+                params: { name: 'stop', arguments: {} },
+              }),
+            })
+            const stopBody = await stopped.json()
+            if (!stopped.ok || stopBody.error || stopBody.result?.isError) {
+              throw new Error(JSON.stringify(stopBody))
+            }
+          }
+          return
+        }
         const response = await fetch(coordinationMcpUrl, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -127,14 +211,36 @@ it('closes a native turn after cancelling a real child whose steer capture is bl
         await expect
           .poll(() => readWorkerCancellation(directory, 'cancel-blocked-capture')?.effect)
           .toMatch(/^(cancel_requested|cancelled)$/)
+        if (rootSteerAtBoundary) {
+          await closed
+          // The observer's timer is still awaiting this worker's durable capture. A new root
+          // request must be admitted at the boundary without joining or replaying that delivery.
+          const options = {
+            eventDir: directory,
+            operationId: rootOperationId,
+            message: rootMessage,
+          }
+          mark('root-admission-start')
+          expect(writeWorkerSteer(directory, runId, runId, options).replayed).toBe(false)
+          mark('root-admission-returned')
+          rootAdmitted = true
+          expect(writeWorkerSteer(directory, runId, runId, options).replayed).toBe(true)
+          expect(readWorkerSteerAcknowledgement(directory, rootOperationId)).toBeUndefined()
+        }
       },
     },
   )
   try {
+    guardDeadline = Date.now() + 5000
     await Promise.race([
       run,
+      boundaryFailure,
       new Promise<never>((_resolve, reject) => {
-        guard = setTimeout(() => reject(new Error('native turn blocked on steer capture')), 5000)
+        guard = setTimeout(() => {
+          guardExpired = true
+          mark('guard-expired')
+          reject(new Error('native turn blocked on steer capture'))
+        }, 5000)
       }),
     ])
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true)
@@ -145,6 +251,26 @@ it('closes a native turn after cancelling a real child whose steer capture is bl
       effect: 'unknown',
     })
     expect(existsSync(delivered)).toBe(false)
+    expect(instructionCaptures).toBe(1)
+    if (rootSteerAtBoundary) {
+      expect(readWorkerSteerAcknowledgement(directory, rootOperationId)).toMatchObject({
+        effect: 'delivered',
+      })
+      expect(tasks.slice(1).some((task) => task.includes(rootMessage))).toBe(true)
+      expect(rootPublications).toBe(1)
+      const replay = writeWorkerSteer(directory, runId, runId, {
+        eventDir: directory,
+        operationId: rootOperationId,
+        message: rootMessage,
+      })
+      expect(replay.replayed).toBe(true)
+      expect(replay.acknowledgement?.effect).toBe('delivered')
+      writeWorkerSteer(directory, runId, runId, {
+        eventDir: directory,
+        operationId: 'root-after-close',
+        message: 'the root observer has ended',
+      })
+    }
     writeWorkerSteer(directory, runId, workerId, {
       eventDir: directory,
       operationId: 'after-close',
@@ -152,13 +278,23 @@ it('closes a native turn after cancelling a real child whose steer capture is bl
     })
     await new Promise((resolve) => setTimeout(resolve, 150))
     expect(readWorkerSteerAcknowledgement(directory, 'after-close')).toBeUndefined()
+    expect(readWorkerSteerAcknowledgement(directory, 'root-after-close')).toBeUndefined()
+    verified = true
+  } catch (cause) {
+    throw new Error(
+      `native control fixture failed; retained ${directory}; stages=${JSON.stringify(stages)}`,
+      { cause },
+    )
   } finally {
+    mark('cleanup')
     clearTimeout(guard)
+    controller.abort(new Error('native control fixture cleanup'))
     captured()
+    captureReleased = true
     release()
     child.kill('SIGTERM')
     await closed
-    await run
-    rmSync(directory, { recursive: true, force: true })
+    await run.catch(() => undefined)
+    if (verified) rmSync(directory, { recursive: true, force: true })
   }
 })
