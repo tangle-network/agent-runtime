@@ -24,3 +24,9 @@ so current-object absence alone is not a claim about reclaimed physical storage
 or billed savings. Namespace inventory and deletion do not retire platform
 sandbox volumes or recovery snapshots. Consumers retain their deciding result
 and minimal disposal receipt outside a namespace they intend to remove.
+
+The real object-store integration is enabled by `PRIVATE_CAS_MINIO_IMAGE`, naming
+an installed MinIO fixture image. It creates an isolated container, bucket and
+TLS certificate, verifies paginated inspection and physical current-object
+absence, preserves the adjacent namespace, and removes its container afterward.
+Runs without that fixture skip this integration and are not storage proof.
