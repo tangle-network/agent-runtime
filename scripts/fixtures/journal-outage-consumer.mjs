@@ -239,13 +239,23 @@ if (mode === 'controller') {
   const exhaustControllerJournal = async () => {
     if (controllerPhase !== 'interrupt' || injected) return
     const journalPath = join(root, 'spawn-journal.jsonl')
-    const size = (await fs.stat(journalPath)).size
-    // One byte of room produces a real short write followed by EFBIG on the next write.
-    const limit = size + (faultPoint === 'partial' ? 1 : 0)
-    await execute('python3', ['-c',
-      'import resource,sys; pid=int(sys.argv[1]); soft,hard=resource.prlimit(pid,resource.RLIMIT_FSIZE); resource.prlimit(pid,resource.RLIMIT_FSIZE,(int(sys.argv[2]),hard))',
-      String(controllerPid), String(limit)])
-    injected = { mechanism: 'RLIMIT_FSIZE', pid: controllerPid, size, limit, faultPoint }
+    // One byte of room produces a real short write followed by EFBIG on the next write. The
+    // controller's turn unwind journals its own records while the result is being collected, so
+    // an append can land between the stat and the arming: re-read after arming and re-arm at the
+    // new size until the file holds still. Once armed with zero room, every later append fails
+    // with EFBIG and cannot grow the file, so the size assertion below is then exact.
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const size = (await fs.stat(journalPath)).size
+      const limit = size + (faultPoint === 'partial' ? 1 : 0)
+      await execute('python3', ['-c',
+        'import resource,sys; pid=int(sys.argv[1]); soft,hard=resource.prlimit(pid,resource.RLIMIT_FSIZE); resource.prlimit(pid,resource.RLIMIT_FSIZE,(int(sys.argv[2]),hard))',
+        String(controllerPid), String(limit)])
+      if ((await fs.stat(journalPath)).size === size) {
+        injected = { mechanism: 'RLIMIT_FSIZE', pid: controllerPid, size, limit, faultPoint }
+        return
+      }
+    }
+    throw new Error('controller journal never held still long enough to arm the storage limit')
   }
   let done
   const completed = new Promise((resolveDone) => {

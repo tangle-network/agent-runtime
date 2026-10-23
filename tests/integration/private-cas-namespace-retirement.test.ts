@@ -7,10 +7,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { promisify } from 'node:util'
-import { expect, it } from 'vitest'
 import type { Sha256Digest } from '@tangle-network/agent-interface'
-import { createS3PrivateCasStore } from '../../src/runtime/s3-private-cas-store'
+import { expect, it } from 'vitest'
 import { createPrivateCasS3Transport } from '../../src/runtime/s3-private-cas-request'
+import { createS3PrivateCasStore } from '../../src/runtime/s3-private-cas-store'
 
 const exec = promisify(execFile)
 
@@ -233,6 +233,7 @@ it.skipIf(!process.env.PRIVATE_CAS_MINIO_IMAGE)(
       const failures = cleanup
         .filter((item) => item.status === 'rejected')
         .map((item) => item.reason)
+      // biome-ignore lint/correctness/noUnsafeFinally: fixture teardown failure must fail the test even when the body already threw.
       if (failures.length) throw new AggregateError(failures, 'private CAS fixture teardown failed')
     }
   },

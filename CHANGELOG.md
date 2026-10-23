@@ -1,3 +1,9 @@
+## 0.347.1
+
+Fix biome lint errors on main (import organization in the private CAS store and its test, unsafe-finally suppression with rationale) that blocked the tagged publish verifier.
+
+The native turn-end control drain no longer applies worker controls first seen after a harness turn ended, and no longer awaits a worker delivery still in flight: a cancel observed only at that boundary expires `not_live` instead of retroactively terminating an already-finished worker, and the run closes without waiting on a blocked event callback. Root-inbox steers are still admitted before the wake-or-pause decision.
+
 ## 0.347.0
 
 Keep native turn completion and cancellation responsive while a steer waits for durable event capture. Preserve complete child-process diagnostics during storage recovery checks.

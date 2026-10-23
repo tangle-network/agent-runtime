@@ -25,7 +25,7 @@ concurrency:
 jobs:
   release-source:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci-public]
     timeout-minutes: 10
     outputs:
       sha: ${{ steps.release.outputs.sha }}
@@ -91,10 +91,11 @@ jobs:
 
   verify:
     needs: release-source
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci-public]
     outputs:
       release-version: ${{ needs.release-source.outputs.version }}
       package-sha256: ${{ steps.package.outputs.sha256 }}
+      publication-pending: ${{ steps.npm.outputs.pending }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -237,9 +238,13 @@ jobs:
           compression-level: 0
           retention-days: 1
 
+      - name: Admit only unpublished qualified npm archives
+        id: npm
+        run: node scripts/check-npm-publication.mjs "$RUNNER_TEMP/agent-runtime-package"
+
   verify-official-optimizers:
     needs: release-source
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci-public]
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -261,7 +266,7 @@ jobs:
 
   verify-runtime-bench:
     needs: release-source
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci-public]
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -285,7 +290,7 @@ jobs:
 
   publish-npm:
     needs: [verify, verify-official-optimizers, verify-runtime-bench]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && needs.verify.outputs.publication-pending == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -385,10 +390,11 @@ jobs:
   verify-agent-bench:
     # Manual dispatch remains root-only; bench retries use their tag run.
     if: startsWith(github.ref, 'refs/tags/agent-bench-v')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ci-public]
     outputs:
       release-version: ${{ steps.release.outputs.version }}
       package-sha256: ${{ steps.package.outputs.sha256 }}
+      publication-pending: ${{ steps.npm.outputs.pending }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -444,9 +450,13 @@ jobs:
           compression-level: 0
           retention-days: 1
 
+      - name: Admit only unpublished qualified npm archives
+        id: npm
+        run: node scripts/check-npm-publication.mjs "$RUNNER_TEMP/agent-bench-package"
+
   publish-agent-bench:
     needs: verify-agent-bench
-    if: startsWith(github.ref, 'refs/tags/agent-bench-v')
+    if: startsWith(github.ref, 'refs/tags/agent-bench-v') && needs.verify-agent-bench.outputs.publication-pending == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
