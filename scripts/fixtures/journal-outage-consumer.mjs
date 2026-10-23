@@ -232,6 +232,9 @@ if (mode === 'controller') {
   let controllerPid
   let controllerPhase
   let injected
+  let releaseResultEvents
+  let resultFaultError
+  const resultFaultAttempted = new Promise(resolveAttempted => { releaseResultEvents = resolveAttempted })
   const execute = promisify(execFile)
   const exhaustControllerJournal = async () => {
     if (controllerPhase !== 'interrupt' || injected) return
@@ -334,11 +337,26 @@ if (mode === 'controller') {
           },
         ]
         if (alive) await completed
+        // Stream EOF can publish awaiting-result progress. Keep that write behind the result
+        // endpoint's journal-size sample and kernel limit, rather than racing Python's launch.
+        if (controllerPhase === 'interrupt' && faultPoint === 'result') {
+          await resultFaultAttempted
+          if (resultFaultError !== undefined) throw resultFaultError
+        }
       } else if (method === 'result') {
         // The exact result waits for native completion independently of event observation.
         if (alive) await completed
         assert.equal(alive, false)
-        if (faultPoint === 'result') await exhaustControllerJournal()
+        if (faultPoint === 'result') {
+          try {
+            await exhaustControllerJournal()
+          } catch (error) {
+            resultFaultError = error
+            throw error
+          } finally {
+            releaseResultEvents()
+          }
+        }
         value = {
           success: true,
           text: '42',
@@ -388,18 +406,21 @@ if (mode === 'controller') {
         stderr += bytes
       })
       const timeout = setTimeout(() => child.kill('SIGKILL'), 20000)
-      child.once('exit', (code, signal) => {
+      child.once('close', (code, signal) => {
         clearTimeout(timeout)
-        fs.writeFile(join(root, `${name}.log`), stdout + '\n' + stderr).then(() => {
-          if (code !== 0) reject(new Error(`controller ${name}: ${code}/${signal} ${stderr}`))
-          else accept(JSON.parse(stdout.trim().split('\n').at(-1)))
-        }, reject)
+        void (async () => {
+          await fs.writeFile(join(root, `${name}.log`), stdout + '\n' + stderr)
+          if (code !== 0) throw new Error(`controller ${name}: ${code}/${signal} ${stderr}`)
+          return JSON.parse(stdout.trim().split('\n').at(-1))
+        })().then(accept, reject)
       })
       child.once('error', reject)
     })
   const receipt = { faultPoint, rootOwner, root, kernelModule, durableModule }
   try {
+    receipt.stage = 'interrupt-controller'
     receipt.first = await phase('interrupt')
+    receipt.stage = 'verify-kernel-fault'
     receipt.firstNativeAlive = alive
     receipt.firstCreates = creates
     receipt.firstStarts = starts
@@ -431,7 +452,9 @@ if (mode === 'controller') {
     )
     await fs.writeFile(join(root, 'complete'), '')
     assert.equal(await completed, 0)
+    receipt.stage = 'resume-controller'
     receipt.second = await phase('resume')
+    receipt.stage = 'verify-recovery'
     const after = await journal.loadTree(runId)
     receipt.settlements = after.filter((event) => event.kind === 'settled')
     receipt.finalCreates = creates
@@ -461,6 +484,7 @@ if (mode === 'controller') {
   } catch (error) {
     receipt.passed = false
     receipt.error = String(error)
+    receipt.errorStack = error?.stack
     process.exitCode = 1
   } finally {
     if (alive) {
