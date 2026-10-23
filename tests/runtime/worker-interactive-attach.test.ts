@@ -304,6 +304,7 @@ async function interactiveWorker(
   name: string,
   pause: Promise<void>,
   provider: AgentEnvironmentProvider = interactiveProvider(name),
+  onExecuteEntered?: () => void,
 ): Promise<Agent<unknown, unknown>> {
   const profile = testAgentProfile(name, { harness: 'pi' })
   const handle = await startRetainedInteractiveRun({
@@ -316,6 +317,7 @@ async function interactiveWorker(
     runtime: 'sandbox',
     execute() {
       return (async function* () {
+        onExecuteEntered?.()
         yield { kind: 'tokens', input: 10, output: 5 } as UsageEvent
         yield { kind: 'iteration' } as UsageEvent
         await pause
@@ -517,60 +519,77 @@ describe('scope.interactive — attaching to the exact process one worker runs i
     const dir = tempDir()
     const scope = await durableScopeOf(dir)
     const running = gate()
+    const entered = gate()
     const provider = interactiveProvider('durable-alpha')
     const spawned = scope.spawn(
-      await interactiveWorker('durable-alpha', running.opened, provider),
+      await interactiveWorker('durable-alpha', running.opened, provider, entered.open),
       'work',
       {
         budget: { maxIterations: 4, maxTokens: 1_000 },
         label: 'durable-alpha',
       },
     )
-    if (!spawned.ok) throw new Error(`spawn failed: ${spawned.reason}`)
 
-    await vi.waitFor(async () => {
-      expect(existsSync(workerInteractiveBindingFile(dir, spawned.handle.id))).toBe(true)
-      await expect(
-        attachWorker(dir, spawned.handle.id, { providers: provider }),
-      ).resolves.toMatchObject({ status: 'available' })
-    })
-    const first = await attachWorker(dir, spawned.handle.id, { providers: provider })
-    if (first.status !== 'available') throw new Error(`attach failed: ${first.reason}`)
-    const control = await claim(first)
-    const terminal = await first.handle.attach({ control })
-    await terminal.input({ data: 'first process\n' })
-    await terminal.detach()
+    // Execution begins only after the real file spawn/materialization commits. Admission alone
+    // does not make a durable worker attachable; observe its existing Executor port first.
+    const joined = scope.next()
+    try {
+      if (!spawned.ok) throw new Error(`spawn failed: ${spawned.reason}`)
+      await Promise.race([
+        entered.opened,
+        joined.then(() => { throw new Error('worker settled before execution entry') }),
+      ])
+      await vi.waitFor(async () => {
+        expect(existsSync(workerInteractiveBindingFile(dir, spawned.handle.id))).toBe(true)
+        await expect(
+          attachWorker(dir, spawned.handle.id, { providers: provider }),
+        ).resolves.toMatchObject({ status: 'available' })
+      })
+      const first = await attachWorker(dir, spawned.handle.id, { providers: provider })
+      if (first.status !== 'available') throw new Error(`attach failed: ${first.reason}`)
+      const control = await claim(first)
+      const terminal = await first.handle.attach({ control })
+      await terminal.input({ data: 'first process\n' })
+      await terminal.detach()
 
-    // A new caller reconstructs from the durable exact ref and sees the same ordered history.
-    const restarted = await attachWorker(dir, spawned.handle.id, { providers: provider })
-    if (restarted.status !== 'available') throw new Error(`reattach failed: ${restarted.reason}`)
-    const reattached = await restarted.handle.attach({ control: await claim(restarted) })
-    expect(await readHistory(reattached)).toEqual(['first process\n'])
-    await reattached.close()
-    await expect(attachWorker(dir, spawned.handle.id, { providers: provider })).resolves.toEqual({
-      status: 'unavailable',
-      reason: 'interactive-binding-stale',
-    })
+      // A new caller reconstructs from the durable exact ref and sees the same ordered history.
+      const restarted = await attachWorker(dir, spawned.handle.id, { providers: provider })
+      if (restarted.status !== 'available') throw new Error(`reattach failed: ${restarted.reason}`)
+      const reattached = await restarted.handle.attach({ control: await claim(restarted) })
+      expect(await readHistory(reattached)).toEqual(['first process\n'])
+      await reattached.close()
+      await expect(attachWorker(dir, spawned.handle.id, { providers: provider })).resolves.toEqual({
+        status: 'unavailable',
+        reason: 'interactive-binding-stale',
+      })
 
-    running.open()
-    await scope.next()
-    await expect(attachWorker(dir, spawned.handle.id, { providers: provider })).resolves.toEqual({
-      status: 'unavailable',
-      reason: 'not-live',
-    })
+      running.open()
+      await joined
+      await expect(attachWorker(dir, spawned.handle.id, { providers: provider })).resolves.toEqual({
+        status: 'unavailable',
+        reason: 'not-live',
+      })
+    } finally {
+      running.open()
+      await joined
+    }
   })
 
   it('persists headless and unsupported reasons and refuses corrupt or symlinked bindings', async () => {
     const dir = tempDir()
     const scope = await durableScopeOf(dir)
     const pause = gate()
+    const headlessEntered = gate()
+    const unsupportedEntered = gate()
     const unsupported = (
       name: string,
       reason: Extract<WorkerInteractiveSession, { status: 'unavailable' }>,
+      onExecuteEntered: () => void,
     ) => {
       const executor: Executor<unknown> = {
         runtime: 'sandbox',
         execute: async () => {
+          onExecuteEntered()
           await pause.opened
           return {
             outRef: `out:${name}`,
@@ -593,7 +612,7 @@ describe('scope.interactive — attaching to the exact process one worker runs i
       unsupported('headless-durable', {
         status: 'unavailable',
         reason: 'executor-exposes-no-interactive-session',
-      }),
+      }, headlessEntered.open),
       'work',
       { budget: { maxIterations: 2, maxTokens: 100 }, label: 'headless-durable' },
     )
@@ -601,68 +620,80 @@ describe('scope.interactive — attaching to the exact process one worker runs i
       unsupported('unsupported-durable', {
         status: 'unavailable',
         reason: 'provider-has-no-interactive-contract',
-      }),
+      }, unsupportedEntered.open),
       'work',
       { budget: { maxIterations: 2, maxTokens: 100 }, label: 'unsupported-durable' },
     )
-    if (!headless.ok || !unsupportedSpawn.ok) throw new Error('spawn failed')
-    await vi.waitFor(async () => {
+    const firstJoined = scope.next()
+    const joined = firstJoined.then(async () => { await scope.next() })
+    try {
+      if (!headless.ok || !unsupportedSpawn.ok) throw new Error('spawn failed')
+      await Promise.race([
+        Promise.all([headlessEntered.opened, unsupportedEntered.opened]),
+        firstJoined.then(() => { throw new Error('worker settled before both executions entered') }),
+      ])
+      await vi.waitFor(async () => {
+        await expect(
+          attachWorker(dir, headless.handle.id, { providers: interactiveProvider('unused') }),
+        ).resolves.toEqual({
+          status: 'unavailable',
+          reason: 'executor-exposes-no-interactive-session',
+        })
+      })
+      await vi.waitFor(async () => {
+        await expect(
+          attachWorker(dir, unsupportedSpawn.handle.id, { providers: interactiveProvider('unused') }),
+        ).resolves.toEqual({
+          status: 'unavailable',
+          reason: 'provider-has-no-interactive-contract',
+        })
+      })
+
+      writeFileSync(workerInteractiveBindingFile(dir, headless.handle.id), '{broken', 'utf8')
       await expect(
         attachWorker(dir, headless.handle.id, { providers: interactiveProvider('unused') }),
-      ).resolves.toEqual({
-        status: 'unavailable',
-        reason: 'executor-exposes-no-interactive-session',
-      })
-    })
-    await vi.waitFor(async () => {
-      await expect(
-        attachWorker(dir, unsupportedSpawn.handle.id, { providers: interactiveProvider('unused') }),
-      ).resolves.toEqual({
-        status: 'unavailable',
-        reason: 'provider-has-no-interactive-contract',
-      })
-    })
+      ).rejects.toThrow()
 
-    writeFileSync(workerInteractiveBindingFile(dir, headless.handle.id), '{broken', 'utf8')
-    await expect(
-      attachWorker(dir, headless.handle.id, { providers: interactiveProvider('unused') }),
-    ).rejects.toThrow()
+      const symlinkDir = tempDir()
+      const outside = tempDir()
+      symlinkSync(outside, join(symlinkDir, 'interactive-workers'))
+      expect(() => workerInteractiveBindingFile(symlinkDir, 'root:s0')).not.toThrow()
+      expect(() =>
+        writeWorkerInteractiveBinding(symlinkDir, 'root:s0', 'worker', 'root', {
+          status: 'unavailable',
+          reason: 'executor-exposes-no-interactive-session',
+        }),
+      ).toThrow(/symbolic link/)
 
-    const symlinkDir = tempDir()
-    const outside = tempDir()
-    symlinkSync(outside, join(symlinkDir, 'interactive-workers'))
-    expect(() => workerInteractiveBindingFile(symlinkDir, 'root:s0')).not.toThrow()
-    expect(() =>
-      writeWorkerInteractiveBinding(symlinkDir, 'root:s0', 'worker', 'root', {
-        status: 'unavailable',
-        reason: 'executor-exposes-no-interactive-session',
-      }),
-    ).toThrow(/symbolic link/)
+      const actualDir = tempDir()
+      const aliasParent = tempDir()
+      const aliasDir = join(aliasParent, 'run-alias')
+      symlinkSync(actualDir, aliasDir)
+      expect(() =>
+        writeWorkerInteractiveBinding(aliasDir, 'root:s0', 'worker', 'root', {
+          status: 'unavailable',
+          reason: 'executor-exposes-no-interactive-session',
+        }),
+      ).toThrow(/symbolic link/)
 
-    const actualDir = tempDir()
-    const aliasParent = tempDir()
-    const aliasDir = join(aliasParent, 'run-alias')
-    symlinkSync(actualDir, aliasDir)
-    expect(() =>
-      writeWorkerInteractiveBinding(aliasDir, 'root:s0', 'worker', 'root', {
-        status: 'unavailable',
-        reason: 'executor-exposes-no-interactive-session',
-      }),
-    ).toThrow(/symbolic link/)
-
-    pause.open()
-    await scope.next()
-    await scope.next()
+      pause.open()
+      await joined
+    } finally {
+      pause.open()
+      await joined
+    }
   })
 
   it('preserves not-started when an executor has no readiness signal', async () => {
     const dir = tempDir()
     const scope = await durableScopeOf(dir)
     const execution = gate()
+    const entered = gate()
     const profile = testAgentProfile('not-started', { harness: 'pi' })
     const executor: Executor<unknown> = {
       runtime: 'sandbox',
       execute: async () => {
+        entered.open()
         await execution.opened
         return {
           outRef: 'not-started',
@@ -689,19 +720,29 @@ describe('scope.interactive — attaching to the exact process one worker runs i
       budget: { maxIterations: 2, maxTokens: 100 },
       label: 'not-started',
     })
-    if (!spawned.ok) throw new Error(`spawn failed: ${spawned.reason}`)
 
-    await vi.waitFor(async () => {
-      await expect(
-        attachWorker(dir, spawned.handle.id, { providers: interactiveProvider('unused') }),
-      ).resolves.toEqual({
-        status: 'unavailable',
-        reason: 'interactive-session-not-started',
+    const joined = scope.next()
+    try {
+      if (!spawned.ok) throw new Error(`spawn failed: ${spawned.reason}`)
+      await Promise.race([
+        entered.opened,
+        joined.then(() => { throw new Error('worker settled before execution entry') }),
+      ])
+      await vi.waitFor(async () => {
+        await expect(
+          attachWorker(dir, spawned.handle.id, { providers: interactiveProvider('unused') }),
+        ).resolves.toEqual({
+          status: 'unavailable',
+          reason: 'interactive-session-not-started',
+        })
       })
-    })
 
-    execution.open()
-    await scope.next()
+      execution.open()
+      await joined
+    } finally {
+      execution.open()
+      await joined
+    }
   })
 
   it('does not let a never-resolving readiness signal block worker settlement', async () => {
