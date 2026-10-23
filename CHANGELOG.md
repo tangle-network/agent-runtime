@@ -1,3 +1,9 @@
+## 0.346.0
+
+Publish file-journal initialization events atomically so a resumed controller can recover a child interrupted before provider admission with its original identity, input, and deadline. Native managers also admit durable controls at turn boundaries so fast continuations consume accepted steers before entering a pause. Requires the compatible Eval grouped-journal reader from the declared peer minimum.
+
+Add `kimi-code` to the local-harness invocation table: a profile selecting it now runs `kimi -p <prompt> -m <model>` on the worktree and in-place CLI paths, with the shared materializer plan applied as for the other local harnesses. kimi-code 2.x has no reasoning-effort flag, so a requested effort is refused at admission. Profile MCP servers are refused on kimi-code for now: the shared materializer's kimi lowering targets a `--mcp-config-file` flag no published kimi-code accepts (2.2.0/2.3.0 exit 1 on it), while kimi-code 2.x auto-loads `<cwd>/.kimi-code/mcp.json`; the refusal lifts once the materializer lowers to that surface. Harness rows now declare that MCP capability explicitly (`profileMcp`), and admission fails closed for a row without it.
+
 ## 0.345.0
 
 Fence run-directory durable writes by acquisition generation and let idle supervised runs park for an existing keeper to resume without holding a process. Update AgentGraph factory-design guidance with task/run identity, service slots and throttled triggers.
