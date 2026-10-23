@@ -40,7 +40,7 @@ function assertPackageJob(job) {
     if (!packageStep.run.includes(required)) throw new Error(`package archive step is missing ${required}`)
   }
   const upload = requireArtifactUpload('package', steps, 'agent-runtime-upstream-tarball')
-  assertEqual(upload.with?.['retention-days'], 90, 'package archive retention')
+  assertEqual(upload.with?.['retention-days'], 1, 'package archive retention')
   assertEqual(upload.with?.['compression-level'], 0, 'package archive compression')
 }
 
@@ -65,7 +65,7 @@ function assertContractJob(job) {
     if (!runner.run.includes(required)) throw new Error(`contract runner is missing ${required}`)
   }
   const upload = requireArtifactUpload('contract', steps, 'agent-runtime-${{ matrix.check }}')
-  assertEqual(upload.with?.['retention-days'], 90, 'contract evidence retention')
+  assertEqual(upload.with?.['retention-days'], 1, 'contract evidence retention')
   assertEqual(upload.with?.['compression-level'], 0, 'contract evidence compression')
 }
 

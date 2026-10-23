@@ -15,7 +15,7 @@ jobs:
     uses: tangle-network/agent-eval/.github/workflows/adopt-stack.yml@main
     with:
       gate: pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
-      runs-on: ubuntu-latest
+      runs-on: '["self-hosted", "ci-public"]'
       default-branch: main
       merge: true
     secrets: inherit
