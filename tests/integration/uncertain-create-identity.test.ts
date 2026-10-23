@@ -373,7 +373,24 @@ describe('typed real command credential refusal and accepted evidence', () => {
       ).toHaveLength(1)
       expect(down[0]).not.toHaveProperty('retainedExecution')
       expect(down[0]).not.toHaveProperty('retainedPendingCause')
-      expect(inputs(events, child)).toHaveLength(1)
+      const journal = new FileSpawnJournal(join(fixture.directory, 'run', 'spawn-journal.jsonl'))
+      const parentTree = (await journal.loadTree(rootId))!
+      const wrapper = parentTree.find(
+        (event): event is Extract<SpawnEvent, { kind: 'spawned' }> =>
+          event.kind === 'spawned' && event.id === child,
+      )!
+      expect(wrapper.ownedTreeRoot).toBeDefined()
+      const nativeTree = (await journal.loadTree(wrapper.ownedTreeRoot!))!
+      const wrapperInputs = inputs(parentTree, child)
+      const nativeInputs = inputs(nativeTree, child)
+      // A managed child has one wrapper admission and one native owner input in distinct trees.
+      // Keep provenance instead of treating their shared node id as a second native attempt.
+      expect(wrapperInputs).toHaveLength(1)
+      expect(nativeInputs).toHaveLength(1)
+      expect(wrapperInputs[0]!.taskRef).toBe(nativeInputs[0]!.taskRef)
+      expect(inputs(events, child)).toHaveLength(wrapperInputs.length + nativeInputs.length)
+      expect(intents(parentTree, child)).toHaveLength(0)
+      expect(intents(nativeTree, child)).toHaveLength(1)
       expect(intents(events, child)).toHaveLength(1)
       expect(abandoned(events, child)).toHaveLength(0)
       expect(readRecords(join(fixture.directory, 'credential-calls.jsonl'))).toHaveLength(1)
@@ -560,8 +577,8 @@ describe('accepted native recovery and historical identities', () => {
           )
         },
       )
-      // Completion now performs a real mounted tool call, so its original execution remains
-      // held until the replacement owner has restored the same public coordination authority.
+      // The original native execution stays held until its replacement owner has restored
+      // coordination authority and actually rejoined that exact child execution.
       await fixture.control({ finish: true })
       await fixture.wait('pursuit settled through existing finalizer', async () =>
         fixture.outcomes().some((row) => row.kind === 'settled'),
@@ -596,30 +613,35 @@ describe('accepted native recovery and historical identities', () => {
         (event): event is Extract<SpawnEvent, { kind: 'settled' }> =>
           event.kind === 'settled' && event.id === child && event.status === 'done',
       )!
-      // A managed child's settlement owns its descendant work; its own native inference is
-      // re-homed as metered spend in the parent tree, and must be conserved exactly once there.
-      expect(settled).toMatchObject({ spent: { tokens: { input: 0, output: 0 } } })
-      const parentEvents = await new FileSpawnJournal(
-        join(fixture.directory, 'run', 'spawn-journal.jsonl'),
-      ).loadTree(rootId)
-      const childInference = parentEvents!.filter(
-        (event): event is Extract<SpawnEvent, { kind: 'metered' }> =>
-          event.kind === 'metered' && event.id === child,
-      )
-      expect(childInference).toHaveLength(1)
-      expect(childInference[0]!.spend).toMatchObject({
-        tokens: { input: 3, output: 2, cacheBreakdownKnown: false },
-        usdKnown: false,
+      // This explicitly authored ordinary leaf owns its native spend in its settlement.
+      // No nested driver re-homes a second inference charge for the same native execution.
+      expect(settled).toMatchObject({
+        spent: { tokens: { input: 3, output: 2, cacheBreakdownKnown: false } },
       })
-      const delivered = await new FileResultBlobStore(join(fixture.directory, 'run', 'blobs')).get(
-        settled.outRef!,
-      )
-      expect(delivered).toEqual({ answer: 'delivered' })
-      const submissions = (await fixture.state()).requests.filter(
-        (row) => row.kind === 'accepted-submission',
-      )
-      expect(submissions).toHaveLength(1)
-      expect(submissions[0]).toMatchObject({ executionId: childDispatch.executionId })
+      const parentEvents = (await new FileSpawnJournal(
+        join(fixture.directory, 'run', 'spawn-journal.jsonl'),
+      ).loadTree(rootId))!
+      expect(
+        parentEvents.filter((event) => event.kind === 'metered' && event.id === child),
+      ).toHaveLength(0)
+      const nativeResult = parentEvents.find(
+        (event): event is Extract<SpawnEvent, { kind: 'execution-result' }> =>
+          event.kind === 'execution-result' && event.id === child,
+      )!
+      expect(nativeResult).toBeDefined()
+      expect(settled.outRef).toBe(nativeResult.outRef)
+      await assertAcceptedNativeResult(fixture, nativeResult)
+      const leafCreate = (await fixture.state()).requests.find(
+        (row) => row.kind === 'create' && row.profile === 'delivered-leaf',
+      )!
+      expect(leafCreate).toBeDefined()
+      const leafProfile = object(object(object(leafCreate.rawCreateBody).backend).profile)
+      expect(leafProfile).not.toHaveProperty('seats')
+      expect(
+        Object.keys(object(leafProfile.tools ?? {})).filter((name) =>
+          name.startsWith('agent_runtime_coordination_'),
+        ),
+      ).toHaveLength(0)
       const outcomes = fixture.outcomes().filter((row) => row.kind === 'settled')
       expect(outcomes).toHaveLength(1)
       const pursuit = outcomes[0]!.result as {

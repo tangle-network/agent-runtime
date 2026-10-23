@@ -199,12 +199,15 @@ async function tool(run: NativeRun, name: string, args: object): Promise<unknown
     throw new Error(`MCP ${name} refused: ${JSON.stringify(result)}`)
   return result.result
 }
+function runProfile(run: NativeRun): Record<string, unknown> {
+  return object(
+    run.backend.profile ?? state.boxes.find((box) => box.id === run.environmentId)?.backend.profile,
+  )
+}
 async function act(run: NativeRun): Promise<void> {
   if (run.actionStarted) return
   run.actionStarted = true
-  const profile = object(
-    run.backend.profile ?? state.boxes.find((box) => box.id === run.environmentId)?.backend.profile,
-  )
+  const profile = runProfile(run)
   const name = String(profile.name)
   const spawnChild =
     (name === 'root' && (scenario.startsWith('unsupported-') || scenario === 'accepted')) ||
@@ -244,7 +247,18 @@ async function act(run: NativeRun): Promise<void> {
                   agent_runtime_coordination_submit_result: true,
                 },
               }
-            : {}),
+            : scenario === 'accepted' && childName === 'delivered-leaf'
+              ? {
+                  // Explicit refusals keep this ordinary native leaf from inheriting manager
+                  // coordination rights; its provider result is checked by the run oracle.
+                  tools: {
+                    agent_runtime_coordination_spawn_worker: false,
+                    agent_runtime_coordination_submit_result: false,
+                    agent_runtime_coordination_observe_agent: false,
+                    agent_runtime_coordination_steer_agent: false,
+                  },
+                }
+              : {}),
         },
       }),
     )
@@ -253,16 +267,6 @@ async function act(run: NativeRun): Promise<void> {
       childName,
       workerId: object(spawned.structuredContent).workerId,
     })
-  }
-  if (scenario === 'accepted' && name === 'delivered-leaf') {
-    const submission = object(await tool(run, 'submit_result', { result: { answer: 'delivered' } }))
-    if (
-      object(submission.structuredContent).accepted !== true ||
-      object(submission.structuredContent).retained !== 'this-result' ||
-      object(submission.structuredContent).stop !== true
-    )
-      throw new Error('actual child submit_result was not accepted')
-    note('accepted-submission', { environmentId: run.environmentId, executionId: run.executionId })
   }
   // No model runs here. This process implements the external service's deterministic native turn.
   run.status = 'completed'
@@ -447,11 +451,7 @@ async function runtime(
     if (scenario === 'current-lost') state.lost.push(environmentId)
     else if (
       state.finish ||
-      (!(
-        scenario === 'accepted' &&
-        object(run.backend.profile ?? {}).name === 'delivered-leaf' &&
-        !state.finish
-      ) &&
+      (!(scenario === 'accepted' && runProfile(run).name === 'delivered-leaf' && !state.finish) &&
         !scenario.startsWith('cancel-') &&
         !scenario.startsWith('create-') &&
         scenario !== 'historical')
@@ -549,7 +549,7 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       const spawn = state.requests.find(
         (row) => row.kind === 'spawned-by-service' && row.owner === 'root',
       )
-      const root = state.runs.find((run) => object(run.backend.profile ?? {}).name === 'root')
+      const root = state.runs.find((run) => runProfile(run).name === 'root')
       if (
         !root ||
         typeof spawn?.workerId !== 'string' ||
