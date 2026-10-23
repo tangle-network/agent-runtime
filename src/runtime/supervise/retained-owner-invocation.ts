@@ -11,11 +11,7 @@ import {
   type RetainedWorkspaceRestore,
   type RetainedWorkspaceRestoreReceipt,
 } from './retained-executor'
-import {
-  continuedEnvironment,
-  restoreBefore,
-  restoreCapable,
-} from './retained-owner-environment-recovery'
+import { restoreBefore, restoreCapable } from './retained-owner-environment-recovery'
 import {
   abandonInputAdmittedIntoDebt,
   reconcileOwnerWorkspaceBeforeReuse,
@@ -201,10 +197,11 @@ const ABANDON_STOP_TIMEOUT_MS = 30_000
  * Abandon the owner's in-flight invocation, which the driver retry loop asks for when the same
  * reconciliation keeps failing the same way (`DriverRetryRun.resolvePending`).
  *
- * Runtime stops the invocation at the provider when it had dispatched, then journals what the
- * provider confirmed. The journal refuses every later admission or result of the invocation, so
- * only the replacement the next {@link prepareScopeRetainedOwnerTask} starts can commit a result.
- * Answers `false`, journaling nothing, when this owner has no unfinished invocation to abandon.
+ * Runtime abandons only after the provider confirms the dispatched execution stopped or is no
+ * longer live. An intent without a dispatch reference, or an unconfirmed stop, keeps the original
+ * invocation recoverable under the same identity. The journal refuses every later admission or
+ * result of an abandoned invocation, so only its replacement can commit a result. Answers `false`,
+ * journaling nothing, when there is no unfinished invocation or its native stop is unconfirmed.
  */
 export async function abandonScopeRetainedOwnerInvocation(
   scope: Scope<unknown>,
@@ -245,6 +242,10 @@ export async function abandonScopeRetainedOwnerInvocation(
         })
   scope.signal.throwIfAborted()
   const stopped = stop?.effect === 'cancelled' || stop?.effect === 'not_live'
+  // A timeout or an unavailable stop cannot prove that a keyed create or dispatch ended.
+  // Keep this invocation's task and admissions recoverable: an abandonment closes their journal
+  // identity and the next drive would provision under a new key beside the unresolved original.
+  if (!stopped) return false
   await args.journal.appendEvent(args.rootId, {
     kind: 'execution-abandoned',
     id: args.nodeId,
@@ -252,7 +253,7 @@ export async function abandonScopeRetainedOwnerInvocation(
     pendingCause: failure.pendingCause,
     failures,
     detail: errorText(errMessage(failure)).slice(0, 2_048),
-    outcome: stopped ? 'stopped' : 'uncertain',
+    outcome: 'stopped',
     ...(stop === undefined
       ? {}
       : {
@@ -305,10 +306,15 @@ export async function prepareScopeRetainedOwnerTask(
     await abandonInputAdmittedIntoDebt(state, indebted)
   }
   const unusable = unusableEnvironmentIds(owned)
-  const inFlight = continuedEnvironment(owned)
-  if (inFlight?.inFlight && unusable.has(inFlight.admission.environmentId)) {
-    // An in-flight invocation in an absent or terminal environment cannot be recovered, and
-    // nothing is left running to pay for twice. The next drive is a new invocation.
+  const currentEnvironment = state.admissions.find((admission) => admission.phase === 'environment')
+  if (
+    state.acceptedRef === undefined &&
+    currentEnvironment?.phase === 'environment' &&
+    unusable.has(currentEnvironment.environmentId)
+  ) {
+    // Only loss of this invocation's admitted target can close it. An older accepted turn's lost
+    // environment says nothing about a new intent whose create may still be running elsewhere.
+    // The current target is absent or terminal, so nothing of this invocation can still run there.
     delete state.inputSequence
     delete state.taskRef
     state.admissions.length = 0
