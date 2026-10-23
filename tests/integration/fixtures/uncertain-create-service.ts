@@ -191,6 +191,7 @@ async function tool(run: NativeRun, name: string, args: object): Promise<unknown
     environmentId: run.environmentId,
     executionId: run.executionId,
     name,
+    arguments: args,
     status: response.status,
     result,
   })
@@ -219,33 +220,49 @@ async function act(run: NativeRun): Promise<void> {
           ? 'delivered-leaf'
           : 'credential-manager'
     const manager = childName === 'credential-manager'
-    await tool(run, 'spawn_worker', {
-      key: childName,
-      label: childName,
-      task: `complete ${childName}`,
-      budget:
-        name === 'credential-manager'
-          ? { maxIterations: 2, maxTokens: 100 }
-          : { maxIterations: 20, maxTokens: 1000 },
-      profile: {
-        name: childName,
-        harness: manager ? 'codex' : 'opencode',
-        model: {
-          provider: 'openai',
-          default: 'fixture-model',
-          ...(manager ? { metadata: { credentialSource: 'subscription' } } : {}),
+    const spawned = object(
+      await tool(run, 'spawn_worker', {
+        key: childName,
+        label: childName,
+        task: `complete ${childName}`,
+        budget:
+          name === 'credential-manager'
+            ? { maxIterations: 2, maxTokens: 100 }
+            : { maxIterations: 20, maxTokens: 1000 },
+        profile: {
+          name: childName,
+          harness: manager ? 'codex' : 'opencode',
+          model: {
+            provider: 'openai',
+            default: 'fixture-model',
+            ...(manager ? { metadata: { credentialSource: 'subscription' } } : {}),
+          },
+          ...(manager
+            ? {
+                tools: {
+                  agent_runtime_coordination_spawn_worker: true,
+                  agent_runtime_coordination_submit_result: true,
+                },
+              }
+            : {}),
         },
-        ...(manager
-          ? {
-              tools: {
-                agent_runtime_coordination_spawn_worker: true,
-                agent_runtime_coordination_submit_result: true,
-              },
-            }
-          : {}),
-      },
+      }),
+    )
+    note('spawned-by-service', {
+      owner: name,
+      childName,
+      workerId: object(spawned.structuredContent).workerId,
     })
-    note('spawned-by-service', { owner: name, childName })
+  }
+  if (scenario === 'accepted' && name === 'delivered-leaf') {
+    const submission = object(await tool(run, 'submit_result', { result: { answer: 'delivered' } }))
+    if (
+      object(submission.structuredContent).accepted !== true ||
+      object(submission.structuredContent).retained !== 'this-result' ||
+      object(submission.structuredContent).stop !== true
+    )
+      throw new Error('actual child submit_result was not accepted')
+    note('accepted-submission', { environmentId: run.environmentId, executionId: run.executionId })
   }
   // No model runs here. This process implements the external service's deterministic native turn.
   run.status = 'completed'
@@ -339,6 +356,25 @@ async function runtime(
   if (path === '/messages/turns') {
     response.writeHead(204)
     response.end()
+    return
+  }
+  if (path === '/files/write' && request.method === 'POST') {
+    const input = await body(request)
+    if (input.path !== '.agent-runtime-checkpoint')
+      throw new Error('unexpected non-checkpoint SDK file write')
+    note('optional-checkpoint-unavailable', {
+      environmentId,
+      operation: 'marker-write',
+      status: 501,
+      input,
+    })
+    json(response, 501, {
+      error: {
+        code: 'CAPABILITY_UNSUPPORTED',
+        message: 'fixture exposes no checkpoint filesystem',
+        capability: 'files.write',
+      },
+    })
     return
   }
   if (path === '/process/spawn' && request.method === 'POST') {
@@ -504,6 +540,37 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     const control = await body(request)
     if (typeof control.routeKey === 'string' && typeof control.target === 'string')
       state.routes[control.routeKey] = localUrl(control.target).href
+    if (control.steerManager === true) {
+      if (
+        scenario !== 'unsupported-descendant' ||
+        state.requests.some((row) => row.kind === 'descendant-steer-started')
+      )
+        throw new Error('descendant steer is scenario-bound and once only')
+      const spawn = state.requests.find(
+        (row) => row.kind === 'spawned-by-service' && row.owner === 'root',
+      )
+      const root = state.runs.find((run) => object(run.backend.profile ?? {}).name === 'root')
+      if (
+        !root ||
+        typeof spawn?.workerId !== 'string' ||
+        !state.requests.some((row) => row.kind === 'create' && row.profile === 'pending-grandchild')
+      )
+        throw new Error('descendant steer requires actual root/manager/grandchild identities')
+      note('descendant-steer-started', { executionId: root.executionId, workerId: spawn.workerId })
+      const result = object(
+        await tool(root, 'steer_agent', {
+          workerId: spawn.workerId,
+          instruction: 'Reconcile the admitted grandchild and continue the same assignment.',
+          interrupt: false,
+        }),
+      )
+      if (object(result.structuredContent).delivered !== true)
+        throw new Error('actual manager steer was not delivered')
+      note('descendant-steer-delivered', {
+        executionId: root.executionId,
+        workerId: spawn.workerId,
+      })
+    }
     if (typeof control.finish === 'boolean') state.finish = control.finish
     if (
       ['unknown', 'cancel_requested', 'cancelled', 'not_live'].includes(
@@ -557,6 +624,22 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       reference: grant.cliAuth,
     })
     json(response, 200, { installed: true, harness: grant.harness, cliAuth: grant.cliAuth })
+    return
+  }
+  const snapshots = url.pathname.match(/^\/v1\/sandboxes\/([^/]+)\/snapshots$/)
+  if (snapshots && request.method === 'GET') {
+    note('optional-checkpoint-unavailable', {
+      environmentId: snapshots[1],
+      operation: 'inventory',
+      status: 501,
+    })
+    json(response, 501, {
+      error: {
+        code: 'CAPABILITY_UNSUPPORTED',
+        message: 'fixture exposes no checkpoint inventory',
+        capability: 'snapshots',
+      },
+    })
     return
   }
   const match = url.pathname.match(/^\/v1\/sandboxes\/([^/]+)(?:\/runtime(.*))?$/)

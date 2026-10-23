@@ -44,6 +44,7 @@ try {
         agent_runtime_coordination_spawn_worker: true,
         agent_runtime_coordination_submit_result: true,
         agent_runtime_coordination_observe_agent: true,
+        agent_runtime_coordination_steer_agent: true,
       },
     },
     'Complete the locally controlled integration assignment.',

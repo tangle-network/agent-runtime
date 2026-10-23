@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { build } from 'tsdown'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { FileSpawnJournal, type SpawnEvent } from '../../src/runtime'
+import { FileResultBlobStore, FileSpawnJournal, type SpawnEvent } from '../../src/runtime'
 import {
   type Executables,
   type ProcessFixture,
@@ -56,6 +56,23 @@ function intents(events: SpawnEvent[], id = rootId) {
 }
 function abandoned(events: SpawnEvent[], id = rootId) {
   return events.filter((event) => event.kind === 'execution-abandoned' && event.id === id)
+}
+async function assertAcceptedNativeResult(
+  fixture: ProcessFixture,
+  event: Extract<SpawnEvent, { kind: 'execution-result' }>,
+): Promise<void> {
+  const artifact = await new FileResultBlobStore(join(fixture.directory, 'run', 'blobs')).get(
+    event.outRef,
+  )
+  expect(artifact).toMatchObject({
+    content: '{"answer":"delivered"}',
+    events: expect.arrayContaining([
+      expect.objectContaining({
+        type: 'done',
+        data: expect.objectContaining({ success: true, outcome: { type: 'completed' } }),
+      }),
+    ]),
+  })
 }
 async function assertOneIdentity(fixture: ProcessFixture, expected?: unknown): Promise<unknown> {
   const events = await fixture.events()
@@ -165,12 +182,17 @@ describe('actual Tangle SDK uncertain root create identities', () => {
           ),
         ).toEqual([
           expect.objectContaining({
-            outcome: expect.objectContaining({ success: true }),
+            outRef: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
             spent: expect.objectContaining({
               tokens: { input: 3, output: 2, cacheBreakdownKnown: false },
             }),
           }),
         ])
+        const accepted = (await fixture.events()).find(
+          (event): event is Extract<SpawnEvent, { kind: 'execution-result' }> =>
+            event.kind === 'execution-result' && event.id === rootId,
+        )!
+        await assertAcceptedNativeResult(fixture, accepted)
       })
     },
     45000,
@@ -380,6 +402,21 @@ describe('typed real command credential refusal and accepted evidence', () => {
       await withFixture(scenario, executables, async (fixture) => {
         const child = `${rootId}:s0`
         const expectedCommands = scenario === 'unsupported-environment' ? 2 : 3
+        if (scenario === 'unsupported-descendant') {
+          await fixture.wait(
+            'accepted manager turn and actual grandchild create',
+            async () =>
+              (await fixture.events()).some(
+                (event) => event.kind === 'execution-result' && event.id === child,
+              ) &&
+              (await fixture.state()).requests.some(
+                (row) => row.kind === 'create' && row.profile === 'pending-grandchild',
+              ),
+          )
+          // A progressing unresolved grandchild quiets heartbeats. An actual queued public steer
+          // supplies the next native manager turn; its acknowledgement alone proves no execution.
+          await fixture.control({ steerManager: true })
+        }
         await fixture.wait('typed refusal preserves the admitted nested manager', async () => {
           const events = await fixture.events()
           return (
@@ -441,11 +478,17 @@ describe('typed real command credential refusal and accepted evidence', () => {
           expect(
             events.some((event) => event.kind === 'spawned' && event.id === `${child}:s0`),
           ).toBe(true)
+          const accepted = events.filter(
+            (event): event is Extract<SpawnEvent, { kind: 'execution-result' }> =>
+              event.kind === 'execution-result' && event.id === child,
+          )
+          expect(accepted).toHaveLength(1)
+          await assertAcceptedNativeResult(fixture, accepted[0]!)
           expect(
-            events.filter((event) => event.kind === 'execution-result' && event.id === child),
-          ).toEqual([
-            expect.objectContaining({ outcome: expect.objectContaining({ success: true }) }),
-          ])
+            (await fixture.state()).requests.filter(
+              (row) => row.kind === 'descendant-steer-delivered',
+            ),
+          ).toHaveLength(1)
           // The executor aborts and joins its descendants before recording nested recovery.
           // That owned cleanup must not become ordinary terminal settlement of the manager.
           expect(
@@ -489,8 +532,37 @@ describe('accepted native recovery and historical identities', () => {
       const committed = await fixture.events()
       const accepted = committed.filter((event) => event.kind === 'execution-result')
       const dispatched = (await fixture.state()).requests.filter((row) => row.kind === 'dispatch')
-      await fixture.control({ finish: true })
+      const heldState = await fixture.state()
+      const heldChild = dispatched.find((row) => row.environmentId === 'box-2')!
+      expect(heldChild).toBeDefined()
+      const previousChildReads = heldState.requests.filter(
+        (row) => row.kind === 'events' && row.executionId === heldChild.executionId,
+      ).length
+      const previousRegistrations = Object.keys(heldState.routes).map((key) => ({
+        key,
+        count: heldState.requests.filter((row) => row.kind === 'control' && row.routeKey === key)
+          .length,
+      }))
       await fixture.resume()
+      await fixture.wait(
+        'replacement owners registered and exact child actually rejoined',
+        async () => {
+          const state = await fixture.state()
+          return (
+            previousRegistrations.every(
+              ({ key, count }) =>
+                state.requests.filter((row) => row.kind === 'control' && row.routeKey === key)
+                  .length > count,
+            ) &&
+            state.requests.filter(
+              (row) => row.kind === 'events' && row.executionId === heldChild.executionId,
+            ).length > previousChildReads
+          )
+        },
+      )
+      // Completion now performs a real mounted tool call, so its original execution remains
+      // held until the replacement owner has restored the same public coordination authority.
+      await fixture.control({ finish: true })
       await fixture.wait('pursuit settled through existing finalizer', async () =>
         fixture.outcomes().some((row) => row.kind === 'settled'),
       )
@@ -521,9 +593,33 @@ describe('accepted native recovery and historical identities', () => {
         allDispatches.filter((row) => row.executionId === childDispatch.executionId),
       ).toHaveLength(1)
       const settled = events.find(
-        (event) => event.kind === 'settled' && event.id === child && event.status === 'done',
+        (event): event is Extract<SpawnEvent, { kind: 'settled' }> =>
+          event.kind === 'settled' && event.id === child && event.status === 'done',
       )!
-      expect(settled).toMatchObject({ spent: { tokens: { input: 3, output: 2 } } })
+      // A managed child's settlement owns its descendant work; its own native inference is
+      // re-homed as metered spend in the parent tree, and must be conserved exactly once there.
+      expect(settled).toMatchObject({ spent: { tokens: { input: 0, output: 0 } } })
+      const parentEvents = await new FileSpawnJournal(
+        join(fixture.directory, 'run', 'spawn-journal.jsonl'),
+      ).loadTree(rootId)
+      const childInference = parentEvents!.filter(
+        (event): event is Extract<SpawnEvent, { kind: 'metered' }> =>
+          event.kind === 'metered' && event.id === child,
+      )
+      expect(childInference).toHaveLength(1)
+      expect(childInference[0]!.spend).toMatchObject({
+        tokens: { input: 3, output: 2, cacheBreakdownKnown: false },
+        usdKnown: false,
+      })
+      const delivered = await new FileResultBlobStore(join(fixture.directory, 'run', 'blobs')).get(
+        settled.outRef!,
+      )
+      expect(delivered).toEqual({ answer: 'delivered' })
+      const submissions = (await fixture.state()).requests.filter(
+        (row) => row.kind === 'accepted-submission',
+      )
+      expect(submissions).toHaveLength(1)
+      expect(submissions[0]).toMatchObject({ executionId: childDispatch.executionId })
       const outcomes = fixture.outcomes().filter((row) => row.kind === 'settled')
       expect(outcomes).toHaveLength(1)
       const pursuit = outcomes[0]!.result as {
@@ -538,7 +634,11 @@ describe('accepted native recovery and historical identities', () => {
         }
       }
       expect(pursuit.result.kind).toBe('winner')
-      const acceptedResults = events.filter((event) => event.kind === 'execution-result')
+      const acceptedResults = events.filter(
+        (event): event is Extract<SpawnEvent, { kind: 'execution-result' }> =>
+          event.kind === 'execution-result',
+      )
+      for (const result of acceptedResults) await assertAcceptedNativeResult(fixture, result)
       const acceptedExecutions = new Set(
         acceptedResults.map((result) => {
           const admission = events
