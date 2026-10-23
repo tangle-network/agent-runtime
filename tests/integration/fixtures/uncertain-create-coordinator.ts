@@ -4,6 +4,7 @@ import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import { createCommandModelCredentialResolver } from '@tangle-network/agent-provider-tangle/node'
 import { Sandbox } from '@tangle-network/sandbox'
 import { supervisePursuit } from '../../../src/durable'
+import { FileSpawnJournal } from '../../../src/runtime'
 import { type Configuration, localUrl, record } from './uncertain-create-protocol'
 
 const config = JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as Configuration
@@ -109,8 +110,30 @@ try {
           at: new Date().toISOString(),
           ...attempt,
         })
-        if (config.scenario.startsWith('create-') && attempt.error === undefined) {
-          await fetch(`${config.url}/fixture/hold-success`, { signal: controller.signal })
+        const measuredDisposition =
+          attempt.error === undefined && config.scenario.startsWith('unsupported-')
+            ? (
+                await new FileSpawnJournal(join(directory, 'run', 'spawn-journal.jsonl')).loadTree(
+                  'uncertain-create-proof',
+                )
+              )?.some(
+                (event) =>
+                  event.id === 'uncertain-create-proof:s0' &&
+                  ((event.kind === 'settled' && event.status === 'down') ||
+                    (event.kind === 'reconciled' &&
+                      event.retainedPendingCause === 'nested-recovery')),
+              ) === true
+            : false
+        // Let the normal wake drain child completion first; then preserve its measured
+        // disposition before global settlement can legitimately release retained cursors.
+        if (
+          (config.scenario.startsWith('create-') && attempt.error === undefined) ||
+          measuredDisposition
+        ) {
+          await fetch(
+            `${config.url}/fixture/hold-success?phase=${measuredDisposition ? 'nested-disposition-committed' : 'native-result-committed'}`,
+            { signal: controller.signal },
+          )
         }
       },
       coordination: {

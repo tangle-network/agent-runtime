@@ -166,7 +166,9 @@ describe('actual Tangle SDK uncertain root create identities', () => {
         ).toEqual([
           expect.objectContaining({
             outcome: expect.objectContaining({ success: true }),
-            spent: expect.objectContaining({ tokens: { input: 3, output: 2 } }),
+            spent: expect.objectContaining({
+              tokens: { input: 3, output: 2, cacheBreakdownKnown: false },
+            }),
           }),
         ])
       })
@@ -376,14 +378,33 @@ describe('typed real command credential refusal and accepted evidence', () => {
     'UC6 %s cannot turn existing admission or descendant work into terminal refusal',
     async (scenario) => {
       await withFixture(scenario, executables, async (fixture) => {
-        await fixture.wait(
-          'actual command returned unsupported route after admission',
-          async () =>
-            readRecords(join(fixture.directory, 'credential-calls.jsonl')).length >=
-            (scenario === 'unsupported-environment' ? 3 : 4),
-        )
-        const events = await fixture.events()
         const child = `${rootId}:s0`
+        const expectedCommands = scenario === 'unsupported-environment' ? 2 : 3
+        await fixture.wait('typed refusal preserves the admitted nested manager', async () => {
+          const events = await fixture.events()
+          return (
+            readRecords(join(fixture.directory, 'credential-calls.jsonl')).length >=
+              expectedCommands &&
+            events.some(
+              (event) =>
+                event.kind === 'driver-attempt' &&
+                event.id === child &&
+                event.record.stop === 'terminal-error' &&
+                event.record.pendingCause === 'request-rejected',
+            ) &&
+            events.some(
+              (event) =>
+                event.kind === 'reconciled' &&
+                event.id === child &&
+                event.retainedPendingCause === 'nested-recovery',
+            )
+          )
+        })
+        await fixture.killCoordinator()
+        const events = await fixture.events()
+        expect(readRecords(join(fixture.directory, 'credential-calls.jsonl'))).toHaveLength(
+          expectedCommands,
+        )
         expect(
           events.some(
             (event) =>
@@ -392,26 +413,50 @@ describe('typed real command credential refusal and accepted evidence', () => {
               event.admission.phase === 'environment',
           ),
         ).toBe(true)
-        expect(events.some((event) => event.kind === 'settled' && event.id === child)).toBe(false)
-        expect(abandoned(events, child)).toHaveLength(0)
         expect(
           events.some(
             (event) =>
-              event.kind === 'driver-attempt' &&
-              event.id === child &&
-              event.record.stop === 'terminal-error',
+              (event.kind === 'settled' || event.kind === 'cancelled') && event.id === child,
           ),
         ).toBe(false)
+        expect(abandoned(events, child)).toHaveLength(0)
+        expect(
+          events.filter(
+            (event) =>
+              event.kind === 'reconciled' &&
+              event.id === child &&
+              event.retainedPendingCause === 'nested-recovery',
+          ),
+        ).toHaveLength(1)
+        expect(
+          events.filter(
+            (event) =>
+              event.kind === 'driver-attempt' &&
+              event.id === child &&
+              event.record.stop === 'terminal-error' &&
+              event.record.pendingCause === 'request-rejected',
+          ),
+        ).toHaveLength(1)
         if (scenario === 'unsupported-descendant') {
           expect(
             events.some((event) => event.kind === 'spawned' && event.id === `${child}:s0`),
           ).toBe(true)
           expect(
-            events.some((event) => event.kind === 'execution-result' && event.id === child),
-          ).toBe(true)
+            events.filter((event) => event.kind === 'execution-result' && event.id === child),
+          ).toEqual([
+            expect.objectContaining({ outcome: expect.objectContaining({ success: true }) }),
+          ])
+          // The executor aborts and joins its descendants before recording nested recovery.
+          // That owned cleanup must not become ordinary terminal settlement of the manager.
           expect(
-            events.some((event) => event.kind === 'settled' && event.id === `${child}:s0`),
-          ).toBe(false)
+            events.filter(
+              (event) =>
+                event.kind === 'settled' &&
+                event.id === `${child}:s0` &&
+                event.status === 'down' &&
+                event.reason === 'driver stopped',
+            ),
+          ).toHaveLength(1)
           expect(
             (await fixture.state()).requests.some(
               (row) => row.kind === 'create' && row.profile === 'pending-grandchild',
@@ -422,7 +467,9 @@ describe('typed real command credential refusal and accepted evidence', () => {
     },
     45000,
   )
+})
 
+describe('accepted native recovery and historical identities', () => {
   it('UC7 accepted native result, descendant accounting and delivered-only finalizer survive process recovery', async () => {
     await withFixture('accepted', executables, async (fixture) => {
       await fixture.wait(
@@ -483,7 +530,7 @@ describe('typed real command credential refusal and accepted evidence', () => {
         result: {
           kind: string
           spentTotal: {
-            tokens: { input: number; output: number }
+            tokens: { input: number; output: number; cacheBreakdownKnown?: false }
             tokensKnown: boolean
             usdKnown: boolean
           }
@@ -518,6 +565,7 @@ describe('typed real command credential refusal and accepted evidence', () => {
       expect(pursuit.result.spentTotal.tokens).toEqual({
         input: acceptedExecutions.size * 3,
         output: acceptedExecutions.size * 2,
+        cacheBreakdownKnown: false,
       })
       expect(pursuit.result.spentTotal.tokensKnown).toBe(true)
       const acceptance = finalizers.filter(

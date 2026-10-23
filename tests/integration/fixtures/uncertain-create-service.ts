@@ -110,10 +110,28 @@ function terminal(run: NativeRun) {
         executionId: run.executionId,
         success: true,
         status: 'success',
+        outcome: { type: 'completed' },
         usage: { inputTokens: 3, outputTokens: 2 },
       },
     },
   ]
+}
+async function replay(run: NativeRun, response: ServerResponse): Promise<void> {
+  if (run.status === 'running' && nativeActions.has(run.executionId))
+    await nativeActions.get(run.executionId)
+  if (run.status === 'running') {
+    json(response, 408, {
+      error: {
+        code: 'FIXTURE_OBSERVATION_UNKNOWN',
+        message: 'exact execution remains unresolved',
+      },
+    })
+    return
+  }
+  run.terminalReads += 1
+  sse(response, terminal(run))
+  // A completed old invocation loses its environment before the next invocation starts.
+  if (scenario === 'older-lost' && run.environmentId === 'box-1') state.lost.push('box-1')
 }
 async function proxy(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
   const key = url.pathname.split('/')[2]!
@@ -323,28 +341,65 @@ async function runtime(
     response.end()
     return
   }
+  if (path === '/process/spawn' && request.method === 'POST') {
+    const input = await body(request)
+    // Native transcript capture is optional here. Never execute container shell commands
+    // against the host; let the actual SDK expose its typed capability refusal.
+    note('optional-transcript-unavailable', { environmentId, status: 501, input })
+    json(response, 501, {
+      error: {
+        code: 'CAPABILITY_UNSUPPORTED',
+        message: 'fixture does not expose transcript process execution',
+        capability: 'process.spawn',
+      },
+    })
+    return
+  }
   if (path === '/agents/run/stream') {
     const input = await body(request)
-    const ref = object(input.runControlRef)
+    const executionId = request.headers['x-execution-id']
+    note('stream-http-request', { environmentId, executionId, input, bodyDigest: digest(input) })
+    const existing = state.runs.find((candidate) => candidate.executionId === executionId)
+    const ref =
+      input.runControlRef === undefined && existing
+        ? existing.runControlRef
+        : object(input.runControlRef)
     if (
       ref.environmentId !== environmentId ||
-      ref.executionId !== request.headers['x-execution-id']
+      ref.executionId !== executionId ||
+      ref.sessionId !== input.sessionId
     )
       throw new Error('SDK dispatch identity mismatch')
-    let run = state.runs.find((candidate) => candidate.executionId === ref.executionId)
-    if (!run) {
-      run = {
+    if (existing) {
+      if (
+        existing.environmentId !== environmentId ||
+        existing.sessionId !== input.sessionId ||
+        digest(publicCreateMaterial(existing.runControlRef)) !== digest(publicCreateMaterial(ref))
+      )
+        throw new Error('SDK replay identity or request digest mismatch')
+      note('stream-replay', {
         environmentId,
-        sessionId: String(input.sessionId),
-        executionId: String(ref.executionId),
-        runControlRef: ref,
-        backend: object(input.backend),
-        status: 'running',
-        terminalReads: 0,
-        ...(typeof input.turnId === 'string' ? { turnId: input.turnId } : {}),
-      }
-      state.runs.push(run)
+        executionId,
+        sessionId: existing.sessionId,
+        requestDigest: existing.runControlRef.requestDigest,
+      })
+      await replay(existing, response)
+      return
     }
+    // The SDK may omit backend overrides to use the environment's creation defaults.
+    const stored = state.boxes.find((box) => box.id === environmentId)
+    if (!stored) throw new Error('SDK dispatch target was not provisioned')
+    const run: NativeRun = {
+      environmentId,
+      sessionId: String(input.sessionId),
+      executionId: String(ref.executionId),
+      runControlRef: ref,
+      backend: input.backend === undefined ? stored.backend : object(input.backend),
+      status: 'running',
+      terminalReads: 0,
+      ...(typeof input.turnId === 'string' ? { turnId: input.turnId } : {}),
+    }
+    state.runs.push(run)
     note('dispatch', {
       environmentId,
       executionId: run.executionId,
@@ -421,21 +476,8 @@ async function runtime(
       json(response, 404, { error: { message: 'no execution' } })
       return
     }
-    if (run.status === 'running' && nativeActions.has(run.executionId))
-      await nativeActions.get(run.executionId)
-    if (run.status === 'running') {
-      json(response, 408, {
-        error: {
-          code: 'FIXTURE_OBSERVATION_UNKNOWN',
-          message: 'exact execution remains unresolved',
-        },
-      })
-      return
-    }
-    run.terminalReads += 1
-    sse(response, terminal(run))
-    // A completed old invocation loses its environment before the next invocation starts.
-    if (scenario === 'older-lost' && run.environmentId === 'box-1') state.lost.push('box-1')
+    if (run.environmentId !== environmentId) throw new Error('SDK event target mismatch')
+    await replay(run, response)
     return
   }
   throw new Error(`unexpected SDK runtime route ${request.method} ${path}`)
@@ -447,7 +489,9 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     return
   }
   if (url.pathname === '/fixture/hold-success') {
-    note('successful-attempt-observer-barrier', { phase: 'native-result-committed' })
+    note('successful-attempt-observer-barrier', {
+      phase: url.searchParams.get('phase') ?? 'native-result-committed',
+    })
     holds.add(response)
     response.once('close', () => holds.delete(response))
     return
