@@ -27,14 +27,24 @@ export interface PrivateCasNamespaceRetirement {
 }
 
 export interface PrivateCasNamespaceOperations {
-  inspectNamespace(input: { namespace: string; signal?: AbortSignal }): Promise<PrivateCasNamespaceInventory>
+  inspectNamespace(input: {
+    namespace: string
+    signal?: AbortSignal
+  }): Promise<PrivateCasNamespaceInventory>
   /** Refuses changed/unreviewed objects. Retry the same inventory after a partial failure. */
-  retireNamespace(input: { inventory: PrivateCasNamespaceInventory; signal?: AbortSignal }): Promise<PrivateCasNamespaceRetirement>
+  retireNamespace(input: {
+    inventory: PrivateCasNamespaceInventory
+    signal?: AbortSignal
+  }): Promise<PrivateCasNamespaceRetirement>
 }
 
 const NAMESPACE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u
 const MAX_PAGE_BYTES = 2 * 1024 * 1024
-const fingerprint = (namespace: string, location: string, objects: readonly PrivateCasNamespaceObject[]) =>
+const fingerprint = (
+  namespace: string,
+  location: string,
+  objects: readonly PrivateCasNamespaceObject[],
+) =>
   `sha256:${createHash('sha256').update(JSON.stringify({ namespace, location, objects })).digest('hex')}`
 
 function xmlText(text: string): string {
@@ -44,7 +54,12 @@ function xmlText(text: string): string {
     const numeric = /^#(?:x([0-9a-f]+)|([0-9]+))$/iu.exec(entity)
     if (!numeric) throw new Error('S3 private CAS list contains an unknown XML entity')
     const code = Number.parseInt(numeric[1] ?? numeric[2]!, numeric[1] ? 16 : 10)
-    if (!Number.isSafeInteger(code) || code <= 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff))
+    if (
+      !Number.isSafeInteger(code) ||
+      code <= 0 ||
+      code > 0x10ffff ||
+      (code >= 0xd800 && code <= 0xdfff)
+    )
       throw new Error('S3 private CAS list contains an invalid XML character')
     return String.fromCodePoint(code)
   })
@@ -76,11 +91,18 @@ async function listPage(response: Response) {
     await reader.cancel().catch(() => undefined)
   }
   const text = Buffer.concat(chunks).toString('utf8')
-  if (/<!/u.test(text) || !/^\s*(?:<\?xml[^>]*>\s*)?<ListBucketResult(?:\s[^>]*)?>[\s\S]*<\/ListBucketResult>\s*$/u.test(text))
+  if (
+    /<!/u.test(text) ||
+    !/^\s*(?:<\?xml[^>]*>\s*)?<ListBucketResult(?:\s[^>]*)?>[\s\S]*<\/ListBucketResult>\s*$/u.test(
+      text,
+    )
+  )
     throw new Error('S3 private CAS list returned an invalid document')
-  if (field(text, 'EncodingType') !== 'url') throw new Error('S3 private CAS list did not encode keys')
+  if (field(text, 'EncodingType') !== 'url')
+    throw new Error('S3 private CAS list did not encode keys')
   const truncated = field(text, 'IsTruncated')
-  if (truncated !== 'true' && truncated !== 'false') throw new Error('S3 private CAS list has no completion flag')
+  if (truncated !== 'true' && truncated !== 'false')
+    throw new Error('S3 private CAS list has no completion flag')
   const objects = [...text.matchAll(/<Contents>([\s\S]*?)<\/Contents>/gu)].map(([, row]) => {
     const byteLength = Number(field(row!, 'Size'))
     const key = decodeURIComponent(field(row!, 'Key')!)
@@ -98,18 +120,38 @@ async function listPage(response: Response) {
 }
 
 /** Generic storage operation only; ownership, holds, references and writer fencing belong to its consumer. */
-export function privateCasNamespaceOperations({ request, refusal, prefix, location }: ReturnType<typeof createPrivateCasS3Transport> & { prefix: string; location: string }): PrivateCasNamespaceOperations {
+export function privateCasNamespaceOperations({
+  request,
+  refusal,
+  prefix,
+  location,
+}: ReturnType<typeof createPrivateCasS3Transport> & {
+  prefix: string
+  location: string
+}): PrivateCasNamespaceOperations {
   const namespacePrefix = (namespace: string) => {
     if (!NAMESPACE.test(namespace)) throw new Error('S3 private CAS namespace is invalid')
     return `${prefix}${namespace}/`
   }
   const validObject = (object: PrivateCasNamespaceObject, scope: string) => {
-    if (!object.key.startsWith(scope) || object.key.length === scope.length || object.key.split('/').some(part => !part || part === '.' || part === '..'))
+    if (
+      !object.key.startsWith(scope) ||
+      object.key.length === scope.length ||
+      object.key.split('/').some((part) => !part || part === '.' || part === '..')
+    )
       throw new Error('S3 private CAS inventory contains a key outside its namespace')
-    if (!Number.isSafeInteger(object.byteLength) || object.byteLength < 0 || !object.etag || /[\r\n]/u.test(object.etag))
+    if (
+      !Number.isSafeInteger(object.byteLength) ||
+      object.byteLength < 0 ||
+      !object.etag ||
+      /[\r\n]/u.test(object.etag)
+    )
       throw new Error('S3 private CAS inventory contains invalid object metadata')
   }
-  const inspectNamespace: PrivateCasNamespaceOperations['inspectNamespace'] = async ({ namespace, signal }) => {
+  const inspectNamespace: PrivateCasNamespaceOperations['inspectNamespace'] = async ({
+    namespace,
+    signal,
+  }) => {
     const scope = namespacePrefix(namespace)
     const objects: PrivateCasNamespaceObject[] = []
     const tokens = new Set<string>()
@@ -117,7 +159,16 @@ export function privateCasNamespaceOperations({ request, refusal, prefix, locati
     let next: string | undefined
     do {
       signal?.throwIfAborted()
-      const response = await request('GET', '', { query: { 'list-type': '2', 'encoding-type': 'url', 'max-keys': '1000', prefix: scope, ...(next ? { 'continuation-token': next } : {}) }, ...(signal ? { signal } : {}) })
+      const response = await request('GET', '', {
+        query: {
+          'list-type': '2',
+          'encoding-type': 'url',
+          'max-keys': '1000',
+          prefix: scope,
+          ...(next ? { 'continuation-token': next } : {}),
+        },
+        ...(signal ? { signal } : {}),
+      })
       if (!response.ok) throw await refusal(response, 'namespace list')
       const page = await listPage(response)
       for (const object of page.objects) {
@@ -127,10 +178,11 @@ export function privateCasNamespaceOperations({ request, refusal, prefix, locati
         objects.push(object)
       }
       next = page.next
-      if (next && tokens.has(next)) throw new Error('S3 private CAS list repeated its continuation token')
+      if (next && tokens.has(next))
+        throw new Error('S3 private CAS list repeated its continuation token')
       if (next) tokens.add(next)
     } while (next)
-    objects.sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+    objects.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
     return { namespace, location, objects, sha256: fingerprint(namespace, location, objects) }
   }
   return {
@@ -138,12 +190,16 @@ export function privateCasNamespaceOperations({ request, refusal, prefix, locati
     async retireNamespace({ inventory, signal }) {
       const { namespace, objects } = inventory
       const scope = namespacePrefix(namespace)
-      if (inventory.location !== location || inventory.sha256 !== fingerprint(namespace, location, objects))
+      if (
+        inventory.location !== location ||
+        inventory.sha256 !== fingerprint(namespace, location, objects)
+      )
         throw new Error('S3 private CAS retirement inventory does not match this store')
       const reviewed = new Map<string, PrivateCasNamespaceObject>()
       for (const object of objects) {
         validObject(object, scope)
-        if (reviewed.has(object.key)) throw new Error('S3 private CAS retirement inventory repeats an object')
+        if (reviewed.has(object.key))
+          throw new Error('S3 private CAS retirement inventory repeats an object')
         reviewed.set(object.key, object)
       }
       const current = await inspectNamespace({ namespace, ...(signal ? { signal } : {}) })
@@ -157,10 +213,17 @@ export function privateCasNamespaceOperations({ request, refusal, prefix, locati
       for (const object of current.objects) {
         signal?.throwIfAborted()
         const check = await request('HEAD', object.key, { ...(signal ? { signal } : {}) })
-        if (check.status === 404) { await check.body?.cancel(); continue }
+        if (check.status === 404) {
+          await check.body?.cancel()
+          continue
+        }
         if (!check.ok) throw await refusal(check, 'retirement HEAD')
         await check.body?.cancel()
-        if (check.headers.get('etag') !== object.etag || check.headers.get('content-length') === null || Number(check.headers.get('content-length')) !== object.byteLength)
+        if (
+          check.headers.get('etag') !== object.etag ||
+          check.headers.get('content-length') === null ||
+          Number(check.headers.get('content-length')) !== object.byteLength
+        )
           throw new Error('S3 private CAS object changed before retirement')
         // The consumer has fenced writers; the fresh inventory/HEAD protects stale review and retries.
         const response = await request('DELETE', object.key, { ...(signal ? { signal } : {}) })
@@ -168,13 +231,23 @@ export function privateCasNamespaceOperations({ request, refusal, prefix, locati
         await response.body?.cancel()
         const absent = await request('HEAD', object.key, { ...(signal ? { signal } : {}) })
         await absent.body?.cancel()
-        if (absent.status !== 404) throw new Error('S3 private CAS object is not confirmed absent after retirement')
+        if (absent.status !== 404)
+          throw new Error('S3 private CAS object is not confirmed absent after retirement')
         deletedObjects++
         deletedBytes += object.byteLength
-        if (!Number.isSafeInteger(deletedBytes)) throw new Error('S3 private CAS retired payload bytes exceed the safe integer range')
+        if (!Number.isSafeInteger(deletedBytes))
+          throw new Error('S3 private CAS retired payload bytes exceed the safe integer range')
       }
       const remaining = await inspectNamespace({ namespace, ...(signal ? { signal } : {}) })
-      return { namespace, location, deletedObjects, deletedBytes, remainingObjects: remaining.objects.length, remainingBytes: remaining.objects.reduce((sum, object) => sum + object.byteLength, 0), complete: remaining.objects.length === 0 }
+      return {
+        namespace,
+        location,
+        deletedObjects,
+        deletedBytes,
+        remainingObjects: remaining.objects.length,
+        remainingBytes: remaining.objects.reduce((sum, object) => sum + object.byteLength, 0),
+        complete: remaining.objects.length === 0,
+      }
     },
   }
 }

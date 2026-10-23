@@ -3,8 +3,15 @@ import { Readable } from 'node:stream'
 import type { Sha256Digest } from '@tangle-network/agent-interface'
 import type { PrivateCasDurableStore } from './private-cas'
 import { createPrivateCasS3Transport } from './s3-private-cas-request'
-import { privateCasNamespaceOperations, type PrivateCasNamespaceOperations } from './s3-private-cas-namespace'
-export type { PrivateCasNamespaceInventory, PrivateCasNamespaceRetirement, PrivateCasNamespaceObject } from './s3-private-cas-namespace'
+import {
+  privateCasNamespaceOperations,
+  type PrivateCasNamespaceOperations,
+} from './s3-private-cas-namespace'
+export type {
+  PrivateCasNamespaceInventory,
+  PrivateCasNamespaceRetirement,
+  PrivateCasNamespaceObject,
+} from './s3-private-cas-namespace'
 
 const DIGEST = /^sha256:([0-9a-f]{64})$/u
 const BUCKET = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/u
@@ -93,7 +100,12 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): S3Pr
   }
 
   const { request, refusal } = createPrivateCasS3Transport(options, endpoint)
-  const namespaceOperations = privateCasNamespaceOperations({ request, refusal, prefix, location: `s3://${options.bucket}/${prefix}` })
+  const namespaceOperations = privateCasNamespaceOperations({
+    request,
+    refusal,
+    prefix,
+    location: `s3://${options.bucket}/${prefix}`,
+  })
 
   /** Whether the bucket holds this exact object; refuses a same-key object of other bytes. */
   const holds = async (

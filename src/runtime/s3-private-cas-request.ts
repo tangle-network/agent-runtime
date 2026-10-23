@@ -3,8 +3,13 @@ import type { S3PrivateCasStoreOptions } from './s3-private-cas-store'
 
 const EMPTY_PAYLOAD = createHash('sha256').update('').digest('hex')
 const hex = (value: string | Uint8Array): string => createHash('sha256').update(value).digest('hex')
-const hmac = (key: string | Buffer, value: string): Buffer => createHmac('sha256', key).update(value).digest()
-const encode = (segment: string): string => encodeURIComponent(segment).replace(/[!'()*]/gu, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)
+const hmac = (key: string | Buffer, value: string): Buffer =>
+  createHmac('sha256', key).update(value).digest()
+const encode = (segment: string): string =>
+  encodeURIComponent(segment).replace(
+    /[!'()*]/gu,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  )
 
 /** The single signed transport for private CAS object, pointer and namespace operations. */
 export function createPrivateCasS3Transport(options: S3PrivateCasStoreOptions, endpoint: URL) {
@@ -32,7 +37,11 @@ export function createPrivateCasS3Transport(options: S3PrivateCasStoreOptions, e
   ): Promise<Response> => {
     const path = `/${[options.bucket, ...objectKey.split('/')].map(encode).join('/')}`
     const url = new URL(path, endpoint)
-    const canonicalQuery = Object.entries(query).map(([name, value]) => [encode(name), encode(value)] as const).sort(([a, av], [b, bv]) => a < b ? -1 : a > b ? 1 : av < bv ? -1 : av > bv ? 1 : 0).map(([name, value]) => `${name}=${value}`).join('&')
+    const canonicalQuery = Object.entries(query)
+      .map(([name, value]) => [encode(name), encode(value)] as const)
+      .sort(([a, av], [b, bv]) => (a < b ? -1 : a > b ? 1 : av < bv ? -1 : av > bv ? 1 : 0))
+      .map(([name, value]) => `${name}=${value}`)
+      .join('&')
     url.search = canonicalQuery
     const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/gu, '')
     const day = amzDate.slice(0, 8)
