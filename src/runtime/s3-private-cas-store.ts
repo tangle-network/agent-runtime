@@ -1,7 +1,10 @@
-import { createHash, createHmac } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { Readable } from 'node:stream'
 import type { Sha256Digest } from '@tangle-network/agent-interface'
 import type { PrivateCasDurableStore } from './private-cas'
+import { createPrivateCasS3Transport } from './s3-private-cas-request'
+import { privateCasNamespaceOperations, type PrivateCasNamespaceOperations } from './s3-private-cas-namespace'
+export type { PrivateCasNamespaceInventory, PrivateCasNamespaceRetirement, PrivateCasNamespaceObject } from './s3-private-cas-namespace'
 
 const DIGEST = /^sha256:([0-9a-f]{64})$/u
 const BUCKET = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/u
@@ -11,7 +14,6 @@ const NAMESPACE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u
 const POINTER_NAME =
   /^(?!sha256\/)[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}(?:\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}){0,3}$/u
 const POINTER_MAX_BYTES = 1024 * 1024
-const EMPTY_PAYLOAD = createHash('sha256').update('').digest('hex')
 const CONTENT_TYPE = 'application/octet-stream'
 const METADATA_DIGEST = 'x-amz-meta-sha256'
 
@@ -32,20 +34,12 @@ export interface S3PrivateCasStoreOptions {
 }
 
 const hex = (value: string | Uint8Array): string => createHash('sha256').update(value).digest('hex')
-const hmac = (key: string | Buffer, value: string): Buffer =>
-  createHmac('sha256', key).update(value).digest()
-const encode = (segment: string): string =>
-  encodeURIComponent(segment).replace(
-    /[!'()*]/gu,
-    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-  )
-
 /**
  * The S3 store also holds small named pointers beside its content-addressed objects. A pointer
  * names the latest of a changing set of CAS objects, such as a run's controller manifest, so a
  * reader finds the newest copy with one GET instead of listing and opening every object.
  */
-export interface S3PrivateCasStore extends PrivateCasDurableStore {
+export interface S3PrivateCasStore extends PrivateCasDurableStore, PrivateCasNamespaceOperations {
   /** Replace the pointer at `<prefix><namespace>/<name>`. Resolves after the bucket confirms its length and digest. */
   putPointer(object: {
     namespace: string
@@ -84,9 +78,6 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): S3Pr
   if (!PREFIX.test(prefix)) throw new Error('S3 private CAS prefix must be empty or end in /')
   if (!options.accessKeyId || !options.secretAccessKey)
     throw new Error('S3 private CAS needs an access key id and secret')
-  const region = options.region ?? 'auto'
-  const timeoutMs = options.timeoutMs ?? 120_000
-  const send = options.fetch ?? fetch
 
   const key = (namespace: string, digest: Sha256Digest): string => {
     if (!NAMESPACE.test(namespace)) throw new Error('S3 private CAS namespace is invalid')
@@ -101,91 +92,8 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): S3Pr
     return `${prefix}${namespace}/${name}`
   }
 
-  const request = async (
-    method: 'GET' | 'HEAD' | 'PUT',
-    objectKey: string,
-    {
-      body,
-      byteLength,
-      payloadHash = EMPTY_PAYLOAD,
-      headers = {},
-      signal,
-    }: {
-      body?: Uint8Array | ReadableStream<Uint8Array>
-      byteLength?: number
-      payloadHash?: string
-      headers?: Record<string, string>
-      signal?: AbortSignal
-    } = {},
-  ): Promise<Response> => {
-    const path = `/${[options.bucket, ...objectKey.split('/')].map(encode).join('/')}`
-    const url = new URL(path, endpoint)
-    const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/gu, '')
-    const day = amzDate.slice(0, 8)
-    const signed: Record<string, string> = {
-      host: url.host,
-      'x-amz-content-sha256': payloadHash,
-      'x-amz-date': amzDate,
-      ...Object.fromEntries(
-        Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]),
-      ),
-    }
-    const names = Object.keys(signed).sort()
-    const canonical = [
-      method,
-      path,
-      '',
-      names.map((name) => `${name}:${signed[name]!.trim()}\n`).join(''),
-      names.join(';'),
-      payloadHash,
-    ].join('\n')
-    const scope = `${day}/${region}/s3/aws4_request`
-    const signingKey = hmac(
-      hmac(hmac(hmac(`AWS4${options.secretAccessKey}`, day), region), 's3'),
-      'aws4_request',
-    )
-    const signature = createHmac('sha256', signingKey)
-      .update(['AWS4-HMAC-SHA256', amzDate, scope, hex(canonical)].join('\n'))
-      .digest('hex')
-    const { host: _host, ...sent } = signed
-    const deadline = AbortSignal.timeout(
-      timeoutMs +
-        Math.ceil(
-          (byteLength ?? (body instanceof Uint8Array ? body.byteLength : 0)) / (1024 * 1024),
-        ) *
-          1_000,
-    )
-    return await send(url, {
-      method,
-      headers: {
-        ...sent,
-        authorization: `AWS4-HMAC-SHA256 Credential=${options.accessKeyId}/${scope}, SignedHeaders=${names.join(';')}, Signature=${signature}`,
-      },
-      ...(body === undefined ? {} : { body }),
-      ...(body instanceof ReadableStream ? { duplex: 'half' as const } : {}),
-      signal: signal === undefined ? deadline : AbortSignal.any([signal, deadline]),
-    })
-  }
-
-  const refusal = async (response: Response, action: string): Promise<Error> => {
-    const reader = response.body?.getReader()
-    let detail = ''
-    try {
-      while (reader && detail.length < 300) {
-        const { done, value } = await reader.read()
-        if (done) break
-        detail += new TextDecoder().decode(value.subarray(0, 300))
-      }
-    } catch {
-      /* A refused response may close before its diagnostic body arrives. */
-    } finally {
-      await reader?.cancel().catch(() => undefined)
-    }
-    detail = detail.replace(/\s+/gu, ' ').slice(0, 300)
-    return new Error(
-      `S3 private CAS ${action} returned ${response.status}${detail ? `: ${detail}` : ''}`,
-    )
-  }
+  const { request, refusal } = createPrivateCasS3Transport(options, endpoint)
+  const namespaceOperations = privateCasNamespaceOperations({ request, refusal, prefix, location: `s3://${options.bucket}/${prefix}` })
 
   /** Whether the bucket holds this exact object; refuses a same-key object of other bytes. */
   const holds = async (
@@ -206,6 +114,7 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): S3Pr
 
   return {
     location: `s3://${options.bucket}/${prefix}`,
+    ...namespaceOperations,
     async putStream({ namespace, digest, byteLength, chunks, signal }) {
       const objectKey = key(namespace, digest)
       if (await holds(objectKey, digest, byteLength, signal)) return
