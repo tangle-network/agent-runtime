@@ -30,6 +30,10 @@ it.each([
   const started = new Promise<void>((resolve) => {
     ready = resolve
   })
+  let entered!: () => void
+  const executorEntered = new Promise<void>((resolve) => {
+    entered = resolve
+  })
   let captured!: () => void
   const capturing = new Promise<void>((resolve) => {
     captured = resolve
@@ -58,6 +62,7 @@ it.each([
       const cancel = () => child.kill('SIGTERM')
       signal.addEventListener('abort', cancel, { once: true })
       if (signal.aborted) cancel()
+      entered()
       try {
         await closed
         throw new Error('native child cancelled')
@@ -97,6 +102,9 @@ it.each([
   const stages: { phase: string; at: number }[] = []
   const mark = (phase: string) => stages.push({ phase, at: Date.now() })
   const controller = new AbortController()
+  // Dispatch can fail before execute: abort releases that wait, and the driver checks the
+  // same signal before writing a steer, so cleanup can unwind and join the existing run.
+  controller.signal.addEventListener('abort', entered, { once: true })
   let failBoundary!: (error: unknown) => void
   const boundaryFailure = new Promise<never>((_resolve, reject) => {
     failBoundary = reject
@@ -201,6 +209,8 @@ it.each([
         }
         workerId = JSON.parse(body.result.content[0].text).workerId
         await started
+        await executorEntered
+        controller.signal.throwIfAborted()
         writeWorkerSteer(directory, runId, workerId, {
           eventDir: directory,
           operationId: 'blocked-capture',

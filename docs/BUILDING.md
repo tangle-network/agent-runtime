@@ -50,6 +50,11 @@ alias for packed-consumer compatibility checks without breaking local tooling.
 One-shot fixture scripts use `node --import tsx` on the supported Node 22 runtime.
 They need TypeScript loading, not the tsx CLI supervisor or its IPC socket; arguments
 such as `--check` still reach the same maintained generator.
+Durable worker integration fixtures wait for actual executor entry after spawn
+commit before steering or checking attach reasons. A returned spawn handle is
+admission, and a child prestarted by a fixture does not prove Runtime execution.
+Held executions are released and joined during cleanup, including failed assertions.
+
 The parking process integration fixture compiles once with the existing
 `tsdown` builder into an isolated temporary directory. Their child deadlines then measure
 execution and exit rather than repeated source compilation; failures retain stage timing
