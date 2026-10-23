@@ -88,9 +88,9 @@ export function observeWorkerControls(options: {
   }
   return {
     async pass() {
-      await inFlight
+      // Admission happens synchronously in poll. Delivery can await an event subscriber that
+      // only manager teardown can abort, so a turn boundary must not join that delivery.
       poll()
-      await inFlight
       if (failure) throw failure.error
     },
     close: () => (closing ??= finish()),

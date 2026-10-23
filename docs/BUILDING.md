@@ -50,6 +50,10 @@ alias for packed-consumer compatibility checks without breaking local tooling.
 One-shot fixture scripts use `node --import tsx` on the supported Node 22 runtime.
 They need TypeScript loading, not the tsx CLI supervisor or its IPC socket; arguments
 such as `--check` still reach the same maintained generator.
+The parking process integration fixture compiles once with the existing
+`tsdown` builder into an isolated temporary directory. Their child deadlines then measure
+execution and exit rather than repeated source compilation; failures retain stage timing
+and process output in the fixture directory.
 
 ## Loop API Discipline
 

@@ -4,10 +4,35 @@ import { mkdtemp, readFile, rm, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { afterEach, describe, expect, it } from 'vitest'
+import { build } from 'tsdown'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 const exec = promisify(execFile)
 const dirs: string[] = []
+let fixtureDirectory: string
+let fixture: string
+beforeAll(async () => {
+  // Compile once; each child deadline measures Runtime execution rather than reloading the
+  // entire TypeScript source tree in every park, early-open and resume process.
+  fixtureDirectory = await mkdtemp(join(resolve('node_modules'), '.runtime-parking-'))
+  await build({
+    config: false,
+    entry: { coordinator: resolve('tests/integration/fixtures/parking-coordinator.ts') },
+    outDir: fixtureDirectory,
+    format: ['esm'],
+    platform: 'node',
+    target: 'es2022',
+    fixedExtension: true,
+    dts: false,
+    sourcemap: false,
+    deps: { neverBundle: true },
+    logLevel: 'error',
+  })
+  fixture = join(fixtureDirectory, 'coordinator.mjs')
+})
+afterAll(async () => {
+  if (fixtureDirectory) await rm(fixtureDirectory, { recursive: true, force: true })
+})
 afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
@@ -17,20 +42,25 @@ async function directory() {
   return dir
 }
 async function coordinator(dir: string, mode: string, phase = 'park') {
-  const { stdout, stderr } = await exec(
-    process.execPath,
-    [
-      '--import',
-      'tsx',
-      resolve('tests/integration/fixtures/parking-coordinator.ts'),
-      dir,
-      mode,
-      phase,
-    ],
-    { timeout: 15_000, maxBuffer: 2_000_000 },
-  )
-  expect(stderr).not.toContain('TimeoutOverflowWarning')
-  return JSON.parse(stdout.trim().split('\n').at(-1)!)
+  try {
+    const { stdout, stderr } = await exec(process.execPath, [fixture, dir, mode, phase], {
+      timeout: 15_000,
+      maxBuffer: 2_000_000,
+    })
+    expect(stderr).not.toContain('TimeoutOverflowWarning')
+    return JSON.parse(stdout.trim().split('\n').at(-1)!)
+  } catch (cause) {
+    const index = dirs.indexOf(dir)
+    if (index !== -1) dirs.splice(index, 1)
+    const timing = await readFile(join(dir, 'process-timing.jsonl'), 'utf8').catch(
+      () => 'fixture did not reach module entry',
+    )
+    const error = cause as Error & { stdout?: string; stderr?: string; signal?: string }
+    throw new Error(
+      `parking ${mode}/${phase} failed; retained ${dir}; signal=${error.signal}\n${timing}\nstdout: ${error.stdout ?? ''}\nstderr: ${error.stderr ?? ''}`,
+      { cause },
+    )
+  }
 }
 async function events(dir: string) {
   return (await readFile(join(dir, 'spawn-journal.jsonl'), 'utf8'))
