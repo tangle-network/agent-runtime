@@ -105,6 +105,7 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): S3Pr
     refusal,
     prefix,
     location: `s3://${options.bucket}/${prefix}`,
+    storeIdentity: `sha256:${hex(JSON.stringify({ endpoint: endpoint.origin, bucket: options.bucket, prefix }))}`,
   })
 
   /** Whether the bucket holds this exact object; refuses a same-key object of other bytes. */
