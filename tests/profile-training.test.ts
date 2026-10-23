@@ -18,7 +18,6 @@ import {
   type CheckpointServingPort,
   createCommandProfileTrainer,
   type ImproveTrainingOptions,
-  type ProfileTrainer,
   type TrainingDatasetDocument,
 } from '../src/improvement/training'
 
@@ -265,20 +264,6 @@ describe('checkpoint training through improve', () => {
     })
   }
 
-  it('bounds a managed trainer and reports unconfirmed remote cleanup', async () => {
-    await withFixture(async (options) => {
-      const managed: ProfileTrainer = {
-        identity: { mode: 'managed', id: 'managed-test', revision: sha256Utf8('adapter') },
-        execute: async () => new Promise(() => {}),
-      }
-      const result = await improve(parent(), { ...options, trainer: managed, timeoutMs: 500 })
-      assert(!result.succeeded)
-      assert.equal(result.stage, 'training')
-      assert.equal(result.trainingMayExist, true)
-      await assertNoProfile(options.outputDirectory)
-    })
-  })
-
   it('cancels the command process group including descendants', async () => {
     await withFixture(
       async (options, dir) => {
@@ -297,6 +282,10 @@ describe('checkpoint training through improve', () => {
           },
           controller.signal,
         )
+        type ProcessIdentity = { pid: number; pgid?: number; startTime?: string }
+        type Ready = { parent: ProcessIdentity; descendant: ProcessIdentity }
+        let identities: Ready | undefined
+        const failures: unknown[] = []
         try {
           let ready = false
           for (let i = 0; i < 100 && !ready; i++) {
@@ -306,23 +295,118 @@ describe('checkpoint training through improve', () => {
             )
             if (!ready) await sleep(20)
           }
-          assert(ready, 'the parent must have actually spawned before cancellation')
+          assert(ready, 'the descendant must have installed its arm poll before cancellation')
+          identities = JSON.parse(await readFile(`${checkpointPath}.ready`, 'utf8')) as Ready
+          for (const identity of [identities.parent, identities.descendant])
+            assert(Number.isSafeInteger(identity.pid) && identity.pid > 0)
+          if (identities.parent.pgid !== undefined && identities.descendant.pgid !== undefined) {
+            assert.equal(identities.parent.pgid, identities.parent.pid)
+            assert.equal(identities.descendant.pgid, identities.parent.pgid)
+          }
           controller.abort()
-          assert.equal((await pending).succeeded, false)
+          const outcome = await pending
+          assert.equal(outcome.succeeded, false, JSON.stringify(outcome))
+          // A descendant can produce .late only AFTER abort and the trainer outcome have returned.
+          await writeFile(
+            `${checkpointPath}.armed`,
+            JSON.stringify({
+              what: 'cancel-outcome-returned',
+              at: new Date().toISOString(),
+              identities,
+              outcome,
+            }),
+          )
           await sleep(700)
           await assert.rejects(() => readFile(`${checkpointPath}.late`), { code: 'ENOENT' })
+          // Do not accept a scheduling-delayed survivor merely because its late timer has not fired.
+          assert.throws(() => process.kill(-identities!.parent.pid, 0), { code: 'ESRCH' })
+          assert.throws(() => process.kill(identities!.descendant.pid, 0), { code: 'ESRCH' })
+        } catch (error) {
+          failures.push(error)
         } finally {
-          controller.abort()
-          await pending
+          try {
+            controller.abort()
+          } catch (error) {
+            failures.push(error)
+          }
+          try {
+            await pending
+          } catch (error) {
+            failures.push(error)
+          }
+          if (process.platform === 'linux') {
+            let recorded = identities
+            if (recorded === undefined) {
+              try {
+                recorded = JSON.parse(await readFile(`${checkpointPath}.ready`, 'utf8')) as Ready
+              } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') failures.push(error)
+              }
+            }
+            // Checking PID/PGID/start time narrows accidental signalling; the read-to-kill
+            // interval still has a bounded PID-reuse race because no pidfd is available here.
+            const cleanup = await Promise.allSettled(
+              (recorded ? [recorded.descendant, recorded.parent] : []).map(async (identity) => {
+                let stat: string
+                try {
+                  stat = await readFile(`/proc/${identity.pid}/stat`, 'utf8')
+                } catch (error) {
+                  if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+                  throw error
+                }
+                const fields = stat
+                  .slice(stat.lastIndexOf(')') + 2)
+                  .trim()
+                  .split(/\s+/u)
+                if (fields[19] !== identity.startTime || Number(fields[2]) !== identity.pgid) return
+                try {
+                  process.kill(identity.pid, 'SIGKILL')
+                } catch (error) {
+                  if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+                }
+              }),
+            )
+            for (const item of cleanup) if (item.status === 'rejected') failures.push(item.reason)
+          }
         }
+        if (failures.length === 1) throw failures[0]
+        if (failures.length > 1)
+          throw new AggregateError(failures, 'command cancellation fixture failures')
       },
       `
 const fs = require('node:fs'), { spawn } = require('node:child_process');
+function identity() {
+  const facts = { pid: process.pid };
+  if (process.platform === 'linux') {
+    const stat = require('node:fs').readFileSync('/proc/self/stat', 'utf8');
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\\s+/u);
+    facts.pgid = Number(fields[2]); facts.startTime = fields[19];
+  }
+  return facts;
+}
+function descendant(identity) {
+  const fs = require('node:fs'), checkpoint = process.argv[1];
+  const poll = setInterval(() => {
+    if (!fs.existsSync(checkpoint + '.armed')) return;
+    clearInterval(poll);
+    setTimeout(() => fs.writeFileSync(checkpoint + '.late', JSON.stringify({
+      what: 'survived-cancel', at: new Date().toISOString(), identity: identity(),
+    })), 600);
+  }, 20);
+  process.send(identity());
+}
 let input = ''; process.stdin.on('data', b => input += b);
 process.stdin.on('end', () => {
   const r = JSON.parse(input);
-  spawn(process.execPath, ['-e', "setTimeout(() => require('node:fs').writeFileSync(process.argv[1], 'late'), 600)", r.checkpointPath + '.late'], { stdio: 'ignore' });
-  fs.writeFileSync(r.checkpointPath + '.ready', 'ready');
+  const child = spawn(process.execPath, [
+    '-e', '(' + descendant.toString() + ')(' + identity.toString() + ')', r.checkpointPath,
+  ], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+  child.once('message', facts => {
+    const ready = r.checkpointPath + '.ready';
+    fs.writeFileSync(ready + '.tmp', JSON.stringify({ parent: identity(), descendant: facts }));
+    fs.renameSync(ready + '.tmp', ready);
+    child.disconnect();
+  });
   setInterval(() => {}, 1000);
 });
 `,

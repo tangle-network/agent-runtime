@@ -1,3 +1,11 @@
+## 0.348.0
+
+Local kimi-code harness runs now materialize a profile's MCP servers: agent-profile-materialize >= 0.27.2 lowers kimi MCP to the `<cwd>/.kimi-code/mcp.json` auto-load surface, so admission accepts MCP-carrying profiles for kimi-code instead of refusing them. The materializer dependency floor rises to 0.27.2 to guarantee the fixed lowering.
+
+Admit root steers at native turn boundaries while a worker delivery waits for durable capture, preserving one delivery per operation and normal cancellation cleanup.
+
+Remove unnecessary registry discovery from pure package assertions, preserve storage fixture failures alongside teardown errors, and validate exact-archive admission through the isolated release qualification workflow.
+
 ## 0.347.1
 
 Fix biome lint errors on main (import organization in the private CAS store and its test, unsafe-finally suppression with rationale) that blocked the tagged publish verifier.

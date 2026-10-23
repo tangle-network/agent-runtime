@@ -1,23 +1,8 @@
-import {
-  evalCompatibilityVersions,
-  evalPeerRange,
-  peerCompatibility,
-  sandboxCompatibilityVersions,
-  sandboxPeerRange,
-} from './dependency-contract.mjs'
-
+// Registry discovery belongs to the cohort callers, never to these manifest assertions.
 import { realpathSync } from 'node:fs'
 import { join } from 'node:path'
 
 const unsupportedDependencyProtocol = /^(?:catalog|file|link|patch|portal|workspace):/
-
-export {
-  evalCompatibilityVersions,
-  evalPeerRange,
-  peerCompatibility,
-  sandboxCompatibilityVersions,
-  sandboxPeerRange,
-}
 
 export function assertPublishableDependencySpecs(packageJson) {
   const packageName =

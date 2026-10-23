@@ -50,6 +50,11 @@ alias for packed-consumer compatibility checks without breaking local tooling.
 One-shot fixture scripts use `node --import tsx` on the supported Node 22 runtime.
 They need TypeScript loading, not the tsx CLI supervisor or its IPC socket; arguments
 such as `--check` still reach the same maintained generator.
+Durable worker integration fixtures wait for actual executor entry after spawn
+commit before steering or checking attach reasons. A returned spawn handle is
+admission, and a child prestarted by a fixture does not prove Runtime execution.
+Held executions are released and joined during cleanup, including failed assertions.
+
 The parking process integration fixture compiles once with the existing
 `tsdown` builder into an isolated temporary directory. Their child deadlines then measure
 execution and exit rather than repeated source compilation; failures retain stage timing
@@ -77,6 +82,14 @@ For the packed cohort, pass `--sandbox-archive` to test the publisher archive be
 An archive for a prerelease of the newest matrix Sandbox adds a strict-install row alongside the stable Sandbox matrix.
 Pass `--sandbox-repo` to pack a clean ADC checkout after its workspace dependency build.
 The cohort gate strict-installs the selected archive and runs its proposal across the declared Sandbox matrix.
+
+Packed-package manifest assertions perform no registry discovery. Cohort and package-export qualification import the live compatibility selections directly from [their owner](../scripts/lib/dependency-contract.mjs); conformance uses that same owner. Eval peer-window policy remains in those live compatibility checks. Official optimizer qualification checks authored peer ranges against actual workspace, packed and installed consumer versions.
+
+The publish workflow checker follows the isolated qualification workflow and its
+forwarded outputs, preserving default successful-dependency gating and unpublished-archive
+admission for both packages. Each verifier exposes that condition only through its
+required exact-archive npm admission step. Its optional publisher and qualifier paths
+accept paired YAML snapshots for content checks; defaults read the repository workflows.
 
 `verify:package` also installs the declared CLI Bridge, Tangle, Daytona and E2B development
 versions beside the packed Runtime with strict peers. Its provider consumer compiles their

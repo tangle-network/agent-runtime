@@ -24,12 +24,14 @@ import {
   assertPublishableDependencySpecs,
   assertSingleRegistryInstall,
   createStrictNodeConsumerTsconfig,
-  evalCompatibilityVersions,
-  peerCompatibility,
   rangeAdmits,
   requiredPackedDevelopmentDependency,
-  sandboxCompatibilityVersions,
 } from './lib/packed-package-test.mjs'
+import {
+  evalCompatibilityVersions,
+  peerCompatibility,
+  sandboxCompatibilityVersions,
+} from './lib/dependency-contract.mjs'
 import { assertReleaseCohortArtifacts, readReleaseCohort } from './release-cohort.mjs'
 
 const PACKAGES = {
