@@ -9,8 +9,8 @@ const root = resolve(import.meta.dirname, '..')
 const sourceRoots = ['src', 'bench', 'examples', 'scripts']
 
 // These files use caller-supplied URLs for non-inference HTTP (OAuth, telemetry, MCP, search, or
-// public benchmark data). Everywhere else a global fetch target must be statically readable so a
-// computed provider endpoint cannot hide from this check.
+// package registry metadata, or public benchmark data). Everywhere else a global fetch target must
+// be statically readable so a computed provider endpoint cannot hide from this check.
 const dynamicNonModelFetchOwners = new Set([
   'src/model-resolution.ts',
   'src/otel-export.ts',
@@ -20,6 +20,7 @@ const dynamicNonModelFetchOwners = new Set([
   'src/runtime/mcp-environment.ts',
   'src/runtime/supervise/coordination-preflight.ts',
   'scripts/prove-platform-oidc.mjs',
+  'scripts/check-npm-publication.mjs',
   'bench/src/search-tool.ts',
   'bench/src/benchmarks/aec-bench.ts',
   'bench/src/benchmarks/commit0.ts',
