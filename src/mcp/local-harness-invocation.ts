@@ -226,13 +226,12 @@ export const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = 
     // NO reasoning field: kimi-code 2.x exposes no effort flag. `--thinking`/`--no-thinking`
     // are legacy kimi-cli spellings — 2.2.0 exits 1 with `unknown option` on both — so a
     // requested effort is refused rather than silently dropped.
-    // NO profileMcp: agent-profile-materialize (0.25.x, the declared range) lowers kimi MCP to
-    // `.kimi/mcp.json` + a `--mcp-config-file` plan flag, but no published kimi-code accepts
-    // that flag (2.2.0 and 2.3.0 exit 1: `unknown option '--mcp-config-file'`) — kimi-code 2.x
-    // auto-loads `<cwd>/.kimi-code/mcp.json` (2.3.0 dist/main.mjs:
-    // `project: join(input.cwd, ".kimi-code", "mcp.json")`). Forwarding the plan would make
-    // every MCP run exit 1 at startup, so a profile carrying MCP servers is refused at
-    // admission until the materializer's kimi lowering targets the real surface.
+    // profileMcp: agent-profile-materialize >= 0.27.2 (the declared range floor) lowers kimi
+    // MCP to `<cwd>/.kimi-code/mcp.json` — the surface kimi-code 2.x auto-loads (2.3.0
+    // dist/main.mjs: `project: join(input.cwd, ".kimi-code", "mcp.json")`), live-probed on
+    // 2.2.0. Materializers < 0.27.2 targeted `.kimi/mcp.json` + a `--mcp-config-file` plan
+    // flag no published kimi-code accepts, so the range floor keeps the claim honest.
+    profileMcp: true,
   },
 }
 

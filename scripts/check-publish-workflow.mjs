@@ -11,30 +11,48 @@ const workflowPath = process.argv[2]
 const workflow = readWorkflow(workflowPath, 'publish')
 const jobs = workflow.jobs
 if (!jobs || typeof jobs !== 'object') throw new Error('publish workflow has no jobs')
+const qualificationPath = process.argv[3]
+  ? resolve(process.argv[3])
+  : resolve(repoRoot, '.github/workflows/qualify-release.yml')
+const qualification = readWorkflow(qualificationPath, 'qualification')
+const qualifierJobs = qualification.jobs
+if (!qualifierJobs || typeof qualifierJobs !== 'object') throw new Error('qualification workflow has no jobs')
+const qualifier = requireJob('qualify')
+if (!/^tangle-network\/agent-runtime\/\.github\/workflows\/qualify-release\.yml@[a-f0-9]{40}$/.test(qualifier.uses)) {
+  throw new Error('qualification workflow must use an immutable reviewed body')
+}
+assertEqual(qualifier.permissions?.contents, 'read', 'qualification caller permission')
+assertEqual(qualifier.with?.release_tag, '${{ inputs.release_tag }}', 'qualification release tag')
+for (const [name, job] of Object.entries(qualifierJobs)) {
+  assertEqual(job['runs-on']?.group, 'public-app-production', `${name} trusted runner group`)
+  for (const label of ['self-hosted', 'ci-deploy']) {
+    if (!job['runs-on']?.labels?.includes(label)) throw new Error(`${name} is missing trusted runner label ${label}`)
+  }
+}
+for (const [prefix, jobName] of [['runtime', 'verify'], ['bench', 'verify-agent-bench']]) {
+  for (const output of ['release-version', 'package-sha256', 'publication-pending']) {
+    assertEqual(qualification.on?.workflow_call?.outputs?.[`${prefix}-${output}`]?.value,
+      `\${{ jobs.${jobName}.outputs.${output} }}`, `${prefix} ${output} output forwarding`)
+  }
+}
 const releaseCohort = readReleaseCohort()
 
-const runtimeReleaseEvent =
-  "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'"
 const publishJobs = {
-  'publish-npm': { verifier: 'verify', event: `(${runtimeReleaseEvent})` },
-  'publish-agent-bench': {
-    verifier: 'verify-agent-bench',
-    event: "startsWith(github.ref, 'refs/tags/agent-bench-v')",
-  },
+  'publish-npm': 'verify',
+  'publish-agent-bench': 'verify-agent-bench',
 }
 
-for (const [jobName, { verifier: requiredJob, event }] of Object.entries(publishJobs)) {
+for (const [jobName, requiredJob] of Object.entries(publishJobs)) {
   const job = requireJob(jobName)
   assertEqual(job.permissions?.contents, 'read', `${jobName} contents permission`)
   assertEqual(job.permissions?.['id-token'], 'write', `${jobName} id-token permission`)
-  assertNeeds(job, requiredJob)
-  assertEqual(
-    job.if,
-    `${event} && needs.${requiredJob}.outputs.publication-pending == 'true'`,
-    `${jobName} must retain default success gating and unpublished archive admission`,
-  )
+  assertEqual(job.needs, 'qualify', `${jobName} qualification dependency`)
+  const prefix = requiredJob === 'verify' ? 'runtime' : 'bench'
+  for (const [variable, output] of [['EXPECTED_VERSION', 'release-version'], ['EXPECTED_SHA256', 'package-sha256']]) {
+    assertEqual(job.env?.[variable], `\${{ needs.qualify.outputs.${prefix}-${output} }}`, `${jobName} ${variable}`)
+  }
 
-  const verifier = requireJob(requiredJob)
+  const verifier = requireJob(requiredJob, qualifierJobs)
   assertEqual(
     verifier.outputs?.['publication-pending'],
     '${{ steps.npm.outputs.pending }}',
@@ -44,7 +62,7 @@ for (const [jobName, { verifier: requiredJob, event }] of Object.entries(publish
   assertEqual(admission.length, 1, `${requiredJob} publication admission step count`)
   assertEqual(
     admission[0].run,
-    `node scripts/check-npm-publication.mjs "$RUNNER_TEMP/${jobName === 'publish-npm' ? 'agent-runtime' : 'agent-bench'}-package"`,
+    `node scripts/check-npm-publication.mjs "$RUNNER_TEMP/${prefix === 'runtime' ? 'agent-runtime' : 'agent-bench'}-package"`,
     `${requiredJob} exact archive admission`,
   )
   assertEqual(admission[0].if, undefined, `${requiredJob} admission cannot be conditional`)
@@ -102,7 +120,7 @@ for (const [jobName, { verifier: requiredJob, event }] of Object.entries(publish
   }
 }
 
-for (const [jobName, job] of Object.entries(jobs)) {
+for (const [jobName, job] of Object.entries({ ...jobs, ...qualifierJobs })) {
   const idToken = job?.permissions?.['id-token']
   if (idToken === 'write' && !(jobName in publishJobs)) {
     throw new Error(`unexpected job can mint a package identity token: ${jobName}`)
@@ -113,7 +131,7 @@ for (const [jobName, job] of Object.entries(jobs)) {
 }
 
 for (const jobName of ['verify', 'verify-agent-bench']) {
-  const job = requireJob(jobName)
+  const job = requireJob(jobName, qualifierJobs)
   if (job.permissions?.['id-token'] === 'write') {
     throw new Error(`${jobName} may not mint a package identity token`)
   }
@@ -132,7 +150,7 @@ for (const jobName of ['verify', 'verify-agent-bench']) {
 }
 
 // All release checks consume the same validated commit, including manual tag retries.
-const source = requireJob('release-source')
+const source = requireJob('release-source', qualifierJobs)
 assertEqual(source.outputs?.sha, '${{ steps.release.outputs.sha }}', 'release source SHA output')
 assertEqual(
   source.outputs?.version,
@@ -141,7 +159,7 @@ assertEqual(
 )
 assertEqual(
   source.if,
-  runtimeReleaseEvent,
+  "github.repository == 'tangle-network/agent-runtime' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))",
   'release source event selection',
 )
 assertEqual(source['continue-on-error'], undefined, 'release source cannot ignore failure')
@@ -180,11 +198,10 @@ const releaseChecks = {
   'verify-runtime-bench': 'pnpm run verify:bench',
 }
 for (const [name, command] of Object.entries(releaseChecks)) {
-  const job = requireJob(name)
+  const job = requireJob(name, qualifierJobs)
   assertEqual(job.needs, 'release-source', `${name} parallel source dependency`)
   assertEqual(job.if, undefined, `${name} must require successful source validation`)
   assertEqual(job['continue-on-error'], undefined, `${name} cannot ignore failure`)
-  assertNeeds(requireJob('publish-npm'), name)
   const steps = requireSteps(name, job)
   const checkout = steps.find(
     (step) => step.uses?.startsWith('actions/checkout@') && !step.with?.repository,
@@ -199,8 +216,16 @@ for (const [name, command] of Object.entries(releaseChecks)) {
   assertEqual(checks[0].if, undefined, `${name} required check condition`)
   assertEqual(checks[0]['continue-on-error'], undefined, `${name} required check failure`)
 }
+assertEqual(
+  requireJob('publish-npm').if,
+  "(startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && needs.qualify.outputs.runtime-publication-pending == 'true'",
+  'publish must retain default success gating and require missing version',
+)
+assertEqual(requireJob('publish-agent-bench').if,
+  "startsWith(github.ref, 'refs/tags/agent-bench-v') && needs.qualify.outputs.bench-publication-pending == 'true'",
+  'bench publication event and missing-version selection')
 for (const name of ['release-source', ...Object.keys(releaseChecks)]) {
-  for (const step of requireSteps(name, requireJob(name))) {
+  for (const step of requireSteps(name, requireJob(name, qualifierJobs))) {
     if (step.uses && !/@[a-f0-9]{40}$/.test(step.uses))
       throw new Error(`${name} action is not pinned`)
     if (step.uses?.startsWith('actions/checkout@'))
@@ -210,7 +235,7 @@ for (const name of ['release-source', ...Object.keys(releaseChecks)]) {
   }
 }
 
-const archiveUpload = requireSteps('verify', requireJob('verify')).find((step) =>
+const archiveUpload = requireSteps('verify', requireJob('verify', qualifierJobs)).find((step) =>
   step.uses?.startsWith('actions/upload-artifact@'),
 )
 for (const file of ['*.tgz', 'agent-runtime-conformance-manifest.json', 'cohort-report.json']) {
@@ -218,7 +243,7 @@ for (const file of ['*.tgz', 'agent-runtime-conformance-manifest.json', 'cohort-
     throw new Error(`verified release artifact is missing ${file}`)
 }
 
-assertCohortJob(workflow, 'verify', releaseCohort)
+assertCohortJob(qualification, 'verify', releaseCohort)
 assertCohortJob(
   readWorkflow(resolve(repoRoot, '.github/workflows/ci.yml'), 'CI'),
   'packed-cohort',
@@ -268,8 +293,8 @@ function assertCohortJob(targetWorkflow, jobName, cohort) {
   }
 }
 
-function requireJob(name) {
-  const job = jobs[name]
+function requireJob(name, target = jobs) {
+  const job = target[name]
   if (!job || typeof job !== 'object') throw new Error(`publish workflow is missing job ${name}`)
   return job
 }
@@ -277,11 +302,6 @@ function requireJob(name) {
 function requireSteps(jobName, job) {
   if (!Array.isArray(job.steps)) throw new Error(`${jobName} has no steps`)
   return job.steps
-}
-
-function assertNeeds(job, expected) {
-  const needs = Array.isArray(job.needs) ? job.needs : [job.needs]
-  if (!needs.includes(expected)) throw new Error(`publish job must depend on ${expected}`)
 }
 
 function assertCount(values, pattern, expected, label) {

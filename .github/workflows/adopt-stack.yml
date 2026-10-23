@@ -12,10 +12,10 @@ permissions:
 
 jobs:
   adopt:
-    uses: tangle-network/agent-eval/.github/workflows/adopt-stack.yml@main
+    uses: tangle-network/agent-eval/.github/workflows/adopt-stack.yml@d1e0b6ced9543ac287e7f9cc457920439363c638
     with:
+      stack-ref: d1e0b6ced9543ac287e7f9cc457920439363c638
       gate: pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
-      runs-on: '["self-hosted", "ci-public"]'
       default-branch: main
       merge: true
     secrets: inherit
