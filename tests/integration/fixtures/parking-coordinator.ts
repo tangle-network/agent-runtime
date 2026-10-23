@@ -18,6 +18,20 @@ import { runtimeToolDeclarations, testAgentProfile } from '../../kernel/test-age
 
 const [runDir, mode = 'pause', phase = 'park'] = process.argv.slice(2)
 if (runDir === undefined) throw new Error('run directory required')
+const timingPath = join(runDir, 'process-timing.jsonl')
+function recordTiming(stage: string): void {
+  const resources: Record<string, number> = {}
+  for (const resource of process.getActiveResourcesInfo()) {
+    resources[resource] = (resources[resource] ?? 0) + 1
+  }
+  appendFileSync(
+    timingPath,
+    `${JSON.stringify({ stage, uptime: process.uptime(), cpu: process.cpuUsage(), resources })}\n`,
+  )
+}
+recordTiming('module-ready')
+process.once('beforeExit', () => recordTiming('beforeExit'))
+process.once('exit', () => recordTiming('exit'))
 const now = () => Date.now() + (phase === 'resume' ? 600_000 : 0)
 const base = durableRetainedProvider(join(runDir, 'provider.json'))
 const provider = {
@@ -119,6 +133,7 @@ if (phase === 'cancel')
     reason: 'Cancel before the parked wake.',
   })
 try {
+  recordTiming('before-supervise')
   const outcome = await supervisePursuit(profile, 'Park and resume this same objective.', {
     pursuitId: 'parking-proof',
     runId: 'parking-proof',
@@ -211,6 +226,7 @@ try {
     })}\n`,
   )
 } finally {
+  recordTiming('finally')
   if (cancelTimer !== undefined) clearTimeout(cancelTimer)
 }
 
