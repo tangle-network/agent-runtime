@@ -952,37 +952,51 @@ describe('runWorktreeHarness kimi-code', () => {
     }
   })
 
-  it('refuses enabled profile MCP servers on kimi-code before creating the worktree', async () => {
+  it('materializes profile MCP servers to .kimi-code/mcp.json for kimi-code to auto-load', async () => {
     const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
-    const runId = 'kimi-code-mcp-refused'
-    const runHarness = vi.fn()
+    const mcpPath = '.kimi-code/mcp.json'
     try {
-      // The materializer's kimi lowering (`.kimi/mcp.json` + `--mcp-config-file`) names a flag
-      // no published kimi-code accepts, so admission refuses rather than spawning disarmed.
-      await expect(
-        runWorktreeHarness({
-          repoRoot,
-          profile: { mcp: { local: { command: 'node', args: ['server.mjs'] } } },
-          harness: 'kimi-code',
-          taskPrompt: 'task',
-          runId,
-          runHarness,
-        }),
-      ).rejects.toThrow(/profile requests unsupported worktree behavior: mcp/u)
-      expect(runHarness).not.toHaveBeenCalled()
-      expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
-      expect(git(repoRoot, ['branch', '--list', `delegate/${runId}`])).toBe('')
-
-      // A disabled server carries nothing and does not trip the refusal.
+      // kimi-code 2.x auto-loads `<cwd>/.kimi-code/mcp.json` (the surface the materializer's
+      // kimi lowering writes), so admission accepts MCP servers and the invocation needs no
+      // config flag.
       const run = await runWorktreeHarness({
+        repoRoot,
+        profile: {
+          mcp: { local: { command: 'node', args: [{ kind: 'public', value: 'server.mjs' }] } },
+        },
+        harness: 'kimi-code',
+        taskPrompt: 'task',
+        runId: 'kimi-code-mcp-materialized',
+        runHarness: async (options) => {
+          expect(readFileSync(join(options.cwd, mcpPath), 'utf8')).toContain('server.mjs')
+          expect(options.invocation?.args).not.toContain('--mcp-config-file')
+          return successfulHarnessResult()
+        },
+      })
+      try {
+        expect(run.result.profileMaterialization?.writtenPaths).toEqual([mcpPath])
+        expect(run.result.profileMaterialization?.unsupported).toEqual([])
+      } finally {
+        await run.cleanup()
+      }
+      expect(existsSync(join(repoRoot, '.agent-worktrees', 'kimi-code-mcp-materialized'))).toBe(
+        false,
+      )
+      expect(git(repoRoot, ['branch', '--list', 'delegate/kimi-code-mcp-materialized'])).toBe('')
+
+      // A disabled server carries nothing and materializes no config.
+      const disabled = await runWorktreeHarness({
         repoRoot,
         profile: { mcp: { off: { enabled: false } } },
         harness: 'kimi-code',
         taskPrompt: 'task',
         runId: 'kimi-code-mcp-disabled',
-        runHarness: async () => successfulHarnessResult(),
+        runHarness: async (options) => {
+          expect(existsSync(join(options.cwd, mcpPath))).toBe(false)
+          return successfulHarnessResult()
+        },
       })
-      await run.cleanup()
+      await disabled.cleanup()
     } finally {
       rmSync(repoRoot, { recursive: true, force: true })
     }
