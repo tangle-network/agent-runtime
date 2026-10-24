@@ -73,13 +73,25 @@ function adoptionPeerFloors() {
 if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? '')) {
   if (process.argv.includes('--adoption')) {
     adoptionPeerFloors()
-    // A new manifest/catalog selection needs its own note even if earlier adoptions have not
-    // been released yet. Stable contents make the existing post-pin step idempotent on re-gates.
-    const selection = createHash('sha256')
-      .update(readFileSync(resolve(root, 'package.json')))
-      .update('\0')
-      .update(readFileSync(resolve(root, 'pnpm-workspace.yaml')))
-      .digest('hex').slice(0, 16)
+    const { parse } = await import('yaml')
+    const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
+    const workspace = parse(readFileSync(resolve(root, 'pnpm-workspace.yaml'), 'utf8'))
+    // Release versions, scripts, formatting and unrelated workspace policy do not change
+    // the adopted dependency selection. Canonical keys keep reordered inputs idempotent.
+    const inputs = {
+      dependencies: pkg.dependencies,
+      devDependencies: pkg.devDependencies,
+      optionalDependencies: pkg.optionalDependencies,
+      peerDependencies: pkg.peerDependencies,
+      catalog: workspace.catalog,
+      catalogs: workspace.catalogs,
+      overrides: workspace.overrides,
+    }
+    const selection = createHash('sha256').update(JSON.stringify(inputs, (_key, value) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+        : value
+    )).digest('hex').slice(0, 16)
     const file = resolve(notesDir, `adopt-stack-${selection}.md`)
     mkdirSync(notesDir, { recursive: true })
     writeFileSync(file, 'type: patch\n---\nAdopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.\n')
