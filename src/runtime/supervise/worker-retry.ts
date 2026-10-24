@@ -260,6 +260,8 @@ export function retryPreSpawnRefusals<Out>(
     ...(inner.progress ? { progress: () => inner.progress?.() } : {}),
     ...(inner.traceSource ? { traceSource: () => inner.traceSource?.() } : {}),
     ...(inner.metered ? { metered: () => inner.metered?.() } : {}),
+    ...(inner.accounting ? { accounting: () => inner.accounting?.() } : {}),
+    ...(inner.resultAccepted ? { resultAccepted: () => inner.resultAccepted?.() === true } : {}),
     ...(inner.harnessTranscript ? { harnessTranscript: () => inner.harnessTranscript?.() } : {}),
     ...(inner.harnessTranscriptSettled
       ? { harnessTranscriptSettled: () => inner.harnessTranscriptSettled?.() ?? Promise.resolve() }
@@ -274,6 +276,8 @@ export function retryPreSpawnRefusals<Out>(
         ? retryStream(first, restart, signal)
         : retryOneShot(first, restart, signal)
     },
+    // Recovery reconciles the original invocation; only fresh pre-spawn execution is retried.
+    ...(inner.recover ? { recover: (task, signal) => inner.recover!(task, signal) } : {}),
     teardown: (grace) => inner.teardown(grace),
     ...teardownSurfaces(inner),
     resultArtifact: () => inner.resultArtifact(),
