@@ -195,9 +195,9 @@ export interface SuperviseOptions {
   readonly router?: RouterTransportConfig
   /** When `driverBackend` is absent, whether an external-harness ROOT may default to running on
    *  `backend` (where workers run). `true` (default) keeps the convenience every direct caller has.
-   *  A layer that gives `backend` a narrower meaning — `runGraph`, where it places WORKER nodes only
-   *  — sets `false`, so an external root without an explicit `driverBackend` is refused before any
-   *  compute rather than silently driven from the worker placement. */
+   *  Rooted `runGraph` calls set `false`, so an external root needs an explicit `driverBackend`.
+   *  Flow graphs keep derivation for native child drivers; their root uses Runtime's deterministic
+   *  brain and makes no model call through this backend. */
   readonly rootDriverFromBackend?: boolean
   /** Pre-journal profile resolution for the spawn pre-flight: the profile a driver authored →
    *  the profile that will run (`CoordinationToolsOptions.resolveSpawnProfile`). A pinning layer
