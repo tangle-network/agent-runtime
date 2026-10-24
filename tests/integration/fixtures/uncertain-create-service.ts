@@ -34,12 +34,15 @@ const state: ServiceState = {
 let origin = ''
 const holds = new Set<ServerResponse>()
 const nativeActions = new Map<string, Promise<void>>()
+const acceptedSubscribers = new Map<string, Set<ServerResponse>>()
 function startAction(run: NativeRun): void {
-  const action = act(run).catch((error) => {
-    state.failures.push(String(error))
-    note('fixture-failure', { error: String(error) })
-    throw error
-  })
+  const action = act(run)
+    .then(() => flushAccepted(run))
+    .catch((error) => {
+      state.failures.push(String(error))
+      note('fixture-failure', { error: String(error) })
+      throw error
+    })
   nativeActions.set(run.executionId, action)
   void action.catch(() => undefined)
 }
@@ -72,14 +75,51 @@ function boxInfo(id: string) {
     createdAt: new Date().toISOString(),
   }
 }
-function sse(response: ServerResponse, frames: Array<{ type: string; data: object }>): void {
-  response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+function writeFrames(
+  response: ServerResponse,
+  frames: Array<{ type: string; data: object }>,
+  offset = 0,
+): void {
   frames.forEach((frame, index) => {
     response.write(
-      `id: ${index + 1}\nevent: ${frame.type}\ndata: ${JSON.stringify(frame.data)}\n\n`,
+      `id: ${offset + index + 1}\nevent: ${frame.type}\ndata: ${JSON.stringify(frame.data)}\n\n`,
     )
   })
+}
+function sse(response: ServerResponse, frames: Array<{ type: string; data: object }>): void {
+  response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+  writeFrames(response, frames)
   response.end()
+}
+function subscribeAccepted(run: NativeRun, response: ServerResponse): void {
+  const subscribers = acceptedSubscribers.get(run.executionId) ?? new Set<ServerResponse>()
+  acceptedSubscribers.set(run.executionId, subscribers)
+  subscribers.add(response)
+  response.on('close', () => {
+    subscribers.delete(response)
+    if (subscribers.size === 0) acceptedSubscribers.delete(run.executionId)
+    // A lost coordinator connection does not cancel the independent native execution.
+  })
+  response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+  writeFrames(response, terminal(run).slice(0, 1))
+  note('healthy-stream-open', { executionId: run.executionId, environmentId: run.environmentId })
+}
+function flushAccepted(run: NativeRun): void {
+  if (scenario !== 'accepted' || run.status !== 'completed') return
+  const subscribers = acceptedSubscribers.get(run.executionId)
+  if (!subscribers) return
+  for (const response of subscribers) {
+    if (response.destroyed || response.writableEnded) continue
+    // IDs 2 and 3 are the same canonical result/done positions as a completed replay.
+    writeFrames(response, terminal(run).slice(1), 1)
+    response.end()
+    run.terminalReads += 1
+  }
+  acceptedSubscribers.delete(run.executionId)
+  note('healthy-stream-completed', {
+    executionId: run.executionId,
+    environmentId: run.environmentId,
+  })
 }
 function terminal(run: NativeRun) {
   return [
@@ -117,6 +157,10 @@ function terminal(run: NativeRun) {
   ]
 }
 async function replay(run: NativeRun, response: ServerResponse): Promise<void> {
+  if (scenario === 'accepted' && run.status === 'running') {
+    subscribeAccepted(run, response)
+    return
+  }
   if (run.status === 'running' && nativeActions.has(run.executionId))
     await nativeActions.get(run.executionId)
   if (run.status === 'running') {
