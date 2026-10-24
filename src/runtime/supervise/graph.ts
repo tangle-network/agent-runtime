@@ -882,13 +882,11 @@ export function superviseAgentGraph(
   // contract); only the run itself is asynchronous.
   const start = async (): Promise<GraphResult> => {
     const superviseOptions = {
-      // Every forwarded option the caller set, including the ones nobody thought to list here.
-      // `backend` rides along: the kernel derives every authorized LEAF from it, under the graph's
-      // pinning. The root driver stays an explicit `driverBackend` choice: `rootDriverFromBackend:
-      // false` stops supervise() defaulting one from the other, so where workers run never selects
-      // where the root runs (the axis split every graph caller relies on).
+      // The backend also drives seat-bearing flow nodes, which use the managed driver lifecycle.
+      // A flow's root keeps Runtime's deterministic brain; deriving its child driver adds no root
+      // inference. Rooted graphs keep driverBackend explicit rather than inheriting backend.
       ...forwardedSuperviseOptions(opts),
-      rootDriverFromBackend: false,
+      rootDriverFromBackend: flow !== undefined,
       // Graph-owned values come after the spread: the graph, not the caller, decides these.
       budget: graph.budget,
       deliverable: graph.deliverable,
