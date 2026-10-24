@@ -42,8 +42,37 @@ function baseRef() {
   return null
 }
 
+/** Runtime's selected cohort owns its supported floors; the updater owns the upper bounds. */
+function adoptionPeerFloors() {
+  const path = resolve(root, 'package.json')
+  const text = readFileSync(path, 'utf8')
+  const pkg = JSON.parse(text)
+  const cohort = JSON.parse(readFileSync(resolve(root, 'release/cohort.json'), 'utf8'))
+  const peers = { ...pkg.peerDependencies }
+  const order = new Intl.Collator('en', { numeric: true }).compare
+  for (const key of ['agentEval', 'agentInterface']) {
+    const selected = cohort.packages?.[key]
+    const name = key === 'agentEval' ? '@tangle-network/agent-eval' : '@tangle-network/agent-interface'
+    const version = pkg.devDependencies?.[name]
+    const window = /^>=(\d+\.\d+\.\d+)\s+<(\d+\.\d+\.\d+)$/.exec(peers[name] ?? '')
+    if (selected?.name !== name || selected.version !== version || !/^\d+\.\d+\.\d+$/.test(version ?? '') || !window) {
+      throw new Error(`adoption requires matching exact development/cohort pins and a stable peer window for ${name}`)
+    }
+    if (order(version, window[1]) < 0 || order(version, window[2]) >= 0) {
+      throw new Error(`adoption pin ${name}@${version} is outside its declared peer window ${peers[name]}`)
+    }
+    peers[name] = `>=${version} <${window[2]}`
+  }
+  if (JSON.stringify(peers) !== JSON.stringify(pkg.peerDependencies)) {
+    pkg.peerDependencies = peers
+    const indent = /^([ \t]+)"/m.exec(text)?.[1] ?? '  '
+    writeFileSync(path, `${JSON.stringify(pkg, null, indent)}\n`)
+  }
+}
+
 if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? '')) {
-  if (process.argv.includes('--adoption-note')) {
+  if (process.argv.includes('--adoption')) {
+    adoptionPeerFloors()
     // A new manifest/catalog selection needs its own note even if earlier adoptions have not
     // been released yet. Stable contents make the existing post-pin step idempotent on re-gates.
     const selection = createHash('sha256')
