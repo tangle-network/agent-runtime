@@ -176,6 +176,12 @@ A product keeps a store only for what the platform cannot know: when to send, wh
 | Platform workflow crash resume | resumed, or refused | A settled action never re-runs. A notify or Hub write that was in flight at the crash refuses, because it may already have taken effect |
 | Tangle provider reconnect after a host loss | `down` | The box is restored from its confirmed snapshot. An execution that was running settles `down` on its original id and is not dispatched again |
 
+A new root segment does not authorize replacing an uncertain retained invocation. Its committed
+intent still requires the original request material; repeated replay refusals and an environment
+admission alone prove neither absence nor a stopped native execution. When that material cannot
+be replayed, the invocation stays pending until exact provider evidence resolves it. A new model
+or harness may run after that boundary; recording `root-segment` alone does not prove it ran.
+
 ## Acceptance answers
 
 **What makes accepted work durable?** A record written before the work becomes visible:

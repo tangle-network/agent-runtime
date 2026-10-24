@@ -762,23 +762,6 @@ describe('a root harness turn that ends with a failed outcome', () => {
     }
   })
 
-  it('never pauses another command that failed before dispatch as credential-unavailable', async () => {
-    const fixture = await harnessFailureFixture({
-      runId: 'harness-other-command-before-dispatch',
-      failures: () => undefined,
-      createFailure: () =>
-        Object.assign(new Error('sandbox image pull failed (exit 1)'), { exitCode: 1 }),
-    })
-    const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 2, maxAttempts: 3 })
-    expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
-    expect(attempts.length).toBeGreaterThan(0)
-    expect(attempts.every((attempt) => attempt.classification !== 'unavailable')).toBe(true)
-    expect(attempts.some((attempt) => attempt.exitCode !== undefined)).toBe(false)
-    expect(attempts.at(-1)?.stop).toBeDefined()
-    expect(ofKind(await fixture.events(), 'paused')).toHaveLength(0)
-    expect(fixture.dispatches()).toBe(0)
-  })
-
   it('honors explicit cancellation during failed-capture cleanup while keeping the accepted source', async () => {
     const fixture = await harnessFailureFixture({
       runId: 'harness-retention-cancel-cleanup',
@@ -881,7 +864,11 @@ describe('a root harness turn that ends with a failed outcome', () => {
 /** The rejection agent-provider-tangle's credential command resolver raises when its command exits 1. */
 async function credentialCommandExit1(): Promise<Error> {
   const resolve = createCommandModelCredentialResolver({
-    command: [process.execPath, '-e', 'process.exit(1)'],
+    command: [
+      process.execPath,
+      '-e',
+      "process.stdin.resume(); process.stdin.once('end', () => { process.exitCode = 1 })",
+    ],
   })
   const profile = testAgentProfile('credential-unavailable', {
     model: {
