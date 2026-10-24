@@ -1,6 +1,6 @@
-import { writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
+import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-file'
 import {
   attachments,
   digest,
@@ -721,7 +721,7 @@ server.listen(0, '127.0.0.1', () => {
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('no HTTP address')
   origin = `http://127.0.0.1:${address.port}`
-  writeFileSync(
+  writeAtomicDurableFile(
     join(directory, 'service-ready.json'),
     JSON.stringify({ url: origin, pid: process.pid }),
   )
