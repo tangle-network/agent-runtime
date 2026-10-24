@@ -682,11 +682,11 @@ describe('accepted native recovery and historical identities', () => {
       const acceptedExecutions = new Set(
         acceptedResults.map((result) => {
           const admission = events
+            .slice(0, events.indexOf(result))
             .filter(
               (event): event is Extract<SpawnEvent, { kind: 'execution-admitted' }> =>
                 event.kind === 'execution-admitted' &&
                 event.id === result.id &&
-                event.seq < result.seq &&
                 event.admission.phase === 'dispatched',
             )
             .at(-1)?.admission
