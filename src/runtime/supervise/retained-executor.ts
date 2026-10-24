@@ -514,7 +514,7 @@ type PrepareRetainedExecutor = (input: RetainedExecutorPreparation) =>
 
 const retainedPreparations = new WeakMap<ExecutorFactory<unknown>, PrepareRetainedExecutor>()
 
-/** Reconstruct an admitted manager through its original composition boundary. @internal */
+/** Reconstruct an admitted worker through its original composition boundary. @internal */
 export function registerRetainedExecutorPreparation(
   factory: ExecutorFactory<unknown>,
   prepare: PrepareRetainedExecutor,

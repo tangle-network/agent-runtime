@@ -25,7 +25,12 @@ import { isAsyncIterable } from '../util'
 import { checkVerdictOf } from './continuation'
 import { teardownSurfaces } from './deadline'
 import { inheritRuntimeOwnedExecutorAttestation } from './materialization'
-import type { DefaultVerdict, Executor, ExecutorResult, UsageEvent } from './types'
+import {
+  type RetainedExecutorContext,
+  retainedExecutorContext,
+  retainedExecutorSeamKey,
+} from './retained-executor'
+import type { DefaultVerdict, Executor, ExecutorFactory, ExecutorResult, UsageEvent } from './types'
 
 /**
  * The deployable completion oracle passed to {@link gateOnDeliverable}: a `check` that
@@ -65,17 +70,64 @@ export function gateOnDeliverable<Out>(
   inner: Executor<Out>,
   deliverable: DeliverableSpec<Out>,
 ): Executor<Out> {
-  let gated: DefaultVerdict | undefined
+  return wrapCompletionGate(inner, (result) => checkDeliverable(deliverable, result))
+}
 
-  const check = async (out: Out, baseScore?: number): Promise<DefaultVerdict> => {
-    let delivered: boolean
-    try {
-      delivered = checkVerdictOf(await deliverable.check(out)).pass
-    } catch {
-      delivered = false // fail-closed: a throwing check is NOT a delivery
+/** Build a worker with the same check on durable acceptance and normal completion. @internal */
+export function gateFactoryOnDeliverable(
+  factory: ExecutorFactory<unknown>,
+  deliverable: DeliverableSpec,
+): ExecutorFactory<unknown> {
+  return (spec, ctx) => {
+    const retention = retainedExecutorContext(ctx)
+    if (retention === undefined) return gateOnDeliverable(factory(spec, ctx), deliverable)
+    // One invocation's exact artifact reaches both onResult and resultArtifact. A new native
+    // invocation has a new artifact even when its output is identical, so it is checked again.
+    const verdicts = new WeakMap<ExecutorResult<unknown>, Promise<DefaultVerdict>>()
+    const check = (result: ExecutorResult<unknown>): Promise<DefaultVerdict> => {
+      let verdict = verdicts.get(result)
+      if (verdict === undefined) {
+        verdict = checkDeliverable(deliverable, result)
+        verdicts.set(result, verdict)
+      }
+      return verdict
     }
-    return { valid: delivered, score: baseScore ?? (delivered ? 1 : 0) }
+    const checkedRetention = (source: RetainedExecutorContext): RetainedExecutorContext => ({
+      ...source,
+      onResult: async (result) => source.onResult({ ...result, verdict: await check(result) }),
+      ...(source.continueInvocation === undefined
+        ? {}
+        : {
+            continueInvocation: async (task: unknown) =>
+              checkedRetention(await source.continueInvocation!(task)),
+          }),
+    })
+    const inner = factory(spec, {
+      ...ctx,
+      seams: { ...ctx.seams, [retainedExecutorSeamKey]: checkedRetention(retention) },
+    })
+    return wrapCompletionGate(inner, check)
   }
+}
+
+async function checkDeliverable<Out>(
+  deliverable: DeliverableSpec<Out>,
+  result: ExecutorResult<Out>,
+): Promise<DefaultVerdict> {
+  let delivered: boolean
+  try {
+    delivered = checkVerdictOf(await deliverable.check(result.out)).pass
+  } catch {
+    delivered = false // A check that could not run never establishes delivery.
+  }
+  return { valid: delivered, score: result.verdict?.score ?? (delivered ? 1 : 0) }
+}
+
+function wrapCompletionGate<Out>(
+  inner: Executor<Out>,
+  check: (result: ExecutorResult<Out>) => Promise<DefaultVerdict>,
+): Executor<Out> {
+  let gated: DefaultVerdict | undefined
 
   /**
    * Ask the delivery question once, from whatever the inner executor managed to produce.
@@ -90,7 +142,7 @@ export function gateOnDeliverable<Out>(
     } catch {
       return
     }
-    gated = await check(art.out, art.verdict?.score)
+    gated = await check(art)
   }
 
   const gateExecution = (
@@ -114,7 +166,7 @@ export function gateOnDeliverable<Out>(
         await settleVerdict()
         throw error
       }
-      gated = await check(res.out, res.verdict?.score)
+      gated = await check(res)
       return { ...res, verdict: gated } satisfies ExecutorResult<Out>
     })()
   }
@@ -135,6 +187,7 @@ export function gateOnDeliverable<Out>(
     ...(inner.traceSource ? { traceSource: () => inner.traceSource?.() } : {}),
     ...(inner.metered ? { metered: () => inner.metered?.() } : {}),
     ...(inner.accounting ? { accounting: () => inner.accounting?.() } : {}),
+    ...(inner.resultAccepted ? { resultAccepted: () => inner.resultAccepted?.() === true } : {}),
     ...(inner.harnessTranscript ? { harnessTranscript: () => inner.harnessTranscript?.() } : {}),
     ...(inner.harnessTranscriptSettled
       ? { harnessTranscriptSettled: () => inner.harnessTranscriptSettled?.() ?? Promise.resolve() }

@@ -44,7 +44,9 @@ import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { addSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
+import { isCredentialRefusal } from './credential-refusal'
 import { ACCEPTED_RESULT_GRACE_MS, armDeadlineTimer } from './deadline'
+import { classifyDriverFailure, DriverAttemptsExhaustedError } from './driver-attempt-evidence'
 import { executableAgentSpecSnapshot } from './executable-spec'
 import {
   attestRuntimeOwnedDeferredExecutor,
@@ -423,19 +425,22 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
             ?.filter((event) => event.kind === 'settled' || event.kind === 'cancelled')
             .map((event) => event.id),
         )
+        const terminalAdmissionRefusal = isTerminalAdmissionRefusal(err)
         if (
+          driver.resultAccepted?.() === true ||
+          spec.acceptedSubmission?.() === true ||
           events?.some(
             (event) =>
-              (event.kind === 'execution-admitted' && event.id === seam.nodeId) ||
-              (event.kind === 'spawned' &&
-                event.parent !== undefined &&
-                event.runtime !== 'inline' &&
-                !settledIds.has(event.id)),
+              (event.kind === 'execution-admitted' &&
+                (event.admission.phase === 'dispatched' ||
+                  (event.id === seam.nodeId &&
+                    (event.admission.phase !== 'intent' || !terminalAdmissionRefusal)))) ||
+              event.kind === 'execution-result' ||
+              (event.kind === 'spawned' && event.parent !== undefined && !settledIds.has(event.id)),
           )
         ) {
-          // An admitted backend or accepted backend result is not a finalized manager output.
-          // Keep the parent's key in doubt until a supported nested recovery can run its finalizer.
-          // The cause is journal state, not whatever the driver threw, so it is stated.
+          // Intent alone does not keep a definitive admission refusal pending. Any later
+          // admission, accepted output, or unfinished child still needs its original recovery.
           throw new RetainedExecutionPendingError(err, 'nested-recovery')
         }
         if (cleanupError !== undefined) throw cleanupError
@@ -527,6 +532,22 @@ export function withDriverExecutor(base: ExecutorRegistry): ExecutorRegistry {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
+
+/** Positive pre-dispatch refusal evidence; a missing dispatch record proves nothing by itself. */
+function isTerminalAdmissionRefusal(error: unknown): boolean {
+  // The manager retry owner wraps its final failure once; no other wrapper establishes admission.
+  const failure =
+    error instanceof DriverAttemptsExhaustedError && error.stop === 'terminal-error'
+      ? error.cause
+      : error
+  return (
+    (isCredentialRefusal(failure) ||
+      (failure instanceof RetainedExecutionPendingError &&
+        failure.phase === 'admission' &&
+        failure.pendingCause === 'request-rejected')) &&
+    classifyDriverFailure(failure) === 'terminal'
+  )
+}
 
 async function closeNestedScope(
   scope: Scope<unknown>,

@@ -305,7 +305,6 @@ async function prepareInterruptedExecutors(
         `recovery inputs for '${node.id}' do not match its admitted identity`,
       )
     }
-    let prepared: ReturnType<typeof prepareRetainedExecutor>
     if (node.ownedTreeRoot !== undefined) {
       if (node.ownedTreeRoot !== nestedDriverTreeRoot(opts.runId, node.id)) {
         throw new RuntimeRunStateError(`retained manager '${node.id}' changed its owned tree`)
@@ -322,9 +321,9 @@ async function prepareInterruptedExecutors(
           `retained manager '${node.id}' has conflicting subtree ownership`,
         )
       }
-      prepared = prepareRetainedExecutor(opts.recoverExecutor, { spawned: node, profile, task })
-      if (!prepared) continue
     }
+    const prepared = prepareRetainedExecutor(opts.recoverExecutor, { spawned: node, profile, task })
+    if (node.ownedTreeRoot !== undefined && !prepared) continue
     const priorMaterialization = [...owned]
       .reverse()
       .find((event) => event.kind === 'materialized' || event.kind === 'seat-materialized')?.receipt
