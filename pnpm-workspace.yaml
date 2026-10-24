@@ -33,12 +33,12 @@ catalog:
   '@modelcontextprotocol/sdk': 1.32.0
   '@tangle-network/agent-core': '>=0.13.1 <0.14.0'
   '@types/node': 26.4.0
-  '@tangle-network/agent-eval': '>=0.221.2 <0.222.0'
+  '@tangle-network/agent-eval': '>=0.221.3 <0.222.0'
   '@tangle-network/agent-interface': '>=5.7.1 <6.0.0'
   '@tangle-network/agent-knowledge': ^22.0.16
   '@tangle-network/agent-profile-materialize': '^0.25.0'
   '@tangle-network/agent-trace-contract': ^2.1.0
-  '@tangle-network/sandbox': '>=0.64.39 <0.65.0'
+  '@tangle-network/sandbox': '>=0.64.40 <0.65.0'
   publint: 0.3.24
   tsdown: 0.22.14
   tsx: 4.23.12
