@@ -30,6 +30,15 @@ const qualifiedContractTuples = [
     ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
     ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
   ],
+  // The accepted stack's shared contracts have identical executable/type files to 5.7.0/0.13.1.
+  // Their manifests update versions, Zod to 4.6.6 and Core's Interface floor to ^5.7.1;
+  // SDK-private copies remain unchanged. The packed SDK consumer checks behavioral parity.
+  [
+    ['agent-interface', '5.7.1', '4ae59409e09a4dd70b1e06f8cddd240f1835bda52ebc5e1b0e697db85aff3cb8'],
+    ['agent-core', '0.13.2', 'ab2410df35d3396ea0a6a360b1d4dddc40e28f382a268dfc6d42f4c103f534fa'],
+    ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
+    ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
+  ],
 ]
 
 function ownFiles(directory) {
