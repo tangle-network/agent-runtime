@@ -16,6 +16,7 @@ jobs:
     with:
       stack-ref: d1e0b6ced9543ac287e7f9cc457920439363c638
       gate: pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
+      post-pin: node scripts/release-notes.mjs --adoption-note
       default-branch: main
       merge: true
     secrets: inherit

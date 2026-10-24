@@ -17,3 +17,8 @@ and deletes the consumed note files.
 
 Run it from a clean source commit. It qualifies that commit's packed cohort before writing
 release files; the tagged publisher then qualifies the exact prepared release archives.
+
+The existing stack-adoption workflow runs `scripts/release-notes.mjs --adoption-note` through
+its post-pin step. It writes one valid patch note for the selected manifest and catalog, so
+re-gating the same selection is idempotent and a later adoption gets its own note even when
+an earlier one has not been released. The updater stages that note with the adopted pins.
