@@ -1,3 +1,19 @@
+## 0.348.1
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Preserve completion checks when retained workers resume and persist checked verdicts before accepting new worker results.
+
+Release qualification waits for worker execution before checking durable steering and attach recovery, and verifies process-group cancellation after the descendant is ready.
+
+New unresolved manager provisions retain their original identity until a native stop is confirmed or their own admitted environment is authoritatively lost; loss of an older turn's environment cannot replace a newer create intent. Historical abandoned invocations retain their existing closed replay behavior and require separate reconciliation. Definitive credential refusals before dispatch settle an intent-only nested driver without converting the refusal into retained recovery.
+
 ## 0.348.0
 
 Local kimi-code harness runs now materialize a profile's MCP servers: agent-profile-materialize >= 0.27.2 lowers kimi MCP to the `<cwd>/.kimi-code/mcp.json` auto-load surface, so admission accepts MCP-carrying profiles for kimi-code instead of refusing them. The materializer dependency floor rises to 0.27.2 to guarantee the fixed lowering.
