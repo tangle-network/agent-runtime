@@ -31,7 +31,9 @@ Work on a feature branch and run relevant checks while developing. Land authoriz
 
 A PR that changes Runtime source or its published manifest adds one `.release-notes/<slug>.md` ([format](.release-notes/README.md)); `release:prepare` builds the version and changelog only from those notes, so a merged change without one is never released.
 
-Ordinary internal source PRs do not wait for CI, local signoff, a version bump or package publication. Release PRs and external contributions retain verification. Drafts, explicit holds, conflicts and native repository restrictions still apply; do not use an administrator bypass or fabricate passing checks. A skipped job is not test evidence.
+Before merge, run the local Beelink gate; repositories carry no PR or push CI. Versioning and package publication remain separate operations. Release PRs and external contributions retain their qualification. Drafts, explicit holds, conflicts and native repository restrictions still apply; do not use an administrator bypass or fabricate passing checks. A skipped job is not test evidence.
+
+Local Beelink gate (set `TOUCHED_INTEGRATION_TEST` to the affected integration file; the gate installs from the frozen pnpm lockfile, and examples resolve against the built package): `beelink-gate auto https://github.com/tangle-network/agent-runtime.git "$(git rev-parse HEAD)" -- sh -c 'pnpm build && pnpm typecheck && pnpm exec vitest run "$1"' _ "${TOUCHED_INTEGRATION_TEST:?set touched integration test path}"`.
 
 Publication is a separate authorized operation. The existing publisher qualifies the frozen tagged revision and exact package artifacts, including cohort compatibility and credential isolation. Advancing main does not retarget that candidate. A source merge is neither a package release nor a production result.
 
