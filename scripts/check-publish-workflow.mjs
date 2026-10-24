@@ -244,11 +244,6 @@ for (const file of ['*.tgz', 'agent-runtime-conformance-manifest.json', 'cohort-
 }
 
 assertCohortJob(qualification, 'verify', releaseCohort)
-assertCohortJob(
-  readWorkflow(resolve(repoRoot, '.github/workflows/ci.yml'), 'CI'),
-  'packed-cohort',
-  releaseCohort,
-)
 
 process.stdout.write('Publish workflow keeps package creation separate from npm authority.\n')
 

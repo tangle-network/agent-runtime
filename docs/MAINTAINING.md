@@ -31,7 +31,7 @@ turns them into a red build. The decision table's "do this, not that" is *judgme
 - It is **committed** to the repo so it is grep-able and PR-reviewable like the rest
   of `docs/`, and so the freshness gate can diff against it.
 - **Never hand-edit a file under `docs/api/`.** Your edit is overwritten on the next
-  `docs:api` run and will fail `docs:check` in CI. Change the **TSDoc comment in the
+  `docs:api` run and will fail the local `docs:check` gate. Change the **TSDoc comment in the
   source** instead, then regenerate.
 
 ## The generated inventory: `docs/api/primitive-catalog.md`
@@ -117,7 +117,7 @@ pin, or an undocumented exports subpath. Conceptual or design-target terms in a 
 must read as prose (lowercase, or named not called) or join the concept-whitelist — never be
 backticked as a current callable export they are not.
 
-## `pnpm run docs:check` — the one command CI runs
+## `pnpm run docs:check` — the local documentation gate
 
 ```
 docs:check = docs:api  &&  git diff --exit-code docs/api  &&  node scripts/check-docs-freshness.mjs
@@ -125,16 +125,15 @@ docs:check = docs:api  &&  git diff --exit-code docs/api  &&  node scripts/check
 
 It regenerates the reference, fails if the committed `docs/api/` is stale (you forgot
 to regenerate after a TSDoc change), then runs the freshness gate on the build `docs:api`
-just made. CI runs this as the last step of the `ci` job ([ci workflow](../.github/workflows/ci.yml)); drift is a red build, not a
-silent lie.
+just made. Run it locally before merging changes that affect documentation; drift fails
+the local gate. PR/push CI is retired, while publication keeps its own qualification.
 
 **The pre-commit hook (`.githooks/pre-commit`) is the gate's self-healing companion.**
 When a staged change adds/removes an export under `src/` (or edits the `package.json`
 `exports` map), the hook rebuilds and regenerates `docs/api/primitive-catalog.md` and
 re-stages it, so the commit already carries a fresh catalog and you don't hit the "forgot
-to regenerate" red build. It no-ops on changes that can't affect the catalog, skips in CI
-(where `docs:check` runs regardless), and is bypassable with `SKIP_DOCS_REGEN=1`. The gate
-catches drift; the hook prevents it.
+to regenerate" red build. It no-ops on changes that can't affect the catalog and skips automation where `CI=true`.
+Run `docs:check` explicitly for documentation-sensitive work. The gate catches drift; the hook prevents it.
 
 The `git diff --exit-code -- docs/api` staleness catch relies on the **tracked
 per-module README index** (`docs/api/<module>/README.md`): every new export — even one
