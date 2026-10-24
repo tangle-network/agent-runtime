@@ -276,8 +276,7 @@ function registerRecovery(
   const factory = registerRetainedExecutorPreparation(
     createExecutor(options.backend),
     ({ spawned, profile, task }) => {
-      if (!spawned.ownedTreeRoot || !spawned.parent || !spawned.assignmentId || !spawned.identity)
-        return undefined
+      if (!spawned.parent || !spawned.assignmentId || !spawned.identity) return undefined
       const execution = {
         ...(spawned.identity.candidateDigest
           ? { candidateDigest: spawned.identity.candidateDigest }
@@ -299,8 +298,9 @@ function registerRecovery(
       )
       const spec = (reconstructed as Agent<unknown, unknown> & { executorSpec?: AgentSpec })
         .executorSpec
-      if (!spec || !isDriverSpec(spec)) return undefined
-      return { spec, factory: driverExecutorFactory }
+      if (!spec) return undefined
+      const factory = isDriverSpec(spec) ? driverExecutorFactory : spec.executorFactory
+      return factory === undefined ? undefined : { spec, factory }
     },
   )
   env.recoveryFactories.set(makeRecursiveWorker, factory)

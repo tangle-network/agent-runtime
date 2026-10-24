@@ -4,7 +4,7 @@ import { agentProfileSchema } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type { MakeWorkerAgent, WorkerSpawnContext } from '../../mcp/tools/coordination-contracts'
 import { agentHarness } from '../harness-role'
-import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
+import { type DeliverableSpec, gateFactoryOnDeliverable } from './completion-gate'
 import { profileBridgeWireModel, profileProviderModel } from './model-policy'
 import {
   bindReusableExecutorExecutionId,
@@ -123,7 +123,8 @@ export function workerFromBackend(
             },
           }
         : boundBackend
-    const baseFactory = createExecutor(leafBackend)
+    const rawFactory = createExecutor(leafBackend)
+    const baseFactory = deliverable ? gateFactoryOnDeliverable(rawFactory, deliverable) : rawFactory
     // Carry the configured factory into Scope. It is built only AFTER reservation with the real
     // child signal/context, so a rejected or already-completed keyed spawn creates no executor.
     const executorFactory = (spec: AgentSpec, ctx: ExecutorContext) => {
@@ -159,7 +160,7 @@ export function workerFromBackend(
         spec,
         seamsForChild === ctx.seams ? ctx : { ...ctx, seams: seamsForChild },
       )
-      return deliverable ? gateOnDeliverable(built, deliverable) : built
+      return built
     }
     const spec: AgentSpec = {
       profile,

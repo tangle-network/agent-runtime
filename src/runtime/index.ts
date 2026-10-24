@@ -465,7 +465,14 @@ export * from './supervise/chat-transport-executor'
 export type { CheckVerdict } from './supervise/completion-gate'
 // The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
 // settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
-export * from './supervise/completion-gate'
+export {
+  CheckUnavailableError,
+  type DeliverableSpec,
+  type ExecutorResultMapping,
+  gateOnDeliverable,
+  mapExecutorResult,
+  verdictFromJudgeScore,
+} from './supervise/completion-gate'
 export {
   admitContinuationPolicy,
   type ContinuationAppend,

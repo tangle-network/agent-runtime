@@ -76,6 +76,7 @@ Configure `recoverExecutor` for retained provider children when using the lower-
 An expired run still reconciles its committed records and reaches deadline settlement.
 Recovery does not grant more execution time.
 The built-in nonsteering provider path in `supervise` supplies recovery for children, nested managers, and the root manager invocation.
+Recovered built-in workers retain their completion checks; new retained results persist the checked verdict before their result record is committed. Historical results without a verdict remain unchecked.
 Live descendants regain their original reservations before the parent resumes, without waiting for their terminal results.
 Recovery uses original durable inputs and exact provider references; missing proof leaves the invocation unresolved.
 The file run lock supports one local coordinator and generation-fenced durable writes.
