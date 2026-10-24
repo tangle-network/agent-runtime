@@ -7,13 +7,13 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
-  writeFileSync,
 } from 'node:fs'
 import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { FileSpawnJournal, loadSpawnForest, type SpawnEvent } from '../../../src/runtime'
+import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-file'
 import {
   type Configuration,
   durableBytes,
@@ -147,7 +147,7 @@ export class ProcessFixture {
       resolver: this.executables.credential,
     }
     const configPath = join(this.directory, 'coordinator-config.json')
-    writeFileSync(configPath, JSON.stringify(config))
+    writeAtomicDurableFile(configPath, JSON.stringify(config))
     this.coordinator = this.launch(
       this.executables.coordinator,
       [configPath],
@@ -162,7 +162,7 @@ export class ProcessFixture {
     await child.closed
   }
   credentialMode(refuse: boolean, refuseAfter?: number): void {
-    writeFileSync(
+    writeAtomicDurableFile(
       join(this.directory, 'credential-mode.json'),
       JSON.stringify({ refuse, refuseAfter }),
     )
