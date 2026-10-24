@@ -129,7 +129,7 @@ A credential command (`acct sandbox resolve`) that exits non-zero before any dis
 A permanent unsupported credential-route refusal (`model_credential_refused`) before dispatch
 ends the driver after one attempt; after admission it does not settle the execution.
 A dispatch that Sandbox did not admit, because another execution owns the session or turn, was refused before it ran, and stops the driver with that refusal named; with `driverRetry.pauseRootStops` the root pauses on it instead (below).
-Post-admission uncertainty still requires reconciliation; a manager turn that fails it the same way twice is abandoned with its outcome journaled, and the driver continues in a new invocation.
+Post-admission uncertainty still requires reconciliation. Repeated failures permit abandonment only after the exact native execution is confirmed `cancelled` or `not_live`; an intent without a dispatched reference or an unconfirmed stop retains its original identity. A confirmed abandonment is journaled before a new invocation starts.
 Abandonments in a row without progress are bounded by `maxConsecutiveFailures`; once they are spent, the next invocation that fails reconciliation the same way twice ends the driver with `stop: 'pending-unresolved'` and its `pendingCause`, journaled on the `driver-attempt` record, so the owner reconciles the execution before re-driving the run.
 With `driverRetry.pauseRootStops`, an opted-in root pauses on that stop instead and the run stays open until a cancel.
 An abort error that neither the run's signal nor the manager's own stop issued is a lost stream: it is retried under the outage window and the failure bounds, for every caller.
