@@ -580,6 +580,24 @@ describe('accepted native recovery and historical identities', () => {
       // The original native execution stays held until its replacement owner has restored
       // coordination authority and actually rejoined that exact child execution.
       await fixture.control({ finish: true })
+      await fixture.wait('recovered child native result and settlement committed', async () => {
+        const events = await fixture.events()
+        return (
+          events.some(
+            (event) =>
+              event.kind === 'settled' && event.id === `${rootId}:s0` && event.status === 'done',
+          ) &&
+          events.some((event) => event.kind === 'execution-result' && event.id === `${rootId}:s0`)
+        )
+      })
+      const recovered = (await fixture.events()).filter(
+        (event) =>
+          (event.kind === 'execution-result' || event.kind === 'settled') &&
+          event.id === `${rootId}:s0`,
+      )
+      for (const event of recovered) {
+        expect(event.verdict?.valid, 'recovered leaf must preserve its delivery verdict').toBe(true)
+      }
       await fixture.wait('pursuit settled through existing finalizer', async () =>
         fixture.outcomes().some((row) => row.kind === 'settled'),
       )
