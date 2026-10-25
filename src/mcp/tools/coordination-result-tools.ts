@@ -35,7 +35,7 @@ export function createResultTools(env: ResultToolsEnv): McpToolDescriptor[] {
   return [
     ...(deliverable ? [submitResultTool(env, deliverable)] : []),
     // A manager with a check ends only when the check passes or when a bound ends the run.
-    // Measured before this rule (2026-09-24): 389 of 650
+    // Measured before this rule: 389 of 650
     // lead directors could call `stop`, which ended the run with no check and no second chance.
     ...(deliverable ? [] : [stopTool(env)]),
     ...(opts.readContinuation ? [readContinuationTool(opts)] : []),

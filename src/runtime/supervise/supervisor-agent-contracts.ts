@@ -270,7 +270,7 @@ export interface SupervisorAgentDeps {
    *  Required with `deliverable` on the external arm, refused without one, and refused for a
    *  router-brained supervisor, which runs its own turn loop in process. The harness owns its own
    *  turn loop, so it can end while the run has delivered nothing — 376 of 376 winning
-   *  discovery-lab runs (2026-09-01) ended on the driver's own completion. A continuation reuses the
+   *  discovery-lab runs ended on the driver's own completion. A continuation reuses the
    *  retry path: same scope, same coordination server, same live children, same bounds. */
   readonly continuation?: ContinuationPolicy
   /** Where this manager's continuation files go (`<dir>/<n>/note.md`, `verdict.json`,

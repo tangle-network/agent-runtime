@@ -159,8 +159,7 @@ const DETERMINISTIC_BRIDGE_CODES: ReadonlySet<string> = new Set([
  *
  * A provider executor reports a failed turn as a returned outcome, not a thrown error, so without
  * this error a failed turn reads as a completed drive and never reaches the retry decision.
- * Measured 2026-09-17 on a Discovery director placed on tangle-sandbox with the opencode harness:
- * a 53-minute turn ended `status code 524`, and another ended `Invalid API key` after a platform
+ * A 53-minute turn ended `status code 524`, and another ended `Invalid API key` after a platform
  * key expired mid-turn. A new turn succeeds in both cases.
  *
  * `errorCode` is the provider's machine code when it reported one. The classifier reads the code
@@ -441,7 +440,7 @@ function retainedAdmissionCause(error: unknown): Error | undefined {
  *
  * A provider SDK throws its own error classes, so an environment `create` that the platform
  * refused arrives here as neither a `BackendTransportError` nor an `AgentEvalError`, and the
- * default sends it to `transient`. Measured 2026-09-16: a Tangle Sandbox create refused
+ * default sends it to `transient`. A Tangle Sandbox create refused
  * `HTTP 400 {"code":"CONFIG_ERROR"}` for a key whose budget was fully reserved retried 14-22
  * times per node while the run showed a durable intent and no other event, so eleven of twelve
  * roots sat for 25 minutes with nothing to diagnose. The status was on the error the whole time.
@@ -519,7 +518,7 @@ export interface DriverLoopRecord {
   readonly unavailablePauses: number
   /** Infrastructure time the unavailable upstream cost this loop: every pause, plus every refused
    *  drive that made no progress. A refused drive that made progress was mostly work, so only its
-   *  pause counts. Measured 2026-09-24 on a real run: a first drive worked 8 minutes before its
+   *  pause counts. A first drive worked 8 minutes before its
    *  refusal, and counting its whole duration doubled a 10-minute outage to 16 minutes. */
   readonly unavailableMs: number
   /** Re-entered drives, in a row at the end, that completed without a delivery. */

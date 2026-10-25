@@ -68,7 +68,7 @@ The work is ordered to prove the two-agent atom before adding scale.
   pre-dispatch environment record.
 - Add a durable provider-command outbox with coordinator generation and command sequence.
 - Rebuild budget reservations and interaction state on restart.
-- Adapt delegation status onto the shared internal record. `ConversationJournal` was deleted (2026-10-06, #1585); `SpawnJournal` is the record.
+- Adapt delegation status onto the shared internal record. `ConversationJournal` was deleted (#1585); `SpawnJournal` is the record.
 - Preserve separate public adapters only where compatibility requires them.
 
 **Complete when:**

@@ -124,7 +124,7 @@ async function persistTraceRoot(
     built = await traceRootArtifact(nodeId, outRef, events)
   } catch (error) {
     // An event with no canonical JSON form (an unpaired surrogate) leaves the output unproven;
-    // it never fails the turn that produced it. Measured 2026-10-15: 0 of 366 archives.
+    // it never fails the turn that produced it. 0 of 366 archives.
     if (error instanceof LedgerCanonicalizationError) return undefined
     throw error
   }

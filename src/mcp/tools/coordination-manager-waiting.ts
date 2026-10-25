@@ -15,7 +15,7 @@ import type { createSettlementDrain } from './coordination-settlement-drain'
 import type { createWorkerObservation } from './coordination-worker-observation'
 
 // A manager with nothing to do ends its turn, and Runtime waits for it. A bounded poll spent 18 of
-// 88 model turns on waiting alone (two Discovery roots, 2026-10-05); this wait blocks on the bus
+// 88 model turns on waiting alone (two Discovery roots); this wait blocks on the bus
 // and spends no model turn.
 
 type WaitingEnv = {

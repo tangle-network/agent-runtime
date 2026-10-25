@@ -3,7 +3,7 @@
  *
  * A manager with nothing to do until its workers report back used to stay in its turn and call a
  * bounded wait tool again and again. Every call that came back empty was a full model turn that
- * re-read the whole cached context. Measured 2026-10-05 on two Discovery roots: 18 of 88 model
+ * re-read the whole cached context. 18 of 88 model
  * turns did nothing but wait.
  *
  * Now ending a turn is waiting, not completion. Only an accepted `submit_result`, or a turn that

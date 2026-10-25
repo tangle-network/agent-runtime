@@ -146,7 +146,7 @@ async function* streamCliLeaf(args: StreamCliArgs): AsyncIterable<UsageEvent> {
   // A child that exits, or closes its stdin, before reading the task leaves this write against a
   // pipe with no reader, and the kernel answers with EPIPE. Node raises that as an `'error'` on
   // the stream, and a Writable with no listener turns it into an uncaught exception: one took down
-  // a full serialized kernel run on 2026-09-11 after every test in it had passed. A closed read end
+  // a full serialized kernel run after every test in it had passed. A closed read end
   // is not this leaf's failure — the child's exit code, read below, is the verdict. Any other
   // delivery error is, and fails the leaf once the process has been reaped.
   let deliveryError: Error | undefined

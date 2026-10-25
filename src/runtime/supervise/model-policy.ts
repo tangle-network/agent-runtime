@@ -100,7 +100,7 @@ export function assertExecutableAgentProfile(profile: AgentProfile, context: str
  * Separate completion ceilings an exact profile may request.
  *
  * They are distinct because providers do not share one meaning for a single number: measured
- * through the Tangle Router on 2026-08-10, `glm-5.2` accepted `max_tokens: 8` and still billed 135
+ * through the Tangle Router, `glm-5.2` accepted `max_tokens: 8` and still billed 135
  * completion tokens — 132 reasoning, 3 visible — while `max_completion_tokens: 256` bounded the
  * total. A path that cannot enforce a requested ceiling refuses the run instead of sending a
  * number that means something else there.

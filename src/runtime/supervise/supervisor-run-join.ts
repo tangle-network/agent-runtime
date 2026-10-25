@@ -52,7 +52,7 @@ export async function joinRunChildren(
   await settleManagerWork(scope)
   // A retained-pending child kept its environment so a resuming process could reconcile the paid
   // execution. When the run will not be resumed nothing would: four settled `no-winner` runs held 18
-  // of a 60-slot fleet for 19 to 37 hours (2026-09-11). The caller knows whether a later process
+  // of a 60-slot fleet for 19 to 37 hours. The caller knows whether a later process
   // resumes, so the policy decides; the unconfirmed set is re-read so released nodes drop out.
   if (!persistence.failed && join.retainedAtSettlement === 'release') {
     join.teardownUnconfirmed = await releaseRetainedEnvironments(scope)
@@ -83,7 +83,7 @@ export async function joinRunChildren(
 
 /**
  * A first teardown that failed or answered late is not the provider's last word, and a run that
- * settles over it leaves the sandbox running: measured 2026-09-20, cancelling 20 Discovery lanes
+ * settles over it leaves the sandbox running: cancelling 20 Discovery lanes
  * left 2 workers running. Ask again until confirmed or out of time.
  */
 async function confirmRetriableTeardowns(join: RunJoin, releasing: boolean): Promise<void> {

@@ -912,7 +912,7 @@ function errorMessage(error: unknown): string {
             : 'opencode reported an error'
     // opencode reports a provider's HTTP refusal with its status and a prose message; the router's
     // own code does not survive into that message ("Inference temporarily unavailable" for a
-    // refused flash on 2026-09-24). The status, in the `status code <n>` framing, is what tells a
+    // refused flash). The status, in the `status code <n>` framing, is what tells a
     // capacity refusal (429, 503, 529) from a wrong request.
     const status = data?.statusCode
     return typeof status === 'number' && Number.isSafeInteger(status)

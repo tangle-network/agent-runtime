@@ -134,7 +134,7 @@ export interface DriverAgentOptions {
    *  into it), an absolute deadline, the driver's own stop, and abort, all checked before each
    *  turn. Without a deadline, a manager stops once it has overdrawn its pool by the pool's size
    *  again, and a brain that reports no usage keeps a 16-turn bound unless a dollar cap applies. A manager awaits one settlement per turn, so the old default of 16 ended any manager
-   *  with more than about 14 workers and tore its unfinished workers down: measured 2026-09-25 on
+   *  with more than about 14 workers and tore its unfinished workers down: on
    *  a 1 + 20 + 400 tree, 124 of 420 agents settled `down` at 16 and none at 0. */
   readonly maxTurns?: number
   /** Injected clock for the in-loop absolute-deadline guard — keeps the deadline check

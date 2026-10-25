@@ -158,7 +158,7 @@ export async function finalizeSettlement<Out>(
     // A retained-pending node keeps its cursor slot open for recovery, so it carries no terminal
     // record yet — but its reservation WAS reconciled, and a journal that says nothing about that
     // leaves every reader (terminal accounting, a restored pool, the tree view) charging the
-    // ceiling the pool refunded: measured 2026-09-11, the reported `childWork` carried 4M per
+    // ceiling the pool refunded: the reported `childWork` carried 4M per
     // retained child against a metered 10 (#1190). The floor is journaled in the settlement's
     // place, outside the cursor namespace, so the slot stays open and the ledgers agree. The
     // slot closes in exactly three ways: a resume recovers the execution and settles it on the

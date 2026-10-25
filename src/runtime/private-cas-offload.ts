@@ -31,8 +31,8 @@ const SHARD = /^[0-9a-f]{2}$/u
 // one at a time ran at 2 objects/s on drew-gtr-pro's USB drive (a 3,563-object run took 30 min).
 const OFFLOAD_COPIES_AT_ONCE = 16
 // Shards a full pass lists at once. Listed one object at a time, the first pass of a retire pass's
-// owner export over a run of 13,240 objects on drew-gtr-pro's USB disk took 56 s from a cold cache
-// (2026-10-20), and every put of that export waited for it.
+// owner export over a run of 13,240 objects on drew-gtr-pro's USB disk took 56 s from a cold cache,
+// and every put of that export waited for it.
 const LIST_SHARDS_AT_ONCE = 16
 
 interface LocalObject {
@@ -109,7 +109,7 @@ export class PrivateCasOffload {
   // What the last full pass left on this host. A put that makes its own object durable, after a
   // pass that left nothing pending, stays inside the budget without another pass: a pass reads
   // every object and its receipt, so a pass per put made capture quadratic on a host that keeps
-  // its objects (drew-gtr-pro wrote 3 objects a minute into a run holding 1,228, 2026-10-18).
+  // its objects (drew-gtr-pro wrote 3 objects a minute into a run holding 1,228).
   private lastPass: { localBytes: number; pending: number } | undefined
   // Every object on this host and its size, as the last full pass found them plus what puts linked
   // since, so a pass that reads only the undurable objects still reports exact totals.
@@ -484,7 +484,7 @@ export interface DurableCopier {
  * that finds its digest in flight waits for that copy, then reads the receipt. Copying it again
  * doubles the upload and, for a buffered store, the archive in memory. Reporting it pending
  * failed captures: a capture refuses on any pending object, so two captures sharing one store
- * refused each other (discovery-lab provider-retention, agent-runtime 0.325.6, 2026-10-18).
+ * refused each other (discovery-lab provider-retention, agent-runtime 0.325.6).
  * A copy never waits for a pass, so a pass may wait for a copy.
  */
 export function createDurableCopier(layout: PrivateCasLayout): DurableCopier {

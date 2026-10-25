@@ -96,11 +96,11 @@ export function mapSandboxToolEvent(
     return projectToolPart(part, state, typeof event.id === 'string' ? event.id : undefined)
   }
   // Codex reports a tool only as an `item.*` event inside a `raw` event, never as a tool part.
-  // Measured 2026-10-15: 83 of 83 archived codex turns held 3,320 tool items and projected none.
+  // 83 of 83 archived codex turns held 3,320 tool items and projected none.
   if (type === 'raw') return projectCodexItem(data, state)
   // `tool-heartbeat` and `tool-slow` report that a call is STILL RUNNING. They carry the call's
   // `partId`, not a call id, so projecting them as calls recorded a new `tool_call` every 5 s of
-  // every long call: measured 2026-10-05, 432 of a root's 448 recorded `await_event` calls were
+  // every long call: 432 of a root's 448 recorded `await_event` calls were
   // heartbeats of 16 real ones.
   if (CANONICAL_STREAM_EVENT_TYPES.has(type)) return []
 
