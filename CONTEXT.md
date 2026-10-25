@@ -1,5 +1,9 @@
 # Portable workspace composition
 
+**Observed graph.** A topology imported from normalized execution evidence into the graph registry. Unknown directives and budgets stay absent, and an observed graph cannot authorize executable replay.
+
+**Topology digest.** The content digest of canonical ordered node adjacency, independent of source session identities, timestamps, token counts, and profile choices. It groups exact ordered shapes and does not claim graph-isomorphism canonicalization.
+
 **Workspace references.** `AgentCandidateWorkspaceSnapshotReferences` is the existing canonical candidate workspace evidence projected to manifest and archive references, without manifest material or embedded bytes. The manifest identifies file bytes and modes; the archive also identifies Git HEAD and staged state.
 
 **Transfer source binding.** The SDK owns the public source lease, allocation and capture policy identities, and commits complete workspace references in the accepted destination. Runtime's byte-level composition receives canonical references after that boundary has validated acceptance and provenance.

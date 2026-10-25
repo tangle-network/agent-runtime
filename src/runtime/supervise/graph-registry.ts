@@ -36,39 +36,94 @@ import { ValidationError } from '../../errors'
 import { writeAtomicDurableFile } from './durable-file'
 import type { AgentGraph, GraphEdge } from './graph'
 
-/** A graph as stored: every axis serializable; the check re-bound at replay. */
-export interface StoredGraph {
+/** @inline */
+interface StoredGraphContent {
   readonly digest: string
   readonly nodes: ReadonlyArray<{ readonly id: string; readonly profile: AgentProfile }>
-  readonly edges: ReadonlyArray<GraphEdge>
-  readonly budget: AgentGraph['budget']
   readonly deliverable: { readonly describe?: string; readonly checkRef?: string }
   /** A flow graph's entry and gates; absent for any other graph. */
   readonly entry?: AgentGraph['entry']
   readonly gates?: AgentGraph['gates']
 }
 
-/** One completed run of one graph, for one task shape. */
+/** A graph as stored. Observed imports retain unknown directives and budgets;
+ * they describe what happened and cannot be replayed as executable graphs. */
+export type StoredGraph = StoredGraphContent &
+  (
+    | {
+        readonly observed?: false
+        readonly edges: ReadonlyArray<GraphEdge>
+        readonly budget: AgentGraph['budget']
+      }
+    | {
+        readonly observed: true
+        readonly edges: ReadonlyArray<
+          | GraphEdge
+          | {
+              readonly kind: 'delegates'
+              readonly from: string
+              readonly to: string
+            }
+        >
+        readonly budget?: AgentGraph['budget']
+      }
+  )
+
+/** One run or an explicitly incomplete observation of a graph, for one task shape. */
 export interface GraphRunRecord {
   /** Content-address of the exact graph that ran. */
   readonly graphDigest: string
   /** Digest of the normalized task shape the designer computed for lookup. */
   readonly taskDigest: string
   readonly startedAt: string
-  readonly finishedAt: string
+  /** Absent while running or when completion was not established. */
+  readonly finishedAt?: string
   readonly outcome:
     | { readonly kind: 'delivered'; readonly summary?: string }
     | { readonly kind: 'no-winner'; readonly reason?: string }
+    | { readonly kind: 'unknown' | 'running'; readonly reason: string }
   /** Cost from the run's terminal accounting. Unknown channels omitted. */
   readonly cost: {
     readonly iterations?: number
     readonly tokens?: number
     readonly usd?: number
     readonly ms?: number
+    readonly inputTokens?: number
+    readonly outputTokens?: number
+    readonly humanMessages?: number
+    readonly leadMessages?: number
+    /** Elapsed wall time from the task start to an independently verified merge. */
+    readonly mergeMs?: number
   }
   /** Ledger size + exhausted edges: the trace's shape, for the designer's read. */
   readonly traversals: number
   readonly exhaustedEdges?: ReadonlyArray<string>
+  /** Explicit source metadata, never classified from transcript or PR prose. */
+  readonly taskType?: 'feature' | 'bugfix' | 'consolidation' | 'investigation' | 'ops'
+  /** Stable run identity; re-ingesting this source replaces its observation. */
+  readonly source?: { readonly kind: string; readonly id: string; readonly url?: string }
+  readonly observedAt?: string
+  /** Canonical ordered adjacency. This is not a graph-isomorphism claim. */
+  readonly topologyDigest?: string
+  readonly evidence?: ReadonlyArray<{
+    readonly kind: string
+    readonly url: string
+    readonly at?: string
+  }>
+  readonly nodeUsage?: ReadonlyArray<{
+    readonly nodeId: string
+    readonly sourceId?: string
+    readonly startedAt?: string
+    /** Latest recorded activity, not a claim that the node finished. */
+    readonly lastRecordAt?: string
+    readonly finishedAt?: string
+    readonly inputTokens?: number
+    readonly outputTokens?: number
+    readonly humanMessages?: number
+    readonly leadMessages?: number
+  }>
+  /** Missing or partial evidence, including incomplete accounting channels. */
+  readonly unknowns?: ReadonlyArray<string>
 }
 
 export interface GraphRegistryDir {
@@ -110,7 +165,7 @@ export function digestOfGraph(graph: AgentGraph): string {
 }
 
 function storeGraph(graph: AgentGraph): StoredGraph {
-  const content: Omit<StoredGraph, 'digest'> = {
+  const content = {
     nodes: graph.nodes,
     edges: graph.edges,
     budget: graph.budget,
@@ -128,14 +183,37 @@ function assertRecord(record: GraphRunRecord): void {
     throw new ValidationError('graph-registry: record.graphDigest is required')
   if (typeof record.taskDigest !== 'string' || record.taskDigest.length === 0)
     throw new ValidationError('graph-registry: record.taskDigest is required')
-  if (record.outcome.kind !== 'delivered' && record.outcome.kind !== 'no-winner')
-    throw new ValidationError(
-      "graph-registry: record.outcome.kind must be 'delivered' | 'no-winner'",
-    )
+  if (!Number.isFinite(Date.parse(record.startedAt)))
+    throw new ValidationError('graph-registry: record.startedAt must be a timestamp')
+  if (!['delivered', 'no-winner', 'unknown', 'running'].includes(record.outcome.kind))
+    throw new ValidationError('graph-registry: invalid record.outcome.kind')
+  if (
+    (record.outcome.kind === 'delivered' || record.outcome.kind === 'no-winner') &&
+    (!record.finishedAt || !Number.isFinite(Date.parse(record.finishedAt)))
+  )
+    throw new ValidationError('graph-registry: terminal outcomes require record.finishedAt')
+  if (
+    (record.outcome.kind === 'unknown' || record.outcome.kind === 'running') &&
+    !record.outcome.reason
+  )
+    throw new ValidationError('graph-registry: incomplete outcomes require a reason')
+  if (record.source && (!record.source.kind || !record.source.id))
+    throw new ValidationError('graph-registry: source.kind and source.id are required')
+  if (
+    record.finishedAt &&
+    (!Number.isFinite(Date.parse(record.finishedAt)) ||
+      Date.parse(record.finishedAt) < Date.parse(record.startedAt))
+  )
+    throw new ValidationError('graph-registry: finishedAt precedes startedAt or is invalid')
+  for (const [channel, value] of Object.entries(record.cost)) {
+    if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value < 0))
+      throw new ValidationError(`graph-registry: invalid cost.${channel}`)
+  }
 }
 
 function recordKey(record: GraphRunRecord): string {
   assertRecord(record)
+  if (record.source) return JSON.stringify(['source', record.source.kind, record.source.id])
   return JSON.stringify([record.taskDigest, record.graphDigest, record.startedAt])
 }
 
@@ -155,8 +233,21 @@ export async function recordGraphRun(
   graph: AgentGraph,
   record: GraphRunRecord,
 ): Promise<StoredGraph> {
-  assertRecord(record)
   const stored = storeGraph(graph)
+  return recordStoredGraphRun(reg, stored, record)
+}
+
+/** Store an executable graph or an observed external topology in the same registry.
+ * Imported observations retain their source identity and never authorize replay. */
+export async function recordStoredGraphRun(
+  reg: GraphRegistryDir,
+  stored: StoredGraph,
+  record: GraphRunRecord,
+): Promise<StoredGraph> {
+  assertRecord(record)
+  const { digest, ...content } = stored
+  if (graphDigest(content) !== digest)
+    throw new ValidationError('graph-registry: stored graph content does not match its digest')
   if (stored.digest !== record.graphDigest) {
     throw new ValidationError(
       `graph-registry: record.graphDigest ${record.graphDigest} does not match the supplied graph (${stored.digest}) — record the graph that actually ran`,
@@ -201,7 +292,7 @@ export function pickBestGraph(records: ReadonlyArray<GraphRunRecord>): GraphRunR
     const aIter = a.cost.iterations ?? Number.POSITIVE_INFINITY
     const bIter = b.cost.iterations ?? Number.POSITIVE_INFINITY
     if (aIter !== bIter) return aIter < bIter ? a : b
-    return a.finishedAt >= b.finishedAt ? a : b
+    return a.finishedAt! >= b.finishedAt! ? a : b
   }
   return delivered.reduce((best, row) => (better(best, row) === best ? best : row))
 }
@@ -227,7 +318,17 @@ export async function lookupGraph(
   taskDigest: string,
 ): Promise<GraphSelection> {
   const records = await graphRunsFor(reg, taskDigest)
-  const best = pickBestGraph(records)
+  const candidates: GraphRunRecord[] = []
+  for (const record of records) {
+    const graph = await loadGraph(reg, record.graphDigest)
+    if (!graph?.observed) candidates.push(record)
+  }
+  if (records.length && !candidates.length)
+    return {
+      kind: 'author',
+      reason: 'only observed topologies are available; author an executable graph',
+    }
+  const best = pickBestGraph(candidates)
   if (best) {
     const graph = await loadGraph(reg, best.graphDigest)
     if (graph) return { kind: 'replay', graph, record: best }
@@ -251,6 +352,8 @@ export function graphFromStored(
   stored: StoredGraph,
   check: AgentGraph['deliverable']['check'],
 ): AgentGraph {
+  if (stored.observed)
+    throw new ValidationError('graphFromStored: observed topology cannot be replayed')
   return {
     nodes: stored.nodes,
     edges: stored.edges,
