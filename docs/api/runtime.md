@@ -21201,55 +21201,9 @@ What a finalizer gets to decide with. `delivered` is the ONLY output material; `
 
 ***
 
-### StoredGraph
-
-A graph as stored: every axis serializable; the check re-bound at replay.
-
-#### Properties
-
-##### digest
-
-> `readonly` **digest**: `string`
-
-##### nodes
-
-> `readonly` **nodes**: readonly `object`[]
-
-##### edges
-
-> `readonly` **edges**: readonly [`GraphEdge`](#graphedge)[]
-
-##### budget
-
-> `readonly` **budget**: [`Budget`](#budget-10)
-
-##### deliverable
-
-> `readonly` **deliverable**: `object`
-
-###### describe?
-
-> `readonly` `optional` **describe?**: `string`
-
-###### checkRef?
-
-> `readonly` `optional` **checkRef?**: `string`
-
-##### entry?
-
-> `readonly` `optional` **entry?**: readonly `object`[]
-
-A flow graph's entry and gates; absent for any other graph.
-
-##### gates?
-
-> `readonly` `optional` **gates?**: readonly [`RouteGate`](#routegate)[]
-
-***
-
 ### GraphRunRecord
 
-One completed run of one graph, for one task shape.
+One run or an explicitly incomplete observation of a graph, for one task shape.
 
 #### Properties
 
@@ -21269,19 +21223,21 @@ Digest of the normalized task shape the designer computed for lookup.
 
 > `readonly` **startedAt**: `string`
 
-##### finishedAt
+##### finishedAt?
 
-> `readonly` **finishedAt**: `string`
+> `readonly` `optional` **finishedAt?**: `string`
+
+Absent while running or when completion was not established.
 
 ##### outcome
 
-> `readonly` **outcome**: \{ `kind`: `"delivered"`; `summary?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason?`: `string`; \}
+> `readonly` **outcome**: \{ `kind`: `"delivered"`; `summary?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason?`: `string`; \} \| \{ `kind`: `"unknown"` \| `"running"`; `reason`: `string`; \}
 
 ##### cost
 
 > `readonly` **cost**: `object`
 
-Cost from the run's terminal accounting. Unknown channels omitted.
+Measured accounting; running observations are to date. Unknown channels omitted.
 
 ###### iterations?
 
@@ -21299,15 +21255,91 @@ Cost from the run's terminal accounting. Unknown channels omitted.
 
 > `readonly` `optional` **ms?**: `number`
 
-##### traversals
+###### inputTokens?
 
-> `readonly` **traversals**: `number`
+> `readonly` `optional` **inputTokens?**: `number`
 
-Ledger size + exhausted edges: the trace's shape, for the designer's read.
+###### outputTokens?
+
+> `readonly` `optional` **outputTokens?**: `number`
+
+###### humanMessages?
+
+> `readonly` `optional` **humanMessages?**: `number`
+
+###### leadMessages?
+
+> `readonly` `optional` **leadMessages?**: `number`
+
+###### mergeMs?
+
+> `readonly` `optional` **mergeMs?**: `number`
+
+Elapsed wall time from the task start to an independently verified merge.
+
+##### traversals?
+
+> `readonly` `optional` **traversals?**: `number`
+
+Metered ledger size, absent when a source exposes relationships without traversals.
 
 ##### exhaustedEdges?
 
 > `readonly` `optional` **exhaustedEdges?**: readonly `string`[]
+
+##### taskType?
+
+> `readonly` `optional` **taskType?**: `"feature"` \| `"bugfix"` \| `"consolidation"` \| `"investigation"` \| `"ops"`
+
+Explicit source metadata, never classified from transcript or PR prose.
+
+##### source?
+
+> `readonly` `optional` **source?**: `object`
+
+Stable run identity; re-ingesting this source replaces its observation.
+
+###### kind
+
+> `readonly` **kind**: `string`
+
+###### id
+
+> `readonly` **id**: `string`
+
+###### url?
+
+> `readonly` `optional` **url?**: `string`
+
+##### observedAt?
+
+> `readonly` `optional` **observedAt?**: `string`
+
+##### traceRunId?
+
+> `readonly` `optional` **traceRunId?**: `string`
+
+Link to the canonical trace run; execution trees remain trace-owned.
+
+##### topologyDigest?
+
+> `readonly` `optional` **topologyDigest?**: `string`
+
+Canonical ordered adjacency. This is not a graph-isomorphism claim.
+
+##### evidence?
+
+> `readonly` `optional` **evidence?**: readonly `object`[]
+
+##### nodeUsage?
+
+> `readonly` `optional` **nodeUsage?**: readonly `object`[]
+
+##### unknowns?
+
+> `readonly` `optional` **unknowns?**: readonly `string`[]
+
+Missing or partial evidence, including incomplete accounting channels.
 
 ***
 
@@ -21318,6 +21350,377 @@ Ledger size + exhausted edges: the trace's shape, for the designer's read.
 ##### root
 
 > `readonly` **root**: `string`
+
+***
+
+### GraphRunQuery
+
+Filters over the existing graph run records. Missing source kind is native.
+
+#### Properties
+
+##### taskDigest?
+
+> `readonly` `optional` **taskDigest?**: `string`
+
+##### taskType?
+
+> `readonly` `optional` **taskType?**: `"unknown"` \| `"feature"` \| `"bugfix"` \| `"consolidation"` \| `"investigation"` \| `"ops"`
+
+##### topologyDigest?
+
+> `readonly` `optional` **topologyDigest?**: `string`
+
+##### sourceKind?
+
+> `readonly` `optional` **sourceKind?**: `string`
+
+***
+
+### GraphCorpusGroup
+
+Descriptive task-type/topology measurements, with every population explicit.
+Unknown and running runs never enter the assessed denominator or medians.
+
+#### Properties
+
+##### taskType
+
+> `readonly` **taskType**: `"unknown"` \| `NonNullable`\<`"feature"` \| `"bugfix"` \| `"consolidation"` \| `"investigation"` \| `"ops"` \| `undefined`\>
+
+##### topologyDigest
+
+> `readonly` **topologyDigest**: `string`
+
+##### delivered
+
+> `readonly` **delivered**: `number`
+
+##### assessed
+
+> `readonly` **assessed**: `number`
+
+##### unknown
+
+> `readonly` **unknown**: `number`
+
+##### deliveredRate
+
+> `readonly` **deliveredRate**: `number` \| `null`
+
+##### medianWallMs
+
+> `readonly` **medianWallMs**: `number` \| `null`
+
+##### wallMsCount
+
+> `readonly` **wallMsCount**: `number`
+
+##### medianMergeMs
+
+> `readonly` **medianMergeMs**: `number` \| `null`
+
+##### mergeMsCount
+
+> `readonly` **mergeMsCount**: `number`
+
+##### medianTokens
+
+> `readonly` **medianTokens**: `number` \| `null`
+
+##### tokenCount
+
+> `readonly` **tokenCount**: `number`
+
+##### medianHumanMessages
+
+> `readonly` **medianHumanMessages**: `number` \| `null`
+
+##### humanMessageCount
+
+> `readonly` **humanMessageCount**: `number`
+
+##### runs
+
+> `readonly` **runs**: readonly [`GraphRunRecord`](#graphrunrecord)[]
+
+***
+
+### GraphCorpusSummary
+
+The registry's observational view. It neither authorizes replay nor proves a causal win.
+
+#### Properties
+
+##### recordCount
+
+> `readonly` **recordCount**: `number`
+
+##### groups
+
+> `readonly` **groups**: readonly [`GraphCorpusGroup`](#graphcorpusgroup)[]
+
+***
+
+### ObservedSessionFacts
+
+Structural projection of traces' SessionFacts. The trace reader owns all
+measurements; this adapter neither parses transcripts nor recounts tokens.
+
+#### Properties
+
+##### sessionId
+
+> `readonly` **sessionId**: `string` \| `null`
+
+##### traceId?
+
+> `readonly` `optional` **traceId?**: `string`
+
+##### rootSpanId?
+
+> `readonly` `optional` **rootSpanId?**: `object`
+
+###### value
+
+> `readonly` **value**: `string` \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string` \| `null`
+
+###### partial?
+
+> `readonly` `optional` **partial?**: `string`
+
+##### parentSessionId
+
+> `readonly` **parentSessionId**: `string` \| `null`
+
+##### harness
+
+> `readonly` **harness**: `string` \| `null`
+
+##### firstRecordAt
+
+> `readonly` **firstRecordAt**: `object`
+
+###### value
+
+> `readonly` **value**: `string` \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string` \| `null`
+
+###### partial?
+
+> `readonly` `optional` **partial?**: `string`
+
+##### lastRecordAt
+
+> `readonly` **lastRecordAt**: `object`
+
+###### value
+
+> `readonly` **value**: `string` \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string` \| `null`
+
+###### partial?
+
+> `readonly` `optional` **partial?**: `string`
+
+##### tokens
+
+> `readonly` **tokens**: `object`
+
+###### input
+
+> `readonly` **input**: `number` \| `null`
+
+###### output
+
+> `readonly` **output**: `number` \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string` \| `null`
+
+##### humanTurns
+
+> `readonly` **humanTurns**: `object`
+
+###### value
+
+> `readonly` **value**: readonly `unknown`[] \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string` \| `null`
+
+###### partial?
+
+> `readonly` `optional` **partial?**: `string`
+
+##### typedTurnCounts?
+
+> `readonly` `optional` **typedTurnCounts?**: `object`
+
+Exact pre-cap counts from the trace owner's sender classification.
+
+###### value
+
+> `readonly` **value**: readonly `object`[] \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string` \| `null`
+
+###### partial?
+
+> `readonly` `optional` **partial?**: `string`
+
+##### unreadRecords?
+
+> `readonly` `optional` **unreadRecords?**: `object`
+
+Actual unread source records, counted only by the trace reader.
+
+###### value
+
+> `readonly` **value**: `number` \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string` \| `null`
+
+###### partial?
+
+> `readonly` `optional` **partial?**: `string`
+
+##### leadMessages?
+
+> `readonly` `optional` **leadMessages?**: `object`
+
+Only an authoritative sender-role join can establish who led the work.
+
+###### value
+
+> `readonly` **value**: `number` \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string` \| `null`
+
+###### partial?
+
+> `readonly` `optional` **partial?**: `string`
+
+##### agent
+
+> `readonly` **agent**: `object`
+
+###### value
+
+> `readonly` **value**: \{ `profileName?`: `string`; `model?`: `string`; `harness?`: `string`; \} \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string` \| `null`
+
+###### partial?
+
+> `readonly` `optional` **partial?**: `string`
+
+***
+
+### GraphSessionObservationOptions
+
+Provenance and explicit labels for one imported run. spanRun is a structural
+projection of traces' existing SpanRunSnapshot, never a replacement run tree.
+
+#### Properties
+
+##### source
+
+> `readonly` **source**: `object`
+
+###### kind
+
+> `readonly` **kind**: `string`
+
+###### id
+
+> `readonly` **id**: `string`
+
+###### url?
+
+> `readonly` `optional` **url?**: `string`
+
+##### traceRunId?
+
+> `readonly` `optional` **traceRunId?**: `string`
+
+##### taskType?
+
+> `readonly` `optional` **taskType?**: `"feature"` \| `"bugfix"` \| `"consolidation"` \| `"investigation"` \| `"ops"`
+
+##### taskShape?
+
+> `readonly` `optional` **taskShape?**: `Record`\<`string`, `unknown`\>
+
+##### outcome?
+
+> `readonly` `optional` **outcome?**: \{ `kind`: `"delivered"`; `summary?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason?`: `string`; \} \| \{ `kind`: `"unknown"` \| `"running"`; `reason`: `string`; \}
+
+##### startedAt?
+
+> `readonly` `optional` **startedAt?**: `string`
+
+Authoritative task start; first trace activity alone does not establish it.
+
+##### finishedAt?
+
+> `readonly` `optional` **finishedAt?**: `string`
+
+##### observedAt?
+
+> `readonly` `optional` **observedAt?**: `string`
+
+##### evidence?
+
+> `readonly` `optional` **evidence?**: readonly `object`[]
+
+##### spanRun?
+
+> `readonly` `optional` **spanRun?**: `object`
+
+###### present
+
+> `readonly` **present**: `boolean`
+
+###### traceIds
+
+> `readonly` **traceIds**: readonly `string`[]
+
+###### orphanSpans
+
+> `readonly` **orphanSpans**: `number`
+
+###### nodes
+
+> `readonly` **nodes**: readonly `object`[]
+
+##### complete?
+
+> `readonly` `optional` **complete?**: `boolean`
+
+##### issues?
+
+> `readonly` `optional` **issues?**: readonly `unknown`[]
 
 ***
 
@@ -27076,9 +27479,9 @@ The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The
 
 When `driverBackend` is absent, whether an external-harness ROOT may default to running on
  `backend` (where workers run). `true` (default) keeps the convenience every direct caller has.
- A layer that gives `backend` a narrower meaning — `runGraph`, where it places WORKER nodes only
- — sets `false`, so an external root without an explicit `driverBackend` is refused before any
- compute rather than silently driven from the worker placement.
+ Rooted `runGraph` calls set `false`, so an external root needs an explicit `driverBackend`.
+ Flow graphs keep derivation for native child drivers; their root uses Runtime's deterministic
+ brain and makes no model call through this backend.
 
 ##### resolveSpawnProfile?
 
@@ -37306,6 +37709,47 @@ The finalization seam: ledger in, output (or `undefined` = nothing deliverable) 
 
 ***
 
+### StoredGraph
+
+> **StoredGraph** = `object` & \{ `observed?`: `false`; `edges`: `ReadonlyArray`\<[`GraphEdge`](#graphedge)\>; `budget`: [`AgentGraph`](#agentgraph)\[`"budget"`\]; \} \| \{ `observed`: `true`; `edges`: `ReadonlyArray`\<[`GraphEdge`](#graphedge) \| \{ `from`: `string`; `to`: `string`; \}\>; `budget?`: [`AgentGraph`](#agentgraph)\[`"budget"`\]; \}
+
+A graph as stored. Observed imports retain unknown directives and budgets;
+they describe what happened and cannot be replayed as executable graphs.
+
+#### Type Declaration
+
+##### digest
+
+> `readonly` **digest**: `string`
+
+##### nodes
+
+> `readonly` **nodes**: readonly `object`[]
+
+##### deliverable
+
+> `readonly` **deliverable**: `object`
+
+###### deliverable.describe?
+
+> `readonly` `optional` **describe?**: `string`
+
+###### deliverable.checkRef?
+
+> `readonly` `optional` **checkRef?**: `string`
+
+##### entry?
+
+> `readonly` `optional` **entry?**: readonly `object`[]
+
+A flow graph's entry and gates; absent for any other graph.
+
+##### gates?
+
+> `readonly` `optional` **gates?**: readonly [`RouteGate`](#routegate)[]
+
+***
+
 ### GraphSelection
 
 > **GraphSelection** = \{ `kind`: `"replay"`; `graph`: [`StoredGraph`](#storedgraph); `record`: [`GraphRunRecord`](#graphrunrecord); \} \| \{ `kind`: `"author"`; `reason`: `string`; \}
@@ -42597,6 +43041,41 @@ Append one run record; the exact graph is content-addressed beside it.
 
 ***
 
+### recordStoredGraphRun()
+
+> **recordStoredGraphRun**(`reg`, `stored`, `record`, `options?`): `Promise`\<[`StoredGraph`](#storedgraph)\>
+
+Store an executable graph or an observed external topology in the same registry.
+Imported observations retain their source identity and never authorize replay.
+A reader refreshing facts can preserve independently joined labels; an explicit
+correction leaves preserveLabels unset and replaces the record.
+
+#### Parameters
+
+##### reg
+
+[`GraphRegistryDir`](#graphregistrydir)
+
+##### stored
+
+[`StoredGraph`](#storedgraph)
+
+##### record
+
+[`GraphRunRecord`](#graphrunrecord)
+
+##### options?
+
+###### preserveLabels?
+
+`boolean`
+
+#### Returns
+
+`Promise`\<[`StoredGraph`](#storedgraph)\>
+
+***
+
 ### listGraphRuns()
 
 > **listGraphRuns**(`reg`): `Promise`\<[`GraphRunRecord`](#graphrunrecord)[]\>
@@ -42617,9 +43096,9 @@ All records, newest last.
 
 ### graphRunsFor()
 
-> **graphRunsFor**(`reg`, `taskDigest`): `Promise`\<[`GraphRunRecord`](#graphrunrecord)[]\>
+> **graphRunsFor**(`reg`, `query?`): `Promise`\<[`GraphRunRecord`](#graphrunrecord)[]\>
 
-Records for one task shape, newest last.
+Records for one task shape or deterministic label query, newest last.
 
 #### Parameters
 
@@ -42627,9 +43106,9 @@ Records for one task shape, newest last.
 
 [`GraphRegistryDir`](#graphregistrydir)
 
-##### taskDigest
+##### query?
 
-`string`
+`string` \| [`GraphRunQuery`](#graphrunquery)
 
 #### Returns
 
@@ -42637,9 +43116,32 @@ Records for one task shape, newest last.
 
 ***
 
+### graphCorpusSummary()
+
+> **graphCorpusSummary**(`reg`, `query?`): `Promise`\<[`GraphCorpusSummary`](#graphcorpussummary)\>
+
+Query and rank the same registry records using the opt-in observational
+policy: delivery rate, wall time, tokens, then human messages; unknowns last.
+
+#### Parameters
+
+##### reg
+
+[`GraphRegistryDir`](#graphregistrydir)
+
+##### query?
+
+[`GraphRunQuery`](#graphrunquery) = `{}`
+
+#### Returns
+
+`Promise`\<[`GraphCorpusSummary`](#graphcorpussummary)\>
+
+***
+
 ### pickBestGraph()
 
-> **pickBestGraph**(`records`): [`GraphRunRecord`](#graphrunrecord) \| `undefined`
+> **pickBestGraph**(`records`, `options?`): [`GraphRunRecord`](#graphrunrecord) \| `undefined`
 
 The documented heuristic: delivered beats failed; among delivered, cheaper
  (tokens, then iterations) wins; ties go to the most recent.
@@ -42649,6 +43151,12 @@ The documented heuristic: delivered beats failed; among delivered, cheaper
 ##### records
 
 readonly [`GraphRunRecord`](#graphrunrecord)[]
+
+##### options?
+
+###### policy?
+
+`"observed"` \| `"native"`
 
 #### Returns
 
@@ -42739,6 +43247,38 @@ Digests present on disk (integrity probe for tests and audits).
 #### Returns
 
 `Promise`\<`string`[]\>
+
+***
+
+### graphFromSessionFacts()
+
+> **graphFromSessionFacts**(`facts`, `options`): `object`
+
+Project an existing canonical span run tree into an observed graph design,
+linked to its trace run. SessionFacts supplies exclusive accounting. No
+execution tree, transcript, or source-specific traversal parser is stored.
+
+#### Parameters
+
+##### facts
+
+readonly [`ObservedSessionFacts`](#observedsessionfacts)[]
+
+##### options
+
+[`GraphSessionObservationOptions`](#graphsessionobservationoptions)
+
+#### Returns
+
+`object`
+
+##### graph
+
+> `readonly` **graph**: [`StoredGraph`](#storedgraph)
+
+##### record
+
+> `readonly` **record**: [`GraphRunRecord`](#graphrunrecord)
 
 ***
 

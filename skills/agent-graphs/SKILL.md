@@ -18,6 +18,8 @@ A request for review alone does not require a graph.
 Read the current [API decision table](https://github.com/tangle-network/agent-runtime/blob/main/docs/canonical-api.md), [AgentGraph contract](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/graph.ts), and a relevant [runnable example](https://github.com/tangle-network/agent-runtime/tree/main/examples/graphs).
 These distinguish the fixed AgentGraph API from other graph or supervision contracts.
 
+Production designs: search [Factory’s design catalog](https://github.com/tangle-network/factory/blob/main/README.md) before authoring a new graph.
+
 ## Design a factory
 
 Use the vocabulary from the [software-factory design reference](https://github.com/mattpocock/skills/pull/1316) when a consumer needs recurring work across graph executions.

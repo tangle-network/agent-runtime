@@ -400,7 +400,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 145 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 997 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1005 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -506,11 +506,13 @@ Import from `@tangle-network/agent-runtime/kernel` — 997 exports.
 | `fsSurfaceReader` | function | A {@link SurfaceReader} over the local filesystem, for worktree/local workers. Every path — |
 | `gateOnDeliverable` | function | Wrap an `Executor` so its settlement `valid` reflects the deliverable check, not the |
 | `gitWorkspace` | function | A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, commit produced changes (conflict-aware), and read `head` — hooks disabled, identity pinned. |
+| `graphCorpusSummary` | function | Query and rank the same registry records using the opt-in observational |
 | `graphDesignerExtraTools` | function | The designer's three tools over one registry. Record-every-run is enforced |
 | `graphDigest` | function | Digest of the exact graph (nodes + edges + budget + deliverable describe, and a flow graph's |
+| `graphFromSessionFacts` | function | Project an existing canonical span run tree into an observed graph design, |
 | `graphFromStored` | function | Rehydrate a stored graph into a runnable one. The check comes from the |
 | `graphRegistry` | function | Open (or lazily create) a registry rooted at a workspace directory. The |
-| `graphRunsFor` | function | Records for one task shape, newest last. |
+| `graphRunsFor` | function | Records for one task shape or deterministic label query, newest last. |
 | `harnessTranscriptArtifact` | function | Rehydrate the exact persisted transcript a receipt points at, or `undefined` when the receipt |
 | `harnessUsageIsEmpty` | function | True when a report states any spend at all. |
 | `harvestCorpus` | function | Batch the selected observation implementation over completed runs and retain its findings. |
@@ -580,6 +582,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 997 exports.
 | `reconnectRetainedRun` | function | Rebuild a retained-run client without retaining any object from the starter. |
 | `recordGraphRun` | function | Append one run record; the exact graph is content-addressed beside it. |
 | `recordProfileRun` | function | Record one run and persist the exact profile revision beside it. The |
+| `recordStoredGraphRun` | function | Store an executable graph or an observed external topology in the same registry. |
 | `recoverRetainedInteractiveRun` | function | Retry one exact start after its provider response may have been lost. |
 | `recoverRetainedRun` | function | Rebuild the exact run named by a persisted pre-create intent or pre-dispatch |
 | `registryScopeAnalyst` | function | A `ScopeAnalyst` backed by an `AnalystRegistry` — the panel-of-analysts seam. The registry merges |
@@ -836,8 +839,12 @@ Import from `@tangle-network/agent-runtime/kernel` — 997 exports.
 | `FinalizerSettled` | interface | One settled worker as the finalizer sees it — the ledger row (structural fields only). |
 | `FleetYield` | interface | How this run's spawned CHILDREN ended, counted by node id off the complete journal FOREST at |
 | `GateRequest` | interface | What a gate asks its caller. `visit` is the 1-based count of times this run reached the gate; |
+| `GraphCorpusGroup` | interface | Descriptive task-type/topology measurements, with every population explicit. |
+| `GraphCorpusSummary` | interface | The registry's observational view. It neither authorizes replay nor proves a causal win. |
 | `GraphNode` | interface | A graph node: an id and a canonical `AgentProfile`. The profile is the ONLY way a node is |
-| `GraphRunRecord` | interface | One completed run of one graph, for one task shape. |
+| `GraphRunQuery` | interface | Filters over the existing graph run records. Missing source kind is native. |
+| `GraphRunRecord` | interface | One run or an explicitly incomplete observation of a graph, for one task shape. |
+| `GraphSessionObservationOptions` | interface | Provenance and explicit labels for one imported run. spanRun is a structural |
 | `GraphTopology` | interface | A topology without the run's own budget and deliverable: the form a `maps` edge runs per item, |
 | `Handle` | interface | A live child handle. `abort()` is defined over the ACQUIRE lifecycle: it chains into |
 | `HarnessTranscriptReadLimits` | interface | Projection limits do not change what the original archive retained. |
@@ -887,6 +894,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 997 exports.
 | `NativeContextContinuationHandle` | interface | Admission and terminal result for one same-session continuation. |
 | `NodeExecutionIdentity` | interface | Durable identity of one realized node. Missing digests mean the input was not canonical JSON. |
 | `NoWinnerError` | interface | A driver's `act()` rejection, normalized to a serializable triple so it survives the typed |
+| `ObservedSessionFacts` | interface | Structural projection of traces' SessionFacts. The trace reader owns all |
 | `OpenSandboxRunBeforeStartContext` | interface | Context available after the box/session exists and before the first prompt is |
 | `OutputAdapter` | interface | Stream of `SandboxEvent`s → typed `Output`. |
 | `PairwiseVerdict` | interface | One profile pair compared on the scenarios they BOTH ran — the "who actually beat whom" verdict. |
@@ -1041,7 +1049,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 997 exports.
 | `SteerableRootHandle` | interface | A Runtime-minted root handle that can deliver raw steering or answers to a live manager inbox. |
 | `SteerableSandboxSession` | interface | What the steerable session exposes to its executor: the usage stream plus the live reads. |
 | `SteerContext` | interface | How a combinator's `act` consumes findings to steer — the SINGLE firewalled steer surface a |
-| `StoredGraph` | interface | A graph as stored: every axis serializable; the check re-bound at replay. |
 | `StrategyArtifacts` | interface | Artifact lifecycle a strategy may manage itself — open/close ONLY. Raw `call`/`score` |
 | `StrategyCtx` | interface | What a strategy body composes with: the artifact lifecycle, the budget, and the two steps. |
 | `StrategyShotResult` | interface | Measured result of one strategy shot. |
@@ -1191,6 +1198,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 997 exports.
 | `SpendChannel` | type | The accounting channels a usage gap leaves incomplete. |
 | `StopDecision` | type | A stop rule's answer. `reason` is required when stopping — a run that ends must be able to say |
 | `StopRule` | type | Evaluated from the progress feed, never from the budget. Pure and synchronous: it is called on |
+| `StoredGraph` | type | A graph as stored. Observed imports retain unknown directives and budgets; |
 | `StrategyMessage` | type | One provider-neutral conversation record carried between strategy shots. |
 | `StructuralRolloutMessage` | type | Provider-neutral conversation records read by structural candidate extraction. |
 | `SupervisedResult` | type | Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. |
