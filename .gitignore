@@ -21,3 +21,4 @@ test_repo/
 .gen2-runs/
 .gen3-runs/
 .evolution-*/
+.wt-owner
