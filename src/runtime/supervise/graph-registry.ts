@@ -251,6 +251,8 @@ export async function recordStoredGraphRun(
   assertRecord(record)
   if (stored.observed && !record.source)
     throw new ValidationError('graph-registry: observed graphs require a source run identity')
+  if (!stored.observed && !record.finishedAt)
+    throw new ValidationError('graph-registry: native graph runs require a completion timestamp')
   if (
     (!stored.observed || record.traversals !== undefined) &&
     (!Number.isSafeInteger(record.traversals) || record.traversals! < 0)
