@@ -21565,6 +21565,24 @@ measurements; this adapter neither parses transcripts nor recounts tokens.
 
 > `readonly` `optional` **partial?**: `string`
 
+##### typedTurnCounts?
+
+> `readonly` `optional` **typedTurnCounts?**: `object`
+
+Exact pre-cap counts from the trace owner's sender classification.
+
+###### value
+
+> `readonly` **value**: readonly `object`[] \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string` \| `null`
+
+###### partial?
+
+> `readonly` `optional` **partial?**: `string`
+
 ##### leadMessages?
 
 > `readonly` `optional` **leadMessages?**: `object`

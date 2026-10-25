@@ -359,7 +359,13 @@ describe('registry observational query policy and independent evidence', () => {
     const input = {
       ...fact('root', 'unproven-parent'),
       leadMessages: undefined,
-      typedTurnCounts: { value: [{ actor: 'fleet', turns: 80 }] },
+      humanTurns: { value: [] },
+      typedTurnCounts: {
+        value: [
+          { actor: 'human', turns: 7 },
+          { actor: 'fleet', turns: 80 },
+        ],
+      },
     }
     const observed = graphFromSessionFacts([input], {
       source: { kind: 'claude-code', id: 'canonical-only' },
@@ -391,6 +397,7 @@ describe('registry observational query policy and independent evidence', () => {
     expect(observed.graph.edges).toEqual([])
     expect(observed.graph.nodes).toHaveLength(1)
     expect(row?.traceRunId).toBe('fixture-trace')
+    expect(row?.cost.humanMessages).toBe(7)
     expect(row?.cost.leadMessages).toBeUndefined()
     expect(row?.cost.ms).toBeUndefined()
     expect(row?.cost.mergeMs).toBeUndefined()
@@ -402,6 +409,24 @@ describe('registry observational query policy and independent evidence', () => {
       wallMsCount: 0,
       mergeMsCount: 0,
     })
+    const unavailable = graphFromSessionFacts(
+      [{ ...input, typedTurnCounts: { value: null, unavailable: 'source channel missing' } }],
+      {
+        source: { kind: 'pi', id: 'missing-human-channel' },
+        issues: [
+          { kind: 'source-coverage', reason: 'source has no explicit workflow phase spans' },
+        ],
+      },
+    )
+    await recordStoredGraphRun(registry, unavailable.graph, unavailable.record)
+    const unavailableRow = (await listGraphRuns(registry)).find(
+      (entry) => entry.source?.id === 'missing-human-channel',
+    )
+    expect(unavailableRow?.nodeUsage?.[0]?.humanMessages).toBeUndefined()
+    expect(unavailableRow?.cost.humanMessages).toBeUndefined()
+    expect(unavailableRow?.unknowns).toContain(
+      'workflow issue: source-coverage: source has no explicit workflow phase spans',
+    )
   })
 })
 

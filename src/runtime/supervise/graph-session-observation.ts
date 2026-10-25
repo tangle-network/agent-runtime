@@ -30,6 +30,10 @@ export interface ObservedSessionFacts {
     readonly unavailable?: string | null
   }
   readonly humanTurns: ObservedFact<readonly unknown[]>
+  /** Exact pre-cap counts from the trace owner's sender classification. */
+  readonly typedTurnCounts?: ObservedFact<
+    readonly { readonly actor: string; readonly turns: number }[]
+  >
   /** Only an authoritative sender-role join can establish who led the work. */
   readonly leadMessages?: ObservedFact<number>
   readonly agent: ObservedFact<{
@@ -105,7 +109,14 @@ export function graphFromSessionFacts(
         'graphFromSessionFacts: every observation needs a unique recorded session or span identity',
       )
     identities.add(identity)
-    const humanMessages = measured(fact.humanTurns)?.length
+    const typedCounts = measured(fact.typedTurnCounts)
+    const humanCounts = typedCounts?.filter((entry) => entry.actor === 'human')
+    if (humanCounts?.some((entry) => !Number.isSafeInteger(entry.turns) || entry.turns < 0))
+      throw new ValidationError('graphFromSessionFacts: invalid human turn count')
+    const humanMessages =
+      fact.typedTurnCounts === undefined
+        ? measured(fact.humanTurns)?.length
+        : humanCounts?.reduce((sum, entry) => sum + entry.turns, 0)
     const leadMessages = measured(fact.leadMessages)
     const inputTokens = fact.tokens.input ?? undefined
     const outputTokens = fact.tokens.output ?? undefined
@@ -199,7 +210,16 @@ export function graphFromSessionFacts(
   if (!options.traceRunId) unknowns.push('trace run identity unavailable')
   for (const issue of options.issues ?? []) {
     const kind = issue && typeof issue === 'object' && 'kind' in issue ? issue.kind : undefined
-    if (typeof kind === 'string') unknowns.push(`workflow issue: ${kind}`)
+    const reason =
+      issue && typeof issue === 'object' && 'reason' in issue ? issue.reason : undefined
+    if (typeof kind === 'string')
+      unknowns.push(
+        'workflow issue: ' +
+          kind +
+          (kind === 'source-coverage' && typeof reason === 'string'
+            ? `: ${reason.replace(/[\r\n]/g, ' ').slice(0, 500)}`
+            : ''),
+      )
   }
   const complete = options.complete !== false && !options.issues?.length
   if (!complete) unknowns.push('workflow selection incomplete; total accounting unavailable')
