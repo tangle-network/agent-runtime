@@ -60,7 +60,6 @@ export type StoredGraph = StoredGraphContent &
         readonly edges: ReadonlyArray<
           | GraphEdge
           | {
-              readonly kind: 'delegates'
               readonly from: string
               readonly to: string
             }
@@ -82,7 +81,7 @@ export interface GraphRunRecord {
     | { readonly kind: 'delivered'; readonly summary?: string }
     | { readonly kind: 'no-winner'; readonly reason?: string }
     | { readonly kind: 'unknown' | 'running'; readonly reason: string }
-  /** Cost from the run's terminal accounting. Unknown channels omitted. */
+  /** Measured accounting; running observations are to date. Unknown channels omitted. */
   readonly cost: {
     readonly iterations?: number
     readonly tokens?: number
@@ -95,14 +94,16 @@ export interface GraphRunRecord {
     /** Elapsed wall time from the task start to an independently verified merge. */
     readonly mergeMs?: number
   }
-  /** Ledger size + exhausted edges: the trace's shape, for the designer's read. */
-  readonly traversals: number
+  /** Metered ledger size, absent when a source exposes relationships without traversals. */
+  readonly traversals?: number
   readonly exhaustedEdges?: ReadonlyArray<string>
   /** Explicit source metadata, never classified from transcript or PR prose. */
   readonly taskType?: 'feature' | 'bugfix' | 'consolidation' | 'investigation' | 'ops'
   /** Stable run identity; re-ingesting this source replaces its observation. */
   readonly source?: { readonly kind: string; readonly id: string; readonly url?: string }
   readonly observedAt?: string
+  /** Link to the canonical trace run; execution trees remain trace-owned. */
+  readonly traceRunId?: string
   /** Canonical ordered adjacency. This is not a graph-isomorphism claim. */
   readonly topologyDigest?: string
   readonly evidence?: ReadonlyArray<{
@@ -238,13 +239,25 @@ export async function recordGraphRun(
 }
 
 /** Store an executable graph or an observed external topology in the same registry.
- * Imported observations retain their source identity and never authorize replay. */
+ * Imported observations retain their source identity and never authorize replay.
+ * A reader refreshing facts can preserve independently joined labels; an explicit
+ * correction leaves preserveLabels unset and replaces the record. */
 export async function recordStoredGraphRun(
   reg: GraphRegistryDir,
   stored: StoredGraph,
   record: GraphRunRecord,
+  options: { readonly preserveLabels?: boolean } = {},
 ): Promise<StoredGraph> {
   assertRecord(record)
+  if (stored.observed && !record.source)
+    throw new ValidationError('graph-registry: observed graphs require a source run identity')
+  if (
+    (!stored.observed || record.traversals !== undefined) &&
+    (!Number.isSafeInteger(record.traversals) || record.traversals! < 0)
+  )
+    throw new ValidationError(
+      'graph-registry: native graphs require metered traversals; observed counts must be non-negative integers',
+    )
   const { digest, ...content } = stored
   if (graphDigest(content) !== digest)
     throw new ValidationError('graph-registry: stored graph content does not match its digest')
@@ -256,9 +269,57 @@ export async function recordStoredGraphRun(
   await mkdir(join(reg.root, GRAPHS_DIR), { recursive: true })
   const file = join(reg.root, RECORDS_FILE)
   return withJsonlFileLock(file, async (canonicalPath) => {
+    let persisted = record
+    if (options.preserveLabels && record.source) {
+      const prior = (await readCommittedJsonFile<GraphRunRecord>(canonicalPath)).find(
+        (row) => row.source?.kind === record.source!.kind && row.source.id === record.source!.id,
+      )
+      if (prior) {
+        const taskType = record.taskType ?? prior.taskType
+        const priorTerminal =
+          prior.outcome.kind === 'delivered' || prior.outcome.kind === 'no-winner'
+        const incomingUnassessed =
+          record.outcome.kind === 'unknown' || record.outcome.kind === 'running'
+        if (priorTerminal && incomingUnassessed && prior.startedAt !== record.startedAt)
+          throw new ValidationError(
+            'graph-registry: preserving labels requires the same task start and source identity',
+          )
+        const evidence = [...(prior.evidence ?? []), ...(record.evidence ?? [])]
+        persisted = {
+          ...record,
+          ...(taskType ? { taskType } : {}),
+          ...(record.unknowns
+            ? {
+                unknowns: record.unknowns.filter(
+                  (reason) => !(taskType && reason === 'task type not explicitly labeled'),
+                ),
+              }
+            : {}),
+          ...(evidence.length
+            ? {
+                evidence: [
+                  ...new Map(evidence.map((entry) => [canonicalJson(entry), entry])).values(),
+                ],
+              }
+            : {}),
+          ...(priorTerminal && incomingUnassessed
+            ? {
+                outcome: prior.outcome,
+                finishedAt: prior.finishedAt,
+                cost: {
+                  ...record.cost,
+                  ...(prior.cost.ms === undefined ? {} : { ms: prior.cost.ms }),
+                  ...(prior.cost.mergeMs === undefined ? {} : { mergeMs: prior.cost.mergeMs }),
+                },
+              }
+            : {}),
+        }
+      }
+    }
+    assertRecord(persisted)
     const revisionPath = join(reg.root, GRAPHS_DIR, `${stored.digest}.json`)
     writeAtomicDurableFile(revisionPath, JSON.stringify(stored), { preserveMode: true })
-    await upsertCommittedJsonLine(canonicalPath, record, recordKey)
+    await upsertCommittedJsonLine(canonicalPath, persisted, recordKey)
     return stored
   })
 }
@@ -268,12 +329,140 @@ export async function listGraphRuns(reg: GraphRegistryDir): Promise<GraphRunReco
   return readCommittedJsonFile<GraphRunRecord>(join(reg.root, RECORDS_FILE))
 }
 
-/** Records for one task shape, newest last. */
+/** Filters over the existing graph run records. Missing source kind is native. */
+export interface GraphRunQuery {
+  readonly taskDigest?: string
+  readonly taskType?: GraphRunRecord['taskType'] | 'unknown'
+  readonly topologyDigest?: string
+  readonly sourceKind?: string
+}
+
+function observedTopology(record: GraphRunRecord): string {
+  return record.topologyDigest ?? (record.source ? 'unknown' : record.graphDigest)
+}
+
+/** Records for one task shape or deterministic label query, newest last. */
 export async function graphRunsFor(
   reg: GraphRegistryDir,
-  taskDigest: string,
+  query: string | GraphRunQuery = {},
 ): Promise<GraphRunRecord[]> {
-  return (await listGraphRuns(reg)).filter((row) => row.taskDigest === taskDigest)
+  const filters = typeof query === 'string' ? { taskDigest: query } : query
+  return (await listGraphRuns(reg)).filter(
+    (row) =>
+      (filters.taskDigest === undefined || row.taskDigest === filters.taskDigest) &&
+      (filters.taskType === undefined || (row.taskType ?? 'unknown') === filters.taskType) &&
+      (filters.topologyDigest === undefined || observedTopology(row) === filters.topologyDigest) &&
+      (filters.sourceKind === undefined || (row.source?.kind ?? 'native') === filters.sourceKind),
+  )
+}
+
+/** Descriptive task-type/topology measurements, with every population explicit.
+ * Unknown and running runs never enter the assessed denominator or medians. */
+export interface GraphCorpusGroup {
+  readonly taskType: NonNullable<GraphRunRecord['taskType']> | 'unknown'
+  readonly topologyDigest: string
+  readonly delivered: number
+  readonly assessed: number
+  readonly unknown: number
+  readonly deliveredRate: number | null
+  readonly medianWallMs: number | null
+  readonly wallMsCount: number
+  readonly medianMergeMs: number | null
+  readonly mergeMsCount: number
+  readonly medianTokens: number | null
+  readonly tokenCount: number
+  readonly medianHumanMessages: number | null
+  readonly humanMessageCount: number
+  readonly runs: readonly GraphRunRecord[]
+}
+
+/** The registry's observational view. It neither authorizes replay nor proves a causal win. */
+export interface GraphCorpusSummary {
+  readonly recordCount: number
+  readonly groups: readonly GraphCorpusGroup[]
+}
+
+function medianKnown(values: readonly (number | undefined)[]): {
+  median: number | null
+  count: number
+} {
+  const known = values
+    .filter((value): value is number => value !== undefined && Number.isFinite(value) && value >= 0)
+    .sort((a, b) => a - b)
+  const middle = Math.floor(known.length / 2)
+  return {
+    count: known.length,
+    median:
+      known.length === 0
+        ? null
+        : known.length % 2
+          ? known[middle]!
+          : (known[middle - 1]! + known[middle]!) / 2,
+  }
+}
+
+// The single observational policy used by both query and pickBestGraph. Native
+// selection below remains unchanged; this policy is an explicit descriptive opt-in.
+function observedGraphSummary(records: readonly GraphRunRecord[]): GraphCorpusSummary {
+  const groups = new Map<string, GraphRunRecord[]>()
+  for (const record of records) {
+    const key = JSON.stringify([record.taskType ?? 'unknown', observedTopology(record)])
+    const rows = groups.get(key)
+    if (rows) rows.push(record)
+    else groups.set(key, [record])
+  }
+  const summaries: GraphCorpusGroup[] = [...groups.values()].map((runs) => {
+    const assessed = runs.filter(
+      (run) => run.outcome.kind === 'delivered' || run.outcome.kind === 'no-winner',
+    )
+    const delivered = assessed.filter((run) => run.outcome.kind === 'delivered')
+    const wall = medianKnown(assessed.map((run) => run.cost.ms))
+    const merge = medianKnown(
+      delivered
+        .filter((run) => run.evidence?.some((entry) => entry.kind === 'pr-merged'))
+        .map((run) => run.cost.mergeMs),
+    )
+    const tokens = medianKnown(assessed.map((run) => run.cost.tokens))
+    const human = medianKnown(assessed.map((run) => run.cost.humanMessages))
+    return {
+      taskType: runs[0]!.taskType ?? 'unknown',
+      topologyDigest: observedTopology(runs[0]!),
+      delivered: delivered.length,
+      assessed: assessed.length,
+      unknown: runs.length - assessed.length,
+      deliveredRate: assessed.length ? delivered.length / assessed.length : null,
+      medianWallMs: wall.median,
+      wallMsCount: wall.count,
+      medianMergeMs: merge.median,
+      mergeMsCount: merge.count,
+      medianTokens: tokens.median,
+      tokenCount: tokens.count,
+      medianHumanMessages: human.median,
+      humanMessageCount: human.count,
+      runs,
+    }
+  })
+  summaries.sort((a, b) => {
+    const delivered = (b.deliveredRate ?? -1) - (a.deliveredRate ?? -1)
+    if (delivered) return delivered
+    for (const key of ['medianWallMs', 'medianTokens', 'medianHumanMessages'] as const) {
+      if (a[key] === b[key]) continue
+      if (a[key] === null) return 1
+      if (b[key] === null) return -1
+      return a[key]! - b[key]!
+    }
+    return a.taskType.localeCompare(b.taskType) || a.topologyDigest.localeCompare(b.topologyDigest)
+  })
+  return { recordCount: records.length, groups: summaries }
+}
+
+/** Query and rank the same registry records using the opt-in observational
+ * policy: delivery rate, wall time, tokens, then human messages; unknowns last. */
+export async function graphCorpusSummary(
+  reg: GraphRegistryDir,
+  query: GraphRunQuery = {},
+): Promise<GraphCorpusSummary> {
+  return observedGraphSummary(await graphRunsFor(reg, query))
 }
 
 export type GraphSelection =
@@ -282,7 +471,14 @@ export type GraphSelection =
 
 /** The documented heuristic: delivered beats failed; among delivered, cheaper
  *  (tokens, then iterations) wins; ties go to the most recent. */
-export function pickBestGraph(records: ReadonlyArray<GraphRunRecord>): GraphRunRecord | undefined {
+export function pickBestGraph(
+  records: ReadonlyArray<GraphRunRecord>,
+  options: { readonly policy?: 'native' | 'observed' } = {},
+): GraphRunRecord | undefined {
+  if (options.policy === 'observed') {
+    const group = observedGraphSummary(records).groups[0]
+    return group && pickBestGraph(group.runs)
+  }
   const delivered = records.filter((row) => row.outcome.kind === 'delivered')
   if (delivered.length === 0) return undefined
   const better = (a: GraphRunRecord, b: GraphRunRecord): GraphRunRecord => {
@@ -319,8 +515,11 @@ export async function lookupGraph(
 ): Promise<GraphSelection> {
   const records = await graphRunsFor(reg, taskDigest)
   const candidates: GraphRunRecord[] = []
+  const loaded = new Map<string, StoredGraph | undefined>()
   for (const record of records) {
-    const graph = await loadGraph(reg, record.graphDigest)
+    if (!loaded.has(record.graphDigest))
+      loaded.set(record.graphDigest, await loadGraph(reg, record.graphDigest))
+    const graph = loaded.get(record.graphDigest)
     if (!graph?.observed) candidates.push(record)
   }
   if (records.length && !candidates.length)

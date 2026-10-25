@@ -21237,7 +21237,7 @@ Absent while running or when completion was not established.
 
 > `readonly` **cost**: `object`
 
-Cost from the run's terminal accounting. Unknown channels omitted.
+Measured accounting; running observations are to date. Unknown channels omitted.
 
 ###### iterations?
 
@@ -21277,11 +21277,11 @@ Cost from the run's terminal accounting. Unknown channels omitted.
 
 Elapsed wall time from the task start to an independently verified merge.
 
-##### traversals
+##### traversals?
 
-> `readonly` **traversals**: `number`
+> `readonly` `optional` **traversals?**: `number`
 
-Ledger size + exhausted edges: the trace's shape, for the designer's read.
+Metered ledger size, absent when a source exposes relationships without traversals.
 
 ##### exhaustedEdges?
 
@@ -21315,6 +21315,12 @@ Stable run identity; re-ingesting this source replaces its observation.
 
 > `readonly` `optional` **observedAt?**: `string`
 
+##### traceRunId?
+
+> `readonly` `optional` **traceRunId?**: `string`
+
+Link to the canonical trace run; execution trees remain trace-owned.
+
 ##### topologyDigest?
 
 > `readonly` `optional` **topologyDigest?**: `string`
@@ -21347,6 +21353,115 @@ Missing or partial evidence, including incomplete accounting channels.
 
 ***
 
+### GraphRunQuery
+
+Filters over the existing graph run records. Missing source kind is native.
+
+#### Properties
+
+##### taskDigest?
+
+> `readonly` `optional` **taskDigest?**: `string`
+
+##### taskType?
+
+> `readonly` `optional` **taskType?**: `"unknown"` \| `"feature"` \| `"bugfix"` \| `"consolidation"` \| `"investigation"` \| `"ops"`
+
+##### topologyDigest?
+
+> `readonly` `optional` **topologyDigest?**: `string`
+
+##### sourceKind?
+
+> `readonly` `optional` **sourceKind?**: `string`
+
+***
+
+### GraphCorpusGroup
+
+Descriptive task-type/topology measurements, with every population explicit.
+Unknown and running runs never enter the assessed denominator or medians.
+
+#### Properties
+
+##### taskType
+
+> `readonly` **taskType**: `"unknown"` \| `NonNullable`\<`"feature"` \| `"bugfix"` \| `"consolidation"` \| `"investigation"` \| `"ops"` \| `undefined`\>
+
+##### topologyDigest
+
+> `readonly` **topologyDigest**: `string`
+
+##### delivered
+
+> `readonly` **delivered**: `number`
+
+##### assessed
+
+> `readonly` **assessed**: `number`
+
+##### unknown
+
+> `readonly` **unknown**: `number`
+
+##### deliveredRate
+
+> `readonly` **deliveredRate**: `number` \| `null`
+
+##### medianWallMs
+
+> `readonly` **medianWallMs**: `number` \| `null`
+
+##### wallMsCount
+
+> `readonly` **wallMsCount**: `number`
+
+##### medianMergeMs
+
+> `readonly` **medianMergeMs**: `number` \| `null`
+
+##### mergeMsCount
+
+> `readonly` **mergeMsCount**: `number`
+
+##### medianTokens
+
+> `readonly` **medianTokens**: `number` \| `null`
+
+##### tokenCount
+
+> `readonly` **tokenCount**: `number`
+
+##### medianHumanMessages
+
+> `readonly` **medianHumanMessages**: `number` \| `null`
+
+##### humanMessageCount
+
+> `readonly` **humanMessageCount**: `number`
+
+##### runs
+
+> `readonly` **runs**: readonly [`GraphRunRecord`](#graphrunrecord)[]
+
+***
+
+### GraphCorpusSummary
+
+The registry's observational view. It neither authorizes replay nor proves a causal win.
+
+#### Properties
+
+##### recordCount
+
+> `readonly` **recordCount**: `number`
+
+##### groups
+
+> `readonly` **groups**: readonly [`GraphCorpusGroup`](#graphcorpusgroup)[]
+
+***
+
 ### ObservedSessionFacts
 
 Structural projection of traces' SessionFacts. The trace reader owns all
@@ -21357,6 +21472,26 @@ measurements; this adapter neither parses transcripts nor recounts tokens.
 ##### sessionId
 
 > `readonly` **sessionId**: `string` \| `null`
+
+##### traceId?
+
+> `readonly` `optional` **traceId?**: `string`
+
+##### rootSpanId?
+
+> `readonly` `optional` **rootSpanId?**: `object`
+
+###### value
+
+> `readonly` **value**: `string` \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string` \| `null`
+
+###### partial?
+
+> `readonly` `optional` **partial?**: `string`
 
 ##### parentSessionId
 
@@ -21430,15 +21565,15 @@ measurements; this adapter neither parses transcripts nor recounts tokens.
 
 > `readonly` `optional` **partial?**: `string`
 
-##### typedTurnCounts?
+##### leadMessages?
 
-> `readonly` `optional` **typedTurnCounts?**: `object`
+> `readonly` `optional` **leadMessages?**: `object`
 
-Postclassification authors counted by traces, unlike raw harness actors.
+Only an authoritative sender-role join can establish who led the work.
 
 ###### value
 
-> `readonly` **value**: readonly `object`[] \| `null`
+> `readonly` **value**: `number` \| `null`
 
 ###### unavailable?
 
@@ -21468,8 +21603,8 @@ Postclassification authors counted by traces, unlike raw harness actors.
 
 ### GraphSessionObservationOptions
 
-Provenance and explicit labels for one imported workflow or Fleet lane.
-Task shape/type and outcome are supplied by their deterministic owners.
+Provenance and explicit labels for one imported run. spanRun is a structural
+projection of traces' existing SpanRunSnapshot, never a replacement run tree.
 
 #### Properties
 
@@ -21489,6 +21624,10 @@ Task shape/type and outcome are supplied by their deterministic owners.
 
 > `readonly` `optional` **url?**: `string`
 
+##### traceRunId?
+
+> `readonly` `optional` **traceRunId?**: `string`
+
 ##### taskType?
 
 > `readonly` `optional` **taskType?**: `"feature"` \| `"bugfix"` \| `"consolidation"` \| `"investigation"` \| `"ops"`
@@ -21505,6 +21644,8 @@ Task shape/type and outcome are supplied by their deterministic owners.
 
 > `readonly` `optional` **startedAt?**: `string`
 
+Authoritative task start; first trace activity alone does not establish it.
+
 ##### finishedAt?
 
 > `readonly` `optional` **finishedAt?**: `string`
@@ -21517,9 +21658,25 @@ Task shape/type and outcome are supplied by their deterministic owners.
 
 > `readonly` `optional` **evidence?**: readonly `object`[]
 
-##### relationships?
+##### spanRun?
 
-> `readonly` `optional` **relationships?**: readonly `object`[]
+> `readonly` `optional` **spanRun?**: `object`
+
+###### present
+
+> `readonly` **present**: `boolean`
+
+###### traceIds
+
+> `readonly` **traceIds**: readonly `string`[]
+
+###### orphanSpans
+
+> `readonly` **orphanSpans**: `number`
+
+###### nodes
+
+> `readonly` **nodes**: readonly `object`[]
 
 ##### complete?
 
@@ -37518,7 +37675,7 @@ The finalization seam: ledger in, output (or `undefined` = nothing deliverable) 
 
 ### StoredGraph
 
-> **StoredGraph** = `object` & \{ `observed?`: `false`; `edges`: `ReadonlyArray`\<[`GraphEdge`](#graphedge)\>; `budget`: [`AgentGraph`](#agentgraph)\[`"budget"`\]; \} \| \{ `observed`: `true`; `edges`: `ReadonlyArray`\<[`GraphEdge`](#graphedge) \| \{ `kind`: `"delegates"`; `from`: `string`; `to`: `string`; \}\>; `budget?`: [`AgentGraph`](#agentgraph)\[`"budget"`\]; \}
+> **StoredGraph** = `object` & \{ `observed?`: `false`; `edges`: `ReadonlyArray`\<[`GraphEdge`](#graphedge)\>; `budget`: [`AgentGraph`](#agentgraph)\[`"budget"`\]; \} \| \{ `observed`: `true`; `edges`: `ReadonlyArray`\<[`GraphEdge`](#graphedge) \| \{ `from`: `string`; `to`: `string`; \}\>; `budget?`: [`AgentGraph`](#agentgraph)\[`"budget"`\]; \}
 
 A graph as stored. Observed imports retain unknown directives and budgets;
 they describe what happened and cannot be replayed as executable graphs.
@@ -42850,10 +43007,12 @@ Append one run record; the exact graph is content-addressed beside it.
 
 ### recordStoredGraphRun()
 
-> **recordStoredGraphRun**(`reg`, `stored`, `record`): `Promise`\<[`StoredGraph`](#storedgraph)\>
+> **recordStoredGraphRun**(`reg`, `stored`, `record`, `options?`): `Promise`\<[`StoredGraph`](#storedgraph)\>
 
 Store an executable graph or an observed external topology in the same registry.
 Imported observations retain their source identity and never authorize replay.
+A reader refreshing facts can preserve independently joined labels; an explicit
+correction leaves preserveLabels unset and replaces the record.
 
 #### Parameters
 
@@ -42868,6 +43027,12 @@ Imported observations retain their source identity and never authorize replay.
 ##### record
 
 [`GraphRunRecord`](#graphrunrecord)
+
+##### options?
+
+###### preserveLabels?
+
+`boolean`
 
 #### Returns
 
@@ -42895,9 +43060,9 @@ All records, newest last.
 
 ### graphRunsFor()
 
-> **graphRunsFor**(`reg`, `taskDigest`): `Promise`\<[`GraphRunRecord`](#graphrunrecord)[]\>
+> **graphRunsFor**(`reg`, `query?`): `Promise`\<[`GraphRunRecord`](#graphrunrecord)[]\>
 
-Records for one task shape, newest last.
+Records for one task shape or deterministic label query, newest last.
 
 #### Parameters
 
@@ -42905,9 +43070,9 @@ Records for one task shape, newest last.
 
 [`GraphRegistryDir`](#graphregistrydir)
 
-##### taskDigest
+##### query?
 
-`string`
+`string` \| [`GraphRunQuery`](#graphrunquery)
 
 #### Returns
 
@@ -42915,9 +43080,32 @@ Records for one task shape, newest last.
 
 ***
 
+### graphCorpusSummary()
+
+> **graphCorpusSummary**(`reg`, `query?`): `Promise`\<[`GraphCorpusSummary`](#graphcorpussummary)\>
+
+Query and rank the same registry records using the opt-in observational
+policy: delivery rate, wall time, tokens, then human messages; unknowns last.
+
+#### Parameters
+
+##### reg
+
+[`GraphRegistryDir`](#graphregistrydir)
+
+##### query?
+
+[`GraphRunQuery`](#graphrunquery) = `{}`
+
+#### Returns
+
+`Promise`\<[`GraphCorpusSummary`](#graphcorpussummary)\>
+
+***
+
 ### pickBestGraph()
 
-> **pickBestGraph**(`records`): [`GraphRunRecord`](#graphrunrecord) \| `undefined`
+> **pickBestGraph**(`records`, `options?`): [`GraphRunRecord`](#graphrunrecord) \| `undefined`
 
 The documented heuristic: delivered beats failed; among delivered, cheaper
  (tokens, then iterations) wins; ties go to the most recent.
@@ -42927,6 +43115,12 @@ The documented heuristic: delivered beats failed; among delivered, cheaper
 ##### records
 
 readonly [`GraphRunRecord`](#graphrunrecord)[]
+
+##### options?
+
+###### policy?
+
+`"observed"` \| `"native"`
 
 #### Returns
 
@@ -43024,10 +43218,9 @@ Digests present on disk (integrity probe for tests and audits).
 
 > **graphFromSessionFacts**(`facts`, `options`): `object`
 
-Import normalized session facts into the existing graph and run record.
-Canonical node ordinals keep run identities and usage out of topology hashes.
-Ordered adjacency can conservatively split isomorphic graphs; it never pools
-graphs merely because their degree histograms happen to match.
+Project an existing canonical span run tree into an observed graph design,
+linked to its trace run. SessionFacts supplies exclusive accounting. No
+execution tree, transcript, or source-specific traversal parser is stored.
 
 #### Parameters
 
