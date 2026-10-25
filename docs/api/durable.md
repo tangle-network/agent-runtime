@@ -5394,7 +5394,7 @@ progress for `idleMs`. The run's own deadline, the budgets and cancellation stil
 `false` restores the hard kill at the time box. A child that exposes no inbox cannot be told,
 so it is stopped at its time box as before.
 
-four of 42 directors
+Four of 42 directors
 were killed at the 90-minute boxes their root set, three of them mid-turn, losing 27, 6 and 91
 minutes since their last recorded page, and each successor spent 12 to 19 minutes re-reading
 before its first page.
