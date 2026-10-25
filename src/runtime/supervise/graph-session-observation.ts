@@ -221,7 +221,11 @@ export function graphFromSessionFacts(
             : ''),
       )
   }
-  const complete = options.complete !== false && !options.issues?.length
+  const incompleteIssues = options.issues?.some(
+    (issue) =>
+      !issue || typeof issue !== 'object' || !('kind' in issue) || issue.kind !== 'source-coverage',
+  )
+  const complete = options.complete !== false && !incompleteIssues
   if (!complete) unknowns.push('workflow selection incomplete; total accounting unavailable')
   if (!options.taskType) unknowns.push('task type not explicitly labeled')
   const starts = observations

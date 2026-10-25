@@ -424,8 +424,12 @@ describe('registry observational query policy and independent evidence', () => {
     )
     expect(unavailableRow?.nodeUsage?.[0]?.humanMessages).toBeUndefined()
     expect(unavailableRow?.cost.humanMessages).toBeUndefined()
+    expect(unavailableRow?.cost.tokens).toBe(150)
     expect(unavailableRow?.unknowns).toContain(
       'workflow issue: source-coverage: source has no explicit workflow phase spans',
+    )
+    expect(unavailableRow?.unknowns).not.toContain(
+      'workflow selection incomplete; total accounting unavailable',
     )
   })
 })
