@@ -8965,7 +8965,7 @@ The root is discarded when its process ends, so nothing written to it must survi
 objects and receipts are written and published without fsync. For a capture's staging, whose
 caller removes it and whose dead process's directory is swept, and whose durable record is
 kept elsewhere (the durable store, and receipts the caller copies and syncs itself). Never on
-a store read after a restart. On drew-gtr-pro on 2026-10-21 a staging store's fsyncs, about
+a store read after a restart. On drew-gtr-pro a staging store's fsyncs, about
 four per object, came to 6,924 in 60 s and held a 150-file capture to about 1.4 files/s.
 
 ***
@@ -18151,7 +18151,7 @@ Optional release of a RETAINED execution that no later process will recover.
 
 `teardown` keeps a pending retained execution's environment alive by construction: the paid
 work inside it is what a resumed run reconciles. Once the root has reached its own terminal
-outcome nothing will, and the environment is a leak — measured 2026-09-11, four settled runs
+outcome nothing will, and the environment is a leak — four settled runs
 held 18 of a 60-slot fleet for 19 to 37 hours this way. The supervisor calls this at root
 settlement, never on a resumable interruption (an explicit cancellation, a process crash), and
 journals one `environment-teardown` receipt per environment returned. `signal` bounds the
@@ -19429,7 +19429,7 @@ the paid execution inside it.
 
 - `'release'`: the run will not be resumed, so nothing would ever reconcile or release those
   environments. The join barrier releases each one and journals an `environment-teardown`
-  receipt per environment. Measured 2026-09-11: four settled runs held 18 of a 60-slot
+  receipt per environment. Four settled runs held 18 of a 60-slot
   Sandbox fleet for 19 to 37 hours without it. It then closes each released child's cursor
   slot with a terminal record marked `retainedExecution: 'released'`, so `spendGaps` names
   it `unreported` (a floor) rather than `never-settled` (a ceiling) and
@@ -20663,7 +20663,7 @@ Re-entries after the upstream refused a drive for capacity. Each is a pause, not
 
 Infrastructure time the unavailable upstream cost this loop: every pause, plus every refused
  drive that made no progress. A refused drive that made progress was mostly work, so only its
- pause counts. Measured 2026-09-24 on a real run: a first drive worked 8 minutes before its
+ pause counts. A first drive worked 8 minutes before its
  refusal, and counting its whole duration doubled a 10-minute outage to 16 minutes.
 
 ###### Inherited from
@@ -22054,7 +22054,7 @@ the check unmet: `maxBarren`, an optional deadline, and the continuation note's 
 switches.
 
 A harness owns its own turn loop, so it decides when it is finished — and it can decide that
-while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
+while the run has produced nothing. Measured on discovery-lab (n = 1,422 settled
 runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
 could only LABEL an undelivered result `valid:false`, never send the driver back for it. By
 2026-09-24, 650 recorded inputs had chosen seven different re-prompt counts, and the note the
@@ -27229,7 +27229,7 @@ the check unmet: `maxBarren`, an optional deadline, and the continuation note's 
 switches.
 
 A harness owns its own turn loop, so it decides when it is finished — and it can decide that
-while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
+while the run has produced nothing. Measured on discovery-lab (n = 1,422 settled
 runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
 could only LABEL an undelivered result `valid:false`, never send the driver back for it. By
 2026-09-24, 650 recorded inputs had chosen seven different re-prompt counts, and the note the
@@ -28669,7 +28669,7 @@ How an EXTERNAL manager with `deliverable` is sent back when its turn ends with 
  Required with `deliverable` on the external arm, refused without one, and refused for a
  router-brained supervisor, which runs its own turn loop in process. The harness owns its own
  turn loop, so it can end while the run has delivered nothing — 376 of 376 winning
- discovery-lab runs (2026-09-01) ended on the driver's own completion. A continuation reuses the
+ discovery-lab runs ended on the driver's own completion. A continuation reuses the
  retry path: same scope, same coordination server, same live children, same bounds.
 
 ##### continuationDir?
@@ -32942,7 +32942,7 @@ Evidence origin for the default observer. Defaults to production for existing ca
 
 > **Outcome**\<`D`\> = \{ `kind`: `"done"`; `deliverable`: `D`; \} \| \{ `kind`: `"blocked"`; `blockers`: `string`[]; \}
 
-The terminal contract Drew wants: a loop returns a FINISHED deliverable, or the concrete
+The terminal contract: a loop returns a FINISHED deliverable, or the concrete
 list of blockers that stopped it — never a half-done best-effort coercion. A `blocked`
 outcome with an empty `blockers` list is a contract violation (a shape that can't finish
 MUST name why); impls fail loud on it rather than emitting a vacuous block.

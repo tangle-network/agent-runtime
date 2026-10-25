@@ -192,7 +192,7 @@ export async function recordRootSegment(
 
 /**
  * Append one `root-reentered` record: this process is supervising a run an earlier process drove.
- * Measured 2026-10-19 on magnetar-rust-20261019f: after a host reboot the re-entered root ran two
+ * After a host reboot the re-entered root ran two
  * barren continuations and the run settled `no-result-selected`, with three workers still open in
  * the journal and no record that a restart had happened.
  */

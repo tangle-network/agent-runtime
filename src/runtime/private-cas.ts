@@ -75,7 +75,7 @@ export interface PrivateCasOptions {
    * objects and receipts are written and published without fsync. For a capture's staging, whose
    * caller removes it and whose dead process's directory is swept, and whose durable record is
    * kept elsewhere (the durable store, and receipts the caller copies and syncs itself). Never on
-   * a store read after a restart. On drew-gtr-pro on 2026-10-21 a staging store's fsyncs, about
+   * a store read after a restart. On drew-gtr-pro a staging store's fsyncs, about
    * four per object, came to 6,924 in 60 s and held a 150-file capture to about 1.4 files/s.
    */
   readonly ephemeral?: boolean

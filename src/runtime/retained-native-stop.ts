@@ -30,7 +30,7 @@ export interface RetainedNativeStop {
  *
  * A retained execution outlives its local stream by design, so an aborted observer can reconnect.
  * Keeping its environment preserves the files; it must not keep the harness running. Measured on
- * Discovery: after `disco cancel` on 2026-10-04 the kept root box ran `claude --print` for two
+ * Discovery: after `disco cancel` the kept root box ran `claude --print` for two
  * more minutes, untraced and charged to the subscription, until an operator stopped the box; on
  * 2026-10-03 a cancelled run kept 18 boxes whose `claude` processes ran until an operator stopped
  * them. The provider's exact cancellation stops the process; the box and its files stay.

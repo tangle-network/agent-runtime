@@ -33,7 +33,7 @@ type WorkspaceFile = AgentCandidateWorkspaceManifestMaterial['files'][number]
 
 /**
  * Files a tree capture stores at once; each waits on a durable-store round trip of its own and on
- * four fsyncs. On drew-gtr-pro (2026-10-20), with three 180 ms store requests per file, 64 at once
+ * four fsyncs. On drew-gtr-pro, with three 180 ms store requests per file, 64 at once
  * stored a 473-file workspace in 83 s and 110 s against 128 s and 139 s for 16 at once, in
  * alternating runs, holding the same 16 sync threads.
  */
@@ -144,7 +144,7 @@ export async function captureAgentCandidateWorkspaceTreeToArtifacts(
   const bytes = material.files.reduce((sum, file) => sum + file.byteLength, 0)
   let storedBytes = 0
   // Each file's put waits for its durable copy, so one file at a time costs a store round trip
-  // and its fsyncs per file: drew-gtr-pro's retire stored one 2 KB file per 1.8 s (2026-10-18).
+  // and its fsyncs per file: drew-gtr-pro's retire stored one 2 KB file per 1.8 s.
   // Files with the same content are one object, stored once.
   const distinct = [...new Map(material.files.map((file) => [file.sha256, file])).values()]
   const locate = outputArtifacts.locate.bind(outputArtifacts)

@@ -5,7 +5,7 @@ import { Worker } from 'node:worker_threads'
 /**
  * Threads that run fsync for the private CAS. Node runs every fs call on libuv's pool of four
  * threads, and an fsync on a busy disk holds its thread until the filesystem journal commits. On
- * drew-gtr-pro's USB disk (2026-10-20) all four sat in jbd2_log_wait_commit and rq_qos_wait while
+ * drew-gtr-pro's USB disk all four sat in jbd2_log_wait_commit and rq_qos_wait while
  * a tree capture had 16 files in flight: four fsyncs shared each journal commit, and every open,
  * read, lstat and link of the capture queued behind them, at about one file per second. On
  * threads of their own, every fsync in flight waits on the same commit and the pool stays free

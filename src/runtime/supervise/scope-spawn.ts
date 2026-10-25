@@ -480,7 +480,7 @@ class ScopeSpawner<Out> {
         // The worker slot bounds agents that are SIMULTANEOUSLY WORKING, and a settled child is
         // not working. Gating the release on proof of destruction held a slot forever for every
         // retained execution (its executor answers `destroyed: false` while reconciliation is
-        // pending): 127 of 177 children across 14 pursuits on 2026-09-11, until `max-live-workers`
+        // pending): 127 of 177 children across 14 pursuits, until `max-live-workers`
         // refused with `live: 16, freeSlots: 0` while 1 child ran (#1183). The unconfirmed-cleanup
         // fact stays on `live.cleanupConfirmed`, `scope.workerCapacity.unconfirmed`, the
         // `teardown-unconfirmed` journal event and `result.teardownUnconfirmed`.

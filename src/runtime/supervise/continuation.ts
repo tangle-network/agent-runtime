@@ -2,7 +2,7 @@
  * The continuation: what a manager with a completion check is told when its turn ends and the
  * check is unmet, and the one rule that decides whether it is sent back.
  *
- * Measured on discovery-lab before this module (2026-09-24, 670 settled runs, 1,596 re-entries):
+ * Measured on discovery-lab before this module (670 settled runs, 1,596 re-entries):
  * 1,565 re-entries followed a failed turn and resent the original task, and 31 carried note text.
  * The note Runtime wrote itself held seven fixed lines and no field for the check's verdict. Of 40
  * episodes where the director ended on its own and the outside check disagreed, 33 were told

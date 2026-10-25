@@ -113,7 +113,7 @@ export function sandboxEventServedBackend(event: SandboxEvent): SandboxServedBac
 /**
  * Fail the execution when the platform reports serving a model other than the exact one asked for.
  *
- * Measured motive (agent-runtime#892, live infrastructure 2026-08-17): 6 of 6 boxes whose profile
+ * Measured motive (agent-runtime#892, live infrastructure): 6 of 6 boxes whose profile
  * declared `zai-coding-plan/glm-5.2` reported
  * `{"provider":"openai-compat","model":"deepseek/deepseek-v4-flash","source":"environment"}`,
  * while the materialization receipt recorded the declared model as `status: "known"`. Sending

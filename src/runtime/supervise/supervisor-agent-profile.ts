@@ -16,12 +16,12 @@ import { coordinationMcpAlias, coordinationProfileToolPrefix } from './provider-
  * that assigned the task. The run's own check judges the run's result, never a child's narrower
  * assignment. Held to the run's check, a child's submission is refused for as long as the run's
  * is: every node of test-canary-graph-tools-20261017a, and the `delay` child of
- * test-retained-root-wake-20261018b (2026-10-18: "Expected: the canary runs to its deadline"), was
+ * test-retained-root-wake-20261018b ("Expected: the canary runs to its deadline"), was
  * refused at submit_result, never settled, and its manager was never woken with it.
  *
  * It is the one check a harness manager may hold without a continuation policy: it accepts every
  * submission, so there is nothing to send the child back for. test-canary-graph-tools-20261018c and
- * -d (2026-10-18) had every harness-run graph lead refused at spawn until this exemption.
+ * -d had every harness-run graph lead refused at spawn until this exemption.
  */
 export const ownSubmissionDeliverable: DeliverableSpec<unknown> = Object.freeze({
   describe:

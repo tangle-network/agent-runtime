@@ -11,7 +11,7 @@ import { isNoEntError } from './jsonl-file'
 /*
  * The terminal records `supervisePursuit` leaves in a run directory.
  *
- * Measured motive (discovery-lab recursive smoke r1, 2026-09-06): Runtime settled `no-winner`
+ * Measured motive (discovery-lab recursive smoke r1): Runtime settled `no-winner`
  * at 06:27:51Z with a terminal `agent.run` event and returned the result to the caller, and the
  * directory held no terminal record. agent-eval's supervisor-run reader names `result.json` as
  * Runtime's own terminal record and reported `supStatus: unavailable` for that run and for every

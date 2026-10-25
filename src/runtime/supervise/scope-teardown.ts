@@ -226,7 +226,7 @@ export function bindChildTeardown<Out>(
       }
       // A retained-pending child whose environment is now gone can never be recovered, so its
       // cursor slot closes here with the settlement the driver already received, under the seq
-      // `next()` stamped on it. Measured 2026-09-15: 0 of 35 reconciled children on one pursuit
+      // `next()` stamped on it. 0 of 35 reconciled children on one pursuit
       // ever settled, and 185 of 223 lost sandbox children across 385 runs stopped at
       // `reconciled` — every one read as `never-settled` and charged its ceiling by every
       // journal reader although the pool had committed the floor. The gate is the same
@@ -311,7 +311,7 @@ export function bindChildTeardown<Out>(
     // pass writes only the unconfirmed state and never a second `released` record. It does not
     // read `cleanupConfirmed`: a nested manager that settled retained-pending reports its teardown
     // confirmed while its owner environment is held, so the sweep skipped it and the slot stayed
-    // open for good. Measured 2026-10-15: 38 of 38 such directors over 45 runs, 0 closed.
+    // open for good. 38 of 38 such directors over 45 runs, 0 closed.
     const open = [...children.values()].filter(
       (child) =>
         child.recoveryPending === true &&

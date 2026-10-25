@@ -87,7 +87,7 @@ const SAME_PARTIAL_FAILURE_LIMIT = 2
 /**
  * Why an aborted run stopped: `deadline` when the root's or the node's own deadline cut it, else
  * `aborted`. Read before any failure classification, which calls every failure after an abort
- * terminal: measured 2026-10-21, 61 of 62 runs that ended `terminal-error` were a deadline that cut
+ * terminal: 61 of 62 runs that ended `terminal-error` were a deadline that cut
  * a turn.
  */
 function abortStop(signal: AbortSignal): 'deadline' | 'aborted' {

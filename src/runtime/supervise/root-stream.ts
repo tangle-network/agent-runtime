@@ -1,7 +1,7 @@
 /**
  * The root manager's own provider stream, retained where Runtime owns it.
  *
- * Measured motive (agent-runtime#1233, 2026-09-15): a CHILD's full event stream — reasoning, text,
+ * Measured motive (agent-runtime#1233): a CHILD's full event stream — reasoning, text,
  * and tool parts, 28k to 76k reasoning characters per child — is retained in the blob its
  * `settled` record names as `outRef`. The ROOT's stream reached nobody: `driveHarnessFromBackend`
  * drained the root executor for accounting and discarded every `progress` event, and on a
@@ -18,7 +18,7 @@
  *
  * Durability boundary: each line is written synchronously to an `O_APPEND` descriptor before the
  * next event is drained, and the file is fsynced at every drive-attempt boundary and at close, not
- * per line. Measured 2026-09-15 on this host's APFS: an fsync per line cost 7.1 ms per event over
+ * per line. An fsync per line cost 7.1 ms per event over
  * 1,000 events and 8.1 ms over 5,000 (~80 s for a root emitting ten thousand text deltas, all of
  * it serialized inside the drain loop that also meters the budget); an async `FileHandle.write`
  * still cost 0.9 to 1.1 ms per line in the thread pool the children's journal writes share; a

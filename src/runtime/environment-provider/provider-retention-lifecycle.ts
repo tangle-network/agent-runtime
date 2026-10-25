@@ -126,7 +126,7 @@ export function createProviderCaptureMirrors(
   // fuller record and replaces it; a native copy never replaces a settled workspace capture.
   let nativeHoldsTranscript = false
   // A copy that failed while none is held names the failure instead of leaving the placeholder.
-  // Measured 2026-10-15: 64 nodes whose every capture failed (connect timeouts, HTTP 503 from the
+  // 64 nodes whose every capture failed (connect timeouts, HTTP 503 from the
   // evidence archive, byte limits) settled `capture-did-not-run`, which reads as nobody trying
   // (#1360). A later copy that succeeds replaces this receipt.
   const noteCaptureFailure = (error: unknown): void => {

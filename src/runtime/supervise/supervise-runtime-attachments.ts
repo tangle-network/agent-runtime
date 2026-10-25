@@ -114,7 +114,7 @@ export async function providerAcceptsCoordinationAttachments(
  * A manager waits between turns, and a wake can come much later than five minutes after its last
  * turn. Claude Code 2.1.289 writes its prompt cache with a five-minute lifetime unless this variable
  * is set; a wake after the cache expired re-writes the manager's whole context, about 140K tokens
- * per turn on a Discovery root measured 2026-10-05. That root ran on a subscription and already
+ * per turn on a Discovery root. That root ran on a subscription and already
  * wrote one-hour entries; the variable makes the hour hold for every claude-code manager, whatever
  * its credential. A value the caller set wins.
  */

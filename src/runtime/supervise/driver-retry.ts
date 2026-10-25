@@ -29,7 +29,7 @@
  *
  * WHAT COUNTS AS PROGRESS was got wrong first. Reading metered spend, settled children and an
  * accepted submission measured the filesystem and the meter, never the goal: across 1,422 settled
- * discovery-lab runs (2026-09-01) it retried the runs that produced NOTHING 629 of 827 times
+ * discovery-lab runs it retried the runs that produced NOTHING 629 of 827 times
  * (76.1%) and the runs that HAD left an artifact 21 of 399 times (5.3%). So when the caller
  * declares a completion check, spend and settlements alone are NOT progress while it is unmet; only
  * a delivery (an accepted submission, a child that passed the check, the contract turning met, or a
@@ -47,7 +47,7 @@
  * `barren-pause` row per pause for an operator alarm, and re-enters. A barren streak never ends the
  * run: the check, the deadline, the budget and cancellation do. Progress resets the streak and the
  * backoff. There is no count cap and no caller veto (the old prompt-owned loop logged 896 of 1,011
- * rounds with no progress). Measured 2026-10-21 on magnetar-rust-20261021a: the barren bound
+ * rounds with no progress). The barren bound
  * settled a 48-hour run `no-winner` after 14.3 hours, while its last two turns updated its pages
  * and waited on its own 2^20 prove.
  *
@@ -70,7 +70,7 @@
  * created and then failed its setup (Sandbox's `PartialFailureError`): it meets the same failure on
  * every re-entry, so a second identical attempt with no progress stops with `repeated-failure`
  * (`SAME_PARTIAL_FAILURE_LIMIT`). A failure that spent tokens without delivering keeps the bounds.
- * Measured 2026-10-04 on Discovery run research-nqs-20261003system2: a Platform restart answered
+ * A Platform restart answered
  * `HTTP 502 ... Platform key verification unavailable` from 03:04:34 to 03:09:41Z, and the
  * coordinator's twelve attempts ran out at 03:07:12Z with no token spent.
  *
@@ -88,8 +88,7 @@
  * still spent pauses again with its own row, and the steer stays queued until a turn reads it.
  * After the pause the per-window counters start over and the driver is re-entered: after
  * a failure as `driver-failure` with `pausedMs`, after an admission or continuation refusal as the
- * re-entry it was about to use. Drew, 2026-10-21: "why do these runs keep failing early its
- * unacceptable!" Measured 2026-10-21 over 259 runs since 10-14: 8 of the 10 stops settled runs that
+ * re-entry it was about to use. Runs must not fail early: over 259 runs, 8 of the 10 stops settled runs that
  * nobody solved or stopped, including 17 roots whose harness never streamed.
  */
 

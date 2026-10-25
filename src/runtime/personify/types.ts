@@ -45,7 +45,7 @@ import type { ScopeAnalyst } from './wave-types'
 // ── The deliverable contract every shape synthesizes into ──────────────────────
 
 /**
- * The terminal contract Drew wants: a loop returns a FINISHED deliverable, or the concrete
+ * The terminal contract: a loop returns a FINISHED deliverable, or the concrete
  * list of blockers that stopped it — never a half-done best-effort coercion. A `blocked`
  * outcome with an empty `blockers` list is a contract violation (a shape that can't finish
  * MUST name why); impls fail loud on it rather than emitting a vacuous block.

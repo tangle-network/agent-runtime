@@ -4,7 +4,7 @@
  * A router-brained agent (`harness` omitted or `cli-base`) runs its tool loop in this process, so
  * its whole conversation is in the loop's `messages` and nowhere else. Before this, Runtime
  * metered each turn's usage and tool-call names and kept nothing the agent said, saw, or asked a
- * tool to do: a 316-agent tree on 2026-09-24 settled with 0 of 316 transcripts, and the 37 agents
+ * tool to do: a 316-agent tree settled with 0 of 316 transcripts, and the 37 agents
  * still running when its driver process stopped left no record at all (agent-runtime#1377).
  *
  * The recorder keeps each message once, in the order the model saw it, and serves two readers:

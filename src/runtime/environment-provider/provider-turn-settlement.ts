@@ -167,7 +167,7 @@ export class ProviderTurnSettlement {
     })
     // A retained owner with a native copy commits its turn before the slow workspace capture, so a
     // queued or failed capture cannot hide a completed result: Discovery's contract canary left two
-    // finished Sandbox executions unjournaled for over 18 minutes behind capture (2026-10-14).
+    // finished Sandbox executions unjournaled for over 18 minutes behind capture.
     const deferCapture = this.ownerTakesCapture()
     const { retainedWorkspace, workspaceCaptureFailure } = deferCapture
       ? {}
@@ -201,7 +201,7 @@ export class ProviderTurnSettlement {
 
   /**
    * A capture that fails or exceeds its deadline after settlement is a fact about the evidence,
-   * never the turn's outcome. On Runtime 0.295.4 (2026-10-03) a capture past its 1,200,000 ms
+   * never the turn's outcome. On Runtime 0.295.4 a capture past its 1,200,000 ms
    * deadline behind a two-slot queue shared by 34 workers threw an AbortError, the driver
    * classified it terminal, and two research roots ended with 13 and 0 children settled. With no
    * receipt the source stays preserved and the owner reads a retention failure; the turn is not re-run.

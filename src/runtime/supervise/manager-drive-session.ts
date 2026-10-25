@@ -104,7 +104,7 @@ export class ManagerDriveSession {
   private seatChain: SeatChain | undefined
   // What the harness has been doing, from streamed progress events: an executor with no activity
   // log of its own (a provider) otherwise reads idle (a director mid-turn read `turns: 0`,
-  // `stalled: true` on 2026-10-05).
+  // `stalled: true`).
   private readonly driveActivity = createActivityLog()
   // The manager's own harness session, as the attempts before the newest one captured it.
   private managerTranscript: HarnessTranscriptCapture | undefined

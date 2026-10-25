@@ -8,7 +8,7 @@
  *   bridgeExecutor: bridge stream error: host-executor: acquire timeout after 60000ms
  *   (in_flight=4/4, queued=1)
  *
- * Measured 2026-08-22 on discovery-lab cells oscnp s2/s3: two live cells held 2 leads and up to 8
+ * Two live cells held 2 leads and up to 8
  * workers on one bridge whose host executor caps live harness children at 4. A worker spawn that
  * queued past the bridge's single 60 s acquire deadline died there, and the run lost that worker
  * permanently even though a slot freed seconds later. The bridge retries nothing.

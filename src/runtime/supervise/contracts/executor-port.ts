@@ -121,7 +121,7 @@ export interface Executor<Out> {
    *
    * `teardown` keeps a pending retained execution's environment alive by construction: the paid
    * work inside it is what a resumed run reconciles. Once the root has reached its own terminal
-   * outcome nothing will, and the environment is a leak — measured 2026-09-11, four settled runs
+   * outcome nothing will, and the environment is a leak — four settled runs
    * held 18 of a 60-slot fleet for 19 to 37 hours this way. The supervisor calls this at root
    * settlement, never on a resumable interruption (an explicit cancellation, a process crash), and
    * journals one `environment-teardown` receipt per environment returned. `signal` bounds the
