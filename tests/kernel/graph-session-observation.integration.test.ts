@@ -431,6 +431,14 @@ describe('registry observational query policy and independent evidence', () => {
     expect(unavailableRow?.unknowns).not.toContain(
       'workflow selection incomplete; total accounting unavailable',
     )
+    const corrupt = graphFromSessionFacts([{ ...input, unreadRecords: { value: 1 } }], {
+      source: { kind: 'claude-code', id: 'corrupt-source' },
+      issues: [{ kind: 'source-coverage', reason: 'source has no explicit workflow phase spans' }],
+    })
+    await recordStoredGraphRun(registry, corrupt.graph, corrupt.record)
+    expect(
+      (await listGraphRuns(registry)).find((entry) => entry.source?.id === 'corrupt-source')?.cost,
+    ).toEqual({})
   })
 })
 

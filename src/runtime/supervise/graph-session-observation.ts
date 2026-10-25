@@ -34,6 +34,8 @@ export interface ObservedSessionFacts {
   readonly typedTurnCounts?: ObservedFact<
     readonly { readonly actor: string; readonly turns: number }[]
   >
+  /** Actual unread source records, counted only by the trace reader. */
+  readonly unreadRecords?: ObservedFact<number>
   /** Only an authoritative sender-role join can establish who led the work. */
   readonly leadMessages?: ObservedFact<number>
   readonly agent: ObservedFact<{
@@ -225,7 +227,12 @@ export function graphFromSessionFacts(
     (issue) =>
       !issue || typeof issue !== 'object' || !('kind' in issue) || issue.kind !== 'source-coverage',
   )
-  const complete = options.complete !== false && !incompleteIssues
+  const unread = facts.some(
+    (fact) => fact.unreadRecords?.partial || (fact.unreadRecords?.value ?? 0) > 0,
+  )
+  if (unread)
+    unknowns.push('source contains unread or partial records; total accounting unavailable')
+  const complete = options.complete !== false && !incompleteIssues && !unread
   if (!complete) unknowns.push('workflow selection incomplete; total accounting unavailable')
   if (!options.taskType) unknowns.push('task type not explicitly labeled')
   const starts = observations

@@ -21583,6 +21583,24 @@ Exact pre-cap counts from the trace owner's sender classification.
 
 > `readonly` `optional` **partial?**: `string`
 
+##### unreadRecords?
+
+> `readonly` `optional` **unreadRecords?**: `object`
+
+Actual unread source records, counted only by the trace reader.
+
+###### value
+
+> `readonly` **value**: `number` \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string` \| `null`
+
+###### partial?
+
+> `readonly` `optional` **partial?**: `string`
+
 ##### leadMessages?
 
 > `readonly` `optional` **leadMessages?**: `object`
