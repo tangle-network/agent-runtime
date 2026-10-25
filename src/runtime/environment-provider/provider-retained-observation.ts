@@ -20,7 +20,7 @@ import { isTerminalEnvironmentEvent } from './provider-event-projection'
 /**
  * How long a retained stream may go without new evidence before the node publishes that it waits
  * on its exact result. Silence never ends the turn (ending there failed 18 still-running attempts
- * as `terminal-event-lost`, 2026-10-12..20); only the exact result or an abort does. The bound on
+ * as `terminal-event-lost`); only the exact result or an abort does. The bound on
  * a wait that never ends is the Lab keeper's hung-root re-drive after 15 minutes without a write.
  */
 const RETAINED_AWAITING_RESULT_AFTER_MS = 8 * 60_000
@@ -50,7 +50,7 @@ type FrameRead =
 /**
  * Why the event stream stopped short, as bounded redacted text. A settlement reason reads messages
  * and `cause` links only, never an AggregateError's members, so a wrapper that omits this hides
- * which layer lost the stream (critics-tournament-v1-158ca88e83bf:s1, 2026-10-16).
+ * which layer lost the stream (critics-tournament-v1-158ca88e83bf:s1).
  */
 function observationFailureText(failure: { readonly error: unknown }): string {
   const error = failure.error
@@ -81,7 +81,7 @@ export class RetainedObservation {
   // One reaction on the exact result for the whole drain; each read adds and removes its waker. A
   // reaction per read on this run-long promise kept every drained event reachable through
   // Promise.race: free-tier supervisors (~225 KB part states per update) hit node's 4 GB heap
-  // limit within an hour on 2026-10-18.
+  // limit within an hour.
   private readonly exactWakers = new Set<() => void>()
   private exactWatched = false
   private readonly seenEvents = new Map<string, string>()
@@ -137,7 +137,7 @@ export class RetainedObservation {
     // settles the invocation, and a short stream is not an end. The node waits on it as long as the
     // provider takes. The Sandbox SDK builds that result by replaying events, and a short replay
     // returns `success: false` "Agent stream ended without a terminal event" with no error code,
-    // indistinguishable from the execution's own failure (64 of 82 C1 attempts, 2026-10-12..20).
+    // indistinguishable from the execution's own failure (64 of 82 C1 attempts).
     // The SDK owns that verdict.
     if (!this.sawTerminal && !this.exactResultSettled && !this.awaitingPublished) {
       yield this.awaitingResult(Date.now())

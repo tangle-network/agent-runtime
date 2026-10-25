@@ -300,7 +300,7 @@ async function settleRetainedPending<C>(
   await attempt.teardown(opts.shutdown ?? 'brutalKill').catch(() => undefined)
   // Charge what was observed, not the reservation ceiling: a recursive executor's explicit
   // accounting, else the running total the pool metered off the stream. `reconcile` refunds
-  // `reserved - spent`, so passing the ceiling refunded nothing: on 2026-09-11, 16 dead children
+  // `reserved - spent`, so passing the ceiling refunded nothing: 16 dead children
   // were charged 64M having metered 890k (#1190). The floor is `live.spent` for a leaf (no
   // production leaf implements `metered`), with every channel marked unknown because the remote
   // execution may still be consuming; it is journaled as this node's `reconciled` floor. A

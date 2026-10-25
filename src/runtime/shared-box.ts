@@ -23,7 +23,7 @@
  *
  * A worker whose model provider refuses a turn for capacity keeps its process's session and
  * directory, pauses by the driver's rule, and continues the same opencode session, the way a
- * dedicated leaf does (`ProviderExecutorOptions.unavailablePause`). Measured 2026-09-24: 15 of 23
+ * dedicated leaf does (`ProviderExecutorOptions.unavailablePause`). 15 of 23
  * down children of play anomaly-referee-v3d ended on `provider_quota_exhausted`, and opencode
  * itself gives up on a refused model after about 70 seconds of its own retries.
  *

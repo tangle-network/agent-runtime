@@ -289,7 +289,7 @@ export function hasRetriableTeardowns(scope: Scope<unknown>, release: boolean): 
  * A driver's `act` returning does not stop everything that holds its scope: a supervisor tool
  * whose handler outran its response fence keeps running detached (`single-flight-tools`
  * `background()`) with the coordination verbs still bound, and a verb call reaches `spawn`
- * in-process — closing the MCP listener does not reach it. Measured 2026-09-14: such a handler
+ * in-process — closing the MCP listener does not reach it. Such a handler
  * spawned `distill:all` 309 ms after the barrier had drained and released. The child was
  * admitted, took a conserved reservation, built a sandbox, ran 12.4 s of provider work, and
  * journaled its settlement 19 s after the run had already written its failure — while the live

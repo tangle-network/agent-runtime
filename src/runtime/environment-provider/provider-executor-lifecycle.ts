@@ -54,7 +54,7 @@ export function createProviderExecutor(
   // A manager's stop (an accepted `submit_result`, `stop`, a stop rule) ends its turn. The bridge
   // executor reads this seam at its turn boundary; a retained run asks its backend to cancel the
   // turn, so the stream ends and the harness session and the turn's usage are still read. Before,
-  // a provider-placed director ran its harness on after acceptance: measured 2026-10-05, accepted
+  // a provider-placed director ran its harness on after acceptance: accepted
   // directors settled 13 to 29 minutes after their submissions. A run with no retained control
   // could only abort locally, which skips those reads, so it keeps running to the end of its turn.
   const managerStop = readOptionalAbortSignal(ctx, bridgeStopSignalKey, 'provider')
@@ -255,7 +255,7 @@ function heldForContinuation(scope: ProviderExecutorScope): HeldForContinuation 
 /** What a leaf is told when it continues after a refused turn. The session carries its
  *  conversation and the environment its files, so the instruction names neither the provider nor
  *  the refusal: a director told the details of a provider failure spent its children probing the
- *  infrastructure (discovery-lab AGENTS.md, measured 2026-09-11). */
+ *  infrastructure (discovery-lab AGENTS.md). */
 export const LEAF_CONTINUATION_TASK =
   'Your previous turn was interrupted before it finished. This is the same task in the same ' +
   'session: your conversation so far and the files in your workspace are where you left them. ' +

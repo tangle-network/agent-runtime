@@ -4,7 +4,7 @@
  * A re-prompt used to send the unmet items alone, on the claim that it re-entered the SAME live
  * session. That holds on a backend that reattaches the harness session. It does not hold when the
  * previous environment is gone: the driver then starts in a new sandbox, with a new harness
- * session, and the unmet-items text is all it knows. Measured in Autopsy A (2026-09-16): three
+ * session, and the unmet-items text is all it knows. Measured in Autopsy A: three
  * root attempts, each in a new sandbox; the third reported an empty workspace, spent 20 minutes
  * and about 2.0M input tokens investigating infrastructure, and never consumed the child result
  * that had settled while it was gone.
@@ -121,7 +121,7 @@ export function composeReentryTask(input: ReentryTaskInput): string {
 
 /**
  * Why the driver is back, in one clause. The failure's own text stays in the attempt records and
- * never reaches the driver: measured 2026-09-11, a continuation told the details of a provider
+ * never reaches the driver: a continuation told the details of a provider
  * failure spent two of its first four children probing the infrastructure, while its peer, told
  * only what to continue, spent all forty-five on the research.
  */

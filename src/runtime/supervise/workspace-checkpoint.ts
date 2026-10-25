@@ -4,11 +4,11 @@
  * A director placed on a provider sandbox keeps its working files in that sandbox. When the
  * provider loses the sandbox, Runtime re-enters the director in a new one with the coordinator's
  * run state (`reentry.ts`), but the files were gone: measured in discovery-lab Autopsy A
- * (`autopsy-a-after-20260924b`, 2026-09-24), the re-entered director found no `objective.md` and
+ * (`autopsy-a-after-20260924b`), the re-entered director found no `objective.md` and
  * wrote a new nonce. So while a manager coordinates, Runtime checkpoints its workspace through the
  * provider's durable branching surface, and a replacement environment is created from the latest
  * checkpoint. The checkpoint belongs to the provider: a Tangle checkpoint is a Sandbox snapshot,
- * which outlives its box (measured 2026-09-24: a snapshot took 4.0 to 5.0 s, and a box created
+ * which outlives its box (a snapshot took 4.0 to 5.0 s, and a box created
  * from it 19 s after its source box was deleted held every file byte-identical).
  *
  * Before each checkpoint Runtime writes a marker file into the workspace. A restored environment
@@ -43,7 +43,7 @@ export const WORKSPACE_CHECKPOINTS_KEPT = 2
 export const WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS = 2 * 60_000
 
 /** Bound on creating and reconstructing the fork a checkpoint's capture reads: a Sandbox box
- *  created from a snapshot (measured 2026-09-24: 19 s). The capture itself is bounded by its port. */
+ *  created from a snapshot (19 s). The capture itself is bounded by its port. */
 export const WORKSPACE_CHECKPOINT_FORK_TIMEOUT_MS = 10 * 60_000
 
 /** Write the marker. False when the environment cannot take it, so no restore can be verified. */

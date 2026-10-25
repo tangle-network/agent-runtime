@@ -63,7 +63,7 @@ export function createWorkerObservation({
   //
   // A manager may not close its run while work it commissioned is unread: a worker still running,
   // a settlement or finding queued for the next wake, or a settlement the coordinator holds and
-  // has not queued yet. Measured in Autopsy C (2026-09-03): a root stopped 15 to 45 s after its
+  // has not queued yet. Measured in Autopsy C: a root stopped 15 to 45 s after its
   // children returned without reading them, and the verification it had commissioned sat
   // unclaimed. The refusal names the open work so the manager can go and read it.
   const openWork = () => {

@@ -27,7 +27,7 @@ import { mutateRunClaim, runGenerationPath, runWithWriteClaim } from './run-fenc
 /*
  * Exclusive ownership of one durable run directory for the life of one `supervisePursuit` call.
  *
- * Measured motive (discovery-lab recursive smoke r1, 2026-09-06): the recovery protocol is
+ * Measured motive (discovery-lab recursive smoke r1): the recovery protocol is
  * `SIGKILL` the runner while a child is live, then resume on the same directory. PID 1527 was
  * killed at 06:20:27Z and PID 2058 resumed at 06:24:59Z. Nothing refused a second process while
  * the first was still alive; two processes on one directory both append to `spawn-journal.jsonl`

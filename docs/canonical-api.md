@@ -433,7 +433,7 @@ Inside one run, the director works in rounds until its deliverable check passes 
 
 The chain stops after `patience` proposals in a row that did not take the lead (`patience`), at `maxVersions` nodes (`max-nodes`; a refused change counts as one), when the next version cannot be admitted under `maxUsd` (`budget`), or at `deadlineMs` from the first version's start (`deadline`).
 It also stops, before proposing, when its last `identicalFailures` versions (default 3) failed identically: each ended `driver-failed` with the same error name and message (digits, hex runs and absolute paths normalized), or the judge could not score it.
-Such a failure repeats whatever the next change is, so it closes the chain `converged` and the result's `versions.identicalFailures` names the failure; on 2026-09-30 a chain whose guard caps were one million ran 342 versions that each failed in seconds on the same refused workspace file.
+Such a failure repeats whatever the next change is, so it closes the chain `converged` and the result's `versions.identicalFailures` names the failure; a chain whose guard caps were one million ran 342 versions that each failed in seconds on the same refused workspace file.
 The dollar rule is the kernel's: a version starts only while settled spend, with an unknown spend counted at its proven floor, plus a hold for it stays within `maxUsd`.
 The hold is the version's own `budget.maxUsd`, a hard hold because that budget bounds the version in flight; a `budget.maxUsd` above `stop.maxUsd` is refused.
 Without one, the hold is the kernel's estimate: 0 until 20 versions settled, then 1.5 times the p99 of their spend.

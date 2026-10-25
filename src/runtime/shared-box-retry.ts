@@ -6,7 +6,7 @@ import { sleep } from './util'
  *
  * Every call re-verifies the API key with the platform, and a burst of workers makes that check
  * time out: 8 of 64 workers failed with `502 platform_unavailable` (reason `platform_timeout`) in
- * one burst on 2026-09-24, and 3 more lost their transcript enumeration the same way. The check
+ * one burst, and 3 more lost their transcript enumeration the same way. The check
  * refuses the request before it reaches the box, so repeating it is safe; five attempts over about
  * fifteen seconds rode out every such failure measured.
  */

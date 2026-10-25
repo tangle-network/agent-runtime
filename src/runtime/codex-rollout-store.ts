@@ -13,7 +13,7 @@
  * whose counters are already on disk. This module is the reader that closes that gap: the store is
  * evidence, not a side effect.
  *
- * MEASURED MOTIVE (discovery#80, 2026-09-01). One live codex seat reported zero on 9 of 9
+ * MEASURED MOTIVE (discovery#80). One live codex seat reported zero on 9 of 9
  * `metered` events with `tokensKnown: false`, while 27,320,482 codex tokens sat in the same run
  * directory. 1,453,948 of those (5.3%) belonged to three harness-native children the runtime has
  * no journal row for at all. Both numbers come from this file format and neither reached a spend

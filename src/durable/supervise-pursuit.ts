@@ -195,7 +195,7 @@ export async function supervisePursuit(
         steerDir,
         // The settle record written at settlement makes this settlement final, so the
         // environments a retained child holds are released at the barrier instead of kept for a
-        // resume that the record will refuse (measured 2026-09-11: 18 of a 60-slot fleet held 19
+        // resume that the record will refuse (18 of a 60-slot fleet held 19
         // to 37 hours).
         retainedAtSettlement: 'release',
         hooks,

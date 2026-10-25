@@ -13,7 +13,7 @@ Do not constrain agents with prohibitions: change what is rewarded and who is in
 ## A profile that starts
 
 A refused profile fails before its first model turn, and it fails the same way on every retry.
-On 2026-10-10 Discovery lost 20 driver attempts to unpublished tool names and 3 spawns to a missing subscription source.
+Discovery lost 20 driver attempts to unpublished tool names and 3 spawns to a missing subscription source.
 Start from a profile that already ran (in a Discovery play, `inputs/profile-examples/<family>.json`) and change only `name`, `description` and `prompt.instructions`.
 
 | Field | Rule |

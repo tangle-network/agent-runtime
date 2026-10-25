@@ -283,7 +283,7 @@ export interface SuperviseOptions {
    * switches.
    *
    * A harness owns its own turn loop, so it decides when it is finished — and it can decide that
-   * while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
+   * while the run has produced nothing. Measured on discovery-lab (n = 1,422 settled
    * runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
    * could only LABEL an undelivered result `valid:false`, never send the driver back for it. By
    * 2026-09-24, 650 recorded inputs had chosen seven different re-prompt counts, and the note the

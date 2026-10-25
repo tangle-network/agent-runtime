@@ -343,7 +343,7 @@ async function executeRoot<Out>(root: RootExecution): Promise<RootSettled<Out>> 
     actOutcome = { ok: false, error }
   } finally {
     // Close admission BEFORE the drain: a background supervisor-tool invocation that outlived its
-    // response fence can still `spawn` in-process during the barrier. One did on 2026-09-14,
+    // response fence can still `spawn` in-process during the barrier. One did,
     // 309 ms after the drain, and `assertNoOpenTickets` destroyed a 63-child run over it.
     closeScopeAdmission(scope)
     executionAborted = controller.signal.aborted
@@ -358,7 +358,7 @@ async function executeRoot<Out>(root: RootExecution): Promise<RootSettled<Out>> 
     // #741: a root that DIED did not make its children unhealthy. When not cancelled,
     // `childSettleGraceMs` lets live children finish before the cascade, bounded by the run's
     // deadline. It covers a root that RETURNED with children live too (a harness root ends its
-    // turn when it stops speaking; 7 of 17 lead runs on 2026-09-03 tore children down at zero
+    // turn when it stops speaking; 7 of 17 lead runs tore children down at zero
     // tokens). `drainLiveChildren` returns at once when nothing is live.
     if (!parked) {
       const settleGraceMs = !controller.signal.aborted

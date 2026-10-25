@@ -36,8 +36,7 @@ import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 /*
- * An opted-in root pauses where it used to stop. Drew, 2026-10-21: "why do these runs keep failing
- * early its unacceptable!" Over 259 runs since 10-14, 8 of the 10 driver stops settled runs that
+ * An opted-in root pauses where it used to stop. Over 259 runs, 8 of the 10 driver stops settled runs that
  * nobody solved or stopped. With `driverRetry.pauseRootStops`, each such stop journals one `paused`
  * row the operator alarms on, and only a solve, a named cancel or a declared deadline settles.
  *

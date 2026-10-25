@@ -147,7 +147,7 @@ export interface SupervisorOpts {
    *
    * - `'release'`: the run will not be resumed, so nothing would ever reconcile or release those
    *   environments. The join barrier releases each one and journals an `environment-teardown`
-   *   receipt per environment. Measured 2026-09-11: four settled runs held 18 of a 60-slot
+   *   receipt per environment. Four settled runs held 18 of a 60-slot
    *   Sandbox fleet for 19 to 37 hours without it. It then closes each released child's cursor
    *   slot with a terminal record marked `retainedExecution: 'released'`, so `spendGaps` names
    *   it `unreported` (a floor) rather than `never-settled` (a ceiling) and
