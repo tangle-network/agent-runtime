@@ -69,6 +69,7 @@ function graphFromSessionFacts(
           spanId: `span-${entry.sessionId}`,
           parentNodeId: entry.parentSessionId ? `span-${entry.parentSessionId}` : null,
           runtime: entry.harness,
+          kind: 'AGENT',
         })),
       },
       ...options,
@@ -402,38 +403,51 @@ describe('registry observational query policy and independent evidence', () => {
       mergeMsCount: 0,
     })
   })
+})
 
-  it('records generic OTLP boundaries without inventing native session identities', async () => {
+describe('canonical generic OTLP boundaries', () => {
+  it('records exact span identity and distinguishes phase kinds without native sessions', async () => {
     const registry = await openRegistry()
-    const observed = projectSessionFacts(
-      [
+    const facts = [
+      {
+        ...fact('fixture-root'),
+        sessionId: null,
+        traceId: 'trace-pi',
+        rootSpanId: { value: 'root-pi' },
+      },
+      {
+        ...fact('fixture-child', 'fixture-root'),
+        sessionId: null,
+        traceId: 'trace-pi',
+        rootSpanId: { value: 'child-pi' },
+      },
+    ]
+    const spanRun = {
+      present: true,
+      traceIds: ['trace-pi'],
+      orphanSpans: 0,
+      nodes: [
         {
-          ...fact('fixture-root'),
-          sessionId: null,
           traceId: 'trace-pi',
-          rootSpanId: { value: 'root-pi' },
+          spanId: 'root-pi',
+          parentNodeId: null,
+          runtime: 'pi',
+          kind: 'AGENT',
         },
         {
-          ...fact('fixture-child', 'fixture-root'),
-          sessionId: null,
           traceId: 'trace-pi',
-          rootSpanId: { value: 'child-pi' },
+          spanId: 'child-pi',
+          parentNodeId: 'root-pi',
+          runtime: 'pi',
+          kind: 'CHAIN',
         },
       ],
-      {
-        source: { kind: 'pi', id: 'generic-agent-run' },
-        traceRunId: 'trace-pi',
-        spanRun: {
-          present: true,
-          traceIds: ['trace-pi'],
-          orphanSpans: 0,
-          nodes: [
-            { traceId: 'trace-pi', spanId: 'root-pi', parentNodeId: null, runtime: 'pi' },
-            { traceId: 'trace-pi', spanId: 'child-pi', parentNodeId: 'root-pi', runtime: 'pi' },
-          ],
-        },
-      },
-    )
+    }
+    const observed = projectSessionFacts(facts, {
+      source: { kind: 'pi', id: 'generic-agent-run' },
+      traceRunId: 'trace-pi',
+      spanRun,
+    })
     await recordStoredGraphRun(registry, observed.graph, observed.record)
     const [row] = await listGraphRuns(registry)
     expect(row?.nodeUsage?.map((node) => node.sourceId)).toEqual([
@@ -443,5 +457,14 @@ describe('registry observational query policy and independent evidence', () => {
     expect(row?.cost.tokens).toBe(300)
     expect(observed.graph.edges).toEqual([{ from: 'n0', to: 'n1' }])
     expect(row?.traversals).toBeUndefined()
+    expect(observed.graph.nodes[1]?.profile.metadata?.spanKind).toBe('CHAIN')
+    const control = projectSessionFacts(facts, {
+      source: { kind: 'pi', id: 'agent-kind-control' },
+      traceRunId: 'trace-pi',
+      spanRun: { ...spanRun, nodes: spanRun.nodes.map((node) => ({ ...node, kind: 'AGENT' })) },
+    })
+    await recordStoredGraphRun(registry, control.graph, control.record)
+    expect(control.record.topologyDigest).not.toBe(observed.record.topologyDigest)
+    expect((await graphCorpusSummary(registry)).groups).toHaveLength(2)
   })
 })

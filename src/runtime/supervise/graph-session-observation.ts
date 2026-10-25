@@ -61,6 +61,7 @@ export interface GraphSessionObservationOptions {
       readonly spanId: string
       readonly parentNodeId: string | null
       readonly runtime: string | null
+      readonly kind?: string | null
     }[]
   }
   readonly complete?: boolean
@@ -139,7 +140,11 @@ export function graphFromSessionFacts(
     const profile: AgentProfile = {
       name: node.parentNodeId === null ? 'observed-agent' : 'observed-child',
     }
-    if (node.runtime) profile.metadata = { runtime: node.runtime }
+    if (node.runtime || node.kind)
+      profile.metadata = {
+        ...(node.runtime ? { runtime: node.runtime } : {}),
+        ...(node.kind ? { spanKind: node.kind } : {}),
+      }
     return { id: ids.get(spanKey(node.traceId, node.spanId))!, profile }
   })
   const edges: { from: string; to: string }[] = []
@@ -188,6 +193,8 @@ export function graphFromSessionFacts(
   }
   if (!spanNodes.length)
     unknowns.push('topology unavailable: no canonical span run tree was supplied')
+  if (spanNodes.some((node) => node.kind == null))
+    unknowns.push('canonical span node kind unavailable')
   if (options.spanRun?.orphanSpans) unknowns.push('canonical span run contains orphan spans')
   if (!options.traceRunId) unknowns.push('trace run identity unavailable')
   for (const issue of options.issues ?? []) {
@@ -242,7 +249,15 @@ export function graphFromSessionFacts(
     record: {
       graphDigest: graph.digest,
       ...(spanNodes.length
-        ? { topologyDigest: taskShapeDigest({ nodes: nodes.map((node) => node.id), edges }) }
+        ? {
+            topologyDigest: taskShapeDigest({
+              nodes: nodes.map((node, index) => ({
+                id: node.id,
+                kind: spanNodes[index]!.kind ?? null,
+              })),
+              edges,
+            }),
+          }
         : {}),
       taskDigest: taskShapeDigest(options.taskShape ?? { taskType: options.taskType ?? 'unknown' }),
       startedAt,
