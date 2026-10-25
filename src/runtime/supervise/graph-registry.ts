@@ -28,6 +28,7 @@ import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { sha256 } from '../../content-digest'
 import {
+  isNoEntError,
   readCommittedJsonFile,
   upsertCommittedJsonLine,
   withJsonlFileLock,
@@ -320,7 +321,20 @@ export async function recordStoredGraphRun(
     }
     assertRecord(persisted)
     const revisionPath = join(reg.root, GRAPHS_DIR, `${stored.digest}.json`)
-    writeAtomicDurableFile(revisionPath, JSON.stringify(stored), { preserveMode: true })
+    try {
+      const { digest: existingDigest, ...existing } = JSON.parse(
+        await readFile(revisionPath, 'utf8'),
+      ) as StoredGraph
+      if (existingDigest !== stored.digest || graphDigest(existing) !== stored.digest)
+        throw new ValidationError(
+          'graph-registry: stored graph revision is immutable but its content differs',
+        )
+    } catch (error) {
+      if (!isNoEntError(error)) throw error
+      // Content-addressed revisions are immutable. Rewriting one on every run adds
+      // an unnecessary durable publication to the record lock's critical section.
+      writeAtomicDurableFile(revisionPath, JSON.stringify(stored), { preserveMode: true })
+    }
     await upsertCommittedJsonLine(canonicalPath, persisted, recordKey)
     return stored
   })

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -86,6 +86,8 @@ describe('normalized session observations through the public filesystem registry
       complete: true,
     })
     await recordStoredGraphRun(registry, first.graph, first.record)
+    const revisionPath = join(registry.root, 'graphs', `${first.graph.digest}.json`)
+    const revision = await stat(revisionPath)
     const second = graphFromSessionFacts([fact('parent-b'), fact('child-b', 'parent-b', 420)], {
       source: { kind: 'claude-code', id: 'workflow-b' },
       taskType: 'feature',
@@ -101,6 +103,7 @@ describe('normalized session observations through the public filesystem registry
       leadMessages: 4,
     })
     await recordStoredGraphRun(registry, second.graph, second.record)
+    expect((await stat(revisionPath)).ino).toBe(revision.ino)
     // A running observation can grow a new node without duplicating its source run.
     const updated = graphFromSessionFacts(
       [fact('parent-a'), fact('child-a', 'parent-a'), fact('grandchild', 'child-a')],
@@ -219,6 +222,15 @@ describe('normalized session observations through the public filesystem registry
       recordStoredGraphRun(registry, { ...observed.graph, nodes: [] }, observed.record),
     ).rejects.toThrow('stored graph content does not match its digest')
     expect(await listGraphRuns(registry)).toEqual([])
+    await recordStoredGraphRun(registry, observed.graph, observed.record)
+    await writeFile(
+      join(registry.root, 'graphs', `${observed.graph.digest}.json`),
+      JSON.stringify({ ...observed.graph, nodes: [] }),
+    )
+    await expect(recordStoredGraphRun(registry, observed.graph, observed.record)).rejects.toThrow(
+      'stored graph revision is immutable but its content differs',
+    )
+    expect(await listGraphRuns(registry)).toEqual([observed.record])
   })
 })
 
