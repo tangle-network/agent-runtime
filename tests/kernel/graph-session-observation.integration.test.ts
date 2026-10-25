@@ -402,4 +402,46 @@ describe('registry observational query policy and independent evidence', () => {
       mergeMsCount: 0,
     })
   })
+
+  it('records generic OTLP boundaries without inventing native session identities', async () => {
+    const registry = await openRegistry()
+    const observed = projectSessionFacts(
+      [
+        {
+          ...fact('fixture-root'),
+          sessionId: null,
+          traceId: 'trace-pi',
+          rootSpanId: { value: 'root-pi' },
+        },
+        {
+          ...fact('fixture-child', 'fixture-root'),
+          sessionId: null,
+          traceId: 'trace-pi',
+          rootSpanId: { value: 'child-pi' },
+        },
+      ],
+      {
+        source: { kind: 'pi', id: 'generic-agent-run' },
+        traceRunId: 'trace-pi',
+        spanRun: {
+          present: true,
+          traceIds: ['trace-pi'],
+          orphanSpans: 0,
+          nodes: [
+            { traceId: 'trace-pi', spanId: 'root-pi', parentNodeId: null, runtime: 'pi' },
+            { traceId: 'trace-pi', spanId: 'child-pi', parentNodeId: 'root-pi', runtime: 'pi' },
+          ],
+        },
+      },
+    )
+    await recordStoredGraphRun(registry, observed.graph, observed.record)
+    const [row] = await listGraphRuns(registry)
+    expect(row?.nodeUsage?.map((node) => node.sourceId)).toEqual([
+      'span:["trace-pi","root-pi"]',
+      'span:["trace-pi","child-pi"]',
+    ])
+    expect(row?.cost.tokens).toBe(300)
+    expect(observed.graph.edges).toEqual([{ from: 'n0', to: 'n1' }])
+    expect(row?.traversals).toBeUndefined()
+  })
 })

@@ -88,13 +88,22 @@ export function graphFromSessionFacts(
     'edge traversal accounting unavailable from canonical span relationships',
     'span containment does not establish graph edge semantics',
   ]
+  const spanNodes = options.spanRun?.present ? options.spanRun.nodes : []
+  const spanKey = (traceId: string, spanId: string): string => JSON.stringify([traceId, spanId])
   const identities = new Set<string>()
   const observations = facts.map((fact) => {
-    if (!fact.sessionId || identities.has(fact.sessionId))
+    const roots = spanNodes.filter(
+      (node) => node.traceId === fact.traceId && node.parentNodeId === null,
+    )
+    const anchor = measured(fact.rootSpanId) ?? (roots.length === 1 ? roots[0]!.spanId : undefined)
+    const boundary = fact.traceId && anchor ? `span:${spanKey(fact.traceId, anchor)}` : undefined
+    const sourceId = fact.sessionId ?? boundary
+    const identity = boundary ?? (fact.sessionId ? `session:${fact.sessionId}` : undefined)
+    if (!identity || !sourceId || identities.has(identity))
       throw new ValidationError(
-        'graphFromSessionFacts: every session needs a unique recorded identity',
+        'graphFromSessionFacts: every observation needs a unique recorded session or span identity',
       )
-    identities.add(fact.sessionId)
+    identities.add(identity)
     const humanMessages = measured(fact.humanTurns)?.length
     const leadMessages = measured(fact.leadMessages)
     const inputTokens = fact.tokens.input ?? undefined
@@ -105,12 +114,12 @@ export function graphFromSessionFacts(
       humanMessages,
       leadMessages,
     })) {
-      if (value === undefined) unknowns.push(`${fact.sessionId}: ${key} unavailable`)
+      if (value === undefined) unknowns.push(`${sourceId}: ${key} unavailable`)
       else if (!Number.isSafeInteger(value) || value < 0)
         throw new ValidationError(`graphFromSessionFacts: invalid ${key}`)
     }
     return {
-      sourceId: fact.sessionId,
+      sourceId,
       startedAt: recordedAt(fact.firstRecordAt),
       lastRecordAt: recordedAt(fact.lastRecordAt),
       inputTokens,
@@ -119,8 +128,6 @@ export function graphFromSessionFacts(
       leadMessages,
     }
   })
-  const spanNodes = options.spanRun?.present ? options.spanRun.nodes : []
-  const spanKey = (traceId: string, spanId: string): string => JSON.stringify([traceId, spanId])
   const ids = new Map<string, string>()
   for (const [index, node] of spanNodes.entries()) {
     const key = spanKey(node.traceId, node.spanId)
