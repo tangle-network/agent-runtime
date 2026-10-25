@@ -1,3 +1,23 @@
+## 0.349.0
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Run seat-bearing native workers in flow graphs through the configured backend while Runtime keeps routing and gates deterministic.
+
+Import canonical trace topology into the graph registry with trace-run links, explicit unknown/running outcomes, and an opt-in observational query policy. Consumers must handle absent completion timestamps and traversal counts on incomplete observations; native writes still require both. Observed designs cannot authorize executable replay.
+
+Reuse verified immutable graph revisions when recording another run, avoiding redundant durable writes while holding the registry lock. Refuse a stored revision whose content no longer matches its address.
+
 ## 0.348.1
 
 Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.

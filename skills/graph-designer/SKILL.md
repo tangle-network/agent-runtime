@@ -10,6 +10,8 @@ that does the work, run it under your granted permissions, and record what happe
 Every execution is fully traced like any graph run — the registry plus the run's journal
 is the knowledge.
 
+Production designs: search [Factory’s design catalog](https://github.com/tangle-network/factory/blob/main/README.md) before authoring; record a delivered Factory run through `recordGraphRun` like any graph.
+
 ## The loop (every input)
 
 1. Compute the task shape: the durable description you will look this kind of work up by
@@ -40,6 +42,10 @@ budget or scope changes, not a new topology; repeated near-misses want a directi
 one axis at a time so the next record attributes the difference. When an optimizer run
 (agent-eval) is available, feed it the losing graph's journal; otherwise your reasoned
 mutation IS the search step.
+
+When the registry promotes a winning topology for a task type, retain a case under
+`skills/agent-graphs/cases/` citing the run and its measured outcome. The cited record
+provides the evidence; a descriptive ranking alone does not establish a win.
 
 ## Profiles improve the same way graphs do
 

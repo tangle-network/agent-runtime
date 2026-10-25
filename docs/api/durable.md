@@ -2127,7 +2127,7 @@ The conserved compute pool for the whole run.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-20)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-19)
 
 ##### rootHandle?
 
@@ -2195,7 +2195,7 @@ The independent completion check for backend-derived workers and direct supervis
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`deliverable`](runtime.md#deliverable-6)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`deliverable`](runtime.md#deliverable-5)
 
 ##### resolveDeliverable?
 
@@ -2494,9 +2494,9 @@ The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The
 
 When `driverBackend` is absent, whether an external-harness ROOT may default to running on
  `backend` (where workers run). `true` (default) keeps the convenience every direct caller has.
- A layer that gives `backend` a narrower meaning — `runGraph`, where it places WORKER nodes only
- — sets `false`, so an external root without an explicit `driverBackend` is refused before any
- compute rather than silently driven from the worker placement.
+ Rooted `runGraph` calls set `false`, so an external root needs an explicit `driverBackend`.
+ Flow graphs keep derivation for native child drivers; their root uses Runtime's deterministic
+ brain and makes no model call through this backend.
 
 ###### Inherited from
 
@@ -5394,7 +5394,7 @@ progress for `idleMs`. The run's own deadline, the budgets and cancellation stil
 `false` restores the hard kill at the time box. A child that exposes no inbox cannot be told,
 so it is stopped at its time box as before.
 
-four of 42 directors
+Four of 42 directors
 were killed at the 90-minute boxes their root set, three of them mid-turn, losing 27, 6 and 91
 minutes since their last recorded page, and each successor spent 12 to 19 minutes re-reading
 before its first page.

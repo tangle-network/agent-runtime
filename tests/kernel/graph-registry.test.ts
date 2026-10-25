@@ -132,7 +132,7 @@ async function runAndRecord(
       : { kind: 'no-winner', reason: result.result.kind },
     cost: {
       ...(spent?.iterations !== undefined ? { iterations: spent.iterations } : {}),
-      ...(spent?.tokens !== undefined ? { tokens: spent.tokens } : {}),
+      ...(spent?.tokens !== undefined ? { tokens: spent.tokens.input + spent.tokens.output } : {}),
     },
     traversals: result.ledger.length,
   })
