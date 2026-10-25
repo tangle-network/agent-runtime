@@ -48,6 +48,9 @@
         deriveExecutionId,
         handleChatTurn,
         type ChatTurnResult,
+        type SeatSelection,
+        type SeatSelectionInput,
+        type SelectSeat,
       } from '@tangle-network/agent-runtime/durable'
       import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
       import {
@@ -153,6 +156,9 @@
       })
       const durableTurnHandler: typeof handleChatTurn = handleChatTurn
       declare const durableTurnResult: ChatTurnResult
+      declare const seatSelectionInput: SeatSelectionInput
+      declare const seatSelection: SeatSelection
+      const selectSeat: SelectSeat = async (_input: SeatSelectionInput) => seatSelection
       declare const workerBinding: WorkerInteractiveBinding
       declare const steerAcknowledgement: WorkerSteerAcknowledgement
       const steerOptions: WriteWorkerSteerOptions = {
@@ -263,6 +269,8 @@
       void durableExecutionId
       void durableTurnHandler
       void durableTurnResult
+      void seatSelectionInput
+      void selectSeat
       void workerBinding
       void steerAcknowledgement
       void steerOptions
