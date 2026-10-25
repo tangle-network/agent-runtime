@@ -152,13 +152,13 @@
     "@arethetypeswrong/cli": "catalog:",
     "@biomejs/biome": "^2.5.11",
     "@modelcontextprotocol/sdk": "catalog:",
-    "@tangle-network/agent-eval": "0.221.2",
+    "@tangle-network/agent-eval": "0.221.3",
     "@tangle-network/agent-interface": "5.7.1",
     "@tangle-network/agent-provider-cli-bridge": "2.0.1",
     "@tangle-network/agent-provider-daytona": "0.6.0",
     "@tangle-network/agent-provider-e2b": "0.6.0",
     "@tangle-network/agent-provider-tangle": "4.4.7",
-    "@tangle-network/sandbox": "0.64.39",
+    "@tangle-network/sandbox": "0.65.2",
     "@types/node": "catalog:",
     "@types/tar-stream": "3.1.4",
     "miniflare": "4.20260722.0",
@@ -180,15 +180,15 @@
   "license": "MIT",
   "packageManager": "pnpm@11.17.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.221.2 <0.222.0",
+    "@tangle-network/agent-eval": ">=0.221.3 <0.222.0",
     "@tangle-network/agent-interface": ">=5.7.1 <6.0.0",
-    "@tangle-network/sandbox": ">=0.61.1 <0.61.2 || >=0.62.2 <0.62.3 || >=0.62.14 <0.62.16 || >=0.63.10 <0.65.0"
+    "@tangle-network/sandbox": ">=0.61.1 <0.61.2 || >=0.62.2 <0.62.3 || >=0.62.14 <0.62.16 || >=0.63.10 <0.66.0"
   },
   "dependencies": {
     "@earendil-works/pi-codemode": "1.0.4",
     "@tangle-network/agent-core": ">=0.13.2 <0.14.0",
     "@tangle-network/agent-knowledge": "^22.0.16",
-    "@tangle-network/agent-profile-materialize": ">=0.27.3 <0.28.0",
+    "@tangle-network/agent-profile-materialize": ">=0.27.5 <0.28.0",
     "@tangle-network/agent-trace-contract": "catalog:",
     "tar-stream": "3.2.1",
     "zod": "catalog:"
