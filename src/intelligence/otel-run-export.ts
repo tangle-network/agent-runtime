@@ -6,13 +6,13 @@
  */
 import { contentHash } from '@tangle-network/agent-eval'
 import { ATTR, agentIdentityAttributes } from '@tangle-network/agent-trace-contract'
+import { toOtlpAttributes } from '@tangle-network/agent-trace-contract/otlp'
 import {
   buildLoopOtelSpans,
   buildRuntimeEventOtelSpans,
   flatOtelSpan,
   type OtelExporter,
   type OtelSpan,
-  toOtelAttributes,
 } from '../otel-export'
 import type { Redactor } from '../redact'
 import { authoredAgentIdentity } from '../runtime/supervise/materialization'
@@ -153,7 +153,7 @@ function runRecordAttributes(
     ...(record.sessionId
       ? {
           'tangle.sessionId': record.sessionId,
-          'gen_ai.conversation.id': record.sessionId,
+          [ATTR.conversationId]: record.sessionId,
         }
       : {}),
     ...(record.harness ? { 'tangle.agent.harness': record.harness } : {}),
@@ -251,7 +251,7 @@ export function exportRunRecordSpans(
       settings.redactor(record.profile),
       settings.includeFullPayload,
     )
-    if (record.profile.name) labels['gen_ai.agent.name'] = record.profile.name
+    if (record.profile.name) labels[ATTR.agentName] = record.profile.name
   }
   // Who acted, on the run span and on every span under it: the profile, and the harness the
   // record says actually ran it.
@@ -309,5 +309,5 @@ function withMissingAttributes(span: OtelSpan, attributes: Record<string, string
     Object.entries(attributes).filter(([key]) => !present.has(key)),
   )
   if (Object.keys(missing).length === 0) return span
-  return { ...span, attributes: [...(span.attributes ?? []), ...toOtelAttributes(missing)] }
+  return { ...span, attributes: [...(span.attributes ?? []), ...toOtlpAttributes(missing)] }
 }
