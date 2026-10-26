@@ -156,6 +156,12 @@ try {
             signal: AbortSignal.timeout(5000),
           })
           if (!response.ok) throw new Error('local coordination route registration failed')
+          record(join(directory, 'coordinator.jsonl'), {
+            kind: 'coordinator-route-ready',
+            at: new Date().toISOString(),
+            pid: process.pid,
+            actorId: address.actorId,
+          })
           return `${config.url}/coordination/${routeKey}`
         },
       },

@@ -153,6 +153,12 @@ export class ProcessFixture {
       [configPath],
       `coordinator-${this.children.length}`,
     )
+    const pid = this.coordinator.pid
+    await this.wait('coordinator route ready', async () =>
+      readRecords(join(this.directory, 'coordinator.jsonl')).some(
+        (row) => row.kind === 'coordinator-route-ready' && row.pid === pid,
+      ),
+    )
   }
   async killCoordinator(): Promise<void> {
     const child = this.children.find((row) => row.process === this.coordinator)
