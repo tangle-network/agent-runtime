@@ -129,6 +129,8 @@ export interface PursuitRunProjection {
   readonly status: PursuitStatus
   readonly settledAt?: number
   readonly error?: string
+  /** Runtime-classified root failure; absent in legacy observer history. */
+  readonly failure?: RuntimeFailureCause
   /** Subscription execution of the root manager, ordered across seat changes. */
   readonly segments?: ReadonlyArray<SeatSegment>
   readonly resumeAt?: string
@@ -237,23 +239,15 @@ export interface PursuitProjection {
 }
 
 type MutableRun = {
-  runId: string
-  attemptIndex: number
-  resumeCount: number
+  -readonly [K in keyof Omit<
+    PursuitRunProjection,
+    'totals' | 'spendGaps' | 'segments' | 'targets' | 'decisions'
+  >]: PursuitRunProjection[K]
+} & {
   /** Whether this attempt has seen its own `before`; an attempt a journal opens without one
    *  treats the first `before` it meets as its start, not as a resume. */
   started: boolean
-  status: PursuitStatus
-  settledAt?: number
-  error?: string
   segments?: SeatSegment[]
-  resumeAt?: string
-  firstSequence: number
-  lastSequence: number
-  firstObservedAt: number
-  lastObservedAt: number
-  eventCount: number
-  decisionCount: number
   targets: Record<string, number>
   decisions: Record<string, number>
   /** Inference the run root drove itself, attributable to no spawned node. */
@@ -493,18 +487,16 @@ function projectRunActivity(run: MutableRun, record: ObserverRecord): void {
   if (event?.target !== 'agent.run') return
   const payload = objectRecord(event.payload)
   const status = stringField(payload, 'status')
-  if (event.phase === 'after' || status === 'done') {
-    run.status = 'done'
-    run.settledAt = record.observedAt
-    return
-  }
+  const done = event.phase === 'after' || status === 'done'
+  if (!done && event.phase !== 'error' && status !== 'failed') return
   // The `agent.run` hook payload spells a failure `failed`; the projection spells every
   // settled failure `down`, the journal's word, so run and node rows join on one vocabulary.
-  if (event.phase !== 'error' && status !== 'failed') return
-  run.status = 'down'
+  run.status = done ? 'done' : 'down'
   run.settledAt = record.observedAt
+  if (payload && Object.hasOwn(payload, 'failure'))
+    run.failure = runtimeFailureCauseSchema.parse(payload.failure)
   const error = stringField(payload, 'error')
-  if (error) run.error = error
+  if (error && (!done || run.failure !== undefined)) run.error = error
 }
 
 function nodeKey(runId: string, nodeId: string): string {

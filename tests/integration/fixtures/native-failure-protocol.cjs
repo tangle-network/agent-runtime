@@ -24,6 +24,13 @@ if (scenario.kind === 'abort') {
         code: 'credential-refused',
         owner: 'caller',
         cause: 'worker-authored, never authority',
+        providerCode: 'subscription_required',
+        remediation: {
+          cause: 'not_authenticated',
+          fix: 'x'.repeat(257),
+          harness: 'claude-code',
+          provider: 'anthropic',
+        },
       },
     })
     event({

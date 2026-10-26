@@ -1,4 +1,5 @@
 import { resolve } from 'node:path'
+import { runtimeFailureCause } from '../runtime/failure-cause'
 import {
   type AgentGraph,
   type GraphResult,
@@ -11,6 +12,7 @@ import { supervisorRunDir } from '../runtime/supervise/run-layout'
 import { RunParkedError } from '../runtime/supervise/run-parking'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
+import type { SupervisedResult } from '../runtime/supervise/types'
 import { errorMessage } from '../runtime/util'
 import {
   composeRuntimeHooks,
@@ -315,11 +317,8 @@ function assertPursuitDirectory(
   },
   entry: string,
 ): void {
-  if (opts.pursuitId.trim().length === 0) {
-    throw new TypeError(`${entry}: pursuitId must be non-empty`)
-  }
-  if (opts.runDir.trim().length === 0) {
-    throw new TypeError(`${entry}: runDir must be non-empty`)
+  for (const field of ['pursuitId', 'runDir'] as const) {
+    if (opts[field].trim().length === 0) throw new TypeError(`${entry}: ${field} must be non-empty`)
   }
   if (opts.retainedAtSettlement === 'keep') {
     throw new TypeError(
@@ -334,17 +333,12 @@ function assertPursuitDirectory(
  * the steer directory the run's control plane uses; `settled` names the value `result.json` holds.
  */
 async function runDurablePursuit<Result>(
-  opts: {
-    readonly pursuitId: string
-    readonly runDir: string
-    readonly runId?: string
-    readonly now?: () => number
-    readonly hooks?: RuntimeHooks
-    readonly steerDir?: string
-    readonly observerDelivery?: PursuitObserverDelivery
-  },
+  opts: Pick<
+    SupervisePursuitOptions,
+    'pursuitId' | 'runDir' | 'runId' | 'now' | 'hooks' | 'steerDir' | 'observerDelivery'
+  >,
   execute: (seams: { readonly hooks: RuntimeHooks; readonly steerDir: string }) => Promise<Result>,
-  settled: (result: Result) => unknown,
+  settled: (result: Result) => SupervisedResult<unknown>,
   reopen?: (observer: FileObserverJournal) => Promise<void>,
 ): Promise<SupervisedPursuitResult<Result>> {
   const pursuitId = opts.pursuitId.trim()
@@ -397,25 +391,21 @@ async function runDurablePursuit<Result>(
           terminalState = 'running'
           throw error
         }
-        let pursuit: PursuitProjection | undefined
-        let observerError: unknown
+        let pursuit: PursuitProjection
         try {
           // The journal fact is raw evidence and lands first; the failure record summarizes it.
           await observer.journal.appendEvent(
             rootEvent(pursuitId, runId, 'error', now(), {
               status: 'failed',
               error: errorMessage(error),
+              failure: runtimeFailureCause(error),
             }),
           )
           pursuit = projectPursuit(await observer.journal.read())
-        } catch (failure) {
-          observerError = failure
-        }
-        if (observerError !== undefined || pursuit === undefined) {
-          const causes = observerError === undefined ? [error] : [error, observerError]
+        } catch (observerError) {
           throw new Error(
             'supervisePursuit: Runtime failed and durable observer completeness could not be proven',
-            { cause: new AggregateError(causes) },
+            { cause: new AggregateError([error, observerError]) },
           )
         }
         // A failure record that cannot be written must not hide the journal fact above; it is
@@ -443,8 +433,9 @@ async function runDurablePursuit<Result>(
       // The settle record is the re-entry guard, so it is durable before the journal says `done`.
       // A record that cannot be written leaves the attempt open in the journal and the run
       // re-enterable, which replays the settled children and settles again.
+      const terminal = settled(result)
       try {
-        await writeSettleRecord(runDir, settled(result))
+        await writeSettleRecord(runDir, terminal)
       } catch (cause) {
         throw new Error(
           `supervisePursuit: Runtime settled but the settle record ${settlePath} could not be written`,
@@ -452,7 +443,14 @@ async function runDurablePursuit<Result>(
         )
       }
       await observer.journal.appendEvent(
-        rootEvent(pursuitId, runId, 'after', now(), { status: 'done' }),
+        rootEvent(pursuitId, runId, 'after', now(), {
+          status: 'done',
+          ...(terminal.kind === 'no-winner' &&
+          terminal.reason === 'driver-failed' &&
+          terminal.error.failure
+            ? { error: terminal.error.message, failure: terminal.error.failure }
+            : {}),
+        }),
       )
       terminalState = 'done'
       return Object.freeze({

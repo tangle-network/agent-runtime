@@ -1,4 +1,5 @@
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
+import type { RuntimeFailureCause } from '../../failure-cause'
 import type { HarnessTranscriptEvidence } from '../../harness-transcript'
 import type { Spend, SpendGap } from './accounting'
 import type { UnconfirmedTeardown } from './agent-scope'
@@ -50,7 +51,7 @@ export type ProviderModelExecutionEvidence =
     }
 
 /**
- * A driver's `act()` rejection, normalized to a serializable triple so it survives the typed
+ * A driver's `act()` rejection, normalized to serializable evidence so it survives the typed
  * no-winner boundary (an `Error` does not cross a structured-clone / JSON hop intact). A
  * non-`Error` rejection normalizes to `{ name: 'NonError', message }` — never dropped.
  * Exported so a consumer handling `reason: 'driver-failed'` names this type instead of retyping
@@ -60,6 +61,8 @@ export interface NoWinnerError {
   name: string
   message: string
   stack?: string
+  /** Structural failure evidence captured before the rejection becomes message text. */
+  failure?: RuntimeFailureCause
 }
 
 /**

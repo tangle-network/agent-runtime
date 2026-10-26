@@ -8,7 +8,11 @@ import {
   REASONING_EFFORTS,
   type ReasoningEffort,
 } from '@tangle-network/agent-interface'
+import { z } from 'zod'
 import { BackendTransportError, ValidationError } from '../../errors'
+import { recordValue } from '../../record-value'
+import { defaultRedactor } from '../../redact'
+import { runtimeFailureRemediationSchema, runtimeProviderCode } from '../failure-cause'
 import { agentHarness } from '../harness-role'
 import { detachedSnapshot } from './snapshot'
 import { decodeOpenAiPart, type ToolStepInput } from './trace-source'
@@ -86,31 +90,52 @@ function upstreamStatusFromMessage(message: string | undefined): number | undefi
   return status >= 100 && status <= 599 ? status : undefined
 }
 
-function bridgeUpstreamError(
-  error: { message?: string; type?: string; provider_dispatch?: unknown; status?: unknown },
+const subscriptionErrorSchema = runtimeFailureRemediationSchema.extend({
+  type: z.literal('subscription_required'),
+  status: z.literal(403).optional(),
+  message: z.string().min(1).max(512),
+  provider_dispatch: z.literal('not_started'),
+})
+
+/** Decode only structured Bridge failures. HTTP status wins over any body claim. */
+export function bridgeUpstreamError(
+  error: unknown,
   prefix: string,
+  httpStatus?: number,
 ): BackendTransportError {
-  const providerDispatch =
-    error.provider_dispatch === 'not_started' ? ('not_started' as const) : undefined
-  // A structured status is authoritative; the message text is the fallback the bridge actually
-  // sends today.
-  const status =
-    typeof error.status === 'number' ? error.status : upstreamStatusFromMessage(error.message)
-  // `type` is the bridge's own error class on a failure it raised itself (`parse_error` for a
-  // profile that cannot materialize) and the provider's class when it relays one. Carried as
-  // `upstreamCode` so a retry policy can read the bridge's never-retry decisions where no status rides.
-  const upstreamCode =
-    typeof error.type === 'string' && error.type.length > 0 ? error.type : undefined
-  const options = {
-    ...(providerDispatch === undefined ? {} : { providerDispatch }),
-    ...(status === undefined ? {} : { status }),
-    ...(upstreamCode === undefined ? {} : { upstreamCode }),
+  const body = typeof error === 'string' ? error : undefined
+  if (body !== undefined) {
+    try {
+      error = recordValue(recordValue(JSON.parse(body))?.error) ?? { message: body }
+    } catch {
+      error = { message: body }
+    }
   }
-  return new BackendTransportError(
-    'bridge',
-    `${prefix}: ${error.message ?? error.type ?? 'unknown'}`,
-    Object.keys(options).length === 0 ? undefined : options,
-  )
+  const raw = recordValue(error) ?? {}
+  const redacted = recordValue(defaultRedactor({ error: raw, body })) ?? {}
+  const safe = recordValue(redacted.error) ?? {}
+  const status =
+    httpStatus ??
+    (Number.isInteger(raw.status) && Number(raw.status) >= 400 && Number(raw.status) <= 599
+      ? Number(raw.status)
+      : upstreamStatusFromMessage(typeof raw.message === 'string' ? raw.message : undefined))
+  const upstreamCode = runtimeProviderCode(safe.type)
+  // Reject malformed/oversized producer fields before redaction; never trim them into validity.
+  const wire =
+    status === 403 && (httpStatus === 403 || raw.status === 403)
+      ? subscriptionErrorSchema.safeParse(raw)
+      : undefined
+  const remedy = wire?.success
+    ? runtimeFailureRemediationSchema.readonly().safeParse(safe)
+    : undefined
+  const message = typeof safe.message === 'string' ? safe.message : (upstreamCode ?? 'unknown')
+  return new BackendTransportError('bridge', `${prefix}: ${message}`.slice(0, 512), {
+    status,
+    upstreamCode,
+    ...(raw.provider_dispatch === 'not_started' ? { providerDispatch: 'not_started' } : {}),
+    ...(remedy?.success ? { remediation: remedy.data } : {}),
+    ...(typeof redacted.body === 'string' ? { body: redacted.body.slice(0, 2_048) } : {}),
+  })
 }
 
 /**
@@ -711,7 +736,7 @@ function parseSseStreamTail(buf: string): BridgeSseEvent | undefined {
   const framed = parseSseFrame(tail)
   if (framed !== undefined) return framed
   let parsed: {
-    error?: { message?: string; type?: string; provider_dispatch?: unknown }
+    error?: unknown
   }
   try {
     parsed = JSON.parse(tail)
@@ -762,7 +787,7 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
       }
       message?: { content?: string | null }
     }>
-    error?: { message?: string; type?: string; provider_dispatch?: unknown }
+    error?: unknown
     usage?: {
       prompt_tokens?: unknown
       completion_tokens?: unknown
