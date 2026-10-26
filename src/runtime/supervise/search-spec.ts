@@ -3,15 +3,12 @@
  * it onto exactly one existing call, `supervise(profile, task, options)` or `runGraph(graph,
  * options)`. The design record is `docs/design/search-spec.md`.
  *
- * Nothing here runs anything. The compiler only chooses options those two calls already take, so
- * the control loop, the budget, the check, the continuation and the journal stay theirs. A spec is
- * plain data with a canonical digest; the compiled call records that digest on the run's root as
- * `execution.correlation.searchSpecDigest`, which the journal's root registration and the settle
- * record's tree both carry, so two runs can be compared as the same design on two problems.
+ * Nothing here runs anything. Existing calls own execution, bounds, checks and journals. A plain
+ * spec's canonical digest is recorded as `execution.correlation.searchSpecDigest` on the run's root,
+ * journal registration and settle tree so two runs can be compared as one design on two problems.
  *
- * Every axis value compiles to an option, or to a refusal before any compute. An axis value the
- * compiled call would not read is refused rather than recorded, because a digest that names a knob
- * which changes nothing would make two different runs look like one design.
+ * Every axis compiles to a consumed option or refuses before compute; ignored values cannot
+ * distinguish two designs in the digest.
  */
 
 import {
@@ -25,7 +22,6 @@ import type { SuperviseProfileEntry } from '../../mcp/tools/coordination-contrac
 import { harnessRunsAgent } from '../harness-role'
 import type { SharedBoxPlacement } from '../shared-box'
 import type { ToolLoopChat } from '../tool-loop'
-import type { DeliverableSpec } from './completion-gate'
 import type { ContinuationPolicy } from './continuation'
 import type { AgentGraph, RunGraphOptions } from './graph'
 import type { PromptRegistry } from './prompt-registry'
@@ -375,14 +371,13 @@ export interface SearchSpecInputs {
   readonly profile?: AgentProfile
   /** The root's task, for the same three selects. A graph's task is its deliverable's description. */
   readonly task?: unknown
-  /** select `code` and `fixed`: the graph's nodes and edges. The compiler adds the deliverable and
-   *  the budget. */
-  readonly graph?: Pick<AgentGraph, 'nodes' | 'edges'>
+  /** select `code` and `fixed`: graph metadata, without the compiler-owned check and budget. */
+  readonly graph?: Omit<AgentGraph, 'deliverable' | 'budget'>
   /** select `code`: the caller's brain that makes every root call (`RunGraphOptions.brain`). */
   readonly brain?: ToolLoopChat
   readonly budget: Budget
   /** The completion check. Every spec's run has one: the continuation is sent back by it. */
-  readonly deliverable: DeliverableSpec<unknown>
+  readonly deliverable: AgentGraph['deliverable']
   /** No re-entry starts at or after this instant (epoch ms or ISO 8601). It is the run's time
    *  bound, not design, so two runs of one spec share a digest. Absent: no clock ends the run. */
   readonly deadline?: number | string
@@ -400,7 +395,8 @@ export interface SearchSpecInputs {
   readonly directives?: PromptRegistry
   /** Every other option of the call, unchanged: `backend`, `driverBackend`, `coordination`,
    *  `runDir`, `journal`, `runId`, `makeLeafAgent`, `driveHarness`, and the rest. */
-  readonly options?: Omit<SuperviseOptions, SearchSpecOwnedOption>
+  readonly options?: Omit<SuperviseOptions, SearchSpecOwnedOption> &
+    Pick<RunGraphOptions, 'decideGate'>
 }
 
 /** The one call a spec compiles to, with every option inspectable before spend. */
@@ -597,8 +593,7 @@ export function compileSearchSpec(raw: SearchSpec, inputs: SearchSpecInputs): Co
       spec,
       digest,
       graph: Object.freeze({
-        nodes: graph.nodes,
-        edges: graph.edges,
+        ...graph,
         deliverable: inputs.deliverable,
         budget: inputs.budget,
       }),
@@ -615,9 +610,14 @@ export function compileSearchSpec(raw: SearchSpec, inputs: SearchSpecInputs): Co
 
   const profile = inputs.profile ?? refuse(`select '${spec.select}' needs inputs.profile, the root`)
   if (inputs.task === undefined) refuse(`select '${spec.select}' needs inputs.task`)
-  if (inputs.graph !== undefined || inputs.brain !== undefined || inputs.directives !== undefined) {
+  if (
+    inputs.graph !== undefined ||
+    inputs.brain !== undefined ||
+    inputs.directives !== undefined ||
+    inputs.options?.decideGate !== undefined
+  ) {
     refuse(
-      `select '${spec.select}' runs inputs.profile; a graph, brain or directives is select 'code' or 'fixed'`,
+      `select '${spec.select}' runs inputs.profile; a graph, brain, directives or gate decider is select 'code' or 'fixed'`,
     )
   }
   if (!harnessRunsAgent(profile.harness)) {
