@@ -36,12 +36,20 @@ import {
 import { ValidationError } from '../../errors'
 import { writeAtomicDurableFile } from './durable-file'
 import type { AgentGraph, GraphEdge } from './graph'
+import { checkGraphRoute } from './graph-file-schema'
+import { bindGraphParameters } from './graph-parameters'
+import type { GraphFromStoredOptions } from './stored-graph-check'
+
+export type { GraphCommandCheck, GraphFromStoredOptions } from './stored-graph-check'
 
 /** @inline */
 interface StoredGraphContent {
   readonly digest: string
   readonly nodes: ReadonlyArray<{ readonly id: string; readonly profile: AgentProfile }>
-  readonly deliverable: { readonly describe?: string; readonly checkRef?: string }
+  readonly deliverable: Pick<
+    AgentGraph['deliverable'],
+    'describe' | 'checkRef' | 'command' | 'when'
+  >
   /** A flow graph's entry and gates; absent for any other graph. */
   readonly entry?: AgentGraph['entry']
   readonly gates?: AgentGraph['gates']
@@ -68,6 +76,14 @@ export type StoredGraph = StoredGraphContent &
         readonly budget?: AgentGraph['budget']
       }
   )
+
+/** Editable graph data; registration computes its digest when it is omitted. */
+export type StoredGraphInput = Omit<
+  Extract<StoredGraph, { readonly observed?: false }>,
+  'digest'
+> & {
+  readonly digest?: string
+}
 
 /** One run or an explicitly incomplete observation of a graph, for one task shape. */
 export interface GraphRunRecord {
@@ -167,12 +183,16 @@ export function digestOfGraph(graph: AgentGraph): string {
 }
 
 function storeGraph(graph: AgentGraph): StoredGraph {
+  const { describe, checkRef, command, when } = graph.deliverable
   const content = {
     nodes: graph.nodes,
     edges: graph.edges,
     budget: graph.budget,
     deliverable: {
-      ...(graph.deliverable.describe ? { describe: graph.deliverable.describe } : {}),
+      ...(describe ? { describe } : {}),
+      ...(checkRef ? { checkRef } : {}),
+      ...(command ? { command } : {}),
+      ...(when ? { when } : {}),
     },
     ...(graph.entry === undefined ? {} : { entry: graph.entry }),
     ...(graph.gates === undefined ? {} : { gates: graph.gates }),
@@ -245,33 +265,42 @@ export async function recordGraphRun(
  * correction leaves preserveLabels unset and replaces the record. */
 export async function recordStoredGraphRun(
   reg: GraphRegistryDir,
-  stored: StoredGraph,
-  record: GraphRunRecord,
+  definition: StoredGraph | StoredGraphInput,
+  record?: GraphRunRecord,
   options: { readonly preserveLabels?: boolean } = {},
 ): Promise<StoredGraph> {
-  assertRecord(record)
-  if (stored.observed && !record.source)
+  const { digest, ...content } = definition
+  const stored = { ...content, digest: digest ?? graphDigest(content) } as StoredGraph
+  if (stored.observed && !record)
     throw new ValidationError('graph-registry: observed graphs require a source run identity')
-  if (!stored.observed && !record.finishedAt)
-    throw new ValidationError('graph-registry: native graph runs require a completion timestamp')
-  if (
-    (!stored.observed || record.traversals !== undefined) &&
-    (!Number.isSafeInteger(record.traversals) || record.traversals! < 0)
-  )
-    throw new ValidationError(
-      'graph-registry: native graphs require metered traversals; observed counts must be non-negative integers',
+  if (record) {
+    assertRecord(record)
+    if (stored.observed && !record.source)
+      throw new ValidationError('graph-registry: observed graphs require a source run identity')
+    if (!stored.observed && !record.finishedAt)
+      throw new ValidationError('graph-registry: native graph runs require a completion timestamp')
+    if (
+      (!stored.observed || record.traversals !== undefined) &&
+      (!Number.isSafeInteger(record.traversals) || record.traversals! < 0)
     )
-  const { digest, ...content } = stored
-  if (graphDigest(content) !== digest)
-    throw new ValidationError('graph-registry: stored graph content does not match its digest')
-  if (stored.digest !== record.graphDigest) {
-    throw new ValidationError(
-      `graph-registry: record.graphDigest ${record.graphDigest} does not match the supplied graph (${stored.digest}) — record the graph that actually ran`,
-    )
+      throw new ValidationError(
+        'graph-registry: native graphs require metered traversals; observed counts must be non-negative integers',
+      )
+    if (stored.digest !== record.graphDigest) {
+      throw new ValidationError(
+        `graph-registry: record.graphDigest ${record.graphDigest} does not match the supplied graph (${stored.digest}) — record the graph that actually ran`,
+      )
+    }
   }
+  if (graphDigest(content) !== stored.digest)
+    throw new ValidationError('graph-registry: stored graph content does not match its digest')
   await mkdir(join(reg.root, GRAPHS_DIR), { recursive: true })
   const file = join(reg.root, RECORDS_FILE)
   return withJsonlFileLock(file, async (canonicalPath) => {
+    if (!record) {
+      await persistGraph(reg, stored)
+      return stored
+    }
     let persisted = record
     if (options.preserveLabels && record.source) {
       const prior = (await readCommittedJsonFile<GraphRunRecord>(canonicalPath)).find(
@@ -320,24 +349,28 @@ export async function recordStoredGraphRun(
       }
     }
     assertRecord(persisted)
-    const revisionPath = join(reg.root, GRAPHS_DIR, `${stored.digest}.json`)
-    try {
-      const { digest: existingDigest, ...existing } = JSON.parse(
-        await readFile(revisionPath, 'utf8'),
-      ) as StoredGraph
-      if (existingDigest !== stored.digest || graphDigest(existing) !== stored.digest)
-        throw new ValidationError(
-          'graph-registry: stored graph revision is immutable but its content differs',
-        )
-    } catch (error) {
-      if (!isNoEntError(error)) throw error
-      // Content-addressed revisions are immutable. Rewriting one on every run adds
-      // an unnecessary durable publication to the record lock's critical section.
-      writeAtomicDurableFile(revisionPath, JSON.stringify(stored), { preserveMode: true })
-    }
+    await persistGraph(reg, stored)
     await upsertCommittedJsonLine(canonicalPath, persisted, recordKey)
     return stored
   })
+}
+
+async function persistGraph(reg: GraphRegistryDir, stored: StoredGraph): Promise<void> {
+  const revisionPath = join(reg.root, GRAPHS_DIR, `${stored.digest}.json`)
+  try {
+    const { digest: existingDigest, ...existing } = JSON.parse(
+      await readFile(revisionPath, 'utf8'),
+    ) as StoredGraph
+    if (existingDigest !== stored.digest || graphDigest(existing) !== stored.digest)
+      throw new ValidationError(
+        'graph-registry: stored graph revision is immutable but its content differs',
+      )
+  } catch (error) {
+    if (!isNoEntError(error)) throw error
+    // Content-addressed revisions are immutable. Rewriting one on every run adds
+    // an unnecessary durable publication to the record lock's critical section.
+    writeAtomicDurableFile(revisionPath, JSON.stringify(stored), { preserveMode: true })
+  }
 }
 
 /** All records, newest last. */
@@ -561,24 +594,60 @@ export async function lookupGraph(
   }
 }
 
-/** Rehydrate a stored graph into a runnable one. The check comes from the
- *  CALLER's environment (oracles are environment, never stored). */
+/** Rehydrate a stored graph, binding trigger data and an environment-owned named check. */
 export function graphFromStored(
-  stored: StoredGraph,
-  check: AgentGraph['deliverable']['check'],
+  stored: StoredGraph | StoredGraphInput,
+  environment: AgentGraph['deliverable']['check'] | GraphFromStoredOptions = {},
 ): AgentGraph {
   if (stored.observed)
     throw new ValidationError('graphFromStored: observed topology cannot be replayed')
+  const {
+    digest: _digest,
+    observed: _observed,
+    deliverable,
+    ...topology
+  } = (
+    typeof environment === 'function'
+      ? stored
+      : bindGraphParameters(stored, { trigger: environment.trigger ?? {} })
+  ) as typeof stored
+  const selected =
+    typeof environment === 'function'
+      ? environment
+      : environment.checks && Object.hasOwn(environment.checks, deliverable.checkRef ?? '')
+        ? environment.checks[deliverable.checkRef!]
+        : deliverable.checkRef === 'command'
+          ? deliverable.command
+          : deliverable.checkRef === 'route' && deliverable.when
+            ? (((out, context) =>
+                context
+                  ? context.originalVerdict?.valid !== false
+                  : checkGraphRoute(
+                      deliverable.when!,
+                      out,
+                    )) satisfies AgentGraph['deliverable']['check'])
+            : undefined
+  if (!selected)
+    throw new ValidationError(
+      `graphFromStored: unknown checkRef ${deliverable.checkRef ?? '(missing)'}`,
+    )
+  if (typeof selected === 'function') {
+    const { command: _command, ...description } = deliverable
+    return { ...topology, deliverable: { ...description, check: selected } }
+  }
+  const command =
+    selected === deliverable.command
+      ? selected
+      : (bindGraphParameters(selected, {
+          trigger: (environment as GraphFromStoredOptions).trigger ?? {},
+        }) as typeof selected)
   return {
-    nodes: stored.nodes,
-    edges: stored.edges,
-    budget: stored.budget,
+    ...topology,
     deliverable: {
-      check,
-      ...(stored.deliverable.describe ? { describe: stored.deliverable.describe } : {}),
+      ...deliverable,
+      command,
+      check: () => false, // runGraph binds the independent command authority before execution.
     },
-    ...(stored.entry === undefined ? {} : { entry: stored.entry }),
-    ...(stored.gates === undefined ? {} : { gates: stored.gates }),
   }
 }
 

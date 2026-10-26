@@ -258,6 +258,9 @@ importers:
       tar-stream:
         specifier: 3.2.2
         version: 3.2.2
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -331,9 +334,6 @@ importers:
       wrangler:
         specifier: 4.152.0
         version: 4.152.0(@types/node@26.6.5)
-      yaml:
-        specifier: 2.9.1
-        version: 2.9.1
 
   bench:
     dependencies:

@@ -215,6 +215,7 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
           'maxReconnects',
           'modelCredential',
           'modelSilenceMs',
+          'outputFormat',
           'sessionId',
           'timeoutMs',
         ]),

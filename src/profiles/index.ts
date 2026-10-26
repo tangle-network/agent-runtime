@@ -1,3 +1,9 @@
+export type { GraphDesignerProfileOptions } from './graph-designer'
+export {
+  graphDesignerProfile,
+  graphDesignerSkillSources,
+  graphDesignerSkills,
+} from './graph-designer'
 export type {
   KnowledgeItem,
   KnowledgeUpdate,

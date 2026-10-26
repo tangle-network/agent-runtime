@@ -171,8 +171,7 @@
     "typescript": "catalog:",
     "typescript-consumer": "npm:typescript@7.0.2",
     "vitest": "^5.0.5",
-    "wrangler": "4.152.0",
-    "yaml": "2.9.1"
+    "wrangler": "4.152.0"
   },
   "engines": {
     "node": ">=22.19.0"
@@ -191,6 +190,7 @@
     "@tangle-network/agent-profile-materialize": "^0.27.5",
     "@tangle-network/agent-trace-contract": "catalog:",
     "tar-stream": "3.2.2",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "yaml": "2.9.1"
   }
 }

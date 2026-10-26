@@ -57,9 +57,6 @@
 
 import { resolve } from 'node:path'
 import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/in-memory-spawn-stores'
-import { FileSpawnJournal } from '../../durable/spawn-journal/journal-store'
-import { FileResultBlobStore } from '../../durable/spawn-journal/result-blob-store'
 import { ConfigError, ValidationError } from '../../errors'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
 import type { MakeWorkerAgent } from '../../mcp/tools/coordination-contracts'
@@ -77,6 +74,7 @@ import { harnessRunsAgent } from '../harness-role'
 import type { ToolLoopChat } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
 import { runtimeFlowBrain } from './flow-brain'
+import { graphExecutionOptions } from './graph-backend'
 import {
   createFlowRun,
   flowRootProfile,
@@ -93,7 +91,8 @@ import {
   validateGraphTopology,
 } from './graph-topology'
 import { kernelPromptRegistry, type PromptHandle, type PromptRegistry } from './prompt-registry'
-import { withRunContext } from './run-context'
+import { createFileRunContext, createInMemoryRunContext, withRunContext } from './run-context'
+import { bindGraphCommand, type GraphCommandCheck } from './stored-graph-check'
 import {
   profileGuidanceComposer,
   type SuperviseOptions,
@@ -270,7 +269,11 @@ export interface AgentGraph {
   readonly nodes: ReadonlyArray<GraphNode>
   readonly edges: ReadonlyArray<GraphEdge>
   /** Termination is mandatory, not optional: the independent completion oracle. */
-  readonly deliverable: DeliverableSpec<unknown>
+  readonly deliverable: DeliverableSpec<unknown> & {
+    readonly checkRef?: string
+    readonly command?: GraphCommandCheck
+    readonly when?: RouteWhen
+  }
   /** One conserved pool across the whole graph — cycles without conservation never terminate. */
   readonly budget: Budget
   /** Setting it makes this a FLOW graph: Runtime spawns every entry at once, each with its task,
@@ -710,7 +713,7 @@ function validateGraph(
  * traversal is ledgered and journaled.
  */
 export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<GraphResult> {
-  const { brain, ...runtimeOptions } = opts
+  const { brain, ...runtimeOptions } = graphExecutionOptions(opts)
   return superviseAgentGraph(graph, runtimeOptions, brain)
 }
 
@@ -792,6 +795,10 @@ export function superviseAgentGraph(
   opts: RunGraphOptions,
   brain?: ToolLoopChat,
 ): Promise<GraphResult> {
+  if (graph.deliverable.command !== undefined) {
+    const bound = bindGraphCommand(graph, opts)
+    return superviseAgentGraph(bound.graph, bound.options, brain)
+  }
   const registry = opts.registry ?? kernelPromptRegistry()
   if (opts.runContext?.acquire !== undefined) {
     return withRunContext(opts.runContext, opts.signal, (runContext, signal) =>
@@ -809,25 +816,13 @@ export function superviseAgentGraph(
   const validated = assertRunGraphAuthoring(graph, opts, brain)
   // A flow graph: Runtime schedules its nodes, and its root manager is Runtime's own.
   const flow = validated.flow === undefined ? undefined : createFlowRun()
-  // A durable graph needs its journal AND blob store on disk. `supervise()` already resolves this
-  // for its own context (`options.journal ?? createFileRunContext(runDir).journal`), but the graph
-  // passes an explicit `journal`/`blobs` — the edge ledger's twin writes ride on it — so the graph
-  // must do the same resolution itself or its in-memory default SHADOWS the file stores supervise
-  // would have built: `runGraph({ runDir })` journaled only to the process, a second process
-  // silently restarted the run from scratch, and `runDir/spawn-journal.jsonl` never existed.
-  // Layout owner: `createFileRunContext` (run-context.ts); keep these paths byte-identical to it.
-  const journal =
-    opts.journal ??
-    opts.runContext?.journal ??
-    (opts.runDir !== undefined
-      ? new FileSpawnJournal(`${resolve(opts.runDir)}/spawn-journal.jsonl`)
-      : new InMemorySpawnJournal())
-  const blobs =
-    opts.blobs ??
-    opts.runContext?.blobs ??
-    (opts.runDir !== undefined
-      ? new FileResultBlobStore(`${resolve(opts.runDir)}/blobs`)
-      : new InMemoryResultBlobStore())
+  const context =
+    opts.runContext ??
+    (opts.runDir === undefined
+      ? createInMemoryRunContext()
+      : createFileRunContext(resolve(opts.runDir)))
+  const journal = opts.journal ?? context.journal
+  const blobs = opts.blobs ?? context.blobs
   const runId =
     opts.runId ??
     opts.runContext?.runId ??

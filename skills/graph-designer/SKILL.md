@@ -10,6 +10,13 @@ that does the work, run it under your granted permissions, and record what happe
 Every execution is fully traced like any graph run — the registry plus the run's journal
 is the knowledge.
 
+Apply `be-ambitious` to sharpen the methods and outside check while keeping the user's goal and acceptance fixed.
+Apply `agent-graphs` for the executable graph contract; keep these capabilities as separate profile skill resources.
+For a file consumer, deliver one canonical YAML or JSON graph, qualify it through the existing dry-run path, and use that same file for the authorized real run.
+Runtime owns loading and content addressing; Bridge owns native execution and seat inventory.
+One Sandbox hosts the graph's Bridge sessions, including parallel nodes; placement belongs to the caller rather than the topology.
+Read the current API and CLI help for supported behavior; explicitly retain an unsupported requirement instead of claiming a future vertex or expression works.
+
 Production designs: search [Factory’s design catalog](https://github.com/tangle-network/factory/blob/main/README.md) before authoring; record a delivered Factory run through `recordGraphRun` like any graph.
 
 ## The loop (every input)
@@ -18,8 +25,8 @@ Production designs: search [Factory’s design catalog](https://github.com/tangl
    (kind, source, constraints — stable fields, not the payload itself). Hash it.
 2. `lookupGraph(registry, taskDigest)` over YOUR WORKSPACE's registry:
    - **replay** → run the stored graph verbatim. Re-bind the deliverable's check from the
-     environment (oracles are never stored). Record the run. This path spends near-zero
-     inference: no re-authoring, no redesign — the graph IS the answer.
+     environment: functions stay environment-owned, while supported data check definitions remain part of the stored graph. Record the run.
+     Replay avoids design inference; the graph's own agent execution still consumes its admitted resources.
    - **author** (with the stated reason) → design per the `agent-graphs` skill, run it,
      record it. If a prior graph failed to deliver for this shape, mutate deliberately
      (budget, directives as new prompt-registry versions, model mix, an added analyst),

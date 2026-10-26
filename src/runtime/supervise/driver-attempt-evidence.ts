@@ -152,6 +152,8 @@ const DETERMINISTIC_BRIDGE_CODES: ReadonlySet<string> = new Set([
   'parse_error',
   'not_configured',
   'capability_denied',
+  'MODEL_NOT_FOUND',
+  'SEAT_NOT_LOGGED_IN',
 ])
 
 /**

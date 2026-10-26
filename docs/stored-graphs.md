@@ -1,0 +1,21 @@
+# Stored graph files
+
+`loadGraphFile` from `@tangle-network/agent-runtime/kernel` reads YAML or JSON into canonical `StoredGraph` data. It validates topology and profiles before execution. `validateStoredGraph(value)` validates untrusted compiled graph data, its digest, profiles and named checks before storage or execution; authoring envelopes belong to the loader. `graphFromStored` binds the named independent completion check; registration with `recordStoredGraphRun(registry, graph)` computes a missing digest without inventing a run record.
+
+The host starts or attaches CLI Bridge and supplies `{ backend: 'bridge', bridgeUrl, bridgeBearer, cwd }` to `runGraph` or the existing durable `superviseGraphPursuit` entry. Every node uses a Bridge session in that environment. A cloud placement runs the same graph and Bridge inside one Sandbox. The host owns the server lifecycle and credentials.
+
+Graph Bridge execution requests `response_format: { type: 'json_object' }` and requires Bridge's successful `final_output`. Node output is that JSON value; conversation text, tools and usage remain execution evidence. A failed native process cannot deliver a node result. Missing usage remains unknown.
+
+File `params` declare typed defaults; `${params.name}` and `${trigger.name}` bind JSON slots without evaluating code. A whole slot preserves its JSON type. Missing values refuse execution. Runtime node-output substitutions and `call` vertices are not implemented by this file loader yet. Deployment `on` data is returned separately and excluded from the digest.
+
+A node has a canonical `profile`, or `seat` shorthand resolved by the host's `resolveSeat` injection. The loader does not parse model aliases or inspect logins. `seat` in loader options overrides every node, followed by `nodeSeats[id]`, then the file value. Returning `undefined` advances an ordered preference; a resolver error propagates. Resolved choices provide canonical harness/provider/model and optional model reasoning effort. Models and grammar come from their owner APIs, never a copied catalog.
+
+`needs` lists provider names. The host supplies canonical connection bindings in loader options; missing bindings throw `GraphFileResolutionError` with code, provider and node. Credentials stay outside graph data.
+
+A data `check` uses the same `pointer`, `equals`, `in`, `exists` and `all` grammar as routes, with optional graph `node` selection. It judges the flow's terminal output map. Independent command checks use `deliverable: { checkRef: 'command', command: { command, timeoutMs } }`; trigger slots can select the command. Commands run through Runtime's maintained process port for each fresh leaf. Their real exit/output receipts live in a driver-owned `runDir` outside the jailed worker workspace, never in worker output. Remote Bridge and provider validators without an exact node binding refuse this command-check form. The host must also prove this driver directory is unreadable and unmounted in the worker and the command uses the actual worker filesystem; loopback addressing alone proves neither condition.
+
+For durable runs use `superviseGraphPursuit` and its existing run directory lock, observer journal, spawn journal, result and failure records. Reuse the same run identity and directory after an interrupted process; do not replay a settled directory as new work. A gracefully cancelled run has a settled record: explicitly supply `reopen` with the operator, reason and stable operation identity to archive that segment and resume the same journal. Signal handling belongs to the CLI and aborts the run through its signal before exit.
+
+Live observers receive `coordination.onReadReady`. Operators may separately receive `coordination.onControlReady`; `connectRemoteSupervisorControl` uses that protected grant to steer or cancel an exact owned worker through the existing coordination handlers. A read grant cannot become a control grant. Keep all access headers out of profiles, journals and public artifacts.
+
+`graphDesignerProfile({ profile })` from `/profiles` preserves the caller's complete execution profile and composes the bundled graph-designer, agent-graphs and be-ambitious skill resources. It requires the caller's actual execution identity and capabilities. Skills stay separate resources through the standard materializer.

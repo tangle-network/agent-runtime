@@ -21,6 +21,7 @@
  * @experimental
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { isAsyncIterable } from '../util'
 import { checkVerdictOf } from './continuation'
 import { teardownSurfaces } from './deadline'
@@ -30,7 +31,23 @@ import {
   retainedExecutorContext,
   retainedExecutorSeamKey,
 } from './retained-executor'
-import type { DefaultVerdict, Executor, ExecutorFactory, ExecutorResult, UsageEvent } from './types'
+import { detachedSnapshot } from './snapshot'
+import type {
+  DefaultVerdict,
+  Executor,
+  ExecutorFactory,
+  ExecutorNodeContext,
+  ExecutorResult,
+  UsageEvent,
+} from './types'
+
+/** Kernel-owned leaf identity; never reconstructed from the worker's submitted output. */
+export interface CompletionCheckContext {
+  readonly profile: AgentProfile
+  readonly node: ExecutorNodeContext | undefined
+  readonly originalVerdict: DefaultVerdict | undefined
+  readonly signal: AbortSignal
+}
 
 /**
  * The deployable completion oracle passed to {@link gateOnDeliverable}: a `check` that
@@ -44,8 +61,12 @@ export interface DeliverableSpec<Out = unknown> {
   /** The deployable check that decides DELIVERED. Return a `CheckVerdict` to report the items it
    *  read and one `FAIL <item> <where>: <reason>` line per failed item; `true` or a passing verdict
    *  delivers. Throw `CheckUnavailableError` (or anything) when the check could not run: that is
-   *  never a verdict on the result. */
-  check: (out: Out) => boolean | CheckVerdict | Promise<boolean | CheckVerdict>
+   *  never a verdict on the result. Only gateFactoryOnDeliverable supplies the trusted leaf
+   *  context; direct checks and graph finalizers receive none. */
+  check: (
+    out: Out,
+    context?: CompletionCheckContext,
+  ) => boolean | CheckVerdict | Promise<boolean | CheckVerdict>
   /** What the spawn was supposed to produce — surfaced in traces/reports. */
   describe?: string
   /** Judge the run's current state with no submitted result. Runtime calls it when a manager's
@@ -79,19 +100,34 @@ export function gateFactoryOnDeliverable(
   deliverable: DeliverableSpec,
 ): ExecutorFactory<unknown> {
   return (spec, ctx) => {
+    const profile = detachedSnapshot(spec.profile, 'completion check profile')
+    const node =
+      ctx.node === undefined ? undefined : detachedSnapshot(ctx.node, 'completion check node')
     const retention = retainedExecutorContext(ctx)
-    if (retention === undefined) return gateOnDeliverable(factory(spec, ctx), deliverable)
     // One invocation's exact artifact reaches both onResult and resultArtifact. A new native
     // invocation has a new artifact even when its output is identical, so it is checked again.
     const verdicts = new WeakMap<ExecutorResult<unknown>, Promise<DefaultVerdict>>()
     const check = (result: ExecutorResult<unknown>): Promise<DefaultVerdict> => {
       let verdict = verdicts.get(result)
       if (verdict === undefined) {
-        verdict = checkDeliverable(deliverable, result)
+        verdict = checkDeliverable(
+          deliverable,
+          result,
+          Object.freeze({
+            profile,
+            node,
+            signal: ctx.signal,
+            originalVerdict:
+              result.verdict === undefined
+                ? undefined
+                : detachedSnapshot(result.verdict, 'completion check original verdict'),
+          }),
+        )
         verdicts.set(result, verdict)
       }
       return verdict
     }
+    if (retention === undefined) return wrapCompletionGate(factory(spec, ctx), check)
     const checkedRetention = (source: RetainedExecutorContext): RetainedExecutorContext => ({
       ...source,
       onResult: async (result) => source.onResult({ ...result, verdict: await check(result) }),
@@ -113,10 +149,11 @@ export function gateFactoryOnDeliverable(
 async function checkDeliverable<Out>(
   deliverable: DeliverableSpec<Out>,
   result: ExecutorResult<Out>,
+  context?: CompletionCheckContext,
 ): Promise<DefaultVerdict> {
   let delivered: boolean
   try {
-    delivered = checkVerdictOf(await deliverable.check(result.out)).pass
+    delivered = checkVerdictOf(await deliverable.check(result.out, context)).pass
   } catch {
     delivered = false // A check that could not run never establishes delivery.
   }
@@ -175,6 +212,9 @@ function wrapCompletionGate<Out>(
     runtime: inner.runtime,
     ...(inner.budgetExempt !== undefined ? { budgetExempt: inner.budgetExempt } : {}),
     ...(inner.deliver ? { deliver: (m: unknown) => inner.deliver?.(m) } : {}),
+    ...(inner.cancel ? { cancel: (request) => inner.cancel!(request) } : {}),
+    ...(inner.interactive ? { interactive: () => inner.interactive!() } : {}),
+    ...(inner.interactiveReady ? { interactiveReady: () => inner.interactiveReady!() } : {}),
     // Forward the OPTIONAL live-observation surfaces so a gated worker stays supervisable
     // mid-flight. The scope captures `progress`/`traceSource` at spawn and only if the executor
     // exposes them; a gate that drops them makes `observe_agent` read `recentActivity:[]` and
@@ -244,10 +284,26 @@ export function mapExecutorResult<In, Out>(
     return mapped
   }
 
+  const mapExecution = (
+    execution: ReturnType<Executor<In>['execute']>,
+    task: unknown,
+  ): ReturnType<Executor<Out>['execute']> => {
+    if (isAsyncIterable<UsageEvent>(execution)) {
+      return (async function* () {
+        for await (const event of execution) yield event
+        await settle(inner.resultArtifact(), task)
+      })()
+    }
+    return (async () => settle(await execution, task))()
+  }
+
   const wrapped: Executor<Out> = {
     runtime: inner.runtime,
     ...(inner.budgetExempt !== undefined ? { budgetExempt: inner.budgetExempt } : {}),
     ...(inner.deliver ? { deliver: (message: unknown) => inner.deliver?.(message) } : {}),
+    ...(inner.cancel ? { cancel: (request) => inner.cancel!(request) } : {}),
+    ...(inner.interactive ? { interactive: () => inner.interactive!() } : {}),
+    ...(inner.interactiveReady ? { interactiveReady: () => inner.interactiveReady!() } : {}),
     ...(inner.progress ? { progress: () => inner.progress?.() } : {}),
     ...(inner.traceSource ? { traceSource: () => inner.traceSource?.() } : {}),
     ...(inner.accounting ? { accounting: () => inner.accounting?.() } : {}),
@@ -256,16 +312,13 @@ export function mapExecutorResult<In, Out>(
     ...(inner.harnessTranscriptSettled
       ? { harnessTranscriptSettled: () => inner.harnessTranscriptSettled?.() ?? Promise.resolve() }
       : {}),
-    execute(task, signal) {
-      const execution = inner.execute(task, signal)
-      if (isAsyncIterable<UsageEvent>(execution)) {
-        return (async function* () {
-          for await (const event of execution) yield event
-          await settle(inner.resultArtifact(), task)
-        })()
-      }
-      return (async () => settle(await execution, task))()
-    },
+    execute: (task, signal) => mapExecution(inner.execute(task, signal), task),
+    ...(inner.recover
+      ? {
+          recover: (task: unknown, signal: AbortSignal) =>
+            mapExecution(inner.recover!(task, signal), task),
+        }
+      : {}),
     teardown: (grace) => inner.teardown(grace),
     ...teardownSurfaces(inner),
     resultArtifact() {

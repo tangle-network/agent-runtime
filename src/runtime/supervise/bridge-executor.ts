@@ -106,6 +106,8 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   if (!seam.bridgeUrl || !seam.bridgeBearer) {
     throw new ValidationError('bridgeExecutor: bridgeUrl + bridgeBearer are required')
   }
+  if (seam.outputFormat !== undefined && seam.outputFormat !== 'json')
+    throw new ValidationError('bridgeExecutor: outputFormat must be json when supplied')
   if (
     seam.timeoutMs !== undefined &&
     (!Number.isSafeInteger(seam.timeoutMs) ||

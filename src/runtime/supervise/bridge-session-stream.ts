@@ -128,7 +128,10 @@ export async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterabl
       seam.providerModel,
     )
     yield { kind: 'iteration' }
-    if (!interrupted && ledger.turn.text) ledger.lastText = ledger.turn.text
+    if (!interrupted) {
+      if (ledger.turn.text) ledger.lastText = ledger.turn.text
+      ledger.lastFinalOutput = ledger.turn.finalOutput
+    }
 
     if (interrupted) {
       observation.note = `turn ${ledger.turns} interrupted, resuming`
@@ -147,7 +150,7 @@ export async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterabl
   }
 
   observation.note = 'settled'
-  args.onArtifact(ledger.artifact(args.sessionId, started))
+  args.onArtifact(ledger.artifact(args.sessionId, started, seam.outputFormat))
 }
 
 /** The folded text of the messages this turn took, noted on the activity log; none when empty. */
@@ -265,6 +268,7 @@ async function* streamBridgeTurn(
   const requestBody = {
     model: seam.model,
     stream: true,
+    ...(seam.outputFormat === 'json' ? { response_format: { type: 'json_object' } } : {}),
     run_id: activeRun.id,
     session_id: args.sessionId,
     ...(seam.cwd ? { cwd: seam.cwd } : {}),
@@ -431,6 +435,11 @@ function* chunkProgress(
   args: StreamBridgeArgs,
 ): Generator<UsageEvent> {
   const { observation } = args
+  if (chunk.finalOutput) {
+    if (ledger.turn.finalOutput !== undefined)
+      throw new ValidationError('bridgeExecutor: multiple final_output values in one turn')
+    ledger.turn.finalOutput = chunk.finalOutput
+  }
   if (chunk.content) {
     ledger.turn.text += chunk.content
     yield { kind: 'progress', progress: { kind: 'text_delta', text: chunk.content } }
