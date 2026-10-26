@@ -97,15 +97,7 @@ describe('public SearchSpec flow authoring', () => {
     expect(calls).toBe(0)
   })
 
-  it('refuses graph inputs and gate authority on a supervise root', () => {
-    expect(() =>
-      compileSearchSpec(searchPresets.solo(), {
-        ...inputs,
-        graph: undefined,
-        profile: { name: 'root', harness: 'codex' },
-        task: 'Do the work',
-      }),
-    ).toThrow('gate decider')
+  it('refuses a separate root profile for a fixed graph', () => {
     expect(() => compileSearchSpec(spec, { ...inputs, profile: { name: 'root' } })).toThrow(
       'drop inputs.profile and inputs.task',
     )
