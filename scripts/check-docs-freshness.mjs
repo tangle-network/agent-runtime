@@ -25,6 +25,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import buildConfig from '../tsdown.config.ts'
 import { generatedApiLinks } from './generated-api-links.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -473,42 +474,17 @@ const typedocPath = join(repoRoot, 'typedoc.json')
 if (existsSync(typedocPath)) {
   const typedoc = JSON.parse(readFileSync(typedocPath, 'utf8'))
   const entryPoints = new Set(typedoc.entryPoints || [])
-  // Subpaths whose public name differs from their source path resolve through this curated
-  // map instead of the name-derived candidates below.
-  const curatedEntryPoints = { './kernel': 'src/runtime/index.ts' }
   for (const [subpath, target] of Object.entries(pkg.exports || {})) {
-    if (subpath === '.') continue
-    const curated = curatedEntryPoints[subpath]
-    if (curated) {
-      if (!entryPoints.has(curated)) {
-        report(
-          'SETUP',
-          0,
-          `package.json exports "${subpath}" maps to "${curated}", which is not a typedoc.json entryPoint — the subpath generates no api page and its symbols are unguarded; add it to typedoc.json entryPoints`,
-        )
-      }
-      continue
-    }
-    // Resolve the subpath's source root from its dist "import"/"types" target. tsdown
-    // flattens a directory barrel (`src/runtime/index.ts`) to a flat bundle
-    // (`dist/runtime.js`), so a subpath's source is EITHER `src/<name>.ts` OR
-    // `src/<name>/index.ts` — accept whichever the entryPoints declare and that exists.
     const dist = typeof target === 'string' ? target : target.import || target.types
-    if (!dist) continue
-    const base = dist.replace(/^\.\/dist\//, '').replace(/\.js$|\.d\.ts$/, '')
-    const candidates = [
-      `src/${base}.ts`,
-      `src/${base.replace(/\/index$/, '')}/index.ts`,
-      `src/${base}/index.ts`,
-      `src/runtime/${base}.ts`,
-      `src/runtime/${base.replace(/\/index$/, '')}/index.ts`,
-    ]
-    const matched = candidates.find((c) => entryPoints.has(c))
-    if (!matched) {
+    const output = dist?.replace(/^\.\/dist\//, '').replace(/\.js$|\.d\.ts$/, '')
+    const source = buildConfig.entry[output]
+    if (typeof source !== 'string' || !existsSync(join(repoRoot, source))) {
+      report('SETUP', 0, `package.json exports "${subpath}" has no source in tsdown.config.ts entry`)
+    } else if (!entryPoints.has(source)) {
       report(
         'SETUP',
         0,
-        `package.json exports "${subpath}" has no typedoc.json entryPoint (tried ${candidates.map((c) => `"${c}"`).join(' / ')}) — the subpath generates no api page and its symbols are unguarded; add it to typedoc.json entryPoints`,
+        `package.json exports "${subpath}" maps to "${source}", which is not a typedoc.json entryPoint — add its existing build source to typedoc.json entryPoints`,
       )
     }
   }
