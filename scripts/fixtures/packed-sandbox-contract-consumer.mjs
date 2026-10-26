@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { pathToFileURL } from 'node:url'
 import * as current from '@tangle-network/agent-interface'
 import { materializeCandidateProfile } from '@tangle-network/agent-profile-materialize'
 import { ValidationError } from '@tangle-network/agent-runtime'
@@ -15,86 +13,8 @@ import {
   verifyAgentCandidateBundle,
   freezeGenericAgentCandidateProfile,
 } from '@tangle-network/agent-runtime/candidate-execution'
-const sdkRequire = createRequire(createRequire(import.meta.url).resolve('@tangle-network/sandbox'))
-const sdk = await import(pathToFileURL(sdkRequire.resolve('@tangle-network/agent-interface')).href)
-import { readTokenUsage, readTokenCostUsd } from '@tangle-network/agent-core'
-const { readTokenUsage: sdkUsage, readTokenCostUsd: sdkCost } = await import(
-  pathToFileURL(sdkRequire.resolve('@tangle-network/agent-core')).href
-)
-const profiles = [
-  { name: 'boundary', harness: 'opencode' },
-  {
-    name: 'boundary',
-    harness: 'codex',
-    prompt: {
-      instructions: ['Synthetic instructions'],
-      appendSystemPrompt: 'Synthetic privileged addition',
-    },
-    resources: {
-      instructions: { kind: 'inline', name: 'proof.txt', content: 'Synthetic resource' },
-    },
-  },
-]
-for (const profile of profiles) {
-  assert.deepEqual(sdk.agentProfileSchema.parse(profile), current.agentProfileSchema.parse(profile))
-  assert.equal(
-    sdk.canonicalAgentProfileDigest(profile),
-    current.canonicalAgentProfileDigest(profile),
-  )
-  assert.equal(sdk.canonicalCandidateDigest(profile), current.canonicalCandidateDigest(profile))
-}
-const run = {
-  provider: 'tangle-sandbox',
-  environmentId: 'e',
-  sessionId: 's',
-  executionId: 'x',
-  runId: 'r',
-  requestDigest: `sha256:${'a'.repeat(64)}`,
-}
-assert.deepEqual(
-  sdk.AgentExactRunControlRefSchema.parse(run),
-  current.AgentExactRunControlRefSchema.parse(run),
-)
-const cancel = { operationId: 'cancel', run, reason: 'synthetic' }
-assert.equal(
-  sdk.agentRunCancellationRequestDigest(cancel),
-  current.agentRunCancellationRequestDigest(cancel),
-)
-const claim = {
-  refDigest: `sha256:${'b'.repeat(64)}`,
-  generation: 1,
-  leaseId: 'l',
-  holderId: 'h',
-  expiresAt: '2026-10-12T23:00:00.000Z',
-}
-for (const [name, value] of [
-  ['AgentInteractiveSessionControlClaimSchema', claim],
-  ['TerminalInputSchema', { data: 'synthetic' }],
-  ['TerminalResizeSchema', { cols: 80, rows: 24 }],
-]) {
-  assert.deepEqual(sdk[name].parse(value), current[name].parse(value))
-  assert.equal(sdk[name].safeParse({ ...value, unrecognized: true }).success, false)
-  assert.equal(current[name].safeParse({ ...value, unrecognized: true }).success, false)
-}
-for (const event of [
-  { usage: { input_tokens: 100, output_tokens: 20 } },
-  {
-    usage: {
-      prompt_tokens: 100,
-      completion_tokens: 20,
-      prompt_tokens_details: { cached_tokens: 30 },
-    },
-    costUsd: 0.012,
-  },
-  { usage: { inputTokens: 0, outputTokens: 0 } },
-  {},
-]) {
-  assert.deepEqual(sdkUsage(event), readTokenUsage(event))
-  assert.deepEqual(sdkCost(event), readTokenCostUsd(event))
-}
-// Interface 5.2 adds execution-owned knowledge references that the SDK's private
-// Interface 4 schema does not understand. Refuse them before crossing that boundary;
-// qualifying this tuple never means dropping a field the older SDK cannot carry.
+// Runtime refuses execution-owned knowledge references that are not owner-authorized and
+// resolved, before a profile reaches Sandbox; it never drops them.
 let unresolvedKnowledgeRefusals = 0
 let candidateKnowledgeConversionRefusals = 0
 let candidateKnowledgeAdmissionRefusals = 0
@@ -104,7 +24,6 @@ if (current.agentProfileSchema.safeParse({ resources: { knowledge } }).success) 
     for (const failOnError of [true, false]) {
       const profile = { resources: { knowledge, failOnError } }
       assert.equal(current.agentProfileSchema.safeParse(profile).success, true)
-      assert.equal(sdk.agentProfileSchema.safeParse(profile).success, false)
       assert.throws(
         () => assertProfileMaterializes(profile, harness, 'packed SDK boundary'),
         /must be owner-authorized and resolved/,
@@ -254,10 +173,6 @@ const result = {
   interfaceAdmitsProxySecrets,
   uncarriedFieldRefusals,
   conversionCanonicalSha256,
-  profileParsingAndDigest: true,
-  runCancellationAndControl: true,
-  terminalAdmissionAndUnknownKeyRefusal: true,
-  usageAndCostReadParity: true,
   unresolvedKnowledgeRefusals,
   candidateKnowledgeConversionRefusals,
   candidateKnowledgeAdmissionRefusals,

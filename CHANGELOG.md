@@ -1,3 +1,11 @@
+## 0.352.1
+
+Admits `@tangle-network/agent-eval` 0.222.x beside 0.221.8 and `@tangle-network/agent-profile-materialize` 0.28.x beside 0.27.x, so apps can take agent-eval 0.222 (zod `^4.6.7`, harness-sessions 0.2) without a second copy.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Require `@tangle-network/sandbox` 0.69.8 or later, the first Sandbox that resolves the stack's agent-interface 5.8 and agent-core 0.13 instead of private 4.0.0 / 0.11.0 copies, and retire the private-copy qualification that exempted those copies from the single-version cohort check.
+
 ## 0.352.0
 
 Add `@tangle-network/agent-runtime/chat-turn`: `handleChatTurn`, `deriveExecutionId` and the chat turn types without the `durable` entry's file-backed supervision, campaigns and agent-eval, so a Worker running chat turns does not load them at startup.
