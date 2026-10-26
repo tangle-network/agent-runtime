@@ -1,23 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { isExactVersionSpec, rangeAdmits } from './packed-package-test.mjs'
-import { sandboxOwnedContractCopies } from './sandbox-owned-contracts.mjs'
 import { firstPartyPackageDirs } from './first-party-package-tree.mjs'
 
-const qualifiedSandboxScopes = new Map()
-
-
-function cohortPackageDirs(scopeDir) {
-  if (!qualifiedSandboxScopes.has(scopeDir)) {
-    qualifiedSandboxScopes.set(scopeDir, sandboxOwnedContractCopies(scopeDir))
-  }
-  const isolated = qualifiedSandboxScopes.get(scopeDir)
-  return firstPartyPackageDirs(scopeDir).filter(directory => !isolated.has(directory))
-}
 
 
 export function assertSingleFirstPartyPackageVersion(scopeDir, packageName, expectedVersion) {
-  const installations = cohortPackageDirs(scopeDir)
+  const installations = firstPartyPackageDirs(scopeDir)
     .map((packageDir) => ({
       packageDir,
       packageJson: JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')),
@@ -50,7 +39,7 @@ export function assertSingleFirstPartyPackageVersion(scopeDir, packageName, expe
 
 
 export function assertPeerInstalled(scopeDir, packageName, peerRange) {
-  const installations = cohortPackageDirs(scopeDir)
+  const installations = firstPartyPackageDirs(scopeDir)
     .map((packageDir) => ({
       packageDir,
       packageJson: JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')),
