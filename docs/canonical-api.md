@@ -128,7 +128,7 @@ A capacity refusal before dispatch was refused before it ran, and pauses the dri
 A credential command (`acct sandbox resolve`) that exits non-zero before any dispatch ran nothing; it pauses the driver as `credential-unavailable` and never counts toward `pending-unresolved`. Other failures before dispatch are not paused this way.
 A permanent unsupported credential-route refusal (`model_credential_refused`) before dispatch
 ends the driver after one attempt; after admission it does not settle the execution.
-A dispatch that Sandbox did not admit, because another execution owns the session or turn, was refused before it ran, and stops the driver with that refusal named; with `driverRetry.pauseRootStops` the root pauses on it instead (below).
+A dispatch that Sandbox did not admit, because another execution owns the session or turn, was refused before it ran, and stops the driver with that refusal named, including when root-stop pausing is enabled.
 Post-admission uncertainty still requires reconciliation. Repeated failures permit abandonment only after the exact native execution is confirmed `cancelled` or `not_live`; an intent without a dispatched reference or an unconfirmed stop retains its original identity. A confirmed abandonment is journaled before a new invocation starts.
 Abandonments in a row without progress are bounded by `maxConsecutiveFailures`; once they are spent, the next invocation that fails reconciliation the same way twice ends the driver with `stop: 'pending-unresolved'` and its `pendingCause`, journaled on the `driver-attempt` record, so the owner reconciles the execution before re-driving the run.
 With `driverRetry.pauseRootStops`, an opted-in root pauses on that stop instead and the run stays open until a cancel.
@@ -182,10 +182,10 @@ The durable settlement carries no quality verdict.
 A raw report cannot satisfy a declared check, become a checked delivery, or reset checked-delivery progress.
 An external director with a check must declare a `continuation` policy, and Runtime then sends it back from a rejected candidate within its existing resource limits.
 The policy holds `maxBarren` and an optional `deadline`; there is no continuation count and no default.
-With no `deadline` on the policy and no `budget.deadlineMs`, Runtime arms no root or worker deadline timer: only the check passing, cancellation, or a spent token, iteration or dollar budget ends the run.
-`driverRetry.pauseRootStops: true` turns the root's remaining stops into waits that alarm: `terminal-error`, `no-progress`, `max-attempts`, `repeated-failure`, `pending-unresolved` and `budget-exhausted` each journal one `paused` row with `replacesStop`, `streak` and `resumeAt`, and the root waits 5 minutes, doubling per stop-pause in a row up to 60 and never past a declared deadline, before its next drive.
+With no `deadline` on the policy and no `budget.deadlineMs`, Runtime arms no root or worker deadline timer: only a terminal driver refusal, the check passing, cancellation, or a spent token, iteration or dollar budget ends the run.
+`driverRetry.pauseRootStops: true` turns recoverable root stops into waits that alarm: `no-progress`, `max-attempts`, `repeated-failure`, `pending-unresolved` and `budget-exhausted` each journal one `paused` row with `replacesStop`, `streak` and `resumeAt`, and the root waits 5 minutes, doubling per stop-pause in a row up to 60 and never past a declared deadline, before its next drive.
 Progress resets that streak; a root steer ends any pause at once, a budget pause included, and a pool still spent then pauses again while the steer stays queued for the next turn; a cancel ends it and settles the run.
-Only a solve, a cancel or a declared deadline then ends the run, and the settle record's `continuation.stopPauses` counts the pauses.
+A terminal driver refusal still ends the run immediately without a pause or another attempt; otherwise a solve, a cancel or a declared deadline ends it, and the settle record's `continuation.stopPauses` counts the pauses.
 `driverRetry` reaches every manager, but only the root reads the field, so a nested manager keeps its stops; `supervise()` refuses `driverRetry.pauseRootStops` with `driverRetry.enabled: false`.
 Runtime writes the continuation note from the check's verdict: its `FAIL` lines, the items that pass, what changed, and optionally the question panel's verified findings and the bar.
 The policy's `profile` owns every instruction word, and `append` may add a section but never replace one.
@@ -196,7 +196,7 @@ Each such pause journals one `barren-pause` row against the manager (`attempt`, 
 Progress is a delivery or a rise in the check's best composite, and it resets the streak and the pause; a barren streak never ends a run.
 A progress `stopRule` that fired ends it too, and the settle record's `continuation.closedBy` is `stop-rule`.
 A manager with a check is never served `stop`: it ends through `submit_result` or a bound, and a profile that grants it `stop` is refused before any compute.
-A run settles only on a terminal condition: a deadline the caller set, a cancel, an exhausted budget, or a result the check accepts.
+A run settles on a terminal condition: a terminal driver refusal, a deadline the caller set, a cancel, an exhausted budget, or a result the check accepts.
 Each has its own no-winner reason: a passed `budget.deadlineMs` is `deadline`, a spent pool is `budget-exhausted`, and a cancel is `aborted` or `cancelled`.
 The driver loop reads the abort before the failure: a drive the deadline cut ends `deadline`, and a cancelled one ends `aborted`, never `terminal-error`.
 A turn that ends, a lost stream, a blocked tool and a dead supervisor are boundaries the root is re-entered across, by `resume` for a dead supervisor.

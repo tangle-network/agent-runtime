@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { closeSync, fsyncSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
 
 export type Scenario =
+  | 'terminal-ceiling'
   | 'create-408'
   | 'create-503'
   | 'older-lost'
