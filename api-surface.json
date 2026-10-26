@@ -403,6 +403,16 @@
       "verifyAgentCandidateWorkspaceArtifacts": "value 3af9e17511f1",
       "verifyAgentCandidateWorkspaceTree": "value ee612b2daf63"
     },
+    "./chat-turn": {
+      "ChatStreamEvent": "type c38a1cde4ab8",
+      "ChatTurnHooks": "type c1fa3249c9a9",
+      "ChatTurnIdentity": "type 1b2cf5cd17fa",
+      "ChatTurnProducer": "type 50a503923fd5",
+      "ChatTurnResult": "type 35c160c2c727",
+      "RunChatTurnInput": "type 3aafc346a44b",
+      "deriveExecutionId": "value 5ed1a2cebcd9",
+      "handleChatTurn": "value ab8628a7396c"
+    },
     "./durable": {
       "AnalyzeOnSettleRoute": "type 0b3bdec79bc3",
       "AuthorizedDownMessage": "type 40777f0dfc99",
@@ -955,7 +965,7 @@
       "LeaderboardScore": "type 2388077227bf",
       "LeaderboardSpec": "type 8ef69342d68e",
       "LeakedReservation": "type 86ce16bd846f",
-      "LoadGraphFileOptions": "value 8b929639aea1",
+      "LoadGraphFileOptions": "value 2956cf9c432e",
       "LoadedGraphFile": "value 9f00aa0f11b0",
       "LocalHarnessResult": "type 1731188df9f8",
       "LocalMcpMaterialization": "value e23535541c6c",

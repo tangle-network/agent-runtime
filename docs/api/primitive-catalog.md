@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.351.0` and `@tangle-network/agent-eval@0.221.8` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.352.0` and `@tangle-network/agent-eval@0.221.8` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -251,6 +251,21 @@ Import from `@tangle-network/agent-runtime/durable` — 95 exports.
 | `ToolLoopCompactionOptions` | type | Public supervisor-facing compaction config: same knobs as the primitive, but `distill` is optional |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `CoordinationAuthentication`, `CoordinationHttpAudit`, `CoordinationPublicAddress`, `CoordinationTransportOptions`, `DurableCoordinationStreamIdentity`, `JudgedPursuitVersion`, `NextPursuitVersionInput`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `SeatSelectionInput`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `VersionVerdict`, `ObserverRecordKind`, `RuntimeDecisionKind`, `SeatSelection`.
+
+### Product chat turn engine alone — the turn stream and stable execution IDs, nothing file-backed
+
+Import from `@tangle-network/agent-runtime/chat-turn` — 8 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `deriveExecutionId` | function | Derive a stable execution id from the run identity. |
+| `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
+| `ChatStreamEvent` | interface | The NDJSON line protocol every product chat client already speaks. |
+| `ChatTurnHooks` | interface | Product callbacks invoked while one chat turn runs. |
+| `ChatTurnIdentity` | interface | Identity of a chat turn. `tenantId` is the workspace id for workspace- |
+| `ChatTurnProducer` | interface | The live side of a turn returned by the product's `produce` hook. |
+| `ChatTurnResult` | interface | HTTP response values returned for one chat turn. |
+| `RunChatTurnInput` | interface | Inputs for one streamed product chat turn. |
 
 ### Bounded tool calls for browser and edge runtimes
 
