@@ -17,7 +17,11 @@ const profile: AgentProfile = {
     metadata: { stream: true, maxTurns: 3 },
   },
   tools: { write_file: true, read_file: true },
-  prompt: { systemPrompt: 'Write the requested bytes, read them back, then reply DONE.' },
+  prompt: {
+    systemPrompt: 'BASE_POLICY',
+    appendSystemPrompt: 'Write the requested bytes, read them back, then reply DONE.',
+    instructions: ['PROJECT_GUIDANCE'],
+  },
 }
 
 interface CompletionRequest {
@@ -47,6 +51,10 @@ it.each([false, true])(
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as CompletionRequest
         requests.push(body)
         const turn = requests.length - 1
+        expect(body.messages[0]).toMatchObject({ role: 'system' })
+        expect(body.messages[0]?.content).toBe(
+          'BASE_POLICY\nWrite the requested bytes, read them back, then reply DONE.\nPROJECT_GUIDANCE',
+        )
         expect(body.model).toBe(model)
         expect(body.stream).toBe(true)
         expect(body.tools.map((tool) => tool.function.name).sort()).toEqual([

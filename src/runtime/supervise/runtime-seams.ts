@@ -112,8 +112,8 @@ export interface CliSeam {
  * named as data. `repoRoot` is transport data; `AgentProfile.harness` selects the CLI.
  * `taskPrompt` remains an optional direct-call fallback for callers that execute with `undefined`.
  * The authored
- * `profile.prompt.systemPrompt` + `profile.model.default` reach the harness via the §1.5
- * `harnessInvocation` mapper. Everything else mirrors `WorktreeCliExecutorOptions`.
+ * `profile.prompt` uses native replace/append controls and a caller-instruction preamble;
+ * `profile.model.default` selects the native model. Everything else mirrors `WorktreeCliExecutorOptions`.
  */
 export interface CliWorktreeSeam {
   repoRoot: string
@@ -143,7 +143,7 @@ export interface CliWorktreeSeam {
  * cli-in-place seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI
  * (claude-code / codex / opencode / pi) on a workspace the CALLER supplies — the leaf
  * `createInPlaceCliExecutor` named as data. `workspacePath` is transport data;
- * `AgentProfile.harness` selects the CLI, and the authored `profile.prompt.systemPrompt` +
+ * `AgentProfile.harness` selects the CLI, and the authored `profile.prompt` +
  * `profile.model.default` reach the harness via the §1.5 `harnessInvocation` mapper.
  *
  * READ THIS BEFORE CHOOSING BETWEEN THIS AND `cli-worktree`. They differ in ONE thing, and it is

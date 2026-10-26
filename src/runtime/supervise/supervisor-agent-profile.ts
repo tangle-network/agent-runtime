@@ -133,6 +133,9 @@ export function assertRouterArmResourcePolicy(profile: SupervisorProfile): void 
 export function resolveSupervisorSystemPrompt(profile: SupervisorProfile): string | undefined {
   const promptSystem = profile.prompt?.systemPrompt
   const lines = [
+    ...(profile.prompt?.appendSystemPrompt === undefined
+      ? []
+      : [profile.prompt.appendSystemPrompt]),
     ...(profile.prompt?.instructions ?? []),
     ...resourceInstructionLines(profile.resources?.instructions),
   ]

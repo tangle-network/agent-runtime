@@ -41,6 +41,11 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
                 └────────── same Executor port underneath ──────────┘
 ```
 
+Local CLI and sealed candidate execution share native prompt projection: `systemPrompt`
+replaces the harness prompt, `appendSystemPrompt` keeps it and adds privileged guidance,
+and `instructions` remains caller guidance. Prefer addition for coding personas. Local
+workspace inputs are included in the execution plan and removed after the process exits.
+
 ### Bridge implementation ownership
 
 `src/runtime/supervise/runtime.ts` keeps backend configuration, factory selection, and the existing public exports.

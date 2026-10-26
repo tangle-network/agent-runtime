@@ -26,8 +26,10 @@ import { dirname, resolve } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   applyWorkspacePlan,
+  assertWorkspacePlanSupported,
   type HarnessId,
   hashWorkspacePlan,
+  materializeProfile,
   type ResolveAgentProfileResourcesOptions,
   resolveAgentProfileResources,
   type WorkspacePlan,
@@ -35,9 +37,9 @@ import {
   type WorkspacePlanConfigValue,
   type WorkspacePlanReceipt,
 } from '@tangle-network/agent-profile-materialize'
+import { nativeSystemPrompt } from '../agent/native-system-prompt'
 import {
   assertProfileMaterialization,
-  assertProfileMaterializes,
   profileMaterializationAxes,
   worktreeCliProfileMaterialization,
 } from '../agent/profile-materialization'
@@ -620,7 +622,32 @@ function prepareWorktreeProfile(
   const workspaceProfile = materializationOnlyProfile(profile)
   assertSupportedWorktreeProfile(profile, harness)
   assertSafeProfileResourcePaths(profile)
-  const plan = assertProfileMaterializes(workspaceProfile, harness, 'runWorktreeHarness')
+  const structural = materializeProfile(
+    harness === 'opencode'
+      ? {
+          ...workspaceProfile,
+          prompt: {
+            systemPrompt: profile.prompt?.systemPrompt,
+            appendSystemPrompt: profile.prompt?.appendSystemPrompt,
+          },
+        }
+      : workspaceProfile,
+    harness,
+    { binds: ['systemPrompt'] },
+  )
+  assertWorkspacePlanSupported(structural)
+  const native =
+    harness === 'opencode' ? { files: [], flags: [] } : nativeSystemPrompt(harness, profile.prompt)
+  for (const file of native.files) {
+    if (structural.files.some((existing) => existing.relPath === file.relPath)) {
+      throw new Error(`profile conflicts with reserved ${file.relPath}`)
+    }
+  }
+  const plan = {
+    ...structural,
+    files: [...structural.files, ...native.files],
+    flags: [...structural.flags, ...native.flags],
+  }
   assertSafeMaterializedPaths(plan)
   return { plan, resourceInstructions }
 }

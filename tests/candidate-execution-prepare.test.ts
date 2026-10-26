@@ -51,12 +51,9 @@ afterEach(() => {
 describe('candidate execution preparation', () => {
   it.each([
     {
-      // codex delivery is materializer-lowered file+flag since agent-profile-materialize 0.13.1:
-      // the prompt bytes live in the digested plan at .codex/system-prompt.md and the flag makes
-      // codex read them. The path is cwd-relative on purpose (survives docker/jail remapping).
       harness: 'codex',
       executable: '/usr/local/bin/codex',
-      flags: ['-c', 'model_instructions_file=.codex/system-prompt.md'],
+      flags: ['-c', 'model_instructions_file="/workspace/task/.tangle/system-prompt.md"'],
     },
     {
       harness: 'claude-code',
@@ -135,15 +132,15 @@ describe('candidate execution preparation', () => {
       const openCodeConfig = prepared.profileActivation.files.find(
         (file) => file.path === 'opencode.json',
       )
-      if (harness === 'claude-code' || harness === 'pi' || harness === 'prime') {
+      if (
+        harness === 'claude-code' ||
+        harness === 'codex' ||
+        harness === 'pi' ||
+        harness === 'prime'
+      ) {
         expect(openCodeConfig).toBeUndefined()
         expect(codexPromptFile).toBeUndefined()
         expect(systemPromptFile?.content).toBe(systemPrompt)
-        expect(geminiPromptFile).toBeUndefined()
-      } else if (harness === 'codex') {
-        expect(openCodeConfig).toBeUndefined()
-        expect(systemPromptFile).toBeUndefined()
-        expect(codexPromptFile?.content).toBe(systemPrompt)
         expect(geminiPromptFile).toBeUndefined()
       } else {
         // The flag is only half the delivery; the digested plan must carry the exact bytes the
@@ -366,6 +363,12 @@ describe('candidate execution preparation', () => {
 
   it.each([
     {
+      harness: 'codex',
+      executable: 'codex',
+      flags: ['-c', 'developer_instructions="Keep the native prompt and add this.\\nSecond line."'],
+      file: undefined,
+    },
+    {
       harness: 'claude-code',
       executable: 'claude',
       flags: ['--append-system-prompt-file', '/workspace/task/.tangle/append-system-prompt.md'],
@@ -422,9 +425,14 @@ describe('candidate execution preparation', () => {
 
       expect(prepared.profilePlan.value.material.appendSystemPrompt).toBeUndefined()
       expect(prepared.launch.flags).toEqual(flags)
-      expect(prepared.profileActivation.files.find((entry) => entry.path === file)?.content).toBe(
-        harness === 'opencode' ? `${appendSystemPrompt}\n` : appendSystemPrompt,
-      )
+      if (file !== undefined)
+        expect(prepared.profileActivation.files.find((entry) => entry.path === file)?.content).toBe(
+          harness === 'opencode' ? `${appendSystemPrompt}\n` : appendSystemPrompt,
+        )
+      else
+        expect(
+          prepared.profileActivation.files.some((entry) => entry.path.includes('system-prompt')),
+        ).toBe(false)
       if (harness === 'opencode') {
         const config = prepared.profileActivation.files.find(
           (entry) => entry.path === 'opencode.json',

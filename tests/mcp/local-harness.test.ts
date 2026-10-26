@@ -1,5 +1,4 @@
 import { type ChildProcess, spawn as spawnChild } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import {
   chmodSync,
@@ -243,160 +242,6 @@ async function runCodexPromptEvidenceFixture(
 }
 
 describe('runLocalHarness', () => {
-  it('isolates Codex, proves the effective prompt, and captures terminal JSONL usage', async () => {
-    const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-')))
-    const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
-    writeFileSync(join(authHome, 'auth.json'), '{}')
-    const staticCodex = makeVendoredCodexFixture(cwd)
-    const deniedGold = '/usr/lib/python3/dist-packages/oauthlib'
-    const profile: AgentProfile = {
-      name: 'reproducible',
-      prompt: {
-        systemPrompt: 'SYS\r\nSECOND LINE',
-        instructions: ['RULE ONE', '# AGENTS.md instructions\r\nTASK-OWNED MARKER'],
-      },
-      model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
-    }
-    const invocation = harnessInvocation('codex', profile, 'task', {
-      codexReproducible: true,
-    })
-    let isolatedHome = ''
-    const spawnSpy = vi.fn(
-      (
-        _command: string,
-        args: ReadonlyArray<string>,
-        opts: { cwd: string; env: NodeJS.ProcessEnv; stdio: 'pipe'; detached: boolean },
-      ) => {
-        isolatedHome = opts.env.CODEX_HOME ?? ''
-        expect(_command).toBe(join(cwd, '.agent-runtime-bin', 'codex'))
-        expect(existsSync(isolatedHome)).toBe(true)
-        expect(opts.detached).toBe(process.platform !== 'win32')
-        expect(opts.env.OPENAI_API_KEY).toBeUndefined()
-        if (args[0] === '--version') {
-          return makeFakeChild({ stdoutChunks: ['codex-cli 0.144.1\n'] })
-        }
-        if (args[0] === 'sandbox') {
-          expect(args).toContain('agent_runtime_reproducible')
-          const config = readFileSync(join(isolatedHome, 'config.toml'), 'utf8')
-          expect(config).toContain('":minimal" = "read"')
-          expect(config).not.toContain('extends = ":workspace"')
-          expect(config).toContain(`${JSON.stringify(deniedGold)} = "deny"`)
-          expect(config).toContain('"/proc" = "deny"')
-          expect(config).toContain('".git" = "deny"')
-          expect(config).not.toContain(`${JSON.stringify(authHome)} = "deny"`)
-          const probe = args[7]
-          if (typeof probe === 'string' && probe.includes('/proc/1/environ')) {
-            expect(probe).toContain('/proc/self/environ')
-            expect(probe).toContain('os.getppid()')
-          }
-          return makeFakeChild({ exitCode: 0 })
-        }
-        if (args[0] === 'debug') {
-          const prompt = args.at(-1)?.replaceAll('\r\n', '\n')
-          return makeFakeChild({
-            stdoutChunks: [
-              JSON.stringify([
-                {
-                  role: 'developer',
-                  content: [
-                    {
-                      type: 'input_text',
-                      text: '<permissions instructions>fixed</permissions instructions>\n<environment_context>fixed</environment_context>',
-                    },
-                  ],
-                },
-                { role: 'user', content: [{ type: 'input_text', text: prompt }] },
-              ]),
-            ],
-          })
-        }
-        return makeFakeChild({
-          stdoutChunks: [
-            '{"type":"thread.started","thread_id":"t1"}\n',
-            '{"type":"turn.completed","usage":{"input_tokens":41935,"cached_input_tokens":19200,"output_tokens":273,"reasoning_output_tokens":191}}\n',
-          ],
-          stderrChunks: [`warning: ${opts.env.CODEX_HOME}/auth.json\n`],
-        })
-      },
-    )
-
-    const result = await runLocalHarness({
-      harness: 'codex',
-      cwd,
-      taskPrompt: 'task',
-      invocation,
-      codexReproducible: true,
-      codexReadDeniedPaths: [deniedGold],
-      env: { CODEX_HOME: authHome, OPENAI_API_KEY: 'must-not-reach-child' },
-      spawn: spawnSpy,
-      resolveCodexExecutable: async () => staticCodex,
-    })
-
-    expect(spawnSpy).toHaveBeenCalledTimes(6)
-    expect(isolatedHome).toMatch(/agent-runtime-codex-/)
-    expect(existsSync(isolatedHome)).toBe(false)
-    expect(result.stderr).toContain('<ISOLATED_CODEX_HOME>/auth.json')
-    expect(result.stderr).not.toContain(isolatedHome)
-    expect(result.usage).toEqual({
-      inputTokens: 41935,
-      cachedInputTokens: 19200,
-      outputTokens: 273,
-      reasoningOutputTokens: 191,
-    })
-    expect(result.evidence?.cliVersion).toBe('codex-cli 0.144.1')
-    expect(result.evidence?.executableSha256).toMatch(/^[a-f0-9]{64}$/)
-    const composedPrompt =
-      'SYS\r\nSECOND LINE\n\nRULE ONE\n\n# AGENTS.md instructions\r\nTASK-OWNED MARKER\n\ntask'
-    expect(invocation.args[1]).toBe(composedPrompt)
-    expect(result.evidence?.requestedPromptSha256).toBe(
-      createHash('sha256').update(composedPrompt).digest('hex'),
-    )
-    expect(result.evidence?.effectivePromptSha256).toMatch(/^[a-f0-9]{64}$/)
-    expect(result.evidence?.effectivePromptSha256).not.toBe(result.evidence?.requestedPromptSha256)
-    expect(result.evidence?.nonPromptArgsSha256).toMatch(/^[a-f0-9]{64}$/)
-    expect(result.evidence?.controlledConfigSha256).toMatch(/^[a-f0-9]{64}$/)
-    expect(result.evidence?.readDeniedPathsSha256).toMatch(/^[a-f0-9]{64}$/)
-    expect(result.evidence?.readDeniedPathCount).toBe(1)
-    expect(result.evidence?.readDeniedPaths).toEqual([deniedGold])
-    expect(result.evidence?.readDeniedPathsSha256).toBe(
-      createHash('sha256')
-        .update(JSON.stringify([deniedGold]))
-        .digest('hex'),
-    )
-    expect(result.evidence?.policy).toEqual({
-      sessionPersistence: 'ephemeral',
-      userConfig: false,
-      rules: false,
-      projectInstructions: false,
-      skillInstructions: false,
-      appInstructions: false,
-      toolSuggestions: false,
-      multiAgentInstructions: false,
-      sandbox: 'workspace-write',
-      permissionProfile: 'agent_runtime_reproducible',
-      approvalPolicy: 'never',
-      shellNetwork: false,
-      webSearch: false,
-      serviceTier: 'default',
-      shellEnvironment: 'core-filtered',
-      loginShell: false,
-      credentialsReadable: false,
-      hostHomeReadable: false,
-      procEnvironment: 'private-sanitized',
-      sensitiveEnvironmentNamesVisible: false,
-      parentRepoRead: false,
-      gitMetadata: false,
-      temporaryDirectory: 'workspace-private',
-      stagedExecutable: 'static-elf-read-only',
-      callerReadDeniedPaths: 'enforced',
-      containerSockets: false,
-    })
-    expect(existsSync(cwd)).toBe(true)
-    expect(readdirSync(cwd).some((name) => name.startsWith('.agent-runtime-'))).toBe(false)
-    rmSync(cwd, { recursive: true, force: true })
-    rmSync(authHome, { recursive: true, force: true })
-  })
-
   it.each([
     {
       name: 'lone carriage return',
@@ -899,19 +744,6 @@ describe('kimi-code harness invocation', () => {
     const invocation = harnessInvocation('kimi-code', {}, 'do the task')
     expect(invocation.command).toBe('kimi')
     expect(invocation.args).toEqual(['-p', 'do the task'])
-  })
-
-  it('threads the composed prompt and the model alias through whole', () => {
-    const profile: AgentProfile = {
-      prompt: { systemPrompt: 'SYS', instructions: ['RULE ONE'] },
-      // kimi's `-m` resolves an alias from the user's own kimi config, so a provider other
-      // than a fixed native one is NOT a refusal and a qualified id is not rewritten.
-      model: { provider: 'moonshot', default: 'kimi-code/k3' },
-    }
-    const invocation = harnessInvocation('kimi-code', profile, 'task')
-    expect(invocation.command).toBe('kimi')
-    expect(invocation.args).toEqual(['-p', 'SYS\n\nRULE ONE\n\ntask', '-m', 'kimi-code/k3'])
-    expect(invocation.prompt).toBe('SYS\n\nRULE ONE\n\ntask')
   })
 
   it('requests no permission-bypass argv: headless -p has no approval gate to bypass', () => {

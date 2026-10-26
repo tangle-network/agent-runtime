@@ -181,9 +181,11 @@ function requiredProfileModel(profile: AgentProfile, context: string): string {
 }
 
 function profileSystemPrompt(profile: AgentProfile): string {
-  const sections = [profile.prompt?.systemPrompt, ...(profile.prompt?.instructions ?? [])].filter(
-    (value): value is string => typeof value === 'string' && value.trim().length > 0,
-  )
+  const sections = [
+    profile.prompt?.systemPrompt,
+    profile.prompt?.appendSystemPrompt,
+    ...(profile.prompt?.instructions ?? []),
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
   const instructions = profile.resources?.instructions
   if (typeof instructions === 'string' && instructions.trim()) sections.push(instructions)
   else if (

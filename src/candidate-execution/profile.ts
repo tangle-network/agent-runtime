@@ -81,8 +81,17 @@ export function materializeAgentCandidateProfilePlan(
   const root =
     options.workspace === 'task' ? options.workspaces.taskRoot : options.workspaces.candidateRoot
   if (!root) throw new Error('candidate profile target is missing its execution workspace root')
+  const nativePrompt = ['claude-code', 'codex', 'pi', 'prime'].includes(options.harness)
+    ? options.profile.prompt
+    : undefined
+  const { systemPrompt, appendSystemPrompt, ...structuralPrompt } = nativePrompt ?? {}
   const plan = materializeCandidateProfile(
-    options.profile,
+    nativePrompt === undefined
+      ? options.profile
+      : {
+          ...options.profile,
+          prompt: structuralPrompt,
+        },
     candidateMaterializerHarness(options.harness),
     {
       binds: CANDIDATE_PROFILE_MATERIALIZER_BINDS,
@@ -90,7 +99,18 @@ export function materializeAgentCandidateProfilePlan(
     },
   )
   return projectCandidatePromptIntents(
-    plan,
+    nativePrompt === undefined
+      ? plan
+      : {
+          ...plan,
+          sourceProfileDigest: canonicalCandidateDigest(options.profile),
+          ...(systemPrompt === undefined
+            ? {}
+            : { systemPrompt: { kind: 'public', value: systemPrompt } }),
+          ...(appendSystemPrompt === undefined
+            ? {}
+            : { appendSystemPrompt: { kind: 'public', value: appendSystemPrompt } }),
+        },
     options.launch,
     posix.join(root, '.tangle/system-prompt.md'),
     options.profile.prompt?.systemPrompt,
