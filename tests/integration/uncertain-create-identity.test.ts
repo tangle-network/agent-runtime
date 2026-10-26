@@ -9,7 +9,7 @@ import {
   rootId,
   withFixture,
 } from './fixtures/uncertain-create-harness'
-import { object, readRecords } from './fixtures/uncertain-create-protocol'
+import { object, readRecords, record } from './fixtures/uncertain-create-protocol'
 
 let bundle: string
 let executables: Executables
@@ -418,7 +418,6 @@ describe('typed real command credential refusal and accepted evidence', () => {
     async (scenario) => {
       await withFixture(scenario, executables, async (fixture) => {
         const child = `${rootId}:s0`
-        const expectedCommands = scenario === 'unsupported-environment' ? 2 : 3
         if (scenario === 'unsupported-descendant') {
           await fixture.wait(
             'accepted manager turn and actual grandchild create',
@@ -430,15 +429,25 @@ describe('typed real command credential refusal and accepted evidence', () => {
                 (row) => row.kind === 'create' && row.profile === 'pending-grandchild',
               ),
           )
-          // A progressing unresolved grandchild quiets heartbeats. An actual queued public steer
-          // supplies the next native manager turn; its acknowledgement alone proves no execution.
+          const commands = readRecords(join(fixture.directory, 'credential-calls.jsonl'))
+          expect(commands.length).toBeGreaterThan(0)
+          expect(commands.every((row) => row.refused === false)).toBe(true)
+          fixture.credentialMode(true)
+          record(join(fixture.directory, 'proof-phases.jsonl'), {
+            kind: 'descendant-refusal-armed',
+            at: new Date().toISOString(),
+            credentialCalls: commands.length,
+          })
+          // Arm only after actual accepted manager work and grandchild create; create/recovery
+          // may legitimately resolve credentials more than once. The public steer supplies work.
           await fixture.control({ steerManager: true })
         }
         await fixture.wait('typed refusal preserves the admitted nested manager', async () => {
           const events = await fixture.events()
           return (
-            readRecords(join(fixture.directory, 'credential-calls.jsonl')).length >=
-              expectedCommands &&
+            readRecords(join(fixture.directory, 'credential-calls.jsonl')).some(
+              (row) => row.refused === true,
+            ) &&
             events.some(
               (event) =>
                 event.kind === 'driver-attempt' &&
@@ -456,9 +465,18 @@ describe('typed real command credential refusal and accepted evidence', () => {
         })
         await fixture.killCoordinator()
         const events = await fixture.events()
-        expect(readRecords(join(fixture.directory, 'credential-calls.jsonl'))).toHaveLength(
-          expectedCommands,
-        )
+        const commands = readRecords(join(fixture.directory, 'credential-calls.jsonl'))
+        const refusals = commands.filter((row) => row.refused === true)
+        expect(refusals).toEqual([
+          expect.objectContaining({ profile: 'credential-manager', refused: true }),
+        ])
+        if (scenario === 'unsupported-environment') expect(commands).toHaveLength(2)
+        else {
+          const firstRefusal = commands.findIndex((row) => row.refused === true)
+          expect(firstRefusal).toBeGreaterThan(0)
+          expect(commands.slice(0, firstRefusal).every((row) => row.refused === false)).toBe(true)
+          expect(commands.slice(firstRefusal)).toHaveLength(1)
+        }
         expect(
           events.some(
             (event) =>
