@@ -51,10 +51,6 @@ branch on the upstream status code.
 
 `string`
 
-###### remediation?
-
-`Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>
-
 ###### body?
 
 `string`
@@ -98,12 +94,6 @@ The upstream's own error class when it names one (the bridge's `parse_error`,
 `not_configured`, a provider's `invalid_request_error`). A class the upstream never
 retries is a decision about the request, so a retry policy may read it where no
 status arrived.
-
-##### remediation?
-
-> `readonly` `optional` **remediation?**: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>
-
-Validated producer remedy; absent when the upstream supplied no trusted structured remedy.
 
 ##### body?
 
@@ -6979,7 +6969,7 @@ Stable failure codes. A consumer branches on these, never on `cause` text.
 
 ### RuntimeFailureCause
 
-> **RuntimeFailureCause** = `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> **RuntimeFailureCause** = `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; \}\>
 
 **`Stable`**
 
