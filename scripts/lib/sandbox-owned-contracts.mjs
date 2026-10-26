@@ -15,31 +15,14 @@ import { rangeAdmits } from './packed-package-test.mjs'
 // fingerprinted here. A new Sandbox minor still needs a reviewed peer-range change.
 // Qualification is limited to the Linux npm packed-consumer layout used by this gate.
 // Keep unknown versions and changed bytes fail-closed.
-const qualifiedContractTuples = [
-  [
-    ['agent-interface', '5.7.0', '4f662a47917b3057a4f38b4fbf719e8a97590b9d9213c80dd36a7cafa6ea1e0f'],
-    ['agent-core', '0.12.0', '81c0e698c4f08418cdbf7aa4901a5278d23b5cdac3d35260504b2112d3e4999e'],
-    ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
-    ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
-  ],
-  // The shared agent-core moved to 0.13.1 with the stack (agent-runtime #1994, agent-eval #1054); the SDK-private
-  // copies the refusal depends on are unchanged.
-  [
-    ['agent-interface', '5.7.0', '4f662a47917b3057a4f38b4fbf719e8a97590b9d9213c80dd36a7cafa6ea1e0f'],
-    ['agent-core', '0.13.1', '0837760f6e9dd26299e93247ce5db351ee94a09a38838b23c7c71074e60daece'],
-    ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
-    ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
-  ],
-  // The accepted stack's shared contracts have identical executable/type files to 5.7.0/0.13.1.
-  // Their manifests update versions, Zod to 4.6.6 and Core's Interface floor to ^5.7.1;
-  // SDK-private copies remain unchanged. The packed SDK consumer checks behavioral parity.
-  [
-    ['agent-interface', '5.7.1', '4ae59409e09a4dd70b1e06f8cddd240f1835bda52ebc5e1b0e697db85aff3cb8'],
-    ['agent-core', '0.13.2', 'ab2410df35d3396ea0a6a360b1d4dddc40e28f382a268dfc6d42f4c103f534fa'],
-    ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
-    ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
-  ],
-]
+// Current Runtime peers require Interface 5.8 and Core 0.13.2; older shared tuples
+// cannot occur in an admitted consumer. SDK-private copies remain isolated and byte-checked.
+const qualifiedContractTuples = [[
+  ['agent-interface', '5.8.0', '4ce0cdccd00bdc4faaddbe0b572bee7f9a8dfc73db122887ef10a9861a358687'],
+  ['agent-core', '0.13.2', 'ab2410df35d3396ea0a6a360b1d4dddc40e28f382a268dfc6d42f4c103f534fa'],
+  ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
+  ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
+]]
 
 function ownFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).filter(entry => entry.name !== 'node_modules').flatMap(entry => {

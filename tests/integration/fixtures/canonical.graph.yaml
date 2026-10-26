@@ -9,7 +9,7 @@ nodes:
     profile:
       harness: cli-base
       model: { provider: offline, default: offline/local-process }
-      prompt: { systemPrompt: 'Build ${params.message}.' }
+      prompt: { systemPrompt: "Build ${params.message}." }
   - id: review
     profile:
       harness: cli-base
@@ -17,20 +17,20 @@ nodes:
 entry:
   - node: build
     task:
-      message: '${params.message}'
-      input: '${params.input}'
-      event: '${trigger.event}'
+      message: "${params.message}"
+      input: "${params.input}"
+      event: "${trigger.event}"
 edges:
   - kind: routes
     from: build
     to: review
     directive: { surface: delegates/worker-brief, version: 1 }
 budget:
-  maxIterations: '${params.iterations}'
+  maxIterations: "${params.iterations}"
   maxTokens: 10000
 check:
   describe: the review process returned the expected delivery
   all:
-    - { node: review, pointer: /content, equals: 'delivered:${params.message}' }
+    - { node: review, pointer: /content, equals: "delivered:${params.message}" }
 on:
-  - schedule: { cron: '0 * * * *' }
+  - schedule: { cron: "0 * * * *" }
