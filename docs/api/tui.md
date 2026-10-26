@@ -10,18 +10,15 @@
 
 `@tangle-network/agent-runtime/tui` — the terminal view over live supervisor runs.
 
-A read-only renderer plus two write-back controls, over the same `<root>/.agent/supervisor/<id>`
-layout `../runtime/supervise/run-layout` defines. It ships here rather than as its own package
-because the runtime is what WRITES the state it renders: a separately-versioned viewer would
-drift from the layout it reads, which is the exact failure a client and server versioning
-independently produces.
-
-Zero third-party dependencies — raw ANSI and `node:readline` keypresses, nothing else.
+Read-only snapshots over Runtime's workspace layout or an explicit durable run directory.
+Workspace reads remain synchronous; the `runDir` overload asynchronously verifies observer
+history and attaches its canonical pursuit projection, including unknown accounting.
 
 ```ts
-import { loadTopSnapshot, renderTopFrame } from '@tangle-network/agent-runtime/tui'
+import { loadTopSnapshot } from '@tangle-network/agent-runtime/tui'
 
-process.stdout.write(renderTopFrame(loadTopSnapshot(process.cwd()), { width: 132 }))
+const workspace = loadTopSnapshot(process.cwd())
+const durable = await loadTopSnapshot(process.cwd(), { runDir: './runs/current' })
 ```
 
 The runnable form is the `agent-runtime-top` bin: `agent-runtime-top <root> [--once] [--no-color]`.
@@ -51,6 +48,14 @@ The runnable form is the `agent-runtime-top` bin: `agent-runtime-top <root> [--o
 > `readonly` **supervisors**: [`SupervisorView`](#supervisorview)[]
 
 **`Experimental`**
+
+##### pursuit?
+
+> `readonly` `optional` **pursuit?**: [`PursuitProjection`](durable.md#pursuitprojection)
+
+**`Experimental`**
+
+Canonical facts, including unknown accounting and requested/observed identities.
 
 ##### completeness
 
@@ -82,7 +87,7 @@ Run directories found under the runs roots, readable or not.
 
 **`Experimental`**
 
-Run directories whose state.json parsed into a valid supervisor view.
+Run directories projected into a valid supervisor view.
 
 ***
 
@@ -93,13 +98,11 @@ Run directories whose state.json parsed into a valid supervisor view.
 One skipped or partially read snapshot source. `path` is relative to the run directory and
 never carries file contents, so a diagnostic is safe to show or log without leaking run data.
 
+#### Extends
+
+- `SourceDiagnostic`
+
 #### Properties
-
-##### source
-
-> `readonly` **source**: [`TopSnapshotDiagnosticSource`](#topsnapshotdiagnosticsource)
-
-**`Experimental`**
 
 ##### runId?
 
@@ -107,17 +110,35 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 **`Experimental`**
 
+##### source
+
+> `readonly` **source**: [`TopSnapshotDiagnosticSource`](#topsnapshotdiagnosticsource)
+
+**`Experimental`**
+
+###### Inherited from
+
+`SourceDiagnostic.source`
+
 ##### path
 
 > `readonly` **path**: `string`
 
 **`Experimental`**
 
+###### Inherited from
+
+`SourceDiagnostic.path`
+
 ##### reason
 
 > `readonly` **reason**: [`TopSnapshotDiagnosticReason`](#topsnapshotdiagnosticreason)
 
 **`Experimental`**
+
+###### Inherited from
+
+`SourceDiagnostic.reason`
 
 ***
 
@@ -180,6 +201,16 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 ###### Inherited from
 
 `SupervisorBase.budget`
+
+##### budgetKnown?
+
+> `readonly` `optional` **budgetKnown?**: `boolean`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.budgetKnown`
 
 ##### verifyCmd?
 
@@ -425,7 +456,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ##### budget?
 
-> `readonly` `optional` **budget?**: [`BudgetStats`](#budgetstats)
+> `readonly` `optional` **budget?**: `Partial`\<`Pick`\<[`Budget`](runtime.md#budget-10), `"maxIterations"` \| `"maxTokens"` \| `"maxUsd"`\>\>
 
 **`Experimental`**
 
@@ -465,7 +496,50 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 **`Experimental`**
 
+#### Extends
+
+- `Pick`\<[`SpendStats`](#spendstats), `"tokensInput"` \| `"tokensOutput"` \| `"usd"` \| `"usdKnown"` \| `"tokensKnown"`\>
+
 #### Properties
+
+##### tokensKnown?
+
+> `readonly` `optional` **tokensKnown?**: `boolean`
+
+**`Experimental`**
+
+Token accounting is known unless explicitly false. A false value marks work that HAPPENED with
+ an unreported token count: `tokens` then carries the known subtotal (often `{0,0}`) and must
+ not be read as the measured total. The twin of `usdKnown` on the token channel — an inference
+ turn whose provider reported no usage is recorded with this flag rather than omitted, because
+ omitting it makes the turn look free.
+
+###### Inherited from
+
+[`Spend`](runtime.md#spend-1).[`tokensKnown`](runtime.md#tokensknown-3)
+
+##### usdKnown?
+
+> `readonly` `optional` **usdKnown?**: `boolean`
+
+**`Experimental`**
+
+Dollar accounting is known unless explicitly false. A false value must not be treated as $0
+ when enforcing a dollar-denominated comparison or limit.
+
+###### Inherited from
+
+[`Spend`](runtime.md#spend-1).[`usdKnown`](runtime.md#usdknown-4)
+
+##### usd
+
+> `readonly` **usd**: `number`
+
+**`Experimental`**
+
+###### Inherited from
+
+[`Spend`](runtime.md#spend-1).[`usd`](runtime.md#usd-6)
 
 ##### workers
 
@@ -509,27 +583,9 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 **`Experimental`**
 
-##### tokensInput
-
-> `readonly` **tokensInput**: `number`
-
-**`Experimental`**
-
-##### tokensOutput
-
-> `readonly` **tokensOutput**: `number`
-
-**`Experimental`**
-
 ##### tokensTotal
 
 > `readonly` **tokensTotal**: `number`
-
-**`Experimental`**
-
-##### usd
-
-> `readonly` **usd**: `number`
 
 **`Experimental`**
 
@@ -544,6 +600,26 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 > `readonly` **workerLatency**: [`Distribution`](#distribution)
 
 **`Experimental`**
+
+##### tokensInput
+
+> `readonly` **tokensInput**: `number`
+
+**`Experimental`**
+
+###### Inherited from
+
+[`SpendStats`](#spendstats).[`tokensInput`](#tokensinput-1)
+
+##### tokensOutput
+
+> `readonly` **tokensOutput**: `number`
+
+**`Experimental`**
+
+###### Inherited from
+
+[`SpendStats`](#spendstats).[`tokensOutput`](#tokensoutput-1)
 
 ***
 
@@ -585,35 +661,13 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ***
 
-### BudgetStats
-
-**`Experimental`**
-
-#### Properties
-
-##### maxIterations?
-
-> `readonly` `optional` **maxIterations?**: `number`
-
-**`Experimental`**
-
-##### maxTokens?
-
-> `readonly` `optional` **maxTokens?**: `number`
-
-**`Experimental`**
-
-##### maxUsd?
-
-> `readonly` `optional` **maxUsd?**: `number`
-
-**`Experimental`**
-
-***
-
 ### SpendStats
 
 **`Experimental`**
+
+#### Extends
+
+- `Readonly`\<`Pick`\<[`Spend`](runtime.md#spend-1), `"iterations"` \| `"usd"` \| `"ms"` \| `"usdKnown"` \| `"tokensKnown"`\>\>
 
 #### Properties
 
@@ -622,6 +676,59 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 > `readonly` **iterations**: `number`
 
 **`Experimental`**
+
+###### Inherited from
+
+[`Spend`](runtime.md#spend-1).[`iterations`](runtime.md#iterations-1)
+
+##### tokensKnown?
+
+> `readonly` `optional` **tokensKnown?**: `boolean`
+
+**`Experimental`**
+
+Token accounting is known unless explicitly false. A false value marks work that HAPPENED with
+ an unreported token count: `tokens` then carries the known subtotal (often `{0,0}`) and must
+ not be read as the measured total. The twin of `usdKnown` on the token channel — an inference
+ turn whose provider reported no usage is recorded with this flag rather than omitted, because
+ omitting it makes the turn look free.
+
+###### Inherited from
+
+[`Spend`](runtime.md#spend-1).[`tokensKnown`](runtime.md#tokensknown-3)
+
+##### usdKnown?
+
+> `readonly` `optional` **usdKnown?**: `boolean`
+
+**`Experimental`**
+
+Dollar accounting is known unless explicitly false. A false value must not be treated as $0
+ when enforcing a dollar-denominated comparison or limit.
+
+###### Inherited from
+
+[`Spend`](runtime.md#spend-1).[`usdKnown`](runtime.md#usdknown-4)
+
+##### usd
+
+> `readonly` **usd**: `number`
+
+**`Experimental`**
+
+###### Inherited from
+
+[`Spend`](runtime.md#spend-1).[`usd`](runtime.md#usd-6)
+
+##### ms
+
+> `readonly` **ms**: `number`
+
+**`Experimental`**
+
+###### Inherited from
+
+[`Spend`](runtime.md#spend-1).[`ms`](runtime.md#ms-3)
 
 ##### tokensInput
 
@@ -632,18 +739,6 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 ##### tokensOutput
 
 > `readonly` **tokensOutput**: `number`
-
-**`Experimental`**
-
-##### usd
-
-> `readonly` **usd**: `number`
-
-**`Experimental`**
-
-##### ms
-
-> `readonly` **ms**: `number`
 
 **`Experimental`**
 
@@ -659,7 +754,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ### TopSnapshotDiagnosticSource
 
-> **TopSnapshotDiagnosticSource** = `"supervisor-state"` \| `"journal"` \| `"progress"` \| `"worker-tail"`
+> **TopSnapshotDiagnosticSource** = `"observer-journal"` \| `"supervisor-state"` \| `"journal"` \| `"progress"` \| `"worker-tail"`
 
 **`Experimental`**
 
@@ -673,15 +768,39 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ***
 
-### TopJournalEvent
+### BudgetStats
 
-> **TopJournalEvent** = \{ `kind`: `"spawned"`; `id`: `string`; `parent?`: `string`; `label?`: `string`; `budget?`: `unknown`; `runtime?`: `string`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"settled"`; `id`: `string`; `status?`: `string`; `outRef?`: `string`; `verdict?`: `unknown`; `spent?`: `unknown`; `infra?`: `boolean`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"cancelled"`; `spent?`: `unknown`; `id`: `string`; `reason?`: `string`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"metered"`; `id`: `string`; `spend?`: `unknown`; `accountingOnly?`: `boolean`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"progress"`; `id`: `string`; `spend?`: `unknown`; `seq?`: `number`; `at?`: `string`; \}
+> **BudgetStats** = `Partial`\<`Pick`\<[`Budget`](runtime.md#budget-10), `"maxIterations"` \| `"maxTokens"` \| `"maxUsd"`\>\>
 
 **`Experimental`**
+
+***
+
+### TopJournalEvent
+
+> **TopJournalEvent** = `object` & (\{ `kind`: `"spawned"`; `parent?`: `string`; `label?`: `string`; `budget?`: `unknown`; `runtime?`: `string`; \} \| \{ `kind`: `"settled"`; `status?`: `string`; `outRef?`: `string`; `verdict?`: `unknown`; `spent?`: `unknown`; `infra?`: `boolean`; \} \| \{ `kind`: `"cancelled"`; `spent?`: `unknown`; `reason?`: `string`; \} \| \{ `kind`: `"metered"`; `spend?`: `unknown`; `accountingOnly?`: `boolean`; \} \| \{ `kind`: `"progress"`; `spend?`: `unknown`; \})
+
+**`Experimental`**
+
+#### Type Declaration
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### seq?
+
+> `readonly` `optional` **seq?**: `number`
+
+##### at?
+
+> `readonly` `optional` **at?**: `string`
 
 ## Functions
 
 ### loadTopSnapshot()
+
+#### Call Signature
 
 > **loadTopSnapshot**(`rootDir`, `now?`): [`TopSnapshot`](#topsnapshot)
 
@@ -695,19 +814,53 @@ writer — but every skip is reported as one bounded `TopSnapshotDiagnostic`, so
 tell a removed run from a partial read. `now` is injectable so elapsed time is deterministic
 under test.
 
-#### Parameters
+##### Parameters
 
-##### rootDir
+###### rootDir
 
 `string`
 
-##### now?
+###### now?
 
-`number` = `...`
+`number`
 
-#### Returns
+##### Returns
 
 [`TopSnapshot`](#topsnapshot)
+
+#### Call Signature
+
+> **loadTopSnapshot**(`rootDir`, `options`): `Promise`\<[`TopSnapshot`](#topsnapshot)\>
+
+**`Experimental`**
+
+Read every supervisor run under one workspace into a single point-in-time snapshot.
+
+Pure with respect to the process: it only reads, and it never throws for a writer mid-append.
+An unreadable or half-written source is still skipped — an operator view must survive a live
+writer — but every skip is reported as one bounded `TopSnapshotDiagnostic`, so a client can
+tell a removed run from a partial read. `now` is injectable so elapsed time is deterministic
+under test.
+
+##### Parameters
+
+###### rootDir
+
+`string`
+
+###### options
+
+###### runDir
+
+`string`
+
+###### now?
+
+`number`
+
+##### Returns
+
+`Promise`\<[`TopSnapshot`](#topsnapshot)\>
 
 ## References
 
