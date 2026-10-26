@@ -1,3 +1,9 @@
+## 0.352.0
+
+Add `@tangle-network/agent-runtime/chat-turn`: `handleChatTurn`, `deriveExecutionId` and the chat turn types without the `durable` entry's file-backed supervision, campaigns and agent-eval, so a Worker running chat turns does not load them at startup.
+
+Allow loadGraphFile hosts to resolve missing provider needs through an optional asynchronous resolveNeed callback while retaining static binding precedence and canonical graph validation.
+
 ## 0.351.0
 
 Bind durable kill-and-resume conformance to the existing clean-root finalization cases after wake-based scheduling changed their turn numbers.
