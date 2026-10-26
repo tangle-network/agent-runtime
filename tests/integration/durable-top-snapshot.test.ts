@@ -23,7 +23,7 @@ import { renderTopFrame } from '../../src/tui/top-frame'
 const runProcess = promisify(execFile)
 const budget = { maxIterations: 10, maxTokens: 10000, deadlineMs: 10000 }
 const profile = {
-  name: 'process-stage',
+  name: 'stage',
   harness: 'claude-code' as const,
   model: { provider: 'anthropic', default: 'requested-process-model' },
   prompt: { systemPrompt: 'Execute the caller-owned process stage.' },
@@ -151,9 +151,14 @@ it.each([
       driverRetry: { enabled: false },
     })
     try {
-      await expect
-        .poll(async () => Number(await readFile(join(root, 'started'), 'utf8')), { timeout: 5000 })
-        .toBeGreaterThan(0)
+      await Promise.race([
+        pending,
+        expect
+          .poll(async () => Number(await readFile(join(root, 'started'), 'utf8')), {
+            timeout: 5000,
+          })
+          .toBeGreaterThan(0),
+      ])
       const live = await loadTopSnapshot(root, { runDir })
       expect(live.completeness).toBe('complete')
       expect(live.pursuit?.pursuitId).toBe(pursuitId)
