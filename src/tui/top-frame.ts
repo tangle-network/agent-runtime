@@ -4,6 +4,7 @@ import {
   numberValue,
   parseSpend,
   parseTime,
+  type SpendStats,
   type SupervisorView,
   type TopSnapshot,
   totalSpend,
@@ -75,9 +76,9 @@ export function renderTopFrameWithLayout(
   const color = options.color ?? false
   const focus = options.focus ?? 'supervisors'
   const mode = options.mode ?? 'overview'
-  const selectedSupervisor = selectSupervisor(snapshot, options.selectedSupervisorId)
+  const selectedSupervisor = selectEntity(snapshot.supervisors, options.selectedSupervisorId)
   const selectedWorker = selectedSupervisor
-    ? selectWorker(selectedSupervisor, options.selectedWorkerId)
+    ? selectEntity(selectedSupervisor.workers, options.selectedWorkerId)
     : undefined
   const targets: RenderTarget[] = []
   const lines: string[] = []
@@ -93,7 +94,7 @@ export function renderTopFrameWithLayout(
     `${paint('SUPERVISOR TOP', 'bold', color)} ${paint(snapshot.root, 'dim', color)}  ` +
       `runs ${aggregate.supervisors}  workers ${aggregate.workers}  live ${aggregate.running}  ` +
       `done ${aggregate.done}  down ${aggregate.down}  ` +
-      `${formatMoney(aggregate.usd)}  tok ${formatTokens(aggregate.tokensInput)}/${formatTokens(aggregate.tokensOutput)}`,
+      `${formatMoney(aggregate.usd, aggregate.usdKnown)}  tok ${formatTokens(aggregate.tokensInput, aggregate.tokensKnown)}/${formatTokens(aggregate.tokensOutput, aggregate.tokensKnown)}`,
   )
   push(
     `${paint('keys', 'dim', color)} up/down select  left/right run  tab focus  enter detail  o overview  l log  s steer  c cancel  mouse  q quit`,
@@ -141,8 +142,8 @@ export function renderTopFrameWithLayout(
     const task = compact(supervisor.task, 34)
     const line =
       `${pointer} ${pad(supervisor.id, 21)} ${pad(status, 12)} ${pad(workerSummary, 13)} ` +
-      `${pad(formatMoney(supervisor.totals.usd), 12)} ` +
-      `${pad(`${formatTokens(supervisor.totals.tokensInput)}/${formatTokens(supervisor.totals.tokensOutput)}`, 16)} ` +
+      `${pad(formatMoney(supervisor.totals.usd, supervisor.totals.usdKnown), 12)} ` +
+      `${pad(`${formatTokens(supervisor.totals.tokensInput, supervisor.totals.tokensKnown)}/${formatTokens(supervisor.totals.tokensOutput, supervisor.totals.tokensKnown)}`, 16)} ` +
       `${pad(formatDuration(supervisor.totals.latencyMs), 12)} ${task}`
     push(rowFocus ? paint(line, rowFocus, color) : line, { kind: 'supervisor', id: supervisor.id })
   }
@@ -164,8 +165,8 @@ export function renderTopFrameWithLayout(
     const line =
       `${pointer} ${pad(worker.label, 12)} ${pad(statusText(worker.status, color), 12)} ` +
       `${pad(worker.runtime ?? '-', 10)} ${pad(formatDuration(worker.latencyMs), 12)} ` +
-      `${pad(formatMoney(spend.usd), 11)} ` +
-      `${pad(`${formatTokens(spend.tokensInput)}/${formatTokens(spend.tokensOutput)}`, 16)} ` +
+      `${pad(formatMoney(spend.usd, spend.usdKnown), 11)} ` +
+      `${pad(`${formatTokens(spend.tokensInput, spend.tokensKnown)}/${formatTokens(spend.tokensOutput, spend.tokensKnown)}`, 16)} ` +
       `${pad(compact(score, 9), 10)} ${compact(detail, 30)}`
     push(rowFocus ? paint(line, rowFocus, color) : line, {
       kind: 'worker',
@@ -179,9 +180,9 @@ export function renderTopFrameWithLayout(
   push(sectionTitle('OBSERVABILITY', false, color))
   for (const line of renderStatusBars(selectedSupervisor, width, color)) push(line)
   push()
-  for (const line of renderCostBars(selectedSupervisor, width, color)) push(line)
+  for (const line of renderSpendBars(selectedSupervisor, width, color, 'usd')) push(line)
   push()
-  for (const line of renderTokenBars(selectedSupervisor, width, color)) push(line)
+  for (const line of renderSpendBars(selectedSupervisor, width, color, 'tokens')) push(line)
   push()
   for (const line of renderLatencyHistogram(selectedSupervisor, width, color)) push(line)
 
@@ -209,55 +210,42 @@ function renderStatusBars(supervisor: SupervisorView, width: number, color: bool
   ]
 }
 
-function renderCostBars(supervisor: SupervisorView, width: number, color: boolean): string[] {
-  const workers = supervisor.workers
-    .map((worker) => ({ worker, spend: totalSpend(worker) }))
-    .sort((a, b) => b.spend.usd - a.spend.usd)
-    .slice(0, 6)
-  const maxUsd = Math.max(
-    0.000001,
-    ...workers.map((row) => row.spend.usd),
-    supervisor.driverSpend.usd,
-  )
-  const out = [
-    `cost   total ${formatMoney(supervisor.totals.usd)}  driver ${formatMoney(supervisor.driverSpend.usd)}`,
-  ]
-  const barWidth = Math.max(18, Math.min(46, width - 38))
-  for (const row of workers) {
-    out.push(
-      `  ${pad(row.worker.label, 12)} ${bar(row.spend.usd, maxUsd, barWidth, '$', color, 'magenta')} ${formatMoney(row.spend.usd)}`,
-    )
-  }
-  if (workers.length === 0) out.push('  no worker cost yet')
-  return out
-}
-
-function renderTokenBars(supervisor: SupervisorView, width: number, color: boolean): string[] {
+function renderSpendBars(
+  supervisor: SupervisorView,
+  width: number,
+  color: boolean,
+  channel: 'usd' | 'tokens',
+): string[] {
+  const dollars = channel === 'usd'
+  const amount = (spend: SpendStats) =>
+    dollars ? spend.usd : spend.tokensInput + spend.tokensOutput
+  const label = (spend: SpendStats) =>
+    dollars
+      ? formatMoney(spend.usd, spend.usdKnown)
+      : `${formatTokens(spend.tokensInput, spend.tokensKnown)}/${formatTokens(spend.tokensOutput, spend.tokensKnown)}`
   const rows = supervisor.workers
-    .map((worker) => ({
-      worker,
-      spend: totalSpend(worker),
-      total: totalSpend(worker).tokensInput + totalSpend(worker).tokensOutput,
-    }))
-    .sort((a, b) => b.total - a.total)
+    .map((worker) => ({ worker, spend: totalSpend(worker) }))
+    .sort((a, b) => amount(b.spend) - amount(a.spend))
     .slice(0, 6)
-  const maxTokens = Math.max(
-    1,
-    ...rows.map((row) => row.total),
-    supervisor.driverSpend.tokensInput + supervisor.driverSpend.tokensOutput,
+  const max = Math.max(
+    dollars ? 0.000001 : 1,
+    ...rows.map((row) => amount(row.spend)),
+    amount(supervisor.driverSpend),
   )
+  const total = dollars
+    ? formatMoney(supervisor.totals.usd, supervisor.totals.usdKnown)
+    : `in ${formatTokens(supervisor.totals.tokensInput, supervisor.totals.tokensKnown)} / out ${formatTokens(supervisor.totals.tokensOutput, supervisor.totals.tokensKnown)}`
   const out = [
-    `tokens total in ${formatTokens(supervisor.totals.tokensInput)} / out ${formatTokens(supervisor.totals.tokensOutput)}  ` +
-      `driver ${formatTokens(supervisor.driverSpend.tokensInput)}/${formatTokens(supervisor.driverSpend.tokensOutput)}`,
+    `${dollars ? 'cost  ' : 'tokens'} total ${total}  driver ${label(supervisor.driverSpend)}`,
   ]
-  const barWidth = Math.max(18, Math.min(46, width - 44))
-  for (const row of rows) {
-    out.push(
-      `  ${pad(row.worker.label, 12)} ${stackedTokenBar(row.spend.tokensInput, row.spend.tokensOutput, maxTokens, barWidth, color)} ` +
-        `${formatTokens(row.spend.tokensInput)}/${formatTokens(row.spend.tokensOutput)}`,
-    )
+  const barWidth = Math.max(18, Math.min(46, width - (dollars ? 38 : 44)))
+  for (const { worker, spend } of rows) {
+    const visual = dollars
+      ? bar(spend.usd, max, barWidth, '$', color, 'magenta')
+      : stackedTokenBar(spend.tokensInput, spend.tokensOutput, max, barWidth, color)
+    out.push(`  ${pad(worker.label, 12)} ${visual} ${label(spend)}`)
   }
-  if (rows.length === 0) out.push('  no worker tokens yet')
+  if (rows.length === 0) out.push(`  no worker ${dollars ? 'cost' : 'tokens'} yet`)
   return out
 }
 
@@ -299,7 +287,7 @@ function renderDetail(
     const spend = totalSpend(worker)
     return [
       `worker ${paint(worker.label, 'bold', color)} (${worker.id})  ${statusText(worker.status, color)}  latency ${formatDuration(worker.latencyMs)}`,
-      `tokens in/out ${formatTokens(spend.tokensInput)}/${formatTokens(spend.tokensOutput)}  cost ${formatMoney(spend.usd)}  iterations ${spend.iterations}`,
+      `tokens in/out ${formatTokens(spend.tokensInput, spend.tokensKnown)}/${formatTokens(spend.tokensOutput, spend.tokensKnown)}  cost ${formatMoney(spend.usd, spend.usdKnown)}  iterations ${spend.iterations}`,
       `parent ${worker.parent ?? '-'}  runtime ${worker.runtime ?? '-'}  out ${worker.outRef ?? '-'}${worker.infra ? '  infra' : ''}`,
       `events ${compact(worker.eventFile ?? '-', width - 8)}`,
       ...(worker.reason ? [`reason ${compact(worker.reason, width - 7)}`] : []),
@@ -330,17 +318,15 @@ function renderJournalTail(supervisor: SupervisorView, width: number, color: boo
     const at = event.at ? formatClock(event.at) : '--:--:--'
     if (event.kind === 'spawned')
       return `  ${at} ${paint('spawn', 'yellow', color)}  ${pad(event.label ?? event.id, 16)} ${event.id}`
-    if (event.kind === 'settled') {
-      const spend = parseSpend(event.spent)
-      return `  ${at} ${statusText(event.status ?? 'settled', color)} ${pad(event.id, 18)} ${formatMoney(spend.usd)} ${formatTokens(spend.tokensInput)}/${formatTokens(spend.tokensOutput)}`
-    }
-    if (event.kind === 'metered') {
-      const spend = parseSpend(event.spend)
-      return `  ${at} ${paint('meter', 'cyan', color)}  ${pad(event.id, 18)} ${formatMoney(spend.usd)} ${formatTokens(spend.tokensInput)}/${formatTokens(spend.tokensOutput)}`
-    }
-    if (event.kind === 'progress') {
-      const spend = parseSpend(event.spend)
-      return `  ${at} ${paint('live', 'blue', color)}   ${pad(event.id, 18)} ${formatMoney(spend.usd)} ${formatTokens(spend.tokensInput)}/${formatTokens(spend.tokensOutput)}`
+    if (event.kind !== 'cancelled') {
+      const spend = parseSpend(event.kind === 'settled' ? event.spent : event.spend)
+      const status =
+        event.kind === 'settled'
+          ? statusText(event.status ?? 'settled', color)
+          : event.kind === 'metered'
+            ? `${paint('meter', 'cyan', color)} `
+            : `${paint('live', 'blue', color)}  `
+      return `  ${at} ${status} ${pad(event.id, 18)} ${formatMoney(spend.usd, spend.usdKnown)} ${formatTokens(spend.tokensInput, spend.tokensKnown)}/${formatTokens(spend.tokensOutput, spend.tokensKnown)}`
     }
     return `  ${at} ${paint('cancel', 'red', color)} ${pad(event.id, 18)} ${compact(event.reason ?? '', width - 32)}`
   })
@@ -467,26 +453,11 @@ function statusText(status: string, color: boolean): string {
   return paint(status.toUpperCase(), 'white', color)
 }
 
-function selectSupervisor(
-  snapshot: TopSnapshot,
+function selectEntity<T extends { readonly id: string }>(
+  entities: readonly T[],
   requested: string | undefined,
-): SupervisorView | undefined {
-  if (requested) {
-    const found = snapshot.supervisors.find((supervisor) => supervisor.id === requested)
-    if (found) return found
-  }
-  return snapshot.supervisors[0]
-}
-
-function selectWorker(
-  supervisor: SupervisorView,
-  requested: string | undefined,
-): WorkerView | undefined {
-  if (requested) {
-    const found = supervisor.workers.find((worker) => worker.id === requested)
-    if (found) return found
-  }
-  return supervisor.workers[0]
+): T | undefined {
+  return (requested ? entities.find((entity) => entity.id === requested) : undefined) ?? entities[0]
 }
 
 function formatClock(value: string): string {
@@ -495,13 +466,15 @@ function formatClock(value: string): string {
   return new Date(parsed).toISOString().slice(11, 19)
 }
 
-function formatMoney(value: number): string {
+function formatMoney(value: number, known = true): string {
+  if (!known) return value === 0 ? 'unknown' : `≥${formatMoney(value)} + unknown`
   if (value === 0) return '$0'
   if (Math.abs(value) < 0.01) return `$${value.toFixed(4)}`
   return `$${value.toFixed(2)}`
 }
 
-function formatTokens(value: number): string {
+function formatTokens(value: number, known = true): string {
+  if (!known) return value === 0 ? '?' : `≥${formatTokens(value)}?`
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
   return `${Math.round(value)}`
@@ -554,27 +527,20 @@ function fitAnsi(value: string, width: number): string {
   if (visibleLength(value) <= width) return value
   let out = ''
   let visible = 0
-  for (let i = 0; i < value.length; i += 1) {
-    const ch = value[i]
-    if (ch === '\x1b') {
-      const rest = value.slice(i)
-      // An escape sequence must be copied whole and counted as zero visible columns; truncating
-      // inside one would emit a half-sequence the terminal interprets against the next line.
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: SGR sequences begin with ESC
-      const match = /^\x1b\[[0-9;?]*[ -/]*[@-~]/.exec(rest)
-      if (match) {
-        out += match[0]
-        i += match[0].length - 1
-        continue
-      }
-    }
-    if (visible >= width - 1) {
-      out += '~'
-      break
-    }
-    out += ch
-    visible += 1
+  let cursor = 0
+  // An escape sequence must be copied whole and counted as zero visible columns; truncating
+  // inside one would emit a half-sequence the terminal interprets against the next line.
+  for (const match of value.matchAll(ansiPattern)) {
+    const text = value.slice(cursor, match.index)
+    const remaining = width - 1 - visible
+    out += text.slice(0, remaining)
+    visible += Math.min(text.length, remaining)
+    if (text.length > remaining) break
+    out += match[0]
+    cursor = match.index + match[0].length
   }
+  if (visible < width - 1) out += value.slice(cursor, cursor + width - 1 - visible)
+  out += '~'
   if (out.includes('\x1b[') && !out.endsWith(colors.reset)) out += colors.reset
   return out
 }

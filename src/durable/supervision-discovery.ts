@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import { isRecord } from '@tangle-network/agent-core'
 import type { NodeId } from '../runtime/supervise/types'
 import { readCommittedJsonLines } from './jsonl-file'
+import { FileObserverJournal } from './observer-journal'
 import { spawnJournalRecordEvents } from './spawn-journal/record-events'
 
 export interface DurableCoordinationStreamIdentity {
@@ -19,6 +20,7 @@ export interface DurableCoordinationStreamIdentity {
  */
 export interface DurableSupervisionDiscovery {
   readonly runDir: string
+  readonly observer?: { readonly path: string; readonly pursuitId: string }
   readonly spawnJournalPath: string
   readonly coordinationLogPath: string
   readonly roots: readonly NodeId[]
@@ -27,17 +29,11 @@ export interface DurableSupervisionDiscovery {
   readonly coordinationStreams: readonly DurableCoordinationStreamIdentity[]
 }
 
-type SpawnJournalIdentityRecord = {
-  readonly kind?: unknown
-  readonly root?: unknown
-  readonly at?: unknown
-  readonly event?: unknown
-}
+type SpawnJournalIdentityRecord = Readonly<
+  Partial<Record<'kind' | 'root' | 'at' | 'event', unknown>>
+>
 
-type CoordinationIdentityRecord = {
-  readonly runId?: unknown
-  readonly ownerId?: unknown
-}
+type CoordinationIdentityRecord = Readonly<Partial<Record<'runId' | 'ownerId', unknown>>>
 
 /**
  * Discover the stable identities recorded by Runtime's durable supervision
@@ -59,7 +55,6 @@ export async function discoverDurableSupervisionRun(
   const canonicalRunDir = resolve(runDir)
   const spawnJournalPath = `${canonicalRunDir}/spawn-journal.jsonl`
   const coordinationLogPath = `${canonicalRunDir}/coordination-log.jsonl`
-  const allRoots = new Set<NodeId>()
   const nestedRoots = new Set<NodeId>()
   const rootsBegunAt = new Map<NodeId, string | null>()
   for await (const record of readCommittedJsonLines<SpawnJournalIdentityRecord>(spawnJournalPath, {
@@ -69,7 +64,6 @@ export async function discoverDurableSupervisionRun(
       if (typeof record.root !== 'string' || record.root.length === 0) {
         throw new Error(`${spawnJournalPath}: begin record has no non-empty string root identity`)
       }
-      allRoots.add(record.root as NodeId)
       rootsBegunAt.set(record.root as NodeId, typeof record.at === 'string' ? record.at : null)
       continue
     }
@@ -123,9 +117,11 @@ export async function discoverDurableSupervisionRun(
       }),
     )
 
-  const roots = [...allRoots].filter((root) => !nestedRoots.has(root)).sort(compareText)
+  const observer = await FileObserverJournal.open(`${canonicalRunDir}/observer.jsonl`)
+  const roots = [...rootsBegunAt.keys()].filter((root) => !nestedRoots.has(root)).sort(compareText)
   return Object.freeze({
     runDir: canonicalRunDir,
+    ...(observer ? { observer: { path: observer.path, pursuitId: observer.pursuitId } } : {}),
     spawnJournalPath,
     coordinationLogPath,
     roots: Object.freeze(roots),

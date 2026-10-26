@@ -67,6 +67,20 @@ export class FileObserverJournal implements ObserverJournal {
     this.pursuitId = stableId
   }
 
+  /** Open existing committed history by its recorded identity; never creates a file. */
+  static async open(path: string): Promise<FileObserverJournal | undefined> {
+    for await (const record of readCommittedJsonLines<ObserverRecord>(path, {
+      allowMissing: true,
+    })) {
+      if (typeof record?.pursuitId !== 'string')
+        throw new TypeError('observer journal: missing pursuit identity')
+      const journal = new FileObserverJournal(path, record.pursuitId)
+      verifyObserverRecords([record], journal.pursuitId)
+      return journal
+    }
+    return undefined
+  }
+
   hooks(): RuntimeHooks {
     return withPursuitContext(this.pursuitId, {
       onEvent: (event) => this.appendEvent(event).then(() => undefined),
@@ -94,75 +108,59 @@ export class FileObserverJournal implements ObserverJournal {
     return Object.freeze(records)
   }
 
-  private enqueue(
+  private async enqueue(
     kind: ObserverRecordKind,
     value: RuntimeHookEvent | RuntimeDecisionPoint,
   ): Promise<ObserverRecord> {
     if (value.pursuitId !== this.pursuitId) {
-      return Promise.reject(
-        new Error(
-          `FileObserverJournal: ${kind} pursuitId ${String(value.pursuitId)} does not match ${this.pursuitId}`,
-        ),
+      throw new Error(
+        `FileObserverJournal: ${kind} pursuitId ${String(value.pursuitId)} does not match ${this.pursuitId}`,
       )
     }
 
     // Other hooks receive this same input and may mutate it before queued I/O runs.
     // Detach now, not after awaiting the previous append or computing the digest.
-    let snapshot: typeof value
-    try {
-      snapshot = detachedSnapshot(value, 'observer record')
-    } catch (error) {
-      return Promise.reject(error)
-    }
+    const snapshot = detachedSnapshot(value, 'observer record')
 
-    let result: ObserverRecord | undefined
-    const operation = this.tail.then(() =>
-      this.writeContext(async () => {
-        this.assertComplete()
-        try {
+    const operation = this.tail
+      .then(() =>
+        this.writeContext(async () => {
+          this.assertComplete()
           await this.initialize()
-        } catch (error) {
-          this.appendFailure ??= toError(error)
-          throw error
-        }
 
-        const unsigned: UnsignedObserverRecord = {
-          schemaVersion: 1,
-          pursuitId: this.pursuitId,
-          sequence: this.sequence + 1,
-          kind,
-          observedAt: Date.now(),
-          ...(this.previousDigest ? { previousDigest: this.previousDigest } : {}),
-          ...(kind === 'event'
-            ? { event: snapshot as RuntimeHookEvent }
-            : { decision: snapshot as RuntimeDecisionPoint }),
-        }
-        const record: ObserverRecord = Object.freeze({
-          ...unsigned,
-          digest: observerRecordDigest(unsigned),
-        })
-        try {
+          const unsigned: UnsignedObserverRecord = {
+            schemaVersion: 1,
+            pursuitId: this.pursuitId,
+            sequence: this.sequence + 1,
+            kind,
+            observedAt: Date.now(),
+            ...(this.previousDigest ? { previousDigest: this.previousDigest } : {}),
+            ...(kind === 'event'
+              ? { event: snapshot as RuntimeHookEvent }
+              : { decision: snapshot as RuntimeDecisionPoint }),
+          }
+          const record: ObserverRecord = Object.freeze({
+            ...unsigned,
+            digest: observerRecordDigest(unsigned),
+          })
           const fs = await import('node:fs/promises')
           const { dirname } = await import('node:path')
           await fs.mkdir(dirname(this.path), { recursive: true })
           await appendCommittedJsonLine(this.path, record)
-        } catch (error) {
-          this.appendFailure ??= toError(error)
-          throw error
-        }
-        this.sequence = record.sequence
-        this.previousDigest = record.digest
-        result = record
-      }),
-    )
+          this.sequence = record.sequence
+          this.previousDigest = record.digest
+          return record
+        }),
+      )
+      .catch((error) => {
+        this.appendFailure ??= toError(error)
+        throw error
+      })
     this.tail = operation.then(
       () => undefined,
       () => undefined,
     )
-    return operation.then(() => {
-      if (!result) throw new Error('FileObserverJournal: append completed without a record')
-      return result
-    })
+    return operation
   }
 
   private async initialize(): Promise<void> {
@@ -220,21 +218,16 @@ function observerVerifier(pursuitId?: string): (record: ObserverRecord) => void 
     if (record.previousDigest !== previousDigest) {
       throw new Error(`observer journal: digest-chain break at sequence ${record.sequence}`)
     }
-    if ((record.kind === 'event') === (record.event === undefined)) {
-      throw new Error(`observer journal: invalid event payload at sequence ${record.sequence}`)
-    }
-    if ((record.kind === 'decision') === (record.decision === undefined)) {
-      throw new Error(`observer journal: invalid decision payload at sequence ${record.sequence}`)
-    }
-    if (record.event !== undefined && record.event.pursuitId !== record.pursuitId) {
-      throw new Error(
-        `observer journal: nested event pursuit mismatch at sequence ${record.sequence}`,
-      )
-    }
-    if (record.decision !== undefined && record.decision.pursuitId !== record.pursuitId) {
-      throw new Error(
-        `observer journal: nested decision pursuit mismatch at sequence ${record.sequence}`,
-      )
+    for (const kind of ['event', 'decision'] as const) {
+      const payload = record[kind]
+      if ((record.kind === kind) === (payload === undefined)) {
+        throw new Error(`observer journal: invalid ${kind} payload at sequence ${record.sequence}`)
+      }
+      if (payload !== undefined && payload.pursuitId !== record.pursuitId) {
+        throw new Error(
+          `observer journal: nested ${kind} pursuit mismatch at sequence ${record.sequence}`,
+        )
+      }
     }
     const { digest, ...unsigned } = record
     const expected = observerRecordDigest(unsigned)

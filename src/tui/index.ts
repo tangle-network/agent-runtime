@@ -1,18 +1,15 @@
 /**
  * `@tangle-network/agent-runtime/tui` — the terminal view over live supervisor runs.
  *
- * A read-only renderer plus two write-back controls, over the same `<root>/.agent/supervisor/<id>`
- * layout `../runtime/supervise/run-layout` defines. It ships here rather than as its own package
- * because the runtime is what WRITES the state it renders: a separately-versioned viewer would
- * drift from the layout it reads, which is the exact failure a client and server versioning
- * independently produces.
- *
- * Zero third-party dependencies — raw ANSI and `node:readline` keypresses, nothing else.
+ * Read-only snapshots over Runtime's workspace layout or an explicit durable run directory.
+ * Workspace reads remain synchronous; the `runDir` overload asynchronously verifies observer
+ * history and attaches its canonical pursuit projection, including unknown accounting.
  *
  * ```ts
- * import { loadTopSnapshot, renderTopFrame } from '@tangle-network/agent-runtime/tui'
+ * import { loadTopSnapshot } from '@tangle-network/agent-runtime/tui'
  *
- * process.stdout.write(renderTopFrame(loadTopSnapshot(process.cwd()), { width: 132 }))
+ * const workspace = loadTopSnapshot(process.cwd())
+ * const durable = await loadTopSnapshot(process.cwd(), { runDir: './runs/current' })
  * ```
  *
  * The runnable form is the `agent-runtime-top` bin: `agent-runtime-top <root> [--once] [--no-color]`.
