@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { defaultRedactor } from '../redact'
+import { BackendTransportError } from '../errors'
 import { ReservationWaitRefused } from './supervise/budget'
 import { isCredentialRefusal } from './supervise/credential-refusal'
 import { errMessage } from './supervise/error-message'
@@ -34,6 +34,19 @@ export type RuntimeFailureOwner = RuntimeFailureCause['owner']
 /** Stable failure codes. A consumer branches on these, never on `cause` text. @stable */
 export type RuntimeFailureCode = RuntimeFailureCause['code']
 
+/** @internal Canonical producer-supplied remediation, shared by transport and read models. */
+export const runtimeFailureRemediationSchema = z.object({
+  cause: z.enum([
+    'api_key_selected',
+    'provider_unresolved',
+    'subscription_unverified',
+    'not_authenticated',
+  ]),
+  fix: z.string().min(1).max(256),
+  harness: z.string().min(1).max(64),
+  provider: z.string().min(1).max(128).nullable(),
+})
+
 /** @internal Validate Runtime-owned failure values on observation transports. */
 export const runtimeFailureCauseSchema = z
   .object({
@@ -56,6 +69,7 @@ export const runtimeFailureCauseSchema = z
     cause: z.string().max(MAX_CAUSE_CHARS),
     /** The upstream or provider machine code the failure carried, when it carried one. */
     providerCode: z.string().regex(MACHINE_CODE_PATTERN).optional(),
+    remediation: runtimeFailureRemediationSchema.readonly().optional(),
   })
   .readonly()
 /**
@@ -78,10 +92,6 @@ const retainedFailures: Record<RetainedPendingCause, Classified> = {
   'nested-recovery': { code: 'nested-recovery', owner: 'runtime' },
 }
 
-function boundedCause(text: string): string {
-  return String(defaultRedactor(text)).slice(0, MAX_CAUSE_CHARS)
-}
-
 function read(value: object, key: string): unknown {
   try {
     return Reflect.get(value, key)
@@ -93,15 +103,16 @@ function read(value: object, key: string): unknown {
 /** Every object in a failure's cause chain and aggregate members, bounded and cycle-safe. */
 function chain(error: unknown): object[] {
   const out: object[] = []
-  const seen = new Set<object>()
   const queue: unknown[] = [error]
   while (queue.length > 0 && out.length < MAX_CHAIN_STEPS) {
     const value = queue.shift()
-    if (typeof value !== 'object' || value === null || seen.has(value)) continue
-    seen.add(value)
+    if (typeof value !== 'object' || value === null || out.includes(value)) continue
     out.push(value)
     const members = read(value, 'errors')
-    if (Array.isArray(members)) queue.push(...members)
+    if (Array.isArray(members)) {
+      const limit = Math.min(members.length, MAX_CHAIN_STEPS)
+      for (let index = 0; index < limit; index++) queue.push(read(members, String(index)))
+    }
     queue.push(read(value, 'cause'))
   }
   return out
@@ -124,10 +135,10 @@ function structuralFailure(link: object): Classified | undefined {
   if (link instanceof ReservationWaitRefused || read(link, 'reason') === 'budget-exhausted') {
     return { code: 'budget-exhausted', owner: 'caller' }
   }
-  if (isCredentialRefusal(link)) return { code: 'credential-refused', owner: 'caller' }
-  const code = upstreamMachineCode(link)
+  const code = upstreamMachineCode([link])
+  if (isCredentialRefusal(link) || code === 'SEAT_NOT_LOGGED_IN')
+    return { code: 'credential-refused', owner: 'caller' }
   const status = read(link, 'status') ?? read(link, 'statusCode')
-  if (code === 'SEAT_NOT_LOGGED_IN') return { code: 'credential-refused', owner: 'caller' }
   if (code === 'MODEL_NOT_FOUND') return { code: 'request-rejected', owner: 'caller' }
   if (typeof code === 'string' && UNAVAILABLE_CODES.has(code.toLowerCase())) {
     return { code: 'upstream-unavailable', owner: 'platform' }
@@ -151,16 +162,15 @@ function structuralFailure(link: object): Classified | undefined {
   return undefined
 }
 
-function machineCode(value: unknown): string | undefined {
+/** @internal The same machine-code validation used by public failure values. */
+export function runtimeProviderCode(value: unknown): string | undefined {
   return typeof value === 'string' && MACHINE_CODE_PATTERN.test(value) ? value : undefined
 }
 
-function upstreamMachineCode(link: object): string | undefined {
-  return (
-    machineCode(read(link, 'upstreamCode')) ??
-    machineCode(read(link, 'errorCode')) ??
-    machineCode(read(link, 'code'))
-  )
+function upstreamMachineCode(links: readonly object[]): string | undefined {
+  return ['upstreamCode', 'errorCode', 'code']
+    .flatMap((field) => links.map((link) => runtimeProviderCode(read(link, field))))
+    .find((code) => code !== undefined)
 }
 
 /**
@@ -172,39 +182,61 @@ export function runtimeFailureCause(
   error: unknown,
   context: RuntimeFailureContext = {},
 ): RuntimeFailureCause {
-  const links = chain(error)
-  // Prefer an upstream diagnosis across the whole chain over a wrapper's generic code.
-  const providerCode = ['upstreamCode', 'errorCode', 'code']
-    .flatMap((field) => links.map((link) => machineCode(read(link, field))))
-    .find((code) => code !== undefined)
-  const failure = ({ code, owner }: Classified): RuntimeFailureCause => ({
-    code,
-    owner,
-    cause: boundedCause(errMessage(error)),
-    ...(providerCode === undefined ? {} : { providerCode }),
-  })
-  if (context.signal?.aborted) return failure({ code: 'aborted', owner: 'caller' })
-  if (context.deadlineExpired) return failure({ code: 'deadline-exceeded', owner: 'caller' })
-  // Without the caller's signal, an AbortError is the only evidence of a cancellation. With it,
-  // an AbortError the caller did not ask for is some other party's abort, classified below.
-  if (context.signal === undefined && links.some((link) => read(link, 'name') === 'AbortError')) {
-    return failure({ code: 'aborted', owner: 'caller' })
-  }
-  for (const link of links) {
-    // A retained execution names why it has no accepted result as a value; a provider contract
-    // error is classified the way the retained settlement classifies it.
-    if (link instanceof RetainedExecutionPendingError) {
-      return failure(retainedFailures[link.pendingCause])
+  const cause = errMessage(error).slice(0, MAX_CAUSE_CHARS)
+  const caller = context.signal?.aborted
+    ? 'aborted'
+    : context.deadlineExpired
+      ? 'deadline-exceeded'
+      : undefined
+  try {
+    const links = chain(error)
+    // Prefer an upstream diagnosis across the whole chain over a wrapper's generic code.
+    const providerCode = upstreamMachineCode(links)
+    const upstream = links.find(
+      (link) =>
+        link instanceof BackendTransportError &&
+        link.backend === 'bridge' &&
+        link.status === 403 &&
+        link.upstreamCode === 'subscription_required' &&
+        link.providerDispatch === 'not_started',
+    ) as BackendTransportError | undefined
+    const remedy = runtimeFailureRemediationSchema.readonly().safeParse(upstream?.remediation)
+    const failure = ({ code, owner }: Classified): RuntimeFailureCause => ({
+      code,
+      owner,
+      cause,
+      ...(providerCode === undefined ? {} : { providerCode }),
+      ...(code === 'credential-refused' &&
+      providerCode === 'subscription_required' &&
+      remedy.success
+        ? { remediation: remedy.data }
+        : {}),
+    })
+    if (caller !== undefined) return failure({ code: caller, owner: 'caller' })
+    // Without the caller's signal, an AbortError is the only evidence of a cancellation. With it,
+    // an AbortError the caller did not ask for is some other party's abort, classified below.
+    if (context.signal === undefined && links.some((link) => read(link, 'name') === 'AbortError')) {
+      return failure({ code: 'aborted', owner: 'caller' })
     }
-    if (read(link, 'name') === 'RetainedRunProviderContractError') {
-      return failure(retainedFailures[classifyRetainedPendingCause(link)])
+    for (const link of links) {
+      // A retained execution names why it has no accepted result as a value; a provider contract
+      // error is classified the way the retained settlement classifies it.
+      if (link instanceof RetainedExecutionPendingError) {
+        return failure(retainedFailures[link.pendingCause])
+      }
+      if (read(link, 'name') === 'RetainedRunProviderContractError') {
+        return failure(retainedFailures[classifyRetainedPendingCause(link)])
+      }
     }
+    for (const link of links) {
+      const classified = structuralFailure(link)
+      if (classified !== undefined) return failure(classified)
+    }
+    return failure(UNATTRIBUTED)
+  } catch {
+    // Foreign arrays, proxies and prototype checks cannot replace the original rejection.
+    return { ...(caller === undefined ? UNATTRIBUTED : { code: caller, owner: 'caller' }), cause }
   }
-  for (const link of links) {
-    const classified = structuralFailure(link)
-    if (classified !== undefined) return failure(classified)
-  }
-  return failure(UNATTRIBUTED)
 }
 
 /**
@@ -238,7 +270,7 @@ export function settlementFailureCause(down: {
   readonly retainedPendingCause?: RetainedPendingCause
   readonly failure?: RuntimeFailureCause
 }): RuntimeFailureCause {
-  const cause = boundedCause(down.reason)
+  const cause = errMessage(down.reason).slice(0, MAX_CAUSE_CHARS)
   if (down.retainedPendingCause !== undefined) {
     return { ...retainedFailures[down.retainedPendingCause], cause }
   }

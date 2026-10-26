@@ -1,3 +1,4 @@
+import { runtimeFailureCause } from '../failure-cause'
 import type { BudgetPool } from './budget'
 import { DriverAttemptsExhaustedError } from './driver-attempt-evidence'
 import { errMessage, errorProperty } from './error-message'
@@ -23,26 +24,30 @@ export interface DriverRejection {
 }
 
 /**
- * Normalize an arbitrary rejection into the serializable triple the result carries. A driver may
+ * Normalize an arbitrary rejection into the serializable evidence the result carries. A driver may
  * reject with anything (a string, a plain object, a null-prototype value), and the whole point of
  * this field is that the failure survives, so every branch produces a message instead of throwing:
  * a stringification that itself throws (circular, hostile `toString`) falls back to the tag.
  */
 export function describeRejection(error: unknown): NoWinnerError {
-  if (error instanceof Error) {
-    const stack = errorProperty(error, 'stack')
-    return {
-      name: errorProperty(error, 'name') ?? 'Error',
-      // Retry exhaustion already renders both bounded chains; treating it as one wrapper would
-      // truncate the first failure again and leave only the final reconciliation cause.
-      message:
-        error instanceof DriverAttemptsExhaustedError
-          ? (errorProperty(error, 'message') ?? '')
-          : errMessage(error),
-      ...(stack !== undefined ? { stack } : {}),
-    }
+  const result: NoWinnerError = {
+    name: 'NonError',
+    message: errMessage(error),
+    failure: runtimeFailureCause(error),
   }
-  return { name: 'NonError', message: errMessage(error) }
+  try {
+    if (!(error instanceof Error)) return result
+    result.name = errorProperty(error, 'name') ?? 'Error'
+    const stack = errorProperty(error, 'stack')
+    if (stack !== undefined) result.stack = stack
+    // Retry exhaustion already renders both bounded chains; treating it as one wrapper would
+    // truncate the first failure again and leave only the final reconciliation cause.
+    if (error instanceof DriverAttemptsExhaustedError)
+      result.message = errorProperty(error, 'message') ?? ''
+  } catch {
+    // Unreadable prototypes retain the bounded rejection and canonical failure above.
+  }
+  return result
 }
 
 /**

@@ -27,6 +27,7 @@ import type {
   AgentInteractiveSessionStart,
   AgentInteractiveSessionStatus,
 } from '@tangle-network/agent-interface'
+import type { RuntimeFailureCause } from './runtime/failure-cause'
 import type {
   RetainedInteractiveAdmission,
   RetainedRunAdmission,
@@ -91,6 +92,8 @@ export class BackendTransportError extends AgentEvalError {
    * status arrived.
    */
   readonly upstreamCode?: string
+  /** Validated producer remedy; absent when the upstream supplied no trusted structured remedy. */
+  readonly remediation?: RuntimeFailureCause['remediation']
   /**
    * Truncated upstream response body (≤2 KiB) when available. Diagnostic
    * only — surfaces in `backend_error.error.body` and `final.error.body`
@@ -106,6 +109,7 @@ export class BackendTransportError extends AgentEvalError {
       cause?: unknown
       status?: number
       upstreamCode?: string
+      remediation?: RuntimeFailureCause['remediation']
       body?: string
       providerDispatch?: 'not_started'
     },
@@ -114,6 +118,7 @@ export class BackendTransportError extends AgentEvalError {
     this.backend = backend
     this.status = options?.status
     this.upstreamCode = options?.upstreamCode
+    this.remediation = options?.remediation
     this.body = options?.body
     this.providerDispatch = options?.providerDispatch
   }
