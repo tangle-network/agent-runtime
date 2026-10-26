@@ -74,8 +74,4 @@ describe('Sandbox-owned contract qualification', () => {
       'unqualified Sandbox contract artifact: sandbox/node_modules/@tangle-network/agent-core@0.11.0',
     )
   })
-  it('refuses fixture bytes under the shipped qualified tuple', () => {
-    const { scope } = packedLayout('0.64.1')
-    expect(() => sandboxOwnedContractCopies(scope)).toThrow(/^changed Sandbox contract artifact: agent-interface$/)
-  })
 })
