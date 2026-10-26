@@ -1,3 +1,4 @@
+import { settlementFailureCause } from '../../runtime/failure-cause'
 import { workerTraceAnalysisStore } from '../../runtime/supervise/trace-evidence'
 import type {
   NodeExecutionIdentity,
@@ -77,59 +78,49 @@ export async function replaySpawnTree(
   for (const ev of ordered) {
     // Node creation and informational records, read above for handles, are not settlements.
     if (outsideCursorNamespace(ev)) continue
-    if (ev.kind === 'cancelled') {
-      settled.push({
-        kind: 'down',
-        handle: handleFor(ev.id, 'cancelled'),
-        reason: ev.reason,
-        ...(ev.outRef === undefined ? {} : { outRef: ev.outRef }),
-        ...(ev.infra === undefined ? {} : { infra: ev.infra }),
-        ...(ev.providerModel === undefined
-          ? {}
-          : { providerModel: copyProviderModelEvidence(ev.providerModel) }),
-        ...budgetViolationOf(ev),
-        trace: ev.trace ?? { status: 'unavailable', reason: 'execution-did-not-start' },
-        ...(ev.harnessTranscript === undefined ? {} : { harnessTranscript: ev.harnessTranscript }),
-        ...(ev.retainedExecution === undefined ? {} : { retainedExecution: ev.retainedExecution }),
-        ...(ev.retainedPendingCause === undefined
-          ? {}
-          : { retainedPendingCause: ev.retainedPendingCause }),
-        ...(ev.subtree === undefined ? {} : { subtree: ev.subtree }),
-        ...settlementTime(ev.at),
-        seq: ev.seq,
-      })
-      continue
+    const trace =
+      ev.kind === 'cancelled'
+        ? (ev.trace ?? {
+            status: 'unavailable' as const,
+            reason: 'execution-did-not-start' as const,
+          })
+        : traceEvidenceFor(ev)
+    if (ev.kind === 'settled' && trace.status === 'available')
+      await workerTraceAnalysisStore(trace, blobs)
+    const evidence = {
+      ...(ev.outRef === undefined ? {} : { outRef: ev.outRef }),
+      ...(ev.providerModel === undefined
+        ? {}
+        : { providerModel: copyProviderModelEvidence(ev.providerModel) }),
+      ...budgetViolationOf(ev),
+      trace,
+      ...(ev.harnessTranscript === undefined ? {} : { harnessTranscript: ev.harnessTranscript }),
+      ...(ev.subtree === undefined ? {} : { subtree: ev.subtree }),
+      ...settlementTime(ev.at),
+      seq: ev.seq,
     }
-    if (ev.status === 'down') {
-      const trace = traceEvidenceFor(ev)
-      if (trace.status === 'available') await workerTraceAnalysisStore(trace, blobs)
+    if (ev.kind === 'cancelled' || ev.status === 'down') {
+      // Legacy reasonless journals remain readable without inferring a native diagnosis.
+      const reason =
+        ev.reason ?? (ev.kind === 'settled' ? ev.verdict?.notes : undefined) ?? 'child down'
       settled.push({
+        ...evidence,
         kind: 'down',
-        handle: handleFor(ev.id, 'failed'),
-        // `reason` is written by every current scope. The verdict fallback preserves the
-        // pre-field convention and the generic text keeps still-older reasonless journals usable.
-        reason: ev.reason ?? ev.verdict?.notes ?? 'child down',
-        ...(ev.outRef === undefined ? {} : { outRef: ev.outRef }),
-        // Replay carries the record's own claim, absent included: `ev.infra === true` turned an
-        // unattributable failure into a `false` the live run never asserted.
+        handle: handleFor(ev.id, ev.kind === 'cancelled' ? 'cancelled' : 'failed'),
+        reason,
+        failure:
+          ev.failure ??
+          settlementFailureCause({
+            reason,
+            infra: ev.infra,
+            retainedPendingCause: ev.retainedPendingCause,
+          }),
         ...(ev.infra === undefined ? {} : { infra: ev.infra }),
-        ...(ev.providerModel === undefined
-          ? {}
-          : { providerModel: copyProviderModelEvidence(ev.providerModel) }),
-        ...budgetViolationOf(ev),
-        trace,
-        // A field the journal holds and replay drops is the #1214 bug again: a reader of the
-        // replayed tree would see no transcript where the record says there is one.
-        ...(ev.harnessTranscript === undefined ? {} : { harnessTranscript: ev.harnessTranscript }),
-        // Replay yields the settlement the driver saw except for the one deliberate difference:
-        // live carried `'pending'` while recoverable; the journal records how the slot closed.
+        // A released record states how the earlier retained-pending slot finally closed.
         ...(ev.retainedExecution === undefined ? {} : { retainedExecution: ev.retainedExecution }),
         ...(ev.retainedPendingCause === undefined
           ? {}
           : { retainedPendingCause: ev.retainedPendingCause }),
-        ...(ev.subtree === undefined ? {} : { subtree: ev.subtree }),
-        ...settlementTime(ev.at),
-        seq: ev.seq,
       })
       continue
     }
@@ -145,24 +136,14 @@ export async function replaySpawnTree(
         `replaySpawnTree: blob store has no artifact for outRef '${ev.outRef}' (node '${ev.id}', seq ${ev.seq})`,
       )
     }
-    const trace = traceEvidenceFor(ev)
-    if (trace.status === 'available') await workerTraceAnalysisStore(trace, blobs)
     settled.push({
+      ...evidence,
       kind: 'done',
       handle: handleFor(ev.id, 'done'),
       out,
       outRef: ev.outRef,
       verdict: ev.verdict,
       spent: cloneSpend(ev.spent),
-      ...(ev.providerModel === undefined
-        ? {}
-        : { providerModel: copyProviderModelEvidence(ev.providerModel) }),
-      ...budgetViolationOf(ev),
-      trace,
-      ...(ev.harnessTranscript === undefined ? {} : { harnessTranscript: ev.harnessTranscript }),
-      ...(ev.subtree === undefined ? {} : { subtree: ev.subtree }),
-      ...settlementTime(ev.at),
-      seq: ev.seq,
     })
   }
   return settled

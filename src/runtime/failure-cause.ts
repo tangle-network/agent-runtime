@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { defaultRedactor } from '../redact'
 import { ReservationWaitRefused } from './supervise/budget'
 import { isCredentialRefusal } from './supervise/credential-refusal'
@@ -10,6 +11,10 @@ import {
   TRANSPORT_ERROR_CODES,
 } from './supervise/retained-executor'
 import { UNAVAILABLE_CODES, UNAVAILABLE_STATUSES } from './supervise/upstream-unavailable'
+
+const MAX_CAUSE_CHARS = 2_048
+const MAX_CHAIN_STEPS = 12
+const MACHINE_CODE_PATTERN = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/u
 
 /**
  * Who must act before the same work can succeed.
@@ -24,30 +29,35 @@ import { UNAVAILABLE_CODES, UNAVAILABLE_STATUSES } from './supervise/upstream-un
  * - `unknown`: nothing structural attributes the failure.
  * @stable
  */
-export type RuntimeFailureOwner =
-  | 'provider'
-  | 'platform'
-  | 'runtime'
-  | 'work'
-  | 'caller'
-  | 'unknown'
+export type RuntimeFailureOwner = RuntimeFailureCause['owner']
 
 /** Stable failure codes. A consumer branches on these, never on `cause` text. @stable */
-export type RuntimeFailureCode =
-  | 'aborted'
-  | 'deadline-exceeded'
-  | 'budget-exhausted'
-  | 'credential-refused'
-  | 'request-rejected'
-  | 'upstream-unavailable'
-  | 'transport'
-  | 'provider-contract'
-  | 'retained-unobservable'
-  | 'nested-recovery'
-  | 'platform'
-  | 'work-failed'
-  | 'unknown'
+export type RuntimeFailureCode = RuntimeFailureCause['code']
 
+/** @internal Validate Runtime-owned failure values on observation transports. */
+export const runtimeFailureCauseSchema = z
+  .object({
+    code: z.enum([
+      'aborted',
+      'deadline-exceeded',
+      'budget-exhausted',
+      'credential-refused',
+      'request-rejected',
+      'upstream-unavailable',
+      'transport',
+      'provider-contract',
+      'retained-unobservable',
+      'nested-recovery',
+      'platform',
+      'work-failed',
+      'unknown',
+    ]),
+    owner: z.enum(['provider', 'platform', 'runtime', 'work', 'caller', 'unknown']),
+    cause: z.string().max(MAX_CAUSE_CHARS),
+    /** The upstream or provider machine code the failure carried, when it carried one. */
+    providerCode: z.string().regex(MACHINE_CODE_PATTERN).optional(),
+  })
+  .readonly()
 /**
  * A terminal failure as values, carried on final and settled events beside their existing
  * `reason` and `error` fields.
@@ -57,21 +67,9 @@ export type RuntimeFailureCode =
  * message text. `cause` is the redacted, bounded cause chain for people; it is not a contract.
  * @stable
  */
-export interface RuntimeFailureCause {
-  readonly code: RuntimeFailureCode
-  readonly owner: RuntimeFailureOwner
-  readonly cause: string
-  /** The upstream or provider machine code the failure carried, when it carried one. */
-  readonly providerCode?: string
-}
+export type RuntimeFailureCause = z.infer<typeof runtimeFailureCauseSchema>
 
-const MAX_CAUSE_CHARS = 2_048
-const MAX_CHAIN_STEPS = 12
-
-const retainedFailures: Record<
-  RetainedPendingCause,
-  { code: RuntimeFailureCode; owner: RuntimeFailureOwner }
-> = {
+const retainedFailures: Record<RetainedPendingCause, Classified> = {
   unobservable: { code: 'retained-unobservable', owner: 'provider' },
   'provider-contract': { code: 'provider-contract', owner: 'provider' },
   'request-rejected': { code: 'request-rejected', owner: 'caller' },
@@ -126,8 +124,10 @@ function structuralFailure(link: object): Classified | undefined {
     return { code: 'budget-exhausted', owner: 'caller' }
   }
   if (isCredentialRefusal(link)) return { code: 'credential-refused', owner: 'caller' }
-  const code = read(link, 'code')
+  const code = upstreamMachineCode(link)
   const status = read(link, 'status') ?? read(link, 'statusCode')
+  if (code === 'SEAT_NOT_LOGGED_IN') return { code: 'credential-refused', owner: 'caller' }
+  if (code === 'MODEL_NOT_FOUND') return { code: 'request-rejected', owner: 'caller' }
   if (typeof code === 'string' && UNAVAILABLE_CODES.has(code.toLowerCase())) {
     return { code: 'upstream-unavailable', owner: 'platform' }
   }
@@ -151,9 +151,15 @@ function structuralFailure(link: object): Classified | undefined {
 }
 
 function machineCode(value: unknown): string | undefined {
-  return typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/u.test(value)
-    ? value
-    : undefined
+  return typeof value === 'string' && MACHINE_CODE_PATTERN.test(value) ? value : undefined
+}
+
+function upstreamMachineCode(link: object): string | undefined {
+  return (
+    machineCode(read(link, 'upstreamCode')) ??
+    machineCode(read(link, 'errorCode')) ??
+    machineCode(read(link, 'code'))
+  )
 }
 
 /**
@@ -166,11 +172,10 @@ export function runtimeFailureCause(
   context: RuntimeFailureContext = {},
 ): RuntimeFailureCause {
   const links = chain(error)
-  let providerCode: string | undefined
-  for (const link of links) {
-    providerCode = machineCode(read(link, 'code'))
-    if (providerCode !== undefined) break
-  }
+  // Prefer an upstream diagnosis across the whole chain over a wrapper's generic code.
+  const providerCode = ['upstreamCode', 'errorCode', 'code']
+    .flatMap((field) => links.map((link) => machineCode(read(link, field))))
+    .find((code) => code !== undefined)
   const failure = ({ code, owner }: Classified): RuntimeFailureCause => ({
     code,
     owner,
@@ -211,17 +216,12 @@ export function reportedFailureCause(outcome: {
   readonly errorCode?: string
   readonly statusCode?: number
 }): RuntimeFailureCause {
-  const providerCode = machineCode(outcome.errorCode)
-  const classified =
-    structuralFailure({
-      ...(outcome.errorCode === undefined ? {} : { code: outcome.errorCode }),
-      ...(outcome.statusCode === undefined ? {} : { status: outcome.statusCode }),
-    }) ?? UNATTRIBUTED
-  return {
-    ...classified,
-    cause: boundedCause(outcome.error ?? 'execution reported a failure'),
-    ...(providerCode === undefined ? {} : { providerCode }),
-  }
+  return runtimeFailureCause(
+    Object.assign(new Error(outcome.error ?? 'execution reported a failure'), {
+      errorCode: outcome.errorCode,
+      statusCode: outcome.statusCode,
+    }),
+  )
 }
 
 /**
@@ -241,16 +241,15 @@ export function settlementFailureCause(down: {
   if (down.retainedPendingCause !== undefined) {
     return { ...retainedFailures[down.retainedPendingCause], cause }
   }
-  const providerCode = down.failure?.providerCode
-  const recorded: Classified =
-    down.failure !== undefined && down.failure.code !== 'unknown'
-      ? { code: down.failure.code, owner: down.failure.owner }
-      : down.infra === false
-        ? { code: 'work-failed', owner: 'work' }
-        : UNATTRIBUTED
+  if (down.failure !== undefined && down.failure.code !== 'unknown')
+    return { ...down.failure, cause }
   return {
-    ...recorded,
+    ...(down.infra === false
+      ? { code: 'work-failed' as const, owner: 'work' as const }
+      : UNATTRIBUTED),
     cause,
-    ...(providerCode === undefined ? {} : { providerCode }),
+    ...(down.failure?.providerCode === undefined
+      ? {}
+      : { providerCode: down.failure.providerCode }),
   }
 }

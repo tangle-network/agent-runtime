@@ -51,7 +51,12 @@ export interface LoadGraphFileOptions {
    *  errors propagate unchanged. The loader does not parse aliases or reasoning effort. */
   readonly resolveSeat?: (
     seat: string | undefined,
-    context: { readonly node: string; readonly cwd?: string; readonly signal?: AbortSignal },
+    context: {
+      readonly node: string
+      readonly cwd?: string
+      readonly signal?: AbortSignal
+      readonly lastCandidate: boolean
+    },
   ) => GraphFileSeat | undefined | Promise<GraphFileSeat | undefined>
   /** Environment-owned provider-name bindings; files never carry Hub credentials. */
   readonly needs?: Readonly<Record<string, NonNullable<AgentProfile['connections']>[number]>>
@@ -141,8 +146,11 @@ async function expandProfile(
       )
     const candidates = typeof authored === 'string' ? [authored] : authored
     if (!candidates.length) refuse(`node ${node.id} has an empty seat preference list`)
-    for (const candidate of candidates) {
-      selected = await resolveSeat(candidate, context)
+    for (const [index, candidate] of candidates.entries()) {
+      selected = await resolveSeat(candidate, {
+        ...context,
+        lastCandidate: index === candidates.length - 1,
+      })
       if (selected) break
     }
     if (!selected)
@@ -157,7 +165,8 @@ async function expandProfile(
     !concreteProfileModel(node.profile as AgentProfile) ||
     !(node.profile.model as AgentProfile['model'])?.provider
   ) {
-    selected = options.seats?.[0] ?? (await resolveSeat?.(undefined, context))
+    selected =
+      options.seats?.[0] ?? (await resolveSeat?.(undefined, { ...context, lastCandidate: true }))
     if (!selected)
       refuse(`node ${node.id} needs a canonical profile or resolveSeat from Bridge login inventory`)
   }

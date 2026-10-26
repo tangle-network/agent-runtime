@@ -363,6 +363,7 @@ function observeTree({ opts, redactJournalEvent }: WorkerToolsCtx) {
         parent: node.parent,
         label: node.label,
         status: node.status,
+        ...(node.failure === undefined ? {} : { failure: node.failure }),
         runtime: node.runtime,
         spawnedAt: node.spawnedAt,
         settledAt: node.settledAt,
@@ -388,6 +389,7 @@ function observeEvents(
     label: node.label,
     status: node.status,
     runtime: node.runtime,
+    ...(node.failure === undefined ? {} : { failure: node.failure }),
     events: opts.scope.observeEvents?.(id, eventCursor) ?? {
       status: 'unavailable',
       reason: 'not-captured',

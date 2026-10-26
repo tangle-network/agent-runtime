@@ -1,15 +1,5 @@
-import type {
-  BudgetViolation,
-  NodeId,
-  NodeSnapshot,
-  NodeStatus,
-  RetainedExecutionState,
-  RetainedPendingCause,
-  Runtime,
-  SpawnEvent,
-  Spend,
-  TreeView,
-} from '../../runtime/supervise/types'
+import { settlementFailureCause } from '../../runtime/failure-cause'
+import type { NodeId, NodeSnapshot, SpawnEvent, TreeView } from '../../runtime/supervise/types'
 import { addSpend, cloneSpend, zeroSpend } from '../../runtime/util'
 import { insideCursorNamespace } from './event-index'
 import {
@@ -53,31 +43,30 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
     })
   }
   for (const ev of settlements) {
-    if (ev.kind === 'settled') {
-      const node = requireNode(nodes, ev.id)
-      node.status = ev.status === 'done' ? 'done' : 'failed'
-      node.spent = cloneSpend(ev.spent)
-      node.providerModel = copyProviderModelEvidence(ev.providerModel)
-      node.outRef = ev.outRef
-      node.trace = traceEvidenceFor(ev)
-      node.budgetViolation = budgetViolationOf(ev).budgetViolation
-      if (ev.retainedExecution !== undefined) node.retainedExecution = ev.retainedExecution
-      if (ev.retainedPendingCause !== undefined) node.retainedPendingCause = ev.retainedPendingCause
-      const settledAt = Date.parse(ev.at)
-      if (Number.isFinite(settledAt)) node.settledAt = settledAt
-    } else {
-      const node = requireNode(nodes, ev.id)
-      node.status = 'cancelled'
-      node.trace = ev.trace ?? { status: 'unavailable', reason: 'execution-did-not-start' }
-      if (ev.spent !== undefined) node.spent = cloneSpend(ev.spent)
-      node.providerModel = copyProviderModelEvidence(ev.providerModel)
-      node.outRef = ev.outRef
-      node.budgetViolation = budgetViolationOf(ev).budgetViolation
-      if (ev.retainedExecution !== undefined) node.retainedExecution = ev.retainedExecution
-      if (ev.retainedPendingCause !== undefined) node.retainedPendingCause = ev.retainedPendingCause
-      const settledAt = Date.parse(ev.at)
-      if (Number.isFinite(settledAt)) node.settledAt = settledAt
-    }
+    const node = requireNode(nodes, ev.id)
+    const down = ev.kind === 'cancelled' || ev.status === 'down'
+    node.status = ev.kind === 'cancelled' ? 'cancelled' : down ? 'failed' : 'done'
+    if (ev.spent !== undefined) node.spent = cloneSpend(ev.spent)
+    node.providerModel = copyProviderModelEvidence(ev.providerModel)
+    node.outRef = ev.outRef
+    node.failure = down
+      ? (ev.failure ??
+        settlementFailureCause({
+          reason:
+            ev.reason ?? (ev.kind === 'settled' ? ev.verdict?.notes : undefined) ?? 'child down',
+          infra: ev.infra,
+          retainedPendingCause: ev.retainedPendingCause,
+        }))
+      : undefined
+    node.trace =
+      ev.kind === 'cancelled'
+        ? (ev.trace ?? { status: 'unavailable', reason: 'execution-did-not-start' })
+        : traceEvidenceFor(ev)
+    node.budgetViolation = budgetViolationOf(ev).budgetViolation
+    if (ev.retainedExecution !== undefined) node.retainedExecution = ev.retainedExecution
+    if (ev.retainedPendingCause !== undefined) node.retainedPendingCause = ev.retainedPendingCause
+    const settledAt = Date.parse(ev.at)
+    if (Number.isFinite(settledAt)) node.settledAt = settledAt
   }
   // Materialization is node evidence, not a settlement. Fold it after node creation and before
   // freezing the view; exactly one receipt per node is enforced by the journal corruption guard.
@@ -102,7 +91,10 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
     )
     .sort((a, b) => a.seq - b.seq)) {
     const node = requireNode(nodes, ev.id)
-    if (node.status === 'pending') node.spent = cloneSpend(ev.spent)
+    if (node.status === 'pending') {
+      node.spent = cloneSpend(ev.spent)
+      node.failure = ev.failure
+    }
   }
   // Driver inference: a separate pass so it accumulates ONTO the settled child-work base (no
   // dependence on metered-vs-settled seq order) without touching node status.
@@ -119,28 +111,11 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
   }
 }
 
-interface MutableSnapshot {
-  id: NodeId
-  parent?: NodeId
-  label: string
-  status: NodeStatus
-  runtime: Runtime
-  budget: NodeSnapshot['budget']
-  ownedTreeRoot?: NodeSnapshot['ownedTreeRoot']
-  assignmentId?: string
-  identity?: NodeSnapshot['identity']
-  modelSubstitution?: NodeSnapshot['modelSubstitution']
-  materialization?: NodeSnapshot['materialization']
+/** The journal fold mutates the canonical snapshot shape; only bindings need a mutable list. */
+type MutableSnapshot = {
+  -readonly [Key in keyof NodeSnapshot]: NodeSnapshot[Key]
+} & {
   executionBindings?: NonNullable<NodeSnapshot['executionBindings']>[number][]
-  spent: Spend
-  providerModel?: NodeSnapshot['providerModel']
-  outRef?: string
-  trace?: NodeSnapshot['trace']
-  budgetViolation?: BudgetViolation
-  retainedExecution?: RetainedExecutionState
-  retainedPendingCause?: RetainedPendingCause
-  settledAt?: number
-  spawnedAt?: number
 }
 
 function requireNode(nodes: Map<NodeId, MutableSnapshot>, id: NodeId): MutableSnapshot {
@@ -157,6 +132,7 @@ function freezeSnapshot(node: MutableSnapshot): NodeSnapshot {
     parent: node.parent,
     label: node.label,
     status: node.status,
+    ...(node.failure === undefined ? {} : { failure: node.failure }),
     runtime: node.runtime,
     budget: node.budget,
     ownedTreeRoot: node.ownedTreeRoot,

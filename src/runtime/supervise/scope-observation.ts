@@ -203,6 +203,7 @@ export function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): Tr
     parent: root,
     label: c.label,
     status: c.status,
+    ...(c.failure === undefined ? {} : { failure: c.failure }),
     runtime: c.runtime,
     budget: c.budget,
     ...(c.ownedTreeRoot === undefined ? {} : { ownedTreeRoot: c.ownedTreeRoot }),

@@ -10,6 +10,7 @@ import { loadSpawnForest, ownedTreeRootSpawn } from '../../durable/spawn-journal
 import { materializeTreeView } from '../../durable/spawn-journal/tree-view'
 import { RuntimeRunStateError } from '../../errors'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
+import { reportedFailureCause } from '../failure-cause'
 import { addSpend, zeroSpend } from '../util'
 import { type BudgetPoolRestore, BudgetReconcileFault, createBudgetPool } from './budget'
 import { executorFailure, executorFailureInfra } from './executor-outcome'
@@ -140,6 +141,7 @@ async function healReleasedSlots(
       const settlement = {
         kind: 'down' as const,
         reason: floor.reason,
+        ...(floor.failure === undefined ? {} : { failure: floor.failure }),
         ...(floor.infra === undefined ? {} : { infra: floor.infra }),
         trace: floor.trace,
         ...(floor.outRef ? { outRef: floor.outRef } : {}),
@@ -374,6 +376,9 @@ async function prepareInterruptedExecutors(
       ...(result.traceRoot === undefined ? {} : { traceRoot: result.traceRoot }),
       ...(reason === undefined ? {} : { reason }),
       ...(infra === undefined ? {} : { infra }),
+      ...(fault === undefined && failure !== undefined
+        ? { failure: reportedFailureCause(failure) }
+        : {}),
       spent: result.spent,
       ...(budgetViolation === undefined ? {} : { budgetViolation }),
       ...(result.verdict ? { verdict: result.verdict } : {}),

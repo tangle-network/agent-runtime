@@ -4,6 +4,7 @@ import {
   type DownMessageDeliveryOutcome,
   downMessageRefusalReasons,
 } from '../../mcp/tools/coordination-messages'
+import { type RuntimeFailureCause, runtimeFailureCauseSchema } from '../failure-cause'
 import { connectHttpMcp, type HttpMcpServerSpec } from '../http-mcp-client'
 import type { StdioMcpConnection } from '../stdio-mcp-client'
 import { coordinationControlToolNames } from './coordination-credentials'
@@ -17,6 +18,7 @@ const agentSchema = z
     label: z.string(),
     status: z.string(),
     runtime: z.string(),
+    failure: runtimeFailureCauseSchema.optional(),
   })
   .passthrough()
 const treeSchema = z.object({
@@ -53,6 +55,7 @@ export interface RemoteSupervisorAgent {
   readonly label: string
   readonly status: string
   readonly runtime: string
+  readonly failure?: RuntimeFailureCause
 }
 
 /** Current owned tree, including nested managers and resumed nodes. */
@@ -71,7 +74,7 @@ export interface RemoteSupervisorReader {
   observe(
     workerId: string,
     cursor?: WorkerEventCursor,
-  ): Promise<{ agent: Record<string, unknown>; events: RemoteWorkerEvents }>
+  ): Promise<{ agent: RemoteSupervisorAgent; events: RemoteWorkerEvents }>
   close(): Promise<void>
 }
 
@@ -143,7 +146,7 @@ function supervisorReader(connection: StdioMcpConnection): RemoteSupervisorReade
         events: true,
         ...(cursor ? { eventCursor: cursor } : {}),
       })
-      return { agent, events: eventPageSchema.parse(agent.events) }
+      return { agent: agentSchema.parse(agent), events: eventPageSchema.parse(agent.events) }
     },
     close: () => connection.close(),
   }

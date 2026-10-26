@@ -1,5 +1,5 @@
 import { ValidationError } from '../../errors'
-import { runtimeFailureCause } from '../failure-cause'
+import { reportedFailureCause, runtimeFailureCause } from '../failure-cause'
 import { type HarnessTranscriptEvidence, settleHarnessTranscript } from '../harness-transcript'
 import { cloneTokenUsage, isAsyncIterable } from '../util'
 import { signalAbortError } from './abortable'
@@ -436,6 +436,7 @@ function failureRecord(
       harnessTranscript,
     ),
     outRef,
+    failure: reportedFailureCause(failure),
   }
 }
 

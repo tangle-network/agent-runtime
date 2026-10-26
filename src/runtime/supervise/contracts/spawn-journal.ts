@@ -6,6 +6,7 @@ import type {
   WorkspaceCheckpointRef,
   WorkspaceCheckpointRequest,
 } from '@tangle-network/agent-interface'
+import type { RuntimeFailureCause } from '../../failure-cause'
 import type { HarnessTranscriptEvidence } from '../../harness-transcript'
 import type { RetainedRunEffect } from '../../retained-run-types'
 import type { DriverAttemptRecord, DriverAttemptStop } from '../driver-attempt-evidence'
@@ -187,6 +188,8 @@ export type SpawnEvent =
       /** Provider model evidence is independent from the planned materialization receipt. */
       providerModel?: ProviderModelExecutionEvidence
       infra?: boolean
+      /** Runtime-classified diagnosis; absent only when older records did not carry it. */
+      failure?: RuntimeFailureCause
       /** Exact child failure. Present on every new `status: 'down'` record; optional only so
        * journals written before this field existed remain replayable. */
       reason?: string
@@ -228,6 +231,8 @@ export type SpawnEvent =
       reason: string
       source?: string
       infra?: boolean
+      /** Runtime-classified diagnosis; absent only when older records did not carry it. */
+      failure?: RuntimeFailureCause
       spent?: Spend
       providerModel?: ProviderModelExecutionEvidence
       trace?: WorkerTraceEvidence
@@ -358,6 +363,8 @@ export type SpawnEvent =
       reason?: string
       retainedPendingCause?: RetainedPendingCause
       infra?: boolean
+      /** Runtime-classified diagnosis; absent only when older records did not carry it. */
+      failure?: RuntimeFailureCause
       trace?: WorkerTraceEvidence
       outRef?: string
       traceRoot?: TraceRootReceipt

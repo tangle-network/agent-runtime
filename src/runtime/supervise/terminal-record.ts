@@ -26,7 +26,6 @@ import type {
   SpawnEvent,
   Spend,
   SubtreeSummary,
-  TraceRootReceipt,
 } from './types'
 
 export type DownSettlement = Extract<PreSeqSettled, { kind: 'down' }>
@@ -49,26 +48,12 @@ export type TerminalDownSubject = {
 /** The settlement fields every writer copies, in the terminal record's key order. The
  *  `reconciled` record is built from this same spread so it and the terminal record can never
  *  disagree on a field. */
-export function settlementFields(
-  subject: TerminalDownSubject,
-  settlement: DownSettlement,
-): {
-  spent: Spend
-  infra?: boolean
-  reason: string
-  outRef?: string
-  traceRoot?: TraceRootReceipt
-  providerModel?: ProviderModelExecutionEvidence
-  budgetViolation?: BudgetViolation
-  trace: DownSettlement['trace']
-  harnessTranscript?: DownSettlement['harnessTranscript']
-  retainedPendingCause?: DownSettlement['retainedPendingCause']
-  subtree?: SubtreeSummary
-} {
+export function settlementFields(subject: TerminalDownSubject, settlement: DownSettlement) {
   return {
     spent: subject.spent,
     ...(settlement.infra === undefined ? {} : { infra: settlement.infra }),
     reason: settlement.reason,
+    ...(settlement.failure === undefined ? {} : { failure: settlement.failure }),
     ...(settlement.retainedPendingCause === undefined
       ? {}
       : { retainedPendingCause: settlement.retainedPendingCause }),
@@ -128,6 +113,9 @@ export function settledNodeEvidence(
   settledAt: number,
 ): Record<string, unknown> {
   return {
+    ...(settlement.kind === 'down' && settlement.failure !== undefined
+      ? { failure: detachedSnapshot(settlement.failure, 'worker failure') }
+      : {}),
     runtime: subject.runtime,
     startedAt: subject.startedAt,
     settledAt,
