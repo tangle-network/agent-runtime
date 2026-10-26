@@ -17,12 +17,23 @@ import { rangeAdmits } from './packed-package-test.mjs'
 // Keep unknown versions and changed bytes fail-closed.
 // Current Runtime peers require Interface 5.8 and Core 0.13.2; older shared tuples
 // cannot occur in an admitted consumer. SDK-private copies remain isolated and byte-checked.
-const qualifiedContractTuples = [[
-  ['agent-interface', '5.8.0', '4ce0cdccd00bdc4faaddbe0b572bee7f9a8dfc73db122887ef10a9861a358687'],
-  ['agent-core', '0.13.2', 'ab2410df35d3396ea0a6a360b1d4dddc40e28f382a268dfc6d42f4c103f534fa'],
+// Interface 5.8.1 / Core 0.13.3 change only zod to `^4.6.6` (agent-sdk#573), rebuilt; either
+// shared version may meet either of the other, so every pairing qualifies.
+const sdkPrivate = [
   ['sandbox/node_modules/@tangle-network/agent-interface', '4.0.0', '8eb4a8aa8a0a7650df79fbc147b166e4380a7058f5890165b4dd304372405668'],
   ['sandbox/node_modules/@tangle-network/agent-core', '0.11.0', '3c7f492ef60b48ea3019fec28c5084ac1a903d6f3f5517bf18b34487b17435f8'],
-]]
+]
+const qualifiedContractTuples = [
+  ['5.8.0', '4ce0cdccd00bdc4faaddbe0b572bee7f9a8dfc73db122887ef10a9861a358687'],
+  ['5.8.1', 'f3d6fd2dc8e35725a89e90afe13d3ec40d9ebdc9d6a0238ebce4075b1c6805b6'],
+].flatMap(([interfaceVersion, interfacePrint]) => [
+  ['0.13.2', 'ab2410df35d3396ea0a6a360b1d4dddc40e28f382a268dfc6d42f4c103f534fa'],
+  ['0.13.3', 'dff6d911ddd309594d049edfb3c9c852be1d0f0eea1eba75a4a791cd63b126b7'],
+].map(([coreVersion, corePrint]) => [
+  ['agent-interface', interfaceVersion, interfacePrint],
+  ['agent-core', coreVersion, corePrint],
+  ...sdkPrivate,
+]))
 
 function ownFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).filter(entry => entry.name !== 'node_modules').flatMap(entry => {
