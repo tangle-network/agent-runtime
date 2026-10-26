@@ -20,6 +20,19 @@ These distinguish the fixed AgentGraph API from other graph or supervision contr
 
 Production designs: search [Factory’s design catalog](https://github.com/tangle-network/factory/blob/main/README.md) before authoring a new graph.
 
+## Graph files and placement
+
+Keep one canonical YAML or JSON graph file; Runtime's `loadGraphFile` owns parsing, parameters, profiles, topology and digest generation.
+The consumer supplies Bridge-owned seat resolution and connection bindings; the designer authors data rather than another parser or runner.
+Use the existing `graph run --dry-run` consumer to qualify the file, repair its concrete diagnostics, then run that same file through the admitted execution path.
+Read the installed CLI help for accepted options and the current loader contract for supported expressions and vertices; proposed later milestones are not executable capabilities.
+
+Use one Sandbox for the graph run and Bridge to execute its agent nodes through their complete materialized profiles.
+Parallel nodes share that admitted Sandbox through the supported Bridge sessions; a node is not a request for another Sandbox.
+The local path uses the same Bridge transport against its caller-owned workspace.
+Keep backend placement, authentication and environment lifecycle in the consumer's existing runtime composition.
+Inspect model identity, native usage and transcripts from the actual path before calling the graph qualified.
+
 ## Design a factory
 
 Use the vocabulary from the [software-factory design reference](https://github.com/mattpocock/skills/pull/1316) when a consumer needs recurring work across graph executions.
@@ -62,15 +75,15 @@ Define the artifact and independent completion check before choosing roles.
 Give each required role a complete AgentProfile and capabilities appropriate to its task.
 Preserve requested parallel instances and independent reviewers rather than collapsing their distinct work into a root prompt.
 
-When authoring nodes, directives, routes, traversal limits, or analyst routes, read [the graph contract](references/authoring.md).
+When authoring nodes, directives, routes, traversal limits, or analyst routes, read [the graph contract](https://github.com/tangle-network/agent-runtime/blob/main/skills/agent-graphs/references/authoring.md).
 The runtime validates structure and prompt references before execution.
 Keep the shared budget, per-worker allocation, concurrency, and supported limits in their actual API fields.
 Use measured execution cost when available; do not turn a prior run into a universal minimum budget.
 
 ## Prove the graph
 
-Use the maintained example pattern with injected test execution to check routes, directives, traversal limits, and both successful and rejected completion.
-Then exercise the intended backend, profiles, tools, and completion check on a real representative task.
+Use the maintained loader and topology admission to check profiles, routes, directives and traversal limits before model execution.
+Then exercise the intended Bridge backend, profiles, tools, and completion check on a real representative task, including a rejected completion.
 Offline control-flow tests do not establish that a real agent solves the task.
 
 Inspect the terminal result, complete cost and token accounting, edge delivery records, exhausted edges, and journal evidence.
@@ -80,7 +93,7 @@ Each gate visit is one `gate:<id>` ledger row whose `gate.by` names who decided.
 Unknown usage is missing evidence, not zero cost.
 A passing check proves only the outcome it actually tests.
 
-When measuring a proposed change to this skill, read [measurement](references/measurement.md) before reusing its historical cases or results.
+When measuring a proposed change to this skill, read [measurement](https://github.com/tangle-network/agent-runtime/blob/main/skills/agent-graphs/references/measurement.md) before reusing its historical cases or results.
 Ordinary graph construction does not require an optimization campaign.
 
 ## Then consider

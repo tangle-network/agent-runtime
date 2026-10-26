@@ -7,7 +7,11 @@ import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { McpToolDescriptor } from '../../mcp/server'
 import { createStdioToolServer } from '../../mcp/tool-server'
 import type { CoordinationTools } from '../../mcp/tools/coordination-contracts'
-import { bearerToken, type CoordinationCredentials } from './coordination-credentials'
+import {
+  bearerToken,
+  type CoordinationCredentials,
+  coordinationControlToolNames,
+} from './coordination-credentials'
 import { type CoordinationRejection, coordinationHttpHandler } from './coordination-http'
 import type { serveCoordinationMcp } from './coordination-mcp'
 import { noteScopeRetainedOwnerCoordination } from './retained-scope-owner'
@@ -19,6 +23,7 @@ export interface CoordinationListenerState {
   readonly audiences: Set<string>
   readonly paths: Set<string>
   readonly readPaths: Set<string>
+  readonly controlPaths: Set<string>
   readonly mailPaths: Set<string>
 }
 
@@ -37,6 +42,7 @@ export function openCoordinationListenerState(): CoordinationListenerState {
     audiences: new Set<string>(),
     paths: new Set(['/mcp']),
     readPaths: new Set<string>(),
+    controlPaths: new Set<string>(),
     mailPaths: new Set<string>(),
   }
 }
@@ -87,6 +93,29 @@ function readOnlyHandler(ctx: CoordinationListenerContext, coord: CoordinationTo
         : undefined
     },
     handle: (message) => readMcp.handle(message),
+  })
+}
+
+/** Operator access calls the same owned-worker handlers, with no spawn/submit/stop authority. */
+function controlHandler(ctx: CoordinationListenerContext, coord: CoordinationTools): HttpHandler {
+  const toolNames: ReadonlySet<string> = new Set(coordinationControlToolNames)
+  const controlMcp = createStdioToolServer({
+    serverName: 'supervisor-control',
+    serverVersion: '1',
+    tools: coord.tools.filter((tool) => toolNames.has(tool.name)),
+  })
+  return coordinationHttpHandler({
+    options: ctx.opts,
+    identity: ctx.identity,
+    toolNames,
+    backgroundActions: () => 0,
+    authorize: (req) => {
+      const refused = authority(ctx, req)
+      if (refused) return refused
+      const credential = ctx.credentials.controllerRefused(bearerToken(req.headers.authorization))
+      return credential === undefined ? undefined : { status: 401, reason: credential }
+    },
+    handle: (message) => controlMcp.handle(message),
   })
 }
 
@@ -157,10 +186,12 @@ export function createCoordinationListener(
 ): Server {
   const { coord } = bound
   const readHandler = readOnlyHandler(ctx, coord)
+  const operatorHandler = controlHandler(ctx, coord)
   const peerHandlers = new Map<string, HttpHandler>()
   const mainHandler = managerHandler(ctx, bound.mcp, bound.servedTools, bound.background)
   return createServer((req, res) => {
     if (ctx.state.readPaths.has(req.url ?? '')) return readHandler(req, res)
+    if (ctx.state.controlPaths.has(req.url ?? '')) return operatorHandler(req, res)
     for (const base of ctx.state.mailPaths) {
       if (!(req.url ?? '').startsWith(base + '/')) continue
       const capabilityId = (req.url ?? '').slice(base.length + 1)

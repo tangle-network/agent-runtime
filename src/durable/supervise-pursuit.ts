@@ -5,6 +5,7 @@ import {
   type RunGraphOptions,
   superviseAgentGraph,
 } from '../runtime/supervise/graph'
+import { graphExecutionOptions } from '../runtime/supervise/graph-backend'
 import { readRootStreamReceipt } from '../runtime/supervise/root-stream'
 import { supervisorRunDir } from '../runtime/supervise/run-layout'
 import { RunParkedError } from '../runtime/supervise/run-parking'
@@ -228,12 +229,15 @@ export interface SuperviseGraphPursuitOptions extends RunGraphOptions {
   /** Stable objective identity spanning concrete Runtime runs. */
   readonly pursuitId: string
   /** The directory this execution owns: journal, blobs, observer journal, lock and terminal
-   *  records. Re-running the same `runDir` and `runId` resumes the graph. */
+   *  records. Re-running the same `runDir` and `runId` resumes an unsettled graph; a settled
+   *  graph requires an explicit `reopen`. */
   readonly runDir: string
-  /** Always `'release'`, as for {@link supervisePursuit}: a settled graph is never re-entered. */
+  /** Always `'release'`: a reopened segment reuses its journal, not retired environments. */
   readonly retainedAtSettlement?: 'release'
   /** As for {@link supervisePursuit}. */
   readonly observerDelivery?: PursuitObserverDelivery
+  /** Explicitly reopen a settled segment under this graph's existing run id and journal. */
+  readonly reopen?: RunReopen
 }
 
 /**
@@ -246,37 +250,59 @@ export interface SuperviseGraphPursuitOptions extends RunGraphOptions {
  * the graph from its spawn journal. `result.json` holds the graph's supervised result, the same
  * record every supervised run leaves; the edge ledger is the journal's `edge` events and the
  * returned `result.ledger`. Version chains and forks are `supervisePursuit` features and are not
- * offered here.
+ * offered here. An explicit `reopen` uses the same archived-settle and resume contract as
+ * `supervisePursuit`; ordinary re-entry of a settled graph stays refused.
  */
 export async function superviseGraphPursuit(
   graph: AgentGraph,
   opts: SuperviseGraphPursuitOptions,
 ): Promise<SupervisedPursuitResult<GraphResult>> {
   assertPursuitDirectory(opts, 'superviseGraphPursuit')
+  if (opts.reopen !== undefined) assertRunReopen(opts.reopen, {})
   const {
     pursuitId: _pursuitId,
     hooks: _hooks,
     observerDelivery: _observerDelivery,
     brain,
+    reopen,
     ...graphOptions
   } = opts
   return runDurablePursuit(
     opts,
     ({ hooks, steerDir }) =>
       superviseAgentGraph(
-        graph,
-        {
+        reopen?.budget === undefined ? graph : { ...graph, budget: reopen.budget },
+        graphExecutionOptions({
           ...graphOptions,
           // The lock, the settle record and the journal name one run, so the graph takes the
           // directory's run id rather than its own digest-derived default.
           runId: graphOptions.runId ?? 'supervise',
+          ...(reopen === undefined ? {} : { resume: true }),
           steerDir,
           retainedAtSettlement: 'release',
           hooks,
-        },
+        }),
         brain,
       ),
     (result) => result.result,
+    reopen === undefined
+      ? undefined
+      : (observer) =>
+          reopenSettledRun({
+            runDir: opts.runDir.trim(),
+            runId: opts.runId ?? 'supervise',
+            reopen,
+            journal: opts.journal,
+            limits: {
+              budget: graph.budget,
+              ...(opts.reservationPolicy === undefined
+                ? {}
+                : { reservationPolicy: opts.reservationPolicy }),
+            },
+            observer,
+            pursuitId: opts.pursuitId.trim(),
+            now: opts.now ?? Date.now,
+          }),
   )
 }
 

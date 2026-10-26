@@ -74,6 +74,8 @@ export interface CoordinationMcpHandle {
   readonly port: number
   /** A separately authenticated read-only endpoint. Never persist its protected headers. */
   readonly readOnly: { readonly url: string; readonly headers: Readonly<Record<string, string>> }
+  /** Independent operator capability; never persist its protected headers in profiles or journals. */
+  readonly control: CoordinationControlAccess
   /** Runtime-only credentials. Never put these headers in canonical profiles or journals. */
   readonly headers: Readonly<Record<string, string>>
   /** The current credential's expiry under `authentication.ttlMs`; undefined when it lives as long
@@ -140,11 +142,19 @@ export interface CoordinationReadAccess {
   readonly headers: Readonly<Record<string, string>>
 }
 
+/** Runtime-only owned-worker control capability, separate from read and manager authority. */
+export interface CoordinationControlAccess extends CoordinationReadAccess {
+  readonly runId: string
+  readonly actorId: string
+}
+
 export interface CoordinationTransportOptions extends CoordinationHttpOptions {
   /** Publish the read capability before dispatch, so a remote client can observe the first worker. */
   readonly onReadReady?: (
     access: CoordinationReadAccess & { readonly runId: string; readonly actorId: string },
   ) => void | Promise<void>
+  /** Publish the separate operator capability before dispatch. */
+  readonly onControlReady?: (access: CoordinationControlAccess) => void | Promise<void>
   readonly host?: string
   readonly port?: number
   /** Required for remote binds. Each server mints a distinct run/actor credential. */
@@ -205,6 +215,9 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
   }
   if (options.onReadReady && !options.authentication) {
     throw new ConfigError('coordination read capability publication requires authentication')
+  }
+  if (options.onControlReady && !options.authentication) {
+    throw new ConfigError('coordination control capability publication requires authentication')
   }
   coordinationHttpLimits(options)
 }
@@ -369,6 +382,7 @@ async function bindCoordinationAddress(
   state.paths.add(publicAddress.pathname)
   for (const path of state.paths) {
     state.readPaths.add(path.replace(/\/$/, '') + '/read')
+    state.controlPaths.add(path.replace(/\/$/, '') + '/control')
     state.mailPaths.add(path.replace(/\/$/, '') + '/mail')
   }
   if (configured !== undefined) {
@@ -410,6 +424,7 @@ export async function serveCoordinationMcpForManager(
     identity,
     toolNames: opts.toolNames,
     scopeSignal: opts.scope.signal,
+    lifetimeSignal: lifetime,
     isClosed: () => state.closed,
   })
   const ctx: CoordinationListenerContext = {
@@ -498,6 +513,15 @@ export async function serveCoordinationMcpForManager(
     get headers() {
       return credentials.headers
     },
+    get control() {
+      if (!opts.authentication)
+        throw new ConfigError('coordination control access requires authentication')
+      return {
+        ...identity,
+        url: url.replace(/\/$/, '') + '/control',
+        headers: credentials.controllerHeaders,
+      }
+    },
     get credentialExpiresAt() {
       return credentials.expiresAt
     },
@@ -525,6 +549,11 @@ export async function serveCoordinationMcpForManager(
       async () => opts.onReadReady?.({ ...handle.readOnly, ...identity }),
       opts.scope.signal,
       'read capability publication aborted',
+    )
+    await runAbortable(
+      async () => opts.onControlReady?.(handle.control),
+      opts.scope.signal,
+      'control capability publication aborted',
     )
   } catch (error) {
     await handle.close()

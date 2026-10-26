@@ -54,6 +54,8 @@ import { assertExactConfigKeys } from './executor-seams'
 export interface BridgeSeam {
   bridgeUrl: string
   bridgeBearer: string
+  /** Require Bridge-owned final JSON; conversation text, tools and usage remain trace evidence. */
+  outputFormat?: 'json'
   /**
    * Optional request-scoped model credential.
    *

@@ -462,7 +462,7 @@ export * from './supervise/chat-transport-executor'
 // ONE CHECK, ONE RESEND RULE, ONE NOTE: the check's verdict, the continuation policy a manager
 // with a check must declare, and the note Runtime writes from the verdict. The profile owns every
 // instruction word; a play may append a section but never replace one.
-export type { CheckVerdict } from './supervise/completion-gate'
+export type { CheckVerdict, CompletionCheckContext } from './supervise/completion-gate'
 // The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
 // settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
 export {
@@ -501,7 +501,12 @@ export type * from './supervise/contracts/supervisor-result'
 export { type CoordinationLog, FileCoordinationLog } from './supervise/coordination-log'
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
 // harness (claude-code / codex / opencode) BECOMES the supervisor by mounting one MCP server.
-export { type CoordinationMcpHandle, serveCoordinationMcp } from './supervise/coordination-mcp'
+export {
+  type CoordinationControlAccess,
+  type CoordinationMcpHandle,
+  type CoordinationReadAccess,
+  serveCoordinationMcp,
+} from './supervise/coordination-mcp'
 // The one generic delegation verb: hand it an INTENT, it routes to `supervise()` with a default
 // authoring supervisor (no hardcoded worker profile) and returns the `SupervisedResult` unchanged —
 // so `spentTotal` (what the delegation cost) rides straight back.
@@ -565,6 +570,8 @@ export {
   runGraph,
   type TraversalContinuity,
 } from './supervise/graph'
+export * from './supervise/graph-file'
+export { graphFileSchema, graphRouteWhenSchema } from './supervise/graph-file-schema'
 // The designer's memory: graphs and their outcomes as files in a workspace, so a rerun over
 // the same sandbox replays a known-good graph (near-zero inference) or authors a better one.
 export * from './supervise/graph-registry'
@@ -703,6 +710,7 @@ export {
   type StopDecision,
   type StopRule,
 } from './supervise/stop-rules'
+export * from './supervise/stored-graph-validation'
 // The one-call "just invoke the supervisor": `supervise(profile, task, { backend, budget })` with
 // sensible defaults (blobs/perWorker/journal/executors). `workerFromBackend` derives the worker seam
 // from a backend config + an optional completion oracle (settled⟺delivered).

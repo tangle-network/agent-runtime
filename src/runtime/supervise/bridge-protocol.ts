@@ -129,6 +129,8 @@ export interface BridgeToolResult {
 }
 
 export interface BridgeStreamChunk {
+  /** Parsed by Bridge once across harnesses, only on a successful terminal turn. */
+  finalOutput?: { readonly value: unknown }
   content?: string
   /** Model reasoning streamed ahead of the content it produced (`choices[0].delta.reasoning`). */
   reasoning?: string
@@ -778,6 +780,7 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
       estimated?: unknown
     }
     profile_materialization?: unknown
+    final_output?: unknown
   }
   try {
     parsed = JSON.parse(data)
@@ -805,6 +808,7 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
     }
   }
   const out: BridgeStreamChunk = {}
+  if (Object.hasOwn(parsed, 'final_output')) out.finalOutput = { value: parsed.final_output }
   if (parsed.model !== undefined) {
     if (typeof parsed.model !== 'string' || parsed.model.length === 0) {
       throw new ValidationError('bridgeExecutor: bridge response model must be a non-empty string')

@@ -1,0 +1,36 @@
+graph: canonical-local-process
+describe: Build and review the same bound task through Runtime routing.
+params:
+  message: { type: string, default: shipped }
+  iterations: { type: integer, default: 12 }
+  input: { type: object, default: { count: 2 } }
+nodes:
+  - id: build
+    profile:
+      harness: cli-base
+      model: { provider: offline, default: offline/local-process }
+      prompt: { systemPrompt: 'Build ${params.message}.' }
+  - id: review
+    profile:
+      harness: cli-base
+      model: { provider: offline, default: offline/local-process }
+entry:
+  - node: build
+    task:
+      message: '${params.message}'
+      input: '${params.input}'
+      event: '${trigger.event}'
+edges:
+  - kind: routes
+    from: build
+    to: review
+    directive: { surface: delegates/worker-brief, version: 1 }
+budget:
+  maxIterations: '${params.iterations}'
+  maxTokens: 10000
+check:
+  describe: the review process returned the expected delivery
+  all:
+    - { node: review, pointer: /content, equals: 'delivered:${params.message}' }
+on:
+  - schedule: { cron: '0 * * * *' }
