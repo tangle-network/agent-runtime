@@ -29,6 +29,11 @@
       "import": "./dist/durable.js",
       "default": "./dist/durable.js"
     },
+    "./chat-turn": {
+      "types": "./dist/chat-turn.d.ts",
+      "import": "./dist/chat-turn.js",
+      "default": "./dist/chat-turn.js"
+    },
     "./tool-loop": {
       "types": "./dist/tool-loop.d.ts",
       "import": "./dist/tool-loop.js",
