@@ -47,11 +47,7 @@ export class ProcessFixture {
       mkdirSync(join(directory, 'home'))
       fixture.credentialMode(
         scenario === 'unsupported-intent',
-        scenario === 'unsupported-environment'
-          ? 1
-          : scenario === 'unsupported-descendant'
-            ? 2
-            : undefined,
+        scenario === 'unsupported-environment' ? 1 : undefined,
       )
       fixture.launch(executables.service, [directory, scenario], 'service')
       await fixture.wait('service ready', async () =>

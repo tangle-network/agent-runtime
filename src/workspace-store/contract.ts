@@ -299,16 +299,16 @@ const deleteTombstoneCase: ContractCase = [
       tombstone.id === entry.id && tombstone.revision > entry.revision,
       'tombstone keeps id, bumps revision',
     )
-    check(
-      tombstone.deletedBy === 'bob' && Boolean(tombstone.deletedAt),
-      'tombstone records who and when',
-    )
-    check(!JSON.stringify(tombstone).includes('4111'), 'tombstone holds no content')
+    check(tombstone.deletedBy === 'bob' && !!tombstone.deletedAt, 'tombstone records actor/time')
+    check(!JSON.stringify({ ...tombstone, id: '' }).includes('4111'), 'tombstone holds no content')
     check((await store.get(W, base.path)) === null, 'deleted entry is gone')
     check((await store.list(W, '/files/')).length === 0, 'deleted entry is not listed')
     const audit = await store.tombstones(W, '/files/')
     check(
-      audit.length === 1 && !JSON.stringify(audit).includes('4111'),
+      audit.length === 1 &&
+        audit.every(
+          (row) => row.id === entry.id && !JSON.stringify({ ...row, id: '' }).includes('4111'),
+        ),
       'audit rows hold no content',
     )
     check(

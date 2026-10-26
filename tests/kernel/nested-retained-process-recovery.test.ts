@@ -48,6 +48,14 @@ it.each([
     const rootInspected = new Promise<void>((resolve) => {
       releaseRoot = resolve
     })
+    const holdCutoff = known && managerTokens === 5
+    let releaseCutoff!: () => void
+    const cutoffObserved = new Promise<void>((resolve) => {
+      releaseCutoff = resolve
+      if (!holdCutoff) resolve()
+    })
+    let parentActedAtCutoff: boolean | undefined
+    let recovery: Promise<unknown> | undefined
     let freshFactories = 0
     let recovering = false
     let parentActed = false
@@ -145,6 +153,7 @@ it.each([
             if (!recovering)
               throw new RetainedExecutionPendingError(new Error('manager observation interrupted'))
             expect(settled?.handle.id).toBe('root:s0:s0')
+            if (holdCutoff) await cutoffObserved
             return {
               finalizedBy: 'manager',
               child: settled?.kind === 'done' ? settled.out : undefined,
@@ -224,10 +233,11 @@ it.each([
           ),
       ).toBe(managerTokens)
       recovering = true
-      cutoff = setTimeout(
-        () => abort.abort(new Error('recovery blocked parent coordination')),
-        2_000,
-      )
+      cutoff = setTimeout(() => {
+        parentActedAtCutoff = parentActed
+        if (!parentActed) abort.abort(new Error('recovery blocked parent coordination'))
+        releaseCutoff()
+      }, 2_000)
       const restarted = createFileRunContext(runDirectory, { withDriver: true })
       const recoveryFactory = registerRetainedExecutorPreparation(
         providerAsExecutor(provider(), { destroyOnSettle: false }),
@@ -243,7 +253,7 @@ it.each([
                 factory: driverExecutorFactory,
               },
       )
-      const result = await createSupervisor<string, unknown>().run(
+      const pending = createSupervisor<string, unknown>().run(
         {
           name: 'root',
           async act(_task, scope) {
@@ -281,6 +291,9 @@ it.each([
           recoverExecutor: recoveryFactory,
         },
       )
+      recovery = pending
+      const result = await pending
+      if (holdCutoff) expect(parentActedAtCutoff, 'parent acted before cutoff').toBe(true)
       expect(parentActed).toBe(true)
       expect(result.kind, result.kind === 'no-winner' ? result.reason : undefined).toBe('winner')
       expect(result.spentTotal.tokens.input + result.spentTotal.tokens.output).toBe(
@@ -315,7 +328,9 @@ it.each([
       if (cutoff) clearTimeout(cutoff)
       releaseChild()
       releaseRoot()
+      releaseCutoff()
       abort.abort()
+      await recovery?.catch(() => undefined)
       await rm(directory, { recursive: true, force: true })
     }
   },

@@ -19,6 +19,8 @@ try {
 } catch (error) {
   if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
 }
+const refused =
+  behavior.refuse || (behavior.refuseAfter !== undefined && count >= behavior.refuseAfter)
 record(log, {
   kind: 'credential-command',
   at: new Date().toISOString(),
@@ -26,8 +28,9 @@ record(log, {
   profile: profile.name,
   pid: process.pid,
   number: count + 1,
+  refused,
 })
-if (behavior.refuse || (behavior.refuseAfter !== undefined && count >= behavior.refuseAfter)) {
+if (refused) {
   process.stdout.write(
     JSON.stringify({ error: { code: 'model_credential_refused', reason: 'unsupported_route' } }),
   )
