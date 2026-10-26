@@ -11,7 +11,7 @@
 //            architecture) -> resolves to no src/substrate export and isn't a whitelisted
 //            concept. Closes the gap that let prose symbols (gepaDriver/refineGepa) lie.
 //
-// Ground-truth sources (no third-party deps; pure node):
+// Ground-truth sources (owning configuration and source):
 //   - package.json (version + peerDependencies)
 //   - the generated API index under docs/api/ (every exported symbol -> a <name>.md page)
 //   - the agent-eval substrate contract .d.ts (re-exported symbols the doc cites as substrate)
