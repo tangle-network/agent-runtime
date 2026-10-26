@@ -157,8 +157,10 @@
         {
           "file": "tests/durability/known-defects.test.ts",
           "cases": [
-            "kill at driver:turn:5:before → resume still wins with one clean root record",
+            "kill at driver:turn:3:before → resume still wins with one clean root record",
             "kill at tool:commit:after-effect → resume still wins with one clean root record",
+            "kill at driver:turn:4:before → resume still wins with one clean root record",
+            "kill at driver:turn:4:after → resume still wins with one clean root record",
             "an unmet-contract re-entry carries the original task and run state, not a fragment"
           ]
         }
