@@ -534,9 +534,9 @@ function selectFields<T, K extends keyof T>(
   keys: readonly K[],
   include: (value: T[K]) => boolean,
 ): Partial<Pick<T, K>> {
-  return Object.fromEntries(
-    keys.filter((key) => include(value[key])).map((key) => [key, value[key]]),
-  )
+  const selected: Partial<Pick<T, K>> = {}
+  for (const key of keys) if (include(value[key])) selected[key] = value[key]
+  return selected
 }
 
 function ensureWorker(workers: Map<string, MutableWorker>, id: string): MutableWorker {
