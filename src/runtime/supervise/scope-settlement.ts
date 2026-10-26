@@ -148,10 +148,7 @@ export async function finalizeSettlement<Out>(
     await appendSettlementMetering(args.journal, args.root, child.id, settlement.metered, at)
   }
   if (settlement.kind === 'down') {
-    settlement = {
-      ...settlement,
-      failure: settlement.failure ?? settlementFailureCause(settlement),
-    }
+    settlement.failure ??= settlementFailureCause(settlement)
     child.failure = settlement.failure
     const cancellation = child.cancellationReason
     child.status = cancellation === undefined ? 'failed' : 'cancelled'
