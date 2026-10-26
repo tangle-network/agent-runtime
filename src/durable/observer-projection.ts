@@ -1,3 +1,4 @@
+import { type RuntimeFailureCause, runtimeFailureCauseSchema } from '../runtime/failure-cause'
 import type { SeatSegment } from '../runtime/supervise/seat-chain'
 import type {
   BudgetOverspend,
@@ -193,6 +194,7 @@ export interface PursuitNodeProjection {
   readonly score?: number
   readonly valid?: boolean
   readonly reason?: string
+  readonly failure?: RuntimeFailureCause
   /** Subscription execution of this logical child, ordered across seat changes. */
   readonly segments?: ReadonlyArray<SeatSegment>
   readonly resumeAt?: string
@@ -293,6 +295,7 @@ type MutableNode = {
   score?: number
   valid?: boolean
   reason?: string
+  failure?: RuntimeFailureCause
   segments?: SeatSegment[]
   resumeAt?: string
   infra?: boolean
@@ -597,6 +600,10 @@ function projectNodeActivity(nodes: Map<string, MutableNode>, record: ObserverRe
   if (valid !== undefined) node.valid = valid
   const reason = stringField(payload, 'reason')
   if (reason) node.reason = reason
+  if (status === 'done') node.failure = undefined
+  else if (payload && Object.hasOwn(payload, 'failure')) {
+    node.failure = runtimeFailureCauseSchema.parse(payload.failure)
+  }
   const infra = booleanField(payload, 'infra')
   if (infra !== undefined) node.infra = infra
   const retained = stringField(payload, 'retainedExecution')

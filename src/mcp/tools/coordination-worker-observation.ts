@@ -40,6 +40,7 @@ export function createWorkerObservation({
   ): Record<string, unknown> => ({
     id: node.id,
     status: node.status,
+    ...(node.failure === undefined ? {} : { failure: node.failure }),
     ...(node.assignmentId === undefined ? {} : { assignmentId: node.assignmentId }),
     ...(node.identity === undefined ? {} : { identity: node.identity }),
     ...(node.modelSubstitution === undefined

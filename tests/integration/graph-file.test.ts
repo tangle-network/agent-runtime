@@ -151,7 +151,8 @@ it('loads one canonical file, persists its data check, and runs and resumes real
       params,
       seat: override,
       nodeSeats: { build: 'must-not-be-selected' },
-      resolveSeat: (seat) => {
+      resolveSeat: (seat, context) => {
+        expect(context.lastCandidate).toBe(true)
         expect(seat).toBe(override)
         return { ...overrideSeat, reasoningEffort: 'none' }
       },
@@ -165,6 +166,36 @@ it('loads one canonical file, persists its data check, and runs and resumes real
       'none',
       'none',
     ])
+    const preferences: Array<{ seat: string | undefined; lastCandidate: boolean }> = []
+    const fallback = await loadGraphFile(fixture, {
+      params,
+      nodeSeats: { build: ['unavailable-first', 'available-last'] },
+      resolveSeat: (seat, { lastCandidate }) => {
+        preferences.push({ seat, lastCandidate })
+        return lastCandidate ? overrideSeat : undefined
+      },
+    })
+    expect(preferences).toEqual([
+      { seat: 'unavailable-first', lastCandidate: false },
+      { seat: 'available-last', lastCandidate: true },
+    ])
+    expect(fallback.graph.nodes[0]!.profile.model?.default).toBe(overrideSeat.model)
+    const implicit = await loadGraphFile(join(directory, 'implicit.graph.json'), {
+      source: JSON.stringify({
+        ...json,
+        nodes: [{ id: 'implicit', profile: {} }],
+        entry: [{ node: 'implicit', task: {} }],
+        edges: [],
+        check: { node: 'implicit', pointer: '/content', equals: 'ok' },
+      }),
+      params,
+      resolveSeat: (seat, context) => {
+        expect(seat).toBeUndefined()
+        expect(context.lastCandidate).toBe(true)
+        return overrideSeat
+      },
+    })
+    expect(implicit.graph.nodes[0]!.profile.harness).toBe(overrideSeat.harness)
     const unresolvedPath = join(directory, 'unresolved.graph.json')
     const unresolved = structuredClone(json)
     const unresolvedNodes = unresolved.nodes as Array<Record<string, unknown>>

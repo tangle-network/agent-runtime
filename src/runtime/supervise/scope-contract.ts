@@ -164,6 +164,7 @@ export interface LiveChild {
   cancellationReason?: RunCancellationReason
   readonly id: NodeId
   status: NodeStatus
+  failure?: RuntimeFailureCause
   runtime: NodeSnapshot['runtime']
   readonly ownedTreeRoot?: NodeId
   readonly budget: Budget

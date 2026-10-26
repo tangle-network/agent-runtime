@@ -195,10 +195,7 @@ export type Settled<Out> =
        *  `retainedExecution` is; the `reason` text names the same thing, but a reader must never
        *  have to parse it (#1204). */
       retainedPendingCause?: RetainedPendingCause
-      /** Why the executor threw, classified from the thrown error and the child's abort signal
-       *  while both were still values. Present on a live settlement whose executor threw; the
-       *  journal does not record it, so a replayed settlement leaves it to
-       *  `settlementFailureCause`. */
+      /** Typed terminal diagnosis, preserved by the journal and replay. Legacy records may omit it. */
       failure?: RuntimeFailureCause
       /** Present when this child led workers of its own: a bounded account of its team. */
       subtree?: SubtreeSummary
@@ -245,6 +242,8 @@ export interface SubtreeResult {
 }
 
 export interface NodeSnapshot {
+  /** Typed terminal diagnosis, beside status and never a replacement for lifecycle reason. */
+  readonly failure?: RuntimeFailureCause
   readonly id: NodeId
   readonly parent?: NodeId
   readonly label: string

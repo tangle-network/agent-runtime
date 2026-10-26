@@ -1,5 +1,6 @@
 import { contentAddress } from '../../durable/content-address'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
+import { settlementFailureCause } from '../failure-cause'
 import { subtreeSummaryOf } from './scope-capabilities'
 import type { LiveChild, PreSeqSettled, ScopeArgs } from './scope-contract'
 import { frozenHandle } from './scope-observation'
@@ -147,6 +148,11 @@ export async function finalizeSettlement<Out>(
     await appendSettlementMetering(args.journal, args.root, child.id, settlement.metered, at)
   }
   if (settlement.kind === 'down') {
+    settlement = {
+      ...settlement,
+      failure: settlement.failure ?? settlementFailureCause(settlement),
+    }
+    child.failure = settlement.failure
     const cancellation = child.cancellationReason
     child.status = cancellation === undefined ? 'failed' : 'cancelled'
     child.outRef = settlement.outRef
@@ -246,6 +252,7 @@ export async function finalizeSettlement<Out>(
     }
   }
 
+  child.failure = undefined
   child.status = 'done'
   child.outRef = settlement.outRef
   child.spent = settlement.spent
