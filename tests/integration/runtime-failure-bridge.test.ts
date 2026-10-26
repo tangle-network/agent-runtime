@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import type { RuntimeFailureCause } from '../../src/index'
 import { FileObserverJournal, projectPursuit, superviseGraphPursuit } from '../../src/durable/index'
+import type { RuntimeFailureCause } from '../../src/index'
 import {
   type Agent,
   type AgentGraph,

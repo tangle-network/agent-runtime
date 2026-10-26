@@ -1,6 +1,5 @@
 import { resolve } from 'node:path'
 import { runtimeFailureCause } from '../runtime/failure-cause'
-import type { SupervisedResult } from '../runtime/supervise/types'
 import {
   type AgentGraph,
   type GraphResult,
@@ -13,6 +12,7 @@ import { supervisorRunDir } from '../runtime/supervise/run-layout'
 import { RunParkedError } from '../runtime/supervise/run-parking'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
+import type { SupervisedResult } from '../runtime/supervise/types'
 import { errorMessage } from '../runtime/util'
 import {
   composeRuntimeHooks,
