@@ -220,6 +220,7 @@ describe.skipIf(!bridgeEntry)(
             blobs,
             makeWorkerAgent,
             perWorker: { maxIterations: 1, maxTokens: 1000 },
+            toolNames: ['spawn_worker'],
             authentication: true,
             identity: { runId, actorId: scope.view.root },
           })
@@ -268,13 +269,13 @@ describe.skipIf(!bridgeEntry)(
         },
       }
       try {
-        await createSupervisor().run(
+        const result = await createSupervisor().run(
           root,
           {},
           { budget, runId, journal, blobs, executors: createExecutorRegistry() },
         )
         await exercise
-        expect(checked).toBe(true)
+        expect(checked, JSON.stringify(result)).toBe(true)
       } finally {
         await fixture.close()
       }
