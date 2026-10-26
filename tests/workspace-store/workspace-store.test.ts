@@ -8,9 +8,15 @@ import {
 } from '../../src/workspace-store'
 
 describe('in-memory workspace store contract', () => {
-  for (const contractCase of workspaceStoreContractCases(() => createInMemoryWorkspaceStore(), {
-    idempotentOperations: true,
-  })) {
+  for (const contractCase of workspaceStoreContractCases(
+    () => {
+      let nextId = 0
+      return createInMemoryWorkspaceStore({
+        newId: () => `41110000-0000-4000-8000-${String(++nextId).padStart(12, '0')}`,
+      })
+    },
+    { idempotentOperations: true },
+  )) {
     it(contractCase.name, contractCase.run)
   }
 
