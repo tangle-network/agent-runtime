@@ -6,6 +6,7 @@ import {
   cancelRun,
   FileResultBlobStore,
   FileSpawnJournal,
+  readRunCancellation,
   type SpawnEvent,
 } from '../../src/runtime'
 import {
@@ -360,6 +361,17 @@ describe('typed real command credential refusal and accepted evidence', () => {
         await fixture.wait('invalid pause cancellation settled', async () =>
           fixture.outcomes().some((outcome) => outcome.kind === 'settled'),
         )
+        expect(object(object(fixture.outcomes()[0]!.result).result)).toMatchObject({
+          kind: 'no-winner',
+          reason: 'cancelled',
+          operationId: 'ceiling-red-cleanup',
+        })
+        expect(
+          readRunCancellation(join(fixture.directory, 'run'), 'ceiling-red-cleanup'),
+        ).toMatchObject({
+          operationId: 'ceiling-red-cleanup',
+          effect: 'cancelled',
+        })
       }
       expect(pauses, 'a terminal refusal must never become a root stop-pause').toHaveLength(0)
       expect(fixture.attempts()).toEqual([
