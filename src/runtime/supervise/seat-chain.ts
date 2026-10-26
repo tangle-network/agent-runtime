@@ -4,16 +4,7 @@ import type { ExecutorConfig } from './runtime'
 import type { NodeId, SpawnEvent, SpawnJournal } from './types'
 
 /** A stage is authored in the immutable profile. A selection is a concrete, private placement. */
-export interface SeatStage {
-  readonly harness: string
-  readonly provider: string
-  readonly model: string
-  readonly selector:
-    | { readonly kind: 'all-eligible' }
-    | { readonly kind: 'seat'; readonly id: string }
-  readonly tools?: AgentProfile['tools']
-  readonly permissions?: AgentProfile['permissions']
-}
+export type SeatStage = Readonly<NonNullable<AgentProfile['seats']>[number]>
 
 export interface SeatSegment {
   readonly seat: string
@@ -326,6 +317,7 @@ export function seatExecutionProfile(profile: AgentProfile, stage: SeatStage): A
       ...profile.model,
       default: stage.model,
       provider: stage.provider,
+      ...(stage.reasoningEffort === undefined ? {} : { reasoningEffort: stage.reasoningEffort }),
     },
   } as AgentProfile
 }

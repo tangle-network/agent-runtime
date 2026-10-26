@@ -334,11 +334,13 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     coordination === undefined
       ? undefined
       : (() => {
-          const { publicUrl, onAudit, ...configuration } = coordination
+          const { publicUrl, onAudit, onReadReady, onControlReady, ...configuration } = coordination
           return Object.freeze({
             ...detachedSnapshot(configuration, 'supervise coordination configuration'),
             ...(publicUrl === undefined ? {} : { publicUrl }),
             ...(onAudit === undefined ? {} : { onAudit }),
+            ...(onReadReady === undefined ? {} : { onReadReady }),
+            ...(onControlReady === undefined ? {} : { onControlReady }),
           })
         })()
   const capturedBackend = backend === undefined ? undefined : snapshotExecutorConfig(backend)

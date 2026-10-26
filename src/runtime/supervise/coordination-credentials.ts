@@ -1,12 +1,20 @@
 /**
  * The credentials one coordination listener accepts: the manager's bearer token (random, or an HMAC
- * claim set under caller-owned signing keys), the separate read-only token, rotation and the
+ * claim set under caller-owned signing keys), separate read-only and control tokens, rotation and the
  * revocation of every token it replaces.
  */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { ConfigError } from '../../errors'
 import type { CoordinationAuthentication } from './coordination-mcp'
+
+/** Exact operator authority, independent of the manager's authored tool grants. */
+export const coordinationControlToolNames = Object.freeze([
+  'observe_agent',
+  'read_journal',
+  'steer_agent',
+  'cancel_worker',
+] as const)
 
 export interface CoordinationCredentials {
   /** Revoke the current token and mint another. */
@@ -24,9 +32,12 @@ export interface CoordinationCredentials {
   refused(supplied: Buffer): 'scope-stopped' | 'credential-refused' | undefined
   /** Whether a supplied read-only credential is refused. */
   readerRefused(supplied: Buffer): boolean
+  /** The independent operator capability never authorizes the manager endpoint. */
+  controllerRefused(supplied: Buffer): 'scope-stopped' | 'credential-refused' | undefined
   readonly headers: Readonly<Record<string, string>>
   readonly expiresAt: number | undefined
   readonly readerToken: Buffer
+  readonly controllerHeaders: Readonly<Record<string, string>>
 }
 
 /** The bearer token in an `Authorization` header, or an empty buffer. */
@@ -41,6 +52,7 @@ export function createCoordinationCredentials(input: {
   readonly identity: { readonly runId: string; readonly actorId: string }
   readonly toolNames: ReadonlyArray<string>
   readonly scopeSignal: AbortSignal
+  readonly lifetimeSignal?: AbortSignal
   readonly isClosed: () => boolean
 }): CoordinationCredentials {
   const { identity } = input
@@ -49,6 +61,7 @@ export function createCoordinationCredentials(input: {
     ? { activeKeyId: auth.signingKeys.activeKeyId, keys: { ...auth.signingKeys.keys } }
     : undefined
   let readerToken = Buffer.from(randomBytes(32).toString('base64url'))
+  let controllerToken = Buffer.from(randomBytes(32).toString('base64url'))
   let token: Buffer | undefined
   let expiresAt: number | undefined
   let headers: Readonly<Record<string, string>> = Object.freeze({})
@@ -93,6 +106,7 @@ export function createCoordinationCredentials(input: {
       text = `${payload}.${signature}`
     }
     readerToken = Buffer.from(randomBytes(32).toString('base64url'))
+    controllerToken = Buffer.from(randomBytes(32).toString('base64url'))
     token = Buffer.from(text)
     headers = Object.freeze({ Authorization: `Bearer ${text}` })
   }
@@ -133,6 +147,12 @@ export function createCoordinationCredentials(input: {
     }
   }
 
+  const capabilityRefused = (supplied: Buffer, expected: Buffer) =>
+    input.isClosed() ||
+    supplied.length !== expected.length ||
+    !timingSafeEqual(supplied, expected) ||
+    (expiresAt !== undefined && expiresAt <= Date.now())
+
   return {
     rotate,
     setAudience: (next) => {
@@ -143,9 +163,13 @@ export function createCoordinationCredentials(input: {
       return valid(supplied) ? undefined : 'credential-refused'
     },
     readerRefused: (supplied) =>
-      supplied.length !== readerToken.length ||
-      !timingSafeEqual(supplied, readerToken) ||
-      (expiresAt !== undefined && expiresAt <= Date.now()),
+      input.scopeSignal.aborted ||
+      input.lifetimeSignal?.aborted === true ||
+      capabilityRefused(supplied, readerToken),
+    controllerRefused: (supplied) => {
+      if (input.scopeSignal.aborted || input.lifetimeSignal?.aborted) return 'scope-stopped'
+      return capabilityRefused(supplied, controllerToken) ? 'credential-refused' : undefined
+    },
     get headers() {
       return headers
     },
@@ -154,6 +178,9 @@ export function createCoordinationCredentials(input: {
     },
     get readerToken() {
       return readerToken
+    },
+    get controllerHeaders() {
+      return Object.freeze({ Authorization: `Bearer ${controllerToken.toString()}` })
     },
   }
 }

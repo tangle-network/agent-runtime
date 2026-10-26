@@ -26,6 +26,7 @@ type TokensEvent = Extract<UsageEvent, { kind: 'tokens' }>
 /** One turn's own accounting, kept apart from the run-wide totals. */
 interface BridgeTurnTally {
   text: string
+  finalOutput?: { readonly value: unknown }
   sawTokenUsage: boolean
   tokensKnown: boolean
   sawCostStatus: boolean
@@ -167,6 +168,7 @@ export class BridgeSessionLedger {
   turns = 0
   transportAttempts = 0
   lastText = ''
+  lastFinalOutput: { readonly value: unknown } | undefined
   observedModel: string | undefined
   observedSystemFingerprint: string | undefined
   readonly toolCalls: ExecutorToolCall[] = []
@@ -363,7 +365,7 @@ export class BridgeSessionLedger {
     return priced
   }
 
-  artifact(sessionId: string, startedAt: number): ExecutorResult<unknown> {
+  artifact(sessionId: string, startedAt: number, outputFormat?: 'json'): ExecutorResult<unknown> {
     const spent: Spend = {
       iterations: this.turns,
       tokens: this.tokens,
@@ -378,21 +380,30 @@ export class BridgeSessionLedger {
         : { tokensProvenance: this.tokensProvenance }),
     }
     const { observedModel, observedSystemFingerprint, promptCache, tokensUnknownReason } = this
-    const out = {
-      content: this.lastText,
-      ...(observedModel !== undefined ? { model: observedModel } : {}),
-      ...(observedSystemFingerprint ? { system_fingerprint: observedSystemFingerprint } : {}),
-      toolCalls: this.toolCalls,
-      transportAttempts: this.transportAttempts,
-      ...(Object.keys(promptCache).length > 0 ? { promptCache } : {}),
-      ...(this.sawEstimatedUsd ? { estimatedCostUsd: this.estimatedUsd } : {}),
-      ...(this.tokensKnown || tokensUnknownReason === undefined ? {} : { tokensUnknownReason }),
-    } as unknown
+    if (outputFormat === 'json' && this.lastFinalOutput === undefined)
+      throw new ValidationError(
+        'bridgeExecutor: successful graph turn omitted Bridge final_output JSON',
+      )
+    const out =
+      outputFormat === 'json'
+        ? this.lastFinalOutput!.value
+        : ({
+            content: this.lastText,
+            ...(observedModel !== undefined ? { model: observedModel } : {}),
+            ...(observedSystemFingerprint ? { system_fingerprint: observedSystemFingerprint } : {}),
+            toolCalls: this.toolCalls,
+            transportAttempts: this.transportAttempts,
+            ...(Object.keys(promptCache).length > 0 ? { promptCache } : {}),
+            ...(this.sawEstimatedUsd ? { estimatedCostUsd: this.estimatedUsd } : {}),
+            ...(this.tokensKnown || tokensUnknownReason === undefined
+              ? {}
+              : { tokensUnknownReason }),
+          } as unknown)
     return {
       outRef: contentRef('bridge', {
         model: observedModel ?? null,
         session: sessionId,
-        content: this.lastText,
+        output: out,
       }),
       out,
       spent,
