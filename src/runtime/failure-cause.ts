@@ -66,6 +66,7 @@ export const runtimeFailureCauseSchema = z
  * and cause chain, the caller's signal and deadline, or the settlement's typed fields — never from
  * message text. `cause` is the redacted, bounded cause chain for people; it is not a contract.
  * @stable
+ * @useDeclaredType
  */
 export type RuntimeFailureCause = z.infer<typeof runtimeFailureCauseSchema>
 
