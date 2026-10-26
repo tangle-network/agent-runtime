@@ -1,3 +1,11 @@
+## 0.350.3
+
+Bind durable kill-and-resume conformance to the existing clean-root finalization cases after wake-based scheduling changed their turn numbers.
+
+Read explicit durable supervision directories through the existing TUI snapshot API, preserving verified pursuit identity and unknown accounting while keeping workspace reads synchronous.
+
+Preserve validated Bridge subscription remediation across HTTP/SSE, root-driver rejection, durable records and readers; bound malformed failure traversal without replacing the original rejection or caller cancellation/deadline.
+
 ## 0.350.2
 
 Keep structured failure evidence identical when a retained child is released normally or healed after a crash.
