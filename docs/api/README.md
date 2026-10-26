@@ -9,6 +9,7 @@
 - [agent](agent.md)
 - [analyst-loop](analyst-loop.md)
 - [candidate-execution](candidate-execution.md)
+- [durable/chat-turn](durable/chat-turn.md)
 - [durable](durable.md)
 - [index](index.md)
 - [intelligence](intelligence.md)
