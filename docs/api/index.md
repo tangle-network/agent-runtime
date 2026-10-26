@@ -3940,7 +3940,7 @@ Export a span. Never throws: a sink that cannot take the span counts it as dropp
 
 ###### span
 
-[`OtelSpan`](#otelspan)
+`OtlpSpan`
 
 ###### Returns
 
@@ -4009,86 +4009,6 @@ Spans accepted and not yet written or dropped.
 > `optional` **lastError?**: `string`
 
 The most recent failure, when there has been one.
-
-***
-
-### OtelSpan
-
-#### Properties
-
-##### traceId
-
-> **traceId**: `string`
-
-##### spanId
-
-> **spanId**: `string`
-
-##### parentSpanId?
-
-> `optional` **parentSpanId?**: `string`
-
-##### name
-
-> **name**: `string`
-
-##### kind?
-
-> `optional` **kind?**: `number`
-
-##### startTimeUnixNano
-
-> **startTimeUnixNano**: `string`
-
-##### endTimeUnixNano
-
-> **endTimeUnixNano**: `string`
-
-##### attributes?
-
-> `optional` **attributes?**: [`OtelAttribute`](#otelattribute)[]
-
-##### status?
-
-> `optional` **status?**: `object`
-
-###### code
-
-> **code**: `number`
-
-###### message?
-
-> `optional` **message?**: `string`
-
-***
-
-### OtelAttribute
-
-#### Properties
-
-##### key
-
-> **key**: `string`
-
-##### value
-
-> **value**: `object`
-
-###### stringValue?
-
-> `optional` **stringValue?**: `string`
-
-###### intValue?
-
-> `optional` **intValue?**: `string`
-
-###### doubleValue?
-
-> `optional` **doubleValue?**: `number`
-
-###### boolValue?
-
-> `optional` **boolValue?**: `boolean`
 
 ***
 
@@ -6917,6 +6837,20 @@ A pre-configured loop for one mode. Returns the mode's raw
 
 ***
 
+### OtelSpan
+
+> **OtelSpan** = `OtlpSpan`
+
+One OTLP/JSON span: agent-trace-contract's wire type.
+
+***
+
+### OtelAttribute
+
+> **OtelAttribute** = `OtlpKeyValue`
+
+***
+
 ### RuntimeHookPhase
 
 > **RuntimeHookPhase** = `"before"` \| `"after"` \| `"error"` \| `"event"`
@@ -8436,7 +8370,7 @@ loss, the same rule `createOpenInferenceFileExporter` follows.
 
 ### loopEventToOtelSpan()
 
-> **loopEventToOtelSpan**(`event`, `traceId`, `parentSpanId?`): [`OtelSpan`](#otelspan)
+> **loopEventToOtelSpan**(`event`, `traceId`, `parentSpanId?`): `OtlpSpan`
 
 Convert a LoopTraceEvent into an OtelSpan for export.
 
@@ -8470,13 +8404,13 @@ Convert a LoopTraceEvent into an OtelSpan for export.
 
 #### Returns
 
-[`OtelSpan`](#otelspan)
+`OtlpSpan`
 
 ***
 
 ### buildLoopOtelSpans()
 
-> **buildLoopOtelSpans**(`events`, `traceId`, `rootParentSpanId?`, `redact?`): [`OtelSpan`](#otelspan)[]
+> **buildLoopOtelSpans**(`events`, `traceId`, `rootParentSpanId?`, `redact?`): `OtlpSpan`[]
 
 Build a nested, real-duration OTLP span tree for ONE loop run from its full
 ordered `LoopTraceEvent` stream. Unlike `loopEventToOtelSpan` (one flat,
@@ -8513,54 +8447,7 @@ readonly `object`[]
 
 #### Returns
 
-[`OtelSpan`](#otelspan)[]
-
-***
-
-### padSpanId()
-
-> **padSpanId**(`id`): `string`
-
-Map a caller-supplied span id onto the 16-hex OTLP encoding. An id that is already a valid W3C
-span id passes through UNCHANGED — that is what lets an inherited `PARENT_SPAN_ID`/`TRACEPARENT`
-id keep parenting the same trace. A DASHED hex id (a UUID-form id) passes through dash-stripped:
-that is the exact wire id every earlier release exported for it, so cross-version joins survive
-the strict-W3C upgrade. Anything else (a human run id) is DERIVED via the zero-dep contract's
-`deriveHexId`, the one legal derivation: the old slice-and-pad produced ids that embedded the
-raw input in the wire id and were not even valid hex (the contract's own `non-hex-id` validator
-rejected what this module exported). Exported as the ONE wire-id normalization every writer
-shares — `traceContextToEnv` builds the child's `TRACEPARENT` through these same functions, so
-a parent's exported spans and the context it hands its children always name the same trace.
-
-#### Parameters
-
-##### id
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### padTraceId()
-
-> **padTraceId**(`id`): `string`
-
-Trace-id counterpart of [padSpanId](#padspanid): valid W3C trace ids pass through (dash-stripped when
- UUID-form, preserving the pre-strict-W3C wire id), everything else is derived with
- `deriveHexId(id, 16)` so every process derives the SAME wire id for the same run.
-
-#### Parameters
-
-##### id
-
-`string`
-
-#### Returns
-
-`string`
+`OtlpSpan`[]
 
 ***
 
