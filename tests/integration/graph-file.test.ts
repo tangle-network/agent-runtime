@@ -23,8 +23,10 @@ import {
   recordStoredGraphRun,
   taskShapeDigest,
 } from '../../src/runtime/supervise/graph-registry'
+import { compileSearchSpec, searchPresets } from '../../src/runtime/supervise/search-spec'
 import { validateStoredGraph } from '../../src/runtime/supervise/stored-graph-validation'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
+import { testContinuationProfile } from '../helpers/continuation'
 
 /** Caller-owned deterministic process execution. The canonical profile remains identity data;
  * this seam proves graph plumbing, not native prompt/model/resource materialization. */
@@ -297,6 +299,71 @@ it('loads one canonical file, persists its data check, and runs and resumes real
     ).rejects.toThrow('must be integer')
     expect(() => graphFromStored(stored)).toThrow('missing trigger.event')
     expect(() => graphFromStored(stored, () => true)).toThrow('missing trigger.event')
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+it('compiles flow entries and gates into durable execution of real process stages', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'compiled-graph-flow-'))
+  try {
+    const loaded = await loadGraphFile(
+      fileURLToPath(new URL('./fixtures/canonical.graph.yaml', import.meta.url)),
+      { params: { message: 'accepted' } },
+    )
+    const graph = graphFromStored(loaded.graph, { trigger: { event: 'opened' } })
+    const route = graph.edges[0]!
+    if (route.kind !== 'routes') throw new Error('fixture must begin with a route')
+    const directive = route.directive
+    const compiled = compileSearchSpec(
+      { ...searchPresets.tree(2), select: 'fixed' },
+      {
+        graph: {
+          ...graph,
+          gates: [{ id: 'approval', question: 'Review this result?', choices: ['approve'] }],
+          edges: [
+            { kind: 'routes', from: 'build', to: 'approval', directive },
+            {
+              kind: 'routes',
+              from: 'approval',
+              to: 'review',
+              directive,
+              when: { pointer: '/choice', equals: 'approve' },
+              evidence: ['build'],
+            },
+          ],
+        },
+        budget: graph.budget,
+        deliverable: graph.deliverable,
+        continuation: { profile: testContinuationProfile },
+      },
+    )
+    if (compiled.call !== 'runGraph') throw new Error('fixed selection must compile a graph')
+    expect(compiled.graph.entry).toEqual(graph.entry)
+    const script =
+      "require('node:fs').appendFileSync('stages.jsonl', JSON.stringify({stage:process.argv[1],task:JSON.parse(process.argv[2])})+'\\n');process.stdout.write('delivered:accepted');"
+    const gates: string[] = []
+    const runDir = join(directory, 'run')
+    const result = await superviseGraphPursuit(compiled.graph, {
+      ...compiled.options,
+      pursuitId: 'compiled-flow',
+      runId: 'compiled-flow',
+      runDir,
+      makeLeafAgent: processStages(directory, script),
+      decideGate: async (request) => {
+        gates.push(request.gate)
+        return { kind: 'choose', choice: 'approve', by: 'integration-test' }
+      },
+    })
+    expect(result.result.result.kind, JSON.stringify(result)).toBe('winner')
+    expect(gates).toEqual(['approval'])
+    const stages = (await readFile(join(directory, 'stages.jsonl'), 'utf8')).trim().split('\n')
+    expect(stages).toHaveLength(2)
+    expect(stages[0]).toContain('opened')
+    expect(stages[1]).toContain('delivered:accepted')
+    expect(stages[1]).toContain('approve')
+    expect(await readFile(join(runDir, 'spawn-journal.jsonl'), 'utf8')).toContain('gate:approval')
+    expect(await readFile(join(runDir, 'result.json'), 'utf8')).toContain('winner')
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

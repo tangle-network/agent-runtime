@@ -375,9 +375,9 @@ export interface SearchSpecInputs {
   readonly profile?: AgentProfile
   /** The root's task, for the same three selects. A graph's task is its deliverable's description. */
   readonly task?: unknown
-  /** select `code` and `fixed`: the graph's nodes and edges. The compiler adds the deliverable and
-   *  the budget. */
-  readonly graph?: Pick<AgentGraph, 'nodes' | 'edges'>
+  /** select `code` and `fixed`: the authored topology, including flow entries and gates.
+   *  The compiler adds the deliverable and budget. */
+  readonly graph?: Omit<AgentGraph, 'deliverable' | 'budget'>
   /** select `code`: the caller's brain that makes every root call (`RunGraphOptions.brain`). */
   readonly brain?: ToolLoopChat
   readonly budget: Budget
@@ -597,8 +597,7 @@ export function compileSearchSpec(raw: SearchSpec, inputs: SearchSpecInputs): Co
       spec,
       digest,
       graph: Object.freeze({
-        nodes: graph.nodes,
-        edges: graph.edges,
+        ...graph,
         deliverable: inputs.deliverable,
         budget: inputs.budget,
       }),
