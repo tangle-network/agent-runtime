@@ -442,15 +442,15 @@ Narrowed shape we accept for `FindingsStore`.
 
 ##### loadAll()
 
-> **loadAll**(): readonly `AnalystFinding` & `object`[]
+> **loadAll**(): readonly (`AnalystFinding` & `object`)[]
 
 ###### Returns
 
-readonly `AnalystFinding` & `object`[]
+readonly (`AnalystFinding` & `object`)[]
 
 ##### loadRun()
 
-> **loadRun**(`runId`): readonly `AnalystFinding` & `object`[]
+> **loadRun**(`runId`): readonly (`AnalystFinding` & `object`)[]
 
 ###### Parameters
 
@@ -460,7 +460,7 @@ readonly `AnalystFinding` & `object`[]
 
 ###### Returns
 
-readonly `AnalystFinding` & `object`[]
+readonly (`AnalystFinding` & `object`)[]
 
 ##### append()
 

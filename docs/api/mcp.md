@@ -3479,7 +3479,7 @@ One wake of a manager that ended its turn with work open.
 
 ##### events
 
-> `readonly` **events**: readonly `Record`\<`string`, `unknown`\> & `object`[]
+> `readonly` **events**: readonly (`Record`\<`string`, `unknown`\> & `object`)[]
 
 Everything that reached the inbox since the last turn, in bus order.
 
@@ -4149,6 +4149,7 @@ one research implementation.
 #### Indexable
 
 > \[`key`: `string`\]: `unknown`
+
 **`Experimental`**
 
 #### Properties
@@ -5084,6 +5085,8 @@ provider has already decoded. The size bound is checked on what arrives.
 `string`
 
 ###### read
+
+(`path`) => `Promise`\<`string`\>
 
 #### Returns
 

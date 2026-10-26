@@ -885,6 +885,58 @@ FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
 
 ***
 
+### GraphFileResolutionError
+
+A provider name in authored data needs an environment-owned canonical connection binding.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new GraphFileResolutionError**(`provider`, `node`): [`GraphFileResolutionError`](#graphfileresolutionerror)
+
+###### Parameters
+
+###### provider
+
+`string`
+
+###### node
+
+`string`
+
+###### Returns
+
+[`GraphFileResolutionError`](#graphfileresolutionerror)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### code
+
+> `readonly` **code**: `"CONNECTION_REQUIRED"`
+
+##### fixCommand
+
+> `readonly` **fixCommand**: `"tangle graph run --help"` = `'tangle graph run --help'`
+
+##### provider
+
+> `readonly` **provider**: `string`
+
+##### node
+
+> `readonly` **node**: `string`
+
+***
+
 ### GraphRouteError
 
 A flow node's usable settle matched no routes edge leaving it (`unrouted`), or a fired edge named
@@ -1109,6 +1161,16 @@ One flattened node with the journal tree that owns its records.
 ##### treeRoot
 
 > `readonly` **treeRoot**: `string`
+
+##### failure?
+
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; \}\>
+
+Typed terminal diagnosis, beside status and never a replacement for lifecycle reason.
+
+###### Inherited from
+
+[`NodeSnapshot`](#nodesnapshot).[`failure`](#failure-2)
 
 ##### id
 
@@ -2133,7 +2195,7 @@ Conserved spend. Missing means unavailable; unknown accounting remains explicitl
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: [`RuntimeFailureCause`](index.md#runtimefailurecause)
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; \}\>
 
 Why a `down` worker failed, as values: branch on `code` and `owner`, never on `reason`.
 
@@ -9523,7 +9585,7 @@ Exact admitted provider execution; executionId above remains the Runtime artifac
 
 ##### excludedPaths?
 
-> `readonly` `optional` **excludedPaths?**: readonly [`ProviderWorkspaceEntryMetadata`](#providerworkspaceentrymetadata) & `object`[]
+> `readonly` `optional` **excludedPaths?**: readonly ([`ProviderWorkspaceEntryMetadata`](#providerworkspaceentrymetadata) & `object`)[]
 
 ##### workspace?
 
@@ -10535,6 +10597,8 @@ Capabilities measured from the exact environment that owns this run.
 ###### Parameters
 
 ###### command
+
+\{ \}
 
 ###### options?
 
@@ -11758,7 +11822,8 @@ reader finds the newest copy with one GET instead of listing and opening every o
 
 #### Extends
 
-- [`PrivateCasDurableStore`](#privatecasdurablestore).`PrivateCasNamespaceOperations`
+- [`PrivateCasDurableStore`](#privatecasdurablestore)
+- `PrivateCasNamespaceOperations`
 
 #### Properties
 
@@ -15197,8 +15262,7 @@ Per-field verdict on one authored profile — the raw material the bench renders
 
 > `readonly` **systemPrompt**: `string`
 
-The resolved system prompt (canonical `prompt.systemPrompt`, the sandbox `prompt.system`
- convention, or a bare-string prompt — whichever the author used).
+Resolved authored guidance from replacement, addition and instruction sections.
 
 ##### systemPromptChars
 
@@ -15307,6 +15371,12 @@ new harness capability there.
 ##### bridgeBearer
 
 > **bridgeBearer**: `string`
+
+##### outputFormat?
+
+> `optional` **outputFormat?**: `"json"`
+
+Require Bridge-owned final JSON; conversation text, tools and usage remain trace evidence.
 
 ##### modelCredential?
 
@@ -16020,6 +16090,30 @@ Transport/session configuration shared by every spawned exact profile.
 
 ***
 
+### CompletionCheckContext
+
+Kernel-owned leaf identity; never reconstructed from the worker's submitted output.
+
+#### Properties
+
+##### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+##### node
+
+> `readonly` **node**: [`ExecutorNodeContext`](#executornodecontext) \| `undefined`
+
+##### originalVerdict
+
+> `readonly` **originalVerdict**: `DefaultVerdict` \| `undefined`
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+***
+
 ### DeliverableSpec
 
 The deployable completion oracle passed to [gateOnDeliverable](#gateondeliverable): a `check` that
@@ -16039,18 +16133,23 @@ accepted result, and supplies the verdict the continuation note reports (`src/ru
 
 ##### check
 
-> **check**: (`out`) => `boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>
+> **check**: (`out`, `context?`) => `boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>
 
 The deployable check that decides DELIVERED. Return a `CheckVerdict` to report the items it
  read and one `FAIL <item> <where>: <reason>` line per failed item; `true` or a passing verdict
  delivers. Throw `CheckUnavailableError` (or anything) when the check could not run: that is
- never a verdict on the result.
+ never a verdict on the result. Only gateFactoryOnDeliverable supplies the trusted leaf
+ context; direct checks and graph finalizers receive none.
 
 ###### Parameters
 
 ###### out
 
 `Out`
+
+###### context?
+
+[`CompletionCheckContext`](#completioncheckcontext)
 
 ###### Returns
 
@@ -18809,6 +18908,12 @@ Agents in this child's own subtree, itself excluded.
 
 #### Properties
 
+##### failure?
+
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; \}\>
+
+Typed terminal diagnosis, beside status and never a replacement for lifecycle reason.
+
 ##### id
 
 > `readonly` **id**: `string`
@@ -19222,7 +19327,7 @@ boundary between entries, and an entry on anything else here starts a new segmen
 
 ##### reasoningEffort?
 
-> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
+> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"`
 
 ##### harness?
 
@@ -19650,7 +19755,7 @@ Cancel the live tree. Unsupported signals from older callers throw a validation 
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle).[`signal`](#signal-28)
+[`RootHandle`](#roothandle).[`signal`](#signal-29)
 
 ##### abort()
 
@@ -19903,6 +20008,12 @@ A separately authenticated read-only endpoint. Never persist its protected heade
 
 > `readonly` **headers**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
+##### control
+
+> `readonly` **control**: [`CoordinationControlAccess`](#coordinationcontrolaccess)
+
+Independent operator capability; never persist its protected headers in profiles or journals.
+
 ##### headers
 
 > `readonly` **headers**: `Readonly`\<`Record`\<`string`, `string`\>\>
@@ -20086,6 +20197,42 @@ End one peer exchange: every further mail on the thread is refused `thread-stopp
 ###### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### CoordinationControlAccess
+
+Runtime-only owned-worker control capability, separate from read and manager authority.
+
+#### Extends
+
+- [`CoordinationReadAccess`](durable.md#coordinationreadaccess)
+
+#### Properties
+
+##### url
+
+> `readonly` **url**: `string`
+
+###### Inherited from
+
+[`CoordinationReadAccess`](durable.md#coordinationreadaccess).[`url`](durable.md#url)
+
+##### headers
+
+> `readonly` **headers**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+###### Inherited from
+
+[`CoordinationReadAccess`](durable.md#coordinationreadaccess).[`headers`](durable.md#headers)
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### actorId
+
+> `readonly` **actorId**: `string`
 
 ***
 
@@ -20529,7 +20676,7 @@ Set when another attempt follows. For an `unavailable` attempt this is the pause
 
 ##### reentry?
 
-> `readonly` `optional` **reentry?**: `"wake"` \| `"upstream-unavailable"` \| `"unmet-contract"` \| `"driver-failure"` \| `"run-reentered"`
+> `readonly` `optional` **reentry?**: `"upstream-unavailable"` \| `"wake"` \| `"unmet-contract"` \| `"driver-failure"` \| `"run-reentered"`
 
 How this attempt was entered. Absent on the first attempt of a run this process started.
 
@@ -21201,6 +21348,119 @@ What a finalizer gets to decide with. `delivered` is the ONLY output material; `
 
 ***
 
+### LoadGraphFileOptions
+
+#### Properties
+
+##### source?
+
+> `readonly` `optional` **source?**: `string`
+
+Exact authored bytes. The file argument still names the format and default working directory.
+
+##### cwd?
+
+> `readonly` `optional` **cwd?**: `string`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+##### params?
+
+> `readonly` `optional` **params?**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+##### trigger?
+
+> `readonly` `optional` **trigger?**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+##### seats?
+
+> `readonly` `optional` **seats?**: readonly `AgentProfileSeat`[]
+
+Concrete Bridge inventory defaults, in preference order. No authentication is performed here.
+
+##### seat?
+
+> `readonly` `optional` **seat?**: `string`
+
+One CLI override for every node, ahead of per-node options and authored seats.
+
+##### nodeSeats?
+
+> `readonly` `optional` **nodeSeats?**: `Readonly`\<`Record`\<`string`, `string` \| readonly `string`[]\>\>
+
+##### resolveSeat?
+
+> `readonly` `optional` **resolveSeat?**: (`seat`, `context`) => `AgentProfileSeat` \| `Promise`\<`AgentProfileSeat` \| `undefined`\> \| `undefined`
+
+Bridge-owned syntax, model and login resolution. Undefined marks an unavailable candidate;
+ errors propagate unchanged. The loader does not parse aliases or reasoning effort.
+
+###### Parameters
+
+###### seat
+
+`string` \| `undefined`
+
+###### context
+
+###### node
+
+`string`
+
+###### cwd?
+
+`string`
+
+###### signal?
+
+`AbortSignal`
+
+###### lastCandidate
+
+`boolean`
+
+###### Returns
+
+`AgentProfileSeat` \| `Promise`\<`AgentProfileSeat` \| `undefined`\> \| `undefined`
+
+##### needs?
+
+> `readonly` `optional` **needs?**: `Readonly`\<`Record`\<`string`, `AgentProfileConnection`\>\>
+
+Environment-owned provider-name bindings; files never carry Hub credentials.
+
+##### registry?
+
+> `readonly` `optional` **registry?**: [`PromptRegistry`](#promptregistry)
+
+##### analysts?
+
+> `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry)
+
+***
+
+### LoadedGraphFile
+
+#### Properties
+
+##### graph
+
+> `readonly` **graph**: [`StoredGraph`](#storedgraph)
+
+##### params
+
+> `readonly` **params**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+##### on?
+
+> `readonly` `optional` **on?**: `unknown`
+
+Deployment metadata is preserved separately and never contributes to the graph digest.
+
+***
+
 ### GraphRunRecord
 
 One run or an explicitly incomplete observation of a graph, for one task shape.
@@ -21775,6 +22035,12 @@ Refused here: a maps item's graph and a `run_graph` subtask have no `decideGate`
 
 #### Properties
 
+##### triggerBindings?
+
+> `readonly` `optional` **triggerBindings?**: readonly \[\]
+
+Preserve fully bound literal data when serializing a hydrated graph.
+
 ##### nodes
 
 > `readonly` **nodes**: readonly [`GraphNode`](#graphnode)[]
@@ -21785,9 +22051,23 @@ Refused here: a maps item's graph and a `run_graph` subtask have no `decideGate`
 
 ##### deliverable
 
-> `readonly` **deliverable**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+> `readonly` **deliverable**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\> & `object`
 
 Termination is mandatory, not optional: the independent completion oracle.
+
+###### Type Declaration
+
+###### checkRef?
+
+> `readonly` `optional` **checkRef?**: `string`
+
+###### command?
+
+> `readonly` `optional` **command?**: [`GraphCommandCheck`](#graphcommandcheck)
+
+###### when?
+
+> `readonly` `optional` **when?**: [`RouteWhen`](#routewhen)
 
 ##### budget
 
@@ -22072,7 +22352,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-33)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-35)
 
 ##### execution?
 
@@ -22801,7 +23081,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### reasoningEffort?
 
-> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
+> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"`
 
 ###### harness?
 
@@ -24838,6 +25118,10 @@ Minimal agent identity and topology returned by the protected reader.
 
 > `readonly` **runtime**: `string`
 
+##### failure?
+
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; \}\>
+
 ***
 
 ### RemoteSupervisorTree
@@ -24864,6 +25148,10 @@ Current owned tree, including nested managers and resumed nodes.
 
 The existing coordination transport, restricted to reading the owned tree and worker output.
 
+#### Extended by
+
+- [`RemoteSupervisorControl`](#remotesupervisorcontrol)
+
 #### Methods
 
 ##### tree()
@@ -24876,7 +25164,7 @@ The existing coordination transport, restricted to reading the owned tree and wo
 
 ##### observe()
 
-> **observe**(`workerId`, `cursor?`): `Promise`\<\{ `agent`: `Record`\<`string`, `unknown`\>; `events`: [`WorkerEventPage`](#workereventpage); \}\>
+> **observe**(`workerId`, `cursor?`): `Promise`\<\{ `agent`: [`RemoteSupervisorAgent`](#remotesupervisoragent); `events`: [`WorkerEventPage`](#workereventpage); \}\>
 
 ###### Parameters
 
@@ -24890,7 +25178,7 @@ The existing coordination transport, restricted to reading the owned tree and wo
 
 ###### Returns
 
-`Promise`\<\{ `agent`: `Record`\<`string`, `unknown`\>; `events`: [`WorkerEventPage`](#workereventpage); \}\>
+`Promise`\<\{ `agent`: [`RemoteSupervisorAgent`](#remotesupervisoragent); `events`: [`WorkerEventPage`](#workereventpage); \}\>
 
 ##### close()
 
@@ -24899,6 +25187,106 @@ The existing coordination transport, restricted to reading the owned tree and wo
 ###### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### RemoteSupervisorControl
+
+A separate capability for the same manager's owned workers, without manager tool grants.
+
+#### Extends
+
+- [`RemoteSupervisorReader`](#remotesupervisorreader)
+
+#### Methods
+
+##### tree()
+
+> **tree**(): `Promise`\<[`RemoteSupervisorTree`](#remotesupervisortree)\>
+
+###### Returns
+
+`Promise`\<[`RemoteSupervisorTree`](#remotesupervisortree)\>
+
+###### Inherited from
+
+[`RemoteSupervisorReader`](#remotesupervisorreader).[`tree`](#tree-2)
+
+##### observe()
+
+> **observe**(`workerId`, `cursor?`): `Promise`\<\{ `agent`: [`RemoteSupervisorAgent`](#remotesupervisoragent); `events`: [`WorkerEventPage`](#workereventpage); \}\>
+
+###### Parameters
+
+###### workerId
+
+`string`
+
+###### cursor?
+
+[`WorkerEventCursor`](#workereventcursor)
+
+###### Returns
+
+`Promise`\<\{ `agent`: [`RemoteSupervisorAgent`](#remotesupervisoragent); `events`: [`WorkerEventPage`](#workereventpage); \}\>
+
+###### Inherited from
+
+[`RemoteSupervisorReader`](#remotesupervisorreader).[`observe`](#observe-5)
+
+##### close()
+
+> **close**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Inherited from
+
+[`RemoteSupervisorReader`](#remotesupervisorreader).[`close`](#close-8)
+
+##### steer()
+
+> **steer**(`workerId`, `instruction`, `options?`): `Promise`\<\{ `delivered`: `true`; `progress`: `Record`\<`string`, `unknown`\> \| `null`; \} \| \{ `delivered`: `false`; `outcome`: `"unknown-worker"` \| `"already-settled"` \| `"scope-stopped"` \| `"runtime-error"` \| `"runtime-has-no-inbox"`; `reason`: `string`; `progress`: `Record`\<`string`, `unknown`\> \| `null`; \}\>
+
+###### Parameters
+
+###### workerId
+
+`string`
+
+###### instruction
+
+`string`
+
+###### options?
+
+###### interrupt?
+
+`boolean`
+
+###### Returns
+
+`Promise`\<\{ `delivered`: `true`; `progress`: `Record`\<`string`, `unknown`\> \| `null`; \} \| \{ `delivered`: `false`; `outcome`: `"unknown-worker"` \| `"already-settled"` \| `"scope-stopped"` \| `"runtime-error"` \| `"runtime-has-no-inbox"`; `reason`: `string`; `progress`: `Record`\<`string`, `unknown`\> \| `null`; \}\>
+
+##### cancel()
+
+> **cancel**(`workerId`, `reason?`): `Promise`\<\{ `live`: `number`; `queued`: `number`; `cancelled`: `true`; `workerId`: `string`; `label`: `string`; \} \| \{ `live`: `number`; `queued`: `number`; `released`: `true`; `workerId`: `string`; \} \| \{ `live`: `number`; `queued`: `number`; `error`: `"not-live"`; `reason`: `string`; \}\>
+
+###### Parameters
+
+###### workerId
+
+`string`
+
+###### reason?
+
+`string`
+
+###### Returns
+
+`Promise`\<\{ `live`: `number`; `queued`: `number`; `cancelled`: `true`; `workerId`: `string`; `label`: `string`; \} \| \{ `live`: `number`; `queued`: `number`; `released`: `true`; `workerId`: `string`; \} \| \{ `live`: `number`; `queued`: `number`; `error`: `"not-live"`; `reason`: `string`; \}\>
 
 ***
 
@@ -25586,8 +25974,8 @@ cli-worktree seam. A supervisor-authored `AgentProfile` driving a local coding-h
 named as data. `repoRoot` is transport data; `AgentProfile.harness` selects the CLI.
 `taskPrompt` remains an optional direct-call fallback for callers that execute with `undefined`.
 The authored
-`profile.prompt.systemPrompt` + `profile.model.default` reach the harness via the §1.5
-`harnessInvocation` mapper. Everything else mirrors `WorktreeCliExecutorOptions`.
+`profile.prompt` uses native replace/append controls and a caller-instruction preamble;
+`profile.model.default` selects the native model. Everything else mirrors `WorktreeCliExecutorOptions`.
 
 #### Properties
 
@@ -25669,7 +26057,7 @@ Test seam — forwarded to verification checks.
 cli-in-place seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI
 (claude-code / codex / opencode / pi) on a workspace the CALLER supplies — the leaf
 `createInPlaceCliExecutor` named as data. `workspacePath` is transport data;
-`AgentProfile.harness` selects the CLI, and the authored `profile.prompt.systemPrompt` +
+`AgentProfile.harness` selects the CLI, and the authored `profile.prompt` +
 `profile.model.default` reach the harness via the §1.5 `harnessInvocation` mapper.
 
 READ THIS BEFORE CHOOSING BETWEEN THIS AND `cli-worktree`. They differ in ONE thing, and it is
@@ -26624,7 +27012,7 @@ What a re-entered root's harness session holds. `fresh`: a new session per re-en
 
 ##### select
 
-> `readonly` **select**: `"lead"` \| `"advisor"` \| `"code"` \| `"self"` \| `"fixed"`
+> `readonly` **select**: `"code"` \| `"lead"` \| `"advisor"` \| `"self"` \| `"fixed"`
 
 Who decides the next work. `lead`: the root does work and may spawn. `advisor`: the root only
 assigns, sees each epoch fresh, and its workers are leaves. `self`: a convener starts the peers
@@ -26802,38 +27190,6 @@ Every other option of the call, unchanged: `backend`, `driverBackend`, `coordina
 
 ***
 
-### SeatStage
-
-A stage is authored in the immutable profile. A selection is a concrete, private placement.
-
-#### Properties
-
-##### harness
-
-> `readonly` **harness**: `string`
-
-##### provider
-
-> `readonly` **provider**: `string`
-
-##### model
-
-> `readonly` **model**: `string`
-
-##### selector
-
-> `readonly` **selector**: \{ `kind`: `"all-eligible"`; \} \| \{ `kind`: `"seat"`; `id`: `string`; \}
-
-##### tools?
-
-> `readonly` `optional` **tools?**: `Record`\<`string`, `boolean`\>
-
-##### permissions?
-
-> `readonly` `optional` **permissions?**: `Record`\<`string`, `AgentProfilePermission`\>
-
-***
-
 ### SeatSegment
 
 #### Properties
@@ -26874,7 +27230,8 @@ Options for a supervised run context.
 
 #### Extends
 
-- `SqlRunStoreOptions`.[`InMemoryRunContextOptions`](#inmemoryruncontextoptions)
+- `SqlRunStoreOptions`
+- [`InMemoryRunContextOptions`](#inmemoryruncontextoptions)
 
 #### Properties
 
@@ -27170,6 +27527,56 @@ Require at least this many live workers before the rule can fire — one stalled
 
 Idle time that counts as stalled, passed through to the live progress read. Omit = the
  runtime default (`DEFAULT_STALL_AFTER_MS`).
+
+***
+
+### GraphCommandCheck
+
+An environment-owned check command, run outside the agent's conversation.
+
+#### Properties
+
+##### command
+
+> `readonly` **command**: `string`
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+***
+
+### GraphFromStoredOptions
+
+#### Properties
+
+##### trigger?
+
+> `readonly` `optional` **trigger?**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+##### checks?
+
+> `readonly` `optional` **checks?**: `Readonly`\<`Record`\<`string`, ((`out`, `context?`) => `boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>) \| [`GraphCommandCheck`](#graphcommandcheck)\>\>
+
+***
+
+### ValidateStoredGraphOptions
+
+#### Properties
+
+##### registry?
+
+> `readonly` `optional` **registry?**: [`PromptRegistry`](#promptregistry)
+
+##### analysts?
+
+> `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry)
+
+##### checks?
+
+> `readonly` `optional` **checks?**: `Readonly`\<`Record`\<`string`, ((`out`, `context?`) => `boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>) \| [`GraphCommandCheck`](#graphcommandcheck)\>\>
+
+Environment-owned bindings only. A custom checkRef is refused without its own binding.
 
 ***
 
@@ -27974,7 +28381,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### reasoningEffort?
 
-> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
+> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"`
 
 ###### harness?
 
@@ -28458,7 +28865,7 @@ in code (see [CoordinationVerbs](#coordinationverbs)).
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-20)
+[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-21)
 
 ##### runNamespace
 
@@ -28532,7 +28939,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-20)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-21)
 
 ##### task
 
@@ -28540,7 +28947,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-26)
+[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-41)
 
 ##### signal
 
@@ -32710,7 +33117,7 @@ A JSON scalar: what a route condition compares. A numeric or stateful rule is a 
 
 ### RouteMatch
 
-> **RouteMatch** = `object` & \{ `equals`: [`JsonScalar`](#jsonscalar); \} \| \{ `in`: `ReadonlyArray`\<[`JsonScalar`](#jsonscalar)\>; \} \| \{ `exists`: `boolean`; \}
+> **RouteMatch** = `object` & (\{ `equals`: [`JsonScalar`](#jsonscalar); \} \| \{ `in`: `ReadonlyArray`\<[`JsonScalar`](#jsonscalar)\>; \} \| \{ `exists`: `boolean`; \})
 
 One condition over a settled result: the RFC 6901 `pointer` in the latest usable result of
  `node` (default: the edge's source). A node that has not settled matches nothing. `equals` and
@@ -33294,7 +33701,7 @@ A caller-selected analysis retains the same findings, usage, and corpus contract
 
 ### ObserveOptions
 
-> **ObserveOptions** = `object` & \{ `analysis`: [`ObservationAnalysis`](#observationanalysis); `profile?`: `AgentProfile`; `executor?`: [`ExecutorConfig`](#executorconfig); \} \| \{ `analysis?`: `undefined`; `profile`: `AgentProfile`; `executor`: [`ExecutorConfig`](#executorconfig); \}
+> **ObserveOptions** = `object` & (\{ `analysis`: [`ObservationAnalysis`](#observationanalysis); `profile?`: `AgentProfile`; `executor?`: [`ExecutorConfig`](#executorconfig); \} \| \{ `analysis?`: `undefined`; `profile`: `AgentProfile`; `executor`: [`ExecutorConfig`](#executorconfig); \})
 
 #### Type Declaration
 
@@ -33918,7 +34325,7 @@ Provider-neutral conversation records read by structural candidate extraction.
 > **AuthoredProfile** = `AgentProfile` & `object`
 
 What the supervisor AUTHORS per sub-task: one complete canonical profile whose name and
- task-specific system prompt are present. Every other `AgentProfile` axis is preserved exactly.
+ task-specific guidance are present. Every other `AgentProfile` axis is preserved exactly.
 
 #### Type Declaration
 
@@ -33928,13 +34335,7 @@ What the supervisor AUTHORS per sub-task: one complete canonical profile whose n
 
 ##### prompt
 
-> `readonly` **prompt**: `AgentProfilePrompt` & `object`
-
-###### Type Declaration
-
-###### systemPrompt
-
-> `readonly` **systemPrompt**: `string`
+> `readonly` **prompt**: `AgentProfilePrompt`
 
 ***
 
@@ -34775,10 +35176,7 @@ WHY the retained execution has no accepted result, as a value: the safety refusa
 
 > `optional` **failure?**: [`RuntimeFailureCause`](index.md#runtimefailurecause)
 
-Why the executor threw, classified from the thrown error and the child's abort signal
- while both were still values. Present on a live settlement whose executor threw; the
- journal does not record it, so a replayed settlement leaves it to
- `settlementFailureCause`.
+Typed terminal diagnosis, preserved by the journal and replay. Legacy records may omit it.
 
 ###### subtree?
 
@@ -34835,7 +35233,7 @@ settles on the ordinary path and the recorded-result path writes no marker.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-5); `continues?`: \{ `ofWorker`: [`NodeId`](#nodeid-5); `environmentId`: `string`; \}; `budget`: [`Budget`](#budget-10); `runtime`: [`Runtime`](#runtime-6); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-5); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-5); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-5); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-5); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-5); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| [`EvidencePendingEvent`](#evidencependingevent) \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-5); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `awaitingResult?`: \{ `since`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-5); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-6); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-6); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-5); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `heldRelease?`: [`HeldRelease`](#heldrelease); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-ready"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture-started"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `stages?`: `Readonly`\<`Record`\<`string`, `number`\>\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `graph?`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"routes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `gate?`: `object` & \{ `choice`: `string`; \} \| \{ `stop`: `string`; \}; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-5); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-5); `resumeAt`: `string`; `seq`: `number`; `at`: `string`; \} \| `object` & [`RunParkingRecord`](durable.md#runparkingrecord) \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-5); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-reentered"`; `id`: [`NodeId`](#nodeid-5); `live`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `replaced`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reopened"`; `id`: [`NodeId`](#nodeid-5); `operator`: `string`; `reason`: `string`; `operationId`: `string`; `prior`: \{ `kind`: `string`; `reason?`: `string`; `digest`: `string`; `archivedAs`: `string`; \}; `budget?`: [`Budget`](#budget-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `replacesStop?`: [`DriverAttemptStop`](#driverattemptstop); `streak?`: `number`; `resumeAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"barren-pause"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `streak`: `number`; `pauseMs`: `number`; `resumeAt`: `string`; `lastProgressAt`: `string`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-5); `continues?`: \{ `ofWorker`: [`NodeId`](#nodeid-5); `environmentId`: `string`; \}; `budget`: [`Budget`](#budget-10); `runtime`: [`Runtime`](#runtime-6); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-5); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-5); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-5); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-5); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-5); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| [`EvidencePendingEvent`](#evidencependingevent) \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-5); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `awaitingResult?`: \{ `since`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-5); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-6); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-6); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-5); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `heldRelease?`: [`HeldRelease`](#heldrelease); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-ready"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture-started"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `stages?`: `Readonly`\<`Record`\<`string`, `number`\>\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `graph?`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"routes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `gate?`: `object` & (\{ `choice`: `string`; \} \| \{ `stop`: `string`; \}); `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-5); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-5); `resumeAt`: `string`; `seq`: `number`; `at`: `string`; \} \| `object` & [`RunParkingRecord`](durable.md#runparkingrecord) \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-5); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-reentered"`; `id`: [`NodeId`](#nodeid-5); `live`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `replaced`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reopened"`; `id`: [`NodeId`](#nodeid-5); `operator`: `string`; `reason`: `string`; `operationId`: `string`; `prior`: \{ `kind`: `string`; `reason?`: `string`; `digest`: `string`; `archivedAs`: `string`; \}; `budget?`: [`Budget`](#budget-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `replacesStop?`: [`DriverAttemptStop`](#driverattemptstop); `streak?`: `number`; `resumeAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"barren-pause"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `streak`: `number`; `pauseMs`: `number`; `resumeAt`: `string`; `lastProgressAt`: `string`; `seq`: `number`; `at`: `string`; \}
 
 #### Union Members
 
@@ -35236,7 +35634,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ##### Type Literal
 
-\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -35279,6 +35677,12 @@ Provider model evidence is independent from the planned materialization receipt.
 ###### infra?
 
 > `optional` **infra?**: `boolean`
+
+###### failure?
+
+> `optional` **failure?**: [`RuntimeFailureCause`](index.md#runtimefailurecause)
+
+Runtime-classified diagnosis; absent only when older records did not carry it.
 
 ###### reason?
 
@@ -35351,7 +35755,7 @@ The bounded account of the team this child led, when it led one.
 
 ##### Type Literal
 
-\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -35372,6 +35776,12 @@ The bounded account of the team this child led, when it led one.
 ###### infra?
 
 > `optional` **infra?**: `boolean`
+
+###### failure?
+
+> `optional` **failure?**: [`RuntimeFailureCause`](index.md#runtimefailurecause)
+
+Runtime-classified diagnosis; absent only when older records did not carry it.
 
 ###### spent?
 
@@ -35663,7 +36073,7 @@ Present on the row a worker publishes when it starts waiting on its exact result
 
 ##### Type Literal
 
-\{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-5); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-5); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -35726,6 +36136,12 @@ The settlement the driver received, verbatim, as `settled`/`cancelled` carry it.
 ###### infra?
 
 > `optional` **infra?**: `boolean`
+
+###### failure?
+
+> `optional` **failure?**: [`RuntimeFailureCause`](index.md#runtimefailurecause)
+
+Runtime-classified diagnosis; absent only when older records did not carry it.
 
 ###### trace?
 
@@ -36575,7 +36991,7 @@ The capture port's own split of `captureMs`, in its names and units (ms, bytes).
 
 ##### Type Literal
 
-\{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `graph?`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"routes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `gate?`: `object` & \{ `choice`: `string`; \} \| \{ `stop`: `string`; \}; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `graph?`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"routes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `gate?`: `object` & (\{ `choice`: `string`; \} \| \{ `stop`: `string`; \}); `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -36655,7 +37071,7 @@ A maps edge's row: the list's expansion, one item by index, or the join.
 
 ###### gate?
 
-> `optional` **gate?**: `object` & \{ `choice`: `string`; \} \| \{ `stop`: `string`; \}
+> `optional` **gate?**: `object` & (\{ `choice`: `string`; \} \| \{ `stop`: `string`; \})
 
 A flow gate's decision row (`from` is the gate, `traversal` its visit): who decided and
  the choice or stop reason. A resumed run replays it instead of asking again.
@@ -37227,7 +37643,7 @@ Durable provider identity evidence, independent from the planned materialization
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; \} \| `object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"stopped"` \| `"budget-exhausted"` \| `"deadline"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; \} \| `object` & (\{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"stopped"` \| `"budget-exhausted"` \| `"deadline"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; \}) \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -37359,7 +37775,7 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ***
 
-`object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"stopped"` \| `"budget-exhausted"` \| `"deadline"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; \}
+`object` & (\{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"stopped"` \| `"budget-exhausted"` \| `"deadline"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; \})
 
 ***
 
@@ -37709,9 +38125,35 @@ The finalization seam: ledger in, output (or `undefined` = nothing deliverable) 
 
 ***
 
+### GraphFileSeat
+
+> **GraphFileSeat** = `NonNullable`\<`AgentProfile`\[`"seats"`\]\>\[`number`\]
+
+***
+
+### GraphTriggerBinding
+
+> **GraphTriggerBinding** = `object`
+
+#### Properties
+
+##### path
+
+> **path**: (`string` \| `number`)[]
+
+##### mode
+
+> **mode**: `"text"` \| `"value"`
+
+##### parts
+
+> **parts**: (\{ `literal`: `string`; \} \| \{ `trigger`: `string`[]; \})[]
+
+***
+
 ### StoredGraph
 
-> **StoredGraph** = `object` & \{ `observed?`: `false`; `edges`: `ReadonlyArray`\<[`GraphEdge`](#graphedge)\>; `budget`: [`AgentGraph`](#agentgraph)\[`"budget"`\]; \} \| \{ `observed`: `true`; `edges`: `ReadonlyArray`\<[`GraphEdge`](#graphedge) \| \{ `from`: `string`; `to`: `string`; \}\>; `budget?`: [`AgentGraph`](#agentgraph)\[`"budget"`\]; \}
+> **StoredGraph** = `object` & (\{ `observed?`: `false`; `edges`: `ReadonlyArray`\<[`GraphEdge`](#graphedge)\>; `budget`: [`AgentGraph`](#agentgraph)\[`"budget"`\]; \} \| \{ `observed`: `true`; `edges`: `ReadonlyArray`\<[`GraphEdge`](#graphedge) \| \{ `from`: `string`; `to`: `string`; \}\>; `budget?`: [`AgentGraph`](#agentgraph)\[`"budget"`\]; \})
 
 A graph as stored. Observed imports retain unknown directives and budgets;
 they describe what happened and cannot be replayed as executable graphs.
@@ -37722,21 +38164,19 @@ they describe what happened and cannot be replayed as executable graphs.
 
 > `readonly` **digest**: `string`
 
+##### triggerBindings?
+
+> `readonly` `optional` **triggerBindings?**: readonly `object`[]
+
+Authored trigger-slot provenance; present (even empty) on compiled loader output.
+
 ##### nodes
 
 > `readonly` **nodes**: readonly `object`[]
 
 ##### deliverable
 
-> `readonly` **deliverable**: `object`
-
-###### deliverable.describe?
-
-> `readonly` `optional` **describe?**: `string`
-
-###### deliverable.checkRef?
-
-> `readonly` `optional` **checkRef?**: `string`
+> `readonly` **deliverable**: `Pick`\<[`AgentGraph`](#agentgraph)\[`"deliverable"`\], `"describe"` \| `"checkRef"` \| `"command"` \| `"when"`\>
 
 ##### entry?
 
@@ -37747,6 +38187,20 @@ A flow graph's entry and gates; absent for any other graph.
 ##### gates?
 
 > `readonly` `optional` **gates?**: readonly [`RouteGate`](#routegate)[]
+
+***
+
+### StoredGraphInput
+
+> **StoredGraphInput** = `Omit`\<`Extract`\<[`StoredGraph`](#storedgraph), \{ `observed?`: `false`; \}\>, `"digest"`\> & `object`
+
+Editable graph data; registration computes its digest when it is omitted.
+
+#### Type Declaration
+
+##### digest?
+
+> `readonly` `optional` **digest?**: `string`
 
 ***
 
@@ -38076,6 +38530,20 @@ The same bounded event page served by Scope's live observation owner.
 
 ***
 
+### RemoteSupervisorSteerResult
+
+> **RemoteSupervisorSteerResult** = \{ `delivered`: `true`; `progress`: `Record`\<`string`, `unknown`\> \| `null`; \} \| \{ `delivered`: `false`; `outcome`: `"unknown-worker"` \| `"already-settled"` \| `"scope-stopped"` \| `"runtime-error"` \| `"runtime-has-no-inbox"`; `reason`: `string`; `progress`: `Record`\<`string`, `unknown`\> \| `null`; \}
+
+Actual handler outcomes; queue admission never stands in for delivered steering.
+
+***
+
+### RemoteSupervisorCancelResult
+
+> **RemoteSupervisorCancelResult** = \{ `live`: `number`; `queued`: `number`; `cancelled`: `true`; `workerId`: `string`; `label`: `string`; \} \| \{ `live`: `number`; `queued`: `number`; `released`: `true`; `workerId`: `string`; \} \| \{ `live`: `number`; `queued`: `number`; `error`: `"not-live"`; `reason`: `string`; \}
+
+***
+
 ### RunContext
 
 > **RunContext** = [`InMemoryRunContext`](#inmemoryruncontext)
@@ -38098,6 +38566,14 @@ A `SuperviseOptions` key that an axis or a typed input decides.
 > **CompiledSearchSpec** = \{ `call`: `"supervise"`; `spec`: [`SearchSpec`](#searchspec); `digest`: `Sha256Digest`; `profile`: `AgentProfile`; `task`: `unknown`; `options`: [`SuperviseOptions`](#superviseoptions); \} \| \{ `call`: `"runGraph"`; `spec`: [`SearchSpec`](#searchspec); `digest`: `Sha256Digest`; `graph`: [`AgentGraph`](#agentgraph); `options`: [`RunGraphOptions`](#rungraphoptions); \}
 
 The one call a spec compiles to, with every option inspectable before spend.
+
+***
+
+### SeatStage
+
+> **SeatStage** = `Readonly`\<`NonNullable`\<`AgentProfile`\[`"seats"`\]\>\[`number`\]\>
+
+A stage is authored in the immutable profile. A selection is a concrete, private placement.
 
 ***
 
@@ -38442,7 +38918,7 @@ The box shape the default placement creates: memory for 8 workers at about 0.5 G
 
 ### strategyAuthorContract
 
-> `const` **strategyAuthorContract**: "\nYou author an OPTIMIZATION STRATEGY for an agentic loop system. A strategy decides how to\nspend a compute budget to beat a task's deployable check. You compose exactly two steps:\n\n  shot(spec?: \{ handle?, messages?, steer?, profile?, tools? \}): Promise\<ShotResult \| null\>\n    Runs ONE worker attempt (a bounded tool loop) over an artifact.\n    - omit handle  =\> the shot opens its OWN fresh artifact and closes it after (a sample).\n    - pass handle  =\> the shot CONTINUES that artifact (state accumulates across shots).\n    - messages     =\> the carried conversation (pass the previous ShotResult.messages to continue).\n    - steer        =\> a corrective instruction injected before the shot.\n    - profile      =\> a complete AgentProfile — give THIS shot its own instructions,\n      model, skills, tools, hooks, and subagents. Include name, harness, and\n      model: \{ provider, default \}; put standing instructions in prompt.systemPrompt.\n      For example: \{ ...opts.workerProfile, name: 'researcher',\n        prompt: \{ ...opts.workerProfile.prompt,\n          systemPrompt: 'Inspect the evidence before proposing a change.' \} \}.\n      Choose an available model from the current execution setup. Omit profile to use\n      the worker's exact profile. Every shot spends from the same conserved budget.\n    - tools        =\> string\[\] — restrict THIS shot to a subset of the task's tools by\n      name (focus an explore shot on read-only tools, an execute shot on write tools).\n      Restriction-only; unknown names make the shot fail. ALWAYS select from\n      await listTools(handle) — never hardcode. Omitted =\> the shot sees every tool.\n    ShotResult = \{ messages, score (0..1 on the task's check), passes, total, completions, toolErrors \}\n    Returns null if the attempt failed infra-wise.\n\n  critique(messages): Promise\<string \| null\>\n    A firewalled trace-analyst reads the attempt's trajectory and returns ONE corrective\n    instruction (or null when it judges the work complete). Costs ~1 completion.\n\n  consult(messages, instruction): Promise\<string \| null\>\n    The RAW analyst channel: the same firewalled critic answers YOUR instruction over the\n    trajectory verbatim (no reformatting) — use it when you need a specific reply format\n    (a decision, a prediction). Costs ~1 completion.\n\n  surface.open(task) / surface.close(handle)\n    Open a persistent artifact you manage yourself (remember to close in a finally).\n    close is idempotent — closing an already-closed handle is a safe no-op.\n\n  listTools(handle): Promise\<Array\<\{ name, description? \}\>\>\n    The tools THIS task actually offers. TOOL SETS VARY PER TASK — if you restrict a\n    shot with \`tools\`, you MUST pick names from await listTools(handle); hardcoding\n    names from an example kills your shots on every task whose tools differ.\n\nRules:\n- ALWAYS await every shot/critique/surface call — a floating promise that rejects\n  crashes the whole benchmark run.\n- Stay within ~budget total shots; every shot/critique spends from a conserved pool.\n- For a FRESH attempt OMIT \`messages\` entirely (never pass \`\[\]\` — an empty array is a\n  fresh conversation too, but be explicit). To CONTINUE, pass the previous\n  ShotResult.messages unchanged.\n- Return \{ score, resolved, completions, progression, shots \} — score = the BEST checkpoint\n  you reached (keep-best, never final-state), progression = score after each shot.\n- The module must be EXACTLY this shape (no other imports, no commentary outside code):\n\nimport \{ defineStrategy \} from '@tangle-network/agent-runtime/kernel'\nexport default defineStrategy('your-strategy-name', async (\{ surface, task, opts, budget, shot, critique, listTools \}) =\> \{\n  // your composition (listTools comes from the destructured context — it is NOT a global)\n\})\n"
+> `const` **strategyAuthorContract**: "\\nYou author an OPTIMIZATION STRATEGY for an agentic loop system. A strategy decides how to\\nspend a compute budget to beat a task's deployable check. You compose exactly two steps:\\n\\n  shot(spec?: \{ handle?, messages?, steer?, profile?, tools? \}): Promise\<ShotResult \| null\>\\n    Runs ONE worker attempt (a bounded tool loop) over an artifact.\\n    - omit handle  =\> the shot opens its OWN fresh artifact and closes it after (a sample).\\n    - pass handle  =\> the shot CONTINUES that artifact (state accumulates across shots).\\n    - messages     =\> the carried conversation (pass the previous ShotResult.messages to continue).\\n    - steer        =\> a corrective instruction injected before the shot.\\n    - profile      =\> a complete AgentProfile — give THIS shot its own instructions,\\n      model, skills, tools, hooks, and subagents. Include name, harness, and\\n      model: \{ provider, default \}; put standing instructions in prompt.appendSystemPrompt.\\n      For example: \{ ...opts.workerProfile, name: 'researcher',\\n        prompt: \{ ...opts.workerProfile.prompt,\\n          appendSystemPrompt: 'Inspect the evidence before proposing a change.' \} \}.\\n      Choose an available model from the current execution setup. Omit profile to use\\n      the worker's exact profile. Every shot spends from the same conserved budget.\\n    - tools        =\> string\[\] — restrict THIS shot to a subset of the task's tools by\\n      name (focus an explore shot on read-only tools, an execute shot on write tools).\\n      Restriction-only; unknown names make the shot fail. ALWAYS select from\\n      await listTools(handle) — never hardcode. Omitted =\> the shot sees every tool.\\n    ShotResult = \{ messages, score (0..1 on the task's check), passes, total, completions, toolErrors \}\\n    Returns null if the attempt failed infra-wise.\\n\\n  critique(messages): Promise\<string \| null\>\\n    A firewalled trace-analyst reads the attempt's trajectory and returns ONE corrective\\n    instruction (or null when it judges the work complete). Costs ~1 completion.\\n\\n  consult(messages, instruction): Promise\<string \| null\>\\n    The RAW analyst channel: the same firewalled critic answers YOUR instruction over the\\n    trajectory verbatim (no reformatting) — use it when you need a specific reply format\\n    (a decision, a prediction). Costs ~1 completion.\\n\\n  surface.open(task) / surface.close(handle)\\n    Open a persistent artifact you manage yourself (remember to close in a finally).\\n    close is idempotent — closing an already-closed handle is a safe no-op.\\n\\n  listTools(handle): Promise\<Array\<\{ name, description? \}\>\>\\n    The tools THIS task actually offers. TOOL SETS VARY PER TASK — if you restrict a\\n    shot with \`tools\`, you MUST pick names from await listTools(handle); hardcoding\\n    names from an example kills your shots on every task whose tools differ.\\n\\nRules:\\n- ALWAYS await every shot/critique/surface call — a floating promise that rejects\\n  crashes the whole benchmark run.\\n- Stay within ~budget total shots; every shot/critique spends from a conserved pool.\\n- For a FRESH attempt OMIT \`messages\` entirely (never pass \`\[\]\` — an empty array is a\\n  fresh conversation too, but be explicit). To CONTINUE, pass the previous\\n  ShotResult.messages unchanged.\\n- Return \{ score, resolved, completions, progression, shots \} — score = the BEST checkpoint\\n  you reached (keep-best, never final-state), progression = score after each shot.\\n- The module must be EXACTLY this shape (no other imports, no commentary outside code):\\n\\nimport \{ defineStrategy \} from '@tangle-network/agent-runtime/kernel'\\nexport default defineStrategy('your-strategy-name', async (\{ surface, task, opts, budget, shot, critique, listTools \}) =\> \{\\n  // your composition (listTools comes from the destructured context — it is NOT a global)\\n\})\\n"
 
 The compressed consumable a skill carries: everything an author needs to emit a loop.
 
@@ -38527,6 +39003,22 @@ The conserved pool a `delegate()` call applies when the caller does not pass its
 Keep-best under the completion oracle — the DEFAULT finalizer and the exact behavior every
  existing caller had: the highest-scoring delivered child's output, `undefined` when nothing
  delivered (or the best delivered child carries no artifact).
+
+***
+
+### graphRouteWhenSchema
+
+> `const` **graphRouteWhenSchema**: `ZodUnion`\<readonly \[`ZodUnion`\<readonly \[`ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `equals`: `ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `in`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `exists`: `ZodBoolean`; \}, `$strict`\>\]\>, `ZodObject`\<\{ `all`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `equals`: `ZodUnion`\<readonly \[..., ..., ..., ...\]\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `in`: `ZodArray`\<`ZodUnion`\<...\>\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `exists`: `ZodBoolean`; \}, `$strict`\>\]\>\>; \}, `$strict`\>\]\>
+
+The same data grammar as routes; no executable expressions or additional operators.
+
+***
+
+### graphFileSchema
+
+> `const` **graphFileSchema**: `ZodObject`\<\{ `digest`: `ZodOptional`\<`ZodString`\>; `graph`: `ZodOptional`\<`ZodString`\>; `describe`: `ZodOptional`\<`ZodString`\>; `params`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `default`: `ZodOptional`\<`ZodUnknown`\>; `type`: `ZodOptional`\<`ZodEnum`\<\{ `string`: `"string"`; `number`: `"number"`; `boolean`: `"boolean"`; `object`: `"object"`; `null`: `"null"`; `array`: `"array"`; `integer`: `"integer"`; \}\>\>; \}, `$strict`\>\>\>; `nodes`: `ZodArray`\<`ZodObject`\<\{ `id`: `ZodString`; `profile`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `seat`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodString`, `ZodArray`\<`ZodString`\>\]\>\>; `needs`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; \}, `$strict`\>\>; `entry`: `ZodOptional`\<`ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodObject`\<\{ `node`: `ZodString`; `task`: `ZodUnknown`; \}, `$strict`\>\]\>\>\>; `edges`: `ZodArray`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `gates`: `ZodOptional`\<`ZodArray`\<`ZodUnknown`\>\>; `budget`: `ZodObject`\<\{ `maxIterations`: `ZodNumber`; `maxTokens`: `ZodNumber`; `maxUsd`: `ZodOptional`\<`ZodNumber`\>; `deadlineMs`: `ZodOptional`\<`ZodNumber`\>; `resources`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `unit`: `ZodString`; `limit`: `ZodNumber`; \}, `$strict`\>\>\>; \}, `$strict`\>; `check`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `equals`: `ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `in`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `exists`: `ZodBoolean`; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `all`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `command`: `ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>; \}, `$strict`\>\]\>\>; `deliverable`: `ZodOptional`\<`ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `checkRef`: `ZodString`; `command`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>\>; `when`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>, `ZodObject`\<\{ `all`: `ZodArray`\<...\>; \}, `$strict`\>\]\>\>; \}, `$strict`\>\>; `on`: `ZodOptional`\<`ZodUnknown`\>; \}, `$strict`\>
+
+Authoring envelope. Canonical profiles and topology are validated by their existing owners.
 
 ***
 
@@ -41475,7 +41967,7 @@ empty call-status map so each turn projects tool frames independently.
 
 ### mapSandboxToolEvent()
 
-> **mapSandboxToolEvent**(`event`, `state`): [`RuntimeStreamEvent`](index.md#runtimestreamevent) & `object`[]
+> **mapSandboxToolEvent**(`event`, `state`): ([`RuntimeStreamEvent`](index.md#runtimestreamevent) & `object`)[]
 
 **`Experimental`**
 
@@ -41515,7 +42007,7 @@ Returns `[]` for every non-tool event.
 
 #### Returns
 
-[`RuntimeStreamEvent`](index.md#runtimestreamevent) & `object`[]
+([`RuntimeStreamEvent`](index.md#runtimestreamevent) & `object`)[]
 
 ***
 
@@ -42936,6 +43428,28 @@ harness-derived runtime (`'sandbox'` for any `BackendType`); else fail loud.
 
 ***
 
+### loadGraphFile()
+
+> **loadGraphFile**(`file`, `options?`): `Promise`\<[`LoadedGraphFile`](#loadedgraphfile)\>
+
+Parse the canonical YAML/JSON file into content-addressed Runtime graph data, offline.
+
+#### Parameters
+
+##### file
+
+`string`
+
+##### options?
+
+[`LoadGraphFileOptions`](#loadgraphfileoptions) = `{}`
+
+#### Returns
+
+`Promise`\<[`LoadedGraphFile`](#loadedgraphfile)\>
+
+***
+
 ### graphDigest()
 
 > **graphDigest**(`graph`): `string`
@@ -43043,7 +43557,7 @@ Append one run record; the exact graph is content-addressed beside it.
 
 ### recordStoredGraphRun()
 
-> **recordStoredGraphRun**(`reg`, `stored`, `record`, `options?`): `Promise`\<[`StoredGraph`](#storedgraph)\>
+> **recordStoredGraphRun**(`reg`, `definition`, `record?`, `options?`): `Promise`\<[`StoredGraph`](#storedgraph)\>
 
 Store an executable graph or an observed external topology in the same registry.
 Imported observations retain their source identity and never authorize replay.
@@ -43056,11 +43570,11 @@ correction leaves preserveLabels unset and replaces the record.
 
 [`GraphRegistryDir`](#graphregistrydir)
 
-##### stored
+##### definition
 
-[`StoredGraph`](#storedgraph)
+[`StoredGraph`](#storedgraph) \| [`StoredGraphInput`](#storedgraphinput)
 
-##### record
+##### record?
 
 [`GraphRunRecord`](#graphrunrecord)
 
@@ -43108,7 +43622,7 @@ Records for one task shape or deterministic label query, newest last.
 
 ##### query?
 
-`string` \| [`GraphRunQuery`](#graphrunquery)
+`string` \| [`GraphRunQuery`](#graphrunquery) = `{}`
 
 #### Returns
 
@@ -43211,20 +43725,19 @@ The designer's lookup: replay the known-good graph for this task shape, or
 
 ### graphFromStored()
 
-> **graphFromStored**(`stored`, `check`): [`AgentGraph`](#agentgraph)
+> **graphFromStored**(`stored`, `environment?`): [`AgentGraph`](#agentgraph)
 
-Rehydrate a stored graph into a runnable one. The check comes from the
- CALLER's environment (oracles are environment, never stored).
+Rehydrate a stored graph, binding trigger data and an environment-owned named check.
 
 #### Parameters
 
 ##### stored
 
-[`StoredGraph`](#storedgraph)
+[`StoredGraph`](#storedgraph) \| [`StoredGraphInput`](#storedgraphinput)
 
-##### check
+##### environment?
 
-(`out`) => `boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>
+((`out`, `context?`) => `boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>) \| [`GraphFromStoredOptions`](#graphfromstoredoptions) = `{}`
 
 #### Returns
 
@@ -43768,6 +44281,24 @@ Connect with the server's readOnly URL and protected headers; credentials never 
 #### Returns
 
 `Promise`\<[`RemoteSupervisorReader`](#remotesupervisorreader)\>
+
+***
+
+### connectRemoteSupervisorControl()
+
+> **connectRemoteSupervisorControl**(`access`): `Promise`\<[`RemoteSupervisorControl`](#remotesupervisorcontrol)\>
+
+Connect with the dedicated /control capability, keeping credentials on the protected transport.
+
+#### Parameters
+
+##### access
+
+[`CoordinationControlAccess`](#coordinationcontrolaccess)
+
+#### Returns
+
+`Promise`\<[`RemoteSupervisorControl`](#remotesupervisorcontrol)\>
 
 ***
 
@@ -44530,6 +45061,30 @@ Stop when ANY rule stops — the ordinary composition (each rule is a separate r
 
 ***
 
+### validateStoredGraph()
+
+> **validateStoredGraph**(`value`, `options?`): [`StoredGraph`](#storedgraph)
+
+Validate compiled, runnable StoredGraph data. Authored params/seats/on envelopes belong to
+loadGraphFile; observations belong to the registry's observation importer, never this entry.
+No check function or model call is executed while validating environment-owned references.
+
+#### Parameters
+
+##### value
+
+`unknown`
+
+##### options?
+
+[`ValidateStoredGraphOptions`](#validatestoredgraphoptions) = `{}`
+
+#### Returns
+
+[`StoredGraph`](#storedgraph)
+
+***
+
 ### workerFromBackend()
 
 > **workerFromBackend**(`backend`, `deliverable?`, `seams?`): [`MakeWorkerAgent`](#makeworkeragent)
@@ -45169,7 +45724,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-36), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-38), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 
@@ -45371,6 +45926,12 @@ Re-exports [assertProfileMaterializes](agent.md#assertprofilematerializes)
 ### createOtelExporter
 
 Re-exports [createOtelExporter](index.md#createotelexporter)
+
+***
+
+### CoordinationReadAccess
+
+Re-exports [CoordinationReadAccess](durable.md#coordinationreadaccess)
 
 ***
 

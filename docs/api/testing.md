@@ -772,7 +772,7 @@ The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT — need
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`analysts`](runtime.md#analysts)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`analysts`](runtime.md#analysts-1)
 
 ##### decideGate?
 
@@ -807,7 +807,7 @@ Directive registry. Default: the seeded kernel registry (`kernelPromptRegistry()
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`registry`](runtime.md#registry-1)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`registry`](runtime.md#registry-2)
 
 ##### journal?
 
@@ -833,7 +833,7 @@ The run journal the edge ledger and every spawn/settle ride. Default: in-memory.
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`runId`](runtime.md#runid-13)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`runId`](runtime.md#runid-14)
 
 ##### authorizeMessage?
 
@@ -907,7 +907,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-35)
 
 ##### execution?
 
@@ -1636,7 +1636,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### reasoningEffort?
 
-> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
+> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"`
 
 ###### harness?
 
@@ -1868,7 +1868,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-35)
 
 ##### execution?
 
@@ -1951,7 +1951,7 @@ Name→value tables for the four code-valued options, so a recorded run configur
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`registry`](runtime.md#registry-3)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`registry`](runtime.md#registry-5)
 
 ##### coordination?
 
@@ -2662,7 +2662,7 @@ Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset �
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`analysts`](runtime.md#analysts-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`analysts`](runtime.md#analysts-4)
 
 ##### analyzeOnSettle?
 
@@ -2864,7 +2864,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### reasoningEffort?
 
-> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
+> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"`
 
 ###### harness?
 
@@ -2998,7 +2998,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-19)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-20)
 
 ##### now?
 
@@ -3453,7 +3453,7 @@ Analyst lenses available to the driver (both arms). Required for `analyzeOnSettl
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`analysts`](runtime.md#analysts-4)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`analysts`](runtime.md#analysts-6)
 
 ##### escalateQuestion?
 

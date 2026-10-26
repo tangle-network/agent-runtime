@@ -1,3 +1,47 @@
+## 0.350.0
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Refresh dependencies, patch vulnerable transitives, and align Eval/Sandbox peer floors with the qualified cohort.
+
+Use native replacement and append controls consistently for local and sealed candidate profiles; preserve coding harness defaults with appendSystemPrompt.
+
+Render inferred graph binding and remote supervisor control result types in the public API documentation without exposing internal validation schemas.
+
+Render the public RuntimeFailureCause type in strict API documentation without exposing its internal validation schema.
+
+Load canonical YAML/JSON graph files or source bytes with literal-safe parameter and trigger bindings, canonical seat effort, injected Bridge seat selection and connection bindings. Persist named route or independent command checks without caller closures, provide a portable graph designer profile, and expose a separately authenticated live control capability. Graph Bridge execution requests and consumes Bridge-owned final JSON while preserving measured usage and the existing durable run records.
+
+Preserve typed worker failure causes through run results, protected remote observation, durable journals and replay; prefer structured upstream diagnostics over generic wrapper codes. Graph seat resolvers receive whether an unavailable candidate is the final preference.
+
 ## 0.349.0
 
 Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.

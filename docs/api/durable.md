@@ -1087,6 +1087,10 @@ Content-addressed pointer to this node's persisted tool trace, or why there is n
 
 > `readonly` `optional` **reason?**: `string`
 
+##### failure?
+
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; \}\>
+
 ##### segments?
 
 > `readonly` `optional` **segments?**: readonly [`SeatSegment`](runtime.md#seatsegment)[]
@@ -2149,7 +2153,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-35)
 
 ##### execution?
 
@@ -2232,7 +2236,7 @@ Name→value tables for the four code-valued options, so a recorded run configur
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`registry`](runtime.md#registry-3)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`registry`](runtime.md#registry-5)
 
 ##### coordination?
 
@@ -2928,7 +2932,7 @@ Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset �
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`analysts`](runtime.md#analysts-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`analysts`](runtime.md#analysts-4)
 
 ##### analyzeOnSettle?
 
@@ -3099,7 +3103,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### reasoningEffort?
 
-> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
+> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"`
 
 ###### harness?
 
@@ -3233,7 +3237,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-19)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-20)
 
 ##### now?
 
@@ -3370,7 +3374,8 @@ Stable objective identity spanning concrete Runtime runs.
 > `readonly` **runDir**: `string`
 
 The directory this execution owns: journal, blobs, observer journal, lock and terminal
- records. Re-running the same `runDir` and `runId` resumes the graph.
+ records. Re-running the same `runDir` and `runId` resumes an unsettled graph; a settled
+ graph requires an explicit `reopen`.
 
 ###### Overrides
 
@@ -3380,7 +3385,7 @@ The directory this execution owns: journal, blobs, observer journal, lock and te
 
 > `readonly` `optional` **retainedAtSettlement?**: `"release"`
 
-Always `'release'`, as for [supervisePursuit](#supervisepursuit): a settled graph is never re-entered.
+Always `'release'`: a reopened segment reuses its journal, not retired environments.
 
 ###### Overrides
 
@@ -3391,6 +3396,12 @@ Always `'release'`, as for [supervisePursuit](#supervisepursuit): a settled grap
 > `readonly` `optional` **observerDelivery?**: [`PursuitObserverDelivery`](#pursuitobserverdelivery)
 
 As for [supervisePursuit](#supervisepursuit).
+
+##### reopen?
+
+> `readonly` `optional` **reopen?**: [`RunReopen`](#runreopen)
+
+Explicitly reopen a settled segment under this graph's existing run id and journal.
 
 ##### backend?
 
@@ -3476,7 +3487,7 @@ The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT — need
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`analysts`](runtime.md#analysts)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`analysts`](runtime.md#analysts-1)
 
 ##### decideGate?
 
@@ -3511,7 +3522,7 @@ Directive registry. Default: the seeded kernel registry (`kernelPromptRegistry()
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`registry`](runtime.md#registry-1)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`registry`](runtime.md#registry-2)
 
 ##### journal?
 
@@ -3537,7 +3548,7 @@ The run journal the edge ledger and every spawn/settle ride. Default: in-memory.
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`runId`](runtime.md#runid-13)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`runId`](runtime.md#runid-14)
 
 ##### authorizeMessage?
 
@@ -3590,7 +3601,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-35)
 
 ##### execution?
 
@@ -4273,7 +4284,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### reasoningEffort?
 
-> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
+> `readonly` `optional` **reasoningEffort?**: `"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"`
 
 ###### harness?
 
@@ -4897,6 +4908,10 @@ Listener lifetime: aborts on close, failed setup, manager cancellation, or deadl
 
 Runtime-only read capability delivered to an operator client, never to the canonical profile.
 
+#### Extended by
+
+- [`CoordinationControlAccess`](runtime.md#coordinationcontrolaccess)
+
 #### Properties
 
 ##### url
@@ -4990,6 +5005,22 @@ Publish the read capability before dispatch, so a remote client can observe the 
 ###### access
 
 [`CoordinationReadAccess`](#coordinationreadaccess) & `object`
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+##### onControlReady?
+
+> `readonly` `optional` **onControlReady?**: (`access`) => `void` \| `Promise`\<`void`\>
+
+Publish the separate operator capability before dispatch.
+
+###### Parameters
+
+###### access
+
+[`CoordinationControlAccess`](runtime.md#coordinationcontrolaccess)
 
 ###### Returns
 
@@ -5450,7 +5481,7 @@ post-admission context, and a wrapper around nothing classifiable is exhibit 4.
 
 ### RootStreamRecord
 
-> **RootStreamRecord** = `object` & \{ `event`: [`ExecutorProgressEvent`](runtime.md#executorprogressevent); \} \| \{ `dropped`: \{ `kind`: [`ExecutorProgressEvent`](runtime.md#executorprogressevent)\[`"kind"`\]; `reason`: `string`; \}; \}
+> **RootStreamRecord** = `object` & (\{ `event`: [`ExecutorProgressEvent`](runtime.md#executorprogressevent); \} \| \{ `dropped`: \{ `kind`: [`ExecutorProgressEvent`](runtime.md#executorprogressevent)\[`"kind"`\]; `reason`: `string`; \}; \})
 
 One line of `root-stream.jsonl`.
 
@@ -5897,7 +5928,8 @@ recent throw, and refusal of a settled directory before any compute — and runs
 the graph from its spawn journal. `result.json` holds the graph's supervised result, the same
 record every supervised run leaves; the edge ledger is the journal's `edge` events and the
 returned `result.ledger`. Version chains and forks are `supervisePursuit` features and are not
-offered here.
+offered here. An explicit `reopen` uses the same archived-settle and resume contract as
+`supervisePursuit`; ordinary re-entry of a settled graph stays refused.
 
 #### Parameters
 
