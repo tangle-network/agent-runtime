@@ -300,22 +300,7 @@ export function buildHarnessArgs(
   return args
 }
 
-/**
- * Map a supervisor-authored `AgentProfile` + the per-task prompt onto a concrete harness
- * `command` + `args` (the §1.5 fix). UNLIKE the prompt-only `HARNESS_INVOCATIONS.buildArgs`
- * — which drops both the authored model and the system prompt — this threads the FULL
- * profile payload into argv:
- *
- *  - `profile.prompt.systemPrompt` → the PROMPT channel: a portable, harness-agnostic
- *    default that prepends the system prompt above the task prompt (`<system>\n\n<task>`),
- *    so the authored standing instructions reach EVERY harness (none of the three CLIs
- *    expose a portable replace-system-prompt flag for a one-shot non-interactive run).
- *  - `profile.prompt.instructions[]` → appended prompt sections in authored order.
- *  - `profile.model.default` → the harness's `-m <model>` selector.
- *
- * The task prompt alone is the floor; an empty/absent profile yields exactly the legacy
- * `buildArgs(taskPrompt)` shape so existing callers are byte-identical.
- */
+/** Task/instruction preamble and model controls; native prompts are applied in the workspace plan. */
 export function harnessInvocation(
   harness: LocalHarness,
   profile: AgentProfile,
@@ -337,7 +322,6 @@ export function harnessInvocation(
     }
   }
 
-  const systemPrompt = profile.prompt?.systemPrompt
   const instructions = profile.prompt?.instructions
   if (
     instructions !== undefined &&
@@ -347,7 +331,6 @@ export function harnessInvocation(
     throw new Error('harnessInvocation: profile.prompt.instructions must be an array of strings')
   }
   const promptSections = [
-    ...(typeof systemPrompt === 'string' && systemPrompt.trim().length > 0 ? [systemPrompt] : []),
     ...(instructions?.filter((instruction) => instruction.trim().length > 0) ?? []),
     taskPrompt,
   ]

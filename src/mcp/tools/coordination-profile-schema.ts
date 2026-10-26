@@ -88,9 +88,9 @@ const spawnProfileFields: readonly PublishedProfileField[] = [
   {
     name: 'prompt',
     description:
-      "The child's standing instructions: `systemPrompt` (who it is and how it works) and " +
+      "The child's standing instructions: `appendSystemPrompt` (who it is and how it works; preserves native defaults) and " +
       '`instructions` (durable rules). This is the role; the separate `task` argument carries ' +
-      'what to do right now. A child with no systemPrompt has no role — always set one.',
+      'what to do right now. Give each child instructions or appendSystemPrompt; systemPrompt explicitly replaces native defaults.',
   },
   {
     name: 'tools',

@@ -86,6 +86,105 @@ function appendingHarness(line: string, seen: RunLocalHarnessOptions[] = []) {
 }
 
 describe('createInPlaceCliExecutor', () => {
+  it.each(['claude-code', 'codex'] as const)(
+    'delivers native %s prompt controls through a real subprocess',
+    async (harness) => {
+      const workspacePath = scaffoldWorkspace()
+      const bin = join(workspacePath, 'bin')
+      mkdirSync(bin)
+      // Only the external process is substituted: the public executor owns planning, file
+      // application, launch, capture and cleanup. The child records the bytes it actually read.
+      const executable = join(bin, harness === 'codex' ? 'codex' : 'claude')
+      writeFileSync(
+        executable,
+        `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const file = flag => { const at = args.indexOf(flag); return at < 0 ? undefined : fs.readFileSync(args[at + 1], 'utf8'); };
+const configs = Object.fromEntries(args.flatMap((arg, i) => arg === '-c' ? [args[i + 1].split(/=(.*)/s).slice(0, 2)] : []));
+const decode = value => value === undefined ? undefined : JSON.parse(value);
+const replacement = file('--system-prompt-file') ?? (configs.model_instructions_file === undefined ? undefined : fs.readFileSync(decode(configs.model_instructions_file), 'utf8'));
+const addition = file('--append-system-prompt-file') ?? decode(configs.developer_instructions);
+fs.writeFileSync('session.json', JSON.stringify({ args, replacement, addition }));
+console.log('done');
+`,
+        { mode: 0o755 },
+      )
+      const addition = 'Keep the native coding prompt.\nApply this persona exactly: "careful".'
+      const replacement = 'Explicitly replace native defaults.\nSecond line.'
+      for (const systemPrompt of [undefined, replacement]) {
+        const result = await createInPlaceCliExecutor({
+          workspacePath,
+          profile: {
+            name: 'native-prompt-proof',
+            harness,
+            model: {
+              provider: harness === 'codex' ? 'openai' : 'anthropic',
+              default: harness === 'codex' ? 'test-codex' : 'test-claude',
+            },
+            prompt: {
+              systemPrompt,
+              appendSystemPrompt: addition,
+              instructions: ['PROJECT_GUIDANCE'],
+            },
+          },
+          taskPrompt: 'TASK_ONLY',
+          env: { PATH: `${bin}:${process.env.PATH ?? ''}` },
+        }).execute(undefined, AbortSignal.timeout(30_000))
+        const session = JSON.parse(readFileSync(join(workspacePath, 'session.json'), 'utf8'))
+        expect(result.out.harness.exitCode).toBe(0)
+        expect(session.addition).toBe(addition)
+        expect(session.replacement).toBe(systemPrompt)
+        expect(session.args[1]).toBe('PROJECT_GUIDANCE\n\nTASK_ONLY')
+        if (systemPrompt === undefined) {
+          expect(session.args).not.toContain('--system-prompt-file')
+          expect(
+            session.args.some((arg: string) => arg.startsWith('model_instructions_file=')),
+          ).toBe(false)
+        }
+        expect(session.args[1]).not.toContain(addition)
+        for (const path of result.out.profileMaterialization?.writtenPaths ?? []) {
+          expect(existsSync(join(workspacePath, path))).toBe(false)
+        }
+      }
+    },
+  )
+
+  it('combines OpenCode native addition and MCP in the same materialized config', async () => {
+    const workspacePath = scaffoldWorkspace()
+    const bin = join(workspacePath, 'bin')
+    mkdirSync(bin)
+    writeFileSync(
+      join(bin, 'opencode'),
+      `#!${process.execPath}
+const fs = require('node:fs');
+const config = JSON.parse(fs.readFileSync('opencode.json', 'utf8'));
+const instructions = config.instructions.map(path => fs.readFileSync(path, 'utf8'));
+fs.writeFileSync('session.json', JSON.stringify({ config, instructions, args: process.argv.slice(2) }));
+console.log('done');
+`,
+      { mode: 0o755 },
+    )
+    const result = await createInPlaceCliExecutor({
+      workspacePath,
+      profile: {
+        name: 'opencode-prompt-proof',
+        harness: 'opencode',
+        model: { provider: 'tangle', default: 'test-opencode' },
+        prompt: { appendSystemPrompt: 'NATIVE_ADDITION' },
+        mcp: { local: { command: 'node', args: [{ kind: 'public', value: 'server.mjs' }] } },
+      },
+      taskPrompt: 'TASK_ONLY',
+      env: { PATH: `${bin}:${process.env.PATH ?? ''}` },
+    }).execute(undefined, AbortSignal.timeout(30_000))
+    const session = JSON.parse(readFileSync(join(workspacePath, 'session.json'), 'utf8'))
+    expect(result.out.harness.exitCode).toBe(0)
+    expect(session.instructions).toContain('NATIVE_ADDITION\n')
+    expect(JSON.stringify(session.config.mcp.local)).toContain('server.mjs')
+    expect(session.args).not.toContain('--agent')
+    expect(existsSync(join(workspacePath, 'opencode.json'))).toBe(false)
+  })
+
   it('runs the harness in the supplied directory and leaves its edits there', async () => {
     const workspacePath = scaffoldWorkspace()
     const seen: RunLocalHarnessOptions[] = []

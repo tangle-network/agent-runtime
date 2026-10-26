@@ -196,7 +196,28 @@ export function assertCodexReproducibleInvocation(command: string, args: string[
     tail[2] === '-c' &&
     typeof tail[3] === 'string' &&
     /^model_reasoning_effort="(?:none|minimal|low|medium|high|xhigh)"$/.test(tail[3])
-  if (!hasExactPrefix || tail.length !== 4 || !validModel || !validReasoning) {
+  const nativeKeys = new Set<string>()
+  const nativeArgs = tail.slice(4)
+  let validNative = nativeArgs.length % 2 === 0
+  for (let index = 0; index < nativeArgs.length; index += 2) {
+    const config = nativeArgs[index + 1] ?? ''
+    const split = config.indexOf('=')
+    const key = config.slice(0, split)
+    const value = config.slice(split + 1)
+    if (nativeArgs[index] !== '-c' || nativeKeys.has(key)) validNative = false
+    nativeKeys.add(key)
+    if (key === 'model_instructions_file') {
+      if (value !== JSON.stringify('.tangle/system-prompt.md')) validNative = false
+    } else if (key === 'developer_instructions') {
+      try {
+        const text: unknown = JSON.parse(value)
+        if (typeof text !== 'string' || !text.trim()) validNative = false
+      } catch {
+        validNative = false
+      }
+    } else validNative = false
+  }
+  if (!hasExactPrefix || tail.length < 4 || !validModel || !validReasoning || !validNative) {
     throw new Error(
       'runLocalHarness: reproducible Codex invocation does not match the required isolated argv',
     )

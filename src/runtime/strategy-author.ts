@@ -51,10 +51,10 @@ spend a compute budget to beat a task's deployable check. You compose exactly tw
     - steer        => a corrective instruction injected before the shot.
     - profile      => a complete AgentProfile — give THIS shot its own instructions,
       model, skills, tools, hooks, and subagents. Include name, harness, and
-      model: { provider, default }; put standing instructions in prompt.systemPrompt.
+      model: { provider, default }; put standing instructions in prompt.appendSystemPrompt.
       For example: { ...opts.workerProfile, name: 'researcher',
         prompt: { ...opts.workerProfile.prompt,
-          systemPrompt: 'Inspect the evidence before proposing a change.' } }.
+          appendSystemPrompt: 'Inspect the evidence before proposing a change.' } }.
       Choose an available model from the current execution setup. Omit profile to use
       the worker's exact profile. Every shot spends from the same conserved budget.
     - tools        => string[] — restrict THIS shot to a subset of the task's tools by

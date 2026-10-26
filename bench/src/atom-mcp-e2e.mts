@@ -36,7 +36,7 @@ import {
   streamAgentTurn,
   type Workspace,
 } from '../../src/runtime/index'
-import { asAuthoredProfile } from '../../src/runtime/supervise/authoring'
+import { asAuthoredProfile, assessAuthoredProfile } from '../../src/runtime/supervise/authoring'
 import { serveCoordinationMcp } from '../../src/runtime/supervise/coordination-mcp'
 
 const BRIDGE = (process.env.ROUTER_BASE ?? 'http://127.0.0.1:3355/v1').replace(/\/$/, '')
@@ -123,7 +123,7 @@ function makeWorker(rawProfile: unknown, ws: Workspace, n: number): Agent<unknow
   const inner: Executor<unknown> = {
     runtime: 'router',
     async execute() {
-      const sys = p?.prompt.systemPrompt ?? TASK
+      const sys = p ? assessAuthoredProfile(p).systemPrompt : TASK
       const run = await runInWorkspace(
         ws,
         async (cwd) => {

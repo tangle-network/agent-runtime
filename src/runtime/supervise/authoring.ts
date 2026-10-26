@@ -2,7 +2,7 @@
  *
  * The supervisor's intelligence is AUTHORING the agents it spawns — not pressing buttons.
  *
- * Every agent here is three things: instructions (system prompt), tools, and a model — its
+ * Every agent here is three things: instructions, tools, and a model — its
  * `AgentProfile`. The supervisor's job is to WRITE those profiles: read the task, decompose it,
  * and for each sub-task author a tailored worker recipe. `supervisorInstructions` is the how-to the
  * supervisor reads; canonical Runtime executors materialize the resulting profile.
@@ -21,10 +21,10 @@ import {
 } from '@tangle-network/agent-interface'
 
 /** What the supervisor AUTHORS per sub-task: one complete canonical profile whose name and
- *  task-specific system prompt are present. Every other `AgentProfile` axis is preserved exactly. */
+ *  task-specific guidance are present. Every other `AgentProfile` axis is preserved exactly. */
 export type AuthoredProfile = AgentProfile & {
   readonly name: string
-  readonly prompt: AgentProfilePrompt & { readonly systemPrompt: string }
+  readonly prompt: AgentProfilePrompt
 }
 
 /** Narrow an untyped `spawn_worker` profile argument to an `AuthoredProfile`, or null if the
@@ -32,15 +32,14 @@ export type AuthoredProfile = AgentProfile & {
 export function asAuthoredProfile(raw: unknown): AuthoredProfile | null {
   const parsed = agentProfileSchema.safeParse(raw)
   if (!parsed.success) return null
-  const systemPrompt = parsed.data.prompt?.systemPrompt
-  if (typeof systemPrompt !== 'string' || systemPrompt.trim().length === 0) return null
+  if (!resolveSystemPrompt(parsed.data).trim()) return null
   return {
     ...parsed.data,
     name:
       typeof parsed.data.name === 'string' && parsed.data.name.length > 0
         ? parsed.data.name
         : 'worker',
-    prompt: { ...parsed.data.prompt, systemPrompt },
+    prompt: { ...parsed.data.prompt },
   }
 }
 
@@ -54,7 +53,7 @@ export function supervisorInstructions(opts?: { goal?: string }): string {
     '1. DECOMPOSE it into the smallest set of sub-tasks a single focused worker can each deliver.',
     '2. For EACH sub-task, AUTHOR a worker by calling spawn_worker with a COMPLETE `profile`:',
     '   • name and description: who this specialist is and why it exists.',
-    '   • prompt.systemPrompt: rich instructions for THIS sub-task — exact output, process, evidence, and what "done" means.',
+    '   • prompt.appendSystemPrompt: rich additive instructions for THIS sub-task — exact output, process, evidence, and what "done" means.',
     '   • model.default, model.reasoningEffort, and harness: choose the execution system deliberately when the task benefits from it.',
     '   • tools, mcp, resources.skills/files/instructions, hooks, subagents, permissions, and modes: grant or attach every capability the worker needs; omit an axis only when it is intentionally unnecessary.',
     '   • tools.agent_runtime_coordination_spawn_worker: true ONLY when this child should author and drive descendants. Add only the other agent_runtime_coordination_<verb> tools it will call, such as observe_agent or steer_agent.',
@@ -62,7 +61,7 @@ export function supervisorInstructions(opts?: { goal?: string }): string {
     '   • metadata may describe the work, but it never grants recursion or selects a Runtime execution path.',
     '   NEVER spawn a worker with an empty profile. The quality of the worker IS the quality of the profile you write.',
     '3. End your turn while your workers run: Runtime wakes you with each settled worker. A settlement says valid:true only if the deployable check passed.',
-    '4. If a worker did NOT deliver, AUTHOR A NEW profile whose prompt.systemPrompt names the SPECIFIC failure and how to fix it — never just retry the same profile.',
+    '4. If a worker did NOT deliver, AUTHOR A NEW profile whose prompt.appendSystemPrompt names the SPECIFIC failure and how to fix it — never just retry the same profile.',
     "5. read_journal to re-read YOUR OWN record before you decide the next move: every spawn you made, every settle, every question and answer, every steer, every analyst finding — oldest first, this node only, including what you did before a restart. Use it to see what you already tried instead of trying it again. It is paged: pass the returned nextRow as the next call's sinceRow, narrow with kinds, and raise limit/maxBytes only as far as you will actually read. A truncated:true page means a bound cut it short — keep paging before you conclude you have read everything.",
     '6. AUTHOR YOUR OWN LENS when the questions you can already ask of a settled trace do not cover the failure you are chasing: define_analyst takes an id, a description, an area, the question in your own words, the instructions for answering it with trace evidence, and the smallest toolGroup that can answer it (model is the seat it runs on; omit it for the run default). It is DATA, never code. Then run_analyst it on any settled worker like a lens the run shipped with, and read the finding. list_analysts shows what you have. Define a lens when you need a different question asked — not a second copy of a question already on the menu.',
     '7. EVERY refusal you get back carries a `reason` naming the exact unmet condition. Read it and change that condition — a spawn refused for budget-exhausted needs a smaller budget or the refund of a settled worker, an invalid-profile needs the named field fixed, a submit_result refused because the check THREW is a broken check to report, not a result to resubmit. Never repeat a call that was refused without changing what it was refused for.',
@@ -99,8 +98,7 @@ export const defaultProfileRichnessThresholds: ProfileRichnessThresholds = {
 /** Per-field verdict on one authored profile — the raw material the bench renders + scores. */
 export interface ProfileRichness {
   readonly name: string
-  /** The resolved system prompt (canonical `prompt.systemPrompt`, the sandbox `prompt.system`
-   *  convention, or a bare-string prompt — whichever the author used). */
+  /** Resolved authored guidance from replacement, addition and instruction sections. */
   readonly systemPrompt: string
   readonly systemPromptChars: number
   readonly systemPromptLines: number
@@ -118,15 +116,20 @@ export interface ProfileRichness {
   readonly reasons: string[]
 }
 
-/** Read the system prompt from any authored shape: canonical `prompt.systemPrompt`, the sandbox
- *  `prompt.system` convention, or a bare-string `prompt`. */
+/** Read authored guidance without requiring replacement of native coding instructions. */
 function resolveSystemPrompt(profile: AgentProfile): string {
   const pr = (profile as { prompt?: unknown }).prompt
   if (typeof pr === 'string') return pr
   if (pr && typeof pr === 'object') {
     const o = pr as { systemPrompt?: unknown; system?: unknown }
-    if (typeof o.systemPrompt === 'string') return o.systemPrompt
-    if (typeof o.system === 'string') return o.system
+    return [
+      Reflect.get(o, 'systemPrompt'),
+      Reflect.get(o, 'appendSystemPrompt'),
+      ...(Array.isArray(Reflect.get(o, 'instructions')) ? Reflect.get(o, 'instructions') : []),
+      Reflect.get(o, 'system'),
+    ]
+      .filter((value) => typeof value === 'string')
+      .join('\n\n')
   }
   return ''
 }

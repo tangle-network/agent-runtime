@@ -40,6 +40,7 @@ const routerTurnProfileMaterialization = defineProfileMaterializationContract({
     'version',
     'tags',
     'systemPrompt',
+    'appendSystemPrompt',
     'instructions',
     'modelDefault',
     'modelProvider',
@@ -186,6 +187,7 @@ export function exactRouterModel(profile: AgentProfile, context: string): string
 function renderRouterProfilePrompt(profile: AgentProfile): string {
   const sections: string[] = [
     profile.prompt?.systemPrompt,
+    profile.prompt?.appendSystemPrompt,
     ...(profile.prompt?.instructions ?? []),
   ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
   const resources = profile.resources
@@ -241,7 +243,11 @@ export function taskToMessages(
 ): Array<{ role: string; content: unknown } & Record<string, unknown>> {
   const system =
     resolvedSystem ??
-    [spec.profile.prompt?.systemPrompt, ...(spec.profile.prompt?.instructions ?? [])]
+    [
+      spec.profile.prompt?.systemPrompt,
+      spec.profile.prompt?.appendSystemPrompt,
+      ...(spec.profile.prompt?.instructions ?? []),
+    ]
       .filter((line): line is string => typeof line === 'string' && line.trim().length > 0)
       .join('\n')
 

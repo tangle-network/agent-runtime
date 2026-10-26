@@ -79,7 +79,7 @@ const KNOWN_AXIS_SET = new Set<string>(AGENT_PROFILE_MATERIALIZATION_AXES)
  */
 const compoundAxisLeaves: Record<string, readonly CanonicalAgentProfileMaterializationAxis[]> = {
   identity: ['name', 'description', 'version', 'tags'],
-  prompt: ['systemPrompt', 'instructions'],
+  prompt: ['systemPrompt', 'appendSystemPrompt', 'instructions'],
   model: [
     'modelDefault',
     'modelSmall',
@@ -120,6 +120,7 @@ export const promptModelProfileMaterialization = defineProfileMaterializationCon
   axes: [
     'name',
     'systemPrompt',
+    'appendSystemPrompt',
     'instructions',
     'modelDefault',
     'modelProvider',
@@ -147,6 +148,7 @@ export const worktreeCliProfileMaterialization = defineProfileMaterializationCon
   axes: [
     'name',
     'systemPrompt',
+    'appendSystemPrompt',
     'instructions',
     'modelDefault',
     'modelProvider',

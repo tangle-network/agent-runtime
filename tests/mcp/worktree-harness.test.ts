@@ -217,12 +217,11 @@ describe('runWorktreeHarness profile materialization', () => {
           const prompt = options.invocation?.args[1] ?? ''
           expect(options.codexReproducible).toBe(true)
           expect(options.invocation?.args).toContain('project_doc_max_bytes=0')
-          for (const marker of [
+          expect(prompt).not.toContain(systemMarker)
+          expect(readFileSync(join(options.cwd, '.tangle/system-prompt.md'), 'utf8')).toBe(
             systemMarker,
-            promptInstructionMarker,
-            resourceInstructionMarker,
-            taskMarker,
-          ]) {
+          )
+          for (const marker of [promptInstructionMarker, resourceInstructionMarker, taskMarker]) {
             expect(count(prompt, marker)).toBe(1)
           }
 
@@ -241,10 +240,10 @@ describe('runWorktreeHarness profile materialization', () => {
         expect(execution.out.stats).toEqual({ filesChanged: 1, insertions: 1, deletions: 1 })
         expect(execution.out.profileMaterialization).toMatchObject({
           workspacePlanDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
-          writtenPaths: [newInputPath],
+          writtenPaths: expect.arrayContaining([newInputPath, '.tangle/system-prompt.md']),
           unsupported: [],
           environmentNames: [],
-          flags: [],
+          flags: ['-c', 'model_instructions_file=".tangle/system-prompt.md"'],
           resourceInstructions: {
             delivery: 'invocation-prompt',
             sha256: `sha256:${createHash('sha256')
@@ -443,7 +442,10 @@ describe('runWorktreeHarness profile materialization', () => {
           )
           const prompt = options.invocation?.args[1] ?? ''
           expect(count(prompt, resourceInstructionMarker)).toBe(1)
-          expect(count(prompt, 'DIRECT_SYSTEM_a3563f03')).toBe(1)
+          expect(prompt).not.toContain('DIRECT_SYSTEM_a3563f03')
+          expect(readFileSync(join(options.cwd, '.tangle/system-prompt.md'), 'utf8')).toBe(
+            'DIRECT_SYSTEM_a3563f03',
+          )
           expect(count(prompt, 'DIRECT_TASK_72c5c757')).toBe(1)
           return successfulHarnessResult()
         },
@@ -453,7 +455,9 @@ describe('runWorktreeHarness profile materialization', () => {
         expect(run.result.patch).toBe('')
         expect(run.result.stats).toEqual({ filesChanged: 0, insertions: 0, deletions: 0 })
         expect(run.result.profileMaterialization?.writtenPaths).toEqual(
-          Object.values(paths).sort((left, right) => left.localeCompare(right)),
+          [...Object.values(paths), '.tangle/system-prompt.md'].sort((left, right) =>
+            left.localeCompare(right),
+          ),
         )
         expect(run.result.profileMaterialization?.unsupported).toEqual([])
       } finally {
@@ -901,7 +905,7 @@ describe('runWorktreeHarness kimi-code', () => {
       const run = await runWorktreeHarness({
         repoRoot,
         profile: {
-          prompt: { systemPrompt: systemMarker },
+          prompt: { instructions: [systemMarker] },
           model: { provider: 'moonshot', default: 'kimi-code/k3' },
           resources: {
             files: [

@@ -1,5 +1,4 @@
 import { posix } from 'node:path'
-
 import type {
   AgentCandidateConfigValue,
   AgentCandidateLaunch,
@@ -8,36 +7,12 @@ import type {
   AgentCandidateWorkspacePlan,
   HarnessId,
 } from '@tangle-network/agent-profile-materialize'
+import { nativeSystemPrompt } from '../agent/native-system-prompt'
 import { requirePublicCandidateConfigValue } from './public-config'
 
-const SYSTEM_PROMPT_FILE = '.tangle/system-prompt.md'
-const APPEND_SYSTEM_PROMPT_FILE = '.tangle/append-system-prompt.md'
-
-/**
- * One row describes the native process control for each prompt intent this adapter owns.
- * A row with no executor projection means the shared materializer already lowered the intent into
- * the signed workspace plan; this adapter still proves that the launch reaches the native binary.
- */
 interface HarnessSystemPrompt {
-  /** The native binary the launch must run for this projection to be provable. */
   readonly executable: string
-  /** Apply a replacement prompt to the harness's own control. */
-  readonly project: (
-    plan: AgentCandidateWorkspacePlan,
-    systemPrompt: string,
-    systemPromptFilePath: string,
-  ) => AgentCandidateWorkspacePlan
-  /** Apply an addition without replacing the harness's own prompt. */
-  readonly projectAppend?: (
-    plan: AgentCandidateWorkspacePlan,
-    appendSystemPrompt: string,
-    appendSystemPromptFilePath: string,
-  ) => AgentCandidateWorkspacePlan
-  /** The materializer already projected replacement text into native plan files and flags. */
-  readonly retainsProjectedSystemPrompt?: boolean
-  /** Does caller argv already set a replacement control this projection would shadow? */
   readonly conflictsWithArgs: (values: readonly string[]) => boolean
-  /** Does caller argv already set an additive control this projection would shadow? */
   readonly conflictsWithAppendArgs: (values: readonly string[]) => boolean
 }
 
@@ -84,101 +59,36 @@ function argsSetCodexInstructionOverride(values: readonly string[]): boolean {
 const HARNESS_SYSTEM_PROMPTS = {
   'claude-code': {
     executable: 'claude',
-    project: (plan, systemPrompt, path) =>
-      appendFlags(
-        addPromptFile(plan, SYSTEM_PROMPT_FILE, systemPrompt),
-        '--system-prompt-file',
-        path,
-      ),
-    projectAppend: (plan, appendSystemPrompt, path) =>
-      appendFlags(
-        addPromptFile(plan, APPEND_SYSTEM_PROMPT_FILE, appendSystemPrompt),
-        '--append-system-prompt-file',
-        path,
-      ),
     conflictsWithArgs: argsSetSystemPromptFlag,
     conflictsWithAppendArgs: argsSetAppendSystemPromptFlag,
   },
-  /** OpenCode's bound primary agent is already selected by the materializer's --agent flag. */
+  codex: {
+    executable: 'codex',
+    conflictsWithArgs: argsSetCodexInstructionOverride,
+    conflictsWithAppendArgs: argsSetCodexInstructionOverride,
+  },
   opencode: {
     executable: 'opencode',
-    project: (plan) => plan,
-    retainsProjectedSystemPrompt: true,
-    conflictsWithArgs: (values) =>
+    conflictsWithArgs: (values: readonly string[]) =>
       values.some((value) => value === '--agent' || value.startsWith('--agent=')),
     conflictsWithAppendArgs: argsSetAppendSystemPromptFlag,
   },
   pi: {
     executable: 'pi',
-    project: (plan, systemPrompt, path) =>
-      appendFlags(addPromptFile(plan, SYSTEM_PROMPT_FILE, systemPrompt), '--system-prompt', path),
-    projectAppend: (plan, appendSystemPrompt, path) =>
-      appendFlags(
-        addPromptFile(plan, APPEND_SYSTEM_PROMPT_FILE, appendSystemPrompt),
-        '--append-system-prompt',
-        path,
-      ),
     conflictsWithArgs: argsSetSystemPromptFlag,
     conflictsWithAppendArgs: argsSetAppendSystemPromptFlag,
   },
   prime: {
     executable: 'prime-agent',
-    project: (plan, systemPrompt, path) =>
-      appendFlags(addPromptFile(plan, SYSTEM_PROMPT_FILE, systemPrompt), '--system-prompt', path),
-    projectAppend: (plan, appendSystemPrompt, path) =>
-      appendFlags(
-        addPromptFile(plan, APPEND_SYSTEM_PROMPT_FILE, appendSystemPrompt),
-        '--append-system-prompt',
-        path,
-      ),
     conflictsWithArgs: argsSetSystemPromptFlag,
     conflictsWithAppendArgs: argsSetAppendSystemPromptFlag,
   },
-  /** Gemini's file and env lowering is materializer-owned; this row supplies the launch proof. */
   gemini: {
     executable: 'gemini',
-    project: (plan) => plan,
     conflictsWithArgs: argsSetSystemPromptFlag,
     conflictsWithAppendArgs: argsSetAppendSystemPromptFlag,
   },
-} as const satisfies Partial<Record<HarnessId, HarnessSystemPrompt>>
-
-interface MaterializedPromptDelivery {
-  readonly executable: string
-  readonly delivered: (plan: AgentCandidateWorkspacePlan) => boolean
-  readonly conflictsWithArgs: (values: readonly string[]) => boolean
-}
-
-/**
- * These controls are lowered by agent-profile-materialize into files plus launch inputs. The
- * candidate adapter does not own the spawn, so it must reject an arbitrary entrypoint even when
- * the plan has the right bytes: only the native binary can make those inputs effective.
- */
-const MATERIALIZED_PROMPT_DELIVERIES = {
-  codex: {
-    executable: 'codex',
-    delivered: (plan) =>
-      plan.files.some((file) => file.relPath === '.codex/system-prompt.md') &&
-      plan.flags.some(
-        (flag) =>
-          requirePublicCandidateConfigValue(flag, 'profile.flags') ===
-          'model_instructions_file=.codex/system-prompt.md',
-      ),
-    conflictsWithArgs: argsSetCodexInstructionOverride,
-  },
-  gemini: {
-    executable: 'gemini',
-    delivered: (plan) => {
-      const env = plan.env.GEMINI_SYSTEM_MD
-      return (
-        plan.files.some((file) => file.relPath === '.gemini/system.md') &&
-        env !== undefined &&
-        requirePublicCandidateConfigValue(env, 'profile.env.GEMINI_SYSTEM_MD') === '1'
-      )
-    },
-    conflictsWithArgs: argsSetSystemPromptFlag,
-  },
-} as const satisfies Partial<Record<HarnessId, MaterializedPromptDelivery>>
+} satisfies Partial<Record<HarnessId, HarnessSystemPrompt>>
 
 /** Project both prompt intents onto their distinct native process controls. */
 export function projectCandidatePromptIntents(
@@ -194,16 +104,13 @@ export function projectCandidatePromptIntents(
 ): AgentCandidateWorkspacePlan {
   const systemPrompt = plan.systemPrompt
   const appendSystemPrompt = plan.appendSystemPrompt
-  const delivery = MATERIALIZED_PROMPT_DELIVERIES[
-    plan.harness as keyof typeof MATERIALIZED_PROMPT_DELIVERIES
-  ] as MaterializedPromptDelivery | undefined
-
-  if (systemPrompt === undefined && delivery?.delivered(plan)) {
-    assertProvableNativeLaunch(plan.harness, delivery.executable, launch, 'replacement')
-    assertNoShadowingArgs(plan.harness, delivery.conflictsWithArgs, launch, 'replacement')
-    if (requestedSystemPrompt === undefined) return plan
-    return plan
-  }
+  const geminiSystem = plan.files.find((file) => file.relPath === '.gemini/system.md')
+  const delivered =
+    plan.harness === 'gemini' &&
+    geminiSystem?.content === requestedSystemPrompt &&
+    plan.env.GEMINI_SYSTEM_MD !== undefined &&
+    requirePublicCandidateConfigValue(plan.env.GEMINI_SYSTEM_MD, 'profile.env.GEMINI_SYSTEM_MD') ===
+      '1'
 
   if (requestedSystemPrompt === undefined && requestedAppendSystemPrompt === undefined) {
     return plan
@@ -217,7 +124,7 @@ export function projectCandidatePromptIntents(
   }
 
   const requestedReplacement = requestedSystemPrompt !== undefined
-  if (requestedReplacement && systemPrompt === undefined) {
+  if (requestedReplacement && systemPrompt === undefined && !delivered) {
     throw new Error(
       `profile materializer did not deliver the candidate system prompt for ${plan.harness}`,
     )
@@ -258,31 +165,30 @@ export function projectCandidatePromptIntents(
     )
   }
 
-  let projected = plan
-  if (systemPrompt !== undefined) {
-    projected = projection.project(
-      projection.retainsProjectedSystemPrompt
-        ? projected
-        : omitPromptIntent(projected, 'systemPrompt'),
-      requirePublicCandidateConfigValue(systemPrompt, 'profile.systemPrompt'),
-      systemPromptFilePath,
-    )
-  }
-  if (appendSystemPrompt !== undefined) {
-    if (!projection.projectAppend) {
-      throw new Error(
-        `candidate append system prompt has no native launch projection for ${plan.harness}`,
-      )
+  // These harnesses already have native file/config delivery owned by the materializer.
+  if (plan.harness === 'opencode' || plan.harness === 'gemini') return plan
+  const native = nativeSystemPrompt(
+    plan.harness,
+    {
+      ...(systemPrompt === undefined ? {} : { systemPrompt: requestedSystemPrompt }),
+      appendSystemPrompt: requestedAppendSystemPrompt,
+    },
+    systemPromptFilePath,
+  )
+  for (const file of native.files) {
+    if (plan.files.some((existing) => existing.relPath === file.relPath)) {
+      throw new Error(`candidate profile conflicts with reserved ${file.relPath}`)
     }
-    projected = projection.projectAppend(
-      omitPromptIntent(projected, 'appendSystemPrompt'),
-      requirePublicCandidateConfigValue(appendSystemPrompt, 'profile.appendSystemPrompt'),
-      posix.join(posix.dirname(systemPromptFilePath), 'append-system-prompt.md'),
-    )
   }
-  // The source-profile digest binds authored values. Remove executor handoff fields only after
-  // converting them into native controls; materializer-owned controls remain visible in the plan.
-  return projected
+  const { systemPrompt: _system, appendSystemPrompt: _append, ...projected } = plan
+  return {
+    ...projected,
+    files: [...plan.files, ...native.files],
+    flags: [
+      ...plan.flags,
+      ...native.flags.map((value): AgentCandidateConfigValue => ({ kind: 'public', value })),
+    ],
+  }
 }
 
 function assertProvableNativeLaunch(
@@ -304,70 +210,5 @@ function assertProvableNativeLaunch(
     throw new Error(
       `${harness} system-prompt ${intent} requires the native ${expectedExecutable} executable`,
     )
-  }
-}
-
-function assertNoShadowingArgs(
-  harness: string,
-  conflictsWithArgs: (values: readonly string[]) => boolean,
-  launch: Extract<AgentCandidateLaunch, { kind: 'container-command' }>,
-  intent: 'replacement' | 'addition',
-): void {
-  if (
-    conflictsWithArgs(
-      (launch.args ?? []).map((value, index) =>
-        requirePublicCandidateConfigValue(value, `launch.args[${index}]`),
-      ),
-    )
-  ) {
-    throw new Error(
-      `${harness} launch arguments conflict with the candidate profile ${intent === 'replacement' ? 'system' : 'append system'} prompt`,
-    )
-  }
-}
-
-function omitPromptIntent(
-  plan: AgentCandidateWorkspacePlan,
-  intent: 'systemPrompt' | 'appendSystemPrompt',
-): AgentCandidateWorkspacePlan {
-  const projected = { ...plan }
-  delete projected[intent]
-  return projected
-}
-
-function appendFlags(
-  plan: AgentCandidateWorkspacePlan,
-  ...values: string[]
-): AgentCandidateWorkspacePlan {
-  return {
-    ...plan,
-    flags: [...plan.flags, ...values.map(publicValue)],
-  }
-}
-
-function publicValue(value: string): AgentCandidateConfigValue {
-  return { kind: 'public', value }
-}
-
-function addPromptFile(
-  plan: AgentCandidateWorkspacePlan,
-  relPath: string,
-  prompt: string,
-): AgentCandidateWorkspacePlan {
-  // Candidate argv rejects control characters. Native prompt-file loading preserves multiline
-  // bytes without weakening the shared process schema.
-  if (plan.files.some((file) => file.relPath === relPath)) {
-    throw new Error(`candidate profile conflicts with reserved ${relPath}`)
-  }
-  return {
-    ...plan,
-    files: [
-      ...plan.files,
-      {
-        relPath,
-        content: prompt,
-        source: 'generated',
-      },
-    ],
   }
 }

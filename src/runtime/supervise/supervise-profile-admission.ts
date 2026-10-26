@@ -207,6 +207,7 @@ export const routerSupervisorProfileMaterialization = defineProfileMaterializati
     'version',
     'tags',
     'systemPrompt',
+    'appendSystemPrompt',
     'instructions',
     'resourceInstructions',
     'resourceFailOnError',
