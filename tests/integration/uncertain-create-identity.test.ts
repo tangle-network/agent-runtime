@@ -7,7 +7,6 @@ import {
   FileResultBlobStore,
   FileSpawnJournal,
   type SpawnEvent,
-  supervisorRunDir,
 } from '../../src/runtime'
 import {
   type Executables,
@@ -353,7 +352,7 @@ describe('typed real command credential refusal and accepted evidence', () => {
       // The old implementation reaches an actual pause; cancel it through the public operation
       // before asserting, so the RED is semantic and cleanup never waits for the pause ladder.
       if (pauses.length > 0) {
-        cancelRun(supervisorRunDir(join(fixture.directory, 'run'), rootId), 'ceiling-red-cleanup', {
+        cancelRun(join(fixture.directory, 'run'), 'ceiling-red-cleanup', {
           operator: 'local-integration',
           source: 'test',
           reason: 'join the observed invalid terminal-error pause',
