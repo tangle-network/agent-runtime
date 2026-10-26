@@ -21,6 +21,7 @@ import {
   workerFromBackend,
 } from '../../src/runtime/index'
 import { bridgeUpstreamError } from '../../src/runtime/supervise/bridge-protocol'
+import { testContinuation } from '../helpers/continuation'
 
 // The qualifier supplies the PUBLIC entry of an installed, exact qualified cli-bridge artifact.
 // Without it these are explicitly skipped paired proofs, never evidence of native qualification.
@@ -560,6 +561,7 @@ describe.skipIf(!bridgeEntry)(
           const result = await superviseGraphPursuit(rootedSubscriptionGraph, {
             backend: fixture.backend,
             driverBackend: fixture.backend,
+            continuation: testContinuation({ deadline: Date.now() + budget.deadlineMs }),
             runDir: join(fixture.directory, 'runtime'),
             runId,
             pursuitId: runId,
