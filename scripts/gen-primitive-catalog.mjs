@@ -64,6 +64,7 @@ const ownSurfaceLabels = {
   '.': 'Root — task lifecycle, conversation, RSI verbs, observability',
   './agent': 'Vertical agent — manifest + surface proposal source',
   './durable': 'Product chat turns — edge-safe streaming, persistence, and stable execution IDs',
+  './chat-turn': 'Product chat turn engine alone — the turn stream and stable execution IDs, nothing file-backed',
   './tool-loop': 'Bounded tool calls for browser and edge runtimes',
   './placement': 'Execution placement — cheapest tier a profile allows, edge-safe',
   './intelligence': 'Intelligence SDK — Observe + provable-OFF billing',
