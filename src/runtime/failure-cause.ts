@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { BackendTransportError } from '../errors'
 import { defaultRedactor } from '../redact'
 import { ReservationWaitRefused } from './supervise/budget'
 import { isCredentialRefusal } from './supervise/credential-refusal'
@@ -34,6 +35,19 @@ export type RuntimeFailureOwner = RuntimeFailureCause['owner']
 /** Stable failure codes. A consumer branches on these, never on `cause` text. @stable */
 export type RuntimeFailureCode = RuntimeFailureCause['code']
 
+/** @internal Canonical producer-supplied remediation, shared by transport and read models. */
+export const runtimeFailureRemediationSchema = z.object({
+  cause: z.enum([
+    'api_key_selected',
+    'provider_unresolved',
+    'subscription_unverified',
+    'not_authenticated',
+  ]),
+  fix: z.string().min(1).max(256),
+  harness: z.string().min(1).max(64),
+  provider: z.string().min(1).max(128).nullable(),
+})
+
 /** @internal Validate Runtime-owned failure values on observation transports. */
 export const runtimeFailureCauseSchema = z
   .object({
@@ -56,6 +70,7 @@ export const runtimeFailureCauseSchema = z
     cause: z.string().max(MAX_CAUSE_CHARS),
     /** The upstream or provider machine code the failure carried, when it carried one. */
     providerCode: z.string().regex(MACHINE_CODE_PATTERN).optional(),
+    remediation: runtimeFailureRemediationSchema.readonly().optional(),
   })
   .readonly()
 /**
@@ -151,15 +166,16 @@ function structuralFailure(link: object): Classified | undefined {
   return undefined
 }
 
-function machineCode(value: unknown): string | undefined {
+/** @internal The same machine-code validation used by public failure values. */
+export function runtimeProviderCode(value: unknown): string | undefined {
   return typeof value === 'string' && MACHINE_CODE_PATTERN.test(value) ? value : undefined
 }
 
 function upstreamMachineCode(link: object): string | undefined {
   return (
-    machineCode(read(link, 'upstreamCode')) ??
-    machineCode(read(link, 'errorCode')) ??
-    machineCode(read(link, 'code'))
+    runtimeProviderCode(read(link, 'upstreamCode')) ??
+    runtimeProviderCode(read(link, 'errorCode')) ??
+    runtimeProviderCode(read(link, 'code'))
   )
 }
 
@@ -175,13 +191,25 @@ export function runtimeFailureCause(
   const links = chain(error)
   // Prefer an upstream diagnosis across the whole chain over a wrapper's generic code.
   const providerCode = ['upstreamCode', 'errorCode', 'code']
-    .flatMap((field) => links.map((link) => machineCode(read(link, field))))
+    .flatMap((field) => links.map((link) => runtimeProviderCode(read(link, field))))
     .find((code) => code !== undefined)
+  const upstream = links.find(
+    (link) =>
+      link instanceof BackendTransportError &&
+      link.backend === 'bridge' &&
+      link.status === 403 &&
+      link.upstreamCode === 'subscription_required' &&
+      link.providerDispatch === 'not_started',
+  ) as BackendTransportError | undefined
+  const remedy = runtimeFailureRemediationSchema.readonly().safeParse(upstream?.remediation)
   const failure = ({ code, owner }: Classified): RuntimeFailureCause => ({
     code,
     owner,
     cause: boundedCause(errMessage(error)),
     ...(providerCode === undefined ? {} : { providerCode }),
+    ...(code === 'credential-refused' && providerCode === 'subscription_required' && remedy.success
+      ? { remediation: remedy.data }
+      : {}),
   })
   if (context.signal?.aborted) return failure({ code: 'aborted', owner: 'caller' })
   if (context.deadlineExpired) return failure({ code: 'deadline-exceeded', owner: 'caller' })

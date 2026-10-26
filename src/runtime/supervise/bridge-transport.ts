@@ -1,6 +1,6 @@
 /** Exact Bridge run admission, HTTP transport, ordered reconnect, and acknowledged cancellation. */
 
-import { request as httpRequest } from 'node:http'
+import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { Readable } from 'node:stream'
 import type { AgentProfile } from '@tangle-network/agent-interface'
@@ -18,6 +18,7 @@ import {
   type BridgeProfileMaterializationReceipt,
   type BridgeStreamChunk,
   bridgeProfileMaterializationSchema,
+  bridgeUpstreamError,
   parseSseChatStream,
 } from './bridge-protocol'
 
@@ -26,6 +27,7 @@ const bridgeModelCredentialHeader = 'x-cli-bridge-model-credential'
 const bridgeModelBaseUrlHeader = 'x-cli-bridge-model-base-url'
 
 const bridgeUsageCostSchema = 'cli-bridge.usage-cost.v1'
+const MAX_BRIDGE_ERROR_BYTES = 8_192
 
 /** The bridge's own view of the durable run, as `GET /v1/runs/:id` reports it. `at` is when this
  *  executor read it, so a stale snapshot is presented as stale rather than as current truth. */
@@ -66,6 +68,29 @@ interface BridgeModelRoute {
   readonly toolCallSpans: boolean
 }
 
+/** Buffered reads share one bound for failures; successful API reads keep their existing size. */
+async function readBridgeResponse(res: IncomingMessage): Promise<BridgeBufferedResponse> {
+  const status = res.statusCode ?? 0
+  const chunks: Buffer[] = []
+  let bytes = 0
+  let refused: string | undefined
+  for await (const chunk of res) {
+    const buffer = Buffer.from(chunk)
+    bytes += buffer.byteLength
+    if ((status < 200 || status >= 300) && bytes > MAX_BRIDGE_ERROR_BYTES) {
+      refused = 'Bridge error response exceeded the byte limit'
+      res.destroy()
+      break
+    }
+    chunks.push(buffer)
+  }
+  return {
+    status,
+    headers: res.headers,
+    text: refused ?? Buffer.concat(chunks).toString('utf8'),
+  }
+}
+
 /** One bridge GET over the `node:http(s)` core client — the same transport every other bridge
  *  read uses, so a computed provider endpoint never reaches global `fetch`. Resolves the status
  *  and the body text; a transport failure rejects. */
@@ -89,13 +114,11 @@ function bridgeGet(
         headers: { authorization: `Bearer ${seam.bridgeBearer}` },
         timeout: timeoutMs,
       },
-      (res) => {
-        void (async () => {
-          const chunks: Buffer[] = []
-          for await (const chunk of res) chunks.push(Buffer.from(chunk))
-          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') })
-        })().catch(reject)
-      },
+      (res) =>
+        void readBridgeResponse(res).then(
+          ({ status, text }) => resolve({ status, body: text }),
+          reject,
+        ),
     )
     const abort = () => req.destroy(new DOMException(`bridge GET ${path} aborted`, 'AbortError'))
     signal?.addEventListener('abort', abort, { once: true })
@@ -266,43 +289,18 @@ export async function bridgeAdmissionRefusal(
 
 /** `GET /v1/runs/:id` — the bridge's durable-run registry read. Resolves `undefined` for any
  *  non-200 or non-conforming body rather than throwing: this is only ever an observability read. */
-export function bridgeRunStateGet(
+export async function bridgeRunStateGet(
   seam: BridgeSeam,
   runId: string,
 ): Promise<BridgeRunStateRead | undefined> {
-  const target = new URL(
-    `${seam.bridgeUrl.replace(/\/$/, '')}/v1/runs/${encodeURIComponent(runId)}`,
+  const response = await bridgeGet(
+    seam,
+    `/v1/runs/${encodeURIComponent(runId)}?wait_ms=0`,
+    BRIDGE_RUN_STATE_TIMEOUT_MS,
   )
-  target.searchParams.set('wait_ms', '0')
-  const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
-  return new Promise<BridgeRunStateRead | undefined>((resolve, reject) => {
-    const req = requestFn(
-      target,
-      {
-        method: 'GET',
-        headers: { authorization: `Bearer ${seam.bridgeBearer}` },
-        timeout: BRIDGE_RUN_STATE_TIMEOUT_MS,
-      },
-      (res) => {
-        void (async () => {
-          const chunks: Buffer[] = []
-          for await (const chunk of res) chunks.push(Buffer.from(chunk))
-          if (res.statusCode !== 200) {
-            resolve(undefined)
-            return
-          }
-          resolve(readBridgeRunState(runId, Buffer.concat(chunks).toString('utf8')))
-        })().catch(reject)
-      },
-    )
-    req.on('timeout', () => req.destroy(new Error('bridgeExecutor: run state read timed out')))
-    req.on('error', reject)
-    req.end()
-  })
+  return response.status === 200 ? readBridgeRunState(runId, response.body) : undefined
 }
 
-/** Decode one run snapshot. A body that does not carry the fields we report is `undefined`, never
- *  a partially-invented snapshot. */
 function readBridgeRunState(runId: string, body: string): BridgeRunStateRead | undefined {
   let parsed: {
     id?: unknown
@@ -430,17 +428,11 @@ export async function* streamDurableBridgeRun(
     }
 
     if (!res.ok) {
-      // A remote status is a TRANSPORT fact, not a caller mistake: the package's taxonomy has
-      // `BackendTransportError` precisely so a consumer (and the root-driver retry) can branch on
-      // the upstream status — a 502 from a dying harness is recoverable, a 401 is not. Typing this
-      // as a validation failure made every bridge fault look like a deliberate refusal.
-      const body = (await res.text()).slice(0, 300)
-      const providerDispatch = providerDispatchFromErrorBody(body)
-      throw new BackendTransportError('bridge', `bridgeExecutor: bridge ${res.status}: ${body}`, {
-        status: res.status,
-        body,
-        ...(providerDispatch === 'not_started' ? { providerDispatch } : {}),
-      })
+      throw bridgeUpstreamError(
+        await res.text(),
+        `bridgeExecutor: bridge ${res.status}`,
+        res.status,
+      )
     }
     if (!res.body) {
       throw new ValidationError('bridgeExecutor: bridge response had no body to stream')
@@ -560,49 +552,17 @@ export async function assertBridgeExecutionCapabilities(
   signal: AbortSignal,
   requiresRuntimeAttachments: boolean,
 ): Promise<void> {
-  const target = new URL(`${seam.bridgeUrl.replace(/\/$/, '')}/`)
-  const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
-  const response = await new Promise<BridgeBufferedResponse>((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new DOMException('bridgeExecutor: aborted before capability preflight', 'AbortError'))
-      return
-    }
-    const req = requestFn(
-      target,
-      {
-        method: 'GET',
-        headers: { authorization: `Bearer ${seam.bridgeBearer}` },
-        timeout: 0,
-      },
-      (res) => {
-        void (async () => {
-          const chunks: Buffer[] = []
-          for await (const chunk of res) chunks.push(Buffer.from(chunk))
-          resolve({
-            status: res.statusCode ?? 0,
-            headers: res.headers,
-            text: Buffer.concat(chunks).toString('utf8'),
-          })
-        })().catch(reject)
-      },
-    )
-    const abort = () =>
-      req.destroy(new DOMException('bridgeExecutor: preflight aborted', 'AbortError'))
-    signal.addEventListener('abort', abort, { once: true })
-    req.on('error', reject)
-    req.on('close', () => signal.removeEventListener('abort', abort))
-    req.end()
-  })
+  const response = await bridgeGet(seam, '/', 0, signal)
   if (response.status < 200 || response.status >= 300) {
-    throw new BackendTransportError(
-      'bridge',
-      `bridgeExecutor: capability preflight returned ${response.status}: ${response.text.slice(0, 200)}`,
-      { status: response.status, body: response.text.slice(0, 200) },
+    throw bridgeUpstreamError(
+      response.body,
+      'bridgeExecutor: capability preflight',
+      response.status,
     )
   }
   let body: { capabilities?: Record<string, unknown> }
   try {
-    body = JSON.parse(response.text) as typeof body
+    body = JSON.parse(response.body) as typeof body
   } catch {
     throw new ValidationError('bridgeExecutor: capability preflight returned invalid JSON')
   }
@@ -720,17 +680,13 @@ async function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promis
         res.once('close', () => args.signal.removeEventListener('abort', onAbort))
         const status = res.statusCode ?? 0
         const ok = status >= 200 && status < 300
-        const body = Readable.toWeb(res) as ReadableStream<Uint8Array>
+        const body = ok ? (Readable.toWeb(res) as ReadableStream<Uint8Array>) : null
         resolve({
           ok,
           status,
           headers: res.headers,
           body,
-          text: async () => {
-            const chunks: Buffer[] = []
-            for await (const c of res) chunks.push(c as Buffer)
-            return Buffer.concat(chunks).toString('utf8')
-          },
+          text: async () => (await readBridgeResponse(res)).text,
         })
       },
     )
@@ -820,17 +776,7 @@ function bridgeCancelPost(
         },
         timeout: 0,
       },
-      (res) => {
-        void (async () => {
-          const chunks: Buffer[] = []
-          for await (const chunk of res) chunks.push(Buffer.from(chunk))
-          resolve({
-            status: res.statusCode ?? 0,
-            headers: res.headers,
-            text: Buffer.concat(chunks).toString('utf8'),
-          })
-        })().catch(reject)
-      },
+      (res) => void readBridgeResponse(res).then(resolve, reject),
     )
     req.on('error', reject)
     req.end()
@@ -923,20 +869,4 @@ export async function cancelBridgeRunToTerminal(
     if (deadline !== undefined && Date.now() >= deadline) return false
     await new Promise<void>((resolve) => setTimeout(resolve, 10))
   }
-}
-
-/** Read only the Router-owned one-sided field from an error body. */
-function providerDispatchFromErrorBody(body: string): 'not_started' | undefined {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(body)
-  } catch {
-    return undefined
-  }
-  if (typeof parsed !== 'object' || parsed === null) return undefined
-  const error = (parsed as { error?: unknown }).error
-  if (typeof error !== 'object' || error === null) return undefined
-  return (error as { provider_dispatch?: unknown }).provider_dispatch === 'not_started'
-    ? 'not_started'
-    : undefined
 }
