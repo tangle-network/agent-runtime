@@ -21,7 +21,7 @@ const graph: NonNullable<SearchSpecInputs['graph']> = {
   triggerBindings: [],
   nodes: [{ id: 'critic', profile: { name: 'critic', harness: 'codex' } }],
   entry: [{ node: 'critic', task: { question: 'Review the retained evidence.' } }],
-  gates: [{ id: 'approval', question: 'Accept?', choices: ['accept'] }],
+  gates: [{ id: 'approval', question: 'Accept?', choices: ['accept', 'reject'] }],
   edges: [
     { kind: 'routes', from: 'critic', to: 'approval', directive },
     {
@@ -29,6 +29,13 @@ const graph: NonNullable<SearchSpecInputs['graph']> = {
       from: 'approval',
       to: { finish: 'accepted' },
       when: { pointer: '/choice', equals: 'accept' },
+      directive,
+    },
+    {
+      kind: 'routes',
+      from: 'approval',
+      to: { stop: 'declined' },
+      when: { pointer: '/choice', equals: 'reject' },
       directive,
     },
   ],
