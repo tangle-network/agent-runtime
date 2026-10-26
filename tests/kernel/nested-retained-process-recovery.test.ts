@@ -77,7 +77,7 @@ it.each([
                 let onAbort: (() => void) | undefined
                 try {
                   await Promise.race([
-                    Promise.all([parentOpened, rootInspected, cutoffObserved]),
+                    Promise.all([parentOpened, rootInspected]),
                     new Promise<never>((_resolve, reject) => {
                       onAbort = () =>
                         reject(signal?.reason ?? new Error('child observation aborted'))
@@ -153,6 +153,7 @@ it.each([
             if (!recovering)
               throw new RetainedExecutionPendingError(new Error('manager observation interrupted'))
             expect(settled?.handle.id).toBe('root:s0:s0')
+            if (holdCutoff) await cutoffObserved
             return {
               finalizedBy: 'manager',
               child: settled?.kind === 'done' ? settled.out : undefined,
