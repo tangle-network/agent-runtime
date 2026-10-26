@@ -1,3 +1,9 @@
+## 0.350.2
+
+Keep structured failure evidence identical when a retained child is released normally or healed after a crash.
+
+Qualify the public Sandbox SDK agents and restricted event client release through the guarded packed Runtime consumer and retain the supported peer window.
+
 ## 0.350.1
 
 Keep the graph and native-failure process fixtures compatible with release formatting verification.
