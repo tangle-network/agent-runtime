@@ -76,6 +76,10 @@ remaining boilerplate is irreducible.
 
 ## Documentation Placement
 
+`release:tag <version> --commit <full-sha>` tags a qualified release already merged into
+`origin/main` while later source work continues. Omitting `--commit` selects the fetched main
+tip. The selected commit must carry the requested version; existing tags are always refused.
+
 To verify an unpublished Sandbox SDK, pass its archive after the Runtime and Knowledge archive arguments to `scripts/verify-package-exports.mjs`.
 Use an empty Knowledge argument to keep the installed release.
 For the packed cohort, pass `--sandbox-archive` to test the publisher archive before npm serves it.
