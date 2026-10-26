@@ -1164,7 +1164,7 @@ One flattened node with the journal tree that owns its records.
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Typed terminal diagnosis, beside status and never a replacement for lifecycle reason.
 
@@ -2195,7 +2195,7 @@ Conserved spend. Missing means unavailable; unknown accounting remains explicitl
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Why a `down` worker failed, as values: branch on `code` and `owner`, never on `reason`.
 
@@ -18910,7 +18910,7 @@ Agents in this child's own subtree, itself excluded.
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Typed terminal diagnosis, beside status and never a replacement for lifecycle reason.
 
@@ -19849,7 +19849,7 @@ Router-owned proof that this attempt never reached a provider.
 
 ### NoWinnerError
 
-A driver's `act()` rejection, normalized to a serializable triple so it survives the typed
+A driver's `act()` rejection, normalized to serializable evidence so it survives the typed
 no-winner boundary (an `Error` does not cross a structured-clone / JSON hop intact). A
 non-`Error` rejection normalizes to `{ name: 'NonError', message }` — never dropped.
 Exported so a consumer handling `reason: 'driver-failed'` names this type instead of retyping
@@ -19868,6 +19868,12 @@ its fields.
 ##### stack?
 
 > `optional` **stack?**: `string`
+
+##### failure?
+
+> `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+
+Structural failure evidence captured before the rejection becomes message text.
 
 ***
 
@@ -21405,21 +21411,7 @@ Bridge-owned syntax, model and login resolution. Undefined marks an unavailable 
 
 ###### context
 
-###### node
-
-`string`
-
-###### cwd?
-
-`string`
-
-###### signal?
-
-`AbortSignal`
-
-###### lastCandidate
-
-`boolean`
+`Pick`\<[`LoadGraphFileOptions`](#loadgraphfileoptions), `"cwd"` \| `"signal"`\> & `object`
 
 ###### Returns
 
@@ -21430,6 +21422,27 @@ Bridge-owned syntax, model and login resolution. Undefined marks an unavailable 
 > `readonly` `optional` **needs?**: `Readonly`\<`Record`\<`string`, `AgentProfileConnection`\>\>
 
 Environment-owned provider-name bindings; files never carry Hub credentials.
+
+##### resolveNeed?
+
+> `readonly` `optional` **resolveNeed?**: (`provider`, `context`) => `AgentProfileConnection` \| `Promise`\<`AgentProfileConnection` \| `undefined`\> \| `undefined`
+
+Optional host resolution for providers without an own static binding. Calls may overlap;
+the host owns coalescing, authentication and cancellation; errors propagate unchanged.
+
+###### Parameters
+
+###### provider
+
+`string`
+
+###### context
+
+`Pick`\<[`LoadGraphFileOptions`](#loadgraphfileoptions), `"cwd"` \| `"signal"`\> & `object`
+
+###### Returns
+
+`AgentProfileConnection` \| `Promise`\<`AgentProfileConnection` \| `undefined`\> \| `undefined`
 
 ##### registry?
 
@@ -25120,7 +25133,7 @@ Minimal agent identity and topology returned by the protected reader.
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 ***
 
@@ -43432,7 +43445,7 @@ harness-derived runtime (`'sandbox'` for any `BackendType`); else fail loud.
 
 > **loadGraphFile**(`file`, `options?`): `Promise`\<[`LoadedGraphFile`](#loadedgraphfile)\>
 
-Parse the canonical YAML/JSON file into content-addressed Runtime graph data, offline.
+Compile canonical YAML/JSON to content-addressed graph data. Host resolvers may perform I/O.
 
 #### Parameters
 

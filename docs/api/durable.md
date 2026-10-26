@@ -55,6 +55,22 @@ journals by `pursuitId` instead of making independent processes share a write he
 
 #### Methods
 
+##### open()
+
+> `static` **open**(`path`): `Promise`\<[`FileObserverJournal`](#fileobserverjournal) \| `undefined`\>
+
+Open existing committed history by its recorded identity; never creates a file.
+
+###### Parameters
+
+###### path
+
+`string`
+
+###### Returns
+
+`Promise`\<[`FileObserverJournal`](#fileobserverjournal) \| `undefined`\>
+
 ##### hooks()
 
 > **hooks**(): [`RuntimeHooks`](index.md#runtimehooks)
@@ -862,6 +878,12 @@ How many times a process resumed this attempt after a predecessor died mid-run.
 
 > `readonly` `optional` **error?**: `string`
 
+##### failure?
+
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+
+Runtime-classified root failure; absent in legacy observer history.
+
 ##### segments?
 
 > `readonly` `optional` **segments?**: readonly [`SeatSegment`](runtime.md#seatsegment)[]
@@ -1089,7 +1111,7 @@ Content-addressed pointer to this node's persisted tool trace, or why there is n
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 ##### segments?
 
@@ -4502,6 +4524,18 @@ already knowing the root node or coordination run id stored inside it.
 ##### runDir
 
 > `readonly` **runDir**: `string`
+
+##### observer?
+
+> `readonly` `optional` **observer?**: `object`
+
+###### path
+
+> `readonly` **path**: `string`
+
+###### pursuitId
+
+> `readonly` **pursuitId**: `string`
 
 ##### spawnJournalPath
 

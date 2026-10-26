@@ -528,7 +528,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1025 exports.
 | `legacySupervisorRunDir` | function | Where a pre-rename writer put the same run (`<root>/.loops/supervisor/<id>`). Readers that must |
 | `listGraphRuns` | function | All records, newest last. |
 | `loadGraph` | function | Load a stored graph by digest. |
-| `loadGraphFile` | function | Parse the canonical YAML/JSON file into content-addressed Runtime graph data, offline. |
+| `loadGraphFile` | function | Compile canonical YAML/JSON to content-addressed graph data. Host resolvers may perform I/O. |
 | `loadProfile` | function | Load a stored profile revision by digest (for replaying the winning revision). |
 | `loadSpawnForest` | function | Load every journal tree owned by one recursive supervision run and flatten its nodes/events. |
 | `localShell` | function | Host-process `Shell`: run a command via `execFile`, resolving `{ stdout, stderr, code }` (never throws on non-zero exit). |
@@ -903,7 +903,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1025 exports.
 | `MountManifestEntry` | interface | One mounted resource recorded during box preparation — a pure provenance |
 | `NativeContextContinuationHandle` | interface | Admission and terminal result for one same-session continuation. |
 | `NodeExecutionIdentity` | interface | Durable identity of one realized node. Missing digests mean the input was not canonical JSON. |
-| `NoWinnerError` | interface | A driver's `act()` rejection, normalized to a serializable triple so it survives the typed |
+| `NoWinnerError` | interface | A driver's `act()` rejection, normalized to serializable evidence so it survives the typed |
 | `ObservedSessionFacts` | interface | Structural projection of traces' SessionFacts. The trace reader owns all |
 | `OpenSandboxRunBeforeStartContext` | interface | Context available after the box/session exists and before the first prompt is |
 | `OutputAdapter` | interface | Stream of `SandboxEvent`s → typed `Output`. |
@@ -1498,10 +1498,9 @@ Import from `@tangle-network/agent-runtime/tui` — 14 exports.
 |---|---|---|
 | `loadTopSnapshot` | function | Read every supervisor run under one workspace into a single point-in-time snapshot. |
 | `provisionSupervisor` | function | Provision one real provider-backed worker and keep its owning manager alive for controls. |
-| `TopSnapshot` | interface | The snapshot reader for the supervisor-run TUI: turn the on-disk run layout into a `TopSnapshot`. |
 | `TopSnapshotDiagnostic` | interface | One skipped or partially read snapshot source. `path` is relative to the run directory and |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BudgetStats`, `Distribution`, `SpendStats`, `SupervisorTotals`, `SupervisorView`, `WorkerView`, `TopJournalEvent`, `TopSnapshotCompleteness`, `TopSnapshotDiagnosticReason`, `TopSnapshotDiagnosticSource`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `Distribution`, `SpendStats`, `SupervisorTotals`, `SupervisorView`, `TopSnapshot`, `WorkerView`, `BudgetStats`, `TopJournalEvent`, `TopSnapshotCompleteness`, `TopSnapshotDiagnosticReason`, `TopSnapshotDiagnosticSource`.
 
 ### Bounded task admission and native promise settlement
 
