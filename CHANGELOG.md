@@ -1,3 +1,9 @@
+## 0.350.1
+
+Keep the graph and native-failure process fixtures compatible with release formatting verification.
+
+Qualify the current shared Interface and Core contract bytes while preserving isolated SDK-owned copies and fail-closed resolver checks.
+
 ## 0.350.0
 
 Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
