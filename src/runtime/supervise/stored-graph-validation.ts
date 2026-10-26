@@ -5,6 +5,7 @@ import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
 import type { GraphEdge, GraphTopology } from './graph'
 import { graphFileSchema, graphRouteWhenSchema } from './graph-file-schema'
 import { validateFlowGraph } from './graph-flow'
+import { assertGraphTriggerBindings, graphTriggerBindingsSchema } from './graph-parameters'
 import { graphDigest, type StoredGraph } from './graph-registry'
 import { validateGraphTopology } from './graph-topology'
 import { assertExecutableAgentProfile } from './model-policy'
@@ -96,6 +97,7 @@ const storedGraphSchema = graphFileSchema
   .required()
   .extend({
     observed: z.literal(false).optional(),
+    triggerBindings: graphTriggerBindingsSchema.optional(),
     nodes: z.array(node).min(1),
     edges: z.array(edge),
     entry: entry.optional(),
@@ -151,6 +153,7 @@ export function validateStoredGraph(
   const parsed = storedGraphSchema.safeParse(value)
   if (!parsed.success) refuse(parsed.error.message)
   const graph = parsed.data
+  if (graph.triggerBindings !== undefined) assertGraphTriggerBindings(graph, graph.triggerBindings)
   const check = graph.deliverable
   if (check.checkRef === 'command') {
     if (!check.command?.command.trim() || check.when)

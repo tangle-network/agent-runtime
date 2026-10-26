@@ -15,11 +15,15 @@ import { runSettledCommand } from '../../src/mcp/worktree-harness'
 import { runGraph } from '../../src/runtime/supervise/graph'
 import { loadGraphFile } from '../../src/runtime/supervise/graph-file'
 import {
+  digestOfGraph,
   graphFromStored,
   listGraphRuns,
   loadGraph,
+  recordGraphRun,
   recordStoredGraphRun,
+  taskShapeDigest,
 } from '../../src/runtime/supervise/graph-registry'
+import { validateStoredGraph } from '../../src/runtime/supervise/stored-graph-validation'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
 
 /** Caller-owned deterministic process execution. The canonical profile remains identity data;
@@ -113,6 +117,12 @@ it('loads one canonical file, persists its data check, and runs and resumes real
   const params = { message: 'accepted', iterations: '12', input: { count: 3 } }
   try {
     const loaded = await loadGraphFile(fixture, { params })
+    const sourceLoaded = await loadGraphFile(join(directory, 'authored.yaml'), {
+      params,
+      source: await readFile(fixture, 'utf8'),
+    })
+    expect(sourceLoaded.graph).toEqual(loaded.graph)
+    expect(sourceLoaded.graph.digest).toBe(loaded.graph.digest)
     expect(loaded.params).toEqual({ ...params, iterations: 12 })
     expect(loaded.graph.nodes.map(({ id, profile }) => profile.name === id)).toEqual([true, true])
     expect(loaded.graph.nodes[0]!.profile.prompt?.systemPrompt).toBe('Build accepted.')
@@ -143,7 +153,7 @@ it('loads one canonical file, persists its data check, and runs and resumes real
       nodeSeats: { build: 'must-not-be-selected' },
       resolveSeat: (seat) => {
         expect(seat).toBe(override)
-        return overrideSeat
+        return { ...overrideSeat, reasoningEffort: 'none' }
       },
     })
     expect(overridden.graph.nodes.map(({ profile }) => profile.model?.default)).toEqual([
@@ -151,6 +161,10 @@ it('loads one canonical file, persists its data check, and runs and resumes real
       'offline/override-process',
     ])
     expect(overridden.graph.nodes.every(({ profile }) => profile.seats === undefined)).toBe(true)
+    expect(overridden.graph.nodes.map(({ profile }) => profile.model?.reasoningEffort)).toEqual([
+      'none',
+      'none',
+    ])
     const unresolvedPath = join(directory, 'unresolved.graph.json')
     const unresolved = structuredClone(json)
     const unresolvedNodes = unresolved.nodes as Array<Record<string, unknown>>
@@ -198,17 +212,52 @@ it('loads one canonical file, persists its data check, and runs and resumes real
     expect(
       (await readFile(join(directory, 'stages.jsonl'), 'utf8')).trim().split('\n'),
     ).toHaveLength(2)
-    const rejected = await loadGraphFile(fixture, { params: { ...params, message: 'different' } })
+    const literalMessage = 'different ${HOME} ${trigger.other}'
+    const literalEvent = 'opened ${HOME} ${trigger.other}'
+    const rejected = await loadGraphFile(fixture, {
+      params: { ...params, message: literalMessage },
+    })
     expect(rejected.graph.digest).not.toBe(loaded.graph.digest)
-    const failure = await runGraph(
-      graphFromStored(rejected.graph, { trigger: { event: 'opened' } }),
-      {
-        ...options,
-        runDir: join(directory, 'rejected'),
-        runId: 'canonical-check-rejected',
-      },
-    )
+    const rejectedGraph = graphFromStored(rejected.graph, { trigger: { event: literalEvent } })
+    const startedAt = new Date().toISOString()
+    const failure = await runGraph(rejectedGraph, {
+      ...options,
+      runDir: join(directory, 'rejected'),
+      runId: 'canonical-check-rejected',
+    })
     expect(failure.result.kind).toBe('no-winner')
+    if (failure.result.kind !== 'no-winner')
+      throw new Error('negative completion unexpectedly delivered')
+    const spent = failure.result.spentTotal
+    // Record the actual rejected process run, never a fabricated delivered-run receipt.
+    const recorded = await recordGraphRun(registry, rejectedGraph, {
+      graphDigest: digestOfGraph(rejectedGraph),
+      taskDigest: taskShapeDigest({ fixture: 'literal-value-registry-replay' }),
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      outcome: { kind: 'no-winner', reason: failure.result.reason },
+      cost: {
+        iterations: spent.iterations,
+        tokens: spent.tokens.input + spent.tokens.output,
+        usd: spent.usd,
+        ms: spent.ms,
+      },
+      traversals: failure.ledger.length,
+      traceRunId: failure.runId,
+    })
+    expect(recorded.triggerBindings).toEqual([])
+    const replayStored = await loadGraph(registry, recorded.digest)
+    if (!replayStored) throw new Error('recorded process graph missing')
+    const replay = graphFromStored(validateStoredGraph(replayStored), {
+      trigger: { event: 'must not substitute', other: 'must not substitute' },
+    })
+    expect(replay.triggerBindings).toEqual([])
+    expect(replay.entry?.[0]?.task).toEqual({
+      message: literalMessage,
+      input: { count: 3 },
+      event: literalEvent,
+    })
+    expect(replay.nodes[0]?.profile.prompt?.systemPrompt).toBe(`Build ${literalMessage}.`)
     await expect(loadGraphFile(fixture, { params: { unknown: true } })).rejects.toThrow(
       'unknown parameter',
     )
@@ -216,6 +265,7 @@ it('loads one canonical file, persists its data check, and runs and resumes real
       loadGraphFile(fixture, { params: { iterations: 'not-an-integer' } }),
     ).rejects.toThrow('must be integer')
     expect(() => graphFromStored(stored)).toThrow('missing trigger.event')
+    expect(() => graphFromStored(stored, () => true)).toThrow('missing trigger.event')
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
@@ -301,6 +351,82 @@ it('reopens a gracefully cancelled durable graph and retries only its interrupte
     stop.abort('integration cleanup')
     resumeStop.abort('integration cleanup')
     await pending?.catch(() => undefined)
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+it('persists authored trigger provenance while keeping inserted parameter and trigger values literal', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'graph-binding-provenance-'))
+  const fixture = fileURLToPath(new URL('./fixtures/canonical.graph.yaml', import.meta.url))
+  const message = 'show ${HOME} and ${trigger.other}'
+  const input = { literal: '${trigger.other}', nested: ['${HOME}'] }
+  const event = { literal: '${HOME}', nested: '${trigger.other}' }
+  try {
+    const loaded = await loadGraphFile(fixture, { params: { message, input } })
+    expect(loaded.graph.triggerBindings).toHaveLength(1)
+    expect(validateStoredGraph(loaded.graph)).toEqual(loaded.graph)
+    const registry = { root: join(directory, 'registry') }
+    await recordStoredGraphRun(registry, loaded.graph)
+    const stored = await loadGraph(registry, loaded.graph.digest)
+    if (!stored) throw new Error('compiled graph missing')
+    const graph = graphFromStored(validateStoredGraph(stored), {
+      trigger: { event, other: 'must not substitute' },
+    })
+    expect(graph.entry?.[0]?.task).toEqual({ message, input, event })
+    expect(graph.nodes[0]?.profile.prompt?.systemPrompt).toBe(`Build ${message}.`)
+    expect(() => graphFromStored(stored)).toThrow('missing trigger.event')
+    expect(() => graphFromStored(stored, () => true)).toThrow('missing trigger.event')
+    // The same registered compiled definition remains reusable for another event.
+    expect(graphFromStored(stored, { trigger: { event: 'next' } }).entry?.[0]?.task).toEqual({
+      message,
+      input,
+      event: 'next',
+    })
+
+    const bound = await loadGraphFile(fixture, { params: { message, input }, trigger: { event } })
+    expect(bound.graph.triggerBindings).toEqual([])
+    expect(graphFromStored(validateStoredGraph(bound.graph)).entry?.[0]?.task).toEqual({
+      message,
+      input,
+      event,
+    })
+    expect(
+      graphFromStored(bound.graph, { trigger: { other: 'must not substitute' } }).entry?.[0]?.task,
+    ).toEqual({ message, input, event })
+
+    const mixedFile = join(directory, 'mixed.json')
+    const mixed = parse(await readFile(fixture, 'utf8')) as Record<string, unknown>
+    ;(mixed.entry as Array<{ task: Record<string, unknown> }>)[0]!.task.mixed =
+      '${params.message} / ${trigger.event}'
+    await writeFile(mixedFile, JSON.stringify(mixed))
+    const mixedLoaded = await loadGraphFile(mixedFile, { params: { message, input } })
+    expect(
+      graphFromStored(mixedLoaded.graph, { trigger: { event: '${trigger.other}' } }).entry?.[0]
+        ?.task,
+    ).toMatchObject({ mixed: `${message} / \${trigger.other}` })
+
+    // Existing hand-authored StoredGraph values without provenance keep their trigger grammar.
+    const { triggerBindings: _provenance, digest: _digest, ...definition } = loaded.graph
+    const legacy = {
+      ...definition,
+      observed: false as const,
+      budget: loaded.graph.budget!,
+      edges: loaded.graph.edges as import('../../src/runtime/supervise/graph').AgentGraph['edges'],
+      nodes: definition.nodes.map((node) => ({
+        ...node,
+        profile: { ...node.profile, prompt: { systemPrompt: 'legacy' } },
+      })),
+      entry: [{ node: 'build', task: { event: '${trigger.event}' } }],
+      deliverable: { checkRef: 'route', when: { node: 'review', pointer: '/ok', equals: true } },
+    }
+    const legacyGraph = graphFromStored(legacy, { trigger: { event } })
+    expect(legacyGraph.entry?.[0]?.task).toEqual({ event })
+    expect(legacyGraph.triggerBindings).toBeUndefined()
+
+    const tampered = structuredClone(loaded.graph)
+    tampered.triggerBindings![0]!.parts = [{ trigger: ['different'] }]
+    expect(() => validateStoredGraph(tampered)).toThrow('provisional value')
+  } finally {
     await rm(directory, { recursive: true, force: true })
   }
 })

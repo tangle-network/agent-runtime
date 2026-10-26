@@ -8,15 +8,18 @@ import type { RouteWhen } from '../../mcp/tools/coordination-route-contracts'
 import type { AgentGraph } from './graph'
 import { graphFileSchema } from './graph-file-schema'
 import { validateFlowGraph } from './graph-flow'
-import { bindGraphParameters } from './graph-parameters'
+import {
+  assertGraphTriggerBindings,
+  bindGraphParameters,
+  compileGraphParameters,
+  type GraphTriggerBinding,
+} from './graph-parameters'
 import { graphDigest, type StoredGraph, type StoredGraphInput } from './graph-registry'
 import { validateGraphTopology } from './graph-topology'
 import { assertExecutableAgentProfile, concreteProfileModel } from './model-policy'
 import { kernelPromptRegistry, type PromptRegistry } from './prompt-registry'
 
-export type GraphFileSeat = NonNullable<AgentProfile['seats']>[number] & {
-  readonly modelConfig?: Pick<NonNullable<AgentProfile['model']>, 'reasoningEffort'>
-}
+export type GraphFileSeat = NonNullable<AgentProfile['seats']>[number]
 
 /** A provider name in authored data needs an environment-owned canonical connection binding. */
 export class GraphFileResolutionError extends Error {
@@ -33,6 +36,8 @@ export class GraphFileResolutionError extends Error {
 }
 
 export interface LoadGraphFileOptions {
+  /** Exact authored bytes. The file argument still names the format and default working directory. */
+  readonly source?: string
   readonly cwd?: string
   readonly signal?: AbortSignal
   readonly params?: Readonly<Record<string, unknown>>
@@ -172,9 +177,9 @@ async function expandProfile(
             ...(node.profile?.model as object | undefined),
             provider: selected.provider,
             default: selected.model,
-            ...(selected.modelConfig?.reasoningEffort === undefined
+            ...(selected.reasoningEffort === undefined
               ? {}
-              : { reasoningEffort: selected.modelConfig.reasoningEffort }),
+              : { reasoningEffort: selected.reasoningEffort }),
           },
         }
       : {}),
@@ -200,7 +205,7 @@ export async function loadGraphFile(
 ): Promise<LoadedGraphFile> {
   if (!['.yaml', '.yml', '.json'].includes(extname(file).toLowerCase()))
     refuse('file must be YAML or JSON')
-  const text = await readFile(file, 'utf8')
+  const text = options.source ?? (await readFile(file, 'utf8'))
   const document = parseDocument(text, { uniqueKeys: true, strict: true })
   if (document.errors.length) refuse(document.errors.map((error) => error.message).join('; '))
   if (document.warnings.length)
@@ -221,7 +226,8 @@ export async function loadGraphFile(
   const { params: _definitions, on, ...authored } = source
   const bindings = { params, trigger: options.trigger }
   const bindingOptions = options.trigger === undefined ? { defer: ['trigger'] as const } : {}
-  const bound = graphFileSchema.parse(bindGraphParameters(authored, bindings, bindingOptions))
+  const compiled = compileGraphParameters(authored, bindings, bindingOptions)
+  const bound = graphFileSchema.parse(compiled.value)
   const boundOn = on === undefined ? undefined : bindGraphParameters(on, bindings, bindingOptions)
   if (bound.check && bound.deliverable) refuse('use check or deliverable, not both')
   let deliverable: StoredGraphInput['deliverable'] | undefined = bound.deliverable
@@ -267,7 +273,7 @@ export async function loadGraphFile(
         refuse(`check references unknown node ${condition.node}`)
     }
   }
-  const content: StoredGraphInput = {
+  const topology: StoredGraphInput = {
     nodes,
     edges: bound.edges as unknown as AgentGraph['edges'],
     budget: bound.budget,
@@ -281,6 +287,56 @@ export async function loadGraphFile(
       : {}),
     ...(bound.gates ? { gates: bound.gates as AgentGraph['gates'] } : {}),
   }
+  // Lower provenance alongside the authoring envelope: only these authored slots may bind later.
+  const triggerBindings = compiled.triggerBindings.flatMap((slot): GraphTriggerBinding[] => {
+    const [top, index, field, ...tail] = slot.path
+    if (top === 'nodes') {
+      if (field === 'id') return [slot, { ...slot, path: ['nodes', index!, 'profile', 'name'] }]
+      if (field === 'profile') {
+        if (tail[0] === 'name') return [] // Profile names come from node IDs, never this field.
+        // Seat materialization owns these identity fields and can replace authored values.
+        if (
+          tail[0] === 'harness' ||
+          (tail[0] === 'model' &&
+            ['provider', 'default', 'reasoningEffort'].includes(String(tail[1])))
+        ) {
+          let before: unknown = bound.nodes[index as number]!.profile
+          let after: unknown = nodes[index as number]!.profile
+          for (const key of tail) {
+            before = (before as Record<string | number, unknown> | undefined)?.[key]
+            after = (after as Record<string | number, unknown> | undefined)?.[key]
+          }
+          if (before !== after) return []
+        }
+        return [slot]
+      }
+      refuse(
+        'trigger slots in seat/needs must be supplied to loadGraphFile before profile resolution',
+      )
+    }
+    if (top === 'check') {
+      if (index === 'describe') return [{ ...slot, path: ['deliverable', 'describe'] }]
+      return [
+        {
+          ...slot,
+          path: [
+            'deliverable',
+            index === 'command' ? 'command' : 'when',
+            ...(index === 'command' ? slot.path.slice(2) : slot.path.slice(1)),
+          ],
+        },
+      ]
+    }
+    if (top === 'describe')
+      return bound.check?.describe !== undefined || bound.deliverable
+        ? []
+        : [{ ...slot, path: ['deliverable', 'describe'] }]
+    if (top === 'entry' && slot.path.length === 2)
+      return [{ ...slot, path: ['entry', index!, 'node'] }]
+    return ['edges', 'budget', 'gates', 'entry', 'deliverable'].includes(String(top)) ? [slot] : []
+  })
+  assertGraphTriggerBindings(topology, triggerBindings)
+  const content: StoredGraphInput = { ...topology, triggerBindings }
   const registry = options.registry ?? kernelPromptRegistry()
   if (content.entry) validateFlowGraph(content, registry, options.analysts)
   else validateGraphTopology(content.nodes, content.edges, registry, options.analysts)

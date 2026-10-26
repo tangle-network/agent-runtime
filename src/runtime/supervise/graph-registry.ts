@@ -37,7 +37,14 @@ import { ValidationError } from '../../errors'
 import { writeAtomicDurableFile } from './durable-file'
 import type { AgentGraph, GraphEdge } from './graph'
 import { checkGraphRoute } from './graph-file-schema'
-import { bindGraphParameters } from './graph-parameters'
+import {
+  bindCompiledGraphTriggers,
+  bindGraphParameters,
+  type GraphTriggerBinding,
+} from './graph-parameters'
+
+export type { GraphTriggerBinding } from './graph-parameters'
+
 import type { GraphFromStoredOptions } from './stored-graph-check'
 
 export type { GraphCommandCheck, GraphFromStoredOptions } from './stored-graph-check'
@@ -45,6 +52,8 @@ export type { GraphCommandCheck, GraphFromStoredOptions } from './stored-graph-c
 /** @inline */
 interface StoredGraphContent {
   readonly digest: string
+  /** Authored trigger-slot provenance; present (even empty) on compiled loader output. */
+  readonly triggerBindings?: readonly GraphTriggerBinding[]
   readonly nodes: ReadonlyArray<{ readonly id: string; readonly profile: AgentProfile }>
   readonly deliverable: Pick<
     AgentGraph['deliverable'],
@@ -188,6 +197,7 @@ function storeGraph(graph: AgentGraph): StoredGraph {
     nodes: graph.nodes,
     edges: graph.edges,
     budget: graph.budget,
+    ...(graph.triggerBindings === undefined ? {} : { triggerBindings: graph.triggerBindings }),
     deliverable: {
       ...(describe ? { describe } : {}),
       ...(checkRef ? { checkRef } : {}),
@@ -604,12 +614,19 @@ export function graphFromStored(
   const {
     digest: _digest,
     observed: _observed,
+    triggerBindings: _triggerBindings,
     deliverable,
     ...topology
   } = (
-    typeof environment === 'function'
-      ? stored
-      : bindGraphParameters(stored, { trigger: environment.trigger ?? {} })
+    stored.triggerBindings !== undefined
+      ? bindCompiledGraphTriggers(
+          stored,
+          stored.triggerBindings,
+          typeof environment === 'function' ? undefined : (environment.trigger ?? {}),
+        )
+      : typeof environment === 'function'
+        ? stored
+        : bindGraphParameters(stored, { trigger: environment.trigger ?? {} })
   ) as typeof stored
   const selected =
     typeof environment === 'function'
@@ -631,9 +648,10 @@ export function graphFromStored(
     throw new ValidationError(
       `graphFromStored: unknown checkRef ${deliverable.checkRef ?? '(missing)'}`,
     )
+  const materialized = stored.triggerBindings === undefined ? {} : { triggerBindings: [] as const }
   if (typeof selected === 'function') {
     const { command: _command, ...description } = deliverable
-    return { ...topology, deliverable: { ...description, check: selected } }
+    return { ...topology, ...materialized, deliverable: { ...description, check: selected } }
   }
   const command =
     selected === deliverable.command
@@ -643,6 +661,7 @@ export function graphFromStored(
         }) as typeof selected)
   return {
     ...topology,
+    ...materialized,
     deliverable: {
       ...deliverable,
       command,

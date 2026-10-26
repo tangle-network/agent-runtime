@@ -266,6 +266,8 @@ export interface GraphTopology {
 }
 
 export interface AgentGraph {
+  /** Preserve fully bound literal data when serializing a hydrated graph. */
+  readonly triggerBindings?: readonly []
   readonly nodes: ReadonlyArray<GraphNode>
   readonly edges: ReadonlyArray<GraphEdge>
   /** Termination is mandatory, not optional: the independent completion oracle. */
