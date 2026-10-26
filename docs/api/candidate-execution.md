@@ -3965,6 +3965,12 @@ Exact evaluator-captured final output bytes.
 
 Immutable evaluator evidence retained with a verified candidate task outcome.
 
+#### Type Parameters
+
+##### Kind
+
+`Kind` *extends* `AgentCandidateTaskOutcomeMaterial`\[`"outcome"`\]\[`"kind"`\]
+
 #### Type Declaration
 
 ##### artifact
@@ -3980,12 +3986,6 @@ Immutable evaluator evidence retained with a verified candidate task outcome.
 ###### outcome
 
 > `readonly` **outcome**: `Extract`\<`AgentCandidateTaskOutcomeMaterial`\[`"outcome"`\], \{ `kind`: `Kind`; \}\>
-
-#### Type Parameters
-
-##### Kind
-
-`Kind` *extends* `AgentCandidateTaskOutcomeMaterial`\[`"outcome"`\]\[`"kind"`\]
 
 ***
 

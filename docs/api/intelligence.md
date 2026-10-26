@@ -1534,7 +1534,8 @@ Shared account when preparation and held-out work have one customer budget.
 
 #### Extends
 
-- `CandidateExperimentExecutionInput`.[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement)
+- `CandidateExperimentExecutionInput`
+- [`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement)
 
 #### Properties
 
@@ -3347,16 +3348,6 @@ Product-supplied experiment material. Runtime supplies optimizer ancestry and th
 
 The portable profile changes that the measured-profile contract permits.
 
-#### Type Declaration
-
-##### surface?
-
-> `optional` **surface?**: [`AgentProfileMeasuredSurface`](#agentprofilemeasuredsurface)
-
-##### findings?
-
-> `optional` **findings?**: readonly `ProposalFinding`[]
-
 #### Type Parameters
 
 ##### TScenario
@@ -3366,6 +3357,16 @@ The portable profile changes that the measured-profile contract permits.
 ##### TArtifact
 
 `TArtifact`
+
+#### Type Declaration
+
+##### surface?
+
+> `optional` **surface?**: [`AgentProfileMeasuredSurface`](#agentprofilemeasuredsurface)
+
+##### findings?
+
+> `optional` **findings?**: readonly `ProposalFinding`[]
 
 ***
 
@@ -3524,10 +3525,20 @@ An agent wrapped by [withIntelligence](#withintelligence): receives the input pl
 
 ### IntelligenceWrapped
 
-> **IntelligenceWrapped**\<`I`, `O`\> = (`input`) => `Promise`\<`O`\> & `object`
+> **IntelligenceWrapped**\<`I`, `O`\> = ((`input`) => `Promise`\<`O`\>) & `object`
 
 The wrapped agent — same `(input) => Promise<output>` shape, plus a manual
  `refresh()` and a `proposals()` accessor for the currently-promoted diffs.
+
+#### Type Parameters
+
+##### I
+
+`I`
+
+##### O
+
+`O`
 
 #### Type Declaration
 
@@ -3556,16 +3567,6 @@ Flush buffered trace spans before a short-lived process exits.
 ###### Returns
 
 `Promise`\<`void`\>
-
-#### Type Parameters
-
-##### I
-
-`I`
-
-##### O
-
-`O`
 
 ***
 

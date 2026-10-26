@@ -1416,6 +1416,8 @@ Extract the exact named text components optimized together.
 
 ###### profile
 
+\{ \}
+
 ###### Returns
 
 `Readonly`\<`Record`\<`string`, `string`\>\>
@@ -1429,6 +1431,8 @@ Apply a complete winning component map to a detached profile.
 ###### Parameters
 
 ###### profile
+
+\{ \}
 
 ###### components
 
@@ -6315,6 +6319,16 @@ Accept by returning void synchronously; reject by throwing. Async callbacks are 
 
 Complete-method configuration for every non-code profile surface.
 
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
 #### Type Declaration
 
 ##### surface?
@@ -6386,16 +6400,6 @@ Additional lift floor on Eval's deciding interval. Eval must also permit promoti
 What the search improves, recorded as the ledger's subject, for example
 `vb/coder`. Default: the profile's name, else `agent-profile`.
 
-#### Type Parameters
-
-##### TScenario
-
-`TScenario` *extends* `Scenario`
-
-##### TArtifact
-
-`TArtifact`
-
 ***
 
 ### ImproveSearchOptions
@@ -6406,6 +6410,16 @@ Improve a profile with `searchMethod`. The search runs on all three splits:
 it expands and ranks on train and selection, then claims once on the sealed
 test split, and the claim decides. Runtime ships a statistical `ship` only
 with complete cost accounting and a test lower bound above `minimumLift`.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
 
 #### Type Declaration
 
@@ -6493,16 +6507,6 @@ here before it starts, and waits while open cells could return enough.
 
 Where cell spans go. Default: `<search dir>/spans.otlp.jsonl` on filesystem storage.
 
-#### Type Parameters
-
-##### TScenario
-
-`TScenario` *extends* `Scenario`
-
-##### TArtifact
-
-`TArtifact`
-
 ***
 
 ### SearchDispatchContext
@@ -6561,6 +6565,16 @@ The agent of a native search: the exact node profile on one scenario.
 
 Runtime-owned code search in isolated git worktrees.
 
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
 #### Type Declaration
 
 ##### surface
@@ -6614,21 +6628,11 @@ Isolated repository and candidate generator settings.
 Custom held-back-exam decision. The string `gate` above controls whether
 the exam runs; this callback controls how its evidence decides promotion.
 
-#### Type Parameters
-
-##### TScenario
-
-`TScenario` *extends* `Scenario`
-
-##### TArtifact
-
-`TArtifact`
-
 ***
 
 ### ImproveCodeOptions
 
-> **ImproveCodeOptions** = [`ImproveCodeBaseOptions`](#improvecodebaseoptions) & [`ImproveRuntimeCodeGeneratorOptions`](#improveruntimecodegeneratoroptions) \| [`ImproveCustomCodeGeneratorOptions`](#improvecustomcodegeneratoroptions)
+> **ImproveCodeOptions** = [`ImproveCodeBaseOptions`](#improvecodebaseoptions) & ([`ImproveRuntimeCodeGeneratorOptions`](#improveruntimecodegeneratoroptions) \| [`ImproveCustomCodeGeneratorOptions`](#improvecustomcodegeneratoroptions))
 
 ***
 
@@ -6678,14 +6682,6 @@ Official SkillOpt configuration plus bounded Runtime findings context.
 
 > **ProfileImprovementHarnessRunOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<[`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"executionRef"` \| `"agent"` \| `"validateCandidate"`\> & `object`
 
-#### Type Declaration
-
-##### validateCandidate?
-
-> `optional` **validateCandidate?**: [`ImproveCandidateValidator`](#improvecandidatevalidator)
-
-Override the harness-level validator for this run.
-
 #### Type Parameters
 
 ##### TScenario
@@ -6695,6 +6691,14 @@ Override the harness-level validator for this run.
 ##### TArtifact
 
 `TArtifact`
+
+#### Type Declaration
+
+##### validateCandidate?
+
+> `optional` **validateCandidate?**: [`ImproveCandidateValidator`](#improvecandidatevalidator)
+
+Override the harness-level validator for this run.
 
 ***
 
@@ -7607,7 +7611,11 @@ Build an `AgentExecutionBackend` backed by a sandbox/sidecar `streamPrompt` call
 
 ###### getBox
 
+(`input`, `context`) => `TBox` \| `Promise`\<`TBox`\>
+
 ###### streamPrompt
+
+(`box`, `message`, `context`) => `AsyncIterable`\<`unknown`\>
 
 ###### mapEvent?
 
@@ -7805,6 +7813,8 @@ Train and serve a checkpoint without implying that it improved held-out quality.
 
 ###### profile
 
+\{ \}
+
 ###### opts
 
 [`ImproveTrainingOptions`](#improvetrainingoptions)
@@ -7835,6 +7845,8 @@ the sealed test split, and the claim decides.
 
 ###### profile
 
+\{ \}
+
 ###### opts
 
 [`ImproveSearchOptions`](#improvesearchoptions)\<`TScenario`, `TArtifact`\>
@@ -7863,6 +7875,8 @@ Optimize one exact profile surface with a complete method.
 
 ###### profile
 
+\{ \}
+
 ###### opts
 
 [`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\>
@@ -7890,6 +7904,8 @@ Optimize one exact profile surface with a complete method or a search.
 ##### Parameters
 
 ###### profile
+
+\{ \}
 
 ###### opts
 

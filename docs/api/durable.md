@@ -5450,7 +5450,7 @@ post-admission context, and a wrapper around nothing classifiable is exhibit 4.
 
 ### RootStreamRecord
 
-> **RootStreamRecord** = `object` & \{ `event`: [`ExecutorProgressEvent`](runtime.md#executorprogressevent); \} \| \{ `dropped`: \{ `kind`: [`ExecutorProgressEvent`](runtime.md#executorprogressevent)\[`"kind"`\]; `reason`: `string`; \}; \}
+> **RootStreamRecord** = `object` & (\{ `event`: [`ExecutorProgressEvent`](runtime.md#executorprogressevent); \} \| \{ `dropped`: \{ `kind`: [`ExecutorProgressEvent`](runtime.md#executorprogressevent)\[`"kind"`\]; `reason`: `string`; \}; \})
 
 One line of `root-stream.jsonl`.
 
