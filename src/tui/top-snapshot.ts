@@ -1,49 +1,51 @@
 /**
- * The snapshot reader for the supervisor-run TUI: turn the on-disk run layout into a `TopSnapshot`.
- * ANSI frame presentation lives in `./top-frame`; this module owns reading and projection.
- *
- * This module never derives a run path itself. Every directory and per-worker file it reads comes
- * from `../runtime/supervise/run-layout` — the same module the writers use — so the reader cannot
- * drift from the layout the way an independently-versioned copy of the contract would.
- *
- * Extracted from the `loops` repo (`src/top-model.ts`), which held a hand-joined copy of the
- * layout. Rendering is deliberately unchanged: raw ANSI, zero dependencies.
- *
- * This is the OPERATOR view: what is on disk right now, for a human watching a workspace. It
- * carries no model-call identity, so its per-supervisor totals cannot be joined with root stream
- * events without double counting. A client that needs one execution's totals reads
- * `projectPursuit` from `../durable` instead.
+ * Read-only operator snapshots over the writer-owned supervisor layout and explicit durable runs.
+ * Workspace reads preserve legacy files; durable reads use discovery, journals and the canonical
+ * pursuit projection for model identity, failure and accounting evidence. Run totals count once.
+ * ANSI presentation lives in `./top-frame`.
  *
  * @experimental
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
+import { FileObserverJournal } from '../durable/observer-journal'
+import {
+  type PursuitProjection,
+  type PursuitRunProjection,
+  projectPursuit,
+} from '../durable/observer-projection'
+import { FileSpawnJournal } from '../durable/spawn-journal/journal-store'
 import { spawnJournalRecordEvents } from '../durable/spawn-journal/record-events'
+import { discoverDurableSupervisionRun } from '../durable/supervision-discovery'
 import {
   legacySupervisorRunsRoot,
   safeWorkerFile,
   supervisorRunsRoot,
   supervisorWorkersDir,
 } from '../runtime/supervise/run-layout'
+import type { Budget, Spend, SpendChannel } from '../runtime/supervise/types'
 
 export interface TopSnapshot {
   readonly root: string
   readonly generatedAt: number
   readonly supervisors: SupervisorView[]
+  /** Canonical facts, including unknown accounting and requested/observed identities. */
+  readonly pursuit?: PursuitProjection
   /** `partial` when at least one discovered source could not be read completely. */
   readonly completeness: TopSnapshotCompleteness
   /** One bounded entry per skipped or partially read source; empty when complete. */
   readonly diagnostics: ReadonlyArray<TopSnapshotDiagnostic>
   /** Run directories found under the runs roots, readable or not. */
   readonly discovered: number
-  /** Run directories whose state.json parsed into a valid supervisor view. */
+  /** Run directories projected into a valid supervisor view. */
   readonly loaded: number
 }
 
 export type TopSnapshotCompleteness = 'complete' | 'partial'
 
 export type TopSnapshotDiagnosticSource =
+  | 'observer-journal'
   | 'supervisor-state'
   | 'journal'
   | 'progress'
@@ -59,11 +61,8 @@ export type TopSnapshotDiagnosticReason =
  * One skipped or partially read snapshot source. `path` is relative to the run directory and
  * never carries file contents, so a diagnostic is safe to show or log without leaking run data.
  */
-export interface TopSnapshotDiagnostic {
-  readonly source: TopSnapshotDiagnosticSource
+export interface TopSnapshotDiagnostic extends SourceDiagnostic {
   readonly runId?: string
-  readonly path: string
-  readonly reason: TopSnapshotDiagnosticReason
 }
 
 interface SupervisorBase {
@@ -72,6 +71,7 @@ interface SupervisorBase {
   readonly task: string
   readonly workspaceDir: string
   readonly budget: number
+  readonly budgetKnown?: boolean
   readonly verifyCmd?: string
   readonly workerModel?: string
   readonly driverModel?: string
@@ -117,7 +117,8 @@ export interface WorkerView {
   readonly reason?: string
 }
 
-export interface SupervisorTotals {
+export interface SupervisorTotals
+  extends Pick<SpendStats, 'tokensInput' | 'tokensOutput' | 'usd' | 'usdKnown' | 'tokensKnown'> {
   readonly workers: number
   readonly running: number
   readonly done: number
@@ -125,10 +126,7 @@ export interface SupervisorTotals {
   readonly cancelled: number
   readonly inFlight: number
   readonly settled: number
-  readonly tokensInput: number
-  readonly tokensOutput: number
   readonly tokensTotal: number
-  readonly usd: number
   readonly latencyMs: number
   readonly workerLatency: Distribution
 }
@@ -141,65 +139,49 @@ export interface Distribution {
   readonly max: number
 }
 
-export interface BudgetStats {
-  readonly maxIterations?: number
-  readonly maxTokens?: number
-  readonly maxUsd?: number
-}
+export type BudgetStats = Partial<Pick<Budget, 'maxIterations' | 'maxTokens' | 'maxUsd'>>
 
-export interface SpendStats {
-  readonly iterations: number
+export interface SpendStats
+  extends Readonly<Pick<Spend, 'iterations' | 'usd' | 'ms' | 'usdKnown' | 'tokensKnown'>> {
   readonly tokensInput: number
   readonly tokensOutput: number
-  readonly usd: number
-  readonly ms: number
 }
 
-export type TopJournalEvent =
+export type TopJournalEvent = {
+  readonly id: string
+  readonly seq?: number
+  readonly at?: string
+} & (
   | {
       readonly kind: 'spawned'
-      readonly id: string
       readonly parent?: string
       readonly label?: string
       readonly budget?: unknown
       readonly runtime?: string
-      readonly seq?: number
-      readonly at?: string
     }
   | {
       readonly kind: 'settled'
-      readonly id: string
       readonly status?: string
       readonly outRef?: string
       readonly verdict?: unknown
       readonly spent?: unknown
       readonly infra?: boolean
-      readonly seq?: number
-      readonly at?: string
     }
   | {
       readonly kind: 'cancelled'
       readonly spent?: unknown
-      readonly id: string
       readonly reason?: string
-      readonly seq?: number
-      readonly at?: string
     }
   | {
       readonly kind: 'metered'
-      readonly id: string
       readonly spend?: unknown
       readonly accountingOnly?: boolean
-      readonly seq?: number
-      readonly at?: string
     }
   | {
       readonly kind: 'progress'
-      readonly id: string
       readonly spend?: unknown
-      readonly seq?: number
-      readonly at?: string
     }
+)
 
 interface SupervisorState extends SupervisorBase {
   readonly result?: {
@@ -244,7 +226,18 @@ const emptySpend: SpendStats = { iterations: 0, tokensInput: 0, tokensOutput: 0,
  * tell a removed run from a partial read. `now` is injectable so elapsed time is deterministic
  * under test.
  */
-export function loadTopSnapshot(rootDir: string, now = Date.now()): TopSnapshot {
+export function loadTopSnapshot(rootDir: string, now?: number): TopSnapshot
+export function loadTopSnapshot(
+  rootDir: string,
+  options: { runDir: string; now?: number },
+): Promise<TopSnapshot>
+export function loadTopSnapshot(
+  rootDir: string,
+  input: number | { runDir: string; now?: number } = Date.now(),
+): TopSnapshot | Promise<TopSnapshot> {
+  if (typeof input !== 'number')
+    return loadDurableTopSnapshot(rootDir, input.runDir, input.now ?? Date.now())
+  const now = input
   const root = resolve(rootDir)
   const supervisors: SupervisorView[] = []
   const diagnostics: TopSnapshotDiagnostic[] = []
@@ -263,7 +256,7 @@ export function loadTopSnapshot(rootDir: string, now = Date.now()): TopSnapshot 
       report(entry, state.diagnostics)
       if (!state.value) continue
       const journal = readJournal(dir)
-      const progress = readProgressTail(dir, 8)
+      const progress = readSourceFile(join(dir, 'progress.ndjson'), 'progress', 'progress.ndjson')
       const workerEvents = readWorkerEventTails(supervisorWorkersDir(dir), 8)
       report(entry, [...journal.diagnostics, ...progress.diagnostics, ...workerEvents.diagnostics])
       supervisors.push(
@@ -271,7 +264,7 @@ export function loadTopSnapshot(rootDir: string, now = Date.now()): TopSnapshot 
           state.value,
           dir,
           journal.value,
-          progress.value,
+          tailLines(progress.value, 8),
           now,
           workerEvents.value,
         ),
@@ -279,14 +272,95 @@ export function loadTopSnapshot(rootDir: string, now = Date.now()): TopSnapshot 
     }
   }
   supervisors.sort((a, b) => String(b.startedAt ?? '').localeCompare(String(a.startedAt ?? '')))
+  return topSnapshot(root, now, supervisors, diagnostics, discovered)
+}
+
+function topSnapshot(
+  root: string,
+  now: number,
+  supervisors: SupervisorView[],
+  diagnostics: TopSnapshotDiagnostic[] = [],
+  discovered = 1,
+  pursuit?: PursuitProjection,
+): TopSnapshot {
   return {
     root,
     generatedAt: now,
     supervisors,
-    completeness: diagnostics.length === 0 ? 'complete' : 'partial',
+    completeness: diagnostics.length ? 'partial' : 'complete',
     diagnostics,
     discovered,
     loaded: supervisors.length,
+    ...(pursuit ? { pursuit } : {}),
+  }
+}
+
+async function loadDurableTopSnapshot(
+  rootDir: string,
+  runDir: string,
+  now: number,
+): Promise<TopSnapshot> {
+  const root = resolve(rootDir)
+  let pursuit: PursuitProjection | undefined
+  let source: TopSnapshotDiagnosticSource = 'observer-journal'
+  let path = 'observer.jsonl'
+  try {
+    if (typeof runDir !== 'string' || !runDir.trim())
+      throw new TypeError('runDir must be non-empty')
+    const journal = await FileObserverJournal.open(join(resolve(runDir), path))
+    if (!journal) return topSnapshot(root, now, [], [{ source, path, reason: 'missing' }])
+    pursuit = projectPursuit(await journal.read())
+    source = 'journal'
+    path = '.'
+    const discovery = await discoverDurableSupervisionRun(runDir)
+    // An actual run id stays the row identity; the canonical projection retains every attempt.
+    const latest = new Map(pursuit.runs.map((run) => [run.runId, run]))
+    path = 'spawn-journal.jsonl'
+    const spawnJournal = new FileSpawnJournal(discovery.spawnJournalPath)
+    const supervisors = await Promise.all(
+      [...latest.values()].map(async (run) => {
+        // SupervisorOpts.runId is the journal root key; require its recorded discovery binding.
+        const binding = discovery.roots.find((id) => id === run.runId)
+        if (!binding) throw new Error('observer run has no discovered spawn root')
+        const events = (await spawnJournal.loadTree(binding)) ?? []
+        const rootSpawn = events.find((event) => event.kind === 'spawned' && event.id === binding)
+        const budget = rootSpawn?.kind === 'spawned' ? rootSpawn.budget?.maxTokens : undefined
+        return buildSupervisorView(
+          {
+            id: run.runId,
+            status: run.status,
+            task: run.runId,
+            workspaceDir: root,
+            budget: budget ?? 0,
+            budgetKnown: budget !== undefined,
+            startedAt: new Date(run.firstObservedAt).toISOString(),
+            ...(run.settledAt === undefined
+              ? {}
+              : { completedAt: new Date(run.settledAt).toISOString() }),
+          },
+          discovery.runDir,
+          events.filter(isSpawnEvent),
+          run.error ? [run.error] : [],
+          now,
+          undefined,
+          run,
+        )
+      }),
+    )
+    return topSnapshot(root, now, supervisors, [], 1, pursuit)
+  } catch (error) {
+    const reason =
+      isRecord(error) && typeof error.code === 'string' ? 'unreadable' : 'invalid-state'
+    return topSnapshot(root, now, [], [{ source, path, reason }], 1, pursuit)
+  }
+}
+
+function observerSpend(spend: Spend | undefined, gaps: readonly SpendChannel[] = []): SpendStats {
+  const parsed = parseSpend(spend)
+  return {
+    ...parsed,
+    usdKnown: spend !== undefined && parsed.usdKnown !== false && !gaps.includes('usd'),
+    tokensKnown: spend !== undefined && parsed.tokensKnown !== false && !gaps.includes('tokens'),
   }
 }
 
@@ -333,24 +407,26 @@ function buildSupervisorView(
   progressTail: readonly string[],
   now: number,
   workerEventTails = new Map<string, WorkerEventTail>(),
+  accounting?: PursuitRunProjection,
 ): SupervisorView {
   const workers = new Map<string, MutableWorker>()
   let driverSpend = emptySpend
-  // `state.json` and the spawn journal are written by DIFFERENT producers, and their ids need not
-  // agree: the journal's root is the runtime's `runId`, which defaults to a literal unrelated to
-  // the supervisor id the state file records. Recover the journal's own root from its parentless
-  // root spawn, and treat EITHER id as the root everywhere. Checking only `state.id` — which the
-  // metered/settled/cancelled branches used to do — manufactures a phantom worker named after the
-  // runId that never settles, sorts first as RUNNING, and silently captures every steer and cancel.
+  // State and journal have different producers and root ids. Exclude both, or the journal's
+  // root becomes a phantom running worker that captures steer and cancel operations.
   const journalRootId = events.find(
     (event) => event.kind === 'spawned' && !event.parent && event.label === 'root',
   )?.id
   const isRoot = (id: string): boolean => id === state.id || id === journalRootId
 
   for (const event of events) {
+    if (isRoot(event.id) || (event.kind === 'spawned' && !event.parent && event.label === 'root')) {
+      if (event.kind === 'metered' && event.accountingOnly !== true) {
+        driverSpend = addSpend(driverSpend, parseSpend(event.spend))
+      }
+      continue
+    }
+    const worker = ensureWorker(workers, event.id)
     if (event.kind === 'spawned') {
-      if (isRoot(event.id) || (!event.parent && event.label === 'root')) continue
-      const worker = ensureWorker(workers, event.id, event.label ?? event.id)
       worker.label = event.label ?? worker.label
       if (event.parent) worker.parent = event.parent
       if (event.runtime) worker.runtime = event.runtime
@@ -358,56 +434,40 @@ function buildSupervisorView(
       if (event.at) worker.startedAt = event.at
       const budget = parseBudget(event.budget)
       if (budget) worker.budget = budget
-      continue
-    }
-
-    if (event.kind === 'settled') {
-      if (isRoot(event.id)) continue
-      const worker = ensureWorker(workers, event.id, event.id)
-      worker.status = event.status === 'down' ? 'down' : 'done'
+    } else if (event.kind === 'settled' || event.kind === 'cancelled') {
       if (event.at) worker.endedAt = event.at
-      if (event.outRef) worker.outRef = event.outRef
-      if (event.infra !== undefined) worker.infra = event.infra
-      const verdict = describeVerdict(event.verdict)
-      if (verdict) worker.verdict = verdict
-      worker.spend = addSpend(worker.spend, parseSpend(event.spent))
-      // Live progress is cumulative observation. The terminal spend replaces it, so do not add
-      // the two channels or a worker's final cost would be counted twice.
-      worker.metered = emptySpend
-      continue
-    }
-
-    if (event.kind === 'cancelled') {
-      if (isRoot(event.id)) continue
-      const worker = ensureWorker(workers, event.id, event.id)
-      worker.status = 'cancelled'
-      if (event.at) worker.endedAt = event.at
-      if (event.reason) worker.reason = event.reason
-      if (event.spent !== undefined) {
+      if (event.kind === 'settled') {
+        worker.status = event.status === 'down' ? 'down' : 'done'
+        if (event.outRef) worker.outRef = event.outRef
+        if (event.infra !== undefined) worker.infra = event.infra
+        const verdict = describeVerdict(event.verdict)
+        if (verdict) worker.verdict = verdict
+      } else {
+        worker.status = 'cancelled'
+        if (event.reason) worker.reason = event.reason
+      }
+      if (event.kind === 'settled' || event.spent !== undefined) {
         worker.spend = addSpend(worker.spend, parseSpend(event.spent))
+        // Live progress is cumulative; terminal spend replaces it rather than counting it twice.
         worker.metered = emptySpend
       }
-      continue
-    }
-
-    if (event.kind === 'metered') {
-      const spend = parseSpend(event.spend)
-      if (isRoot(event.id)) {
-        if (event.accountingOnly !== true) driverSpend = addSpend(driverSpend, spend)
-      } else {
-        const worker = ensureWorker(workers, event.id, event.id)
-        if (event.accountingOnly !== true) worker.metered = addSpend(worker.metered, spend)
-      }
-      continue
-    }
-
-    if (event.kind === 'progress') {
-      if (isRoot(event.id)) continue
-      const worker = ensureWorker(workers, event.id, event.id)
+    } else if (event.kind === 'progress') {
       worker.metered = parseSpend(event.spend)
+    } else if (event.accountingOnly !== true) {
+      worker.metered = addSpend(worker.metered, parseSpend(event.spend))
     }
   }
 
+  if (accounting) {
+    driverSpend = observerSpend(accounting.totals.exclusiveByNode[accounting.runId])
+    for (const worker of workers.values()) {
+      worker.spend = observerSpend(
+        accounting.totals.exclusiveByNode[worker.id],
+        accounting.spendGaps?.find((gap) => gap.id === worker.id)?.channels,
+      )
+      worker.metered = emptySpend
+    }
+  }
   const workerViews = [...workers.values()]
     .map((worker) => {
       // Tails are keyed by file stem, which the writer put through `safeWorkerFile`; a label
@@ -424,6 +484,13 @@ function buildSupervisorView(
     .sort((a, b) => compareWorker(a, b))
 
   const totals = supervisorTotals(state, workerViews, driverSpend, now)
+  if (accounting) {
+    const spend = observerSpend(
+      accounting.totals.inclusive,
+      accounting.spendGaps?.flatMap((gap) => gap.channels),
+    )
+    Object.assign(totals, spend, { tokensTotal: spend.tokensInput + spend.tokensOutput })
+  }
   return {
     id: state.id,
     stateDir,
@@ -431,22 +498,25 @@ function buildSupervisorView(
     task: state.task,
     workspaceDir: state.workspaceDir,
     budget: state.budget,
-    ...(state.verifyCmd ? { verifyCmd: state.verifyCmd } : {}),
-    ...(state.workerModel ? { workerModel: state.workerModel } : {}),
-    ...(state.driverModel ? { driverModel: state.driverModel } : {}),
-    ...(state.verdict ? { verdict: state.verdict } : {}),
-    ...(state.progress ? { progress: state.progress } : {}),
-    ...(state.startedAt ? { startedAt: state.startedAt } : {}),
-    ...(state.completedAt ? { completedAt: state.completedAt } : {}),
-    ...(state.maxSandboxes !== undefined ? { maxSandboxes: state.maxSandboxes } : {}),
-    ...(state.maxLifetimeSeconds !== undefined
-      ? { maxLifetimeSeconds: state.maxLifetimeSeconds }
-      : {}),
-    ...(state.idleTimeoutSeconds !== undefined
-      ? { idleTimeoutSeconds: state.idleTimeoutSeconds }
-      : {}),
-    ...(state.maxUsd !== undefined ? { maxUsd: state.maxUsd } : {}),
-    ...(state.maxDepth !== undefined ? { maxDepth: state.maxDepth } : {}),
+    ...(state.budgetKnown === undefined ? {} : { budgetKnown: state.budgetKnown }),
+    ...selectFields(
+      state,
+      [
+        'verifyCmd',
+        'workerModel',
+        'driverModel',
+        'verdict',
+        'progress',
+        'startedAt',
+        'completedAt',
+      ],
+      Boolean,
+    ),
+    ...selectFields(
+      state,
+      ['maxSandboxes', 'maxLifetimeSeconds', 'idleTimeoutSeconds', 'maxUsd', 'maxDepth'],
+      (value) => value !== undefined,
+    ),
     ...(state.result?.spentUsd !== undefined ? { resultSpentUsd: state.result.spentUsd } : {}),
     ...(state.result?.spentTokens !== undefined
       ? { resultSpentTokens: state.result.spentTokens }
@@ -459,16 +529,22 @@ function buildSupervisorView(
   }
 }
 
-function ensureWorker(
-  workers: Map<string, MutableWorker>,
-  id: string,
-  label: string,
-): MutableWorker {
+function selectFields<T, K extends keyof T>(
+  value: T,
+  keys: readonly K[],
+  include: (value: T[K]) => boolean,
+): Partial<Pick<T, K>> {
+  return Object.fromEntries(
+    keys.filter((key) => include(value[key])).map((key) => [key, value[key]]),
+  )
+}
+
+function ensureWorker(workers: Map<string, MutableWorker>, id: string): MutableWorker {
   const existing = workers.get(id)
   if (existing) return existing
   const created: MutableWorker = {
     id,
-    label,
+    label: id,
     status: 'running',
     spend: emptySpend,
     metered: emptySpend,
@@ -482,25 +558,7 @@ function finalizeWorker(worker: MutableWorker, now: number): WorkerView {
   const startMs = parseTime(worker.startedAt)
   const endMs = parseTime(worker.endedAt) ?? (worker.status === 'running' ? now : startMs)
   const latencyMs = startMs !== undefined && endMs !== undefined ? Math.max(0, endMs - startMs) : 0
-  return {
-    id: worker.id,
-    label: worker.label,
-    ...(worker.eventFile ? { eventFile: worker.eventFile } : {}),
-    ...(worker.parent ? { parent: worker.parent } : {}),
-    ...(worker.runtime ? { runtime: worker.runtime } : {}),
-    status: worker.status,
-    ...(worker.verdict ? { verdict: worker.verdict } : {}),
-    ...(worker.infra !== undefined ? { infra: worker.infra } : {}),
-    ...(worker.startedAt ? { startedAt: worker.startedAt } : {}),
-    ...(worker.endedAt ? { endedAt: worker.endedAt } : {}),
-    latencyMs,
-    ...(worker.budget ? { budget: worker.budget } : {}),
-    spend: worker.spend,
-    metered: worker.metered,
-    liveTail: worker.liveTail,
-    ...(worker.outRef ? { outRef: worker.outRef } : {}),
-    ...(worker.reason ? { reason: worker.reason } : {}),
-  }
+  return { ...worker, latencyMs }
 }
 
 function supervisorTotals(
@@ -509,44 +567,34 @@ function supervisorTotals(
   driverSpend: SpendStats,
   now: number,
 ): SupervisorTotals {
-  const workerSpends = workers.map(totalSpend)
-  const tokenInput = sum(workerSpends.map((spend) => spend.tokensInput)) + driverSpend.tokensInput
-  const tokenOutput =
-    sum(workerSpends.map((spend) => spend.tokensOutput)) + driverSpend.tokensOutput
-  const computedUsd = sum(workerSpends.map((spend) => spend.usd)) + driverSpend.usd
-  const usd = computedUsd > 0 ? computedUsd : (state.result?.spentUsd ?? 0)
+  const spend = workers.map(totalSpend).reduce(addSpend, driverSpend)
+  const counts = { running: 0, done: 0, down: 0, cancelled: 0 }
+  for (const worker of workers) counts[worker.status] += 1
   const started = parseTime(state.startedAt)
   const completed = parseTime(state.completedAt)
   const latencyMs = started !== undefined ? Math.max(0, (completed ?? now) - started) : 0
   const latencies = workers.map((worker) => worker.latencyMs).filter((ms) => ms > 0)
   return {
     workers: workers.length,
-    running: workers.filter((worker) => worker.status === 'running').length,
-    done: workers.filter((worker) => worker.status === 'done').length,
-    down: workers.filter((worker) => worker.status === 'down').length,
-    cancelled: workers.filter((worker) => worker.status === 'cancelled').length,
-    inFlight: workers.filter((worker) => worker.status === 'running').length,
-    settled: workers.filter((worker) => worker.status !== 'running').length,
-    tokensInput: tokenInput,
-    tokensOutput: tokenOutput,
-    tokensTotal: tokenInput + tokenOutput,
-    usd,
+    ...counts,
+    ...(spend.usdKnown === false ? { usdKnown: false } : {}),
+    ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
+    inFlight: counts.running,
+    settled: workers.length - counts.running,
+    tokensInput: spend.tokensInput,
+    tokensOutput: spend.tokensOutput,
+    tokensTotal: spend.tokensInput + spend.tokensOutput,
+    usd: spend.usd > 0 ? spend.usd : (state.result?.spentUsd ?? 0),
     latencyMs,
     workerLatency: distribution(latencies),
   }
 }
 
-export function aggregateSnapshot(snapshot: TopSnapshot): {
-  supervisors: number
-  workers: number
-  running: number
-  done: number
-  down: number
-  usd: number
-  tokensInput: number
-  tokensOutput: number
-} {
+export function aggregateSnapshot(snapshot: TopSnapshot) {
+  const complete = snapshot.completeness === 'complete'
   return {
+    usdKnown: complete && snapshot.supervisors.every((row) => row.totals.usdKnown !== false),
+    tokensKnown: complete && snapshot.supervisors.every((row) => row.totals.tokensKnown !== false),
     supervisors: snapshot.supervisors.length,
     workers: sum(snapshot.supervisors.map((supervisor) => supervisor.totals.workers)),
     running: sum(snapshot.supervisors.map((supervisor) => supervisor.totals.running)),
@@ -577,6 +625,8 @@ function addSpend(a: SpendStats, b: SpendStats): SpendStats {
     tokensOutput: a.tokensOutput + b.tokensOutput,
     usd: a.usd + b.usd,
     ms: a.ms + b.ms,
+    ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
+    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
   }
 }
 
@@ -584,6 +634,8 @@ export function parseSpend(value: unknown): SpendStats {
   if (!isRecord(value)) return emptySpend
   const tokens = isRecord(value.tokens) ? value.tokens : {}
   return {
+    ...(value.usdKnown === false ? { usdKnown: false } : {}),
+    ...(value.tokensKnown === false || tokens.tokensKnown === false ? { tokensKnown: false } : {}),
     iterations: numberValue(value.iterations),
     tokensInput: numberValue(tokens.input),
     tokensOutput: numberValue(tokens.output),
@@ -610,7 +662,6 @@ function describeVerdict(value: unknown): string | undefined {
 }
 
 function distribution(values: readonly number[]): Distribution {
-  if (values.length === 0) return { n: 0, min: 0, median: 0, p90: 0, max: 0 }
   const sorted = [...values].sort((a, b) => a - b)
   return {
     n: sorted.length,
@@ -650,12 +701,6 @@ function tailLines(raw: string | undefined, maxLines: number): string[] {
   return raw.trim().split('\n').filter(Boolean).slice(-maxLines)
 }
 
-function readProgressTail(dir: string, maxLines: number): SourceRead<string[]> {
-  const path = 'progress.ndjson'
-  const read = readSourceFile(join(dir, path), 'progress', path)
-  return { value: tailLines(read.value, maxLines), diagnostics: read.diagnostics }
-}
-
 function readWorkerEventTails(
   dir: string,
   maxLines: number,
@@ -689,47 +734,38 @@ function readSupervisorState(dir: string): SourceRead<SupervisorState | undefine
   const path = 'state.json'
   const read = readSourceFile(join(dir, path), 'supervisor-state', path)
   if (read.diagnostics.length > 0) return { value: undefined, diagnostics: read.diagnostics }
-  if (read.value === undefined)
-    return {
-      value: undefined,
-      diagnostics: [{ source: 'supervisor-state', path, reason: 'missing' }],
-    }
-  let parsed: Partial<SupervisorState>
+  const failed = (reason: TopSnapshotDiagnosticReason): SourceRead<undefined> => ({
+    value: undefined,
+    diagnostics: [{ source: 'supervisor-state', path, reason }],
+  })
+  if (read.value === undefined) return failed('missing')
   try {
-    parsed = JSON.parse(read.value) as Partial<SupervisorState>
+    const parsed: unknown = JSON.parse(read.value)
+    return isSupervisorState(parsed) ? { value: parsed, diagnostics: [] } : failed('invalid-state')
   } catch {
-    return {
-      value: undefined,
-      diagnostics: [{ source: 'supervisor-state', path, reason: 'partial-json' }],
-    }
+    return failed('partial-json')
   }
-  if (!isSupervisorState(parsed))
-    return {
-      value: undefined,
-      diagnostics: [{ source: 'supervisor-state', path, reason: 'invalid-state' }],
-    }
-  return { value: parsed, diagnostics: [] }
 }
 
-function isSupervisorState(value: Partial<SupervisorState> | undefined): value is SupervisorState {
+function isSupervisorState(value: unknown): value is SupervisorState {
   return (
-    value !== undefined &&
-    typeof value.id === 'string' &&
-    typeof value.status === 'string' &&
-    typeof value.task === 'string' &&
-    typeof value.workspaceDir === 'string' &&
-    typeof value.budget === 'number'
+    isRecord(value) &&
+    Object.entries({
+      id: 'string',
+      status: 'string',
+      task: 'string',
+      workspaceDir: 'string',
+      budget: 'number',
+    }).every(([key, type]) => typeof value[key] === type)
   )
 }
 
-function isSpawnEvent(value: unknown): value is TopJournalEvent {
-  if (!isRecord(value)) return false
+function isSpawnEvent<T>(value: T): value is T & TopJournalEvent {
   return (
-    (value.kind === 'spawned' && typeof value.id === 'string') ||
-    (value.kind === 'settled' && typeof value.id === 'string') ||
-    (value.kind === 'cancelled' && typeof value.id === 'string') ||
-    (value.kind === 'metered' && typeof value.id === 'string') ||
-    (value.kind === 'progress' && typeof value.id === 'string')
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.kind === 'string' &&
+    ['spawned', 'settled', 'cancelled', 'metered', 'progress'].includes(value.kind)
   )
 }
 
