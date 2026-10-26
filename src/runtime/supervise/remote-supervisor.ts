@@ -104,8 +104,11 @@ const cancelSchema = z.union([
   z.object({ error: z.literal('not-live'), reason: z.string(), ...workerCounts }),
 ])
 
-/** Actual handler outcomes; queue admission never stands in for delivered steering. */
+/** Actual handler outcomes; queue admission never stands in for delivered steering.
+ * @useDeclaredType
+ */
 export type RemoteSupervisorSteerResult = z.infer<typeof steerSchema>
+/** @useDeclaredType */
 export type RemoteSupervisorCancelResult = z.infer<typeof cancelSchema>
 
 /** A separate capability for the same manager's owned workers, without manager tool grants. */

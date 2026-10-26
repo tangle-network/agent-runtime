@@ -27,6 +27,7 @@ export const graphTriggerBindingsSchema = z.array(
         })
     }),
 )
+/** @useDeclaredType */
 export type GraphTriggerBinding = z.infer<typeof graphTriggerBindingsSchema>[number]
 
 type Part = GraphTriggerBinding['parts'][number]
