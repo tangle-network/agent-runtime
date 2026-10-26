@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.349.0` and `@tangle-network/agent-eval@0.221.8` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.350.0` and `@tangle-network/agent-eval@0.221.8` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -100,7 +100,6 @@ Import from `@tangle-network/agent-runtime` — 235 exports.
 | `ReflectiveProposerParent` | interface | One parent, as `evidence` receives it. |
 | `RouterEnv` | interface | Env keys the router base URL is resolved from. |
 | `RunRecord` | interface | Mandatory paper-grade fields for a single evaluation run. Optional |
-| `RuntimeFailureCause` | interface | A terminal failure as values, carried on final and settled events beside their existing |
 | `RuntimeHooks` | interface | The observation seam attached to a running loop (never to the portable genome). |
 | `SearchCellContext` | interface | What the agent of one attempt knows about where and as what it runs. |
 | `SearchLane` | interface | An execution lane: slots that share one cost rule, and the profiles they cannot run. |
@@ -131,6 +130,7 @@ Import from `@tangle-network/agent-runtime` — 235 exports.
 | `RetryableErrorPredicate` | type | Pure judgment of whether an error is worth retrying. Defaults: TimeoutError, AbortError, fetch-level network errors. |
 | `RetryBackoff` | type | Backoff between attempts. Constant ms, or `(attempt: 1-indexed) => ms`. |
 | `RuntimeCanonicalStreamEvent` | type | Agent Interface events that do not belong to Runtime's task vocabulary. |
+| `RuntimeFailureCause` | type | A terminal failure as values, carried on final and settled events beside their existing |
 | `RuntimeFailureCode` | type | Stable failure codes. A consumer branches on these, never on `cause` text. |
 | `RuntimeFailureOwner` | type | Who must act before the same work can succeed. |
 | `RuntimeHookPhase` | type | Runtime hook contracts. Hooks are execution-scoped observers, not part of an |

@@ -1017,7 +1017,7 @@ Exact profile identity admitted before the shot.
 
 ##### reasoningEffort
 
-> `readonly` **reasoningEffort**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"` \| `null`
+> `readonly` **reasoningEffort**: `"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"` \| `null`
 
 ##### promptSha256
 
@@ -1416,6 +1416,8 @@ Extract the exact named text components optimized together.
 
 ###### profile
 
+\{ \}
+
 ###### Returns
 
 `Readonly`\<`Record`\<`string`, `string`\>\>
@@ -1429,6 +1431,8 @@ Apply a complete winning component map to a detached profile.
 ###### Parameters
 
 ###### profile
+
+\{ \}
 
 ###### components
 
@@ -4659,39 +4663,6 @@ the same row on retry).
 
 ***
 
-### RuntimeFailureCause
-
-**`Stable`**
-
-A terminal failure as values, carried on final and settled events beside their existing
-`reason` and `error` fields.
-
-`code` and `owner` are read from the failure's structure — its class, machine code, HTTP status
-and cause chain, the caller's signal and deadline, or the settlement's typed fields — never from
-message text. `cause` is the redacted, bounded cause chain for people; it is not a contract.
-
-#### Properties
-
-##### code
-
-> `readonly` **code**: [`RuntimeFailureCode`](#runtimefailurecode)
-
-##### owner
-
-> `readonly` **owner**: [`RuntimeFailureOwner`](#runtimefailureowner)
-
-##### cause
-
-> `readonly` **cause**: `string`
-
-##### providerCode?
-
-> `readonly` `optional` **providerCode?**: `string`
-
-The upstream or provider machine code the failure carried, when it carried one.
-
-***
-
 ### RuntimeTelemetryOptions
 
 **`Stable`**
@@ -6315,6 +6286,16 @@ Accept by returning void synchronously; reject by throwing. Async callbacks are 
 
 Complete-method configuration for every non-code profile surface.
 
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
 #### Type Declaration
 
 ##### surface?
@@ -6386,16 +6367,6 @@ Additional lift floor on Eval's deciding interval. Eval must also permit promoti
 What the search improves, recorded as the ledger's subject, for example
 `vb/coder`. Default: the profile's name, else `agent-profile`.
 
-#### Type Parameters
-
-##### TScenario
-
-`TScenario` *extends* `Scenario`
-
-##### TArtifact
-
-`TArtifact`
-
 ***
 
 ### ImproveSearchOptions
@@ -6406,6 +6377,16 @@ Improve a profile with `searchMethod`. The search runs on all three splits:
 it expands and ranks on train and selection, then claims once on the sealed
 test split, and the claim decides. Runtime ships a statistical `ship` only
 with complete cost accounting and a test lower bound above `minimumLift`.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
 
 #### Type Declaration
 
@@ -6493,16 +6474,6 @@ here before it starts, and waits while open cells could return enough.
 
 Where cell spans go. Default: `<search dir>/spans.otlp.jsonl` on filesystem storage.
 
-#### Type Parameters
-
-##### TScenario
-
-`TScenario` *extends* `Scenario`
-
-##### TArtifact
-
-`TArtifact`
-
 ***
 
 ### SearchDispatchContext
@@ -6561,6 +6532,16 @@ The agent of a native search: the exact node profile on one scenario.
 
 Runtime-owned code search in isolated git worktrees.
 
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
 #### Type Declaration
 
 ##### surface
@@ -6614,21 +6595,11 @@ Isolated repository and candidate generator settings.
 Custom held-back-exam decision. The string `gate` above controls whether
 the exam runs; this callback controls how its evidence decides promotion.
 
-#### Type Parameters
-
-##### TScenario
-
-`TScenario` *extends* `Scenario`
-
-##### TArtifact
-
-`TArtifact`
-
 ***
 
 ### ImproveCodeOptions
 
-> **ImproveCodeOptions** = [`ImproveCodeBaseOptions`](#improvecodebaseoptions) & [`ImproveRuntimeCodeGeneratorOptions`](#improveruntimecodegeneratoroptions) \| [`ImproveCustomCodeGeneratorOptions`](#improvecustomcodegeneratoroptions)
+> **ImproveCodeOptions** = [`ImproveCodeBaseOptions`](#improvecodebaseoptions) & ([`ImproveRuntimeCodeGeneratorOptions`](#improveruntimecodegeneratoroptions) \| [`ImproveCustomCodeGeneratorOptions`](#improvecustomcodegeneratoroptions))
 
 ***
 
@@ -6678,14 +6649,6 @@ Official SkillOpt configuration plus bounded Runtime findings context.
 
 > **ProfileImprovementHarnessRunOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<[`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"executionRef"` \| `"agent"` \| `"validateCandidate"`\> & `object`
 
-#### Type Declaration
-
-##### validateCandidate?
-
-> `optional` **validateCandidate?**: [`ImproveCandidateValidator`](#improvecandidatevalidator)
-
-Override the harness-level validator for this run.
-
 #### Type Parameters
 
 ##### TScenario
@@ -6695,6 +6658,14 @@ Override the harness-level validator for this run.
 ##### TArtifact
 
 `TArtifact`
+
+#### Type Declaration
+
+##### validateCandidate?
+
+> `optional` **validateCandidate?**: [`ImproveCandidateValidator`](#improvecandidatevalidator)
+
+Override the harness-level validator for this run.
 
 ***
 
@@ -6969,7 +6940,7 @@ environment and must never be required for agent correctness.
 
 ### RuntimeFailureOwner
 
-> **RuntimeFailureOwner** = `"provider"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"` \| `"unknown"`
+> **RuntimeFailureOwner** = [`RuntimeFailureCause`](#runtimefailurecause)\[`"owner"`\]
 
 **`Stable`**
 
@@ -6988,11 +6959,26 @@ Who must act before the same work can succeed.
 
 ### RuntimeFailureCode
 
-> **RuntimeFailureCode** = `"aborted"` \| `"deadline-exceeded"` \| `"budget-exhausted"` \| `"credential-refused"` \| `"request-rejected"` \| `"upstream-unavailable"` \| `"transport"` \| `"provider-contract"` \| `"retained-unobservable"` \| `"nested-recovery"` \| `"platform"` \| `"work-failed"` \| `"unknown"`
+> **RuntimeFailureCode** = [`RuntimeFailureCause`](#runtimefailurecause)\[`"code"`\]
 
 **`Stable`**
 
 Stable failure codes. A consumer branches on these, never on `cause` text.
+
+***
+
+### RuntimeFailureCause
+
+> **RuntimeFailureCause** = `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; \}\>
+
+**`Stable`**
+
+A terminal failure as values, carried on final and settled events beside their existing
+`reason` and `error` fields.
+
+`code` and `owner` are read from the failure's structure — its class, machine code, HTTP status
+and cause chain, the caller's signal and deadline, or the settlement's typed fields — never from
+message text. `cause` is the redacted, bounded cause chain for people; it is not a contract.
 
 ***
 
@@ -7607,7 +7593,11 @@ Build an `AgentExecutionBackend` backed by a sandbox/sidecar `streamPrompt` call
 
 ###### getBox
 
+(`input`, `context`) => `TBox` \| `Promise`\<`TBox`\>
+
 ###### streamPrompt
+
+(`box`, `message`, `context`) => `AsyncIterable`\<`unknown`\>
 
 ###### mapEvent?
 
@@ -7805,6 +7795,8 @@ Train and serve a checkpoint without implying that it improved held-out quality.
 
 ###### profile
 
+\{ \}
+
 ###### opts
 
 [`ImproveTrainingOptions`](#improvetrainingoptions)
@@ -7835,6 +7827,8 @@ the sealed test split, and the claim decides.
 
 ###### profile
 
+\{ \}
+
 ###### opts
 
 [`ImproveSearchOptions`](#improvesearchoptions)\<`TScenario`, `TArtifact`\>
@@ -7863,6 +7857,8 @@ Optimize one exact profile surface with a complete method.
 
 ###### profile
 
+\{ \}
+
 ###### opts
 
 [`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\>
@@ -7890,6 +7886,8 @@ Optimize one exact profile surface with a complete method or a search.
 ##### Parameters
 
 ###### profile
+
+\{ \}
 
 ###### opts
 

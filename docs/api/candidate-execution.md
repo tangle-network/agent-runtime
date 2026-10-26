@@ -1055,7 +1055,7 @@ Provider-neutral model request resolved before any grant is reserved.
 
 ###### reasoningEffort
 
-> **reasoningEffort**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"` \| `undefined`
+> **reasoningEffort**: `"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ##### reserve
 
@@ -1292,7 +1292,7 @@ Catalog/snapshot resolution stays separate from credential issuance.
 
 ###### reasoningEffort
 
-`"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"` \| `undefined`
+`"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -1750,7 +1750,7 @@ any archive encoding, or no-op when the exact workspace is already present.
 
 ###### reasoningEffort
 
-`"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"` \| `undefined`
+`"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -3965,6 +3965,12 @@ Exact evaluator-captured final output bytes.
 
 Immutable evaluator evidence retained with a verified candidate task outcome.
 
+#### Type Parameters
+
+##### Kind
+
+`Kind` *extends* `AgentCandidateTaskOutcomeMaterial`\[`"outcome"`\]\[`"kind"`\]
+
 #### Type Declaration
 
 ##### artifact
@@ -3980,12 +3986,6 @@ Immutable evaluator evidence retained with a verified candidate task outcome.
 ###### outcome
 
 > `readonly` **outcome**: `Extract`\<`AgentCandidateTaskOutcomeMaterial`\[`"outcome"`\], \{ `kind`: `Kind`; \}\>
-
-#### Type Parameters
-
-##### Kind
-
-`Kind` *extends* `AgentCandidateTaskOutcomeMaterial`\[`"outcome"`\]\[`"kind"`\]
 
 ***
 

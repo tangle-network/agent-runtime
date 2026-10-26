@@ -8,6 +8,22 @@
 
 ## Interfaces
 
+### GraphDesignerProfileOptions
+
+#### Properties
+
+##### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+Caller-owned exact harness/model, tools, permissions, connections and other capabilities.
+
+##### name?
+
+> `readonly` `optional` **name?**: `string`
+
+***
+
 ### ResearchTask
 
 **`Experimental`**
@@ -685,6 +701,14 @@ Severity scale.
 
 ## Variables
 
+### graphDesignerSkillSources
+
+> `const` **graphDesignerSkillSources**: `Readonly`\<\{ `graph-designer`: `"https://github.com/tangle-network/agent-runtime/blob/main/skills/graph-designer/SKILL.md"`; `agent-graphs`: `"https://github.com/tangle-network/agent-runtime/blob/main/skills/agent-graphs/SKILL.md"`; `be-ambitious`: `"https://github.com/drewstone/dotfiles/blob/main/claude/skills/be-ambitious/SKILL.md"`; \}\>
+
+Canonical owners of the separately bundled designer capabilities.
+
+***
+
 ### SHARED\_AUDITOR\_RULES
 
 > `const` **SHARED\_AUDITOR\_RULES**: `string`
@@ -704,6 +728,38 @@ Cross-lens rules injected into every UI audit iteration: finding quality standar
 Per-lens auditor briefs: concrete signals to look for and cross-lens distinctions to respect.
 
 ## Functions
+
+### graphDesignerSkills()
+
+> **graphDesignerSkills**(): `AgentProfileResourceRef`[]
+
+Read this installation's bundled skills without depending on a user's skill installation.
+ Self-resolution follows the public profiles entry in source checkouts and packed installs.
+
+#### Returns
+
+`AgentProfileResourceRef`[]
+
+***
+
+### graphDesignerProfile()
+
+> **graphDesignerProfile**(`options`): `AgentProfile`
+
+Compose graph design capabilities onto a complete execution profile; the skills remain
+ distinct resources carried through the normal profile materializer.
+
+#### Parameters
+
+##### options
+
+[`GraphDesignerProfileOptions`](#graphdesignerprofileoptions)
+
+#### Returns
+
+`AgentProfile`
+
+***
 
 ### researcherProfile()
 

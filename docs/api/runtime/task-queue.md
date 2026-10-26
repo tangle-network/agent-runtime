@@ -84,15 +84,9 @@ checkpoint before execute starts. Active identities cannot be admitted twice.
 
 ### TaskQueueSettlement
 
-> **TaskQueueSettlement**\<`T`, `R`\> = `object` & \{ `status`: `"fulfilled"`; `value`: `R`; \} \| \{ `status`: `"rejected"`; `reason`: `unknown`; \}
+> **TaskQueueSettlement**\<`T`, `R`\> = `object` & (\{ `status`: `"fulfilled"`; `value`: `R`; \} \| \{ `status`: `"rejected"`; `reason`: `unknown`; \})
 
 Native promise settlement, retaining the exact returned or thrown value.
-
-#### Type Declaration
-
-##### task
-
-> `readonly` **task**: [`TaskQueueEntry`](#taskqueueentry)\<`T`\>
 
 #### Type Parameters
 
@@ -103,6 +97,12 @@ Native promise settlement, retaining the exact returned or thrown value.
 ##### R
 
 `R`
+
+#### Type Declaration
+
+##### task
+
+> `readonly` **task**: [`TaskQueueEntry`](#taskqueueentry)\<`T`\>
 
 ## Functions
 
