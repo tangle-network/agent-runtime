@@ -51,15 +51,22 @@ export interface LoadGraphFileOptions {
    *  errors propagate unchanged. The loader does not parse aliases or reasoning effort. */
   readonly resolveSeat?: (
     seat: string | undefined,
-    context: {
+    context: Pick<LoadGraphFileOptions, 'cwd' | 'signal'> & {
       readonly node: string
-      readonly cwd?: string
-      readonly signal?: AbortSignal
       readonly lastCandidate: boolean
     },
   ) => GraphFileSeat | undefined | Promise<GraphFileSeat | undefined>
   /** Environment-owned provider-name bindings; files never carry Hub credentials. */
   readonly needs?: Readonly<Record<string, NonNullable<AgentProfile['connections']>[number]>>
+  /** Optional host resolution for providers without an own static binding. Calls may overlap;
+   * the host owns coalescing, authentication and cancellation; errors propagate unchanged. */
+  readonly resolveNeed?: (
+    provider: string,
+    context: Pick<LoadGraphFileOptions, 'cwd' | 'signal'> & { readonly node: string },
+  ) =>
+    | NonNullable<AgentProfile['connections']>[number]
+    | undefined
+    | Promise<NonNullable<AgentProfile['connections']>[number] | undefined>
   readonly registry?: PromptRegistry
   readonly analysts?: AnalystRegistry
 }
@@ -170,59 +177,51 @@ async function expandProfile(
     if (!selected)
       refuse(`node ${node.id} needs a canonical profile or resolveSeat from Bridge login inventory`)
   }
-  const connections = node.needs?.map((provider) => {
-    if (!options.needs || !Object.hasOwn(options.needs, provider))
-      throw new GraphFileResolutionError(provider, node.id)
-    return options.needs[provider]!
-  })
-  const { seats: _authoredSeats, ...authoredProfile } = node.profile ?? {}
-  const profile = {
-    ...(selected ? authoredProfile : node.profile),
-    name: node.id,
-    ...(selected
-      ? {
-          harness: selected.harness,
-          model: {
-            ...(node.profile?.model as object | undefined),
-            provider: selected.provider,
-            default: selected.model,
-            ...(selected.reasoningEffort === undefined
-              ? {}
-              : { reasoningEffort: selected.reasoningEffort }),
-          },
-        }
-      : {}),
-    ...(connections
-      ? {
-          connections: [
-            ...((node.profile?.connections as unknown[] | undefined) ?? []),
-            ...connections,
-          ],
-        }
-      : {}),
+  const connections = await Promise.all(
+    (node.needs ?? []).map(async (provider) => {
+      if (options.needs && Object.hasOwn(options.needs, provider)) return options.needs[provider]!
+      const connection = await options.resolveNeed?.(provider, context)
+      if (connection === undefined) throw new GraphFileResolutionError(provider, node.id)
+      return connection
+    }),
+  )
+  const profile: Record<string, unknown> = { ...node.profile, name: node.id }
+  if (selected) {
+    delete profile.seats
+    profile.harness = selected.harness
+    profile.model = {
+      ...(node.profile?.model as object | undefined),
+      provider: selected.provider,
+      default: selected.model,
+      ...(selected.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: selected.reasoningEffort }),
+    }
   }
+  if (node.needs)
+    profile.connections = [
+      ...((node.profile?.connections as unknown[] | undefined) ?? []),
+      ...connections,
+    ]
   const parsed = agentProfileSchema.safeParse(profile)
   if (!parsed.success) refuse(`node ${node.id} has an invalid profile: ${parsed.error.message}`)
   assertExecutableAgentProfile(parsed.data, `loadGraphFile node ${node.id}`)
   return parsed.data
 }
 
-/** Parse the canonical YAML/JSON file into content-addressed Runtime graph data, offline. */
+/** Compile canonical YAML/JSON to content-addressed graph data. Host resolvers may perform I/O. */
 export async function loadGraphFile(
   file: string,
   options: LoadGraphFileOptions = {},
 ): Promise<LoadedGraphFile> {
-  if (!['.yaml', '.yml', '.json'].includes(extname(file).toLowerCase()))
-    refuse('file must be YAML or JSON')
+  const format = extname(file).toLowerCase()
+  if (!['.yaml', '.yml', '.json'].includes(format)) refuse('file must be YAML or JSON')
   const text = options.source ?? (await readFile(file, 'utf8'))
   const document = parseDocument(text, { uniqueKeys: true, strict: true })
   if (document.errors.length) refuse(document.errors.map((error) => error.message).join('; '))
   if (document.warnings.length)
     refuse(document.warnings.map((warning) => warning.message).join('; '))
-  const raw: unknown =
-    extname(file).toLowerCase() === '.json'
-      ? JSON.parse(text)
-      : document.toJS({ maxAliasCount: 100 })
+  const raw: unknown = format === '.json' ? JSON.parse(text) : document.toJS({ maxAliasCount: 100 })
   jsonData(raw)
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) refuse('definition must be an object')
   const source = raw as Record<string, unknown>

@@ -21411,21 +21411,7 @@ Bridge-owned syntax, model and login resolution. Undefined marks an unavailable 
 
 ###### context
 
-###### node
-
-`string`
-
-###### cwd?
-
-`string`
-
-###### signal?
-
-`AbortSignal`
-
-###### lastCandidate
-
-`boolean`
+`Pick`\<[`LoadGraphFileOptions`](#loadgraphfileoptions), `"cwd"` \| `"signal"`\> & `object`
 
 ###### Returns
 
@@ -21436,6 +21422,27 @@ Bridge-owned syntax, model and login resolution. Undefined marks an unavailable 
 > `readonly` `optional` **needs?**: `Readonly`\<`Record`\<`string`, `AgentProfileConnection`\>\>
 
 Environment-owned provider-name bindings; files never carry Hub credentials.
+
+##### resolveNeed?
+
+> `readonly` `optional` **resolveNeed?**: (`provider`, `context`) => `AgentProfileConnection` \| `Promise`\<`AgentProfileConnection` \| `undefined`\> \| `undefined`
+
+Optional host resolution for providers without an own static binding. Calls may overlap;
+the host owns coalescing, authentication and cancellation; errors propagate unchanged.
+
+###### Parameters
+
+###### provider
+
+`string`
+
+###### context
+
+`Pick`\<[`LoadGraphFileOptions`](#loadgraphfileoptions), `"cwd"` \| `"signal"`\> & `object`
+
+###### Returns
+
+`AgentProfileConnection` \| `Promise`\<`AgentProfileConnection` \| `undefined`\> \| `undefined`
 
 ##### registry?
 
@@ -43438,7 +43445,7 @@ harness-derived runtime (`'sandbox'` for any `BackendType`); else fail loud.
 
 > **loadGraphFile**(`file`, `options?`): `Promise`\<[`LoadedGraphFile`](#loadedgraphfile)\>
 
-Parse the canonical YAML/JSON file into content-addressed Runtime graph data, offline.
+Compile canonical YAML/JSON to content-addressed graph data. Host resolvers may perform I/O.
 
 #### Parameters
 

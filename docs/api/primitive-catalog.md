@@ -528,7 +528,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1025 exports.
 | `legacySupervisorRunDir` | function | Where a pre-rename writer put the same run (`<root>/.loops/supervisor/<id>`). Readers that must |
 | `listGraphRuns` | function | All records, newest last. |
 | `loadGraph` | function | Load a stored graph by digest. |
-| `loadGraphFile` | function | Parse the canonical YAML/JSON file into content-addressed Runtime graph data, offline. |
+| `loadGraphFile` | function | Compile canonical YAML/JSON to content-addressed graph data. Host resolvers may perform I/O. |
 | `loadProfile` | function | Load a stored profile revision by digest (for replaying the winning revision). |
 | `loadSpawnForest` | function | Load every journal tree owned by one recursive supervision run and flatten its nodes/events. |
 | `localShell` | function | Host-process `Shell`: run a command via `execFile`, resolving `{ stdout, stderr, code }` (never throws on non-zero exit). |
