@@ -5,24 +5,53 @@ strictPeerDependencies: true
 
 minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
+  - '@biomejs/cli-android-arm64@2.6.3'
+  - '@biomejs/cli-android-x64@2.6.3'
+  - '@biomejs/cli-darwin-arm64@2.6.3'
+  - '@biomejs/cli-darwin-x64@2.6.3'
+  - '@biomejs/cli-linux-arm64-musl@2.6.3'
+  - '@biomejs/cli-linux-arm64@2.6.3'
+  - '@biomejs/cli-linux-x64-musl@2.6.3'
+  - '@biomejs/cli-linux-x64@2.6.3'
+  - '@biomejs/cli-win32-arm64@2.6.3'
+  - '@biomejs/cli-win32-x64@2.6.3'
   # Reviewed code-mode engine from the article; exact version, not a broad exemption.
   - '@earendil-works/pi-codemode@1.0.4'
   - 'quickjs-wasi@3.6.2'
   - '@tangle-network/*'
-  - '@hono/node-server@2.0.12'
-  - 'hono@4.12.32'
+  - '@hono/node-server@2.1.5'
+  - 'hono@4.13.14'
+  - 'ip-address@10.7.5'
   - 'playwright@1.62.0'
   - 'playwright-core@1.62.0'
   - 'rolldown-plugin-dts@0.27.14'
   - 'body-parser@2.4.0'
+  - '@arethetypeswrong/cli@0.18.5'
+  - '@biomejs/biome@2.6.3'
+  - '@earendil-works/pi-codemode@1.4.0'
+  - '@modelcontextprotocol/sdk@1.32.2'
+  - '@types/node@26.6.5'
+  - '@types/tar-stream@3.1.5'
+  - 'miniflare@4.20260730.0'
+  - 'oxc-parser@0.155.0'
+  - 'publint@0.3.25'
+  - 'tar-stream@3.2.2'
+  - 'tsdown@0.23.2'
+  - 'tsx@4.23.15'
+  - 'typedoc@0.28.20'
+  - 'typedoc-plugin-markdown@4.14.1'
+  - 'typescript@7.0.2'
+  - 'vitest@5.0.5'
+  - 'wrangler@4.152.0'
+  - 'yaml@2.9.1'
+  - 'zod@4.6.7'
 minimumReleaseAgeIgnoreMissingTime: false
-# These Miniflare releases pin vulnerable HTTP and image dependencies.
+# Miniflare pins older HTTP/image dependencies in both stable and beta tools.
+# Patch each affected major without moving Miniflare across its release channel.
 overrides:
-  'miniflare@4.20260722.0>undici': 7.30.1
-  'miniflare@5.20260826.0-alpha>undici': 7.30.1
-  'miniflare@4.20260722.0>sharp': 0.35.5
-  'miniflare@5.20260826.0-alpha>sharp': 0.35.5
-  'undici@>=8.0.0 <8.12.2': 8.12.3
+  'undici@>=7.0.0 <7.30.1': 7.30.1
+  'undici@>=8.0.0 <8.12.3': 8.12.3
+  'sharp@>=0.35.0 <0.35.5': 0.35.5
   'body-parser@>=2.0.0 <2.4.0': 2.4.0
   'zod@<4.6.7': 4.6.7
 
@@ -33,18 +62,18 @@ allowBuilds:
 
 catalog:
   '@arethetypeswrong/cli': 0.18.5
-  '@modelcontextprotocol/sdk': 1.32.0
+  '@modelcontextprotocol/sdk': 1.32.2
   '@tangle-network/agent-core': '>=0.13.1 <0.14.0'
-  '@types/node': 26.4.0
-  '@tangle-network/agent-eval': '>=0.221.3 <0.222.0'
+  '@types/node': 26.6.5
+  '@tangle-network/agent-eval': '>=0.221.8 <0.222.0'
   '@tangle-network/agent-interface': '>=5.7.1 <6.0.0'
   '@tangle-network/agent-knowledge': ^22.0.16
-  '@tangle-network/agent-profile-materialize': '^0.25.0'
+  '@tangle-network/agent-profile-materialize': '^0.27.5'
   '@tangle-network/agent-trace-contract': ^2.1.0
-  '@tangle-network/sandbox': '>=0.65.2 <0.66.0'
-  publint: 0.3.24
-  tsdown: 0.22.14
-  tsx: 4.23.12
+  '@tangle-network/sandbox': '>=0.68.3 <0.69.0'
+  publint: 0.3.25
+  tsdown: 0.23.2
+  tsx: 4.23.15
   zod: 4.6.7
   # TypeDoc 0.28.20 and the repository's AST-based test helpers require the
   # compiler API that TypeScript 7 removes. The packed-consumer check below
