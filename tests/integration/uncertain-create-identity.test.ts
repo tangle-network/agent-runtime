@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { build } from 'tsdown'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   cancelRun,
   FileResultBlobStore,
@@ -24,6 +24,8 @@ import {
   record,
 } from './fixtures/uncertain-create-protocol'
 
+// A case waits on real processes sharing a loaded host: its bounds detect a hang, never a speed.
+vi.setConfig({ testTimeout: CASE_TIMEOUT_MS, hookTimeout: HANG_GUARD_MS })
 let bundle: string
 let executables: Executables
 beforeAll(async () => {
@@ -50,7 +52,7 @@ beforeAll(async () => {
     coordinator: join(bundle, 'coordinator.mjs'),
     credential: join(bundle, 'credential.mjs'),
   }
-}, HANG_GUARD_MS)
+})
 afterAll(async () => {
   if (bundle) await rm(bundle, { recursive: true, force: true })
 })
@@ -235,7 +237,6 @@ it.each(['dispatch-refused', 'dispatch-lost-reply'] as const)(
       ).toBe(true)
     })
   },
-  CASE_TIMEOUT_MS,
 )
 
 describe('actual Tangle SDK uncertain root create identities', () => {
@@ -342,7 +343,6 @@ describe('actual Tangle SDK uncertain root create identities', () => {
         )
       })
     },
-    CASE_TIMEOUT_MS,
   )
 
   it('UC2 accepted older A then authoritative loss cannot reset pending B after a real 408', async () => {
@@ -394,7 +394,7 @@ describe('actual Tangle SDK uncertain root create identities', () => {
       )
       expect(new Set(failures.map((row) => row.key))).toEqual(new Set([b.idempotencyKey]))
     })
-  }, CASE_TIMEOUT_MS)
+  })
 
   it('UC3 authoritative loss of the current admitted target permits a genuinely new invocation', async () => {
     await withFixture('current-lost', executables, async (fixture) => {
@@ -420,7 +420,7 @@ describe('actual Tangle SDK uncertain root create identities', () => {
         ),
       ).toBe(true)
     })
-  }, CASE_TIMEOUT_MS)
+  })
 
   it.each(['cancel-unknown', 'cancel-requested'] as const)(
     'UC4 %s retains the current identity until exact cancelled/not_live evidence',
@@ -470,7 +470,6 @@ describe('actual Tangle SDK uncertain root create identities', () => {
         expect(intents(events).at(-1)?.idempotencyKey).not.toBe(first.idempotencyKey)
       })
     },
-    CASE_TIMEOUT_MS,
   )
 })
 
@@ -537,7 +536,7 @@ describe('typed real command credential refusal and accepted evidence', () => {
         ),
       ).toHaveLength(0)
     })
-  }, CASE_TIMEOUT_MS)
+  })
 
   it('UC5 unsupported route before SDK create settles the nested manager once without abandon', async () => {
     await withFixture('unsupported-intent', executables, async (fixture) => {
@@ -616,7 +615,7 @@ describe('typed real command credential refusal and accepted evidence', () => {
         }),
       ])
     })
-  }, CASE_TIMEOUT_MS)
+  })
 
   it.each(['unsupported-environment', 'unsupported-descendant'] as const)(
     'UC6 %s cannot turn existing admission or descendant work into terminal refusal',
@@ -748,7 +747,6 @@ describe('typed real command credential refusal and accepted evidence', () => {
         }
       })
     },
-    CASE_TIMEOUT_MS,
   )
 })
 
@@ -953,7 +951,7 @@ describe('accepted native recovery and historical identities', () => {
       expect(pursuit.result.tree.inFlight).toBe(0)
       expect(abandoned(events)).toHaveLength(0)
     })
-  }, CASE_TIMEOUT_MS)
+  })
 
   it('UC8 historical uncertain abandonment remains closed without rewriting or claiming cleanup', async () => {
     await withFixture('historical', executables, async (fixture) => {
@@ -1005,5 +1003,5 @@ describe('accepted native recovery and historical identities', () => {
         ),
       ).toHaveLength(0)
     })
-  }, CASE_TIMEOUT_MS)
+  })
 })
