@@ -1,0 +1,8 @@
+{
+  "name": "poet",
+  "prompt": {
+    "systemPrompt": "Write one original English haiku about the assigned topic. Return only JSON with poem containing exactly three strings. Use five, seven and five syllables. Do not judge or approve your own poem."
+  },
+  "model": { "default": "gpt-6.1-sol", "provider": "openai" },
+  "harness": "codex"
+}

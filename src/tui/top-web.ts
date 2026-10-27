@@ -153,6 +153,17 @@ export async function serveTopWeb(options: TopWebOptions) {
       } else if (/^\/api\/top\/agents\/\d+\/[^/]+\/[^/]+\/stream$/.test(path)) {
         const [, , , , rootIndex, runId, workerId] = path.split('/').map(decodeURIComponent)
         const root = roots[Number(rootIndex)]
+        // A runs root keeps each run's journals, blobs and root stream in `<root>/<runId>`.
+        const own =
+          root && existsSync(resolve(root, runId!, 'observer.jsonl'))
+            ? resolve(root, runId!)
+            : undefined
+        const runDir = own ?? root
+        const pursuit = own
+          ? (await loadTopSnapshot(root!, { runDir: own })).pursuit
+          : root
+            ? snapshots.get(root)?.pursuit
+            : undefined
         const worker = (): WorkerView | undefined => {
           const run = root
             ? snapshots.get(root)?.supervisors.find((run) => run.id === runId)
@@ -162,8 +173,8 @@ export async function serveTopWeb(options: TopWebOptions) {
           return {
             id: run.id,
             label: 'root',
-            ...(root && existsSync(resolve(root, 'root-stream.jsonl'))
-              ? { eventFile: resolve(root, 'root-stream.jsonl') }
+            ...(runDir && existsSync(resolve(runDir, 'root-stream.jsonl'))
+              ? { eventFile: resolve(runDir, 'root-stream.jsonl') }
               : {}),
             status:
               run.status === 'cancelled'
@@ -187,10 +198,8 @@ export async function serveTopWeb(options: TopWebOptions) {
         }
         let history: ReturnType<typeof transcriptRows> | undefined = await transcriptHistory(
           worker()!,
-          root,
-          snapshots
-            .get(root!)
-            ?.pursuit?.nodes.find((node) => node.runId === runId && node.id === workerId),
+          runDir,
+          pursuit?.nodes.find((node) => node.runId === runId && node.id === workerId),
         )
         response.writeHead(200, { 'Content-Type': 'text/event-stream', 'X-Accel-Buffering': 'no' })
         response.flushHeaders()
@@ -276,7 +285,8 @@ export async function serveTopWeb(options: TopWebOptions) {
       await refresh().catch(() => undefined)
       closed = true
       if (scheduled) clearTimeout(scheduled)
-      for (const client of clients) client.end()
+      // The run is over for this viewer: say so, so a client stops instead of reconnecting.
+      for (const client of clients) client.end('event: end\ndata: {}\n\n')
       transcripts.clear()
       server.closeAllConnections()
       await new Promise<void>((done, reject) =>

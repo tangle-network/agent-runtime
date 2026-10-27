@@ -229,6 +229,7 @@ test('closing the viewer right after a terminal record still delivers that settl
   const statusOf = () =>
     text
       .split('\n\n')
+      .filter((packet) => packet.includes('event: snapshot'))
       .flatMap((packet) => packet.split('\n').filter((line) => line.startsWith('data: ')))
       .map((line) => JSON.parse(line.slice(6)) as TopSnapshotFrame)
       .map((frame) => frame.snapshots[0]?.supervisors[0]?.workers[0]?.status)
@@ -243,5 +244,48 @@ test('closing the viewer right after a terminal record still delivers that settl
   for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read())
     text += new TextDecoder().decode(chunk.value)
   expect(statusOf().at(-1)).toBe('done')
+  // The stream says it is over, so a client stops instead of reconnecting to a closed server.
+  expect(text.endsWith('event: end\ndata: {}\n\n')).toBe(true)
   await rm(root, { recursive: true, force: true })
+}, 15000)
+
+test("a run under a runs root opens an agent's input and result when its conversation was not captured", async () => {
+  // Recorded from a native Codex poet -> critic graph run whose bridge captured no conversation.
+  const recorded = join(__dirname, '..', 'fixtures', 'durable', 'native-graph-poet-critic')
+  const runId = '78ecc202-8364-4bdb-be3e-56e2f57c0820'
+  const root = await mkdtemp(join(tmpdir(), 'runtime-top-web-detail-'))
+  const runs = join(root, 'runs')
+  const assets = join(root, 'assets')
+  await mkdir(assets)
+  await writeFile(join(assets, 'workspace-viewer.js'), 'export {};')
+  await writeFile(join(assets, 'styles.css'), 'body { color: black; }')
+  await cp(recorded, join(runs, runId), { recursive: true })
+  const web = await serveTopWeb({ roots: [runs], assets })
+  try {
+    const critic = encodeURIComponent(`${runId}:s1`)
+    const body = await (await fetch(`${web.url}api/top/agents/0/${runId}/${critic}/stream`)).text()
+    const rows = body
+      .split('\n\n')
+      .filter((packet) => packet.startsWith('event: rows'))
+      .flatMap(
+        (packet) =>
+          (
+            JSON.parse(packet.split('data: ')[1]!) as {
+              events: { event: Record<string, string> }[]
+            }
+          ).events,
+      )
+      .map(({ event }) => event)
+    expect(rows.map((event) => event.provenance)).toEqual([
+      'delegated-input',
+      'capture-unavailable',
+      'recorded-result',
+    ])
+    expect(rows[0]?.text).toContain('Dawn rain taps the leaves')
+    expect(JSON.parse(rows[2]!.text!)).toMatchObject({ approved: true, syllables: [5, 7, 5] })
+    expect(body.endsWith('event: end\ndata: {}\n\n')).toBe(true)
+  } finally {
+    await web.close()
+    await rm(root, { recursive: true, force: true })
+  }
 }, 15000)

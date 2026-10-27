@@ -1,0 +1,6 @@
+{
+  "approved": true,
+  "poem": ["Dawn rain taps the leaves", "Soft light gathers in puddles", "Birds wait for the sun"],
+  "syllables": [5, 7, 5],
+  "reason": "A 5–7–5 nature haiku depicting a rainy dawn. No separate requested topic was supplied."
+}
