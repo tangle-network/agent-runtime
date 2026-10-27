@@ -132,6 +132,7 @@ export {
   runDirectoryHolderIsLive,
 } from './run-lock'
 export type { RunReopen } from './run-reopen'
+export { durableRunToolSpans } from './run-tool-spans'
 export {
   type DurableFailureRecord,
   readFailureRecord,

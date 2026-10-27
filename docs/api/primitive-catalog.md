@@ -170,7 +170,7 @@ Import from `@tangle-network/agent-runtime/agent` — 30 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 95 exports.
+Import from `@tangle-network/agent-runtime/durable` — 96 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -178,6 +178,7 @@ Import from `@tangle-network/agent-runtime/durable` — 95 exports.
 | `assertPursuitVersions` | function | Validate a `versions` option before any compute. The same check runs inside `supervisePursuit`; |
 | `deriveExecutionId` | function | Derive a stable execution id from the run identity. |
 | `discoverDurableSupervisionRun` | function | Discover the stable identities recorded by Runtime's durable supervision |
+| `durableRunToolSpans` | function | Every tool span a finished `supervise({ runDir })` run recorded, read from its directory alone: |
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
 | `observerRecordDigest` | function | Compute the canonical SHA-256 digest for an unsigned observer record. |
 | `projectPursuit` | function | Fold one append-only execution journal into a deterministic operator projection. |
