@@ -1,3 +1,27 @@
+## 2.0.0
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Fixed flow graphs now admit their model-free Runtime coordinator under a leaf model allowlist. Actual leaf, backend and driver model checks remain enforced.
+
+Deliver ordinary Codex local-harness prompts through its native stdin channel, avoiding operating-system single-argument limits without clipping profile instructions or task content. Preserve leading BOMs, blank-prompt behavior, stderr, cancellation and process-tree cleanup; report incomplete input delivery after reaping the child. Reproducible Codex retains its literal-argv prompt-evidence path because its native debug renderer has no stdin input surface.
+
+`startRetainedRun` and `startRetainedInteractiveRun` accept `journalRoot`; each run appends its admissions to `<journalRoot>/<runId>/observer.jsonl`, and `agent-runtime-top --web --root <journalRoot>` shows every such run as a card.
+
+Preserve supervised environments after dispatch failure and recover through the original keyed intent before requiring a selected backend.
+
+Runtime 2.0 records export-shape changes since 1.0. `RetainedRunStartMaterial` gains optional `preserveEnvironment`; `StartRetainedRunOptions` and `StartRetainedInteractiveRunOptions` gain optional `journalRoot`; `RunLocalHarnessOptions` gains `stdinPromptArgIndex` and `invocation.prompt`; `loadTopSnapshot`'s `runDir` options gain `format: 'workflow' | 'journal'`. Callers need no change. Code that implements, re-declares or exhaustively maps these types must add the new members.
+
+Watch live run roots through agent-runtime-top --web using the shared read-only snapshot model and server-sent deltas.
+
 ## 1.0.0
 
 Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.

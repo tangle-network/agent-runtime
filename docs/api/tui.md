@@ -742,6 +742,74 @@ Dollar accounting is known unless explicitly false. A false value must not be tr
 
 **`Experimental`**
 
+***
+
+### TopSnapshotFrame
+
+**`Experimental`**
+
+A reconnect always receives current truth; deltas replace changed roots atomically.
+
+#### Properties
+
+##### sequence
+
+> `readonly` **sequence**: `number`
+
+**`Experimental`**
+
+##### observedAt
+
+> `readonly` **observedAt**: `number`
+
+**`Experimental`**
+
+##### reset
+
+> `readonly` **reset**: `boolean`
+
+**`Experimental`**
+
+##### snapshots
+
+> `readonly` **snapshots**: readonly [`TopSnapshot`](#topsnapshot)[]
+
+**`Experimental`**
+
+***
+
+### TopWebOptions
+
+**`Experimental`**
+
+#### Properties
+
+##### roots
+
+> `readonly` **roots**: readonly `string`[]
+
+**`Experimental`**
+
+##### assets?
+
+> `readonly` `optional` **assets?**: `string`
+
+**`Experimental`**
+
+Defaults to the installed agent-record browser asset export.
+
+##### host?
+
+> `readonly` `optional` **host?**: `string`
+
+**`Experimental`**
+
+##### port?
+
+> `readonly` `optional` **port?**: `number`
+
+**`Experimental`**
+
 ## Type Aliases
 
 ### TopSnapshotCompleteness
@@ -858,9 +926,33 @@ under test.
 
 `number`
 
+###### format?
+
+`"journal"` \| `"workflow"`
+
 ##### Returns
 
 `Promise`\<[`TopSnapshot`](#topsnapshot)\>
+
+***
+
+### serveTopWeb()
+
+> **serveTopWeb**(`options`): `Promise`\<\{ `url`: `string`; `close`: () => `Promise`\<`void`\>; \}\>
+
+**`Experimental`**
+
+Read-only web transport over the same snapshots as the terminal. No execution or writes.
+
+#### Parameters
+
+##### options
+
+[`TopWebOptions`](#topweboptions)
+
+#### Returns
+
+`Promise`\<\{ `url`: `string`; `close`: () => `Promise`\<`void`\>; \}\>
 
 ## References
 
