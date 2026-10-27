@@ -4,7 +4,7 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import { createServer, type ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { dirname, extname, resolve, sep } from 'node:path'
-import { loadTopSnapshot, type TopSnapshot } from './top-snapshot'
+import { loadTopSnapshot, type TopSnapshot, type WorkerView } from './top-snapshot'
 import { transcriptHistory, transcriptRows } from './top-transcript'
 
 /** A reconnect always receives current truth; deltas replace changed roots atomically. */
@@ -148,13 +148,24 @@ export async function serveTopWeb(options: TopWebOptions) {
       } else if (/^\/api\/top\/agents\/\d+\/[^/]+\/[^/]+\/stream$/.test(path)) {
         const [, , , , rootIndex, runId, workerId] = path.split('/').map(decodeURIComponent)
         const root = roots[Number(rootIndex)]
-        const worker = () =>
-          root
-            ? snapshots
-                .get(root)
-                ?.supervisors.find((run) => run.id === runId)
-                ?.workers.find((node) => node.id === workerId)
+        const worker = (): WorkerView | undefined => {
+          const run = root
+            ? snapshots.get(root)?.supervisors.find((run) => run.id === runId)
             : undefined
+          const node = run?.workers.find((node) => node.id === workerId)
+          if (node || !run || run.id !== workerId) return node
+          return {
+            id: run.id,
+            label: 'root',
+            status: run.status === 'done' ? 'done' : run.status === 'down' ? 'down' : 'running',
+            startedAt: run.startedAt,
+            endedAt: run.completedAt,
+            latencyMs: run.totals.latencyMs,
+            spend: run.driverSpend,
+            metered: { iterations: 0, tokensInput: 0, tokensOutput: 0, usd: 0, ms: 0 },
+            liveTail: run.progressTail,
+          }
+        }
         if (!worker()) {
           response.writeHead(404).end()
           return

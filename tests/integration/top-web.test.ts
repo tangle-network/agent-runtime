@@ -8,11 +8,24 @@ test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and c
   const root = await mkdtemp(join(tmpdir(), 'runtime-top-web-'))
   const run = join(root, 'workflow')
   const assets = join(root, 'assets')
+  const workspace = join(root, 'workspace')
+  const supervisor = join(workspace, '.agent', 'supervisor', 'root')
   await mkdir(run)
   await mkdir(assets)
+  await mkdir(supervisor, { recursive: true })
+  await writeFile(
+    join(supervisor, 'state.json'),
+    JSON.stringify({
+      id: 'root',
+      status: 'done',
+      task: 'Recorded supervisor',
+      workspaceDir: workspace,
+      budget: 0,
+    }),
+  )
   await writeFile(join(assets, 'workspace-viewer.js'), 'export {};')
   await writeFile(join(assets, 'styles.css'), 'body { color: black; }')
-  const web = await serveTopWeb({ roots: [run], assets })
+  const web = await serveTopWeb({ roots: [run, workspace], assets })
   const controller = new AbortController()
   try {
     const page = await fetch(web.url)
@@ -26,6 +39,9 @@ test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and c
       (await fetch(`${web.url}api/top`, { headers: { origin: 'https://other.example' } })).status,
     ).toBe(403)
     expect((await fetch(`${web.url}api/top`, { method: 'POST' })).status).toBe(405)
+    const rootTranscript = await fetch(`${web.url}api/top/agents/1/root/root/stream`)
+    expect(rootTranscript.status).toBe(200)
+    expect(await rootTranscript.text()).toContain('event: end')
     const stream = await fetch(`${web.url}api/top/events`, { signal: controller.signal })
     expect(stream.headers.get('content-type')).toBe('text/event-stream')
     const reader = stream.body!.getReader()
