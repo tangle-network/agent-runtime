@@ -184,9 +184,7 @@ it.each([
       const recorded = await transcriptHistory(worker!, runDir, observed)
       expect(recorded).toHaveLength(2)
       expect(recorded[0]?.event).toMatchObject({ kind: 'notice', provenance: 'delegated-input' })
-      expect(recorded[0]?.event.text).toContain(
-        'Recorded delegated input · from actual-runtime-run',
-      )
+      expect(recorded[0]?.event.source).toContain('parent actual-runtime-run')
       expect(recorded[0]?.event.source).toContain('profile sha256:')
       expect(recorded[1]?.event.provenance).toBe('capture-unavailable')
       expect(recorded[0]?.event.text).toContain('hold')
