@@ -157,7 +157,7 @@ function terminal(run: NativeRun) {
     },
   ]
 }
-async function replay(run: NativeRun, response: ServerResponse): Promise<void> {
+async function replay(run: NativeRun, response: ServerResponse, exactResult = false): Promise<void> {
   if (scenario === 'accepted' && run.status === 'running') {
     subscribeAccepted(run, response)
     return
@@ -174,9 +174,9 @@ async function replay(run: NativeRun, response: ServerResponse): Promise<void> {
     return
   }
   const replay = observedReplays.get(run.executionId)
-  if (replay && response.req.method === 'GET') await replay.received
+  if (replay && exactResult) await replay.received
   run.terminalReads += 1
-  if (replay && response.req.method === 'POST') {
+  if (replay && !exactResult) {
     // UC1 measures identity recovery with complete native evidence. Hold the independent exact
     // result until the real SDK consumes this replay's done frame and closes its HTTP stream.
     response.once('close', () => {
@@ -572,13 +572,14 @@ async function runtime(
       ? decodeURIComponent(eventMatch[1]!)
       : url.searchParams.get('executionId')
     const run = state.runs.find((candidate) => candidate.executionId === executionId)
-    note('events', { environmentId, executionId, status: run?.status })
+    const exactResult = url.searchParams.has('sessionId')
+    note('events', { environmentId, executionId, status: run?.status, exactResult })
     if (!run) {
       json(response, 404, { error: { message: 'no execution' } })
       return
     }
     if (run.environmentId !== environmentId) throw new Error('SDK event target mismatch')
-    await replay(run, response)
+    await replay(run, response, exactResult)
     return
   }
   throw new Error(`unexpected SDK runtime route ${request.method} ${path}`)
