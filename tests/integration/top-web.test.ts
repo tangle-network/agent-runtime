@@ -17,6 +17,7 @@ test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and c
   const controller = new AbortController()
   try {
     const page = await fetch(web.url)
+    expect(page.status).toBe(200)
     expect(await page.text()).toContain('data-mode="live"')
     expect((await fetch(`${web.url}assets/styles.css`)).status).toBe(200)
     expect(
@@ -98,6 +99,8 @@ test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and c
   } finally {
     controller.abort()
     await web.close()
+    await web.close()
+    await expect(fetch(web.url)).rejects.toThrow()
     await rm(root, { recursive: true, force: true })
   }
 }, 15000)

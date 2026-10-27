@@ -17,7 +17,8 @@ export interface TopSnapshotFrame {
 
 export interface TopWebOptions {
   readonly roots: readonly string[]
-  readonly assets: string
+  /** Defaults to the installed agent-record browser asset export. */
+  readonly assets?: string
   readonly host?: string
   readonly port?: number
 }
@@ -26,7 +27,12 @@ export interface TopWebOptions {
 export async function serveTopWeb(options: TopWebOptions) {
   if (!options.roots.length) throw new Error('At least one --root is required')
   const roots = [...new Set(await Promise.all(options.roots.map((root) => realpath(root))))]
-  const assets = await realpath(options.assets)
+  const assets = await realpath(
+    options.assets ??
+      dirname(
+        createRequire(import.meta.url).resolve('@drewstone/agent-record/workspace-viewer.js'),
+      ),
+  )
   for (const file of ['workspace-viewer.js', 'styles.css']) await stat(resolve(assets, file))
   const host = options.host ?? '127.0.0.1'
   const clients = new Set<ServerResponse>()
@@ -228,19 +234,25 @@ export async function serveTopWeb(options: TopWebOptions) {
       response.end(JSON.stringify({ error: String(error) }))
     })
   })
-  const close = async () => {
-    closed = true
-    if (scheduled) clearTimeout(scheduled)
-    clearInterval(reconcile)
-    clearInterval(heartbeat)
-    for (const watcher of watchers) watcher.close()
-    for (const client of clients) client.end()
-    transcripts.clear()
-    server.closeAllConnections()
-    await new Promise<void>((done, reject) =>
-      server.close((error) => (error ? reject(error) : done())),
-    )
-  }
+  let closing: Promise<void> | undefined
+  const close = () =>
+    (closing ??= (async () => {
+      closed = true
+      if (scheduled) clearTimeout(scheduled)
+      clearInterval(reconcile)
+      clearInterval(heartbeat)
+      for (const watcher of watchers) watcher.close()
+      for (const client of clients) client.end()
+      transcripts.clear()
+      server.closeAllConnections()
+      await new Promise<void>((done, reject) =>
+        server.close((error) =>
+          error && (!('code' in error) || error.code !== 'ERR_SERVER_NOT_RUNNING')
+            ? reject(error)
+            : done(),
+        ),
+      )
+    })())
   try {
     await new Promise<void>((done, reject) => {
       server.once('error', reject)
@@ -260,14 +272,11 @@ export async function runTopWeb(argv: readonly string[]) {
   const values = (flag: string) =>
     argv.flatMap((arg, i) => (arg === flag ? [argv[i + 1] ?? ''] : []))
   const roots = values('--root')
-  const require = createRequire(resolve(process.cwd(), 'package.json'))
-  const assets =
-    values('--assets')[0] ?? dirname(require.resolve('@drewstone/agent-record/styles.css'))
   const port = Number(values('--port')[0] ?? 0)
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid --port')
   const web = await serveTopWeb({
     roots: roots.length ? roots : [process.cwd()],
-    assets,
+    ...(values('--assets')[0] ? { assets: values('--assets')[0] } : {}),
     port,
     ...(values('--host')[0] ? { host: values('--host')[0] } : {}),
   })
