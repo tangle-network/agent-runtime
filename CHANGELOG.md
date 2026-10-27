@@ -1,3 +1,7 @@
+## 0.353.3
+
+Fixed flow graphs now admit their model-free Runtime coordinator under a leaf model allowlist. Actual leaf, backend and driver model checks remain enforced.
+
 ## 0.353.2
 
 Qualify SQL ownership recovery against native SQLite write contention and clarify that terminal driver refusals end root runs immediately.
