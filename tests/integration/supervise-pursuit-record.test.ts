@@ -17,6 +17,7 @@ import {
   RUN_DIRECTORY_LOCK_FILE,
   RunDirectoryLockedError,
 } from '../../src/durable/run-lock'
+import { durableRunToolSpans } from '../../src/durable/run-tool-spans'
 import {
   FAILURE_RECORD_FILE,
   readFailureRecord,
@@ -395,6 +396,72 @@ describe('supervisePursuit durable terminal records', () => {
     })
   })
 
+  it("reads a settled worker's tool trace back from the run directory alone", async () => {
+    const toolPart: AgentEnvironmentEvent = {
+      id: 'worker-tool',
+      type: 'message.part.updated',
+      data: {
+        part: {
+          type: 'tool',
+          tool: 'edit',
+          callID: 'call-w',
+          state: { status: 'completed', input: { path: 'primes.txt' }, output: 'ok' },
+        },
+      },
+    }
+    const base = durableRetainedProvider(join(runDir, 'provider.json'))
+    const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
+      ...environment,
+      session: (id, options) => {
+        const session = environment.session!(id, options)
+        return {
+          ...session,
+          async *events(eventOptions) {
+            yield structuredClone(toolPart)
+            yield* session.events(eventOptions)
+          },
+        }
+      },
+    })
+    const provider: AgentEnvironmentProvider = {
+      ...base,
+      create: async (input) => wrap(await base.create(input)),
+      get: async (id) => {
+        const environment = await base.get!(id)
+        return environment ? wrap(environment) : null
+      },
+    }
+    const worker = (): Agent<unknown, unknown> =>
+      Object.assign(
+        { name: 'tracing-worker', act: async () => 'unused' },
+        {
+          executorSpec: {
+            profile: testAgentProfile('tracing-worker'),
+            harness: null,
+            executorFactory: providerAsExecutor(provider),
+          },
+        },
+      )
+
+    const settled = await run(runDir, 'worker-trace', { makeWorkerAgent: worker })
+    const projected = projectPursuit(
+      await new FileObserverJournal(settled.observerPath, 'pursuit:record').read(),
+    )
+    const traced = projected.nodes.filter((node) => node.trace?.status === 'available')
+    expect(traced).toHaveLength(1)
+
+    const spans = await durableRunToolSpans(runDir)
+    expect(spans).toMatchObject([
+      { runId: traced[0]?.id, toolName: 'edit', args: { path: 'primes.txt' } },
+    ])
+
+    // A settlement naming a trace the blob store lost is incomplete evidence, never an empty one.
+    const trace = traced[0]?.trace
+    if (trace?.status !== 'available') return
+    await rm(join(runDir, 'blobs', `${trace.traceRef.replace(':', '-')}.json`))
+    await expect(durableRunToolSpans(runDir)).rejects.toThrow(/trace blob .* is missing/)
+  })
+
   it("refuses retainedAtSettlement 'keep', which a settle record would contradict", async () => {
     await expect(run(runDir, 'keep-refused', { retainedAtSettlement: 'keep' })).rejects.toThrow(
       /retainedAtSettlement 'keep' cannot hold/,
@@ -661,6 +728,13 @@ describe('supervisePursuit root stream', () => {
     // Eval's supervisor-run reader consumes the settle record with the additive key unchanged.
     const sources = await readRuntimeSupervisorRun(runDir)
     expect(sources.result).toBe(await readFile(executed.settlePath, 'utf8'))
+    // The same directory read back as tool spans: the root's text, reasoning and tool call, one trace.
+    const spans = await durableRunToolSpans(runDir)
+    expect(spans.map((span) => [span.runId, span.toolName, span.result])).toEqual([
+      ['root-stream-settle', 'assistant_reasoning', 'the root thinks'],
+      ['root-stream-settle', 'assistant_text', 'the root says'],
+      ['root-stream-settle', 'read', 'notes'],
+    ])
   })
 
   it('references the partial root stream from failure.json when the run throws after the root streamed', async () => {
