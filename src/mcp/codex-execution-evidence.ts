@@ -10,7 +10,7 @@ import {
   CODEX_REPRODUCIBLE_ARGS,
   type CodexExecutionPolicy,
 } from './codex-execution-policy'
-import type { RunLocalHarnessOptions } from './local-harness-process'
+import type { RunLocalHarnessOptions } from './local-harness-invocation'
 
 /** Zero-model-call evidence for the exact Codex process about to run. */
 export interface CodexExecutionEvidence {

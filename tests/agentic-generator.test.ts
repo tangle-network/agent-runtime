@@ -22,7 +22,7 @@ import {
   agenticGenerator,
   commandVerifier,
 } from '../src/improvement'
-import type { LocalHarnessResult, RunLocalHarnessOptions } from '../src/mcp/local-harness-process'
+import type { LocalHarnessResult, RunLocalHarnessOptions } from '../src/mcp/local-harness-invocation'
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()

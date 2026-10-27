@@ -44,7 +44,7 @@ export interface InProcessExecutorOptions {
   /** Test seam — override the git runner used by the worktree helpers. */
   runGit?: GitRunner
   /** Test seam — override the harness runner (defaults to the real CLI via `runLocalHarness`). */
-  runHarness?: typeof import('./local-harness-process').runLocalHarness
+  runHarness?: typeof import('./local-harness-invocation').runLocalHarness
   /** Test seam — override the post-check runner (defaults to a `sh -c` spawn). A throw is folded
    *  into a non-fatal `{exitCode:-1}` so a broken check command fails the signal, not the run. */
   runPostCheck?: (

@@ -22,8 +22,8 @@ import {
   harnessInvocation,
   harnessMaterializesProfileMcp,
   harnessSupportsReasoningEffort,
+  runLocalHarness,
 } from '../../src/mcp/local-harness-invocation'
-import { runLocalHarness } from '../../src/mcp/local-harness-process'
 
 function makeFakeChild(opts: {
   stdoutChunks?: string[]

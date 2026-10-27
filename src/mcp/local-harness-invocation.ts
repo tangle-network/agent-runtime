@@ -1,11 +1,22 @@
+import { type ChildProcess, spawn } from 'node:child_process'
 import {
   type AgentProfile,
   type HarnessType,
   nativeReasoningControl,
   type ReasoningEffort,
 } from '@tangle-network/agent-interface'
+import { type CliLaunch, execCli } from '@tangle-network/sdk-cli-runner'
 import { concreteProfileModel } from '../runtime/supervise/model-policy'
+import { createCodexExecutionDiagnosticError, redactCodexHome } from './codex-diagnostics'
+import {
+  assertCodexReproducibleInvocation,
+  type CodexExecutionEvidence,
+  collectCodexExecutionEvidence,
+} from './codex-execution-evidence'
 import { CODEX_REPRODUCIBLE_ARGS } from './codex-execution-policy'
+import { isolateCodexHome } from './codex-home-isolation'
+import { isSupportedCodexPlatform, resolveCodexNativeExecutable } from './codex-native-executable'
+import { type CodexTokenUsage, parseCodexTokenUsage } from './codex-token-usage'
 
 /**
  * Local coding harness available inside the sandbox — a narrowing of the shared `HarnessType`
@@ -317,4 +328,278 @@ function harnessProfileModel(harness: LocalHarness, profile: AgentProfile): stri
     )
   }
   return model
+}
+
+/** @experimental */
+export interface RunLocalHarnessOptions {
+  harness: LocalHarness
+  /** Working directory for the subprocess (typically a worktree path). */
+  cwd: string
+  /** Task prompt delivered through the harness's supported input transport. */
+  taskPrompt: string
+  /**
+   * Mapper invocation or custom argv; command defaults to the harness binary.
+   * The mapper's exact composed `prompt` enables supported stdin transport.
+   * Without an invocation, use the default prompt-only shape.
+   */
+  invocation?: { command?: string; args: ReadonlyArray<string>; prompt?: string }
+  /** Allow autonomous edits without an interactive approval gate, using whichever bypass argv the
+   *  harness declares. Use only when `cwd` is an isolated candidate worktree. */
+  dangerouslySkipPermissions?: boolean
+  /** Isolate Codex from ambient configuration/instructions and require JSONL token usage.
+   *  The invocation should come from `harnessInvocation(..., { codexReproducible: true })`. */
+  codexReproducible?: boolean
+  /** Absolute host paths that reproducible Codex must not read. The normalized set is compiled
+   *  into the controlled permission profile and its digest is returned in execution evidence. */
+  codexReadDeniedPaths?: ReadonlyArray<string>
+  /** Optional wall-clock kill deadline (ms). Omit it for no timer. A positive value sends
+   *  SIGTERM on expiry. */
+  timeoutMs?: number
+  /** Newest stdout/stderr bytes retained per stream. Default 64 MiB. */
+  maxOutputBytes?: number
+  /** Caller cancellation. SIGTERM is sent on abort. */
+  signal?: AbortSignal
+  /** Override env (defaults to inheriting from the parent). */
+  env?: NodeJS.ProcessEnv
+  /**
+   * Test seam — inject a custom spawner so unit tests can mock the
+   * subprocess without touching the OS. Defaults to node's `child_process.spawn`.
+   */
+  spawn?: (
+    command: string,
+    args: ReadonlyArray<string>,
+    opts: {
+      cwd: string
+      env: NodeJS.ProcessEnv
+      stdio: 'pipe'
+      detached: boolean
+    },
+  ) => ChildProcess
+  /** Test seam for locating the native Codex executable before it is staged in the worktree. */
+  resolveCodexExecutable?: (command: string, env: NodeJS.ProcessEnv) => Promise<string>
+}
+
+/** @experimental */
+export interface LocalHarnessResult {
+  /** OS exit code. `null` when killed before exit. */
+  exitCode: number | null
+  /** Concatenated stdout. */
+  stdout: string
+  /** Concatenated stderr. */
+  stderr: string
+  /** Set when the process exited via signal (timeout / abort). */
+  killedBySignal: NodeJS.Signals | null
+  /** Wall-clock duration ms (spawn → exit). */
+  durationMs: number
+  /** Set when timeoutMs elapsed before exit. */
+  timedOut: boolean
+  /**
+   * Set when the caller's AbortSignal fired before this result settled.
+   * Optional so injected runners and stored results from older releases remain valid.
+   */
+  aborted?: boolean
+  /** Present for a reproducible Codex run; parsed from the real terminal JSONL event. */
+  usage?: CodexTokenUsage
+  /** Present for reproducible Codex runs; generated and checked before model execution. */
+  evidence?: CodexExecutionEvidence
+}
+
+const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024 * 1024
+
+/** The non-reproducible launch: the caller's environment and command, nothing staged. */
+function plainLaunch(env: NodeJS.ProcessEnv, command: string) {
+  return {
+    env,
+    command,
+    cleanup: async () => undefined,
+    controlledConfigSha256: '',
+    executableSha256: '',
+    readDeniedPathsSha256: '',
+    readDeniedPathCount: 0,
+    readDeniedPaths: [] as string[],
+    diagnosticRedactionValues: [] as string[],
+    ambientAuth: '',
+    isolatedAuth: '',
+    writeProbe: '',
+    stagedWriteProbe: '',
+    deniedProbePaths: [] as string[],
+  }
+}
+
+/**
+ * Run a local harness through the shared CLI runner (`@tangle-network/sdk-cli-runner`): it owns
+ * the process group, so leftover descendants are stopped and confirmed gone before the result
+ * resolves, an abort escalates to SIGKILL, and output keeps the newest `maxOutputBytes` per
+ * stream. The caller owns output parsing and workspace diffs.
+ *
+ * Spawn failures and signals already aborted before launch reject.
+ *
+ * Ordinary nonzero exits and cancellation return the exit code and timeout/abort flags.
+ * A failed prompt delivery rejects after the child is reaped, when the child exited zero.
+ *
+ * Reproducible Codex additionally requires a terminal usage event. If cancellation
+ * prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
+ * returning an incomplete reproducibility receipt.
+ *
+ * @experimental
+ */
+export async function runLocalHarness(
+  options: RunLocalHarnessOptions,
+): Promise<LocalHarnessResult> {
+  const { harness, cwd, taskPrompt } = options
+  // KEPT harness-name test: `codexReproducible` is a codex-SPECIFIC public option (its arg set,
+  // its permission profile, its JSONL usage event), so this guard asserts caller self-consistency
+  // and throws loudly rather than varying behavior by name.
+  if (options.codexReproducible && harness !== 'codex') {
+    throw new Error('runLocalHarness: codexReproducible requires the Codex harness')
+  }
+  if (options.codexReproducible && !isSupportedCodexPlatform()) {
+    throw new Error(
+      `runLocalHarness: codexReproducible does not support ${process.platform}/${process.arch};` +
+        ' supported: linux and darwin on x64 or arm64',
+    )
+  }
+  if (options.codexReadDeniedPaths !== undefined && !options.codexReproducible) {
+    throw new Error('runLocalHarness: codexReadDeniedPaths requires codexReproducible')
+  }
+  const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES
+  if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 0) {
+    throw new Error('runLocalHarness: maxOutputBytes must be a non-negative safe integer')
+  }
+  const invocation = HARNESS_INVOCATIONS[harness]
+  if (!invocation) {
+    throw new Error(`runLocalHarness: unknown harness ${String(harness)}`)
+  }
+
+  const requestedCommand = options.invocation?.command ?? invocation.command
+  const args = options.invocation
+    ? [...options.invocation.args]
+    : buildHarnessArgs(harness, taskPrompt, options)
+  if (options.codexReproducible) assertCodexReproducibleInvocation(requestedCommand, args)
+  options.signal?.throwIfAborted()
+
+  // Some CLIs resolve cwd through PWD; pin it for both plain and isolated launches.
+  const baseEnv: NodeJS.ProcessEnv = { ...(options.env ?? process.env), PWD: cwd }
+  const isolated = options.codexReproducible
+    ? await isolateCodexHome({
+        baseEnv,
+        cwd,
+        command: requestedCommand,
+        readDeniedPaths: options.codexReadDeniedPaths ?? [],
+        resolveExecutable: options.resolveCodexExecutable ?? resolveCodexNativeExecutable,
+      })
+    : plainLaunch(baseEnv, requestedCommand)
+  const { env, command } = isolated
+  if (options.codexReproducible) assertCodexReproducibleInvocation(command, args)
+
+  try {
+    const evidence = options.codexReproducible
+      ? await collectCodexExecutionEvidence({
+          command,
+          args,
+          cwd,
+          env,
+          spawn: options.spawn ?? spawn,
+          controlledConfigSha256: isolated.controlledConfigSha256,
+          executableSha256: isolated.executableSha256,
+          readDeniedPathsSha256: isolated.readDeniedPathsSha256,
+          readDeniedPathCount: isolated.readDeniedPathCount,
+          readDeniedPaths: isolated.readDeniedPaths,
+          ambientAuth: isolated.ambientAuth,
+          isolatedAuth: isolated.isolatedAuth,
+          writeProbe: isolated.writeProbe,
+          stagedWriteProbe: isolated.stagedWriteProbe,
+          deniedProbePaths: isolated.deniedProbePaths,
+          ...(options.signal ? { signal: options.signal } : {}),
+        })
+      : undefined
+    // Codex's debug renderer requires literal argv; preserve reproducible prompt evidence.
+    const inputIndex = options.codexReproducible ? undefined : invocation.stdinPromptArgIndex
+    const canonicalPrompt = options.invocation ? options.invocation.prompt : taskPrompt
+    const input =
+      inputIndex !== undefined &&
+      args[0] === invocation.buildArgs('')[0] &&
+      args[inputIndex] === canonicalPrompt
+        ? canonicalPrompt
+        : undefined
+    // Forced stdin rejects blank prompts that argv accepts. Its decoder strips one BOM.
+    const stdinPrompt = input?.trim() ? input : undefined
+    const spawnArgs =
+      stdinPrompt === undefined
+        ? args
+        : args.map((arg, index) => (index === inputIndex ? '-' : arg))
+    const spawnImpl = options.spawn
+    const run = await execCli(
+      {
+        command,
+        args: spawnArgs,
+        cwd,
+        env,
+        inheritEnv: false,
+        ...(options.timeoutMs !== undefined && options.timeoutMs > 0
+          ? { timeoutMs: options.timeoutMs }
+          : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
+        ownProcessGroup: true,
+        stdinFailure: 'report',
+        ...(spawnImpl
+          ? {
+              launcher: (spec): CliLaunch => ({
+                child: spawnImpl(spec.command, spec.args, {
+                  cwd: spec.cwd,
+                  env: spec.env,
+                  stdio: 'pipe',
+                  detached: spec.detached,
+                }),
+              }),
+            }
+          : {}),
+      },
+      undefined,
+      {
+        maxOutputBytes,
+        stdin: stdinPrompt?.startsWith('﻿') ? `﻿${stdinPrompt}` : (stdinPrompt ?? ''),
+      },
+    )
+    const { exit, stdout, stderr: rawStderr, durationMs } = run
+    const timedOut = exit.timedOut
+    const aborted = exit.aborted === true
+    try {
+      if (exit.spawnError !== undefined) throw new Error(exit.spawnError)
+      if (exit.processGroupError !== undefined) throw new Error(exit.processGroupError)
+      if (exit.stdinError !== undefined && exit.code === 0 && !timedOut && !aborted) {
+        throw Object.assign(new Error(exit.stdinError), { code: exit.stdinErrorCode })
+      }
+      const usage = options.codexReproducible ? parseCodexTokenUsage(stdout ?? '') : undefined
+      return {
+        exitCode: exit.code,
+        stdout: stdout ?? '',
+        stderr: redactCodexHome(rawStderr, env.CODEX_HOME),
+        killedBySignal: exit.signal,
+        durationMs,
+        timedOut,
+        aborted,
+        ...(usage ? { usage } : {}),
+        ...(evidence ? { evidence } : {}),
+      }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      if (!options.codexReproducible || exit.spawnError !== undefined) throw err
+      throw createCodexExecutionDiagnosticError({
+        reason,
+        exitCode: exit.code,
+        killedBySignal: exit.signal,
+        timedOut,
+        aborted,
+        durationMs,
+        stdout: stdout ?? '',
+        stderr: rawStderr,
+        codexHome: env.CODEX_HOME,
+        redactionValues: isolated.diagnosticRedactionValues,
+        cause: err,
+      })
+    }
+  } finally {
+    await isolated.cleanup()
+  }
 }

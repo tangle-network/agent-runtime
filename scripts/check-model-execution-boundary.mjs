@@ -106,7 +106,7 @@ const forbiddenPublicModelCalls = new Set(['runLocalHarness'])
 // prove its isolated Codex execution context. Elsewhere, naming a coding-agent CLI in an
 // executable command is a second model-execution path.
 const directCliOwners = new Set([
-  'src/mcp/local-harness-process.ts',
+  'src/mcp/local-harness-invocation.ts',
   'src/mcp/codex-execution-evidence.ts',
   'scripts/check-model-execution-boundary.test.mjs',
 ])

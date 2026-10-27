@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
-import type { RunLocalHarnessOptions } from '../../src/mcp/local-harness-process'
+import type { RunLocalHarnessOptions } from '../../src/mcp/local-harness-invocation'
 import { captureWorktreeDiff, type GitRunner } from '../../src/mcp/worktree'
 import {
   defaultRunCommand,

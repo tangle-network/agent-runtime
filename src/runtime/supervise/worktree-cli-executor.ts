@@ -25,8 +25,11 @@ import { randomUUID } from 'node:crypto'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
-import { LOCAL_HARNESSES, type LocalHarness } from '../../mcp/local-harness-invocation'
-import type { runLocalHarness } from '../../mcp/local-harness-process'
+import {
+  LOCAL_HARNESSES,
+  type LocalHarness,
+  type runLocalHarness,
+} from '../../mcp/local-harness-invocation'
 import type { GitRunner } from '../../mcp/worktree'
 import {
   runWorktreeHarness,

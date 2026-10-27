@@ -22,7 +22,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type {
   LocalHarnessResult,
   RunLocalHarnessOptions,
-} from '../../src/mcp/local-harness-process'
+} from '../../src/mcp/local-harness-invocation'
 import { executorFailure } from '../../src/runtime/supervise/executor-outcome'
 import { createInPlaceCliExecutor } from '../../src/runtime/supervise/in-place-cli-executor'
 import {

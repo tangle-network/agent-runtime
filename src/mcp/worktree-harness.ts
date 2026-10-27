@@ -51,8 +51,9 @@ import {
   harnessMaterializesProfileMcp,
   harnessSupportsReasoningEffort,
   type LocalHarness,
+  type LocalHarnessResult,
+  runLocalHarness,
 } from './local-harness-invocation'
-import { type LocalHarnessResult, runLocalHarness } from './local-harness-process'
 import {
   captureWorktreeDiff,
   createWorktree,

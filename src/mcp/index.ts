@@ -37,8 +37,11 @@ export {
   type FactJudgeVerdict,
   type KbGateResult,
 } from './kb-gate'
-export { LOCAL_HARNESSES, type LocalHarness } from './local-harness-invocation'
-export type { RunLocalHarnessOptions } from './local-harness-process'
+export {
+  LOCAL_HARNESSES,
+  type LocalHarness,
+  type RunLocalHarnessOptions,
+} from './local-harness-invocation'
 export type {
   JsonRpcMessage,
   JsonRpcResponse,
