@@ -23,7 +23,8 @@
 
 import { isW3CSpanId, isW3CTraceId } from '@tangle-network/agent-trace-contract'
 import type { OtelExporter } from '../otel-export'
-import { buildLoopOtelSpans, createOtelExporter, padSpanId, padTraceId } from '../otel-export'
+import { toW3CSpanId, toW3CTraceId } from '@tangle-network/agent-trace-contract'
+import { buildLoopOtelSpans, createOtelExporter } from '../otel-export'
 import { resolveRedactor } from '../redact'
 import type { LoopTraceEmitter, LoopTraceEvent } from '../runtime/types'
 
@@ -133,7 +134,7 @@ export function createPropagatingTraceEmitter(ctx: TraceContext): {
  * Build env vars to pass to a child subprocess so it inherits the current trace context.
  *
  * Writes BOTH conventions (see the module doc): `TRACEPARENT` carries the W3C-hex ids — mapped
- * through the exporter's own `padTraceId`/`padSpanId` (dashed hex passes through dash-stripped, a
+ * through agent-trace-contract's `toW3CTraceId`/`toW3CSpanId` (dashed hex passes through dash-stripped, a
  * human id is derived through the contract's `deriveHexId`), the SAME normalization every emitted
  * span uses, so both spellings and the parent's own spans all name ONE trace — and the legacy
  * pair carries the caller's ids verbatim. `TRACEPARENT` needs a parent span id by grammar; when
@@ -143,7 +144,7 @@ export function traceContextToEnv(ctx: TraceContext): Record<string, string> {
   const env: Record<string, string> = { TRACE_ID: ctx.traceId }
   if (ctx.parentSpanId) env.PARENT_SPAN_ID = ctx.parentSpanId
   if (ctx.parentSpanId) {
-    env.TRACEPARENT = `00-${padTraceId(ctx.traceId)}-${padSpanId(ctx.parentSpanId)}-01`
+    env.TRACEPARENT = `00-${toW3CTraceId(ctx.traceId)}-${toW3CSpanId(ctx.parentSpanId)}-01`
   }
   return env
 }

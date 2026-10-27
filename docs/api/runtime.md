@@ -27134,10 +27134,9 @@ The root's task, for the same three selects. A graph's task is its deliverable's
 
 ##### graph?
 
-> `readonly` `optional` **graph?**: `Pick`\<[`AgentGraph`](#agentgraph), `"nodes"` \| `"edges"`\>
+> `readonly` `optional` **graph?**: `Omit`\<[`AgentGraph`](#agentgraph), `"budget"` \| `"deliverable"`\>
 
-select `code` and `fixed`: the graph's nodes and edges. The compiler adds the deliverable and
- the budget.
+select `code` and `fixed`: graph metadata, without the compiler-owned check and budget.
 
 ##### brain?
 
@@ -27151,9 +27150,23 @@ select `code`: the caller's brain that makes every root call (`RunGraphOptions.b
 
 ##### deliverable
 
-> `readonly` **deliverable**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+> `readonly` **deliverable**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\> & `object`
 
 The completion check. Every spec's run has one: the continuation is sent back by it.
+
+###### Type Declaration
+
+###### checkRef?
+
+> `readonly` `optional` **checkRef?**: `string`
+
+###### command?
+
+> `readonly` `optional` **command?**: [`GraphCommandCheck`](#graphcommandcheck)
+
+###### when?
+
+> `readonly` `optional` **when?**: [`RouteWhen`](#routewhen)
 
 ##### deadline?
 

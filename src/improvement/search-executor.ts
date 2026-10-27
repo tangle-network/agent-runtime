@@ -58,7 +58,8 @@ import {
   searchReceiptAccounting,
 } from '@tangle-network/agent-eval/campaign'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { ATTR, branchSpan } from '@tangle-network/agent-trace-contract'
+import { ATTR, branchSpan, toW3CSpanId, toW3CTraceId } from '@tangle-network/agent-trace-contract'
+import { msToUnixNano, toOtlpAttributes } from '@tangle-network/agent-trace-contract/otlp'
 import { ConfigError } from '../errors'
 import {
   createOpenInferenceFileExporter,
@@ -67,9 +68,6 @@ import {
   type OtelExportConfig,
   type OtelExporter,
   type OtelSpan,
-  padSpanId,
-  padTraceId,
-  toOtelAttributes,
 } from '../otel-export'
 import {
   DEFAULT_SHARED_BOX_WORKERS,
@@ -809,8 +807,8 @@ function attemptTrace(
   exporter: OtelExporter,
   ownsExporter: boolean,
 ): AttemptTrace {
-  const traceId = padTraceId(`search-cell:${work.runId}`)
-  const rootSpanId = padSpanId(`search-cell:${work.runId}`)
+  const traceId = toW3CTraceId(`search-cell:${work.runId}`)
+  const rootSpanId = toW3CSpanId(`search-cell:${work.runId}`)
   const startMs = Date.now()
   let written = 0
   let dropped = 0
@@ -918,11 +916,9 @@ function otelSpan(input: {
     ...(input.parentSpanId ? { parentSpanId: input.parentSpanId } : {}),
     name: input.name,
     kind: 1,
-    startTimeUnixNano: (BigInt(Math.floor(input.startMs)) * 1_000_000n).toString(),
-    endTimeUnixNano: (
-      BigInt(Math.floor(Math.max(input.startMs, input.endMs))) * 1_000_000n
-    ).toString(),
-    attributes: toOtelAttributes(attributes),
+    startTimeUnixNano: msToUnixNano(input.startMs),
+    endTimeUnixNano: msToUnixNano(Math.max(input.startMs, input.endMs)),
+    attributes: toOtlpAttributes(attributes),
     status: { code: input.status },
   }
 }

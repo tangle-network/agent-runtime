@@ -134,6 +134,7 @@ export async function shipToTangleOtlp(spans: TraceSpanEvent[], opts: ShipOption
       traceId: s.traceId,
       spanId: s.spanId,
       name: s.name,
+      kind: 1, // INTERNAL
       startTimeUnixNano: String(s.startTimeUnixNano),
       endTimeUnixNano: String(s.endTimeUnixNano),
       attributes: Object.entries(s.attributes).map(([key, value]) => ({

@@ -1,0 +1,3 @@
+type: minor
+---
+The local harness launcher reads every reasoning-effort flag from agent-interface `nativeReasoningControl`, so it sends the same flag as the sandbox and cli-bridge. Changes: codex `ultracode` sends `ultra` instead of `xhigh` (reproducible Codex admits `ultra`); claude-code `none`/`minimal` run at `--effort low` instead of being refused; pi `none` sends `--thinking off` instead of being refused; opencode `none` omits `--variant` instead of being refused, and opencode `ultracode` sends the model's ceiling (`max` for GLM, `xhigh` otherwise) instead of `max`. kimi-code 2.x still refuses any effort.

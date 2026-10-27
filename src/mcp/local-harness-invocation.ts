@@ -1,4 +1,9 @@
-import type { AgentProfile, HarnessType, ReasoningEffort } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  type HarnessType,
+  nativeReasoningControl,
+  type ReasoningEffort,
+} from '@tangle-network/agent-interface'
 import { concreteProfileModel } from '../runtime/supervise/model-policy'
 import { CODEX_REPRODUCIBLE_ARGS } from './codex-execution-policy'
 
@@ -42,69 +47,15 @@ interface HarnessInvocationOptions {
   codexReproducible?: boolean
 }
 
-/**
- * Canonical reasoning effort → the native level string a harness's own control accepts.
- * PRESENCE of a key is the capability claim: a level with no entry has no native spelling on
- * that harness and is refused rather than silently dropped.
- */
-type NativeReasoningLevels = Partial<Record<ReasoningEffort, string>>
-
-/** `codex -c model_reasoning_effort=…`. `ultracode` has no distinct native level; it saturates
- *  at `xhigh`, which is also the ceiling `assertCodexReproducibleInvocation` admits. */
-const CODEX_REASONING_LEVELS: NativeReasoningLevels = {
-  none: 'none',
-  minimal: 'minimal',
-  low: 'low',
-  medium: 'medium',
-  high: 'high',
-  xhigh: 'xhigh',
-  ultracode: 'xhigh',
-}
-
-/** `claude --effort <level>` accepts `low, medium, high, xhigh, max` (verified against the
- *  installed CLI's `--help`); canonical `ultracode` is its `max`. It expresses no thinking-off
- *  or `minimal` level, so those two canonical levels have no entry. */
-const CLAUDE_CODE_REASONING_LEVELS: NativeReasoningLevels = {
-  low: 'low',
-  medium: 'medium',
-  high: 'high',
-  xhigh: 'xhigh',
-  ultracode: 'max',
-}
-
-/** `opencode run --variant <variant>` is documented as "provider-specific reasoning effort,
- *  e.g. high, max, minimal", so the canonical level passes through as the variant name and
- *  `ultracode` maps to `max`. Thinking-off is expressed by omitting the flag, not by a variant
- *  named `none`, so `none` has no entry. */
-const OPENCODE_REASONING_LEVELS: NativeReasoningLevels = {
-  minimal: 'minimal',
-  low: 'low',
-  medium: 'medium',
-  high: 'high',
-  xhigh: 'xhigh',
-  ultracode: 'max',
-}
-
-/** pi's own thinking scale, which happens to match the shared effort names one-for-one. */
-const PI_REASONING_LEVELS: NativeReasoningLevels = {
-  minimal: 'minimal',
-  low: 'low',
-  medium: 'medium',
-  high: 'high',
-  xhigh: 'xhigh',
-  ultracode: 'max',
-}
-
 interface HarnessInvocationSpec {
   command: string
   buildArgs: (taskPrompt: string) => string[]
   /** Map a resolved model to the harness's model-selector flag. */
   modelArgs: (model: string) => string[]
-  /** Native reasoning-effort control, absent when the harness exposes none. */
-  reasoning?: {
-    levels: NativeReasoningLevels
-    args: (nativeLevel: string) => string[]
-  }
+  /** Argv for the native reasoning-effort token agent-interface's `nativeReasoningControl`
+   *  returns. Absent when the installed CLI exposes no effort control: a requested effort is
+   *  then refused rather than silently dropped. */
+  reasoningArgs?: (nativeLevel: string) => string[]
   /**
    * Argv that lets an unattended run edit its workspace without stopping on an interactive
    * approval gate. Absent when the harness has no such gate on its non-interactive path.
@@ -148,10 +99,7 @@ export const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = 
     // `error: unknown option '-m'`; `--help` lists `--model <model>` and no short alias.
     // The long form is also accepted by codex and opencode, so it is the safe spelling.
     modelArgs: (model) => ['--model', model],
-    reasoning: {
-      levels: CLAUDE_CODE_REASONING_LEVELS,
-      args: (level) => ['--effort', level],
-    },
+    reasoningArgs: (level) => ['--effort', level],
     permissionBypassArgs: () => ['--dangerously-skip-permissions'],
     // `.tangle/claude-mcp.json` + `--mcp-config/--strict-mcp-config`, real claude flags.
     profileMcp: true,
@@ -160,10 +108,7 @@ export const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = 
     command: 'codex',
     buildArgs: (taskPrompt) => ['exec', taskPrompt],
     modelArgs: (model) => ['-m', model],
-    reasoning: {
-      levels: CODEX_REASONING_LEVELS,
-      args: (level) => ['-c', `model_reasoning_effort="${level}"`],
-    },
+    reasoningArgs: (level) => ['-c', `model_reasoning_effort="${level}"`],
     // Non-interactive editing WITHOUT surrendering the OS sandbox. `codex exec` has no approval
     // gate to stall on (`-a/--ask-for-approval` exists only on the top-level `codex`), so
     // `--dangerously-bypass-approvals-and-sandbox` buys nothing on the approvals axis and pays the
@@ -181,10 +126,7 @@ export const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = 
     command: 'opencode',
     buildArgs: (taskPrompt) => ['run', taskPrompt],
     modelArgs: (model) => ['-m', model],
-    reasoning: {
-      levels: OPENCODE_REASONING_LEVELS,
-      args: (level) => ['--variant', level],
-    },
+    reasoningArgs: (level) => ['--variant', level],
     // `opencode run` DOES gate permissions: without this it denies writes outside the
     // working directory and phrases the refusal as "The user rejected permission", which
     // reads as an agent that gave up rather than a harness that was never granted rights.
@@ -199,10 +141,7 @@ export const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = 
     buildArgs: (taskPrompt) => ['--print', taskPrompt],
     // pi takes a pattern that accepts `provider/id`, so a routed id passes through whole.
     modelArgs: (model) => ['--model', model],
-    reasoning: {
-      levels: PI_REASONING_LEVELS,
-      args: (level) => ['--thinking', level],
-    },
+    reasoningArgs: (level) => ['--thinking', level],
     // `--approve` trusts project-local files for this run, which is what an unattended
     // run in a throwaway worktree needs. It grants no OS-level escape: unlike a full
     // sandbox bypass, the blast radius stays the working directory.
@@ -223,7 +162,7 @@ export const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = 
     // kimi-code 2.3.0 resolveModelForReady); an unknown alias fails at the CLI with
     // `model.not_found`, so any qualified id passes through whole below.
     modelArgs: (model) => ['-m', model],
-    // NO reasoning field: kimi-code 2.x exposes no effort flag. `--thinking`/`--no-thinking`
+    // NO reasoningArgs: kimi-code 2.x exposes no effort flag. `--thinking`/`--no-thinking`
     // are legacy kimi-cli spellings — 2.2.0 exits 1 with `unknown option` on both — so a
     // requested effort is refused rather than silently dropped.
     // profileMcp: agent-profile-materialize >= 0.27.2 (the declared range floor) lowers kimi
@@ -242,13 +181,14 @@ export const LOCAL_HARNESSES = Object.keys(HARNESS_INVOCATIONS) as ReadonlyArray
 /**
  * Whether the harness's native control can express this reasoning effort. Admission checks read
  * this so a profile the invocation would later refuse is rejected BEFORE any workspace state is
- * created, against the same table that emits the argv.
+ * created, against the same table that emits the argv. Every harness with a native control
+ * expresses every rung through agent-interface's `nativeReasoningControl`.
  */
 export function harnessSupportsReasoningEffort(
   harness: LocalHarness,
-  reasoningEffort: ReasoningEffort,
+  _reasoningEffort: ReasoningEffort,
 ): boolean {
-  return HARNESS_INVOCATIONS[harness].reasoning?.levels[reasoningEffort] !== undefined
+  return HARNESS_INVOCATIONS[harness].reasoningArgs !== undefined
 }
 
 /**
@@ -261,15 +201,21 @@ export function harnessMaterializesProfileMcp(harness: LocalHarness): boolean {
   return HARNESS_INVOCATIONS[harness].profileMcp === true
 }
 
-function harnessReasoningArgs(harness: LocalHarness, reasoningEffort: ReasoningEffort): string[] {
-  const reasoning = HARNESS_INVOCATIONS[harness].reasoning
-  const level = reasoning?.levels[reasoningEffort]
-  if (reasoning === undefined || level === undefined) {
+/** The argv for a profile effort; `null` from agent-interface means the CLI takes no flag
+ *  for that rung (opencode `none`). */
+function harnessReasoningArgs(
+  harness: LocalHarness,
+  reasoningEffort: ReasoningEffort,
+  model: string | undefined,
+): string[] {
+  const reasoningArgs = HARNESS_INVOCATIONS[harness].reasoningArgs
+  if (reasoningArgs === undefined) {
     throw new Error(
       `harnessInvocation: ${harness} cannot express reasoning effort ${String(reasoningEffort)}`,
     )
   }
-  return reasoning.args(level)
+  const level = nativeReasoningControl(harness, reasoningEffort, model)
+  return level === null ? [] : reasoningArgs(level)
 }
 
 export function buildHarnessArgs(
@@ -345,7 +291,7 @@ export function harnessInvocation(
 
   const reasoningEffort = profile.model?.reasoningEffort
   if (reasoningEffort !== undefined) {
-    args.push(...harnessReasoningArgs(harness, reasoningEffort))
+    args.push(...harnessReasoningArgs(harness, reasoningEffort, model))
   }
 
   return { command: invocation.command, args, prompt: composedPrompt }
