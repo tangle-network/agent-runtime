@@ -101,7 +101,8 @@ export async function main(): Promise<void> {
   // The file's data `check` became a `route` deliverable; graphFromStored binds it for the run.
   const stored = await runGraph(graphFromStored(loaded.graph), { ...debateRounds().opts, runId: 'debate-stored' })
   printLedger('debate-rounds (stored file)', stored)
-  const same = JSON.stringify(literal.out) === JSON.stringify(stored.out)
+  const outOf = (res: { result: { kind: string; out?: unknown } }) => (res.result.kind === 'winner' ? res.result.out : undefined)
+  const same = outOf(literal) !== undefined && JSON.stringify(outOf(literal)) === JSON.stringify(outOf(stored))
   console.log(`stored file and data literal deliver the same output: ${same}`)
   if (!same) throw new Error('the stored graph and the literal diverged')
 }
