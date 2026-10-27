@@ -31,6 +31,15 @@ const state: ServiceState = {
   requests: [],
   failures: [],
 }
+// Synthetic public container coordinates belong only to this loopback service. They do not
+// claim a real transcript or complete capture; these cases stop at execution admission.
+const captureProof = {
+  hostId: 'local-http-fixture',
+  containerId: 'a'.repeat(64),
+  imageId: `sha256:${'b'.repeat(64)}`,
+  bundleRevision: 'c'.repeat(40),
+  bundleChecksum: `sha256:${'d'.repeat(64)}`,
+}
 let origin = ''
 const holds = new Set<ServerResponse>()
 const nativeActions = new Map<string, Promise<void>>()
@@ -64,7 +73,7 @@ async function body(request: IncomingMessage): Promise<Record<string, unknown>> 
   }
   return text ? object(JSON.parse(text)) : {}
 }
-function boxInfo(id: string) {
+function boxInfo(id: string, outcome: 'created' | 'idempotent_replay' = 'idempotent_replay') {
   return {
     id,
     status: 'running',
@@ -73,6 +82,12 @@ function boxInfo(id: string) {
     filesystemIncarnationReadiness: 'ready',
     metadata: state.boxes.find((box) => box.id === id)?.metadata,
     connection: { runtimeUrl: origin },
+    ...(scenario.startsWith('dispatch-')
+      ? {
+          captureProof,
+          createReceipt: { outcome, idempotencyKeyApplied: true, captureProof },
+        }
+      : {}),
     createdAt: new Date().toISOString(),
   }
 }
@@ -175,7 +190,7 @@ async function replay(
   response: ServerResponse,
   exactResult = false,
 ): Promise<void> {
-  if (scenario === 'accepted' && run.status === 'running') {
+  if ((scenario === 'accepted' || scenario.startsWith('dispatch-')) && run.status === 'running') {
     subscribeAccepted(run, response)
     return
   }
@@ -407,7 +422,7 @@ async function create(request: IncomingMessage, response: ServerResponse): Promi
     env: object(input.env ?? {}) as Record<string, string>,
   }
   if (!prior) state.boxes.push(box)
-  json(response, 200, boxInfo(box.id))
+  json(response, 200, boxInfo(box.id, prior ? 'idempotent_replay' : 'created'))
 }
 async function runtime(
   request: IncomingMessage,
@@ -416,6 +431,16 @@ async function runtime(
   environmentId: string,
   path: string,
 ): Promise<void> {
+  if (path === '/backend' && scenario.startsWith('dispatch-')) {
+    const selected = scenario === 'dispatch-refused' && state.runs.length > 0
+    note('backend-status', { environmentId, status: selected ? 200 : 404 })
+    json(
+      response,
+      selected ? 200 : 404,
+      selected ? { type: 'opencode' } : { code: 'NOT_FOUND', message: 'No selected backend' },
+    )
+    return
+  }
   if (path === '/backend') {
     json(response, 200, {
       type: state.boxes.find((box) => box.id === environmentId)?.backend.type ?? 'opencode',
@@ -427,7 +452,13 @@ async function runtime(
     return
   }
   if (path === '/capabilities') {
-    json(response, 200, runtimeCapabilities)
+    if (scenario.startsWith('dispatch-')) note('required-capture-capabilities', { environmentId })
+    json(response, 200, {
+      ...runtimeCapabilities,
+      ...(scenario.startsWith('dispatch-')
+        ? { nativeSessionCaptureVersion: 2, nativeSessionCaptureHarnesses: ['opencode'] }
+        : {}),
+    })
     return
   }
   if (path === '/messages/turns') {
@@ -483,6 +514,16 @@ async function runtime(
       ref.sessionId !== input.sessionId
     )
       throw new Error('SDK dispatch identity mismatch')
+    if (scenario === 'dispatch-refused' && !state.finish) {
+      if (existing) throw new Error('predispatch refusal cannot hide an admitted execution')
+      note('dispatch-refused', { environmentId, executionId, input, status: 503 })
+      json(response, 503, {
+        status: 'error',
+        code: 'HUB_CREDENTIAL_REFRESH_FAILED',
+        message: 'Sandbox Hub credential is temporarily unavailable.',
+      })
+      return
+    }
     if (existing) {
       if (
         existing.environmentId !== environmentId ||
@@ -527,7 +568,20 @@ async function runtime(
       sessionId: run.sessionId,
       turnId: run.turnId,
     })
+    if (scenario === 'dispatch-lost-reply') {
+      note('dispatch-reply-lost', { environmentId, executionId: run.executionId })
+      json(response, 503, {
+        status: 'error',
+        code: 'SERVER_ERROR',
+        message: 'Admission reply lost',
+      })
+      return
+    }
     sse(response, terminal(run).slice(0, 1))
+    if (scenario.startsWith('dispatch-')) {
+      note('execution-started-sent', { environmentId, executionId: run.executionId })
+      return
+    }
     if (scenario === 'current-lost') state.lost.push(environmentId)
     else if (
       state.finish ||

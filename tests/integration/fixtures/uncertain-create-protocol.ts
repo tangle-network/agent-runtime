@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import { closeSync, fsyncSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
 
 export type Scenario =
+  | 'dispatch-refused'
+  | 'dispatch-lost-reply'
   | 'terminal-ceiling'
   | 'create-408'
   | 'create-503'
