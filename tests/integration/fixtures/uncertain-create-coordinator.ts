@@ -19,7 +19,7 @@ const provider = createTangleProvider({
     directExec: false,
   }),
   name: 'local-http-tangle',
-  requireNativeSessionCapture: false,
+  requireNativeSessionCapture: config.scenario.startsWith('dispatch-'),
   readyTimeoutMs: 250,
   modelCredentials: createCommandModelCredentialResolver({
     command: [process.execPath, config.resolver, directory],
@@ -140,10 +140,11 @@ try {
         // disposition before global settlement can legitimately release retained cursors.
         if (
           (config.scenario.startsWith('create-') && attempt.error === undefined) ||
-          measuredDisposition
+          measuredDisposition ||
+          (config.scenario.startsWith('dispatch-') && attempt.error !== undefined)
         ) {
           await fetch(
-            `${config.url}/fixture/hold-success?phase=${measuredDisposition ? 'nested-disposition-committed' : 'native-result-committed'}`,
+            `${config.url}/fixture/hold-success?phase=${config.scenario.startsWith('dispatch-') ? 'dispatch-failure-recorded' : measuredDisposition ? 'nested-disposition-committed' : 'native-result-committed'}`,
             { signal: controller.signal },
           )
         }

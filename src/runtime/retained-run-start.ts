@@ -239,7 +239,9 @@ export async function startRetainedRun(
     capabilities,
     now: options.now,
     preserveEnvironment:
-      transferReceipt !== undefined || options.existingEnvironmentId !== undefined,
+      options.preserveEnvironment === true ||
+      transferReceipt !== undefined ||
+      options.existingEnvironmentId !== undefined,
   })
 }
 

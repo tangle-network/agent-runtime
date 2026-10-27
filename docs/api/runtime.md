@@ -10934,6 +10934,12 @@ Environment, turn, and optional identity needed to replay one retained start.
 
 Reuse an environment whose retained ownership key is verified instead of creating one.
 
+##### preserveEnvironment?
+
+> `readonly` `optional` **preserveEnvironment?**: `boolean`
+
+Keep a newly created environment after dispatch fails so its original intent can replay.
+
 ##### turn
 
 > `readonly` **turn**: [`RetainedRunTurnInput`](#retainedrunturninput)
@@ -10997,6 +11003,16 @@ Reuse an environment whose retained ownership key is verified instead of creatin
 ###### Inherited from
 
 [`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`existingEnvironmentId`](#existingenvironmentid)
+
+##### preserveEnvironment?
+
+> `readonly` `optional` **preserveEnvironment?**: `boolean`
+
+Keep a newly created environment after dispatch fails so its original intent can replay.
+
+###### Inherited from
+
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`preserveEnvironment`](#preserveenvironment)
 
 ##### turn
 

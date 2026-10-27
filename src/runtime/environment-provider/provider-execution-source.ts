@@ -57,6 +57,7 @@ function retainedDispatchMaterial(
       signal,
     },
     turn: { ...selectedTurn, turnId },
+    preserveEnvironment: retention.preserveEnvironment,
     ...(priorSession === undefined
       ? {}
       : {
@@ -95,43 +96,6 @@ function assertReplayMaterial(
   }
 }
 
-/** Replay the committed intent, or find the session the environment admission names. */
-async function recoverFromEnvironmentAdmission(
-  args: StreamProviderExecutorArgs,
-  material: RetainedMaterial,
-  intent: Extract<RetentionAdmission, { phase: 'intent' }> | undefined,
-  environmentAdmission: Extract<RetentionAdmission, { phase: 'environment' }>,
-  onAdmission: (admission: RetentionAdmission) => Promise<void>,
-): Promise<RetainedRunHandle> {
-  const replay = (admission: Extract<RetentionAdmission, { phase: 'intent' }>) =>
-    recoverRetainedRun({ provider: args.provider, admission, replay: material, onAdmission })
-  // Before a new turn dispatches, a reused session still identifies its previous turn.
-  // Replay the committed intent rather than mistaking that prior result for this execution.
-  let recovered =
-    material.existingEnvironmentId !== undefined && intent?.phase === 'intent'
-      ? await replay(intent)
-      : await recoverRetainedRun({
-          provider: args.provider,
-          environmentId: environmentAdmission.environmentId,
-          sessionId: environmentAdmission.sessionId,
-          executionId: environmentAdmission.executionId,
-        })
-  if (recovered.outcome === 'unverifiable' && intent?.phase === 'intent') {
-    // The environment admission precedes dispatch. Replay the validated original keys
-    // when the provider cannot yet identify a session, including a lost dispatch reply.
-    recovered = await replay(intent)
-  }
-  if (recovered.outcome !== 'recovered')
-    throw new Error(`retained provider execution is ${recovered.outcome}`)
-  await onAdmission({
-    phase: 'dispatched',
-    controlRef: recovered.handle.controlRef,
-    idempotencyKey: environmentAdmission.idempotencyKey,
-    turnId: environmentAdmission.turnId,
-  })
-  return recovered.handle
-}
-
 /** Reconnect, recover or start the retained run, whichever the journal's admissions call for. */
 async function acquireRetainedHandle(
   args: StreamProviderExecutorArgs,
@@ -143,7 +107,6 @@ async function acquireRetainedHandle(
   const admissions = retention.admissions
   const dispatched = [...admissions].reverse().find((admission) => admission.phase === 'dispatched')
   const intent = admissions.find((admission) => admission.phase === 'intent')
-  const environmentAdmission = admissions.find((admission) => admission.phase === 'environment')
   // A journaled execution input can precede the first provider admission. In that case
   // no provider call happened: onAdmission(intent) is awaited before create/dispatch.
   // Start with the original execution keys; once any admission exists, validate its intent.
@@ -166,15 +129,8 @@ async function acquireRetainedHandle(
     if (!reconnected) throw new Error('retained provider environment is unavailable')
     return reconnected
   }
-  if (args.recovering && environmentAdmission?.phase === 'environment') {
-    return recoverFromEnvironmentAdmission(
-      args,
-      material,
-      intent,
-      environmentAdmission,
-      onAdmission,
-    )
-  }
+  // Without a dispatched reference, replay the validated intent with its original keys.
+  // An environment admission alone does not require a selected backend or prove absence.
   if (args.recovering && intent?.phase === 'intent') {
     const recovered = await recoverRetainedRun({
       provider: args.provider,

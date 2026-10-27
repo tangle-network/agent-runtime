@@ -15,7 +15,7 @@ import {
   rootId,
   withFixture,
 } from './fixtures/uncertain-create-harness'
-import { object, readRecords, record } from './fixtures/uncertain-create-protocol'
+import { digest, object, readRecords, record } from './fixtures/uncertain-create-protocol'
 
 let bundle: string
 let executables: Executables
@@ -115,6 +115,121 @@ async function assertOneIdentity(fixture: ProcessFixture, expected?: unknown): P
   }
   return identity
 }
+
+it.each(['dispatch-refused', 'dispatch-lost-reply'] as const)(
+  'required native capture %s preserves the original box and dispatch identity after restart',
+  async (scenario) => {
+    await withFixture(scenario, executables, async (fixture) => {
+      await fixture.wait('first failed dispatch reached the actual attempt callback', async () =>
+        (await fixture.state()).requests.some(
+          (row) =>
+            row.kind === 'successful-attempt-observer-barrier' &&
+            row.phase === 'dispatch-failure-recorded',
+        ),
+      )
+      const before = await fixture.events()
+      const original = { inputs: inputs(before), intents: intents(before) }
+      expect(original.inputs).toHaveLength(1)
+      expect(original.intents).toHaveLength(1)
+      const firstState = await fixture.state()
+      const wire = firstState.requests.find((row) => row.kind === 'stream-http-request')!
+      const requested = object(object(wire.input).runControlRef)
+      expect(requested).toMatchObject({
+        environmentId: 'box-1',
+        sessionId: original.intents[0]!.sessionId,
+        executionId: original.intents[0]!.executionId,
+      })
+      expect(firstState.runs).toHaveLength(scenario === 'dispatch-refused' ? 0 : 1)
+      expect(firstState.requests.some((row) => row.kind === 'required-capture-capabilities')).toBe(
+        true,
+      )
+      expect(firstState.requests.filter((row) => row.kind === 'create')).toHaveLength(1)
+      expect(
+        firstState.requests
+          .filter((row) => row.kind === 'create')
+          .every((row) => object(row.rawCreateBody).requireNativeSessionCapture === true),
+      ).toBe(true)
+      expect(firstState.requests.filter((row) => row.kind === 'delete')).toHaveLength(0)
+      expect(
+        firstState.requests.some(
+          (row) =>
+            row.kind ===
+            (scenario === 'dispatch-refused' ? 'dispatch-refused' : 'dispatch-reply-lost'),
+        ),
+      ).toBe(true)
+      await fixture.killCoordinator()
+      await fixture.control({ finish: true })
+      await fixture.resume()
+      await fixture.wait(
+        'replacement attempt dispatches or records its recovery refusal',
+        async () => {
+          const state = await fixture.state()
+          return (
+            state.requests.filter((row) => row.kind === 'successful-attempt-observer-barrier')
+              .length >= 2 ||
+            (await fixture.events()).some(
+              (event) =>
+                event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
+            )
+          )
+        },
+      )
+      const after = await fixture.events()
+      expect(inputs(after)).toEqual(original.inputs)
+      expect(intents(after)).toEqual(original.intents)
+      expect(abandoned(after)).toHaveLength(0)
+      const dispatched = after.filter(
+        (event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
+      )
+      if (scenario === 'dispatch-refused') expect(dispatched).toHaveLength(1)
+      else {
+        // An existing running session may dedupe without an exact receipt. Keep UNKNOWN;
+        // executionId alone never authorizes an admission, abandonment or another turn.
+        expect(dispatched.length).toBeLessThanOrEqual(1)
+        if (dispatched.length === 0)
+          expect(readRecords(join(fixture.directory, 'attempts.jsonl')).at(-1)).toMatchObject({
+            classification: 'transient',
+            madeProgress: false,
+            beforeModelEvent: true,
+            error: expect.stringContaining('exact run control reference'),
+          })
+      }
+      expect(after.filter((event) => event.kind === 'execution-result')).toHaveLength(0)
+      const state = await fixture.state()
+      expect(state.provisions).toHaveLength(1)
+      expect(state.boxes).toHaveLength(1)
+      expect(state.runs).toHaveLength(1)
+      expect(state.runs[0]).toMatchObject({
+        environmentId: 'box-1',
+        sessionId: requested.sessionId,
+        executionId: requested.executionId,
+        runControlRef: requested,
+        status: 'running',
+      })
+      expect(state.requests.filter((row) => row.kind === 'dispatch')).toHaveLength(1)
+      expect(state.requests.filter((row) => row.kind === 'execution-started-sent')).toHaveLength(
+        scenario === 'dispatch-refused' ? 1 : 0,
+      )
+      expect(state.provisions[0]!.key).toBe(original.intents[0]!.idempotencyKey)
+      expect(state.requests.filter((row) => row.kind === 'delete')).toHaveLength(0)
+      expect(state.requests.filter((row) => row.kind === 'native-result-ready')).toHaveLength(0)
+      const posts = state.requests.filter((row) => row.kind === 'stream-http-request')
+      if (scenario === 'dispatch-refused') expect(posts).toHaveLength(2)
+      else {
+        expect(posts.length).toBeGreaterThanOrEqual(1)
+        expect(posts.length).toBeLessThanOrEqual(2)
+      }
+      expect(
+        posts.every(
+          (row) =>
+            row.environmentId === 'box-1' &&
+            digest(object(object(row.input).runControlRef)) === digest(requested),
+        ),
+      ).toBe(true)
+    })
+  },
+  45000,
+)
 
 describe('actual Tangle SDK uncertain root create identities', () => {
   it.each(['create-408', 'create-503'] as const)(
