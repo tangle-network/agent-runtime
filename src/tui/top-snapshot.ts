@@ -230,22 +230,66 @@ const emptySpend: SpendStats = { iterations: 0, tokensInput: 0, tokensOutput: 0,
 export function loadTopSnapshot(rootDir: string, now?: number): TopSnapshot
 export function loadTopSnapshot(
   rootDir: string,
-  options: { runDir: string; now?: number; format?: 'workflow' },
+  options: { runDir: string; now?: number; format?: 'workflow' | 'journal' },
 ): Promise<TopSnapshot>
 export function loadTopSnapshot(
   rootDir: string,
-  input: number | { runDir: string; now?: number; format?: 'workflow' } = Date.now(),
+  input: number | { runDir: string; now?: number; format?: 'workflow' | 'journal' } = Date.now(),
 ): TopSnapshot | Promise<TopSnapshot> {
+  if (typeof input !== 'number' && input.format === 'journal')
+    return loadJournalTopSnapshot(rootDir, input.runDir, input.now ?? Date.now())
   if (typeof input !== 'number' && input.format === 'workflow') {
-    const root = resolve(rootDir), dir = resolve(input.runDir), now = input.now ?? Date.now()
+    const root = resolve(rootDir),
+      dir = resolve(input.runDir),
+      now = input.now ?? Date.now()
     const read = readSourceFile(join(dir, 'journal.jsonl'), 'journal', 'journal.jsonl')
-    if (read.value === undefined) return Promise.resolve(topSnapshot(root, now, [], read.diagnostics.length ? [...read.diagnostics] : [{ source: 'journal', path: 'journal.jsonl', reason: 'missing' }]))
+    if (read.value === undefined)
+      return Promise.resolve(
+        topSnapshot(
+          root,
+          now,
+          [],
+          read.diagnostics.length
+            ? [...read.diagnostics]
+            : [{ source: 'journal', path: 'journal.jsonl', reason: 'missing' }],
+        ),
+      )
     try {
       const journal = workflowJournal(dir, read.value)
-      const supervisor = buildSupervisorView({ id: journal.id, task: journal.id, status: 'unobserved', workspaceDir: root, budget: 0, budgetKnown: false, ...(journal.first ? { startedAt: journal.first } : {}) }, dir, journal.events, [], now, journal.tails)
-      return Promise.resolve(topSnapshot(root, now, [{ ...supervisor, driverSpend: { ...supervisor.driverSpend, usdKnown: false, tokensKnown: false }, totals: { ...supervisor.totals, usdKnown: false, tokensKnown: false } }]))
+      const supervisor = buildSupervisorView(
+        {
+          id: journal.id,
+          task: journal.id,
+          status: 'unobserved',
+          workspaceDir: root,
+          budget: 0,
+          budgetKnown: false,
+          ...(journal.first ? { startedAt: journal.first } : {}),
+        },
+        dir,
+        journal.events,
+        [],
+        now,
+        journal.tails,
+      )
+      return Promise.resolve(
+        topSnapshot(root, now, [
+          {
+            ...supervisor,
+            driverSpend: { ...supervisor.driverSpend, usdKnown: false, tokensKnown: false },
+            totals: { ...supervisor.totals, usdKnown: false, tokensKnown: false },
+          },
+        ]),
+      )
     } catch {
-      return Promise.resolve(topSnapshot(root, now, [], [{ source: 'journal', path: 'journal.jsonl', reason: 'invalid-state' }]))
+      return Promise.resolve(
+        topSnapshot(
+          root,
+          now,
+          [],
+          [{ source: 'journal', path: 'journal.jsonl', reason: 'invalid-state' }],
+        ),
+      )
     }
   }
   if (typeof input !== 'number')
@@ -365,6 +409,70 @@ async function loadDurableTopSnapshot(
     const reason =
       isRecord(error) && typeof error.code === 'string' ? 'unreadable' : 'invalid-state'
     return topSnapshot(root, now, [], [{ source, path, reason }], 1, pursuit)
+  }
+}
+
+/** Old Discovery and factory roots may predate observer.jsonl; absence never establishes known totals. */
+async function loadJournalTopSnapshot(
+  rootDir: string,
+  runDir: string,
+  now: number,
+): Promise<TopSnapshot> {
+  const root = resolve(rootDir),
+    dir = resolve(runDir)
+  try {
+    const discovery = await discoverDurableSupervisionRun(dir)
+    const journal = new FileSpawnJournal(discovery.spawnJournalPath)
+    const supervisors = await Promise.all(
+      discovery.roots.map(async (id, i) => {
+        const events = (await journal.loadTree(id)) ?? []
+        const terminal = events
+          .filter(
+            (event) => event.id === id && (event.kind === 'settled' || event.kind === 'cancelled'),
+          )
+          .at(-1)
+        const first = events.find((event) => event.kind === 'spawned' && event.id === id)
+        const budget = first?.kind === 'spawned' ? first.budget?.maxTokens : undefined
+        const tails = readWorkerEventTails(supervisorWorkersDir(dir), 8)
+        const view = buildSupervisorView(
+          {
+            id,
+            task: id,
+            workspaceDir: root,
+            status:
+              terminal?.kind === 'settled'
+                ? terminal.status
+                : terminal?.kind === 'cancelled'
+                  ? 'cancelled'
+                  : 'running',
+            budget: budget ?? 0,
+            budgetKnown: budget !== undefined,
+            ...(discovery.rootsBegunAt[i] ? { startedAt: discovery.rootsBegunAt[i]! } : {}),
+            ...(terminal?.at ? { completedAt: terminal.at } : {}),
+          },
+          dir,
+          events.filter(isSpawnEvent),
+          [],
+          now,
+          tails.value,
+        )
+        return { ...view, totals: { ...view.totals, usdKnown: false, tokensKnown: false } }
+      }),
+    )
+    return topSnapshot(
+      root,
+      now,
+      supervisors,
+      [{ source: 'observer-journal', path: 'observer.jsonl', reason: 'missing' }],
+      discovery.roots.length,
+    )
+  } catch {
+    return topSnapshot(
+      root,
+      now,
+      [],
+      [{ source: 'journal', path: 'spawn-journal.jsonl', reason: 'invalid-state' }],
+    )
   }
 }
 
