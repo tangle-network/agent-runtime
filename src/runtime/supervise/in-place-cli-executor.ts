@@ -36,6 +36,7 @@ import {
   worktreeProfileExecutionPlan,
 } from '../../mcp/worktree-harness'
 import { linkAbort } from './abortable'
+import { errMessage } from './error-message'
 import { executableAgentProfileSnapshot } from './executable-spec'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
 import { concreteProfileModel } from './model-policy'
@@ -108,6 +109,7 @@ export function createInPlaceCliExecutor(
   const controller = new AbortController()
 
   let artifact: ExecutorResult<InPlaceHarnessResult> | undefined
+  let running: Promise<InPlaceHarnessResult> | undefined
 
   const profilePlan = worktreeProfileExecutionPlan(profile, harness)
   const profileModel = concreteProfileModel(profile)
@@ -119,29 +121,24 @@ export function createInPlaceCliExecutor(
       runtime: 'cli',
       budgetExempt: true,
       async execute(task, signal): Promise<ExecutorResult<InPlaceHarnessResult>> {
-        const linked = linkAbort(signal, controller.signal).signal
         const started = Date.now()
         const taskPrompt = executionTaskPrompt(task, options.taskPrompt)
 
-        const result = await runInPlaceHarness({
+        running = runInPlaceHarness({
           workspacePath: options.workspacePath,
           profile,
           harness,
           taskPrompt,
-          ...(options.harnessTimeoutMs !== undefined
-            ? { harnessTimeoutMs: options.harnessTimeoutMs }
-            : {}),
-          ...(linked ? { signal: linked } : {}),
+          harnessTimeoutMs:
+            options.harnessTimeoutMs !== undefined ? options.harnessTimeoutMs : undefined,
+          signal: linkAbort(signal, controller.signal).signal,
           ...(options.env ? { env: options.env } : {}),
           ...(options.runHarness ? { runHarness: options.runHarness } : {}),
         })
+        const result = await running
 
-        // No usage receipt exists for a harness CLI run, so its `{0,0}` is a FLOOR, not a
-        // measurement. Left unmarked it is byte-identical to a run that truly cost nothing, and a
-        // token-priced ceiling over this leaf then reads as enforced while enforcing nothing.
-        // `tokensKnown` is the marker; the dollar channel is left alone because `usdKnown: false`
-        // under a dollar-capped root is a reconcile REFUSAL in `budget.ts`, which would contradict
-        // the exemption this leaf was granted.
+        // `usdKnown: false` refuses reconciliation under a dollar cap (`budget.ts`), so this
+        // budget-exempt leaf preserves its existing dollar channel. Tokens remain an unknown floor.
         const spent: Spend = {
           iterations: 1,
           tokens: { input: 0, output: 0 },
@@ -152,11 +149,14 @@ export function createInPlaceCliExecutor(
         artifact = { outRef: contentAddress(result), out: result, spent }
         return artifact
       },
-      async teardown(_grace): Promise<{ destroyed: boolean }> {
-        // The workspace belongs to the caller: teardown stops this leaf's own work and leaves the
-        // directory exactly as the harness left it.
+      teardown(_grace) {
+        // Join this leaf's process/profile cleanup; the caller keeps its workspace.
+        // A settled rejection stays unconfirmed and cannot change on retry, including
+        // a caller-cancel rejection after physical closure. Never turn it into destruction.
         controller.abort()
-        return { destroyed: true }
+        return Promise.resolve(running)
+          .then(() => ({ destroyed: true }))
+          .catch((error) => ({ destroyed: false, permanent: true, detail: errMessage(error) }))
       },
       resultArtifact() {
         if (!artifact) {
