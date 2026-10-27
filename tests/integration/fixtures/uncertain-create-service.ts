@@ -44,6 +44,7 @@ let origin = ''
 const holds = new Set<ServerResponse>()
 const nativeActions = new Map<string, Promise<void>>()
 const acceptedSubscribers = new Map<string, Set<ServerResponse>>()
+const resultReaders = new WeakSet<ServerResponse>()
 const observedReplays = new Map<string, { received: Promise<void>; observed: () => void }>()
 function startAction(run: NativeRun): void {
   const action = act(run)
@@ -107,7 +108,8 @@ function sse(response: ServerResponse, frames: Array<{ type: string; data: objec
   writeFrames(response, frames)
   response.end()
 }
-function subscribeAccepted(run: NativeRun, response: ServerResponse): void {
+function subscribeAccepted(run: NativeRun, response: ServerResponse, exactResult: boolean): void {
+  if (exactResult) resultReaders.add(response)
   const subscribers = acceptedSubscribers.get(run.executionId) ?? new Set<ServerResponse>()
   acceptedSubscribers.set(run.executionId, subscribers)
   subscribers.add(response)
@@ -124,18 +126,27 @@ function flushAccepted(run: NativeRun): void {
   if (scenario !== 'accepted' || run.status !== 'completed') return
   const subscribers = acceptedSubscribers.get(run.executionId)
   if (!subscribers) return
-  for (const response of subscribers) {
-    if (response.destroyed || response.writableEnded) continue
-    // IDs 2 and 3 are the same canonical result/done positions as a completed replay.
-    writeFrames(response, terminal(run).slice(1), 1)
-    response.end()
-    run.terminalReads += 1
-  }
   acceptedSubscribers.delete(run.executionId)
-  note('healthy-stream-completed', {
-    executionId: run.executionId,
-    environmentId: run.environmentId,
-  })
+  const finish = (readers: boolean) => {
+    for (const response of subscribers) {
+      if (resultReaders.has(response) !== readers) continue
+      if (response.destroyed || response.writableEnded) continue
+      // IDs 2 and 3 are the same canonical result/done positions as a completed replay.
+      writeFrames(response, terminal(run).slice(1), 1)
+      response.end()
+      run.terminalReads += 1
+    }
+  }
+  // The result connection answers first and the observed stream's tail lands after it, as a
+  // provider's two connections can; the tail must still be read whole.
+  finish(true)
+  setTimeout(() => {
+    finish(false)
+    note('healthy-stream-completed', {
+      executionId: run.executionId,
+      environmentId: run.environmentId,
+    })
+  }, 20)
 }
 function terminal(run: NativeRun) {
   return [
@@ -191,7 +202,7 @@ async function replay(
   exactResult = false,
 ): Promise<void> {
   if ((scenario === 'accepted' || scenario.startsWith('dispatch-')) && run.status === 'running') {
-    subscribeAccepted(run, response)
+    subscribeAccepted(run, response, exactResult)
     return
   }
   if (run.status === 'running' && nativeActions.has(run.executionId))

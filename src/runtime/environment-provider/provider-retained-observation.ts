@@ -30,9 +30,10 @@ const RETAINED_OBSERVATION_BATCH_EVENTS = 1_024
 
 /**
  * After its exact result, a stream that still owes its terminal frame keeps reading only while
- * each frame arrives within this long of the last; a quiet stream closes on the result at once.
- * A provider sends a turn's last frames and its result on two connections, and a burst that
- * straddles the result is read whole.
+ * each frame arrives within this long of the later of its last frame and the result; a quiet
+ * stream closes this long after the result. A provider sends a turn's last frames and its result
+ * on two connections, so a tail written beside the result can land just after it, and a burst
+ * that straddles the result is read whole.
  */
 const RETAINED_TAIL_FLOW_MS = 100
 
@@ -74,7 +75,8 @@ export class RetainedObservation {
   // The node publishes its wait once per invocation; the row's `since` is when it began.
   private awaitingPublished = false
   private exactResult: Promise<AgentTurnResult> | undefined
-  private exactResultSettled = false
+  // When the exact result settled; undefined until it does.
+  private exactResultAt: number | undefined
   private observedFrames = 0
   private framesAfterResult = 0
   private budgetExceeded = false
@@ -139,7 +141,7 @@ export class RetainedObservation {
     // returns `success: false` "Agent stream ended without a terminal event" with no error code,
     // indistinguishable from the execution's own failure (64 of 82 C1 attempts).
     // The SDK owns that verdict.
-    if (!this.sawTerminal && !this.exactResultSettled && !this.awaitingPublished) {
+    if (!this.sawTerminal && this.exactResultAt === undefined && !this.awaitingPublished) {
       yield this.awaitingResult(Date.now())
     }
     yield await this.resultFrame()
@@ -187,7 +189,7 @@ export class RetainedObservation {
         this.signal,
       )
       const settle = () => {
-        this.exactResultSettled = true
+        this.exactResultAt = Date.now()
       }
       void this.exactResult.then(settle, settle)
     }
@@ -195,7 +197,7 @@ export class RetainedObservation {
   }
 
   private onExactResult(waker: () => void): () => void {
-    if (this.exactResultSettled) {
+    if (this.exactResultAt !== undefined) {
       waker()
       return () => {}
     }
@@ -224,16 +226,14 @@ export class RetainedObservation {
     let unwatch: (() => void) | undefined
     let clearQuiet: (() => void) | undefined
     try {
-      // Give this read one scheduler turn before an exact result closes a quiet subscription; a
-      // stream owing its terminal frame whose last frame came within RETAINED_TAIL_FLOW_MS keeps
-      // reading for the rest of that window.
+      // Give this read one scheduler turn before an exact result closes the subscription; a stream
+      // owing its terminal frame keeps reading for RETAINED_TAIL_FLOW_MS after its last frame or
+      // the result, whichever is later.
       const exactWake = new Promise<FrameRead>((resolve) => {
         wake = setImmediate(() => {
           const close = () => {
-            const flowing =
-              this.sawTerminal || this.lastFrameAt === undefined
-                ? 0
-                : RETAINED_TAIL_FLOW_MS - (Date.now() - this.lastFrameAt)
+            const since = Math.max(this.lastFrameAt ?? 0, this.exactResultAt ?? 0)
+            const flowing = this.sawTerminal ? 0 : RETAINED_TAIL_FLOW_MS - (Date.now() - since)
             if (flowing <= 0) {
               resolve({ kind: 'exact-result' })
               return
@@ -273,7 +273,7 @@ export class RetainedObservation {
   /** Bind a frame to its run and drop an exact replay; false when it carries no new evidence. */
   private acceptFrame(event: AgentEnvironmentEvent): boolean {
     this.observedFrames += 1
-    if (this.exactResultSettled) this.framesAfterResult += 1
+    if (this.exactResultAt !== undefined) this.framesAfterResult += 1
     // An event for another execution is never evidence, and it is the PROVIDER's contract that
     // broke, so it classifies as such (#1204).
     try {
