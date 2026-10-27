@@ -19,6 +19,7 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   type AgentGraph,
+  graphFromStored,
   loadGraphFile,
   promptHandle,
   type RunGraphOptions,
@@ -57,7 +58,8 @@ export function debateRounds(): { graph: AgentGraph; opts: RunGraphOptions } {
       { node: 'b', task: { question: QUESTION } },
     ],
     edges: [
-      { kind: 'routes', from: ['a', 'b'], to: 'judge', directive: brief, evidence: ['a', 'b'] },
+      // The judge reads both answers and its own last settle, so it knows which round this is.
+      { kind: 'routes', from: ['a', 'b'], to: 'judge', directive: brief, evidence: ['a', 'b', 'judge'] },
       {
         kind: 'routes',
         from: 'judge',
@@ -96,7 +98,8 @@ export async function main(): Promise<void> {
   // The stored form: the same topology loaded from the file an agent would write.
   const file = new URL('./debate-rounds.graph.yaml', import.meta.url).pathname
   const loaded = await loadGraphFile(file, { params: { question: QUESTION } })
-  const stored = await runGraph(loaded.graph, { ...debateRounds().opts, runId: 'debate-stored' })
+  // The file's data `check` became a `route` deliverable; graphFromStored binds it for the run.
+  const stored = await runGraph(graphFromStored(loaded.graph), { ...debateRounds().opts, runId: 'debate-stored' })
   printLedger('debate-rounds (stored file)', stored)
   const same = JSON.stringify(literal.out) === JSON.stringify(stored.out)
   console.log(`stored file and data literal deliver the same output: ${same}`)

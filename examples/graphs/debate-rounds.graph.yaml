@@ -28,12 +28,12 @@ entry:
   - node: b
     task: { question: "${params.question}" }
 edges:
-  # Both answered: the judge reads both.
+  # Both answered: the judge reads both, and its own last settle (which round this is).
   - kind: routes
     from: [a, b]
     to: judge
     directive: { surface: delegates/worker-brief, version: 1 }
-    evidence: [a, b]
+    evidence: [a, b, judge]
   # Still disagreeing: another round, each continuing its own session, at most `rounds` times.
   - kind: routes
     from: judge
