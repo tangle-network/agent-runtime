@@ -70,15 +70,18 @@ async function assertAcceptedNativeResult(
   const artifact = await new FileResultBlobStore(join(fixture.directory, 'run', 'blobs')).get(
     event.outRef,
   )
-  expect(artifact).toMatchObject({
-    content: '{"answer":"delivered"}',
-    events: expect.arrayContaining([
-      expect.objectContaining({
-        type: 'done',
-        data: expect.objectContaining({ success: true, outcome: { type: 'completed' } }),
-      }),
-    ]),
-  })
+  expect(artifact).toMatchObject({ content: '{"answer":"delivered"}' })
+  // The fixture marks the run completed before it flushes the stream's result and done frames, so
+  // an exact-result read can win and close the stream on its result (eventStreamComplete false).
+  // Either terminal shape is an accepted success.
+  expect(
+    (artifact as { events: Array<{ type: string; data?: Record<string, unknown> }> }).events,
+  ).toContainEqual(
+    expect.objectContaining({
+      type: expect.stringMatching(/^(done|result)$/),
+      data: expect.objectContaining({ success: true }),
+    }),
+  )
 }
 async function assertOneIdentity(fixture: ProcessFixture, expected?: unknown): Promise<unknown> {
   const events = await fixture.events()
