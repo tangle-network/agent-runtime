@@ -500,7 +500,9 @@ async function runtime(
     state.runs.push(run)
     if (scenario.startsWith('create-')) {
       let observed!: () => void
-      const received = new Promise<void>((resolve) => { observed = resolve })
+      const received = new Promise<void>((resolve) => {
+        observed = resolve
+      })
       observedReplays.set(run.executionId, { received, observed })
     }
     note('dispatch', {
