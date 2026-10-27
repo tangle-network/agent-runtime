@@ -20,6 +20,7 @@ import type {
 } from '../../mcp/tools/coordination-questions'
 import type { ToolLoopChat } from '../tool-loop'
 import type { BusRecord } from './event-bus'
+import { isRuntimeFlowBrain } from './flow-brain'
 import { runtimeOwnedScopeOwnerRuntime } from './materialization'
 import {
   assertExecutableAgentProfile,
@@ -96,7 +97,16 @@ export function prepareSuperviseRun(
   const peerAuditFor = peerAuditRegistry(options)
   // The recorded root profile fixes the run's identity; a segment only alters what it executes.
   const registeredProfile = applyTraceTools(superviseRootProfile(profile, options.profileGuidance))
-  const canonicalProfile = admitRootSegment(registeredProfile, options)
+  if (options.segment !== undefined) admitSegment(options.segment)
+  const canonicalProfile =
+    options.segment === undefined
+      ? registeredProfile
+      : withRootSegment(registeredProfile, options.segment)
+  if (!testBrain || !isRuntimeFlowBrain(testBrain))
+    assertExecutableAgentProfile(canonicalProfile, 'supervise root')
+  if (authoredSeatStages(canonicalProfile) !== undefined && options.selectSeat === undefined) {
+    throw new ValidationError('supervise: AgentProfile.seats requires selectSeat before execution')
+  }
   const canonicalTask = freezeDetached(task)
   assertWorkerSeams(options)
   const authorizeDownFor = downMessageAuthorizer(options)
@@ -287,23 +297,6 @@ function peerAuditRegistry(
           },
         }
       : undefined
-}
-
-/** The profile this process executes: the registered root, or the segment the options name. */
-function admitRootSegment(
-  registeredProfile: AgentProfile,
-  options: SuperviseOptions,
-): AgentProfile {
-  if (options.segment !== undefined) admitSegment(options.segment)
-  const canonicalProfile =
-    options.segment === undefined
-      ? registeredProfile
-      : withRootSegment(registeredProfile, options.segment)
-  assertExecutableAgentProfile(canonicalProfile, 'supervise root')
-  if (authoredSeatStages(canonicalProfile) !== undefined && options.selectSeat === undefined) {
-    throw new ValidationError('supervise: AgentProfile.seats requires selectSeat before execution')
-  }
-  return canonicalProfile
 }
 
 function assertWorkerSeams(options: SuperviseOptions): void {

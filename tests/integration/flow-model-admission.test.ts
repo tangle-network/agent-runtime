@@ -15,6 +15,7 @@ import {
   FileSpawnJournal,
   type MakeWorkerAgent,
   runGraph,
+  supervise,
 } from '@tangle-network/agent-runtime/kernel'
 import { expect, it } from 'vitest'
 
@@ -101,6 +102,13 @@ it('admits a model-free coordinator while enforcing its actual leaf model allowl
     await expect(
       runGraph(graph('disallowed-model'), { ...options, runId: 'denied-flow' }),
     ).rejects.toThrow(/model "disallowed-model" is not in the allowed set/u)
+    expect(processes).toBe(1)
+    await expect(async () =>
+      supervise({ name: 'ordinary-root', harness: 'cli-base' }, input, {
+        ...options,
+        budget: graph(allowed).budget,
+      }),
+    ).rejects.toThrow('AgentProfile.model.default is missing')
     expect(processes).toBe(1)
   } finally {
     await rm(root, { recursive: true, force: true })
