@@ -20,16 +20,14 @@ export interface RunLocalHarnessOptions {
   harness: LocalHarness
   /** Working directory for the subprocess (typically a worktree path). */
   cwd: string
-  /** Prompt forwarded as the harness CLI's task argument. */
+  /** Task prompt delivered through the harness's supported input transport. */
   taskPrompt: string
   /**
-   * Pre-built command + args (e.g. from `harnessInvocation` so the full authored
-   * `AgentProfile` — systemPrompt + model — reaches the harness). When set it OVERRIDES the
-   * default prompt-only `buildArgs(taskPrompt)` path; `command` defaults to the harness's
-   * default binary when only `args` is supplied. When absent the legacy prompt-only shape
-   * is used unchanged.
+   * Mapper invocation or custom argv; command defaults to the harness binary.
+   * The mapper's exact composed `prompt` enables supported stdin transport.
+   * Without an invocation, use the default prompt-only shape.
    */
-  invocation?: { command?: string; args: ReadonlyArray<string> }
+  invocation?: { command?: string; args: ReadonlyArray<string>; prompt?: string }
   /** Allow autonomous edits without an interactive approval gate, using whichever bypass argv the
    *  harness declares. Use only when `cwd` is an isolated candidate worktree. */
   dangerouslySkipPermissions?: boolean
@@ -125,22 +123,13 @@ class RollingByteCapture {
 }
 
 /**
- * Spawn a local coding harness CLI as a subprocess + collect its output.
+ * Spawn a local harness, collect output and confirm process-tree cleanup.
+ * The caller owns output parsing and workspace diffs.
  *
- * NOT responsible for parsing the harness's output or extracting a diff —
- * the in-process executor's `streamPrompt` orchestrates `git diff` against
- * the worktree after this resolves. This function is intentionally narrow:
- * spawn, wait, capture, return.
+ * Spawn failures and signals already aborted before launch reject.
  *
- * Fails loud — throws when:
- *   - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
- *   - the harness binary is not on PATH (ENOENT)
- *   - the caller signal was already aborted before process launch
- *
- * Does NOT throw when:
- *   - the subprocess exits non-zero (`result.exitCode` carries the code)
- *   - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
- *     `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+ * Ordinary nonzero exits and cancellation return the exit code and timeout/abort flags.
+ * A failed prompt delivery rejects after the child is reaped.
  *
  * Reproducible Codex additionally requires a terminal usage event. If cancellation
  * prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
@@ -188,13 +177,7 @@ export async function runLocalHarness(
   if (options.codexReproducible) assertCodexReproducibleInvocation(requestedCommand, args)
   options.signal?.throwIfAborted()
 
-  // We spawn the harness with `cwd`, but a harness that resolves its working
-  // directory from `$PWD` rather than `getcwd()` (opencode does; the others may)
-  // inherits the parent's stale `PWD` and edits the WRONG directory — its
-  // worktree diff then comes back empty and the delegation fails with a phantom
-  // "empty patch". Pin `PWD` to `cwd` so the harness edits where it was placed.
-  // `baseEnv` feeds both the codex-isolated and the plain spawn paths below, so
-  // pinning it here covers every runLocalHarness consumer.
+  // Some CLIs resolve cwd through PWD; pin it for both plain and isolated launches.
   const baseEnv: NodeJS.ProcessEnv = { ...(options.env ?? process.env), PWD: cwd }
   const isolated = options.codexReproducible
     ? await isolateCodexHome({
@@ -245,11 +228,26 @@ export async function runLocalHarness(
           ...(options.signal ? { signal: options.signal } : {}),
         })
       : undefined
+    // Codex's debug renderer requires literal argv; preserve reproducible prompt evidence.
+    const inputIndex = options.codexReproducible ? undefined : invocation.stdinPromptArgIndex
+    const canonicalPrompt = options.invocation ? options.invocation.prompt : taskPrompt
+    const input =
+      inputIndex !== undefined &&
+      args[0] === invocation.buildArgs('')[0] &&
+      args[inputIndex] === canonicalPrompt
+        ? canonicalPrompt
+        : undefined
+    // Forced stdin rejects blank prompts that argv accepts. Its decoder strips one BOM.
+    const stdinPrompt = input?.trim() ? input : undefined
+    const spawnArgs =
+      stdinPrompt === undefined
+        ? args
+        : args.map((arg, index) => (index === inputIndex ? '-' : arg))
     return await new Promise<LocalHarnessResult>((resolve, reject) => {
       let child: ChildProcess
       try {
         options.signal?.throwIfAborted()
-        child = spawnImpl(command, args, {
+        child = spawnImpl(command, spawnArgs, {
           cwd,
           env,
           stdio: 'pipe',
@@ -260,12 +258,11 @@ export async function runLocalHarness(
         return
       }
 
-      // The harness takes its task as an argv arg, not on stdin. Leaving stdin
-      // OPEN makes a non-TTY `opencode run` (and likely the other harnesses)
-      // BLOCK forever waiting on input — zero output, SIGTERM at the wall cap,
-      // empty patch -> "no candidate passed validation". Close stdin so the
-      // subprocess sees EOF and proceeds (the `cliExecutor` leaf does the same).
-      child.stdin?.end()
+      let deliveryError: Error | undefined
+      child.stdin?.on('error', (error: Error) => {
+        deliveryError = error
+      })
+      child.stdin?.end(stdinPrompt?.startsWith('\uFEFF') ? `\uFEFF${stdinPrompt}` : stdinPrompt)
 
       const stdoutCapture = new RollingByteCapture(maxOutputBytes)
       const stderrCapture = new RollingByteCapture(maxOutputBytes)
@@ -357,6 +354,7 @@ export async function runLocalHarness(
               await terminate()
             }
             if (termination) await termination
+            if (deliveryError && code === 0 && !timedOut && !aborted) throw deliveryError
             const durationMs = Date.now() - startedAt
             const usage = options.codexReproducible ? parseCodexTokenUsage(stdout) : undefined
             finalize({

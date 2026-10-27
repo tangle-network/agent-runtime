@@ -50,6 +50,8 @@ interface HarnessInvocationOptions {
 interface HarnessInvocationSpec {
   command: string
   buildArgs: (taskPrompt: string) => string[]
+  /** Canonical prompt argument replaced with `-` when this CLI accepts stdin. */
+  stdinPromptArgIndex?: number
   /** Map a resolved model to the harness's model-selector flag. */
   modelArgs: (model: string) => string[]
   /** Argv for the native reasoning-effort token agent-interface's `nativeReasoningControl`
@@ -77,13 +79,8 @@ interface HarnessInvocationSpec {
 }
 
 /**
- * Default per-harness command + arg shape. `buildArgs` takes ONLY the task prompt and
- * emits the prompt-only invocation (no model, no system prompt) — the safe default shape
- * the in-process executor's `streamPrompt` drives. `modelArgs` maps a resolved model to
- * the harness's selector flag, which each harness spells for itself: codex, kimi-code and
- * opencode take `-m <model>`, claude-code and pi take `--model <model>`. The §1.5
- * profile-aware mapper `harnessInvocation` composes these to thread the full
- * supervisor-authored profile (systemPrompt + model) into argv.
+ * Per-harness prompt invocation and model, effort, permission and input capabilities.
+ * `harnessInvocation` composes these with the authored profile before execution.
  *
  * Every per-harness difference is a FIELD on this row, never a test on the harness name at a
  * call site: adding harness N+1 is one entry here, and a caller asking for a capability the
@@ -107,6 +104,7 @@ export const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = 
   codex: {
     command: 'codex',
     buildArgs: (taskPrompt) => ['exec', taskPrompt],
+    stdinPromptArgIndex: 1,
     modelArgs: (model) => ['-m', model],
     reasoningArgs: (level) => ['-c', `model_reasoning_effort="${level}"`],
     // Non-interactive editing WITHOUT surrendering the OS sandbox. `codex exec` has no approval
