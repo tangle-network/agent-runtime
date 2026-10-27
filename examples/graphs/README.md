@@ -53,7 +53,8 @@ These examples come from a study of 660 Claude Workflow scripts (2026-07-01 to 2
 - **P01 single agent (46 / 0).** One agent call has no topology; run it with the executor or `supervise()` directly.
 - **P21 independent lanes (3 / 2).** `static-fanout-synthesize` without the join: the same entries, each one terminal.
 - **P19 research sweep → deep read → synthesize (3 / 0).** `discovered-fanout-reduce` (the sweep) followed by `role-chain` (read, then synthesize); no new shape.
-- **P17 multi-modal sweep (0 / 4) and P16 tournament (0 / 1).** The first is `static-fanout-synthesize` with methods as the dimensions; the second is `judge-panel` repeated.
+| P16 debate / tournament rounds | 0 / 1 (and every "let them argue, then decide" ask) | [`debate-rounds.ts`](./debate-rounds.ts) + [`debate-rounds.graph.yaml`](./debate-rounds.graph.yaml) | Two entries answer at once; a join starts the judge; its `when /converged false` edge forks both back with `continuity: 'resume'` under `maxTraversals`; the default edge finishes with the synthesis. The stored file runs through `loadGraphFile` and delivers the same output as the literal. | Flow graph, as a stored file |
+- **P17 multi-modal sweep (0 / 4).** `static-fanout-synthesize` with methods as the dimensions; the tournament half of P16 is `judge-panel` repeated.
 - **P26 before/after probe and P27 priority admission (1 mention each).** An evaluation design and a scheduling policy, not topologies.
 
 ### What a fixed graph says, and what it leaves to the driver

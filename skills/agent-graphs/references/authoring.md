@@ -48,6 +48,7 @@ Routes edges run a flow graph and need `entry`; a flow graph takes no delegation
 On each usable settle of `from`, its routes edges are tried in declaration order and the first whose `when` holds fires; one settle fires at most one edge.
 `when` compares JSON scalars only (`equals`, `in`, `exists` at an RFC 6901 pointer, or `all` of several); a numeric or stateful rule is a field the node settles, such as a boolean or a counter.
 A match reads `from` unless it names a node listed in the edge's `evidence`; a pointer that does not resolve does not match.
+A node that must know its own earlier settle (which round this is, a streak it counts) lists itself in the `evidence` of the edge that reaches it; without that it starts every visit from nothing (`loop-until-dry`, `debate-rounds`).
 An edge without `when` is the default branch: at most one per node, and last.
 A node target receives `{ from: { node, result }, evidence }` (a join's target `{ from: { nodes }, evidence }`) and the edge directive; `{ stop: reason }` ends the run with no winner; `{ finish: reason }` makes this settle part of the output.
 The output is `{ [node]: latest usable result }` over terminal nodes (no outgoing routes or map edge) and finish sources, and the deliverable decides it.
