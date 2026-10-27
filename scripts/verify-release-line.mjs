@@ -50,6 +50,13 @@ try {
       throw new Error('Candidate is on neither main nor its matching backport line')
     }
     admitted = lineRef
+    // A line below main's (0.353.x under 2.x) ships only for a consumer its CHANGELOG names.
+    const line = (v) => (v.startsWith('0.') ? Number(v.split('.')[1]) : Number(v.split('.')[0]) * 1e9)
+    const mainVersion = JSON.parse(git('show', `${mainRef}:package.json`)).version
+    const section = git('show', `${candidate}:CHANGELOG.md`).split(/^## /m).find((part) => part.startsWith(`${version}\n`))
+    if (line(version) < line(mainVersion) && !/^Needed by: \S/m.test(section ?? '')) {
+      throw new Error(`${version} is on a line superseded by main's ${mainVersion}; its CHANGELOG section needs a "Needed by: <owner/repo>" line`)
+    }
   }
   if (git('rev-parse', 'HEAD') !== candidate) {
     throw new Error('Checkout moved while verifying the candidate')
