@@ -1,3 +1,11 @@
+## 2.2.0
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+`@tangle-network/agent-runtime/durable` exports `durableRunToolSpans(runDir)`: every tool span a finished `supervise({ runDir })` run recorded, read from the directory alone. The root's `root-stream.jsonl` becomes one trace named by the root node id, and each settled node's persisted trace is read from `<runDir>/blobs` and re-keyed to its node id. A node whose trace blob is missing throws `ValidationError`. The continuation panel's trace store reads through the same builder.
+
+A retained admission error whose machine code is not a named platform refusal, and that carries no HTTP status, is no longer settled as a platform `request-rejected` refusal. 2.1.0 matched any such error (for example a dispatch that could not bind to an environment the provider lost), so the run stopped instead of starting a new environment.
+
 ## 2.1.0
 
 Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
