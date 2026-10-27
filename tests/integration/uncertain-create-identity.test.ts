@@ -2,7 +2,13 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { build } from 'tsdown'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { FileResultBlobStore, FileSpawnJournal, type SpawnEvent } from '../../src/runtime'
+import {
+  cancelRun,
+  FileResultBlobStore,
+  FileSpawnJournal,
+  readRunCancellation,
+  type SpawnEvent,
+} from '../../src/runtime'
 import {
   type Executables,
   type ProcessFixture,
@@ -349,6 +355,70 @@ describe('actual Tangle SDK uncertain root create identities', () => {
 })
 
 describe('typed real command credential refusal and accepted evidence', () => {
+  it('terminal SDK HTTP400 settles once even when root-stop pausing is enabled', async () => {
+    await withFixture('terminal-ceiling', executables, async (fixture) => {
+      await fixture.wait(
+        'terminal refusal or its invalid stop-pause',
+        async () =>
+          fixture.outcomes().length > 0 ||
+          fixture.attempts().some((attempt) => attempt.replacesStop === 'terminal-error'),
+      )
+      const events = await fixture.events()
+      const pauses = events.filter((event) => event.kind === 'paused')
+      // The old implementation reaches an actual pause; cancel it through the public operation
+      // before asserting, so the RED is semantic and cleanup never waits for the pause ladder.
+      if (pauses.length > 0) {
+        cancelRun(join(fixture.directory, 'run'), 'ceiling-red-cleanup', {
+          operator: 'local-integration',
+          source: 'test',
+          reason: 'join the observed invalid terminal-error pause',
+        })
+        await fixture.wait('invalid pause cancellation settled', async () =>
+          fixture.outcomes().some((outcome) => outcome.kind === 'settled'),
+        )
+        expect(object(object(fixture.outcomes()[0]!.result).result)).toMatchObject({
+          kind: 'no-winner',
+          reason: 'cancelled',
+          operationId: 'ceiling-red-cleanup',
+        })
+        expect(
+          readRunCancellation(join(fixture.directory, 'run'), 'ceiling-red-cleanup'),
+        ).toMatchObject({
+          operationId: 'ceiling-red-cleanup',
+          effect: 'cancelled',
+        })
+      }
+      expect(pauses, 'a terminal refusal must never become a root stop-pause').toHaveLength(0)
+      expect(fixture.attempts()).toEqual([
+        expect.objectContaining({ attempt: 1, classification: 'terminal', stop: 'terminal-error' }),
+      ])
+      expect(fixture.attempts()[0]).not.toHaveProperty('retryInMs')
+      expect(fixture.attempts()[0]?.error).toContain('requested CPU 16 exceeds tenant ceiling 8')
+      const outcomes = fixture.outcomes()
+      expect(outcomes).toEqual([expect.objectContaining({ kind: 'settled' })])
+      const result = object(object(outcomes[0]!.result).result)
+      expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+      expect(object(result.error).message).toContain('terminal-error')
+      expect(object(result.error).message).toContain('ValidationError')
+      const state = await fixture.state()
+      expect(state.requests.filter((row) => row.kind === 'create')).toEqual([
+        expect.objectContaining({ status: 400, resources: { cpuCores: 16 }, profile: 'root' }),
+      ])
+      expect(state.provisions).toHaveLength(0)
+      expect(state.boxes).toHaveLength(0)
+      expect(state.runs).toHaveLength(0)
+      expect(state.requests.filter((row) => row.kind === 'dispatch')).toHaveLength(0)
+      expect(readRecords(join(fixture.directory, 'credential-calls.jsonl'))).toEqual([
+        expect.objectContaining({ profile: 'root', number: 1, refused: false }),
+      ])
+      expect(
+        events.filter(
+          (event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
+        ),
+      ).toHaveLength(0)
+    })
+  }, 45000)
+
   it('UC5 unsupported route before SDK create settles the nested manager once without abandon', async () => {
     await withFixture('unsupported-intent', executables, async (fixture) => {
       const child = `${rootId}:s0`

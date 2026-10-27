@@ -339,6 +339,15 @@ async function create(request: IncomingMessage, response: ServerResponse): Promi
     throw new Error('SDK did not bind create key in header and body')
   const backend = object(input.backend)
   const profile = object(backend.profile)
+  if (scenario === 'terminal-ceiling') {
+    const resources = object(input.resources)
+    if (resources.cpuCores !== 16) throw new Error('ceiling case must request CPU16')
+    note('create', { key, profile: profile.name, resources, status: 400 })
+    json(response, 400, {
+      error: { code: 'VALIDATION_ERROR', message: 'requested CPU 16 exceeds tenant ceiling 8' },
+    })
+    return
+  }
   const prior = state.boxes.find((box) => box.key === key)
   const mustFail =
     scenario.startsWith('create-') ||

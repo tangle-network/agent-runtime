@@ -827,7 +827,7 @@ export type SpawnEvent =
       /** The driver attempt that was refused, 1-based. */
       attempt: number
       /** The code or HTTP status that classified the refusal, such as `provider_quota_exhausted`;
-       *  for a stop-pause, the stop it replaced, such as `terminal-error`. */
+       *  for a stop-pause, the recoverable stop it replaced, such as `max-attempts`. */
       signal: string
       /** The refusal or failure as the driver saw it, redacted and bounded; for a stop-pause with
        *  no failure (an admission or continuation refusal), the stop's name. */
