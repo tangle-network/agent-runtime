@@ -115,7 +115,6 @@ export const flowRootName = 'flow'
 export const flowRootProfile: AgentProfile = Object.freeze({
   name: flowRootName,
   harness: 'cli-base',
-  model: { provider: 'runtime', default: 'runtime/flow' },
   tools: { [`${coordinationProfileToolPrefix}spawn_worker`]: true },
 }) as AgentProfile
 
