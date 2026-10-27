@@ -35,6 +35,7 @@ let origin = ''
 const holds = new Set<ServerResponse>()
 const nativeActions = new Map<string, Promise<void>>()
 const acceptedSubscribers = new Map<string, Set<ServerResponse>>()
+const observedReplays = new Map<string, { received: Promise<void>; observed: () => void }>()
 function startAction(run: NativeRun): void {
   const action = act(run)
     .then(() => flushAccepted(run))
@@ -172,7 +173,20 @@ async function replay(run: NativeRun, response: ServerResponse): Promise<void> {
     })
     return
   }
+  const replay = observedReplays.get(run.executionId)
+  if (replay && response.req.method === 'GET') await replay.received
   run.terminalReads += 1
+  if (replay && response.req.method === 'POST') {
+    // UC1 measures identity recovery with complete native evidence. Hold the independent exact
+    // result until the real SDK consumes this replay's done frame and closes its HTTP stream.
+    response.once('close', () => {
+      note('native-replay-consumed', { executionId: run.executionId })
+      replay.observed()
+    })
+    response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+    writeFrames(response, terminal(run))
+    return
+  }
   sse(response, terminal(run))
   // A completed old invocation loses its environment before the next invocation starts.
   if (scenario === 'older-lost' && run.environmentId === 'box-1') state.lost.push('box-1')
@@ -484,6 +498,11 @@ async function runtime(
       ...(typeof input.turnId === 'string' ? { turnId: input.turnId } : {}),
     }
     state.runs.push(run)
+    if (scenario.startsWith('create-')) {
+      let observed!: () => void
+      const received = new Promise<void>((resolve) => { observed = resolve })
+      observedReplays.set(run.executionId, { received, observed })
+    }
     note('dispatch', {
       environmentId,
       executionId: run.executionId,

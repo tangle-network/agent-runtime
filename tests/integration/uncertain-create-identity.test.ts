@@ -176,6 +176,7 @@ describe('actual Tangle SDK uncertain root create identities', () => {
         expect(state.provisions).toHaveLength(1)
         expect(state.requests.filter((row) => row.kind === 'provision-admitted')).toHaveLength(1)
         expect(state.requests.filter((row) => row.kind === 'dispatch')).toHaveLength(1)
+        expect(state.requests.filter((row) => row.kind === 'native-replay-consumed')).toHaveLength(1)
         expect(
           (await fixture.events()).filter(
             (event) => event.kind === 'execution-result' && event.id === rootId,
