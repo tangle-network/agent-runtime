@@ -1,3 +1,3 @@
 type: major
 ---
-Runtime 2.0 records export-shape changes since 1.0: `StartRetainedRunOptions`, `StartRetainedInteractiveRunOptions` and `RetainedRunStartMaterial` gain optional fields (including `journalRoot`), `RunLocalHarnessOptions` changes for stdin prompt delivery, and `loadTopSnapshot` gains the workflow/journal `runDir` overloads. Callers need no change. Code that implements, re-declares or exhaustively maps these types must add the new members.
+Runtime 2.0 records export-shape changes since 1.0. `RetainedRunStartMaterial` gains optional `preserveEnvironment`; `StartRetainedRunOptions` and `StartRetainedInteractiveRunOptions` gain optional `journalRoot`; `RunLocalHarnessOptions` gains `stdinPromptArgIndex` and `invocation.prompt`; `loadTopSnapshot`'s `runDir` options gain `format: 'workflow' | 'journal'`. Callers need no change. Code that implements, re-declares or exhaustively maps these types must add the new members.
