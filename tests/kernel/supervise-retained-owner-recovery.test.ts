@@ -473,14 +473,29 @@ describe('retained external supervisor recovery', () => {
       },
     )
 
-    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'replaced' } })
+    // CI keeps no run directory: name why a run that did not win ended, from the result alone.
+    const events = (await context.journal.loadTree('lost-root')) ?? []
+    expect(
+      result,
+      JSON.stringify({
+        reason: 'reason' in result ? result.reason : undefined,
+        error: 'error' in result ? String(result.error?.message ?? result.error) : undefined,
+        continuation: result.continuation,
+        prompts,
+        environmentIds,
+        events: events.map((event) =>
+          event.kind === 'driver-attempt'
+            ? { kind: event.kind, record: event.record }
+            : { kind: event.kind, id: event.id },
+        ),
+      }),
+    ).toMatchObject({ kind: 'winner', out: { answer: 'replaced' } })
     expect(creates).toBe(2)
     expect(new Set(environmentIds).size).toBe(2)
     expect(prompts[0]).toBe('Answer the question from the holder.')
     expect(prompts[1]).toContain('Answer the question from the holder.')
     expect(prompts[1]).toContain(`Your previous environment (${environmentIds[0]}) is gone`)
     expect(prompts[1]).toContain('the replaced answer')
-    const events = (await context.journal.loadTree('lost-root')) ?? []
     expect(events).toContainEqual(
       expect.objectContaining({
         kind: 'environment-teardown',
