@@ -31,7 +31,8 @@ import {
 } from '@tangle-network/agent-trace-contract'
 import { contentAddress } from '../../durable/content-address'
 import type { OtelExportConfig, OtelExporter, OtelExportStats, OtelSpan } from '../../otel-export'
-import { createOtelExporter, generateSpanId, toOtelAttributes } from '../../otel-export'
+import { msToUnixNano, toOtlpAttributes } from '@tangle-network/agent-trace-contract/otlp'
+import { createOtelExporter, generateSpanId } from '../../otel-export'
 import type { RuntimeHookEvent, RuntimeHooks } from '../../runtime-hooks'
 import type { Budget, Spend, SupervisedResult } from './types'
 import type { TraceContext, WorkerTraceResolver } from './worker-trace'
@@ -147,9 +148,9 @@ function otelSpan(traceId: string, spec: SpanSpec): OtelSpan {
     ...(spec.parentSpanId ? { parentSpanId: spec.parentSpanId } : {}),
     name: spec.name,
     kind: 1,
-    startTimeUnixNano: msToNano(spec.startMs),
-    endTimeUnixNano: msToNano(Math.max(spec.startMs, spec.endMs)),
-    attributes: toOtelAttributes(spec.attrs),
+    startTimeUnixNano: msToUnixNano(spec.startMs),
+    endTimeUnixNano: msToUnixNano(Math.max(spec.startMs, spec.endMs)),
+    attributes: toOtlpAttributes(spec.attrs),
     status: { code: spec.status, ...(spec.message ? { message: spec.message } : {}) },
   }
 }
@@ -552,11 +553,6 @@ function normalizeTraceId(
   if (traceId && /^[0-9a-f]{32}$/i.test(traceId)) return traceId.toLowerCase()
   const source = traceId ?? (namespace === undefined ? runId : `${namespace}\u0000${runId}`)
   return contentAddress(source).slice('sha256:'.length, 'sha256:'.length + 32)
-}
-
-function msToNano(ms: number): string {
-  const safe = Number.isFinite(ms) ? Math.floor(ms) : 0
-  return (BigInt(safe) * 1_000_000n).toString()
 }
 
 function record(value: unknown): Record<string, unknown> {

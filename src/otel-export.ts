@@ -13,18 +13,22 @@ import { appendFileSync } from 'node:fs'
 
 import {
   ATTR,
-  deriveHexId,
-  isW3CSpanId,
-  isW3CTraceId,
+  OPERATION_NAME_ATTR,
   type SpanKind,
+  toW3CSpanId,
+  toW3CTraceId,
 } from '@tangle-network/agent-trace-contract'
+import {
+  decodeOtlpAttributes,
+  msToUnixNano,
+  type OtlpKeyValue,
+  type OtlpSpan,
+  otlpTraceExport,
+  readOtlpPartialSuccess,
+  toOtlpAttributes,
+} from '@tangle-network/agent-trace-contract/otlp'
 import { type RuntimeTelemetryOptions, sanitizeRuntimeStreamEvent } from './sanitize'
 import type { RuntimeStreamEvent } from './types'
-
-/** OTel GenAI: the tool definitions offered to the model. Matches the constant agent-eval and
- *  traces each define locally for the same external convention (there is no shared semconv
- *  package to import it from). */
-const TOOL_DEFINITIONS_ATTR = 'gen_ai.tool.definitions'
 
 export interface OtelExportConfig {
   /** OTLP endpoint. Reads OTEL_EXPORTER_OTLP_ENDPOINT env by default. */
@@ -78,47 +82,12 @@ export interface OtelExportStats {
   lastError?: string
 }
 
-export interface OtelSpan {
-  traceId: string
-  spanId: string
-  parentSpanId?: string
-  name: string
-  kind?: number
-  startTimeUnixNano: string
-  endTimeUnixNano: string
-  attributes?: OtelAttribute[]
-  status?: { code: number; message?: string }
-}
-
-export interface OtelAttribute {
-  key: string
-  value: { stringValue?: string; intValue?: string; doubleValue?: number; boolValue?: boolean }
-}
-
-interface OtlpResourceSpans {
-  resource: { attributes: OtelAttribute[] }
-  scopeSpans: Array<{ scope: { name: string; version: string }; spans: OtelSpan[] }>
-}
-
-interface OtlpExport {
-  resourceSpans: OtlpResourceSpans[]
-}
+/** One OTLP/JSON span: agent-trace-contract's wire type. */
+export type OtelSpan = OtlpSpan
+export type OtelAttribute = OtlpKeyValue
 
 const SCOPE = { name: '@tangle-network/agent-runtime', version: '0.83.0' }
 
-/**
- * Current (non-deprecated) OpenTelemetry GenAI semantic-convention keys.
- * Registry: https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/
- * NB: `gen_ai.system` / `gen_ai.usage.prompt_tokens` / `completion_tokens` are
- * DEPRECATED — do not emit them. We use `provider.name` + `input/output_tokens`.
- */
-const GEN_AI = {
-  operation: 'gen_ai.operation.name',
-  agentName: 'gen_ai.agent.name',
-  conversationId: 'gen_ai.conversation.id',
-  inputTokens: 'gen_ai.usage.input_tokens',
-  outputTokens: 'gen_ai.usage.output_tokens',
-} as const
 
 /**
  * Create an exporter that APPENDS spans to a local OpenInference-JSONL file, one complete span per
@@ -178,25 +147,9 @@ function nanosToIso(nanos: string): string {
   return new Date(ms).toISOString()
 }
 
-/** OTLP's key/value attribute array -> the plain object OpenInference carries. */
-function attributesToObject(
-  attributes: readonly OtelAttribute[] | undefined,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const a of attributes ?? []) {
-    const v = a.value
-    out[a.key] =
-      v.stringValue ??
-      (v.intValue !== undefined ? Number(v.intValue) : undefined) ??
-      v.doubleValue ??
-      v.boolValue
-  }
-  return out
-}
-
 /** One `OtelSpan` as the OpenInference JSONL line `traces` and other OpenInference tools read. */
 function toOpenInferenceLine(span: OtelSpan): Record<string, unknown> {
-  const attributes = attributesToObject(span.attributes)
+  const { attributes } = decodeOtlpAttributes(span.attributes)
   const kind = attributes['openinference.span.kind']
   const resource: Record<string, unknown> = {}
   for (const key of ['service.name', 'agent.name']) {
@@ -245,12 +198,10 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
   const flushIntervalMs = config?.flushIntervalMs ?? 5000
   const maxQueueSize = Math.max(positiveInteger(config?.maxQueueSize, 2048), batchSize)
   const timeoutMs = positiveInteger(config?.timeoutMs, 10_000)
-  const resource = {
-    attributes: toOtelAttributes({
-      'service.name': config?.serviceName ?? 'agent-runtime',
-      ...(config?.resourceAttributes ?? {}),
-    }),
-  }
+  const resource = toOtlpAttributes({
+    'service.name': config?.serviceName ?? 'agent-runtime',
+    ...(config?.resourceAttributes ?? {}),
+  })
 
   const queue: OtelSpan[] = []
   let inFlight = 0
@@ -267,9 +218,7 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
   }
 
   async function send(batch: OtelSpan[]): Promise<void> {
-    const body: OtlpExport = {
-      resourceSpans: [{ resource, scopeSpans: [{ scope: SCOPE, spans: batch }] }],
-    }
+    const body = otlpTraceExport(resource, SCOPE, batch)
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -283,11 +232,12 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
         drop(batch.length, `HTTP ${response.status} from ${url}${detail}`)
         return
       }
-      const rejected = rejectedSpans(text, batch.length)
-      if (rejected.count > 0) {
-        drop(rejected.count, `collector rejected ${rejected.count} spans: ${rejected.message}`)
+      const partial = readOtlpPartialSuccess(text)
+      const rejected = Math.min(partial.rejectedSpans, batch.length)
+      if (rejected > 0) {
+        drop(rejected, `collector rejected ${rejected} spans: ${partial.errorMessage ?? 'no message'}`)
       }
-      written += batch.length - rejected.count
+      written += batch.length - rejected
     } catch (error) {
       drop(batch.length, `POST ${url} failed: ${describeFetchError(error)}`)
     }
@@ -358,32 +308,6 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
   }
 }
 
-/**
- * Spans a 2xx OTLP/HTTP response still refused. The spec lets a collector accept a request and
- * reject part of it through `partialSuccess.rejectedSpans`; reading only the status would count
- * those spans as delivered. An empty or non-JSON body is a full success.
- */
-function rejectedSpans(text: string, batchLength: number): { count: number; message: string } {
-  if (!text.trim()) return { count: 0, message: '' }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    return { count: 0, message: '' }
-  }
-  if (parsed === null || typeof parsed !== 'object') return { count: 0, message: '' }
-  const partial = (parsed as Record<string, unknown>).partialSuccess
-  if (partial === null || typeof partial !== 'object') return { count: 0, message: '' }
-  const { rejectedSpans: raw, errorMessage } = partial as Record<string, unknown>
-  // OTLP/JSON encodes int64 as a string; accept both spellings.
-  const count = typeof raw === 'string' ? Number(raw) : typeof raw === 'number' ? raw : 0
-  if (!Number.isSafeInteger(count) || count <= 0) return { count: 0, message: '' }
-  return {
-    count: Math.min(count, batchLength),
-    message: typeof errorMessage === 'string' && errorMessage ? errorMessage : 'no message',
-  }
-}
-
 /** Node's fetch reports every socket failure as "fetch failed"; the cause names which one. */
 function describeFetchError(error: unknown): string {
   if (!(error instanceof Error)) return String(error)
@@ -424,14 +348,14 @@ export function loopEventToOtelSpan(
   }
   const ts = msToNs(event.timestamp)
   return {
-    traceId: padTraceId(traceId),
+    traceId: toW3CTraceId(traceId),
     spanId,
-    parentSpanId: parentSpanId ? padSpanId(parentSpanId) : undefined,
+    parentSpanId: parentSpanId ? toW3CSpanId(parentSpanId) : undefined,
     name: event.kind,
     kind: 1,
     startTimeUnixNano: ts,
     endTimeUnixNano: ts,
-    attributes: toOtelAttributes(attrs),
+    attributes: toOtlpAttributes(attrs),
     status: { code: 1 },
   }
 }
@@ -455,14 +379,14 @@ export function flatOtelSpan(
   const start = msToNs(timestampMs)
   const end = msToNs(Math.max(timestampMs, endTimestampMs))
   return {
-    traceId: padTraceId(traceId),
+    traceId: toW3CTraceId(traceId),
     spanId: generateSpanId(),
-    parentSpanId: parentSpanId ? padSpanId(parentSpanId) : undefined,
+    parentSpanId: parentSpanId ? toW3CSpanId(parentSpanId) : undefined,
     name,
     kind: 1,
     startTimeUnixNano: start,
     endTimeUnixNano: end,
-    attributes: toOtelAttributes(attributes),
+    attributes: toOtlpAttributes(attributes),
     status: { code: 1 },
   }
 }
@@ -561,7 +485,7 @@ export function buildRuntimeEventOtelSpans(
       // Only set when THIS producer knows its own offered set (review finding on rows 13/14); a
       // sandboxed CLI harness's tool list belongs to its own transcript reader instead.
       if (event.tools !== undefined && event.tools.length > 0) {
-        attrs[TOOL_DEFINITIONS_ATTR] = JSON.stringify(
+        attrs[ATTR.toolDefinitions] = JSON.stringify(
           event.tools.map((toolName) => ({ type: 'function', name: toolName })),
         )
       }
@@ -635,20 +559,20 @@ export function buildLoopOtelSpans(
   rootParentSpanId?: string,
   redact?: (value: unknown) => unknown,
 ): OtelSpan[] {
-  const tid = padTraceId(traceId)
+  const tid = toW3CTraceId(traceId)
   return buildLoopSpanNodes(events, redact).map((node) => ({
     traceId: tid,
     spanId: node.spanId,
     parentSpanId: node.parentSpanId
-      ? padSpanId(node.parentSpanId)
+      ? toW3CSpanId(node.parentSpanId)
       : rootParentSpanId
-        ? padSpanId(rootParentSpanId)
+        ? toW3CSpanId(rootParentSpanId)
         : undefined,
     name: node.name,
     kind: 1,
     startTimeUnixNano: msToNs(node.startMs),
     endTimeUnixNano: msToNs(node.endMs),
-    attributes: toOtelAttributes({
+    attributes: toOtlpAttributes({
       ...node.attrs,
       [ATTR.spanKind]: LOOP_SPAN_KIND[node.kind],
       ...(node.parentSpanId === undefined && rootParentSpanId
@@ -731,8 +655,8 @@ export function buildLoopSpanNodes(
   // root
   const sp = rec(started?.payload)
   const rootAttrs: Record<string, string | number | boolean> = {
-    [GEN_AI.operation]: 'invoke_workflow',
-    [GEN_AI.conversationId]: runId,
+    [OPERATION_NAME_ATTR]: 'invoke_workflow',
+    [ATTR.conversationId]: runId,
     // Explicit run identity under the tangle namespace so a consuming system of
     // record (Tangle Intelligence's run spine) maps this span tree to one run
     // deterministically, instead of inferring it from the conversation id.
@@ -787,7 +711,7 @@ export function buildLoopSpanNodes(
         const id = generateSpanId()
         const roundIdx = num(p.roundIndex) ?? 0
         const attrs: Record<string, string | number | boolean> = {
-          [GEN_AI.operation]: 'invoke_workflow',
+          [OPERATION_NAME_ATTR]: 'invoke_workflow',
           'tangle.loop.round.index': roundIdx,
           'tangle.loop.move.kind': str(p.moveKind) ?? 'unknown',
           'tangle.loop.move.round': roundIdx,
@@ -830,16 +754,16 @@ export function buildLoopSpanNodes(
         const start = iterStartTs.get(idx) ?? e.timestamp
         const err = strRedacted(p.error)
         const attrs: Record<string, string | number | boolean> = {
-          [GEN_AI.operation]: 'invoke_agent',
+          [OPERATION_NAME_ATTR]: 'invoke_agent',
           'tangle.loop.iteration.index': idx,
         }
         const agent = str(p.agentRunName)
-        if (agent) attrs[GEN_AI.agentName] = agent
+        if (agent) attrs[ATTR.agentName] = agent
         const tu = rec(p.tokenUsage)
         const inTok = num(tu.input)
-        if (inTok !== undefined) attrs[GEN_AI.inputTokens] = inTok
+        if (inTok !== undefined) attrs[ATTR.inputTokens] = inTok
         const outTok = num(tu.output)
-        if (outTok !== undefined) attrs[GEN_AI.outputTokens] = outTok
+        if (outTok !== undefined) attrs[ATTR.outputTokens] = outTok
         const cost = num(p.costUsd)
         if (cost !== undefined) attrs['tangle.cost.usd'] = cost
         const verdict = rec(p.verdict)
@@ -904,63 +828,8 @@ function parseHeadersFromEnv(): Record<string, string> {
   return out
 }
 
-/**
- * Convert a flat record into the OTLP attribute list. Non-finite numbers are DROPPED (an OTLP
- * `doubleValue` of `NaN`/`Infinity` is not representable), integers ride as `intValue`. Exported so
- * a producer that mints its own `OtelSpan` (the supervisor span recorder) builds attributes exactly
- * the way every span in this file does, rather than re-deriving the encoding.
- */
-export function toOtelAttributes(
-  record: Record<string, string | number | boolean>,
-): OtelAttribute[] {
-  return Object.entries(record).flatMap(([key, value]) => {
-    if (typeof value === 'number' && !Number.isFinite(value)) return []
-    return [
-      {
-        key,
-        value:
-          typeof value === 'number'
-            ? Number.isInteger(value)
-              ? { intValue: value.toString() }
-              : { doubleValue: value }
-            : typeof value === 'boolean'
-              ? { boolValue: value }
-              : { stringValue: value },
-      },
-    ]
-  })
-}
-
 function msToNs(ms: number): string {
-  const safeMs = Number.isFinite(ms) ? ms : Date.now()
-  return (BigInt(Math.floor(safeMs)) * 1_000_000n).toString()
-}
-
-/**
- * Map a caller-supplied span id onto the 16-hex OTLP encoding. An id that is already a valid W3C
- * span id passes through UNCHANGED — that is what lets an inherited `PARENT_SPAN_ID`/`TRACEPARENT`
- * id keep parenting the same trace. A DASHED hex id (a UUID-form id) passes through dash-stripped:
- * that is the exact wire id every earlier release exported for it, so cross-version joins survive
- * the strict-W3C upgrade. Anything else (a human run id) is DERIVED via the zero-dep contract's
- * `deriveHexId`, the one legal derivation: the old slice-and-pad produced ids that embedded the
- * raw input in the wire id and were not even valid hex (the contract's own `non-hex-id` validator
- * rejected what this module exported). Exported as the ONE wire-id normalization every writer
- * shares — `traceContextToEnv` builds the child's `TRACEPARENT` through these same functions, so
- * a parent's exported spans and the context it hands its children always name the same trace.
- */
-export function padSpanId(id: string): string {
-  if (isW3CSpanId(id)) return id
-  const dashless = id.replace(/-/g, '')
-  return isW3CSpanId(dashless) ? dashless : deriveHexId(id, 8)
-}
-
-/** Trace-id counterpart of {@link padSpanId}: valid W3C trace ids pass through (dash-stripped when
- *  UUID-form, preserving the pre-strict-W3C wire id), everything else is derived with
- *  `deriveHexId(id, 16)` so every process derives the SAME wire id for the same run. */
-export function padTraceId(id: string): string {
-  if (isW3CTraceId(id)) return id
-  const dashless = id.replace(/-/g, '')
-  return isW3CTraceId(dashless) ? dashless : deriveHexId(id, 16)
+  return msToUnixNano(Number.isFinite(ms) ? ms : Date.now())
 }
 
 /** Mint a fresh 16-hex-character OTLP span id. Exported so a producer that must know a span's id
