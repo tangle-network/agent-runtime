@@ -23,6 +23,7 @@ import type {
   LocalHarnessResult,
   RunLocalHarnessOptions,
 } from '../../src/mcp/local-harness-process'
+import { executorFailure } from '../../src/runtime/supervise/executor-outcome'
 import { createInPlaceCliExecutor } from '../../src/runtime/supervise/in-place-cli-executor'
 import {
   runtimeOwnedExecutorExecutionBinding,
@@ -150,6 +151,35 @@ console.log('done');
       }
     },
   )
+
+  it('reports a harness that exits nonzero as a failed execution, not a result', async () => {
+    const workspacePath = scaffoldWorkspace()
+    const bin = join(workspacePath, 'bin')
+    mkdirSync(bin)
+    // The refusal acct gives when no Codex seat has room: the harness ends before any model runs.
+    writeFileSync(
+      join(bin, 'codex'),
+      `#!${process.execPath}
+process.stderr.write('no codex account has confirmed room; seats that can draw paid usage are never chosen\\n');
+process.exit(1);
+`,
+      { mode: 0o755 },
+    )
+    const result = await createInPlaceCliExecutor({
+      workspacePath,
+      profile: {
+        name: 'refused-seat',
+        harness: 'codex',
+        model: { provider: 'openai', default: 'test-codex' },
+      },
+      taskPrompt: 'TASK_ONLY',
+      env: { PATH: `${bin}:${process.env.PATH ?? ''}` },
+    }).execute(undefined, AbortSignal.timeout(30_000))
+    expect(result.out.harness.exitCode).toBe(1)
+    expect(executorFailure(result)).toEqual({
+      error: expect.stringMatching(/^codex exited 1: no codex account has confirmed room/),
+    })
+  })
 
   it('combines OpenCode native addition and MCP in the same materialized config', async () => {
     const workspacePath = scaffoldWorkspace()

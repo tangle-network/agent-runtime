@@ -146,7 +146,24 @@ export function createInPlaceCliExecutor(
           usd: 0,
           ms: Date.now() - started,
         }
-        artifact = { outRef: contentAddress(result), out: result, spent }
+        // A harness that exited nonzero, timed out or was cancelled did not do the work, even when
+        // it wrote nothing wrong: report it in the executor envelope so the node settles down
+        // instead of done, and no flow counts it a winner (a 1 s acct refusal settled `done`).
+        const exit = result.harness
+        const failed = exit.exitCode !== 0 || exit.timedOut || exit.aborted === true
+        artifact = {
+          outRef: contentAddress(result),
+          out: result,
+          spent,
+          ...(failed
+            ? {
+                outcome: {
+                  success: false,
+                  error: `${harness} exited ${exit.exitCode ?? exit.killedBySignal}${exit.timedOut ? ' after its timeout' : ''}: ${exit.stderr.trim().slice(-300)}`,
+                },
+              }
+            : {}),
+        }
         return artifact
       },
       teardown(_grace) {
