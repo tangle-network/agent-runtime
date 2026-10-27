@@ -1,3 +1,13 @@
+## 2.1.0
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+A retained child that settles pending (for example a dispatch the platform refused with HTTP 503) now keeps the provider's machine code on its settled failure and in the result tree, instead of only the synthetic transport cause.
+
+A dispatch the platform refuses before forwarding it (`HUB_CREDENTIAL_REFRESH_FAILED` at HTTP 503) now settles as `request-rejected` owned by `platform`, nothing to reconcile, instead of a lost transport. `RuntimeFailureCause` gains optional `providerStatus` and `retryAfterMs`, read from the provider's typed error beside `providerCode`. Any other 5xx stays `transport`; nothing is retried automatically.
+
 ## 2.0.3
 
 Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
