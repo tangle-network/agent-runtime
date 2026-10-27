@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn as spawnChild } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import {
   chmodSync,
@@ -241,7 +242,186 @@ async function runCodexPromptEvidenceFixture(
   }
 }
 
+function retainTransportReceipt(name: string, receipt: unknown): void {
+  const directory = process.env.RUNTIME_LOCAL_HARNESS_PROOF_DIR
+  if (!directory) return
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(join(directory, `${name}.json`), JSON.stringify(receipt, null, 2))
+}
+
 describe('runLocalHarness', () => {
+  it.each([
+    { bom: false, blank: false },
+    { bom: true, blank: false },
+    { bom: false, blank: true },
+  ])(
+    'delivers an exact Codex prompt through real OS input (BOM: $bom, blank: $blank)',
+    async ({ bom, blank }) => {
+      const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-stdin-'))
+      const command = join(cwd, 'codex')
+      writeFileSync(
+        command,
+        [
+          '#!/usr/bin/env node',
+          "const {createHash}=require('node:crypto');const chunks=[]",
+          "process.stdin.on('data',chunk=>chunks.push(chunk))",
+          "process.stdin.on('end',()=>{const raw=Buffer.concat(chunks);const args=process.argv.slice(2);const input=args[1]==='-'?raw.subarray(raw.subarray(0,3).equals(Buffer.from([239,187,191]))?3:0):Buffer.from(args[1]);process.stdout.write(JSON.stringify({args,bytes:raw.length,sha256:createHash('sha256').update(input).digest('hex'),pid:process.pid}));process.stderr.write('human harness header\\n')})",
+        ].join('\n'),
+      )
+      chmodSync(command, 0o700)
+      const taskPrompt = blank
+        ? ' \t\r\n'
+        : `${bom ? '\uFEFF' : ''}${'handoff 🦊 "quoted"\r\n'.repeat(16384)}`
+      const invocation = harnessInvocation(
+        'codex',
+        {
+          prompt: { instructions: bom || blank ? [] : ['PROFILE_INSTRUCTION'] },
+        },
+        taskPrompt,
+      )
+      try {
+        const result = await runLocalHarness({
+          harness: 'codex',
+          cwd,
+          taskPrompt,
+          invocation: { ...invocation, command },
+          timeoutMs: 5000,
+        })
+        const receipt = JSON.parse(result.stdout)
+        expect(result.exitCode).toBe(0)
+        expect(result.stderr).toBe('human harness header\n')
+        expect(receipt.args).toEqual(['exec', blank ? taskPrompt : '-'])
+        expect(receipt.bytes).toBe(blank ? 0 : Buffer.byteLength(invocation.prompt) + (bom ? 3 : 0))
+        expect(receipt.sha256).toBe(createHash('sha256').update(invocation.prompt).digest('hex'))
+        expect(() => process.kill(receipt.pid, 0)).toThrow(
+          expect.objectContaining({ code: 'ESRCH' }),
+        )
+        retainTransportReceipt(`transfer-${bom}-${blank}`, {
+          ...receipt,
+          stderr: result.stderr,
+          reaped: true,
+        })
+      } finally {
+        rmSync(cwd, { recursive: true, force: true })
+      }
+    },
+  )
+
+  it.each([0, 23])(
+    'reports closed Codex input without hiding real child exit %i',
+    async (exitCode) => {
+      const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-stdin-close-'))
+      const command = join(cwd, 'codex')
+      const pidFile = join(cwd, 'pid')
+      writeFileSync(
+        command,
+        [
+          '#!/usr/bin/env node',
+          `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(pidFile)},String(process.pid));fs.closeSync(0);process.stderr.write('native failure detail');setTimeout(()=>process.exit(${exitCode}),30)`,
+        ].join('\n'),
+      )
+      chmodSync(command, 0o700)
+      try {
+        const pending = runLocalHarness({
+          harness: 'codex',
+          cwd,
+          taskPrompt: 'x'.repeat(1024 * 1024),
+          invocation: { ...harnessInvocation('codex', {}, 'x'.repeat(1024 * 1024)), command },
+          timeoutMs: 5000,
+        })
+        const outcome = await pending.then(
+          (value) => ({ value }),
+          (error) => ({ error: { code: (error as NodeJS.ErrnoException).code } }),
+        )
+        if (exitCode === 0) expect(outcome).toMatchObject({ error: { code: 'EPIPE' } })
+        else
+          expect(outcome).toMatchObject({
+            value: {
+              exitCode,
+              stderr: 'native failure detail',
+              aborted: false,
+              timedOut: false,
+            },
+          })
+        const pid = Number(readFileSync(pidFile, 'utf8'))
+        expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }))
+        retainTransportReceipt(`closed-${exitCode}`, { ...outcome, pid, reaped: true })
+      } finally {
+        rmSync(cwd, { recursive: true, force: true })
+      }
+    },
+  )
+
+  it('preserves cancellation and stderr while real Codex input remains pending', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-stdin-abort-'))
+    const command = join(cwd, 'codex')
+    const pidFile = join(cwd, 'pid')
+    writeFileSync(
+      command,
+      '#!/usr/bin/env node\n' +
+        `const fs=require('node:fs');process.stdin.pause();process.on('SIGTERM',()=>{process.stderr.write('cancelled after pending input');process.exit(0)});fs.writeFileSync(${JSON.stringify(pidFile)},String(process.pid));setInterval(()=>{},1000)`,
+    )
+    chmodSync(command, 0o700)
+    const controller = new AbortController()
+    const pending = runLocalHarness({
+      harness: 'codex',
+      cwd,
+      taskPrompt: 'x'.repeat(1024 * 1024),
+      invocation: { ...harnessInvocation('codex', {}, 'x'.repeat(1024 * 1024)), command },
+      signal: controller.signal,
+      timeoutMs: 5000,
+    })
+    try {
+      await waitForFile(pidFile, 2000)
+      controller.abort()
+      const result = await pending
+      expect(result).toMatchObject({
+        exitCode: 0,
+        aborted: true,
+        timedOut: false,
+        stderr: 'cancelled after pending input',
+      })
+      const pid = Number(readFileSync(pidFile, 'utf8'))
+      expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }))
+      retainTransportReceipt('aborted', { ...result, pid, reaped: true })
+    } finally {
+      controller.abort()
+      await pending.catch(() => undefined)
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it.each(['--json', 'resume'])(
+    'preserves custom Codex %s argv through the real process boundary',
+    async (argument) => {
+      const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-custom-'))
+      const command = join(cwd, 'codex')
+      writeFileSync(
+        command,
+        '#!/usr/bin/env node\nlet bytes=0;process.stdin.on("data",chunk=>bytes+=chunk.length);process.stdin.on("end",()=>process.stdout.write(JSON.stringify({args:process.argv.slice(2),bytes})))',
+      )
+      chmodSync(command, 0o700)
+      const args = ['exec', argument, 'actual-task']
+      try {
+        const result = await runLocalHarness({
+          harness: 'codex',
+          cwd,
+          taskPrompt: 'actual-task',
+          invocation: { command, args, prompt: 'actual-task' },
+          timeoutMs: 5000,
+        })
+        expect(result.exitCode).toBe(0)
+        expect(JSON.parse(result.stdout)).toEqual({ args, bytes: 0 })
+        retainTransportReceipt(`custom-${argument}`, {
+          ...JSON.parse(result.stdout),
+          exitCode: result.exitCode,
+        })
+      } finally {
+        rmSync(cwd, { recursive: true, force: true })
+      }
+    },
+  )
+
   it.each([
     {
       name: 'lone carriage return',

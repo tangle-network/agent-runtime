@@ -516,23 +516,18 @@ async function spawnProfiledHarness(args: {
   // the same explicit channel because reproducible Codex deliberately disables native project
   // instructions; the workspace projection therefore omits both prompt sources.
   const invocationProfile = profileWithResourceInstructions(args.profile, args.resourceInstructions)
-  const { command, args: invocationArgs } = harnessInvocation(
-    args.harness,
-    invocationProfile,
-    args.taskPrompt,
-    {
-      dangerouslySkipPermissions: args.dangerouslySkipPermissions,
-      ...(args.fullAccess ? { fullAccess: true } : {}),
-      ...(args.codexReproducible ? { codexReproducible: true } : {}),
-    },
-  )
+  const invocation = harnessInvocation(args.harness, invocationProfile, args.taskPrompt, {
+    dangerouslySkipPermissions: args.dangerouslySkipPermissions,
+    ...(args.fullAccess ? { fullAccess: true } : {}),
+    ...(args.codexReproducible ? { codexReproducible: true } : {}),
+  })
   const harnessResult: LocalHarnessResult = await args.runHarness({
     harness: args.harness,
     cwd: args.workspacePath,
     taskPrompt: args.taskPrompt,
     invocation: {
-      command,
-      args: [...invocationArgs, ...args.applied.flags.map(publicPlanString)],
+      ...invocation,
+      args: [...invocation.args, ...args.applied.flags.map(publicPlanString)],
     },
     env: { ...callerEnv(args.env), ...resolvePublicPlanEnv(args.applied.env) },
     ...(args.codexReproducible ? { codexReproducible: true } : {}),
