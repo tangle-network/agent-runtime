@@ -1,3 +1,7 @@
+## 0.353.2
+
+Qualify SQL ownership recovery against native SQLite write contention and clarify that terminal driver refusals end root runs immediately.
+
 ## 0.353.1
 
 Qualify durable parking, cancellation and steering with a recoverable root stop while preserving immediate settlement of terminal driver refusals.
