@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import type { SqlAdapter } from '../../../src/durable/sql-adapter'
+import { SqlRunOwnershipError } from '../../../src/runtime/supervise/sql-run-context'
 
 export type SqlBoundary = (
   when: 'before' | 'after',
@@ -13,6 +14,18 @@ export type SqlBoundary = (
  * lease expire mid-run. A takeover after a SIGKILL waits out at most one lease.
  */
 export const TEST_LEASE = { leaseMs: 2_000, heartbeatMs: 250 } as const
+
+/** Preserve unrelated driver failures; SQLite BUSY is a real competing-writer denial. */
+export function isSqlOwnershipDenial(error: unknown): error is Error {
+  return (
+    error instanceof SqlRunOwnershipError ||
+    (error instanceof Error &&
+      'code' in error &&
+      error.code === 'ERR_SQLITE_ERROR' &&
+      'errcode' in error &&
+      error.errcode === 5)
+  )
+}
 
 /** Real independent sqlite connections, not a SQL interpreter mock. */
 export function openSql(path: string, boundary?: SqlBoundary) {
