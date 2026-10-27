@@ -285,7 +285,9 @@ export function isPlatformPredispatchRefusal(value: object): boolean {
   try {
     const code = readString(value, 'code')
     const status = readNumber(value, 'status') ?? readNumber(value, 'statusCode')
-    return code !== undefined && PLATFORM_PREDISPATCH_REFUSALS.get(code) === status
+    // An unnamed code has no expected status; never let two absent values match.
+    const expected = code === undefined ? undefined : PLATFORM_PREDISPATCH_REFUSALS.get(code)
+    return expected !== undefined && expected === status
   } catch {
     return false
   }
