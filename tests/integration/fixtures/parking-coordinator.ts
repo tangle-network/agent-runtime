@@ -124,7 +124,7 @@ const driveHarness: DriveHarness = async ({
       since: new Date(now()).toISOString(),
       wakeAt: new Date(now() + 300_000).toISOString(),
     })
-  throw new BackendTransportError('parking-fixture', 'terminal refusal', { status: 401 })
+  throw new BackendTransportError('parking-fixture', 'transient failure', { status: 500 })
 }
 if (phase === 'cancel')
   cancelRun(runDir, 'parking-cancel', {
@@ -146,7 +146,7 @@ try {
       deadlineMs: mode === 'deadline' ? 60_000 : 3_600_000,
     },
     perWorker: { maxIterations: 2, maxTokens: 500 },
-    driverRetry: { pauseRootStops: true },
+    driverRetry: { pauseRootStops: true, maxAttempts: 1, transientOutageMs: 0 },
     ...(phase === 'reopen'
       ? {
           reopen: {
