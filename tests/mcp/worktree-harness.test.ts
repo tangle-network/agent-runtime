@@ -769,10 +769,10 @@ describe('runWorktreeHarness profile materialization', () => {
         ],
       },
       {
-        // `high` is now DELIVERED on claude-code (`--effort high`); what it genuinely cannot
-        // express is thinking-off, so that is what the refusal is proved against.
-        runId: 'claude-nested-controls',
-        harness: 'claude-code',
+        // Every effort reaches claude-code, codex, opencode and pi through agent-interface's
+        // `nativeReasoningControl`; kimi-code 2.x has no effort flag, so the refusal is proved there.
+        runId: 'kimi-nested-controls',
+        harness: 'kimi-code',
         profile: {
           model: { reasoningEffort: 'none' },
         },

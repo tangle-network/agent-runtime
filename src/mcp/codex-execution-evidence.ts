@@ -195,7 +195,7 @@ export function assertCodexReproducibleInvocation(command: string, args: string[
   const validReasoning =
     tail[2] === '-c' &&
     typeof tail[3] === 'string' &&
-    /^model_reasoning_effort="(?:none|minimal|low|medium|high|xhigh)"$/.test(tail[3])
+    /^model_reasoning_effort="(?:none|minimal|low|medium|high|xhigh|ultra)"$/.test(tail[3])
   const nativeKeys = new Set<string>()
   const nativeArgs = tail.slice(4)
   let validNative = nativeArgs.length % 2 === 0
