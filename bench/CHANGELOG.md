@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.10
+
+Use the Runtime 1.0 cohort, one caret per first-party package: agent-eval `^1.0.0`, Sandbox `^1.0.1`, agent-knowledge `^23.0.0` and agent-interface `^5.9.0`.
+Benchmark execution and grading are unchanged.
+
 ## 0.14.9
 
 Use the Runtime cohort with Sandbox `>=0.62.15 <0.62.16`; 0.62.15 carries the profile-file mount errors.
