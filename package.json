@@ -163,7 +163,7 @@
     "@tangle-network/agent-provider-daytona": "0.6.1",
     "@tangle-network/agent-provider-e2b": "0.6.1",
     "@tangle-network/agent-provider-tangle": "4.5.1",
-    "@tangle-network/sandbox": "1.0.37",
+    "@tangle-network/sandbox": "1.0.38",
     "@types/node": "catalog:",
     "@types/tar-stream": "3.1.5",
     "miniflare": "4.20260730.0",
