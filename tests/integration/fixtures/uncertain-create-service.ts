@@ -35,6 +35,7 @@ let origin = ''
 const holds = new Set<ServerResponse>()
 const nativeActions = new Map<string, Promise<void>>()
 const acceptedSubscribers = new Map<string, Set<ServerResponse>>()
+const observedReplays = new Map<string, { received: Promise<void>; observed: () => void }>()
 function startAction(run: NativeRun): void {
   const action = act(run)
     .then(() => flushAccepted(run))
@@ -131,6 +132,19 @@ function terminal(run: NativeRun) {
         runControlRef: run.runControlRef,
       },
     },
+    ...(scenario.startsWith('create-')
+      ? [
+          {
+            type: 'message.part.updated',
+            data: {
+              sessionId: run.sessionId,
+              executionId: run.executionId,
+              part: { type: 'reasoning', text: run.executionId },
+              delta: run.executionId,
+            },
+          },
+        ]
+      : []),
     {
       type: 'result',
       data: {
@@ -156,7 +170,11 @@ function terminal(run: NativeRun) {
     },
   ]
 }
-async function replay(run: NativeRun, response: ServerResponse): Promise<void> {
+async function replay(
+  run: NativeRun,
+  response: ServerResponse,
+  exactResult = false,
+): Promise<void> {
   if (scenario === 'accepted' && run.status === 'running') {
     subscribeAccepted(run, response)
     return
@@ -172,6 +190,8 @@ async function replay(run: NativeRun, response: ServerResponse): Promise<void> {
     })
     return
   }
+  const replay = observedReplays.get(run.executionId)
+  if (replay && exactResult) await replay.received
   run.terminalReads += 1
   sse(response, terminal(run))
   // A completed old invocation loses its environment before the next invocation starts.
@@ -493,6 +513,13 @@ async function runtime(
       ...(typeof input.turnId === 'string' ? { turnId: input.turnId } : {}),
     }
     state.runs.push(run)
+    if (scenario.startsWith('create-')) {
+      let observed!: () => void
+      const received = new Promise<void>((resolve) => {
+        observed = resolve
+      })
+      observedReplays.set(run.executionId, { received, observed })
+    }
     note('dispatch', {
       environmentId,
       executionId: run.executionId,
@@ -560,13 +587,15 @@ async function runtime(
       ? decodeURIComponent(eventMatch[1]!)
       : url.searchParams.get('executionId')
     const run = state.runs.find((candidate) => candidate.executionId === executionId)
-    note('events', { environmentId, executionId, status: run?.status })
+    // The SDK's result reader binds the session in its query; its native stream binds only the run.
+    const exactResult = url.searchParams.has('sessionId')
+    note('events', { environmentId, executionId, status: run?.status, exactResult })
     if (!run) {
       json(response, 404, { error: { message: 'no execution' } })
       return
     }
     if (run.environmentId !== environmentId) throw new Error('SDK event target mismatch')
-    await replay(run, response)
+    await replay(run, response, exactResult)
     return
   }
   throw new Error(`unexpected SDK runtime route ${request.method} ${path}`)
@@ -591,6 +620,12 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
   }
   if (url.pathname === '/fixture/control') {
     const control = await body(request)
+    if (typeof control.nativeReplayObserved === 'string') {
+      const replay = observedReplays.get(control.nativeReplayObserved)
+      if (!replay) throw new Error('native replay acknowledgement requires an admitted execution')
+      note('native-replay-consumed', { executionId: control.nativeReplayObserved })
+      replay.observed()
+    }
     if (typeof control.routeKey === 'string' && typeof control.target === 'string')
       state.routes[control.routeKey] = localUrl(control.target).href
     if (control.steerManager === true) {
