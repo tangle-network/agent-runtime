@@ -21,6 +21,11 @@ export type {
   KnowledgeRequirement,
   RunRecord,
 } from '@tangle-network/agent-eval'
+/** Runtime's public names for agent-trace-contract's wire-id rule (`toW3CSpanId`, `toW3CTraceId`). */
+export {
+  toW3CSpanId as padSpanId,
+  toW3CTraceId as padTraceId,
+} from '@tangle-network/agent-trace-contract'
 // ── Backends ──────────────────────────────────────────────────────────
 export { createIterableBackend, createSandboxPromptBackend } from './backends'
 // ── Conversations ─────────────────────────────────────────────
@@ -226,24 +231,17 @@ export {
   resolveRouterBaseUrl,
   validateChatModelId,
 } from './model-resolution'
-export type {
-  OtelAttribute,
-  OtelExportConfig,
-  OtelExporter,
-  OtelExportStats,
-  OtelSpan,
-} from './otel-export'
 // ── OTEL export + trace propagation ──────────────────────────────────
 export {
   buildLoopOtelSpans,
   createOtelExporter,
   loopEventToOtelSpan,
+  type OtelAttribute,
+  type OtelExportConfig,
+  type OtelExporter,
+  type OtelExportStats,
+  type OtelSpan,
 } from './otel-export'
-/** Runtime's public names for agent-trace-contract's wire-id rule (`toW3CSpanId`, `toW3CTraceId`). */
-export {
-  toW3CSpanId as padSpanId,
-  toW3CTraceId as padTraceId,
-} from '@tangle-network/agent-trace-contract'
 export { priceTokens, ROUTER_PRICE_SOURCE, type TokenWork } from './pricing/router-prices'
 // ── Readiness ─────────────────────────────────────────────────────────
 export { decideKnowledgeReadiness } from './readiness'

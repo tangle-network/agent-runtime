@@ -13,15 +13,10 @@ import { fullProfileMaterialization } from '../../src/agent/profile-materializat
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { BackendTransportError } from '../../src/errors'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
-import {
-  cancelRun,
-  readRunCancellation,
-  runCancelRequestFile,
-} from '../../src/runtime/supervise/run-cancellation'
+import { cancelRun, runCancelRequestFile } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervisorRunDir, writeWorkerSteer } from '../../src/runtime/supervise/run-layout'
 import { supervise } from '../../src/runtime/supervise/supervise'
-import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type {
   Agent,
   AgentSpec,
@@ -36,9 +31,9 @@ import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 /*
- * An opted-in root pauses where it used to stop. Over 259 runs, 8 of the 10 driver stops settled runs that
- * nobody solved or stopped. With `driverRetry.pauseRootStops`, each such stop journals one `paused`
- * row the operator alarms on, and only a solve, a named cancel or a declared deadline settles.
+ * Opted-in recoverable root stops journal one `paused` row for the operator.
+ * Terminal driver refusals settle immediately even when `driverRetry.pauseRootStops` is enabled.
+ * A solve, named cancel or declared deadline can end the remaining recoverable waits.
  *
  * Every case runs through `supervise()` with a real run directory and journal; the harness drive
  * is faked at the process boundary, and the clock jumps over each pause once its row is written.
@@ -87,7 +82,7 @@ function pacedJournal(dir: string, onPaused: (row: Paused) => void): FileSpawnJo
   return new PacedJournal(join(dir, 'spawn-journal.jsonl'))
 }
 
-/** No continuation deadline: only the check, a cancel or a declared budget deadline ends a run. */
+/** No continuation deadline; terminal driver refusals still settle immediately. */
 function openContinuation() {
   const { deadline: _deadline, ...policy } = testContinuation({ maxBarren: 2 })
   return policy
@@ -130,120 +125,6 @@ function noWorkers(): never {
 }
 
 describe('an opted-in root pauses where it used to stop', () => {
-  it('pauses on each stop with a doubling ladder, wakes on a steer, and settles only on a named cancel', async () => {
-    const dir = await runDirectory()
-    const runId = 'stop-pause'
-    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
-    const rows: Paused[] = []
-    // Each phase is one stop the root pauses on; the journal row of a pause ends the phase.
-    let phase = 0
-    let steeredAt: number | undefined
-    const journal = pacedJournal(dir, (row) => {
-      rows.push(row)
-      phase += 1
-      if (rows.length === 2) {
-        // A root steer ends this pause without the clock moving.
-        steeredAt = Date.now()
-        writeWorkerSteer(dir, runId, runId, { operationId: 'steer-1', message: 'try again now' })
-        return
-      }
-      if (rows.length === 6) {
-        // The pool stays spent, so admission pauses again; only the operator settles the run.
-        cancelRun(dir, 'stop-1', { operator: 'test-operator', reason: 'test stop' })
-        return
-      }
-      setImmediate(() => vi.advanceTimersByTime(row.pauseMs))
-    })
-    const drives: Array<{ readonly phase: number; readonly at: number }> = []
-    const driveHarness: DriveHarness = async ({ scope }) => {
-      drives.push({ phase, at: Date.now() })
-      switch (phase) {
-        case 0:
-          throw new BackendTransportError('bridge', 'HTTP 401 unauthorized', { status: 401 })
-        case 1:
-          throw Object.assign(new Error('profile files could not be materialized'), {
-            code: 'PROFILE_FILES_MATERIALIZE_FAILED',
-            status: 422,
-          })
-        case 2:
-          throw Object.assign(
-            new Error("mkdir: cannot create directory '/work': Read-only file system"),
-            { name: 'PartialFailureError' },
-          )
-        case 3:
-          throw new Error('connect ECONNREFUSED 127.0.0.1:32897')
-        case 4:
-          await scope.meter({
-            iterations: 1,
-            tokens: { input: scope.budget.tokensLeft, output: 0 },
-            usd: 0,
-            ms: 1,
-          })
-          throw new Error('the turn ended after spending the pool')
-        default:
-          throw new Error(`no drive is admitted in phase ${phase}`)
-      }
-    }
-    const result = (await supervise(
-      testAgentProfile('stop-pause-root', {
-        harness: 'codex',
-        tools: runtimeToolDeclarations('submit_result'),
-      }),
-      'Deliver the word done.',
-      {
-        runDir: dir,
-        runId,
-        journal,
-        steerDir: supervisorRunDir(dir, runId),
-        budget: { maxIterations: 100, maxTokens: 10_000 },
-        makeWorkerAgent: noWorkers,
-        driveHarness,
-        driverRetry: {
-          pauseRootStops: true,
-          initialBackoffMs: 1,
-          maxBackoffMs: 1,
-          transientOutageMs: 1,
-        },
-        deliverable: {
-          describe: 'The word done.',
-          check: (out: unknown) => out === 'done',
-          checkState: () => ({ pass: false, composite: 0.5 }),
-        },
-        continuation: openContinuation(),
-      },
-    )) as SupervisedResult<unknown>
-
-    expect(
-      rows.map((row) => [row.replacesStop, row.signal, row.streak, minutes(row.pauseMs)]),
-    ).toEqual([
-      ['terminal-error', 'terminal-error', 1, 5],
-      ['terminal-error', 'terminal-error', 2, 10],
-      ['repeated-failure', 'repeated-failure', 3, 20],
-      ['no-progress', 'no-progress', 4, 40],
-      ['budget-exhausted', 'budget-exhausted', 5, 60],
-      ['budget-exhausted', 'budget-exhausted', 6, 60],
-    ])
-    for (const row of rows) {
-      expect(row.id).toBe(runId)
-      expect(Date.parse(row.resumeAt!) - Date.parse(row.at)).toBeLessThanOrEqual(row.pauseMs)
-    }
-    expect(rows[0]?.cause).toContain('401')
-    // Admission had no failure: its row names the stop and took no attempt time.
-    expect(rows[5]).toMatchObject({ cause: 'budget-exhausted', attemptMs: 0, madeProgress: false })
-    // The steer started the next drive at once: the 10-minute pause was never waited out.
-    const afterSteer = drives.find((drive) => drive.phase === 2)
-    expect(afterSteer!.at - steeredAt!).toBeLessThan(60_000)
-    // Nothing settled until the named cancel.
-    expect(result).toMatchObject({
-      kind: 'no-winner',
-      reason: 'cancelled',
-      operationId: 'stop-1',
-      operator: 'test-operator',
-    })
-    expect(result.continuation).toMatchObject({ ended: 'aborted', stopPauses: rows.length })
-    expect(readRunCancellation(dir, 'stop-1')?.effect).toBe('cancelled')
-  }, 60_000)
-
   it('ends a budget pause on a steer, pauses again while the pool stays spent, and reads the steer once budget returns', async () => {
     // A worker's reservation and the root's own turn spend the pool, so the root's continuation
     // meets a spent budget. Its release returns the budget, the way a raise reaches a live root's admission.

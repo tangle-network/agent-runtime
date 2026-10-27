@@ -21,9 +21,8 @@
  * @experimental
  */
 
-import { isW3CSpanId, isW3CTraceId } from '@tangle-network/agent-trace-contract'
+import * as traceContract from '@tangle-network/agent-trace-contract'
 import type { OtelExporter } from '../otel-export'
-import { toW3CSpanId, toW3CTraceId } from '@tangle-network/agent-trace-contract'
 import { buildLoopOtelSpans, createOtelExporter } from '../otel-export'
 import { resolveRedactor } from '../redact'
 import type { LoopTraceEmitter, LoopTraceEvent } from '../runtime/types'
@@ -50,7 +49,8 @@ export function parseTraceparent(value: unknown): TraceContext | undefined {
   if (!match) return undefined
   const traceId = (match[1] as string).toLowerCase()
   const parentSpanId = (match[2] as string).toLowerCase()
-  if (!isW3CTraceId(traceId) || !isW3CSpanId(parentSpanId)) return undefined
+  if (!traceContract.isW3CTraceId(traceId) || !traceContract.isW3CSpanId(parentSpanId))
+    return undefined
   return { traceId, parentSpanId }
 }
 
@@ -144,7 +144,7 @@ export function traceContextToEnv(ctx: TraceContext): Record<string, string> {
   const env: Record<string, string> = { TRACE_ID: ctx.traceId }
   if (ctx.parentSpanId) env.PARENT_SPAN_ID = ctx.parentSpanId
   if (ctx.parentSpanId) {
-    env.TRACEPARENT = `00-${toW3CTraceId(ctx.traceId)}-${toW3CSpanId(ctx.parentSpanId)}-01`
+    env.TRACEPARENT = `00-${traceContract.toW3CTraceId(ctx.traceId)}-${traceContract.toW3CSpanId(ctx.parentSpanId)}-01`
   }
   return env
 }

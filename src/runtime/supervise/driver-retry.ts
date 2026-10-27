@@ -78,8 +78,8 @@
  * outage cut off together do not re-enter together.
  *
  * STOP-PAUSE. A run started with `driverRetry.pauseRootStops` hands its ROOT a `stopPause`;
- * no other manager gets one. It turns every stop except `completed`, `aborted` and a declared `deadline` into a wait that alarms:
- * `terminal-error`, `no-progress`, `max-attempts`, `repeated-failure`, `pending-unresolved` and
+ * no other manager gets one. Terminal refusals end the run immediately; the remaining stops wait and alarm:
+ * `no-progress`, `max-attempts`, `repeated-failure`, `pending-unresolved` and
  * `budget-exhausted` each emit one record with `replacesStop` and pause 5 minutes, doubling per
  * stop-pause in a row up to 60, never past a declared deadline and not jittered. An attempt that
  * made progress resets the streak. A cancel ends the pause and settles the run; a root steer ends
@@ -126,7 +126,7 @@ export interface DriverRetryPolicy extends UnavailablePausePolicy {
    *  as an infrastructure outage before `maxAttempts` and `maxConsecutiveFailures` apply. Default
    *  900000ms (15 minutes), longer than a routine Platform restart. */
   readonly transientOutageMs?: number
-  /** `true` makes the external ROOT pause where this policy would stop it (STOP-PAUSE in the
+  /** `true` pauses recoverable ROOT stops; terminal errors always end it (STOP-PAUSE in the
    *  header). The policy reaches every manager in the tree, but only the root reads this field, so
    *  a nested manager keeps its stops and settles `down` for its parent. Refused with
    *  `enabled: false`. Default off: leave it off when the run must return on its own. */

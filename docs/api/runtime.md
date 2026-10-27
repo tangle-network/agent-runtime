@@ -20972,7 +20972,7 @@ How long a streak of transient failures that spent, settled and progressed nothi
 
 > `readonly` `optional` **pauseRootStops?**: `boolean`
 
-`true` makes the external ROOT pause where this policy would stop it (STOP-PAUSE in the
+`true` pauses recoverable ROOT stops; terminal errors always end it (STOP-PAUSE in the
  header). The policy reaches every manager in the tree, but only the root reads this field, so
  a nested manager keeps its stops and settles `down` for its parent. Refused with
  `enabled: false`. Default off: leave it off when the run must return on its own.
@@ -37524,7 +37524,7 @@ The driver attempt that was refused, 1-based.
 > **signal**: `string`
 
 The code or HTTP status that classified the refusal, such as `provider_quota_exhausted`;
- for a stop-pause, the stop it replaced, such as `terminal-error`.
+ for a stop-pause, the recoverable stop it replaced, such as `max-attempts`.
 
 ###### cause
 

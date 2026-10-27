@@ -38,8 +38,14 @@ try {
   const result = await supervisePursuit(
     {
       name: 'root',
-      harness: 'opencode',
-      model: { provider: 'openai', default: 'fixture-model' },
+      harness: config.scenario === 'terminal-ceiling' ? 'codex' : 'opencode',
+      model: {
+        provider: 'openai',
+        default: 'fixture-model',
+        ...(config.scenario === 'terminal-ceiling'
+          ? { metadata: { credentialSource: 'subscription' } }
+          : {}),
+      },
       tools: {
         agent_runtime_coordination_spawn_worker: true,
         agent_runtime_coordination_submit_result: true,
@@ -54,11 +60,16 @@ try {
       runDir: join(directory, 'run'),
       signal: controller.signal,
       backend: { backend: 'provider', provider },
-      driverBackend: { backend: 'provider', provider },
+      driverBackend: {
+        backend: 'provider',
+        provider,
+        ...(config.scenario === 'terminal-ceiling' ? { defaults: { resources: { cpu: 16 } } } : {}),
+      },
       budget: { maxIterations: 200, maxTokens: 10000, deadlineMs: 120000 },
       perWorker: { maxIterations: 20, maxTokens: 1000 },
       workerSlots: 4,
       driverRetry: {
+        pauseRootStops: config.scenario === 'terminal-ceiling',
         transientOutageMs: 0,
         initialBackoffMs: 10,
         maxBackoffMs: 10,
