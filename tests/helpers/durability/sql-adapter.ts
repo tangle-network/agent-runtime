@@ -16,8 +16,8 @@ export type SqlBoundary = (
 export const TEST_LEASE = { leaseMs: 2_000, heartbeatMs: 250 } as const
 
 /** Preserve unrelated driver failures; SQLite BUSY is a real competing-writer denial. */
-export function assertSqlOwnershipDenial(error: unknown): asserts error is Error {
-  if (
+export function isSqlOwnershipDenial(error: unknown): error is Error {
+  return (
     error instanceof SqlRunOwnershipError ||
     (error instanceof Error &&
       'code' in error &&
@@ -25,8 +25,6 @@ export function assertSqlOwnershipDenial(error: unknown): asserts error is Error
       'errcode' in error &&
       error.errcode === 5)
   )
-    return
-  throw error
 }
 
 /** Real independent sqlite connections, not a SQL interpreter mock. */

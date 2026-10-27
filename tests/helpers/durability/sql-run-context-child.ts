@@ -11,7 +11,7 @@ import { createFencedSqlRunContext } from '../../../src/runtime/supervise/sql-ru
 import { durableRetainedProvider } from '../durable-retained-provider'
 import { ConductorPlanner, conformanceGraph, RUN_ID, WORKER_NODES } from './conformance-graph'
 import { openSideEffectSite, SIDE_EFFECT_TOOL_NAME, sideEffectToolSpec } from './side-effect'
-import { assertSqlOwnershipDenial, openSql, type SqlBoundary, TEST_LEASE } from './sql-adapter'
+import { isSqlOwnershipDenial, openSql, type SqlBoundary, TEST_LEASE } from './sql-adapter'
 
 const [shared, mode = 'run', checkpoint = ''] = process.argv.slice(2)
 if (!shared) throw new Error('shared SQL/provider directory is required')
@@ -242,7 +242,7 @@ try {
         await phase()
         throw new Error('contender unexpectedly acquired the live run')
       } catch (error) {
-        assertSqlOwnershipDenial(error)
+        if (!isSqlOwnershipDenial(error)) throw error
         process.send!({ ...error, type: 'denied', error: String(error) })
       }
       await new Promise<void>((resolve) => process.once('message', () => resolve()))

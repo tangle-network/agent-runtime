@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { contentAddress } from '../../src/durable/content-address'
 import { createFencedSqlRunContext } from '../../src/runtime/supervise/sql-run-context'
 import { EXPECTED_OUT, RUN_ID, WORKER_NODES } from '../helpers/durability/conformance-graph'
-import { assertSqlOwnershipDenial, openSql, TEST_LEASE } from '../helpers/durability/sql-adapter'
+import { isSqlOwnershipDenial, openSql, TEST_LEASE } from '../helpers/durability/sql-adapter'
 
 const roots: string[] = []
 const children = new Set<ChildProcess>()
@@ -177,7 +177,7 @@ describe('SQL run context', () => {
       const lease = await first.acquire()
       const other = await independent.acquire()
       try {
-        await expect(second.acquire().catch(assertSqlOwnershipDenial)).resolves.toBeUndefined()
+        await expect(second.acquire()).rejects.toSatisfy(isSqlOwnershipDenial)
       } finally {
         await other.release()
         await lease.release()
@@ -297,7 +297,7 @@ describe('SQL run context', () => {
       const db = openSql(join(shared, 'run-context.sqlite'))
       try {
         const observer = await createFencedSqlRunContext(db.adapter, RUN_ID, leaseOptions)
-        await expect(observer.acquire().catch(assertSqlOwnershipDenial)).resolves.toBeUndefined()
+        await expect(observer.acquire()).rejects.toSatisfy(isSqlOwnershipDenial)
         successor.child.send('write')
         await successor.message('written')
         expect(await successor.exit).toEqual({ code: 0, signal: null })
