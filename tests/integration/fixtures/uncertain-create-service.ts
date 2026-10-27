@@ -132,6 +132,19 @@ function terminal(run: NativeRun) {
         runControlRef: run.runControlRef,
       },
     },
+    ...(scenario.startsWith('create-')
+      ? [
+          {
+            type: 'message.part.updated',
+            data: {
+              sessionId: run.sessionId,
+              executionId: run.executionId,
+              part: { type: 'reasoning', text: run.executionId },
+              delta: run.executionId,
+            },
+          },
+        ]
+      : []),
     {
       type: 'result',
       data: {
@@ -176,23 +189,6 @@ async function replay(run: NativeRun, response: ServerResponse, exactResult = fa
   const replay = observedReplays.get(run.executionId)
   if (replay && exactResult) await replay.received
   run.terminalReads += 1
-  if (replay && !exactResult) {
-    // The root stream records this suffix only after Runtime observed the native done frame.
-    // UC1 acknowledges that durable observation before releasing the independent exact result.
-    sse(response, [
-      ...terminal(run),
-      {
-        type: 'message.part.updated',
-        data: {
-          sessionId: run.sessionId,
-          executionId: run.executionId,
-          part: { type: 'reasoning', text: run.executionId },
-          delta: run.executionId,
-        },
-      },
-    ])
-    return
-  }
   sse(response, terminal(run))
   // A completed old invocation loses its environment before the next invocation starts.
   if (scenario === 'older-lost' && run.environmentId === 'box-1') state.lost.push('box-1')
@@ -578,6 +574,7 @@ async function runtime(
       ? decodeURIComponent(eventMatch[1]!)
       : url.searchParams.get('executionId')
     const run = state.runs.find((candidate) => candidate.executionId === executionId)
+    // The SDK's result reader binds the session in its query; its native stream binds only the run.
     const exactResult = url.searchParams.has('sessionId')
     note('events', { environmentId, executionId, status: run?.status, exactResult })
     if (!run) {
