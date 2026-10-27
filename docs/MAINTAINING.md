@@ -23,10 +23,9 @@ turns them into a red build. The decision table's "do this, not that" is *judgme
 ## The generated reference: `docs/api/`
 
 - Produced by `pnpm run docs:api` (TypeDoc + `typedoc-plugin-markdown`, config in
-  `typedoc.json`). Entry points are the source files behind the public `package.json`
-  `exports` subpaths. `./kernel` is the one subpath whose public name differs from its
-  source path (`src/runtime/index.ts`); `scripts/check-docs-freshness.mjs` resolves it
-  through a curated subpath→entryPoint map.
+  `typedoc.json`). Entry points are the source files named by `tsdown.config.ts` behind
+  each public `package.json` export; `scripts/check-docs-freshness.mjs` checks those
+  build entries against TypeDoc.
 - It reads **source** (`src/**`), not `dist/`. No build is required first.
 - It is **committed** to the repo so it is grep-able and PR-reviewable like the rest
   of `docs/`, and so the freshness gate can diff against it.
@@ -90,7 +89,7 @@ seven classes:
    names + ALL-CAPS labels + generic params are not flagged — only a renamed, removed, or
    fabricated exported Type. This guards the bulk of the doc, not just the §2 table.
 5. **Exports-subpath coverage** — every `package.json` `exports` subpath must have a
-   matching `typedoc.json` entryPoint (name-derived, or via the curated map for `./kernel`),
+   matching `typedoc.json` entryPoint from its owning `tsdown.config.ts` build entry,
    so a new public subpath can't ship undocumented (no api page, clean diff, symbols
    unguarded).
 6. **Prose-symbol resolution** — every backticked symbol in the **curated docs**

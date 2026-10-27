@@ -25,7 +25,6 @@ import type { SuperviseProfileEntry } from '../../mcp/tools/coordination-contrac
 import { harnessRunsAgent } from '../harness-role'
 import type { SharedBoxPlacement } from '../shared-box'
 import type { ToolLoopChat } from '../tool-loop'
-import type { DeliverableSpec } from './completion-gate'
 import type { ContinuationPolicy } from './continuation'
 import type { AgentGraph, RunGraphOptions } from './graph'
 import type { PromptRegistry } from './prompt-registry'
@@ -375,14 +374,13 @@ export interface SearchSpecInputs {
   readonly profile?: AgentProfile
   /** The root's task, for the same three selects. A graph's task is its deliverable's description. */
   readonly task?: unknown
-  /** select `code` and `fixed`: the graph's nodes and edges. The compiler adds the deliverable and
-   *  the budget. */
-  readonly graph?: Pick<AgentGraph, 'nodes' | 'edges'>
+  /** select `code` and `fixed`: graph metadata, without the compiler-owned check and budget. */
+  readonly graph?: Omit<AgentGraph, 'deliverable' | 'budget'>
   /** select `code`: the caller's brain that makes every root call (`RunGraphOptions.brain`). */
   readonly brain?: ToolLoopChat
   readonly budget: Budget
   /** The completion check. Every spec's run has one: the continuation is sent back by it. */
-  readonly deliverable: DeliverableSpec<unknown>
+  readonly deliverable: AgentGraph['deliverable']
   /** No re-entry starts at or after this instant (epoch ms or ISO 8601). It is the run's time
    *  bound, not design, so two runs of one spec share a digest. Absent: no clock ends the run. */
   readonly deadline?: number | string
@@ -597,8 +595,7 @@ export function compileSearchSpec(raw: SearchSpec, inputs: SearchSpecInputs): Co
       spec,
       digest,
       graph: Object.freeze({
-        nodes: graph.nodes,
-        edges: graph.edges,
+        ...graph,
         deliverable: inputs.deliverable,
         budget: inputs.budget,
       }),
