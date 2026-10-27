@@ -1,4 +1,16 @@
+import { readCommittedJsonLines } from '../durable/jsonl-file'
 import type { WorkerView } from './top-snapshot'
+
+/** Read selected history on demand, leaving the live topology snapshot bounded and fast. */
+export async function transcriptHistory(worker: WorkerView) {
+  if (!worker.eventFile) return transcriptRows(worker)
+  const lines: string[] = []
+  for await (const row of readCommittedJsonLines<unknown>(worker.eventFile)) {
+    lines.push(JSON.stringify(row))
+    if (lines.length > 200) lines.shift()
+  }
+  return transcriptRows({ ...worker, liveTail: lines })
+}
 
 /** Present the recorded tail through sandbox-ui's existing agent-stream contract. */
 export function transcriptRows(worker: WorkerView) {

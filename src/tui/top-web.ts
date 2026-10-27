@@ -5,7 +5,7 @@ import { createServer, type ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { dirname, extname, resolve, sep } from 'node:path'
 import { loadTopSnapshot, type TopSnapshot } from './top-snapshot'
-import { transcriptRows } from './top-transcript'
+import { transcriptHistory, transcriptRows } from './top-transcript'
 
 /** A reconnect always receives current truth; deltas replace changed roots atomically. */
 export interface TopSnapshotFrame {
@@ -153,6 +153,9 @@ export async function serveTopWeb(options: TopWebOptions) {
           response.writeHead(404).end()
           return
         }
+        let history: ReturnType<typeof transcriptRows> | undefined = await transcriptHistory(
+          worker()!,
+        )
         response.writeHead(200, { 'Content-Type': 'text/event-stream', 'X-Accel-Buffering': 'no' })
         response.flushHeaders()
         if (request.method === 'HEAD') {
@@ -169,13 +172,14 @@ export async function serveTopWeb(options: TopWebOptions) {
             response.destroy()
             return
           }
-          const events = transcriptRows(node).flatMap((row) => {
+          const events = (history ?? transcriptRows(node)).flatMap((row) => {
             const key = createHash('sha256').update(JSON.stringify(row)).digest('hex')
             if (seen.has(key)) return []
             seen.add(key)
             if (seen.size > 2000) seen.delete(seen.values().next().value!)
             return [{ ...row, seq: ++lastSeq }]
           })
+          history = undefined
           const alive = node.status === 'running'
           response.write(
             `event: rows\ndata: ${JSON.stringify({ generation, events, lastSeq, alive, window: 'recorded-tail' })}\n\n`,

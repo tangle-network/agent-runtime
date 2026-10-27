@@ -54,6 +54,12 @@ test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and c
         message: { role: 'assistant', content: 'Inspecting the work' },
       }) + '\n',
     )
+    await appendFile(
+      join(run, 'agent-one.jsonl'),
+      Array.from({ length: 12 }, () => JSON.stringify({ type: 'attachment', timestamp: at })).join(
+        '\n',
+      ) + '\n',
+    )
     const writtenAt = Date.now()
     await appendFile(
       join(run, 'journal.jsonl'),
@@ -64,7 +70,7 @@ test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and c
     expect(Date.now() - writtenAt).toBeLessThan(1000)
     const worker = updated.snapshots[0]!.supervisors[0]!.workers[0]!
     expect(worker).toMatchObject({ id: 'one', label: 'Research', status: 'running', startedAt: at })
-    expect(worker.liveTail.join('\n')).toContain('Inspecting the work')
+    expect(worker.liveTail.length).toBeLessThanOrEqual(8)
     expect(updated.snapshots[0]!.supervisors[0]!.totals.usdKnown).toBe(false)
     const transcript = await fetch(`${web.url}api/top/agents/0/workflow/one/stream`, {
       signal: controller.signal,
