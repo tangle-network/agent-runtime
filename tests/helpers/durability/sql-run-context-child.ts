@@ -7,14 +7,11 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { contentAddress } from '../../../src/durable/content-address'
 import { runGraph } from '../../../src/runtime/supervise/graph'
-import {
-  createFencedSqlRunContext,
-  SqlRunOwnershipError,
-} from '../../../src/runtime/supervise/sql-run-context'
+import { createFencedSqlRunContext } from '../../../src/runtime/supervise/sql-run-context'
 import { durableRetainedProvider } from '../durable-retained-provider'
 import { ConductorPlanner, conformanceGraph, RUN_ID, WORKER_NODES } from './conformance-graph'
 import { openSideEffectSite, SIDE_EFFECT_TOOL_NAME, sideEffectToolSpec } from './side-effect'
-import { openSql, type SqlBoundary, TEST_LEASE } from './sql-adapter'
+import { assertSqlOwnershipDenial, openSql, type SqlBoundary, TEST_LEASE } from './sql-adapter'
 
 const [shared, mode = 'run', checkpoint = ''] = process.argv.slice(2)
 if (!shared) throw new Error('shared SQL/provider directory is required')
@@ -245,17 +242,7 @@ try {
         await phase()
         throw new Error('contender unexpectedly acquired the live run')
       } catch (error) {
-        if (
-          !(error instanceof SqlRunOwnershipError) &&
-          !(
-            error instanceof Error &&
-            'code' in error &&
-            error.code === 'ERR_SQLITE_ERROR' &&
-            'errcode' in error &&
-            error.errcode === 5
-          )
-        )
-          throw error
+        assertSqlOwnershipDenial(error)
         process.send!({ ...error, type: 'denied', error: String(error) })
       }
       await new Promise<void>((resolve) => process.once('message', () => resolve()))
