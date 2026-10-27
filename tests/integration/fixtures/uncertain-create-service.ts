@@ -46,13 +46,11 @@ const nativeActions = new Map<string, Promise<void>>()
 const acceptedSubscribers = new Map<string, Set<ServerResponse>>()
 const observedReplays = new Map<string, { received: Promise<void>; observed: () => void }>()
 function startAction(run: NativeRun): void {
-  const action = act(run)
-    .then(() => flushAccepted(run))
-    .catch((error) => {
-      state.failures.push(String(error))
-      note('fixture-failure', { error: String(error) })
-      throw error
-    })
+  const action = act(run).catch((error) => {
+    state.failures.push(String(error))
+    note('fixture-failure', { error: String(error) })
+    throw error
+  })
   nativeActions.set(run.executionId, action)
   void action.catch(() => undefined)
 }
@@ -349,6 +347,9 @@ async function act(run: NativeRun): Promise<void> {
   }
   // No model runs here. This process implements the external service's deterministic native turn.
   run.status = 'completed'
+  // Same tick as completion: no exact-result read can observe the run before its open stream
+  // receives the result and done frames, so Runtime never closes that stream on its result.
+  flushAccepted(run)
   note('native-result-ready', { environmentId: run.environmentId, executionId: run.executionId })
 }
 async function create(request: IncomingMessage, response: ServerResponse): Promise<void> {
