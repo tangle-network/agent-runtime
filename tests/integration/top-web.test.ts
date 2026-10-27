@@ -10,7 +10,6 @@ test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and c
   const assets = join(root, 'assets')
   await mkdir(run)
   await mkdir(assets)
-  await writeFile(join(run, 'journal.jsonl'), '{"type":"launched"}\n')
   await writeFile(join(assets, 'workspace-viewer.js'), 'export {};')
   await writeFile(join(assets, 'styles.css'), 'body { color: black; }')
   const web = await serveTopWeb({ roots: [run], assets })
@@ -18,6 +17,9 @@ test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and c
   try {
     const page = await fetch(web.url)
     expect(page.status).toBe(200)
+    await expect(
+      serveTopWeb({ roots: [run], assets, port: Number(new URL(web.url).port) }),
+    ).rejects.toMatchObject({ code: 'EADDRINUSE' })
     expect(await page.text()).toContain('data-mode="live"')
     expect((await fetch(`${web.url}assets/styles.css`)).status).toBe(200)
     expect(
@@ -46,6 +48,8 @@ test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and c
       throw new Error('No snapshot within deadline')
     }
     expect((await frame()).reset).toBe(true)
+    // The CLI creates its run directory before supervision creates a journal.
+    await writeFile(join(run, 'journal.jsonl'), '{"type":"launched"}\n')
     const at = new Date().toISOString()
     await writeFile(
       join(run, 'agent-one.jsonl'),
