@@ -7,7 +7,10 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { contentAddress } from '../../../src/durable/content-address'
 import { runGraph } from '../../../src/runtime/supervise/graph'
-import { createFencedSqlRunContext } from '../../../src/runtime/supervise/sql-run-context'
+import {
+  createFencedSqlRunContext,
+  SqlRunOwnershipError,
+} from '../../../src/runtime/supervise/sql-run-context'
 import { durableRetainedProvider } from '../durable-retained-provider'
 import { ConductorPlanner, conformanceGraph, RUN_ID, WORKER_NODES } from './conformance-graph'
 import { openSideEffectSite, SIDE_EFFECT_TOOL_NAME, sideEffectToolSpec } from './side-effect'
@@ -24,13 +27,24 @@ async function hit(mark: string) {
   )
   if (mode === 'kill') process.kill(process.pid, 'SIGKILL')
   if (mode === 'hold')
-    await new Promise<void>((resolve) => process.once('message', () => resolve()))
+    await new Promise<void>((resolve) =>
+      process.once('message', (message) => {
+        if (message !== 'lock') return resolve()
+        store.database.exec('BEGIN IMMEDIATE')
+        process.send!({ type: 'locked' })
+      }),
+    )
 }
 
 let sqlCalls = 0
 let sqlBytes = 0
 let publicationKinds: string[] = []
 const boundary: SqlBoundary = async (when, sql, params) => {
+  if (!stopped && mode === 'contend-locked' && when === 'before' && sql.includes(' SET owner =')) {
+    stopped = true
+    process.send!({ type: 'claim' })
+    await new Promise<void>((resolve) => process.once('message', () => resolve()))
+  }
   if (when === 'before') {
     sqlCalls += 1
     sqlBytes += Buffer.byteLength(sql) + Buffer.byteLength(JSON.stringify(params))
@@ -226,13 +240,23 @@ try {
       await lease.release()
     }
   } else {
-    if (mode === 'contend') {
+    if (mode === 'contend' || mode === 'contend-locked') {
       try {
         await phase()
         throw new Error('contender unexpectedly acquired the live run')
       } catch (error) {
-        if (!/owned|lease|busy/i.test(String(error))) throw error
-        process.send!({ type: 'denied', error: String(error) })
+        if (
+          !(error instanceof SqlRunOwnershipError) &&
+          !(
+            error instanceof Error &&
+            'code' in error &&
+            error.code === 'ERR_SQLITE_ERROR' &&
+            'errcode' in error &&
+            error.errcode === 5
+          )
+        )
+          throw error
+        process.send!({ ...error, type: 'denied', error: String(error) })
       }
       await new Promise<void>((resolve) => process.once('message', () => resolve()))
     }

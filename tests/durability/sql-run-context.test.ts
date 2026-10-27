@@ -6,7 +6,10 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { contentAddress } from '../../src/durable/content-address'
-import { createFencedSqlRunContext } from '../../src/runtime/supervise/sql-run-context'
+import {
+  createFencedSqlRunContext,
+  SqlRunOwnershipError,
+} from '../../src/runtime/supervise/sql-run-context'
 import { EXPECTED_OUT, RUN_ID, WORKER_NODES } from '../helpers/durability/conformance-graph'
 import { openSql, TEST_LEASE } from '../helpers/durability/sql-adapter'
 
@@ -177,7 +180,7 @@ describe('SQL run context', () => {
       const lease = await first.acquire()
       const other = await independent.acquire()
       try {
-        await expect(second.acquire()).rejects.toThrow(/owned|lease|busy/i)
+        await expect(second.acquire()).rejects.toBeInstanceOf(SqlRunOwnershipError)
       } finally {
         await other.release()
         await lease.release()
@@ -251,9 +254,9 @@ describe('SQL run context', () => {
     CASE_MS,
   )
 
-  it(
-    'two live orchestrators: rejects the contender, then the SAME process takes over after SIGKILL',
-    async () => {
+  it.each(['contend', 'contend-locked'])(
+    'two live orchestrators (%s): rejects the contender, then the SAME process takes over after SIGKILL',
+    async (mode) => {
       const shared = await directory()
       const owner = start(
         shared,
@@ -262,9 +265,17 @@ describe('SQL run context', () => {
         'sql:execution-admitted-dispatched:after',
       )
       await owner.message('checkpoint')
-      const contender = start(shared, await directory(), 'contend')
+      const contender = start(shared, await directory(), mode)
+      if (mode === 'contend-locked') {
+        await contender.message('claim')
+        owner.child.send('lock')
+        await owner.message('locked')
+        contender.child.send('claim')
+      }
       const denied = await contender.message('denied')
-      expect(String(denied.error)).toMatch(/owned|lease|busy/i)
+      expect(String(denied.error)).toMatch(/owned|lease|database is locked/i)
+      if (mode === 'contend-locked')
+        expect(denied).toMatchObject({ code: 'ERR_SQLITE_ERROR', errcode: 5 })
       owner.child.kill('SIGKILL')
       expect(await owner.exit).toEqual({ code: null, signal: 'SIGKILL' })
       contender.child.send('retry')
@@ -289,7 +300,7 @@ describe('SQL run context', () => {
       const db = openSql(join(shared, 'run-context.sqlite'))
       try {
         const observer = await createFencedSqlRunContext(db.adapter, RUN_ID, leaseOptions)
-        await expect(observer.acquire()).rejects.toThrow(/owned|lease|busy/i)
+        await expect(observer.acquire()).rejects.toBeInstanceOf(SqlRunOwnershipError)
         successor.child.send('write')
         await successor.message('written')
         expect(await successor.exit).toEqual({ code: 0, signal: null })
