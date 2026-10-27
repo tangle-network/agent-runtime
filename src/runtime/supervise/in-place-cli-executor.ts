@@ -150,7 +150,7 @@ export function createInPlaceCliExecutor(
         // it wrote nothing wrong: report it in the executor envelope so the node settles down
         // instead of done, and no flow counts it a winner (a 1 s acct refusal settled `done`).
         const exit = result.harness
-        const failed = exit.exitCode !== 0 || exit.timedOut || exit.aborted === true
+        const failed = exit.exitCode !== 0 || exit.timedOut
         artifact = {
           outRef: contentAddress(result),
           out: result,
