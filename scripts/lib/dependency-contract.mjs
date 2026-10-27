@@ -89,46 +89,9 @@ export const sandboxCompatibilityVersions = Object.freeze(
   publishedCompatibilityVersions('@tangle-network/sandbox', sandboxPeerRange),
 )
 
-/**
- * The registry versions a peer window adds to its exact development pin.
- *
- * A window ends at the minor Runtime develops against: no later minor has run this code.
- * It may reach back two minors, to versions consumers still hold. The packed cohort
- * installs every earlier minor, so none of the admitted minors is left unrun.
- */
-export function peerWindowVersions(name, range, developmentVersion) {
-  const development = /^(\d+)\.(\d+)\.(\d+)$/u.exec(developmentVersion ?? '')
-  if (development === null) {
-    throw new Error(
-      `${name} must be developed against an exact stable version, found ${String(developmentVersion)}`,
-    )
-  }
-  const [devMajor, devMinor, devPatch] = development.slice(1).map(Number)
-  const floor = peerFloor(name, range)
-  const window = `>=${floor} <${devMajor}.${devMinor + 1}.0`
-  if (range !== window) {
-    throw new Error(`${name} peer must end at its development minor: expected ${window}, found ${range}`)
-  }
-  const [floorMajor, floorMinor, floorPatch] = floor.split('.').map(Number)
-  if (floorMajor !== devMajor || floorMinor < devMinor - 2) {
-    throw new Error(
-      `${name} peer ${range} reaches back more than two minors from ${developmentVersion}`,
-    )
-  }
-  if (floorMinor > devMinor || (floorMinor === devMinor && floorPatch > devPatch)) {
-    throw new Error(`${name} peer ${range} does not admit its development pin ${developmentVersion}`)
-  }
-  // A minor's `.0` may never have been published (Eval skipped 0.217.0), so the versions come
-  // from the registry: the floor and the newest published patch of each earlier minor.
-  return publishedCompatibilityVersions(name, range).filter((version) => {
-    const [, minor] = stableVersionTuple(version)
-    return version !== developmentVersion && (version === floor || minor < devMinor)
-  })
-}
-
 const interfacePeerRange = declaredPeerRange('@tangle-network/agent-interface')
-// Interface uses a major-version peer window. Qualify every published minor that
-// enters that window, including new minors released after Runtime's development pin.
+// Each first-party peer is a caret: qualify the floor and the newest published patch of
+// every admitted minor, including minors released after Runtime's development pin.
 const interfaceCompatibilityVersions = Object.freeze(
   publishedCompatibilityVersions('@tangle-network/agent-interface', interfacePeerRange),
 )
@@ -136,21 +99,15 @@ const interfaceCompatibilityVersions = Object.freeze(
 const evalPeerRange = declaredPeerRange('@tangle-network/agent-eval')
 
 export { evalPeerRange }
-// Each version here is installed from the registry beside the packed Runtime, so every
-// earlier admitted minor runs as well as the development pin in the packed cohort.
+// Each version here is installed from the registry beside the packed Runtime, whose own
+// packed Eval is the development pin.
 export const evalCompatibilityVersions = Object.freeze(
-  peerWindowVersions(
-    '@tangle-network/agent-eval',
-    evalPeerRange,
-    runtimePackage.devDependencies?.['@tangle-network/agent-eval'],
+  publishedCompatibilityVersions('@tangle-network/agent-eval', evalPeerRange).filter(
+    (version) => version !== runtimePackage.devDependencies?.['@tangle-network/agent-eval'],
   ),
 )
 
-/**
- * The declared range and verified versions for peers admitted beyond the development pin.
- * Eval remains bounded to its development minor; Interface and Sandbox use
- * registry-selected compatibility versions across their declared windows.
- */
+/** The declared range and registry-selected verified versions for each first-party peer. */
 export const peerCompatibility = Object.freeze({
   '@tangle-network/agent-interface': Object.freeze({
     expectedRange: interfacePeerRange,

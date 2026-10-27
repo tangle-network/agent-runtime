@@ -40,6 +40,7 @@ import { arms } from './arm-comparison'
 import { bestOfN } from './best-of-n'
 import { collaboratesReviewLoop } from './collaborates-review-loop'
 import { conditionalSkip } from './conditional-skip'
+import { debateRounds } from './debate-rounds'
 import { dependencyWaves } from './dependency-waves'
 import { discoveredFanoutReduce } from './discovered-fanout-reduce'
 import { hierarchicalNested } from './hierarchical-nested'
@@ -124,6 +125,7 @@ export const catalog: readonly CatalogGraph[] = [
   },
   one('judge-panel', judgePanel),
   one('loop-until-dry', loopUntilDry),
+  one('debate-rounds', debateRounds),
   one('hierarchical-nested', hierarchicalNested),
   one('dependency-waves', dependencyWaves),
   { file: 'proof-gate', name: 'proof-gate', runs: () => [proofGate(4096), proofGate(0)] },

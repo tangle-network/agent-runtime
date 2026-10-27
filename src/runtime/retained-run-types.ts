@@ -225,6 +225,8 @@ export interface RetainedRunStartMaterial {
   readonly environment: CreateAgentEnvironmentInput & { idempotencyKey: string }
   /** Reuse an environment whose retained ownership key is verified instead of creating one. */
   readonly existingEnvironmentId?: string
+  /** Keep a newly created environment after dispatch fails so its original intent can replay. */
+  readonly preserveEnvironment?: boolean
   readonly turn: RetainedRunTurnInput
   /** Accepted destination to attach, without creating or replacing its environment. */
   readonly contextTransferReceipt?: ContextTransferReceipt

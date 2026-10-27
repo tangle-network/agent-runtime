@@ -1,16 +1,24 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { supervisePursuit } from '../../src/durable'
 import {
   cancelWorker,
+  createFileRunContext,
+  createSupervisor,
   readWorkerCancellation,
   readWorkerSteerAcknowledgement,
   writeWorkerSteer,
 } from '../../src/runtime'
 import type { Agent, AgentSpec, Executor } from '../../src/runtime/supervise/types'
+import {
+  observe,
+  physicalState,
+  withInPlaceProcess,
+  within,
+} from '../helpers/in-place-process-fixture'
 
 it.each([
   {
@@ -308,3 +316,212 @@ it.each([
     if (verified) rmSync(directory, { recursive: true, force: true })
   }
 })
+
+it.skipIf(process.platform === 'win32').each(['waiting', 'cleanup-failure'] as const)(
+  'joins real in-place process/profile cleanup without a false positive (%s)',
+  async (mode) => {
+    await withInPlaceProcess(mode, async (fixture) => {
+      const running = fixture.start()
+      const ready = await fixture.ready()
+      expect(ready.child).toBeTypeOf('number')
+      expect(ready.inputBytes).toBe('MATERIALIZED_PROCESS_INPUT')
+      expect(physicalState(ready)).toMatchObject({
+        leaderPresent: true,
+        childPresent: true,
+        groupPresent: true,
+        inputPresent: true,
+      })
+      // Execution still rejects; teardown names its immutable failure only after the actual
+      // process/profile join. OLD supplies a false positive instead of permanent UNKNOWN.
+      const answer = await within(observe(fixture.executor.teardown('infinity')))
+      const atAnswer = physicalState(ready)
+      fixture.record('teardown', { answer, atAnswer })
+      const execution = await within(running)
+      fixture.record('execution', execution)
+      expect(
+        answer.status,
+        'teardown must not claim destroyed before its owned operation joins',
+      ).toBe('fulfilled')
+      if (answer.status !== 'fulfilled') throw answer.error
+      expect(answer.value).toMatchObject({
+        destroyed: false,
+        permanent: true,
+        detail: expect.any(String),
+      })
+      expect(execution.status).toBe('rejected')
+      expect(atAnswer).toMatchObject({
+        leaderPresent: false,
+        childPresent: false,
+        groupPresent: false,
+      })
+      expect(readFileSync(join(fixture.directory, 'descendant-flushed'), 'utf8')).toBe('clean')
+      expect(readFileSync(join(fixture.directory, 'authored.txt'), 'utf8')).toBe(
+        'caller-visible edit',
+      )
+      expect(readFileSync(join(fixture.directory, 'caller-owned.txt'), 'utf8')).toBe(
+        'preserve caller bytes',
+      )
+      if (execution.status !== 'rejected' || !(execution.error instanceof Error))
+        throw new Error('actual execution rejection was not retained')
+      // Keep the original error/cause separately; the public receipt carries bounded diagnostic text.
+      expect(answer.value.detail).toContain(execution.error.message)
+      if (mode === 'cleanup-failure') {
+        expect(execution.error).toHaveProperty('code', 'ERR_FS_EISDIR')
+        expect(readFileSync(join(ready.inputPath, 'keep'), 'utf8')).toBe('real nonempty directory')
+      } else {
+        expect(atAnswer.inputPresent).toBe(false)
+      }
+    })
+  },
+)
+
+it.skipIf(process.platform === 'win32')(
+  'keeps public Scope cancellation unconfirmed while joining its real in-place cleanup',
+  async () => {
+    await withInPlaceProcess('waiting', async (fixture) => {
+      const context = createFileRunContext(join(fixture.directory, 'run'))
+      let exercise: Promise<void> | undefined
+      let ownerDetail: string | undefined
+      const worker: Agent<unknown, unknown> & { executorSpec: AgentSpec } = {
+        name: fixture.profile.name,
+        act: async () => {
+          throw new Error('the public in-place executor owns the child')
+        },
+        executorSpec: {
+          profile: fixture.profile,
+          harness: null,
+          executorFactory: (_spec, context) => {
+            if (!context.node) throw new Error('actual Scope attempt context missing')
+            return fixture.constructExecutor(context.node.attemptId)
+          },
+        },
+      }
+      const root: Agent<unknown, unknown> = {
+        name: 'in-place-process-owner',
+        async act(_task, scope) {
+          exercise = (async () => {
+            const spawned = scope.spawn(worker, 'wait for caller cancellation', {
+              label: 'in-place-process',
+              budget: { maxTokens: 100, maxIterations: 1 },
+            })
+            if (!spawned.ok) throw new Error(`actual Scope refused process: ${spawned.reason}`)
+            const ready = await fixture.ready()
+            spawned.handle.abort('owned in-place process proof')
+            const settled = await within(scope.next())
+            const atSettlement = physicalState(ready)
+            fixture.record('scope-settlement', { settled, atSettlement })
+            expect(settled).toMatchObject({ kind: 'down' })
+            // The crash path bounds Scope's acknowledgement wait. Its settlement is not a
+            // physical-close receipt: join the SAME public executor before measuring closure.
+            const answer = await within(observe(fixture.executor.teardown('infinity')))
+            const afterJoin = physicalState(ready)
+            fixture.record('scope-owner-join', { answer, afterJoin })
+            expect(answer.status).toBe('fulfilled')
+            if (answer.status !== 'fulfilled') throw answer.error
+            expect(answer.value).toMatchObject({
+              destroyed: false,
+              permanent: true,
+              detail: expect.any(String),
+            })
+            ownerDetail = answer.value.detail
+            expect(ownerDetail?.length).toBeGreaterThan(0)
+            expect(afterJoin).toEqual({
+              leaderPresent: false,
+              childPresent: false,
+              groupPresent: false,
+              inputPresent: false,
+            })
+            expect(readFileSync(join(fixture.directory, 'descendant-flushed'), 'utf8')).toBe(
+              'clean',
+            )
+          })()
+          await exercise
+          return 'process cancellation observed'
+        },
+      }
+      const run = createSupervisor().run(
+        root,
+        {},
+        {
+          ...context,
+          resume: false,
+          runId: 'in-place-owned-cancellation',
+          budget: { maxTokens: 1000, maxIterations: 10 },
+          signal: fixture.controller.signal,
+        },
+      )
+      const outcome = await observe(within(run, 5000))
+      if (exercise) await exercise
+      fixture.record('scope-result', outcome)
+      if (outcome.status === 'rejected') throw outcome.error
+      // The default confirmation policy must complete within the same 5s guard. The immutable
+      // failure stays UNKNOWN; neither Scope settlement nor that status proves physical closure.
+      const unconfirmed = outcome.value.teardownUnconfirmed?.find(
+        (entry) => entry.label === 'in-place-process',
+      )
+      expect(unconfirmed).toBeDefined()
+      if (ownerDetail === undefined) throw new Error('actual owner diagnostic missing')
+      expect(unconfirmed?.detail).toContain(ownerDetail)
+    })
+  },
+)
+
+it.skipIf(process.platform === 'win32')(
+  'preserves normal completion, never-started teardown and pre-aborted no-process refusal',
+  async () => {
+    await withInPlaceProcess('normal', async (fixture) => {
+      expect(await fixture.executor.teardown('infinity')).toEqual({ destroyed: true })
+      // Pure task validation can reject before a harness promise exists; no work was launched.
+      const invalid = fixture.executor.execute(undefined, fixture.controller.signal)
+      if (!('then' in invalid)) throw new Error('in-place execution unexpectedly streamed')
+      expect((await within(observe(invalid))).status).toBe('rejected')
+      expect(await fixture.executor.teardown('infinity')).toEqual({ destroyed: true })
+      expect(existsSync(join(fixture.directory, 'ready.json'))).toBe(false)
+    })
+    await withInPlaceProcess('normal', async (fixture) => {
+      const result = await within(fixture.start())
+      expect(result.status).toBe('fulfilled')
+      if (result.status !== 'fulfilled') throw result.error
+      const ready = await fixture.ready()
+      expect(result.value.spent.tokensKnown).toBe(false)
+      expect(result.value.spent.tokens).toEqual({ input: 0, output: 0 })
+      expect(result.value.out.harness.exitCode).toBe(0)
+      for (const input of result.value.out.profileMaterialization?.writtenPaths ?? []) {
+        expect(existsSync(join(fixture.directory, input))).toBe(false)
+      }
+      expect(physicalState(ready)).toEqual({
+        leaderPresent: false,
+        childPresent: false,
+        groupPresent: false,
+        inputPresent: false,
+      })
+      expect(await fixture.executor.teardown('infinity')).toEqual({ destroyed: true })
+      expect(readFileSync(join(fixture.directory, 'authored.txt'), 'utf8')).toBe(
+        'caller-visible edit',
+      )
+    })
+    await withInPlaceProcess('normal', async (fixture) => {
+      const preAborted = new AbortController()
+      const cause = new Error('original pre-abort fixture cause')
+      const reason = new Error('already aborted before owned invocation', { cause })
+      preAborted.abort(reason)
+      const result = await within(fixture.start(preAborted.signal))
+      expect(result.status).toBe('rejected')
+      if (result.status !== 'rejected')
+        throw new Error('pre-aborted invocation unexpectedly completed')
+      // Linked aborts retain their existing normalization of an Error to its message.
+      expect(result.error).toBe(reason.message)
+      const answer = await within(observe(fixture.executor.teardown('infinity')))
+      expect(answer.status).toBe('fulfilled')
+      if (answer.status !== 'fulfilled') throw answer.error
+      expect(answer.value).toMatchObject({
+        destroyed: false,
+        permanent: true,
+        detail: expect.any(String),
+      })
+      expect(answer.value.detail).toBe(reason.message)
+      expect(existsSync(join(fixture.directory, 'ready.json'))).toBe(false)
+      expect(existsSync(join(fixture.directory, 'authored.txt'))).toBe(false)
+    })
+  },
+)

@@ -1,0 +1,57 @@
+# debate-rounds — the stored form of examples/graphs/debate-rounds.ts: the file an agent writes from
+# intent ("have a and b debate the question for up to three rounds, then give me one answer").
+graph: debate-rounds
+describe: Two agents answer the same question at once, read each other and refine; a judge ends the rounds and writes the one answer.
+params:
+  question: { type: string }
+  # Rounds after the first: the judge sends both back at most this many times.
+  rounds: { type: integer, default: 2 }
+nodes:
+  - id: a
+    profile:
+      harness: cli-base
+      model: { provider: offline, default: offline/local-process }
+      prompt: { systemPrompt: "Answer the question as yourself. In a later round, read the other answer and the judge's note, then keep, refine or rebut your position." }
+  - id: b
+    profile:
+      harness: cli-base
+      model: { provider: offline, default: offline/local-process }
+      prompt: { systemPrompt: "Answer the question as yourself. In a later round, read the other answer and the judge's note, then keep, refine or rebut your position." }
+  - id: judge
+    profile:
+      harness: cli-base
+      model: { provider: offline, default: offline/local-process }
+      prompt: { systemPrompt: "Read both answers. Settle { converged: false, note } while they still disagree on something material and rounds remain; otherwise settle { converged: true, synthesis } with the one answer." }
+entry:
+  - node: a
+    task: { question: "${params.question}" }
+  - node: b
+    task: { question: "${params.question}" }
+edges:
+  # Both answered: the judge reads both, and its own last settle (which round this is).
+  - kind: routes
+    from: [a, b]
+    to: judge
+    directive: { surface: delegates/worker-brief, version: 1 }
+    evidence: [a, b, judge]
+  # Still disagreeing: another round, each continuing its own session, at most `rounds` times.
+  - kind: routes
+    from: judge
+    to: [a, b]
+    when: { pointer: /converged, equals: false }
+    continuity: resume
+    maxTraversals: "${params.rounds}"
+    directive: { surface: delegates/worker-brief, version: 1 }
+    evidence: [a, b, judge]
+  # Converged, or the rounds are spent: the judge's synthesis is the answer.
+  - kind: routes
+    from: judge
+    to: { finish: synthesis }
+    directive: { surface: delegates/worker-brief, version: 1 }
+budget:
+  maxIterations: 40
+  maxTokens: 200000
+check:
+  describe: one answer the judge wrote after the rounds
+  all:
+    - { node: judge, pointer: /synthesis, exists: true }

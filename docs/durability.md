@@ -190,7 +190,7 @@ or harness may run after that boundary; recording `root-segment` alone does not 
 - a chat turn's `turn_status` row and buffered events in Agent App;
 - a workflow run's claim and checkpoint in Platform.
 
-Each record keeps the original identity, so recovery never mints a replacement.
+Each record keeps the original identity, so recovery never mints a replacement. A supervised retained invocation preserves its environment after dispatch failure and replays its validated original intent directly when only an environment admission exists. It does not require a selected backend before replay. A lost dispatch reply uses the same environment, session, execution and turn keys; a dispatched admission still reconnects only its exact control reference.
 
 Native managers drain their existing durable-control observer after each harness turn, before choosing the next wake or continuation pause. The turn-end pass admits a steer addressed to the root's own inbox — the one destination still live between turns — even while a worker steer waits for durable capture, so an accepted root steer reaches the next turn without joining that worker delivery, and it reconciles the controls live polls already applied. It never applies a control first seen at the boundary (the live timer owns that while the run continues; close expires it `not_live` once the run ends), so an already-finished worker is never retroactively terminated, and it never awaits a worker delivery still in flight. A parking handoff has sealed admission and skips this turn-end pass.
 
