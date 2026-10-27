@@ -6,6 +6,7 @@ import { errMessage } from './supervise/error-message'
 import { PLATFORM_FAILURE_CODES } from './supervise/executor-outcome'
 import {
   classifyRetainedPendingCause,
+  isPlatformPredispatchRefusal,
   RetainedExecutionPendingError,
   type RetainedPendingCause,
   TRANSPORT_ERROR_CODES,
@@ -69,6 +70,10 @@ export const runtimeFailureCauseSchema = z
     cause: z.string().max(MAX_CAUSE_CHARS),
     /** The upstream or provider machine code the failure carried, when it carried one. */
     providerCode: z.string().regex(MACHINE_CODE_PATTERN).optional(),
+    /** The HTTP status the provider's typed error carried with that code. */
+    providerStatus: z.number().int().min(100).max(599).optional(),
+    /** The provider's typed retry-after hint, in milliseconds. A hint, never an automatic retry. */
+    retryAfterMs: z.number().int().nonnegative().optional(),
     remediation: runtimeFailureRemediationSchema.readonly().optional(),
   })
   .readonly()
@@ -173,6 +178,27 @@ function upstreamMachineCode(links: readonly object[]): string | undefined {
     .find((code) => code !== undefined)
 }
 
+/** The typed HTTP status and retry-after of the link carrying the provider's code. */
+function upstreamResponse(
+  links: readonly object[],
+  providerCode: string | undefined,
+): Pick<RuntimeFailureCause, 'providerStatus' | 'retryAfterMs'> {
+  const link = links.find((each) =>
+    ['upstreamCode', 'errorCode', 'code'].some((field) => read(each, field) === providerCode),
+  )
+  if (providerCode === undefined || link === undefined) return {}
+  const status = read(link, 'status') ?? read(link, 'statusCode')
+  const retryAfterMs = read(link, 'retryAfterMs')
+  return {
+    ...(Number.isInteger(status) && (status as number) >= 100 && (status as number) <= 599
+      ? { providerStatus: status as number }
+      : {}),
+    ...(Number.isInteger(retryAfterMs) && (retryAfterMs as number) >= 0
+      ? { retryAfterMs: retryAfterMs as number }
+      : {}),
+  }
+}
+
 /**
  * Classify a thrown failure. Pass the caller's signal so a cancellation the caller asked for is
  * attributed to the caller even when the provider surfaced it as an ordinary error, and say when
@@ -206,6 +232,7 @@ export function runtimeFailureCause(
       owner,
       cause,
       ...(providerCode === undefined ? {} : { providerCode }),
+      ...upstreamResponse(links, providerCode),
       ...(code === 'credential-refused' &&
       providerCode === 'subscription_required' &&
       remedy.success
@@ -222,6 +249,9 @@ export function runtimeFailureCause(
       // A retained execution names why it has no accepted result as a value; a provider contract
       // error is classified the way the retained settlement classifies it.
       if (link instanceof RetainedExecutionPendingError) {
+        // A named platform refusal before dispatch: nothing ran, and the platform must act.
+        if (link.pendingCause === 'request-rejected' && links.some(isPlatformPredispatchRefusal))
+          return failure({ code: 'request-rejected', owner: 'platform' })
         return failure(retainedFailures[link.pendingCause])
       }
       if (read(link, 'name') === 'RetainedRunProviderContractError') {
@@ -272,8 +302,13 @@ export function settlementFailureCause(down: {
 }): RuntimeFailureCause {
   const cause = errMessage(down.reason).slice(0, MAX_CAUSE_CHARS)
   if (down.retainedPendingCause !== undefined) {
+    const retained = retainedFailures[down.retainedPendingCause]
+    // The failure classified where the executor threw agrees with the retained cause: keep its
+    // typed facts (owner, provider code, status, retry-after). Otherwise the retained cause rules.
+    if (down.failure !== undefined && down.failure.code === retained.code)
+      return { ...down.failure, cause }
     return {
-      ...retainedFailures[down.retainedPendingCause],
+      ...retained,
       cause,
       // The retained cause names what to do; the provider's code still says what happened.
       ...(down.failure?.providerCode === undefined

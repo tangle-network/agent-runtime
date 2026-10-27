@@ -434,16 +434,30 @@ describe('retained environments at root settlement', () => {
     expect(result.fleetYield.releasedUnrecovered).toBe(1)
   })
 
-  it('keeps the provider code of a dispatch the platform refused on the settled failure', async () => {
+  it.each([
+    {
+      name: 'a named platform refusal settles refused before it ran, owned by the platform',
+      code: 'HUB_CREDENTIAL_REFRESH_FAILED',
+      cause: 'request-rejected',
+      failure: { code: 'request-rejected', owner: 'platform' },
+    },
+    {
+      name: 'any other 503 stays a lost transport, in doubt',
+      code: 'SERVER_ERROR',
+      cause: 'transport',
+      failure: { code: 'transport', owner: 'platform' },
+    },
+  ] as const)('$name, keeping the provider code, status and retry-after', async (scenario) => {
     // Run 002f69d5: the orchestrator refused the dispatch before forwarding it (HTTP 503,
-    // HUB_CREDENTIAL_REFRESH_FAILED). The Sandbox SDK and the provider keep code and status; the
-    // settled child and the result tree must still name the provider's code.
+    // HUB_CREDENTIAL_REFRESH_FAILED). The Sandbox SDK and the provider keep code, status and
+    // retry-after as typed fields; the settled child and the result tree must keep them too.
     const fleet = retainedProvider(directory)
     fleet.state.dispatchError = () =>
       Object.assign(new Error('HTTP 503: Sandbox Hub credential is temporarily unavailable.'), {
         name: 'ServerError',
-        code: 'HUB_CREDENTIAL_REFRESH_FAILED',
+        code: scenario.code,
         status: 503,
+        retryAfterMs: 5_000,
       })
     const context = createInMemoryRunContext()
     let live: Settled<unknown> | undefined
@@ -465,10 +479,17 @@ describe('retained environments at root settlement', () => {
     )
     expect(live?.kind).toBe('down')
     if (live?.kind !== 'down') return
-    expect(live.failure).toMatchObject({ providerCode: 'HUB_CREDENTIAL_REFRESH_FAILED' })
-    expect(result.tree.nodes.find((node) => node.id === 'refused:s0')?.failure).toMatchObject({
-      providerCode: 'HUB_CREDENTIAL_REFRESH_FAILED',
-    })
+    expect(live.retainedPendingCause).toBe(scenario.cause)
+    const expected = {
+      ...scenario.failure,
+      providerCode: scenario.code,
+      providerStatus: 503,
+      retryAfterMs: 5_000,
+    }
+    expect(live.failure).toMatchObject(expected)
+    expect(result.tree.nodes.find((node) => node.id === 'refused:s0')?.failure).toMatchObject(
+      expected,
+    )
   })
 
   it('does not trip an armed intensity breaker with the released record', async () => {

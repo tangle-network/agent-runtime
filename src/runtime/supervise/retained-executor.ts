@@ -271,6 +271,26 @@ export function isProvisioningRefusal(value: object): boolean {
   }
 }
 
+/**
+ * Platform refusals the orchestrator answers BEFORE it forwards a dispatch, by machine code and
+ * the HTTP status it is sent with. Run 002f69d5: `HUB_CREDENTIAL_REFRESH_FAILED` at 503 left no
+ * effect, yet read as a lost transport. Any other 5xx stays a transport failure, in doubt.
+ */
+const PLATFORM_PREDISPATCH_REFUSALS: ReadonlyMap<string, number> = new Map([
+  ['HUB_CREDENTIAL_REFRESH_FAILED', 503],
+])
+
+/** True for an error that is itself a named platform refusal of a dispatch (see above). */
+export function isPlatformPredispatchRefusal(value: object): boolean {
+  try {
+    const code = readString(value, 'code')
+    const status = readNumber(value, 'status') ?? readNumber(value, 'statusCode')
+    return code !== undefined && PLATFORM_PREDISPATCH_REFUSALS.get(code) === status
+  } catch {
+    return false
+  }
+}
+
 /** The contract-error codes that wrap a failed READ rather than name a broken answer. */
 const readFailureCodes = new Set([
   'RETAINED_RESULT_READ_FAILED',
@@ -380,6 +400,8 @@ function classifyPendingCause(
       return 'request-rejected'
     }
     if (code !== undefined && TRANSPORT_ERROR_CODES.has(code)) return 'transport'
+    // At admission a named platform refusal says nothing ran; after admission it says nothing.
+    if (at === 'admission' && isPlatformPredispatchRefusal(value)) return 'request-rejected'
     if (name === 'NetworkError' || name === 'ServerError') return 'transport'
     // A capacity refusal with no HTTP response is the account owner refusing to bind a credential
     // to a fresh dispatch: agent-provider-tangle resolves the subscription credential before it
