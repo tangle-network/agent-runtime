@@ -31,6 +31,9 @@ const controllerProfile = {
   ),
 }
 const delay = (ms) => new Promise((done) => setTimeout(done, ms))
+// Every bound below detects a hang, never a speed: the controller compiles the Runtime source through
+// tsx before it acts, and on a host running a full suite that alone has taken longer than 30 s.
+const HANG_GUARD_MS = 120_000
 const capabilities = {
   create: { runtimeAttachments: { mcp: true } },
   profile: {
@@ -72,7 +75,7 @@ if (mode === 'controller') {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ method, input }),
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(HANG_GUARD_MS),
     })
     if (!response.ok) throw new Error(await response.text())
     return response.json()
@@ -126,7 +129,7 @@ if (mode === 'controller') {
         method: 'tools/call',
         params: { name, arguments: args },
       }),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(HANG_GUARD_MS),
     })
     const body = await response.json()
     if (!response.ok || body.error || body.result?.isError) throw new Error(JSON.stringify(body))
@@ -141,8 +144,8 @@ if (mode === 'controller') {
         pursuitId: 'local-journal-outage',
         runId,
         runDir: directory,
-        budget: { maxIterations: 20, maxTokens: 1000, deadlineMs: 30000 },
-        perWorker: { maxIterations: 2, maxTokens: 100, deadlineMs: 20000 },
+        budget: { maxIterations: 20, maxTokens: 1000, deadlineMs: 4 * HANG_GUARD_MS },
+        perWorker: { maxIterations: 2, maxTokens: 100, deadlineMs: 2 * HANG_GUARD_MS },
         ...(rootOwner
           ? {
               backend: { backend: 'provider', provider },
@@ -162,7 +165,10 @@ if (mode === 'controller') {
             }
           : { makeWorkerAgent: worker, recoverExecutor: factory }),
         driverRetry: { enabled: false },
-        childSettleGraceMs: 1000,
+        // The interrupted controller leaves its native child running on purpose (the parent
+        // releases it after checking the fault), so it waits for that child only briefly. The
+        // resumed controller's child is already complete; waiting for its settlement costs nothing.
+        childSettleGraceMs: phase === 'interrupt' ? 1000 : HANG_GUARD_MS,
         teardownConfirmMs: 0,
         ...(rootOwner
           ? {}
@@ -325,7 +331,7 @@ if (mode === 'controller') {
             requestDigest: canonicalCandidateDigest({ prompt: input.prompt, turnId: input.turnId }),
           }
           await fs.writeFile(join(root, 'native-control.json'), JSON.stringify(controlRef))
-          const code = `const fs=require('node:fs'); const root=process.argv[1]; let ticks=0; const timer=setInterval(()=>{ fs.writeFileSync(root+'/heartbeat',String(++ticks)); if(fs.existsSync(root+'/complete')) { fs.writeFileSync(root+'/native-result.json',JSON.stringify({answer:21+21,pid:process.pid,ticks})); clearInterval(timer); } },25); setTimeout(()=>{clearInterval(timer);process.exit(2)},15000).unref()`
+          const code = `const fs=require('node:fs'); const root=process.argv[1]; let ticks=0; const timer=setInterval(()=>{ fs.writeFileSync(root+'/heartbeat',String(++ticks)); if(fs.existsSync(root+'/complete')) { fs.writeFileSync(root+'/native-result.json',JSON.stringify({answer:21+21,pid:process.pid,ticks})); clearInterval(timer); } },25); setTimeout(()=>{clearInterval(timer);process.exit(2)},${HANG_GUARD_MS}).unref()`
           worker = spawn(process.execPath, ['-e', code, root], { stdio: 'ignore' })
           alive = true
           worker.once('exit', (code) => {
@@ -415,7 +421,7 @@ if (mode === 'controller') {
       child.stderr.on('data', (bytes) => {
         stderr += bytes
       })
-      const timeout = setTimeout(() => child.kill('SIGKILL'), 20000)
+      const timeout = setTimeout(() => child.kill('SIGKILL'), HANG_GUARD_MS)
       child.once('close', (code, signal) => {
         clearTimeout(timeout)
         void (async () => {

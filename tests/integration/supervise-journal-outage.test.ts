@@ -32,9 +32,9 @@ describe.skipIf(process.platform !== 'linux')(
               RUNTIME_KERNEL_MODULE: new URL('../../src/runtime/index.ts', import.meta.url).href,
               RUNTIME_DURABLE_MODULE: new URL('../../src/durable/index.ts', import.meta.url).href,
             },
-            // The consumer compiles the Runtime source through tsx before it starts; on a loaded
-            // runner that alone has taken longer than 30 s.
-            timeout: 120_000,
+            // Two controller phases, each bounded by the consumer's hang guard (120 s): this
+            // detects a hang in either, never a slow host.
+            timeout: 300_000,
           })
         } catch (cause) {
           const failure = cause as Error & {
@@ -70,7 +70,7 @@ describe.skipIf(process.platform !== 'linux')(
         })
         roots.push(directory)
       },
-      150_000,
+      330_000,
     )
   },
 )
