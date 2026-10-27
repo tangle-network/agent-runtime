@@ -387,7 +387,14 @@ it.skipIf(process.platform === 'win32')(
         act: async () => {
           throw new Error('the public in-place executor owns the child')
         },
-        executorSpec: { profile: fixture.profile, harness: null, executor: fixture.executor },
+        executorSpec: {
+          profile: fixture.profile,
+          harness: null,
+          executorFactory: (_spec, context) => {
+            if (!context.node) throw new Error('actual Scope attempt context missing')
+            return fixture.constructExecutor(context.node.attemptId)
+          },
+        },
       }
       const root: Agent<unknown, unknown> = {
         name: 'in-place-process-owner',

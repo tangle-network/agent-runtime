@@ -172,7 +172,7 @@ export async function withInPlaceProcess(
     const cleanup = await observe(
       within(
         Promise.all([
-          observe(fixture.executor.teardown('infinity')),
+          observe(Promise.resolve(fixture.activeExecutor?.teardown('infinity'))),
           fixture.running ?? Promise.resolve(undefined),
         ]),
       ),
@@ -238,23 +238,38 @@ function makeFixture(mode: ProcessMode) {
     model: { provider: 'anthropic', default: 'offline-fixture-no-model' },
     prompt: { appendSystemPrompt: 'MATERIALIZED_PROCESS_INPUT' },
   }
-  const executor = createInPlaceCliExecutor({
-    workspacePath: directory,
-    profile,
-    harnessTimeoutMs: 2000,
-    env: { PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`, IN_PLACE_PROCESS_MODE: mode },
-  })
+  let executor: ReturnType<typeof createInPlaceCliExecutor> | undefined
+  function constructExecutor(executionAttemptId?: string) {
+    if (executor) throw new Error('fixture executor was already constructed')
+    executor = createInPlaceCliExecutor({
+      workspacePath: directory,
+      profile,
+      harnessTimeoutMs: 2000,
+      env: { PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`, IN_PLACE_PROCESS_MODE: mode },
+      executionAttemptId,
+    })
+    return executor
+  }
   const controller = new AbortController()
   const fixture = {
     directory,
     profile,
-    executor,
+    get executor() {
+      return executor ?? constructExecutor()
+    },
+    get activeExecutor() {
+      return executor
+    },
+    constructExecutor,
     controller,
     readyValue: undefined as ProcessReady | undefined,
     running: undefined as Promise<Observation<ExecutorResult<InPlaceHarnessResult>>> | undefined,
     start(signal = controller.signal) {
       if (fixture.running) throw new Error('fixture owns exactly one executor invocation')
-      const invocation = executor.execute('no model: exercise owned process cleanup', signal)
+      const invocation = fixture.executor.execute(
+        'no model: exercise owned process cleanup',
+        signal,
+      )
       if (!('then' in invocation)) throw new Error('public in-place executor unexpectedly streamed')
       fixture.running = observe(invocation)
       return fixture.running
