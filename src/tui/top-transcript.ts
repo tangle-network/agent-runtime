@@ -38,6 +38,21 @@ export async function transcriptHistory(
           source: 'Runtime recorded capture',
         },
       })
+    // Without its conversation, the agent's settled result is still what it delivered.
+    const result =
+      runDir && node?.outRef && worker.endedAt
+        ? await new FileResultBlobStore(join(runDir, 'blobs')).get(node.outRef)
+        : undefined
+    if (result !== undefined)
+      native.push({
+        at: worker.endedAt!,
+        event: {
+          kind: 'notice',
+          provenance: 'recorded-result',
+          source: `result ${node!.outRef}; Runtime FileResultBlobStore`,
+          text: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
+        },
+      })
     return [...rows, ...native]
   }
   const lines: string[] = []

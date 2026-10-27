@@ -1,0 +1,13 @@
+{
+  "from": {
+    "node": "poet",
+    "result": {
+      "poem": [
+        "Dawn rain taps the leaves",
+        "Soft light gathers in puddles",
+        "Birds wait for the sun"
+      ]
+    }
+  },
+  "evidence": {}
+}
