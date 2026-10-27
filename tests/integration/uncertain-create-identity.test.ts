@@ -932,7 +932,18 @@ describe('accepted native recovery and historical identities', () => {
         output: acceptedExecutions.size * 2,
         cacheBreakdownKnown: false,
       })
-      expect(pursuit.result.spentTotal.tokensKnown).toBe(true)
+      // On failure, name each node's recorded spend: CI keeps no fixture directory to inspect.
+      expect(
+        pursuit.result.spentTotal.tokensKnown,
+        JSON.stringify({
+          spentTotal: pursuit.result.spentTotal,
+          nodes: events.flatMap((event) =>
+            event.kind === 'execution-result' || event.kind === 'settled'
+              ? [{ kind: event.kind, id: event.id, spent: event.spent }]
+              : [],
+          ),
+        }),
+      ).toBe(true)
       const acceptance = finalizers.filter(
         (row) => Array.isArray(row.delivered) && row.delivered.length === 1,
       )[0]!
