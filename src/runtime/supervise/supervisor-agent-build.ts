@@ -6,7 +6,7 @@ import type { ToolLoopChat } from '../tool-loop'
 import { admitContinuationPolicy } from './continuation'
 import type { PriorCoordination } from './coordination-log'
 import { driverAgent } from './driver-brain-agent'
-import { isRuntimeFlowBrain } from './flow-brain'
+import { isRuntimeFlowBrain, runtimeFlowAgent } from './flow-brain'
 import { createInbox } from './inbox'
 import { assertExecutableAgentProfile } from './model-policy'
 import { coordinationProfileToolPrefix } from './provider-visible-profile'
@@ -105,7 +105,7 @@ export function buildSupervisorAgent(
       : admitContinuationPolicy(deps.continuation, 'supervisorAgent')
 
   if (harness === null) {
-    return routerSupervisorAgent({
+    const agent = routerSupervisorAgent({
       name,
       deps,
       profile: stableProfile,
@@ -116,6 +116,7 @@ export function buildSupervisorAgent(
       resolveTools,
       observeNodeEvent,
     })
+    return runtimeFlowAgent(agent, testBrain)
   }
   return externalSupervisorAgent({
     name,

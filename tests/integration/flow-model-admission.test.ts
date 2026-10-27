@@ -99,9 +99,18 @@ it('admits a model-free coordinator while enforcing its actual leaf model allowl
       join(root, 'allowed', 'spawn-journal.jsonl'),
     ).loadTree('allowed-flow')
     expect(journal?.filter((event) => event.kind === 'spawned')).toHaveLength(2)
-    await expect(
-      runGraph(graph('disallowed-model'), { ...options, runId: 'denied-flow' }),
-    ).rejects.toThrow(/model "disallowed-model" is not in the allowed set/u)
+    const denied = await runGraph(graph('disallowed-model'), { ...options, runId: 'denied-flow' })
+    expect(denied.result).toMatchObject({
+      kind: 'no-winner',
+      reason: 'no-children-spawned',
+      fleetYield: { spawned: 0 },
+    })
+    expect(denied.ledger).toMatchObject([
+      {
+        outcome: 'unpropagated',
+        reason: expect.stringContaining('model "disallowed-model" is not in the allowed set'),
+      },
+    ])
     expect(processes).toBe(1)
     await expect(async () =>
       supervise({ name: 'ordinary-root', harness: 'cli-base' }, input, {
