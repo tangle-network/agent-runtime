@@ -1,3 +1,13 @@
+## 2.0.3
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+A manager's wake debounce now ends by its deadline warning, and a wake that falls due at the warning carries both its events and the deadline notice in one turn. Before, a worker that settled within the debounce of the warning pushed the manager's next turn past the deadline, so the run ended without that turn.
+
+`serveTopWeb().close()` now finishes any read in flight and reads once more before ending the event stream, so a run that settles just before the caller closes the viewer still delivers its settled snapshot.
+
 ## 2.0.2
 
 Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
