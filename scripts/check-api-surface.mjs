@@ -26,10 +26,9 @@
  *     contributes that declaration's own digest, because no record line would
  *     otherwise state that it moved.
  *
- * What this does NOT decide is whether a shape change is additive or breaking.
- * That is a subtyping question, and the record states structure. The comparison
- * calls every shape change breaking; see `surfaceSeverity` in
- * `lib/api-surface.mjs`.
+ * Each shape that can be split also records its parts (`partsOfOrigin`), from
+ * which `classifyShapeChange` in `lib/api-surface.mjs` tells an additive shape
+ * change from a breaking one.
  *
  * The parser is `oxc-parser`, not the TypeScript compiler API, and that is a
  * requirement rather than a preference. This repository set spans TypeScript 6
@@ -475,6 +474,120 @@ const shapeOfOrigin = (origin, ctx, inlining = new Set()) => {
   return digest
 }
 
+const unwrap = (type) => (type?.type === 'TSParenthesizedType' ? unwrap(type.typeAnnotation) : type)
+
+/**
+ * The parts of one exported declaration a consumer depends on separately, so
+ * the comparison can tell an added optional member from a removed one. A part
+ * is its digest, `[digest, parts]` when it has parts of its own, or `1` when
+ * its key already carries its digest. Keys:
+ *
+ *   `name` `name?` `readonly name`  a property     `name()` `name?()`  a method
+ *   `(0)` `(1?)` `(...2)` `this`    a parameter    `=>`  the return type
+ *   `|<digest>`  a union member     `&<digest>`  a non-literal intersection part
+ *   `@0` `@1`    a signature of a function value         `<>` type parameters
+ *   `extends`    heritage
+ *   `~<digest>`  any other member (index, call or construct signature, accessor)
+ *
+ * A declaration with nothing to split — a class, an enum, a namespace, an alias
+ * of one named type — states no parts, and a change to it stays unclassified.
+ */
+const partsOfOrigin = (origin, ctx) => {
+  if (origin?.file === undefined || origin.name === undefined) return null
+  const module = readModule(origin.file, ctx.modules)
+  const nodes = module.declarations.get(origin.name)
+  // A part is only ever compared with the same part of one other version, so a
+  // shorter digest keeps the record small without a meaningful collision risk.
+  const digest = (node) =>
+    digestOf(normalizedDeclaration(module, node, origin.name, ctx, new Set())).slice(0, 8)
+  const typePart = (type) => {
+    const parts = typeParts(unwrap(type))
+    return parts === null ? digest(unwrap(type)) : [digest(unwrap(type)), parts]
+  }
+  const functionParts = (node) => {
+    const parts = {}
+    if (node.typeParameters) parts['<>'] = digest(node.typeParameters)
+    let position = 0
+    for (const param of node.params) {
+      const annotation = param.typeAnnotation?.typeAnnotation
+      const key =
+        param.type === 'TSThisParameter' || param.name === 'this'
+          ? 'this'
+          : param.type === 'RestElement'
+            ? `(...${position++})`
+            : `(${position++}${param.optional ? '?' : ''})`
+      parts[key] = annotation ? typePart(annotation) : digest(param)
+    }
+    if (node.returnType) parts['=>'] = typePart(node.returnType.typeAnnotation)
+    return parts
+  }
+  const memberParts = (members, parts) => {
+    for (const member of members) {
+      // A quoted key (`'@id'`) is written as JSON so it never reads as a structural key.
+      const name = member.computed
+        ? undefined
+        : member.key?.type === 'Identifier'
+          ? member.key.name
+          : JSON.stringify(String(member.key?.value))
+      let key = null
+      if (name !== undefined && member.type === 'TSPropertySignature') {
+        key = `${member.readonly ? 'readonly ' : ''}${name}${member.optional ? '?' : ''}`
+      } else if (name !== undefined && member.type === 'TSMethodSignature' && member.kind === 'method') {
+        key = `${name}${member.optional ? '?' : ''}()`
+      }
+      if (key === null || key in parts) {
+        parts[`~${digest(member)}`] = 1
+      } else if (member.type === 'TSMethodSignature') {
+        parts[key] = [digest(member), functionParts(member)]
+      } else {
+        const annotation = member.typeAnnotation?.typeAnnotation
+        parts[key] = annotation ? typePart(annotation) : digest(member)
+      }
+    }
+    return parts
+  }
+  const typeParts = (type) => {
+    switch (type?.type) {
+      case 'TSTypeLiteral':
+        return memberParts(type.members, {})
+      case 'TSFunctionType':
+        return functionParts(type)
+      case 'TSUnionType':
+        return Object.fromEntries(type.types.map((member) => [`|${digest(unwrap(member))}`, 1]))
+      case 'TSIntersectionType': {
+        const parts = {}
+        for (const member of type.types.map(unwrap)) {
+          if (member.type === 'TSTypeLiteral') memberParts(member.members, parts)
+          else parts[`&${digest(member)}`] = 1
+        }
+        return parts
+      }
+      default:
+        return null
+    }
+  }
+  const functions = nodes.every((node) => node.type === 'TSDeclareFunction' || node.type === 'FunctionDeclaration')
+  if (functions) {
+    return Object.fromEntries(nodes.map((node, index) => [`@${index}`, [digest(node), functionParts(node)]]))
+  }
+  if (nodes.length !== 1) return null
+  const [node] = nodes
+  let parts = null
+  if (node.type === 'TSInterfaceDeclaration') {
+    parts = {}
+    if (node.extends?.length > 0) parts.extends = digestOf(node.extends.map(digest).join(',')).slice(0, 8)
+    memberParts(node.body.body, parts)
+  } else if (node.type === 'TSTypeAliasDeclaration') {
+    parts = typeParts(unwrap(node.typeAnnotation))
+  } else if (node.type === 'VariableDeclaration' && node.declarations.length === 1) {
+    // A function-typed constant is called like a declared function.
+    const type = unwrap(node.declarations[0].id.typeAnnotation?.typeAnnotation)
+    if (type?.type === 'TSFunctionType') return { '@0': [digest(node), functionParts(type)] }
+  }
+  if (parts !== null && node.typeParameters) parts['<>'] = digest(node.typeParameters)
+  return parts
+}
+
 const surfaceOfPackage = (packageDirectory) => {
   const packageDir = resolve(repoRoot, packageDirectory)
   const manifestPath = resolve(packageDir, 'package.json')
@@ -503,14 +616,18 @@ const surfaceOfPackage = (packageDirectory) => {
     }
   }
   const recorded = {}
+  const structure = {}
   for (const [subpath, names] of perEntry) {
     const stated = {}
     for (const [name, record] of names) {
-      stated[name] = `${record.kind} ${shapeOfOrigin(record.origin, ctx)}`
+      const shape = shapeOfOrigin(record.origin, ctx)
+      stated[name] = `${record.kind} ${shape}`
+      const parts = partsOfOrigin(record.origin, ctx)
+      if (parts !== null) structure[shape] = parts
     }
     recorded[subpath] = stated
   }
-  return { package: manifest.name, entries: recorded, assets }
+  return { package: manifest.name, entries: recorded, assets, structure }
 }
 
 const failures = []
@@ -545,6 +662,7 @@ for (const packageDirectory of packageDirectories) {
       ['kind narrowed', changes.narrowed],
       ['kind changed', changes.widened],
       ['shape changed', changes.changed],
+      ['shape extended', changes.extended],
     ]) {
       for (const change of list.slice(0, 20)) lines.push(`  ${label}: ${change}`)
       if (list.length > 20) lines.push(`  ${label}: ...and ${list.length - 20} more`)

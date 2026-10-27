@@ -44,54 +44,34 @@
  * a consumer spent hours proving types that existed were absent.
  *
  * So every publishable package also commits `api-surface.json`, the symbols each
- * entry point exports AND the shape of each one, generated from the built
- * declarations by `check-api-surface.mjs`. A name alone is not enough: removing
- * a field from an exported interface, or adding a member to an exported union,
- * moves no name, so a name-only record answers "consumer surface unchanged" for
- * a change every consumer can see. This check compares that record against the
- * merge base and requires the level the change implies:
+ * entry point exports, the shape of each one, and the parts of each shape,
+ * generated from the built declarations by `check-api-surface.mjs`. This check
+ * compares that record against the merge base and requires the level the
+ * change implies:
  *
- *   - a removed export, one narrowed from a value to a type, or one whose SHAPE
- *     moved, is breaking;
- *   - an added export is additive;
- *   - a manifest-only change asks for a higher version, as it always did.
+ *   - additive (minor from 1.0): an added export, an added OPTIONAL member, an
+ *     added optional parameter or overload, a parameter type that widens;
+ *   - breaking (major from 1.0): a removed or renamed export or member, a value
+ *     narrowed to a type, an optional member made required, a REQUIRED member
+ *     added to a type a consumer may build, a narrowed parameter type, a changed
+ *     arity or an incompatible return type, and any shape change the recorded
+ *     parts cannot explain (`classifyShapeChange` in `lib/api-surface.mjs`);
+ *   - a manifest-only change asks for a higher version.
  *
  * The level each severity demands is read off the consumer's compatibility
  * boundary, which sits one position further right below 1.0 — see
  * `requiredBumpLevel` in `lib/api-surface.mjs`.
  *
- * This file, `check-api-surface.mjs` and `lib/api-surface.mjs` are kept
- * byte-identical in agent-knowledge and agent-runtime. They read everything
- * repo-specific out of the manifests they inspect, so an edit to one belongs in
- * both. Nothing here may name a single repository.
- *
- * agent-eval is deliberately NOT in that set, and the roster that used to name it
- * was never true: it has never carried these files on main. Its copy sits on an
- * unmerged branch, `feat/export-surface-gate`, written 2026-08-18 and 59 commits
- * behind main on 2026-09-01, whose own copy of this file had already drifted from
- * this one before the fix below existed. Adopting the gate there is a decision
- * about that repository's release discipline, not an edit this file is owed, so
- * it is tracked as its own issue. Restore the third name only when agent-eval
- * actually carries the file.
+ * `lib/api-surface.mjs` is byte-identical in agent-knowledge and agent-runtime,
+ * and this file and `check-api-surface.mjs` apply the same rules in both. They
+ * read everything repo-specific out of the manifests they inspect, so a rule
+ * change belongs in both. Nothing here may name a single repository.
  *
  * The version a change is measured against is the LAST PUBLISHED one, not the
- * base branch's. Those differ whenever main already carries a bump that has not
- * shipped, and reading the base branch instead made an unreleased version behave
- * like a released one: the first consumer-visible change claimed the open slot
- * and every later one in the same train was told to open another.
- *
- * Measured 2026-09-01 on agent-runtime. Two export-adding pull requests were
- * open against a main that declared 0.190.0 while the registry's newest version
- * was 0.189.0. Nothing could ship under 0.190.0 without a second bump, so #1065
- * and #1066 were each refused, each for adding exports to a version no consumer
- * could yet resolve, and both had to be merged with admin over a red gate. One
- * unpublished bump can absorb every consumer-visible change until it ships,
- * which is what a release train is for.
- *
- * A version that IS on the registry still demands its own bump. That is the
- * defect this file exists for, and it is unchanged: 0.119.0 moved a peer floor
- * under a version npm already held, and `publish.yml` skips a version already
- * published, so re-tagging could never correct it.
+ * base branch's: one unpublished bump absorbs every consumer-visible change
+ * until it ships, which is what a release train is for. A version that IS on
+ * the registry still demands its own bump, because `publish.yml` skips a
+ * version already published and re-tagging cannot correct it.
  *
  * What "published" means here, in order:
  *
@@ -517,13 +497,14 @@ for (const name of names) {
   // so there is nothing yet to have changed against.
   const exportChanges =
     baseRecord === null
-      ? { added: [], removed: [], narrowed: [], widened: [], changed: [] }
+      ? { added: [], removed: [], narrowed: [], widened: [], changed: [], extended: [] }
       : compareSurfaces(baseRecord.surface, headRecord.surface)
   const severity = surfaceSeverity(exportChanges)
   const exportLines = [
     ...exportChanges.removed.map((change) => `export removed: ${change}`),
     ...exportChanges.narrowed.map((change) => `export narrowed: ${change}`),
     ...exportChanges.changed.map((change) => `export shape changed: ${change}`),
+    ...exportChanges.extended.map((change) => `export extended: ${change}`),
     ...exportChanges.added.map((change) => `export added: ${change}`),
     ...exportChanges.widened.map((change) => `export kind changed: ${change}`),
   ]

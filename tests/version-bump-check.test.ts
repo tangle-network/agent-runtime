@@ -848,3 +848,40 @@ describe('the baseline is the last published version, not the base branch', () =
     expect(failure.stderr).toContain('still declares 0.4.9')
   })
 })
+
+describe('a shape change is classified from the declarations it was built from', () => {
+  /** Record built declarations with the real generator and commit them as `version`. */
+  async function build(root: string, version: string, declarations: string): Promise<string> {
+    await mkdir(join(root, 'dist'), { recursive: true })
+    await writeFile(
+      join(root, 'package.json'),
+      `${JSON.stringify({ name: '@tangle-network/fixture', version, exports: { '.': { types: './dist/index.d.ts' } } })}\n`,
+    )
+    await writeFile(join(root, 'dist', 'index.d.ts'), declarations)
+    await execFileAsync(process.execPath, ['scripts/check-api-surface.mjs', '--write'], {
+      cwd: process.cwd(),
+      env: { ...process.env, API_SURFACE_ROOT: root },
+    })
+    return commit(root, version)
+  }
+  const options = (member: string) =>
+    `export interface StartOptions {\n  readonly cwd: string;\n${member}}\nexport declare function start(options: StartOptions): void;\n`
+
+  it('asks a minor for an added optional member and a major for an added required one', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-runtime-shape-'))
+    roots.push(root)
+    await git(root, 'init', '--quiet', '--initial-branch=main')
+    const released = await build(root, '1.0.0', options(''))
+    await tag(root, 'v1.0.0')
+
+    await build(root, '1.1.0', options('  readonly journalRoot?: string;\n'))
+    await expect(check(root, released)).resolves.toMatchObject({
+      stdout: expect.stringContaining('needing a minor bump, paid for by 1.0.0 -> 1.1.0 (minor)'),
+    })
+
+    await build(root, '1.1.0', options('  readonly journalRoot: string;\n'))
+    const failure = await check(root, released).catch((error) => error)
+    expect(failure.stderr).toContain('(added readonly journalRoot)')
+    expect(failure.stderr).toContain('breaking change needing a major bump')
+  })
+})

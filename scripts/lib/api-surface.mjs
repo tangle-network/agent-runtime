@@ -37,20 +37,23 @@
  * reaches no exported declaration moves nothing, a doc-comment edit moves
  * nothing, and a bundler's private renaming moves nothing.
  *
- * Two deliberate limits, so neither reads as an oversight:
+ * `structure` maps a digest to the PARTS of that declaration — members,
+ * parameters, return type, union members — each with its own digest, so a
+ * shape change can be classified (`classifyShapeChange`) instead of assumed
+ * breaking.
+ *
+ * Deliberate limits, so none reads as an oversight:
  *   - A change is reported where it HAPPENED, not everywhere it is reachable
  *     from. `A { b: B }` references `B` by public name, so editing `B` moves
  *     `B`'s digest and not `A`'s. Every affected symbol is still named, once.
- *   - A shape change is classified BREAKING, not additive. Telling an added
- *     optional field from a removed required one is a subtyping question, and
- *     the record states structure rather than subtyping. Guessing additive on a
- *     change that is actually a break is the failure this exists to stop.
+ *   - A change the parts cannot explain — a class, an enum, an unexported type
+ *     a member names, a shape either record states no parts for — is breaking.
+ *     Guessing additive on a change that is actually a break is the failure
+ *     this exists to stop.
  *   - The digest reads the declaration a build EMITTED, so restating a type
  *     without changing what it means still moves it: `'a' | 'b'` rewritten as
- *     `(typeof names)[number]` is one type and two declarations. That asks for
- *     a bump nobody strictly owed, which is the safe direction — deciding that
- *     two differently-written declarations denote one type is the same
- *     subtyping question as above.
+ *     `(typeof names)[number]` is one type and two declarations, and asks for a
+ *     bump nobody strictly owed, which is the safe direction.
  */
 import { existsSync, readdirSync } from 'node:fs'
 import { join, posix, relative, resolve } from 'node:path'
@@ -181,14 +184,22 @@ export const resolveExportEntries = (manifest, packageDir) => {
   return { entries, assets: assets.sort() }
 }
 
-/** Stable on-disk form: sorted everywhere, so a diff shows only real movement. */
+/**
+ * Stable on-disk form: sorted everywhere, so a diff shows only real movement.
+ * Each declaration's parts sit on one line, so a changed shape reads as one
+ * line out and one line in.
+ */
 export const formatSurface = (surface) => {
   const entries = {}
   for (const subpath of Object.keys(surface.entries).sort()) {
     const names = surface.entries[subpath]
     entries[subpath] = Object.fromEntries(Object.keys(names).sort().map((name) => [name, names[name]]))
   }
-  return `${JSON.stringify({ package: surface.package, entries, assets: [...surface.assets].sort() }, null, 2)}\n`
+  const text = JSON.stringify({ package: surface.package, entries, assets: [...surface.assets].sort() }, null, 2)
+  const structure = Object.keys(surface.structure ?? {}).sort()
+  if (structure.length === 0) return `${text}\n`
+  const lines = structure.map((digest) => `    ${JSON.stringify(digest)}: ${JSON.stringify(surface.structure[digest])}`)
+  return `${text.slice(0, -2)},\n  "structure": {\n${lines.join(',\n')}\n  }\n}\n`
 }
 
 /**
@@ -209,9 +220,9 @@ export const parseSurfaceEntry = (entry) => {
  * runtime binding a consumer imported is gone. That is a break the name set
  * alone would call unchanged.
  *
- * `changed` is a name whose kind held and whose SHAPE moved — a field, a
- * parameter, a union member. It is reported alongside a kind move rather than
- * instead of one, because the two are independent and either can be the break.
+ * A name whose SHAPE moved is `extended` when `classifyShapeChange` finds only
+ * additive parts and `changed` otherwise. It is reported alongside a kind move
+ * rather than instead of one, because the two are independent.
  */
 export const compareSurfaces = (before, after) => {
   const added = []
@@ -219,6 +230,7 @@ export const compareSurfaces = (before, after) => {
   const narrowed = []
   const widened = []
   const changed = []
+  const extended = []
   const subpaths = [
     ...new Set([...Object.keys(before.entries ?? {}), ...Object.keys(after.entries ?? {})]),
   ].sort()
@@ -252,7 +264,13 @@ export const compareSurfaces = (before, after) => {
         else widened.push(`${subpath} ${name}: ${was.kind} -> ${is.kind}`)
       }
       if (was.shape !== undefined && is.shape !== undefined && was.shape !== is.shape) {
-        changed.push(`${subpath} ${name}: shape ${was.shape} -> ${is.shape}`)
+        const from = before.structure?.[was.shape]
+        const to = after.structure?.[is.shape]
+        const parts = from && to ? classifyShapeChange(from, to) : null
+        const line = `${subpath} ${name}: shape ${was.shape} -> ${is.shape}`
+        if (parts === null) changed.push(line)
+        else if (parts.breaking.length > 0) changed.push(`${line} (${parts.breaking.join(', ')})`)
+        else extended.push(`${line} (${parts.additive.join(', ')})`)
       }
     }
   }
@@ -270,19 +288,85 @@ export const compareSurfaces = (before, after) => {
       removed.push(`${subpath} (entry point, no declarations)`)
     }
   }
-  return { added, removed, narrowed, widened, changed }
+  return { added, removed, narrowed, widened, changed, extended }
 }
 
 /**
- * A shape change counts as breaking. Whether it added an optional field or
- * removed a required one is a subtyping question this record cannot answer, and
- * calling a break additive is the outcome the record exists to prevent.
+ * Whether a consumer's code that compiled against `before` still compiles
+ * against `after`, judged part by part (see `partsOfOrigin` in
+ * `check-api-surface.mjs`). Additive: an optional member, an optional or rest
+ * parameter, a union member a consumer only passes in, a member or overload of
+ * something a consumer only reads or calls. Everything else that moved —
+ * removed, renamed, made required, narrowed, retyped, a part neither side
+ * splits — is breaking.
+ *
+ * Direction comes from where a part sits, never from the record's kind, which
+ * follows the export statement's form. An exported type may be built,
+ * implemented or read, so it is checked both ways; a function value (`@`) is
+ * called; each parameter flips the direction.
  */
+export const classifyShapeChange = (before, after) => {
+  const breaking = []
+  const additive = []
+  const digest = (part) => (Array.isArray(part) ? part[0] : part)
+  const partsOf = (part) => (Array.isArray(part) ? part[1] : null)
+  // A plain type reads as a one-member union, so `string` -> `string | number` is one added member.
+  const asUnion = (part) => {
+    const parts = partsOf(part)
+    if (parts === null) return { [`|${part}`]: 1 }
+    return Object.keys(parts).every((key) => key.startsWith('|')) ? parts : null
+  }
+  const flip = { in: 'out', out: 'in', both: 'both' }
+  const addable = (key, direction) => {
+    if (key.startsWith('|')) return direction === 'in'
+    if (key.startsWith('@')) return true
+    if (key.startsWith('(')) return key.startsWith('(...') || key.endsWith('?)') || direction === 'in'
+    if (['<>', '=>', 'extends', 'this'].includes(key) || /^[&~]/.test(key)) return false
+    return key.endsWith('?') || key.endsWith('?()') || direction === 'out'
+  }
+  const walk = (left, right, path, direction) => {
+    for (const key of [...new Set([...Object.keys(left), ...Object.keys(right)])].sort()) {
+      const at = path === '' ? key : `${path} ${key}`
+      if (!(key in left)) {
+        if (addable(key, direction)) additive.push(`added ${at}`)
+        else breaking.push(`added ${at}`)
+        continue
+      }
+      if (!(key in right)) {
+        // Only a value a consumer reads may lose a union member.
+        if (key.startsWith('|') && direction === 'out') additive.push(`removed ${at}`)
+        else breaking.push(`removed ${at}`)
+        continue
+      }
+      if (digest(left[key]) === digest(right[key])) continue
+      let from = partsOf(left[key])
+      let to = partsOf(right[key])
+      if ((from === null) !== (to === null) && asUnion(left[key]) && asUnion(right[key])) {
+        from = asUnion(left[key])
+        to = asUnion(right[key])
+      }
+      if (from === null || to === null) {
+        breaking.push(`changed ${at}`)
+        continue
+      }
+      const found = breaking.length + additive.length
+      walk(from, to, at, key.startsWith('@') ? 'out' : key.startsWith('(') ? flip[direction] : direction)
+      if (breaking.length + additive.length === found) breaking.push(`changed ${at}`)
+    }
+  }
+  walk(before, after, '', 'both')
+  if (breaking.length + additive.length === 0) breaking.push('changed outside its stated parts')
+  return { breaking, additive }
+}
+
+/** A removal, a narrowing or a breaking shape change is breaking; an addition is additive. */
 export const surfaceSeverity = (changes) => {
   if (changes.removed.length > 0 || changes.narrowed.length > 0 || changes.changed.length > 0) {
     return 'breaking'
   }
-  if (changes.added.length > 0 || changes.widened.length > 0) return 'additive'
+  if (changes.added.length > 0 || changes.widened.length > 0 || changes.extended?.length > 0) {
+    return 'additive'
+  }
   return 'none'
 }
 
