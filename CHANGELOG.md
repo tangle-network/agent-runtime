@@ -1,3 +1,11 @@
+## 2.0.2
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+The `@tangle-network/agent-interface` peer floor rises to `^5.10.2`, so an install whose lock still holds an Interface release without the bounded profile admission (Zod 54404) fails instead of resolving silently.
+
+`agent-runtime-top --web` keeps a supervised run's card when its observer journal carries child turn rows, takes the root's status from its spawn-journal settlement when the observer has none, and shows a run as soon as its spawn journal begins.
+
 ## 2.0.1
 
 Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
