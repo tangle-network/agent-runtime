@@ -170,7 +170,7 @@ Import from `@tangle-network/agent-runtime/agent` — 30 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 95 exports.
+Import from `@tangle-network/agent-runtime/durable` — 98 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -188,8 +188,11 @@ Import from `@tangle-network/agent-runtime/durable` — 95 exports.
 | `readRunParking` | function | Read the journal's bounded parking projection. Undefined means no current parking handoff. |
 | `readSettleRecord` | function | Read the settle record a run directory holds, or `undefined` when it holds none. A file that |
 | `runDirectoryHolderIsLive` | function | Whether a run directory is still held by the live process that took its lock. |
+| `runTraceAnalysisStore` | function | The store over a manager's run: its own root stream when it has one, and every settled worker's |
 | `superviseGraphPursuit` | function | One-call durable execution of an `AgentGraph`: the graph twin of {@link supervisePursuit}. |
 | `supervisePursuit` | function | One-call durable pursuit execution over the canonical `supervise()` kernel. |
+| `ASSISTANT_REASONING_SPAN` | const | The span a run of the director's reasoning becomes. |
+| `ASSISTANT_TEXT_SPAN` | const | The span a run of the director's text becomes. |
 | `RUN_FORK_CORRELATION_KEYS` | const | The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that |
 | `FileObserverJournal` | class | Durable, append-only third-person history for one concrete Runtime execution. |
 | `RunDirectoryLockedError` | class | The directory is held by a live process. `holder` is what that process recorded. |

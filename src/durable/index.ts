@@ -61,6 +61,11 @@ export type {
   RunParkingRecord,
 } from '../runtime/supervise/run-parking'
 export { RunParkedError, readRunParking } from '../runtime/supervise/run-parking'
+export {
+  ASSISTANT_REASONING_SPAN,
+  ASSISTANT_TEXT_SPAN,
+  runTraceAnalysisStore,
+} from '../runtime/supervise/run-traces'
 export type { SeatSelection, SeatSelectionInput, SelectSeat } from '../runtime/supervise/seat-chain'
 export type {
   AuthorizedSpawn,
