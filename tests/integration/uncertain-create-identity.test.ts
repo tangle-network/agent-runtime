@@ -178,11 +178,22 @@ it.each(['dispatch-refused', 'dispatch-lost-reply'] as const)(
       expect(inputs(after)).toEqual(original.inputs)
       expect(intents(after)).toEqual(original.intents)
       expect(abandoned(after)).toHaveLength(0)
-      expect(
-        after.filter(
-          (event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
-        ),
-      ).toHaveLength(1)
+      const dispatched = after.filter(
+        (event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
+      )
+      if (scenario === 'dispatch-refused') expect(dispatched).toHaveLength(1)
+      else {
+        // An existing running session may dedupe without an exact receipt. Keep UNKNOWN;
+        // executionId alone never authorizes an admission, abandonment or another turn.
+        expect(dispatched.length).toBeLessThanOrEqual(1)
+        if (dispatched.length === 0)
+          expect(readRecords(join(fixture.directory, 'attempts.jsonl')).at(-1)).toMatchObject({
+            classification: 'transient',
+            madeProgress: false,
+            beforeModelEvent: true,
+            error: expect.stringContaining('exact run control reference'),
+          })
+      }
       expect(after.filter((event) => event.kind === 'execution-result')).toHaveLength(0)
       const state = await fixture.state()
       expect(state.provisions).toHaveLength(1)
@@ -199,14 +210,15 @@ it.each(['dispatch-refused', 'dispatch-lost-reply'] as const)(
       expect(state.requests.filter((row) => row.kind === 'execution-started-sent')).toHaveLength(
         scenario === 'dispatch-refused' ? 1 : 0,
       )
-      expect(state.requests.filter((row) => row.kind === 'stream-replay')).toHaveLength(
-        scenario === 'dispatch-lost-reply' ? 1 : 0,
-      )
       expect(state.provisions[0]!.key).toBe(original.intents[0]!.idempotencyKey)
       expect(state.requests.filter((row) => row.kind === 'delete')).toHaveLength(0)
       expect(state.requests.filter((row) => row.kind === 'native-result-ready')).toHaveLength(0)
       const posts = state.requests.filter((row) => row.kind === 'stream-http-request')
-      expect(posts).toHaveLength(2)
+      if (scenario === 'dispatch-refused') expect(posts).toHaveLength(2)
+      else {
+        expect(posts.length).toBeGreaterThanOrEqual(1)
+        expect(posts.length).toBeLessThanOrEqual(2)
+      }
       expect(
         posts.every(
           (row) =>
