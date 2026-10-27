@@ -131,11 +131,13 @@ async function awaitWake(env: WaitingEnv, input: AwaitWakeInput): Promise<Manage
     events.push({ ...projectEvent(next.event), eventSeq: next.seq })
   }
   if (events.length === 0 && !outsideWake && !hasOpenWork(env)) return undefined
+  // A due deadline warning names the wake even when events ride along; otherwise the manager is
+  // woken once for the events and again, at once, for the warning.
   const reason =
-    events.length > 0 || outsideWake
-      ? 'events'
-      : Date.now() >= deadlineAt
-        ? 'deadline'
+    Date.now() >= deadlineAt
+      ? 'deadline'
+      : events.length > 0 || outsideWake
+        ? 'events'
         : 'heartbeat'
   if (reason === 'deadline') state.deadlineNoticeDelivered = true
   return detachedFrozen<ManagerWake>({
@@ -249,15 +251,17 @@ async function waitForWakeCondition(
       await env.state.inFlightDrain.catch(() => false)
     }
     // Coalesce: whatever else lands within the debounce rides the same wake. Only while other
-    // workers still run: with none, nothing else is coming.
+    // workers still run: with none, nothing else is coming. The debounce never runs past the
+    // deadline warning: a 2 s wait there pushed a late settlement past the deadline itself.
+    const debounceMs = Math.min(input.debounceMs, Math.max(0, deadlineAt - Date.now()))
     if (
       bus.pending(wakeEventKinds) > 0 &&
-      input.debounceMs > 0 &&
+      debounceMs > 0 &&
       workers.openWork().running.length > 0
     ) {
       await Promise.race([
         new Promise<void>((resolve) => {
-          setTimeout(resolve, input.debounceMs)
+          setTimeout(resolve, debounceMs)
         }),
         aborted,
       ])
