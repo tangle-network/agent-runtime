@@ -1,3 +1,7 @@
+## 0.353.1
+
+Qualify durable parking, cancellation and steering with a recoverable root stop while preserving immediate settlement of terminal driver refusals.
+
 ## 0.353.0
 
 Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
