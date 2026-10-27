@@ -100,7 +100,7 @@ it('admits a model-free coordinator while enforcing its actual leaf model allowl
     expect(journal?.filter((event) => event.kind === 'spawned')).toHaveLength(2)
     await expect(
       runGraph(graph('disallowed-model'), { ...options, runId: 'denied-flow' }),
-    ).rejects.toThrow(/model "disallowed-model" not in allowed set/u)
+    ).rejects.toThrow(/model "disallowed-model" is not in the allowed set/u)
     expect(processes).toBe(1)
   } finally {
     await rm(root, { recursive: true, force: true })
