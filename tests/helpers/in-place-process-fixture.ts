@@ -237,6 +237,9 @@ function makeFixture(mode: ProcessMode) {
   const directory = mkdtempSync(join(tmpdir(), 'in-place-process-join-'))
   const bin = join(directory, 'bin')
   mkdirSync(bin)
+  // The extensionless CommonJS stub takes its module type from the nearest package.json. An
+  // ancestor declaring "type": "module" made it fail at require() on gate hosts, so declare it here.
+  writeFileSync(join(bin, 'package.json'), '{"type":"commonjs"}\n')
   writeFileSync(join(bin, 'claude'), `#!${process.execPath}\n${executable}`, { mode: 0o755 })
   writeFileSync(join(directory, 'caller-owned.txt'), 'preserve caller bytes')
   const profile: AgentProfile = {
