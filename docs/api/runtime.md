@@ -23414,22 +23414,13 @@ Test seam — inject the harness runner so unit tests script a `LocalHarnessResu
 
 **`Experimental`**
 
-Spawn a local coding harness CLI as a subprocess + collect its output.
+Spawn a local harness, collect output and confirm process-tree cleanup.
+The caller owns output parsing and workspace diffs.
 
-NOT responsible for parsing the harness's output or extracting a diff —
-the in-process executor's `streamPrompt` orchestrates `git diff` against
-the worktree after this resolves. This function is intentionally narrow:
-spawn, wait, capture, return.
+Spawn failures and signals already aborted before launch reject.
 
-Fails loud — throws when:
-  - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
-  - the harness binary is not on PATH (ENOENT)
-  - the caller signal was already aborted before process launch
-
-Does NOT throw when:
-  - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
-    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+Ordinary nonzero exits and cancellation return the exit code and timeout/abort flags.
+A failed prompt delivery rejects after the child is reaped.
 
 Reproducible Codex additionally requires a terminal usage event. If cancellation
 prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
@@ -26133,22 +26124,13 @@ Test seam — inject the harness runner so unit tests script a `LocalHarnessResu
 
 **`Experimental`**
 
-Spawn a local coding harness CLI as a subprocess + collect its output.
+Spawn a local harness, collect output and confirm process-tree cleanup.
+The caller owns output parsing and workspace diffs.
 
-NOT responsible for parsing the harness's output or extracting a diff —
-the in-process executor's `streamPrompt` orchestrates `git diff` against
-the worktree after this resolves. This function is intentionally narrow:
-spawn, wait, capture, return.
+Spawn failures and signals already aborted before launch reject.
 
-Fails loud — throws when:
-  - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
-  - the harness binary is not on PATH (ENOENT)
-  - the caller signal was already aborted before process launch
-
-Does NOT throw when:
-  - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
-    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+Ordinary nonzero exits and cancellation return the exit code and timeout/abort flags.
+A failed prompt delivery rejects after the child is reaped.
 
 Reproducible Codex additionally requires a terminal usage event. If cancellation
 prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
@@ -30549,22 +30531,13 @@ Test seam — inject the harness runner so unit tests script a `LocalHarnessResu
 
 **`Experimental`**
 
-Spawn a local coding harness CLI as a subprocess + collect its output.
+Spawn a local harness, collect output and confirm process-tree cleanup.
+The caller owns output parsing and workspace diffs.
 
-NOT responsible for parsing the harness's output or extracting a diff —
-the in-process executor's `streamPrompt` orchestrates `git diff` against
-the worktree after this resolves. This function is intentionally narrow:
-spawn, wait, capture, return.
+Spawn failures and signals already aborted before launch reject.
 
-Fails loud — throws when:
-  - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
-  - the harness binary is not on PATH (ENOENT)
-  - the caller signal was already aborted before process launch
-
-Does NOT throw when:
-  - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
-    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+Ordinary nonzero exits and cancellation return the exit code and timeout/abort flags.
+A failed prompt delivery rejects after the child is reaped.
 
 Reproducible Codex additionally requires a terminal usage event. If cancellation
 prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
@@ -30799,22 +30772,13 @@ Test seams forwarded to every worktree-CLI leaf (inject git/harness/command runn
 
 **`Experimental`**
 
-Spawn a local coding harness CLI as a subprocess + collect its output.
+Spawn a local harness, collect output and confirm process-tree cleanup.
+The caller owns output parsing and workspace diffs.
 
-NOT responsible for parsing the harness's output or extracting a diff —
-the in-process executor's `streamPrompt` orchestrates `git diff` against
-the worktree after this resolves. This function is intentionally narrow:
-spawn, wait, capture, return.
+Spawn failures and signals already aborted before launch reject.
 
-Fails loud — throws when:
-  - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
-  - the harness binary is not on PATH (ENOENT)
-  - the caller signal was already aborted before process launch
-
-Does NOT throw when:
-  - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
-    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+Ordinary nonzero exits and cancellation return the exit code and timeout/abort flags.
+A failed prompt delivery rejects after the child is reaped.
 
 Reproducible Codex additionally requires a terminal usage event. If cancellation
 prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
