@@ -334,6 +334,8 @@ async function settleRetainedPending<C>(
     // unobservable by definition.
     retainedPendingCause:
       err instanceof RetainedExecutionPendingError ? err.pendingCause : 'unobservable',
+    // The provider's own machine code survives the wrapper, as on the crashed path.
+    failure: runtimeFailureCause(err),
   }
 }
 
