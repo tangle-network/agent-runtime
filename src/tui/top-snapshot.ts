@@ -374,8 +374,12 @@ async function loadDurableTopSnapshot(
     const latest = new Map(pursuit.runs.map((run) => [run.runId, run]))
     path = 'spawn-journal.jsonl'
     const spawnJournal = new FileSpawnJournal(discovery.spawnJournalPath)
+    // A child's metered turns journal under `<root>/<child>`; the spawn tree already shows them.
+    const rows = [...latest.values()].filter(
+      (run) => !discovery.roots.some((id) => run.runId.startsWith(`${id}/`)),
+    )
     const supervisors = await Promise.all(
-      [...latest.values()].map(async (run) => {
+      rows.map(async (run) => {
         // SupervisorOpts.runId is the journal root key; require its recorded discovery binding.
         const binding = discovery.roots.find((id) => id === run.runId)
         // A retained run journals admissions only and writes no spawn journal to bind.
@@ -384,18 +388,27 @@ async function loadDurableTopSnapshot(
         const events = binding ? ((await spawnJournal.loadTree(binding)) ?? []) : []
         const rootSpawn = events.find((event) => event.kind === 'spawned' && event.id === binding)
         const budget = rootSpawn?.kind === 'spawned' ? rootSpawn.budget?.maxTokens : undefined
+        // supervise() records no agent.run for its root; the spawn journal's settlement is the end.
+        const terminal = events
+          .filter((e) => e.id === binding && (e.kind === 'settled' || e.kind === 'cancelled'))
+          .at(-1)
+        const settledAt =
+          run.settledAt === undefined ? terminal?.at : new Date(run.settledAt).toISOString()
         return buildSupervisorView(
           {
             id: run.runId,
-            status: run.status,
+            status:
+              run.status !== 'running' || terminal === undefined
+                ? run.status
+                : terminal.kind === 'settled'
+                  ? terminal.status
+                  : 'cancelled',
             task: run.runId,
             workspaceDir: root,
             budget: budget ?? 0,
             budgetKnown: budget !== undefined,
             startedAt: new Date(run.firstObservedAt).toISOString(),
-            ...(run.settledAt === undefined
-              ? {}
-              : { completedAt: new Date(run.settledAt).toISOString() }),
+            ...(settledAt === undefined ? {} : { completedAt: settledAt }),
           },
           discovery.runDir,
           events.filter(isSpawnEvent),

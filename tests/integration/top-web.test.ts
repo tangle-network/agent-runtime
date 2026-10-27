@@ -1,4 +1,4 @@
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { appendFile, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
@@ -172,6 +172,38 @@ test('a retained run started with journalRoot appears in GET /api/top within 2 s
     }
     expect(card).toMatchObject({ id: runId, status: 'running' })
     expect(Date.now() - startedAt).toBeLessThan(2000)
+  } finally {
+    await web.close()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 15000)
+
+test('a supervised run with metered child turns, and one that has only begun, both render as cards', async () => {
+  // Recorded from a real supervise() run (router brain, three router workers) under Runtime 2.0.1.
+  const recorded = join(__dirname, '..', 'fixtures', 'durable', 'supervised-nested-turns')
+  const root = await mkdtemp(join(tmpdir(), 'runtime-top-web-supervised-'))
+  const finished = join(root, 'finished')
+  const begun = join(root, 'begun')
+  const assets = join(root, 'assets')
+  await mkdir(assets)
+  await writeFile(join(assets, 'workspace-viewer.js'), 'export {};')
+  await writeFile(join(assets, 'styles.css'), 'body { color: black; }')
+  await cp(recorded, join(finished, 'liverun-proof-2'), { recursive: true })
+  // supervise() writes its spawn journal at begin and its first observer record after a turn.
+  await mkdir(join(begun, 'liverun-proof-2'), { recursive: true })
+  await cp(
+    join(recorded, 'spawn-journal.jsonl'),
+    join(begun, 'liverun-proof-2', 'spawn-journal.jsonl'),
+  )
+  const web = await serveTopWeb({ roots: [finished, begun], assets })
+  try {
+    const current = (await (await fetch(`${web.url}api/top`)).json()) as TopSnapshotFrame
+    const [whole, early] = current.snapshots
+    expect(whole?.diagnostics).toEqual([])
+    expect(whole?.supervisors).toHaveLength(1)
+    expect(whole?.supervisors[0]).toMatchObject({ id: 'liverun-proof-2' })
+    expect(whole?.supervisors[0]?.workers).toHaveLength(3)
+    expect(early?.supervisors.map((supervisor) => supervisor.id)).toEqual(['liverun-proof-2'])
   } finally {
     await web.close()
     await rm(root, { recursive: true, force: true })

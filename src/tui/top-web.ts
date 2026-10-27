@@ -320,14 +320,24 @@ export async function runTopWeb(argv: readonly string[]) {
 /** A journal root holds one `<runId>/observer.jsonl` per retained run beside any workspace runs. */
 async function loadRunsRoot(root: string): Promise<TopSnapshot> {
   const workspace = loadTopSnapshot(root)
+  // A supervised run writes its spawn journal at begin and its observer journal after the first
+  // turn; either one makes the run a card, so it appears as soon as supervision starts.
+  const has = (runId: string, file: string) => existsSync(resolve(root, runId, file))
   const runIds = readdirSync(root, { withFileTypes: true })
     .filter(
-      (entry) => entry.isDirectory() && existsSync(resolve(root, entry.name, 'observer.jsonl')),
+      (entry) =>
+        entry.isDirectory() &&
+        (has(entry.name, 'observer.jsonl') || has(entry.name, 'spawn-journal.jsonl')),
     )
     .map((entry) => entry.name)
   if (!runIds.length) return workspace
   const runs = await Promise.all(
-    runIds.map((runId) => loadTopSnapshot(root, { runDir: resolve(root, runId) })),
+    runIds.map((runId) =>
+      loadTopSnapshot(root, {
+        runDir: resolve(root, runId),
+        ...(has(runId, 'observer.jsonl') ? {} : { format: 'journal' as const }),
+      }),
+    ),
   )
   const diagnostics = [
     ...workspace.diagnostics,
