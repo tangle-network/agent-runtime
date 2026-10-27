@@ -272,7 +272,14 @@ export function settlementFailureCause(down: {
 }): RuntimeFailureCause {
   const cause = errMessage(down.reason).slice(0, MAX_CAUSE_CHARS)
   if (down.retainedPendingCause !== undefined) {
-    return { ...retainedFailures[down.retainedPendingCause], cause }
+    return {
+      ...retainedFailures[down.retainedPendingCause],
+      cause,
+      // The retained cause names what to do; the provider's code still says what happened.
+      ...(down.failure?.providerCode === undefined
+        ? {}
+        : { providerCode: down.failure.providerCode }),
+    }
   }
   if (down.failure !== undefined && down.failure.code !== 'unknown')
     return { ...down.failure, cause }

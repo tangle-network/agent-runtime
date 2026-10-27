@@ -77,6 +77,8 @@ function retainedProvider(directory: string) {
     resultLost: true,
     /** What the lost read throws: a plain Error is exhibit 4's shape, unobservable by design. */
     resultError: () => new Error('provider result read lost'),
+    /** What a refused dispatch throws, or undefined to dispatch normally. */
+    dispatchError: undefined as (() => Error) | undefined,
     foreignEvent: false,
     observe: undefined as ((signal: AbortSignal | undefined) => Promise<void>) | undefined,
     destroyFailure: undefined as Error | undefined,
@@ -89,6 +91,10 @@ function retainedProvider(directory: string) {
     const base = durableRetainedProvider(stateFile)
     const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
       ...environment,
+      dispatch: async (...args: Parameters<NonNullable<AgentEnvironment['dispatch']>>) => {
+        if (state.dispatchError) throw state.dispatchError()
+        return environment.dispatch!(...args)
+      },
       session: (id, options) => {
         const session = environment.session!(id, options)
         return {
@@ -426,6 +432,43 @@ describe('retained environments at root settlement', () => {
     // The released bucket counts it the same either way: the cause says what to do, not whether
     // the fleet lost the child.
     expect(result.fleetYield.releasedUnrecovered).toBe(1)
+  })
+
+  it('keeps the provider code of a dispatch the platform refused on the settled failure', async () => {
+    // Run 002f69d5: the orchestrator refused the dispatch before forwarding it (HTTP 503,
+    // HUB_CREDENTIAL_REFRESH_FAILED). The Sandbox SDK and the provider keep code and status; the
+    // settled child and the result tree must still name the provider's code.
+    const fleet = retainedProvider(directory)
+    fleet.state.dispatchError = () =>
+      Object.assign(new Error('HTTP 503: Sandbox Hub credential is temporarily unavailable.'), {
+        name: 'ServerError',
+        code: 'HUB_CREDENTIAL_REFRESH_FAILED',
+        status: 503,
+      })
+    const context = createInMemoryRunContext()
+    let live: Settled<unknown> | undefined
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          live = await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+          return 'finished'
+        },
+      },
+      'task',
+      {
+        ...context,
+        runId: 'refused',
+        budget: { maxIterations: 4, maxTokens: 4000 },
+        retainedAtSettlement: 'release',
+      },
+    )
+    expect(live?.kind).toBe('down')
+    if (live?.kind !== 'down') return
+    expect(live.failure).toMatchObject({ providerCode: 'HUB_CREDENTIAL_REFRESH_FAILED' })
+    expect(result.tree.nodes.find((node) => node.id === 'refused:s0')?.failure).toMatchObject({
+      providerCode: 'HUB_CREDENTIAL_REFRESH_FAILED',
+    })
   })
 
   it('does not trip an armed intensity breaker with the released record', async () => {
