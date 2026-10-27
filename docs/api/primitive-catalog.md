@@ -1508,15 +1508,17 @@ Import from `@tangle-network/agent-runtime/mcp` — 111 exports.
 
 ### Supervisor TUI — live terminal view over the on-disk run layout
 
-Import from `@tangle-network/agent-runtime/tui` — 14 exports.
+Import from `@tangle-network/agent-runtime/tui` — 17 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `loadTopSnapshot` | function | Read every supervisor run under one workspace into a single point-in-time snapshot. |
 | `provisionSupervisor` | function | Provision one real provider-backed worker and keep its owning manager alive for controls. |
+| `serveTopWeb` | function | Read-only web transport over the same snapshots as the terminal. No execution or writes. |
 | `TopSnapshotDiagnostic` | interface | One skipped or partially read snapshot source. `path` is relative to the run directory and |
+| `TopSnapshotFrame` | interface | A reconnect always receives current truth; deltas replace changed roots atomically. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `Distribution`, `SpendStats`, `SupervisorTotals`, `SupervisorView`, `TopSnapshot`, `WorkerView`, `BudgetStats`, `TopJournalEvent`, `TopSnapshotCompleteness`, `TopSnapshotDiagnosticReason`, `TopSnapshotDiagnosticSource`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `Distribution`, `SpendStats`, `SupervisorTotals`, `SupervisorView`, `TopSnapshot`, `TopWebOptions`, `WorkerView`, `BudgetStats`, `TopJournalEvent`, `TopSnapshotCompleteness`, `TopSnapshotDiagnosticReason`, `TopSnapshotDiagnosticSource`.
 
 ### Bounded task admission and native promise settlement
 

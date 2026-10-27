@@ -21,6 +21,7 @@
 // Braid imports the TUI entrypoint beside the kernel entrypoint. Re-export the Runtime provisioner
 // here so that either public face resolves the same owner and no client invents a second wrapper.
 export { provisionSupervisor } from '../runtime/supervise/provision-supervisor'
+export { serveTopWeb, type TopWebOptions, type TopSnapshotFrame } from './top-web'
 export {
   type BudgetStats,
   type Distribution,

@@ -13,5 +13,7 @@
  */
 
 import { runTopApp } from './top-app'
+import { runTopWeb } from './top-web'
 
-runTopApp()
+if (process.argv.includes('--web')) await runTopWeb(process.argv.slice(2))
+else runTopApp()

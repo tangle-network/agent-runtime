@@ -19,6 +19,7 @@ import type {
 } from '../../src/runtime/index'
 import { loadTopSnapshot, type TopSnapshot } from '../../src/tui/index'
 import { renderTopFrame } from '../../src/tui/top-frame'
+import { transcriptHistory } from '../../src/tui/top-transcript'
 
 const runProcess = promisify(execFile)
 const budget = { maxIterations: 10, maxTokens: 10000, deadlineMs: 10000 }
@@ -180,6 +181,14 @@ it.each([
       const observed = snapshot.pursuit?.nodes.find((node) => node.id === worker?.id)
       expect(observed?.runId).toBe(runId)
       expect(observed?.identity).toBeDefined()
+      const recorded = await transcriptHistory(worker!, runDir, observed)
+      expect(recorded).toHaveLength(2)
+      expect(recorded[0]?.event).toMatchObject({ kind: 'notice', provenance: 'delegated-input' })
+      expect(recorded[0]?.event.source).toContain('parent actual-runtime-run')
+      expect(recorded[0]?.event.source).toContain('profile sha256:')
+      expect(recorded[1]?.event.provenance).toBe('capture-unavailable')
+      expect(recorded[0]?.event.text).toContain('hold')
+      expect(recorded[0]?.event.text).not.toContain('delivered')
       expect(observed?.materialization).toMatchObject({ status: 'unknown' })
       expect(observed?.model).toBeUndefined()
       if (fail) expect(observed?.reason).toContain('actual-process-refusal')
