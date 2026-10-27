@@ -5865,6 +5865,30 @@ guard and refuses atomically.
 
 ***
 
+### durableRunToolSpans()
+
+> **durableRunToolSpans**(`runDir`): `Promise`\<readonly `ToolSpan`[]\>
+
+Every tool span a finished `supervise({ runDir })` run recorded, read from its directory alone:
+the root's `root-stream.jsonl` as one trace named by the root node id, and each settled node's
+persisted trace (the observer projection's `trace`) from `<runDir>/blobs`, re-keyed to the node
+id. The same builder feeds the continuation panel's trace store.
+
+A node whose trace blob is missing throws `ValidationError`; a node with no captured trace adds
+nothing.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+#### Returns
+
+`Promise`\<readonly `ToolSpan`[]\>
+
+***
+
 ### readSettleRecord()
 
 > **readSettleRecord**(`runDir`): `Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\> \| `undefined`\>
