@@ -591,7 +591,9 @@ it.each(['allowed', 'default', 'small', 'subagent', 'mode', 'synthetic'])(
         expect(stages.map((stage) => stage.name)).toEqual(['plan'])
         const journal = await readFile(join(options.runDir, 'spawn-journal.jsonl'), 'utf8')
         const rejected = variant === 'synthetic' ? 'runtime/flow' : `forbidden/${variant}`
-        expect(journal + String(failure)).toContain(`model "${rejected}" is not in the allowed set`)
+        expect(journal).toContain(
+          JSON.stringify(`model "${rejected}" is not in the allowed set`).slice(1, -1),
+        )
       }
     } finally {
       await retainAndRemove(directory, `nested-${variant}`)
