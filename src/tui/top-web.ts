@@ -157,7 +157,14 @@ export async function serveTopWeb(options: TopWebOptions) {
           return {
             id: run.id,
             label: 'root',
-            status: run.status === 'done' ? 'done' : run.status === 'down' ? 'down' : 'running',
+            status:
+              run.status === 'cancelled'
+                ? 'cancelled'
+                : run.status === 'done'
+                  ? 'done'
+                  : run.status === 'down'
+                    ? 'down'
+                    : 'running',
             startedAt: run.startedAt,
             endedAt: run.completedAt,
             latencyMs: run.totals.latencyMs,
@@ -172,6 +179,10 @@ export async function serveTopWeb(options: TopWebOptions) {
         }
         let history: ReturnType<typeof transcriptRows> | undefined = await transcriptHistory(
           worker()!,
+          root,
+          snapshots
+            .get(root!)
+            ?.pursuit?.nodes.find((node) => node.runId === runId && node.id === workerId),
         )
         response.writeHead(200, { 'Content-Type': 'text/event-stream', 'X-Accel-Buffering': 'no' })
         response.flushHeaders()

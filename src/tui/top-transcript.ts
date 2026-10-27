@@ -1,15 +1,35 @@
+import { join } from 'node:path'
 import { readCommittedJsonLines } from '../durable/jsonl-file'
+import type { PursuitNodeProjection } from '../durable/observer-projection'
+import { FileResultBlobStore } from '../durable/spawn-journal/result-blob-store'
 import type { WorkerView } from './top-snapshot'
 
 /** Read selected history on demand, leaving the live topology snapshot bounded and fast. */
-export async function transcriptHistory(worker: WorkerView) {
-  if (!worker.eventFile) return transcriptRows(worker)
+export async function transcriptHistory(
+  worker: WorkerView,
+  runDir?: string,
+  node?: PursuitNodeProjection,
+) {
+  const rows: ReturnType<typeof transcriptRows> = []
+  const identity = node?.identity as { taskDigest?: unknown; profileDigest?: unknown } | undefined
+  if (runDir && typeof identity?.taskDigest === 'string' && worker.startedAt) {
+    const task = await new FileResultBlobStore(join(runDir, 'blobs')).get(identity.taskDigest)
+    if (task !== undefined)
+      rows.unshift({
+        at: worker.startedAt,
+        event: {
+          kind: 'user',
+          text: `Recorded delegated input · from ${node?.parentId ?? 'run caller'}\nTask ${identity.taskDigest}${typeof identity.profileDigest === 'string' ? ` · Profile ${identity.profileDigest}` : ''}\n${typeof task === 'string' ? task : JSON.stringify(task, null, 2)}`,
+        },
+      })
+  }
+  if (!worker.eventFile) return [...rows, ...transcriptRows(worker)]
   const lines: string[] = []
   for await (const row of readCommittedJsonLines<unknown>(worker.eventFile)) {
     lines.push(JSON.stringify(row))
     if (lines.length > 200) lines.shift()
   }
-  return transcriptRows({ ...worker, liveTail: lines })
+  return [...rows, ...transcriptRows({ ...worker, liveTail: lines })]
 }
 
 /** Present the recorded tail through sandbox-ui's existing agent-stream contract. */
