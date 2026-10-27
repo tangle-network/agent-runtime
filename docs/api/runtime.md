@@ -10273,6 +10273,12 @@ A previously persisted intent used to replay the exact create operation.
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
+##### journalRoot?
+
+> `readonly` `optional` **journalRoot?**: `string`
+
+Directory whose `<runId>/observer.jsonl` (intent run id) receives admissions for agent-runtime-top.
+
 ***
 
 ### ReconnectRetainedInteractiveRunOptions
@@ -11073,6 +11079,12 @@ A previously persisted intent used to replay the exact create operation.
 ###### Returns
 
 `number`
+
+##### journalRoot?
+
+> `readonly` `optional` **journalRoot?**: `string`
+
+Directory whose `<runId>/observer.jsonl` (intent run id) receives admissions for agent-runtime-top.
 
 ***
 
