@@ -1,3 +1,17 @@
+## 0.352.2
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Preserve fixed-flow entries, gates, hydrated graph metadata and completion-check bindings when compiling a SearchSpec.
+
+Keep workspace erasure checks independent of valid identifiers while retaining checks for leaked content.
+
 ## 0.352.1
 
 Admits `@tangle-network/agent-eval` 0.222.x beside 0.221.8 and `@tangle-network/agent-profile-materialize` 0.28.x beside 0.27.x, so apps can take agent-eval 0.222 (zod `^4.6.7`, harness-sessions 0.2) without a second copy.
