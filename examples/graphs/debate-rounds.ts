@@ -33,25 +33,56 @@ export const QUESTION = 'Should the launch announcement lead with the capability
 
 /** What each debater says per round: a position, then a refined one after reading the other. */
 const POSITIONS: Record<'a' | 'b', readonly string[]> = {
-  a: ['Lead with the capability; proof follows in the body.', 'Lead with the capability, but open with one proof line.'],
-  b: ['Lead with the proof; a capability claim without it is noise.', 'Lead with the proof as the first line, then the capability.'],
+  a: [
+    'Lead with the capability; proof follows in the body.',
+    'Lead with the capability, but open with one proof line.',
+  ],
+  b: [
+    'Lead with the proof; a capability claim without it is noise.',
+    'Lead with the proof as the first line, then the capability.',
+  ],
 }
 
 /** The judge's settle from what it was handed: round 1 still disagrees, round 2 converges. */
-function judgeRound(task: unknown): { round: number; converged: boolean; note?: string; synthesis?: string } {
-  const t = task as { evidence?: { judge?: { round?: number }; a?: { position?: string }; b?: { position?: string } } }
+function judgeRound(task: unknown): {
+  round: number
+  converged: boolean
+  note?: string
+  synthesis?: string
+} {
+  const t = task as {
+    evidence?: { judge?: { round?: number }; a?: { position?: string }; b?: { position?: string } }
+  }
   const round = Number(t.evidence?.judge?.round ?? 0) + 1
-  if (round === 1) return { round, converged: false, note: 'You differ on what comes first; each read the other and say what you would concede.' }
-  return { round, converged: true, synthesis: `Open with one proof line, then the capability: ${t.evidence?.a?.position} / ${t.evidence?.b?.position}` }
+  if (round === 1)
+    return {
+      round,
+      converged: false,
+      note: 'You differ on what comes first; each read the other and say what you would concede.',
+    }
+  return {
+    round,
+    converged: true,
+    synthesis: `Open with one proof line, then the capability: ${t.evidence?.a?.position} / ${t.evidence?.b?.position}`,
+  }
 }
 
 export function debateRounds(): { graph: AgentGraph; opts: RunGraphOptions } {
   // ── The topology: plain data, the rounds and their stop included ──
   const graph: AgentGraph = {
     nodes: [
-      workerNode('a', 'Answer as yourself; in a later round, read the other answer and the note, then keep, refine or rebut.'),
-      workerNode('b', 'Answer as yourself; in a later round, read the other answer and the note, then keep, refine or rebut.'),
-      workerNode('judge', 'Read both answers; send them back while they disagree and rounds remain, else write the one answer.'),
+      workerNode(
+        'a',
+        'Answer as yourself; in a later round, read the other answer and the note, then keep, refine or rebut.',
+      ),
+      workerNode(
+        'b',
+        'Answer as yourself; in a later round, read the other answer and the note, then keep, refine or rebut.',
+      ),
+      workerNode(
+        'judge',
+        'Read both answers; send them back while they disagree and rounds remain, else write the one answer.',
+      ),
     ],
     entry: [
       { node: 'a', task: { question: QUESTION } },
@@ -59,7 +90,13 @@ export function debateRounds(): { graph: AgentGraph; opts: RunGraphOptions } {
     ],
     edges: [
       // The judge reads both answers and its own last settle, so it knows which round this is.
-      { kind: 'routes', from: ['a', 'b'], to: 'judge', directive: brief, evidence: ['a', 'b', 'judge'] },
+      {
+        kind: 'routes',
+        from: ['a', 'b'],
+        to: 'judge',
+        directive: brief,
+        evidence: ['a', 'b', 'judge'],
+      },
       {
         kind: 'routes',
         from: 'judge',
@@ -74,7 +111,9 @@ export function debateRounds(): { graph: AgentGraph; opts: RunGraphOptions } {
     ],
     deliverable: {
       describe: 'one answer the judge wrote after the rounds',
-      check: (out) => typeof (out as { judge?: { synthesis?: unknown } } | undefined)?.judge?.synthesis === 'string',
+      check: (out) =>
+        typeof (out as { judge?: { synthesis?: unknown } } | undefined)?.judge?.synthesis ===
+        'string',
     },
     budget: { maxIterations: 40, maxTokens: 200_000 },
   }
@@ -99,10 +138,15 @@ export async function main(): Promise<void> {
   const file = new URL('./debate-rounds.graph.yaml', import.meta.url).pathname
   const loaded = await loadGraphFile(file, { params: { question: QUESTION } })
   // The file's data `check` became a `route` deliverable; graphFromStored binds it for the run.
-  const stored = await runGraph(graphFromStored(loaded.graph), { ...debateRounds().opts, runId: 'debate-stored' })
+  const stored = await runGraph(graphFromStored(loaded.graph), {
+    ...debateRounds().opts,
+    runId: 'debate-stored',
+  })
   printLedger('debate-rounds (stored file)', stored)
-  const outOf = (res: { result: { kind: string; out?: unknown } }) => (res.result.kind === 'winner' ? res.result.out : undefined)
-  const same = outOf(literal) !== undefined && JSON.stringify(outOf(literal)) === JSON.stringify(outOf(stored))
+  const outOf = (res: { result: { kind: string; out?: unknown } }) =>
+    res.result.kind === 'winner' ? res.result.out : undefined
+  const same =
+    outOf(literal) !== undefined && JSON.stringify(outOf(literal)) === JSON.stringify(outOf(stored))
   console.log(`stored file and data literal deliver the same output: ${same}`)
   if (!same) throw new Error('the stored graph and the literal diverged')
 }
