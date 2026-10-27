@@ -153,14 +153,17 @@ test('a retained run started with journalRoot appears in GET /api/top within 2 s
   const web = await serveTopWeb({ roots: [journalRoot], assets })
   try {
     const startedAt = Date.now()
-    const run = await startRetainedRun({
+    // The card is keyed by Runtime's intent run id, which exists before the provider does.
+    let runId: string | undefined
+    await startRetainedRun({
       provider: durableRetainedProvider(join(root, 'provider.json')),
       environment: { profile: { name: 'worker' }, idempotencyKey: 'top-web-retained' },
       turn: { prompt: 'start', turnId: 'top-web-retained' },
-      onAdmission: async () => {},
+      onAdmission: async (admission) => {
+        if (admission.phase === 'intent') runId = admission.runId
+      },
       journalRoot,
     })
-    const runId = run.controlRef.runId
     let card: TopSnapshotFrame['snapshots'][number]['supervisors'][number] | undefined
     while (!card && Date.now() - startedAt < 2000) {
       const current = (await (await fetch(`${web.url}api/top`)).json()) as TopSnapshotFrame

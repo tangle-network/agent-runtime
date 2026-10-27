@@ -248,7 +248,7 @@ export interface StartRetainedRunOptions extends RetainedRunStartMaterial {
   readonly intent?: RetainedRunIntentAdmission
   readonly onAdmission: RetainedRunAdmissionHook
   readonly now?: () => number
-  /** Directory whose `<runId>/observer.jsonl` receives this run's admissions for agent-runtime-top. */
+  /** Directory whose `<runId>/observer.jsonl` (intent run id) receives admissions for agent-runtime-top. */
   readonly journalRoot?: string
 }
 
