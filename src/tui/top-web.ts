@@ -49,8 +49,8 @@ export async function serveTopWeb(options: TopWebOptions) {
     if (client.writableLength > 1024 * 1024) return client.destroy()
     client.write(`id: ${frame.sequence}\nevent: snapshot\ndata: ${JSON.stringify(frame)}\n\n`)
   }
-  const refresh = async () => {
-    if (reading || closed) return
+  let inFlight: Promise<void> = Promise.resolve()
+  const read = async () => {
     reading = true
     dirty = false
     try {
@@ -90,6 +90,11 @@ export async function serveTopWeb(options: TopWebOptions) {
       reading = false
       if (dirty && !closed) schedule()
     }
+  }
+  const refresh = (): Promise<void> => {
+    if (reading || closed) return inFlight
+    inFlight = read()
+    return inFlight
   }
   const schedule = () => {
     dirty = true
@@ -262,11 +267,15 @@ export async function serveTopWeb(options: TopWebOptions) {
   let closing: Promise<void> | undefined
   const close = () =>
     (closing ??= (async () => {
-      closed = true
-      if (scheduled) clearTimeout(scheduled)
       clearInterval(reconcile)
       clearInterval(heartbeat)
       for (const watcher of watchers) watcher.close()
+      // A caller closes right after its run settles: let a read in flight finish, then read once
+      // more, so a terminal record appended just before close reaches connected clients.
+      await inFlight.catch(() => undefined)
+      await refresh().catch(() => undefined)
+      closed = true
+      if (scheduled) clearTimeout(scheduled)
       for (const client of clients) client.end()
       transcripts.clear()
       server.closeAllConnections()

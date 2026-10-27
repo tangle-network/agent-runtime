@@ -209,3 +209,39 @@ test('a supervised run with metered child turns, and one that has only begun, bo
     await rm(root, { recursive: true, force: true })
   }
 }, 15000)
+
+test('closing the viewer right after a terminal record still delivers that settled frame', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'runtime-top-web-close-'))
+  const run = join(root, 'workflow')
+  const assets = join(root, 'assets')
+  await mkdir(run)
+  await mkdir(assets)
+  await writeFile(join(assets, 'workspace-viewer.js'), 'export {};')
+  await writeFile(join(assets, 'styles.css'), 'body { color: black; }')
+  await writeFile(
+    join(run, 'journal.jsonl'),
+    '{"type":"launched"}\n{"type":"started","agentId":"one","label":"Research"}\n',
+  )
+  const web = await serveTopWeb({ roots: [run], assets })
+  const stream = await fetch(`${web.url}api/top/events`)
+  const reader = stream.body!.getReader()
+  let text = ''
+  const statusOf = () =>
+    text
+      .split('\n\n')
+      .flatMap((packet) => packet.split('\n').filter((line) => line.startsWith('data: ')))
+      .map((line) => JSON.parse(line.slice(6)) as TopSnapshotFrame)
+      .map((frame) => frame.snapshots[0]?.supervisors[0]?.workers[0]?.status)
+  while (!statusOf().includes('running'))
+    text += new TextDecoder().decode((await reader.read()).value)
+  // The caller settles and closes at once: no wait for the watcher or the reconcile tick.
+  await appendFile(
+    join(run, 'journal.jsonl'),
+    '{"type":"result","agentId":"one","result":"Complete"}\n',
+  )
+  await web.close()
+  for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read())
+    text += new TextDecoder().decode(chunk.value)
+  expect(statusOf().at(-1)).toBe('done')
+  await rm(root, { recursive: true, force: true })
+}, 15000)
