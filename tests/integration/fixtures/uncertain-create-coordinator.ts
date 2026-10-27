@@ -10,8 +10,8 @@ import {
   createReadyTimeoutMs,
   HANG_GUARD_MS,
   localUrl,
-  record,
   RUN_DEADLINE_MS,
+  record,
 } from './uncertain-create-protocol'
 
 const config = JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as Configuration
