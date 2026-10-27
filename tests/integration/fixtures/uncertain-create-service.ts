@@ -44,6 +44,12 @@ let origin = ''
 const holds = new Set<ServerResponse>()
 const nativeActions = new Map<string, Promise<void>>()
 const acceptedSubscribers = new Map<string, Set<ServerResponse>>()
+// A real provider streams a turn's frames before its result is readable. The fixture serves the
+// exact-result read this long after the observation stream's terminal frames, so Runtime's quiet
+// stream never closes on the result before it reads done (RETAINED_TAIL_FLOW_MS is 100).
+const EXACT_RESULT_AFTER_STREAM_MS = 250
+const exactSubscribers = new WeakSet<ServerResponse>()
+const streamFlushedAt = new Map<string, number>()
 const observedReplays = new Map<string, { received: Promise<void>; observed: () => void }>()
 function startAction(run: NativeRun): void {
   const action = act(run).catch((error) => {
@@ -105,7 +111,8 @@ function sse(response: ServerResponse, frames: Array<{ type: string; data: objec
   writeFrames(response, frames)
   response.end()
 }
-function subscribeAccepted(run: NativeRun, response: ServerResponse): void {
+function subscribeAccepted(run: NativeRun, response: ServerResponse, exactResult: boolean): void {
+  if (exactResult) exactSubscribers.add(response)
   const subscribers = acceptedSubscribers.get(run.executionId) ?? new Set<ServerResponse>()
   acceptedSubscribers.set(run.executionId, subscribers)
   subscribers.add(response)
@@ -122,13 +129,17 @@ function flushAccepted(run: NativeRun): void {
   if (scenario !== 'accepted' || run.status !== 'completed') return
   const subscribers = acceptedSubscribers.get(run.executionId)
   if (!subscribers) return
-  for (const response of subscribers) {
-    if (response.destroyed || response.writableEnded) continue
+  const finish = (response: ServerResponse) => {
+    if (response.destroyed || response.writableEnded) return
     // IDs 2 and 3 are the same canonical result/done positions as a completed replay.
     writeFrames(response, terminal(run).slice(1), 1)
     response.end()
     run.terminalReads += 1
   }
+  const exact = [...subscribers].filter((response) => exactSubscribers.has(response))
+  for (const response of subscribers) if (!exactSubscribers.has(response)) finish(response)
+  streamFlushedAt.set(run.executionId, Date.now())
+  if (exact.length > 0) setTimeout(() => exact.forEach(finish), EXACT_RESULT_AFTER_STREAM_MS)
   acceptedSubscribers.delete(run.executionId)
   note('healthy-stream-completed', {
     executionId: run.executionId,
@@ -189,7 +200,7 @@ async function replay(
   exactResult = false,
 ): Promise<void> {
   if ((scenario === 'accepted' || scenario.startsWith('dispatch-')) && run.status === 'running') {
-    subscribeAccepted(run, response)
+    subscribeAccepted(run, response, exactResult)
     return
   }
   if (run.status === 'running' && nativeActions.has(run.executionId))
@@ -202,6 +213,11 @@ async function replay(
       },
     })
     return
+  }
+  const flushedAt = streamFlushedAt.get(run.executionId)
+  if (exactResult && flushedAt !== undefined) {
+    const wait = flushedAt + EXACT_RESULT_AFTER_STREAM_MS - Date.now()
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
   }
   const replay = observedReplays.get(run.executionId)
   if (replay && exactResult) await replay.received
