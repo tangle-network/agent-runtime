@@ -182,12 +182,13 @@ it.each([
       expect(observed?.runId).toBe(runId)
       expect(observed?.identity).toBeDefined()
       const recorded = await transcriptHistory(worker!, runDir, observed)
-      expect(recorded).toHaveLength(1)
-      expect(recorded[0]?.event).toMatchObject({ kind: 'user' })
+      expect(recorded).toHaveLength(2)
+      expect(recorded[0]?.event).toMatchObject({ kind: 'notice', provenance: 'delegated-input' })
       expect(recorded[0]?.event.text).toContain(
         'Recorded delegated input · from actual-runtime-run',
       )
-      expect(recorded[0]?.event.text).toContain('Profile sha256:')
+      expect(recorded[0]?.event.source).toContain('profile sha256:')
+      expect(recorded[1]?.event.provenance).toBe('capture-unavailable')
       expect(recorded[0]?.event.text).toContain('hold')
       expect(recorded[0]?.event.text).not.toContain('delivered')
       expect(observed?.materialization).toMatchObject({ status: 'unknown' })

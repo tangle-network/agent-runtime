@@ -1,3 +1,4 @@
+import { closeSync, openSync, readSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { readCommittedJsonLines } from '../durable/jsonl-file'
 import type { PursuitNodeProjection } from '../durable/observer-projection'
@@ -18,12 +19,27 @@ export async function transcriptHistory(
       rows.unshift({
         at: worker.startedAt,
         event: {
-          kind: 'user',
-          text: `Recorded delegated input · from ${node?.parentId ?? 'run caller'}\nTask ${identity.taskDigest}${typeof identity.profileDigest === 'string' ? ` · Profile ${identity.profileDigest}` : ''}\n${typeof task === 'string' ? task : JSON.stringify(task, null, 2)}`,
+          kind: 'notice',
+          provenance: 'delegated-input',
+          source: `parent ${node?.parentId ?? 'run caller'}; task ${identity.taskDigest}${typeof identity.profileDigest === 'string' ? `; profile ${identity.profileDigest}` : ''}; Runtime FileResultBlobStore`,
+          text: typeof task === 'string' ? task : JSON.stringify(task, null, 2),
         },
       })
   }
-  if (!worker.eventFile) return [...rows, ...transcriptRows(worker)]
+  if (!worker.eventFile) {
+    const native = transcriptRows(worker)
+    if (!native.length && worker.startedAt)
+      rows.push({
+        at: worker.startedAt,
+        event: {
+          kind: 'notice',
+          provenance: 'capture-unavailable',
+          text: 'Native conversation was not captured for this agent.',
+          source: 'Runtime recorded capture',
+        },
+      })
+    return [...rows, ...native]
+  }
   const lines: string[] = []
   for await (const row of readCommittedJsonLines<unknown>(worker.eventFile)) {
     lines.push(JSON.stringify(row))
@@ -39,6 +55,8 @@ export function transcriptRows(worker: WorkerView) {
     event: {
       kind: string
       text?: string
+      provenance?: string
+      source?: string
       toolCallId?: string
       toolName?: string
       args?: unknown
@@ -120,4 +138,26 @@ export function transcriptRows(worker: WorkerView) {
     }
   }
   return rows
+}
+
+/** The bounded native/normalized tail shared by snapshot adapters and selected streams. */
+export function readTranscriptTail(file: string) {
+  const fd = openSync(file, 'r')
+  try {
+    const size = statSync(file).size
+    const buffer = Buffer.alloc(Math.min(size, 65_536))
+    readSync(fd, buffer, 0, buffer.length, Math.max(0, size - buffer.length))
+    const lines = buffer.toString().split('\n')
+    lines.pop() // An uncommitted final row is not an event.
+    if (size > buffer.length) lines.shift()
+    return lines.filter(Boolean).slice(-200)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+export function transcriptTail(worker: WorkerView) {
+  return transcriptRows(
+    worker.eventFile ? { ...worker, liveTail: readTranscriptTail(worker.eventFile) } : worker,
+  )
 }

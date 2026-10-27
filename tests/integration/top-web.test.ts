@@ -25,6 +25,18 @@ test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and c
   )
   await writeFile(join(assets, 'workspace-viewer.js'), 'export {};')
   await writeFile(join(assets, 'styles.css'), 'body { color: black; }')
+  await writeFile(
+    join(workspace, 'root-stream.jsonl'),
+    JSON.stringify({
+      at: new Date().toISOString(),
+      event: {
+        kind: 'tool_call',
+        toolCallId: 'root-tool',
+        toolName: 'read',
+        args: { path: 'recorded.txt' },
+      },
+    }) + '\n',
+  )
   const web = await serveTopWeb({ roots: [run, workspace], assets })
   const controller = new AbortController()
   try {
@@ -41,7 +53,10 @@ test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and c
     expect((await fetch(`${web.url}api/top`, { method: 'POST' })).status).toBe(405)
     const rootTranscript = await fetch(`${web.url}api/top/agents/1/root/root/stream`)
     expect(rootTranscript.status).toBe(200)
-    expect(await rootTranscript.text()).toContain('event: end')
+    const rootCapture = await rootTranscript.text()
+    expect(rootCapture).toContain('event: end')
+    expect(rootCapture).toContain('"kind":"tool-call"')
+    expect(rootCapture).toContain('recorded.txt')
     const stream = await fetch(`${web.url}api/top/events`, { signal: controller.signal })
     expect(stream.headers.get('content-type')).toBe('text/event-stream')
     const reader = stream.body!.getReader()

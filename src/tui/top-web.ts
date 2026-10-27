@@ -5,7 +5,7 @@ import { createServer, type ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { dirname, extname, resolve, sep } from 'node:path'
 import { loadTopSnapshot, type TopSnapshot, type WorkerView } from './top-snapshot'
-import { transcriptHistory, transcriptRows } from './top-transcript'
+import { transcriptHistory, type transcriptRows, transcriptTail } from './top-transcript'
 
 /** A reconnect always receives current truth; deltas replace changed roots atomically. */
 export interface TopSnapshotFrame {
@@ -157,6 +157,9 @@ export async function serveTopWeb(options: TopWebOptions) {
           return {
             id: run.id,
             label: 'root',
+            ...(root && existsSync(resolve(root, 'root-stream.jsonl'))
+              ? { eventFile: resolve(root, 'root-stream.jsonl') }
+              : {}),
             status:
               run.status === 'cancelled'
                 ? 'cancelled'
@@ -200,7 +203,7 @@ export async function serveTopWeb(options: TopWebOptions) {
             response.destroy()
             return
           }
-          const events = (history ?? transcriptRows(node)).flatMap((row) => {
+          const events = (history ?? transcriptTail(node)).flatMap((row) => {
             const key = createHash('sha256').update(JSON.stringify(row)).digest('hex')
             if (seen.has(key)) return []
             seen.add(key)

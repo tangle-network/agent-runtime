@@ -2,6 +2,7 @@ import { closeSync, openSync, readSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { parseCommittedJsonLines } from '../durable/jsonl-file'
 import type { TopJournalEvent } from './top-snapshot'
+import { readTranscriptTail } from './top-transcript'
 
 /** Native workflows have no Runtime accounting. Translate recorded lifecycle only. */
 export function workflowJournal(runDir: string, text: string) {
@@ -24,28 +25,40 @@ export function workflowJournal(runDir: string, text: string) {
           const prefix = Buffer.alloc(Math.min(size, 16_384))
           readSync(fd, prefix, 0, prefix.length, 0)
           start = /"timestamp":"([^"]+)"/.exec(prefix.toString())?.[1]
-          const suffix = Buffer.alloc(Math.min(size, 65_536))
-          readSync(fd, suffix, 0, suffix.length, Math.max(0, size - suffix.length))
-          const raw = suffix.toString().split('\n')
-          if (size > suffix.length) raw.shift()
-          const lines = raw.filter(Boolean).slice(-8)
-          const times = [...suffix.toString().matchAll(/"timestamp":"([^"]+)"/g)]
+          const lines = readTranscriptTail(file).slice(-8)
+          const times = [...lines.join('\n').matchAll(/"timestamp":"([^"]+)"/g)]
           end = times.at(-1)?.[1]
           tails.set(id, { file, lines })
-        } finally { closeSync(fd) }
+        } finally {
+          closeSync(fd)
+        }
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
       if (start && (!first || start < first)) first = start
       if (end && (!last || end > last)) last = end
-      events.push({ kind: 'spawned', id, label: typeof row.label === 'string' ? row.label : id, runtime: 'claude-code', ...(start ? { at: start } : {}) })
+      events.push({
+        kind: 'spawned',
+        id,
+        label: typeof row.label === 'string' ? row.label : id,
+        runtime: 'claude-code',
+        ...(start ? { at: start } : {}),
+      })
       events.push({ kind: 'metered', id, spend: { usdKnown: false, tokensKnown: false } })
     } else if (row.type === 'result' || row.type === 'error' || row.type === 'cancelled') {
       const line = tails.get(id)?.lines.at(-1)
       const at = line ? /"timestamp":"([^"]+)"/.exec(line)?.[1] : undefined
-      events.push(row.type === 'cancelled' ? { kind: 'cancelled', id, ...(at ? { at } : {}) } : {
-        kind: 'settled', id, status: row.type === 'error' ? 'down' : 'done', ...(at ? { at } : {}), spent: { usdKnown: false, tokensKnown: false },
-      })
+      events.push(
+        row.type === 'cancelled'
+          ? { kind: 'cancelled', id, ...(at ? { at } : {}) }
+          : {
+              kind: 'settled',
+              id,
+              status: row.type === 'error' ? 'down' : 'done',
+              ...(at ? { at } : {}),
+              spent: { usdKnown: false, tokensKnown: false },
+            },
+      )
     }
   }
   return { id: basename(runDir), events, tails, first, last }
