@@ -8,8 +8,17 @@ type: patch
 One short changelog entry written for Runtime consumers.
 ```
 
-Use `patch`, `minor`, or `major`. Do not edit `package.json`, `CHANGELOG.md`,
-`docs/canonical-api.md`, `api-surface.json`, or versioned fixtures for release prep.
+Use `patch`, `minor`, or `major`, by what a consumer's code must change. `minor` adds:
+an export, an optional member on an exported object type or interface, an optional
+parameter or overload, or a wider parameter type. `major` breaks: it removes or renames an
+export or member, makes an optional member required, adds a required member to an exported
+type (a consumer may build one), narrows a parameter type or a value to a type, or changes a
+function's arity or return type incompatibly. `check:version-bump` applies this rule to the
+parts recorded in `api-surface.json` and treats a shape change it cannot split (a class, an
+enum, an unexported type a member names) as `major`.
+
+Do not edit `package.json`, `CHANGELOG.md`, `docs/canonical-api.md`, `api-surface.json`,
+or versioned fixtures for release prep.
 
 At release time, `pnpm run release:prepare` consumes every pending note, chooses the highest
 requested semver level, updates the version and changelog once, regenerates derived artifacts,
