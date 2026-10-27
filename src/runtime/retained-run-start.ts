@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import type { ContextTransferRequest, Sha256Digest } from '@tangle-network/agent-interface'
 import {
   AgentEnvironmentCapabilitiesSchema,
@@ -14,6 +15,7 @@ import type {
   AgentSession,
   AgentSessionRef,
 } from '@tangle-network/agent-interface/environment-provider'
+import { FileObserverJournal } from '../durable/observer-journal'
 import {
   RetainedInteractiveAdmissionError,
   RetainedRunAdmissionError,
@@ -95,6 +97,11 @@ export async function startRetainedRun(
   if (typeof options.onAdmission !== 'function') {
     throw new Error('startRetainedRun requires an awaited onAdmission durability hook')
   }
+  const onAdmission = journaledAdmissions(
+    options.journalRoot,
+    options.intent?.runId,
+    options.onAdmission,
+  )
   const contextTransfer = retainedContextTransfer(options.turn.contextTransfer)
   const transferReceipt = retainedContextTransferReceipt(
     options,
@@ -126,7 +133,7 @@ export async function startRetainedRun(
   }
   const intent = retainedRunIntent(options, identity, contextTransfer)
   if (options.intent === undefined) {
-    await admitDurably(options.onAdmission, intent)
+    await admitDurably(onAdmission, intent)
   } else {
     assertExactRetainedRunIntent(options.intent, intent)
   }
@@ -235,7 +242,7 @@ export async function startRetainedRun(
     contextTransfer,
     expectedRunId: transferReceipt?.runId,
     identity,
-    onAdmission: options.onAdmission,
+    onAdmission,
     capabilities,
     now: options.now,
     preserveEnvironment:
@@ -513,6 +520,38 @@ export async function admitDurably<
       throw new RetainedInteractiveAdmissionError(stableAdmission, { cause: error })
     }
     throw new RetainedRunAdmissionError(stableAdmission, { cause: error })
+  }
+}
+
+/**
+ * Mirror each admission into `<journalRoot>/<runId>/observer.jsonl`, the observer format
+ * agent-runtime-top reads. The caller's hook stays authoritative; an observer append that
+ * fails never fails the run, matching `FileObserverJournal`'s contract.
+ */
+export function journaledAdmissions<
+  TAdmission extends RetainedRunAdmission | RetainedInteractiveAdmission,
+>(
+  journalRoot: string | undefined,
+  replayRunId: string | undefined,
+  onAdmission: (admission: TAdmission) => Promise<void>,
+): (admission: TAdmission) => Promise<void> {
+  if (journalRoot === undefined) return onAdmission
+  let runId = replayRunId
+  return async (admission) => {
+    await onAdmission(admission)
+    if ('runId' in admission) runId ??= admission.runId
+    if (runId === undefined) return
+    await new FileObserverJournal(join(journalRoot, runId, 'observer.jsonl'), runId)
+      .appendEvent({
+        id: `${runId}:${admission.phase}`,
+        pursuitId: runId,
+        runId,
+        target: 'agent.run',
+        phase: 'before',
+        timestamp: Date.now(),
+        payload: { status: 'running', admission: admission.phase },
+      })
+      .catch(() => undefined)
   }
 }
 

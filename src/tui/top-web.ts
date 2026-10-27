@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, type FSWatcher, watch } from 'node:fs'
+import { existsSync, type FSWatcher, readdirSync, watch } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { createServer, type ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
@@ -62,7 +62,7 @@ export async function serveTopWeb(options: TopWebOptions) {
             ? await loadTopSnapshot(root, { runDir: root, format: 'journal' })
             : existsSync(resolve(root, 'journal.jsonl'))
               ? await loadTopSnapshot(root, { runDir: root, format: 'workflow' })
-              : loadTopSnapshot(root)
+              : await loadRunsRoot(root)
         const digest = createHash('sha256')
           .update(
             JSON.stringify(snapshot, (key, value) =>
@@ -315,4 +315,31 @@ export async function runTopWeb(argv: readonly string[]) {
   process.once('SIGINT', stop)
   process.once('SIGTERM', stop)
   return web
+}
+
+/** A journal root holds one `<runId>/observer.jsonl` per retained run beside any workspace runs. */
+async function loadRunsRoot(root: string): Promise<TopSnapshot> {
+  const workspace = loadTopSnapshot(root)
+  const runIds = readdirSync(root, { withFileTypes: true })
+    .filter(
+      (entry) => entry.isDirectory() && existsSync(resolve(root, entry.name, 'observer.jsonl')),
+    )
+    .map((entry) => entry.name)
+  if (!runIds.length) return workspace
+  const runs = await Promise.all(
+    runIds.map((runId) => loadTopSnapshot(root, { runDir: resolve(root, runId) })),
+  )
+  const diagnostics = [
+    ...workspace.diagnostics,
+    ...runs.flatMap((run, i) => run.diagnostics.map((d) => ({ ...d, runId: runIds[i] }))),
+  ]
+  const supervisors = [...workspace.supervisors, ...runs.flatMap((run) => run.supervisors)]
+  return {
+    ...workspace,
+    supervisors,
+    diagnostics,
+    completeness: diagnostics.length ? 'partial' : 'complete',
+    discovered: workspace.discovered + runIds.length,
+    loaded: supervisors.length,
+  }
 }

@@ -2,7 +2,9 @@ import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
+import { startRetainedRun } from '../../src/runtime/retained-run-start'
 import { serveTopWeb, type TopSnapshotFrame } from '../../src/tui/top-web'
+import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 
 test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and close', async () => {
   const root = await mkdtemp(join(tmpdir(), 'runtime-top-web-'))
@@ -136,6 +138,42 @@ test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and c
     await web.close()
     await web.close()
     await expect(fetch(web.url)).rejects.toThrow()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 15000)
+
+test('a retained run started with journalRoot appears in GET /api/top within 2 s', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'runtime-top-web-retained-'))
+  const journalRoot = join(root, 'runtime-journal')
+  const assets = join(root, 'assets')
+  await mkdir(journalRoot)
+  await mkdir(assets)
+  await writeFile(join(assets, 'workspace-viewer.js'), 'export {};')
+  await writeFile(join(assets, 'styles.css'), 'body { color: black; }')
+  const web = await serveTopWeb({ roots: [journalRoot], assets })
+  try {
+    const startedAt = Date.now()
+    // The card is keyed by Runtime's intent run id, which exists before the provider does.
+    let runId: string | undefined
+    await startRetainedRun({
+      provider: durableRetainedProvider(join(root, 'provider.json')),
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'top-web-retained' },
+      turn: { prompt: 'start', turnId: 'top-web-retained' },
+      onAdmission: async (admission) => {
+        if (admission.phase === 'intent') runId = admission.runId
+      },
+      journalRoot,
+    })
+    let card: TopSnapshotFrame['snapshots'][number]['supervisors'][number] | undefined
+    while (!card && Date.now() - startedAt < 2000) {
+      const current = (await (await fetch(`${web.url}api/top`)).json()) as TopSnapshotFrame
+      card = current.snapshots[0]?.supervisors.find((supervisor) => supervisor.id === runId)
+      if (!card) await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    expect(card).toMatchObject({ id: runId, status: 'running' })
+    expect(Date.now() - startedAt).toBeLessThan(2000)
+  } finally {
+    await web.close()
     await rm(root, { recursive: true, force: true })
   }
 }, 15000)
