@@ -5,9 +5,13 @@ import type {
   MakeWorkerAgent,
   WorkerSpawnContext,
 } from '../../mcp/tools/coordination-contracts'
+import { flowModelPolicyProfile, runtimeFlowBrain } from './flow-brain'
+import { createFlowRun, flowOfSubtask, routeFlowOf } from './graph-flow'
 import type { GraphOverlay } from './graph-overlay'
 import type { GraphSubtaskTopology, validateGraphSubtask } from './graph-topology'
+import { graphSubtaskOf } from './graph-topology'
 import { assertProfileModelsAllowed } from './model-policy'
+import type { OwnFlow } from './nested-manager-deps'
 import type { RunCancelRequest } from './run-cancellation'
 import { authoredSeatStages } from './seat-chain'
 import { canonicalExecution, freezeDetached, freezeDetachedProfile } from './supervise-identity'
@@ -48,6 +52,7 @@ export interface ParentSeat {
 
 /** A spawn after authorization, security, model-policy and deliverable decisions. */
 export interface AdmittedSpawn {
+  readonly subtree: ReturnType<typeof subtreeOf>
   readonly authorized: AgentProfile
   readonly modelSubstitution: ReturnType<typeof spawnModelSubstitution>
   readonly childExecution: ReturnType<typeof canonicalExecution>
@@ -139,7 +144,18 @@ export function admitSpawn(
       .join(', ')
     throw new ValidationError(`supervise: spawned AgentProfile refused: ${details}`)
   }
-  assertProfileModelsAllowed(authorized, options.allowedModels)
+  const seatManagedLeaf =
+    authoredSeatStages(authorized) !== undefined &&
+    declaredRuntimeToolNames(authorized).length === 0 &&
+    isExternalSupervisor(authorized)
+  const usesRuntimeCoordination = declaredRuntimeToolNames(authorized).length > 0 || seatManagedLeaf
+  const subtree = usesRuntimeCoordination
+    ? subtreeOf(env, seat, authorized, spawnContext)
+    : { ownGraph: undefined, subtreeGraph: seat.graph, ownFlow: undefined }
+  assertProfileModelsAllowed(
+    flowModelPolicyProfile(authorized, subtree.ownFlow?.brain),
+    options.allowedModels,
+  )
   const selectedDeliverable = options.resolveDeliverable?.(postAuthorizationContext)
   const childDeliverable =
     selectedDeliverable === undefined
@@ -150,11 +166,8 @@ export function admitSpawn(
             selectedDeliverable,
             `supervise deliverable for ${JSON.stringify(spawnContext.label)}`,
           )
-  const seatManagedLeaf =
-    authoredSeatStages(authorized) !== undefined &&
-    declaredRuntimeToolNames(authorized).length === 0 &&
-    isExternalSupervisor(authorized)
   return {
+    subtree,
     authorized,
     modelSubstitution,
     childExecution,
@@ -162,6 +175,36 @@ export function admitSpawn(
     selectedDeliverable,
     childDeliverable,
     seatManagedLeaf,
-    usesRuntimeCoordination: declaredRuntimeToolNames(authorized).length > 0 || seatManagedLeaf,
+    usesRuntimeCoordination,
   }
+}
+
+/** Admit nested graphs only outside a graph or as an exactly pinned maps item. */
+function subtreeOf(
+  env: WorkerTreeEnv,
+  seat: ParentSeat,
+  authorized: AgentProfile,
+  spawnContext: WorkerSpawnContext,
+) {
+  const subtask = graphSubtaskOf(authorized)
+  if (subtask !== undefined && seat.graph !== undefined && spawnContext.map === undefined) {
+    throw new ValidationError(
+      'supervise: a node of a graph cannot start another graph; add the work as nodes',
+    )
+  }
+  const own = subtask === undefined ? undefined : env.graphOverlayFor(subtask)
+  const ownGraph = own?.overlay
+  // The validated flow owns both the nonmodel brain and its item-bound routes.
+  const ownFlow: OwnFlow | undefined =
+    own?.validated.flow === undefined
+      ? undefined
+      : {
+          brain: runtimeFlowBrain(),
+          run: createFlowRun(),
+          route: flowOfSubtask(
+            routeFlowOf(own.validated),
+            spawnContext.map === undefined ? undefined : { item: spawnContext.task },
+          ),
+        }
+  return { ownGraph, subtreeGraph: ownGraph ?? seat.graph, ownFlow }
 }

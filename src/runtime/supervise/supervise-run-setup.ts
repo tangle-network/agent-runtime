@@ -20,6 +20,7 @@ import type {
 } from '../../mcp/tools/coordination-questions'
 import type { ToolLoopChat } from '../tool-loop'
 import type { BusRecord } from './event-bus'
+import { flowModelPolicyProfile } from './flow-brain'
 import { runtimeOwnedScopeOwnerRuntime } from './materialization'
 import {
   assertExecutableAgentProfile,
@@ -106,12 +107,11 @@ export function prepareSuperviseRun(
     options.execution,
     'supervise root',
   )
-  assertRunModelsAllowed(canonicalProfile, options)
+  assertRunModelsAllowed(canonicalProfile, options, testBrain)
   const { deliverable, finalizer, analysts, profileTable } = resolveRunRegistry(options)
   assertCoordinationBinding(options.coordination)
 
-  // `withDriver: true` is the wiring invariant: a child constructed by `driverChild` must resolve
-  // to the nested-scope executor; `runDir` only changes where the journal and blobs live.
+  // driverChild needs the nested-scope executor; runDir only selects durable storage.
   const ctx =
     options.runContext ??
     (options.runDir !== undefined
@@ -135,8 +135,7 @@ export function prepareSuperviseRun(
   const { childQuestionInboxes, askParentManager } = childQuestionRouting()
   const rootProviderModels: Array<string | undefined> = []
   const now = options.now ?? Date.now
-  // The root's provider stream is retained only where a run directory can hold it; nested managers
-  // share this harness and are left unretained (a per-owner file is a later step).
+  // Retain the root stream only in a run directory; nested managers share this harness.
   const rootStreamSink =
     options.runDir === undefined ? undefined : createRootStreamSink(options.runDir, now)
   const observeNodeEvent = coordinationEventObserver(options)
@@ -175,9 +174,7 @@ export function prepareSuperviseRun(
     true,
   )
 
-  // Classify the worker backend against the propagation census ONCE: a backend with no channel
-  // for the trace context makes each traced spawn a severed hop, journaled as `trace-unpropagated`
-  // (`worker-trace.ts`). A caller-owned `makeWorkerAgent` is unclassifiable: no claim is journaled.
+  // Journal trace-unpropagated for backends without a trace channel; custom workers are unclassified.
   const traceUnpropagated = options.backend
     ? workerTraceUnpropagatedDeclaration(options.backend.backend)
     : undefined
@@ -353,10 +350,14 @@ function downMessageAuthorizer(
   }
 }
 
-function assertRunModelsAllowed(canonicalProfile: AgentProfile, options: SuperviseOptions): void {
+function assertRunModelsAllowed(
+  canonicalProfile: AgentProfile,
+  options: SuperviseOptions,
+  brain?: ToolLoopChat,
+): void {
   const backendModel = (options.backend as { model?: unknown } | undefined)?.model
   const driverBackendModel = (options.driverBackend as { model?: unknown } | undefined)?.model
-  assertProfileModelsAllowed(canonicalProfile, options.allowedModels)
+  assertProfileModelsAllowed(flowModelPolicyProfile(canonicalProfile, brain), options.allowedModels)
   for (const stage of authoredSeatStages(canonicalProfile) ?? []) {
     assertModelAllowed(stage.model, options.allowedModels)
   }

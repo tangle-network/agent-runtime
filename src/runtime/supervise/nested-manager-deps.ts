@@ -3,6 +3,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { MakeWorkerAgent, WorkerSpawnContext } from '../../mcp/tools/coordination-contracts'
 import type { ChildQuestionInbox, QuestionRecord } from '../../mcp/tools/coordination-questions'
 import { CONTINUATIONS_DIR } from './continuation'
+import type { runtimeFlowBrain } from './flow-brain'
 import type { createFlowRun, flowOfSubtask } from './graph-flow'
 import type { GraphOverlay } from './graph-overlay'
 import type { AdmittedSpawn, ParentSeat, WorkerTreeEnv } from './spawn-admission'
@@ -13,6 +14,7 @@ import type { DriveHarness, SupervisorAgentDeps } from './supervisor-agent-contr
 
 /** The flow a flow-subtask root runs under: its run record and the routes that decide every spawn. */
 export interface OwnFlow {
+  readonly brain: ReturnType<typeof runtimeFlowBrain>
   readonly run: ReturnType<typeof createFlowRun>
   readonly route: ReturnType<typeof flowOfSubtask>
 }

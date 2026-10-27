@@ -90,6 +90,7 @@ import {
   type ValidatedGraph,
   validateGraphTopology,
 } from './graph-topology'
+import { assertProfileModelsAllowed } from './model-policy'
 import { kernelPromptRegistry, type PromptHandle, type PromptRegistry } from './prompt-registry'
 import { createFileRunContext, createInMemoryRunContext, withRunContext } from './run-context'
 import { bindGraphCommand, type GraphCommandCheck } from './stored-graph-check'
@@ -489,15 +490,7 @@ type ClassifiedSuperviseOption =
   | (typeof GRAPH_REFUSED_SUPERVISE_OPTIONS)[number]
   | (typeof GRAPH_FORWARDED_SUPERVISE_OPTIONS)[number]
 
-/**
- * Every key `RunGraphOptions` accepts, as data: the forwarded and transformed `SuperviseOptions`
- * keys, the name-colliding `registry`, and the graph's own `brain`. `GRAPH_OWNED_SUPERVISE_OPTIONS`
- * is deliberately absent — a caller value for one of those is overwritten by the graph, so it is
- * refused by name rather than discarded.
- *
- * The assignment below fails to COMPILE, naming the key, when `RunGraphOptions` declares something
- * this list does not carry.
- */
+/** Every accepted option is classified; adding an unread key fails the assignment below. */
 const runGraphOptionKeys = [
   ...GRAPH_FORWARDED_SUPERVISE_OPTIONS,
   ...GRAPH_TRANSFORMED_SUPERVISE_OPTIONS,
@@ -514,16 +507,7 @@ void everyRunGraphOptionIsListed
 const runGraphOptionKeySet: ReadonlySet<string> = new Set<string>(runGraphOptionKeys)
 const graphOwnedOptionKeySet: ReadonlySet<string> = new Set<string>(GRAPH_OWNED_SUPERVISE_OPTIONS)
 
-/**
- * Refuse an option key the graph would not read, naming it and saying which kind it is.
- *
- * A graph-owned key is the sharper case: it type-checks against a widened `SuperviseOptions`
- * value, the graph derives its own value and overwrites the caller's, the run succeeds, and the
- * capability the caller asked for is not there. The rename of the leaf seam from `makeWorkerAgent`
- * to `makeLeafAgent` is the shape of the failure — the old name stayed a valid `SuperviseOptions`
- * key AND a graph-owned one, so a caller that kept passing it got a run with no leaf override and
- * no complaint.
- */
+/** Reject graph-owned overrides and unknown options rather than silently dropping them. */
 function assertRunGraphOptionKeys(opts: RunGraphOptions): void {
   const graphOwned: string[] = []
   const unknown: string[] = []
@@ -746,6 +730,10 @@ export function assertRunGraphAuthoring(
   assertRunGraphOptionKeys(opts)
   const registry = opts.registry ?? kernelPromptRegistry()
   const validated = validateGraph(graph, registry, opts.analysts)
+  const guidance = profileGuidanceComposer(opts.profileGuidance)
+  for (const { profile } of graph.nodes) {
+    assertProfileModelsAllowed(guidance?.(profile) ?? profile, opts.allowedModels)
+  }
   const requireLeaves = (): void => {
     if (!opts.backend && !opts.makeLeafAgent) {
       throw new ValidationError(

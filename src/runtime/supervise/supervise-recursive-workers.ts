@@ -1,6 +1,7 @@
 import { ValidationError } from '../../errors'
 import type { GraphSubtasks, MakeWorkerAgent } from '../../mcp/tools/coordination-contracts'
 import { errMessage } from './error-message'
+import { flowModelPolicyProfile, runtimeFlowBrain } from './flow-brain'
 import { createGraphOverlay, type GraphOverlay, productSpawnAuthority } from './graph-overlay'
 import {
   type GraphSubtaskTopology,
@@ -37,10 +38,7 @@ export function createSuperviseWorkers(
     now,
   } = setup
   const recoveryFactories = new WeakMap<MakeWorkerAgent, ExecutorFactory<unknown>>()
-  // `run_graph`: a manager starts an agent graph as ONE subtask. The graph's root node runs as a
-  // nested manager of the caller, inside the caller's reservation, with the graph layer composed
-  // around it (`graph-overlay`). Served only where this run builds the worker path, because that
-  // path is what pins the graph's nodes; a caller-owned `makeWorkerAgent` decides its own children.
+  // run_graph composes a pinned graph inside this run’s reservation; caller-owned workers opt out.
   const graphOverlays = new Set<GraphOverlay>()
   const graphSubtasks: GraphSubtasks | undefined =
     options.makeWorkerAgent === undefined
@@ -56,16 +54,22 @@ export function createSuperviseWorkers(
                 ...(analysts ? { analysts } : {}),
                 ...(guidanceComposer ? { guidance: guidanceComposer } : {}),
               })
-              // Every node is pinned, so a node the run would refuse at its spawn cannot be fixed
-              // by the graph's driver. The run's model policy and pre-flight resolver judge every
-              // node now, while the graph's author can still change it.
+              // Preflight every real node, including one named like the synthetic root.
               for (const profile of [
                 prepared.profile,
                 ...topology.nodes
-                  .filter((node) => node.id !== prepared.root)
+                  .filter((node) => topology.entry !== undefined || node.id !== prepared.root)
                   .map((node) => guidanceComposer?.(node.profile) ?? node.profile),
               ]) {
-                assertProfileModelsAllowed(profile, options.allowedModels)
+                assertProfileModelsAllowed(
+                  flowModelPolicyProfile(
+                    profile,
+                    profile === prepared.profile && topology.entry !== undefined
+                      ? runtimeFlowBrain()
+                      : undefined,
+                  ),
+                  options.allowedModels,
+                )
                 options.resolveSpawnProfile?.(profile)
               }
               return { ok: true as const, ...prepared }
@@ -75,8 +79,7 @@ export function createSuperviseWorkers(
           },
         }
       : undefined
-  // The graph layer for the root of a `run_graph` subtask, rebuilt from the topology its admitted
-  // profile carries — on a fresh spawn and on recovery alike.
+  // Fresh and recovered subtasks rebuild the graph from their admitted topology.
   const productAuthority = productSpawnAuthority(options.authorizeSpawn)
   const graphOverlayFor = (topology: GraphSubtaskTopology) => {
     const registry = kernelPromptRegistry()
@@ -100,10 +103,7 @@ export function createSuperviseWorkers(
         'supervise: provide opts.backend (where workers run), opts.makeLeafAgent, or opts.makeWorkerAgent',
       )
     }
-    // A caller-owned leaf factory slots in here under the same authorization and classification as
-    // every backend-derived leaf; `backend` is then needed only for a per-spawn deliverable. The
-    // retry seam wraps it, so a spawn refused BEFORE the worker ran is re-entered, not settled dead;
-    // it sits inside the authorized path and re-runs the executor object the kernel admitted.
+    // Both leaf paths share authorization and retry only refused-before-start work.
     const withRetry = (make: MakeWorkerAgent): MakeWorkerAgent =>
       withWorkerSpawnRetry(make, options.workerRetry, {
         ...(options.onWorkerRetry ? { onRetry: options.onWorkerRetry } : {}),

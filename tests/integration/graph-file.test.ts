@@ -1,9 +1,11 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { agentProfileSeatSchema } from '@tangle-network/agent-interface'
+import { type AgentProfile, agentProfileSeatSchema } from '@tangle-network/agent-interface'
+import { type AgentGraph, promptHandle, runGraph } from '@tangle-network/agent-runtime/kernel'
 import { expect, it } from 'vitest'
 import { parse } from 'yaml'
 import { contentAddress } from '../../src/durable/content-address'
@@ -12,7 +14,6 @@ import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { superviseGraphPursuit } from '../../src/durable/supervise-pursuit'
 import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination-contracts'
 import { runSettledCommand } from '../../src/mcp/worktree-harness'
-import { runGraph } from '../../src/runtime/supervise/graph'
 import { loadGraphFile } from '../../src/runtime/supervise/graph-file'
 import {
   digestOfGraph,
@@ -28,7 +29,7 @@ import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runti
 
 /** Caller-owned deterministic process execution. The canonical profile remains identity data;
  * this seam proves graph plumbing, not native prompt/model/resource materialization. */
-function processStages(cwd: string, script: string): MakeWorkerAgent {
+function processStages(cwd: string, script: string, jsonOutput = false): MakeWorkerAgent {
   return (profile) => {
     const stop = new AbortController()
     let pending: Promise<ExecutorResult<unknown>> | undefined
@@ -47,7 +48,9 @@ function processStages(cwd: string, script: string): MakeWorkerAgent {
           timeoutMs: 10000,
           signal: executionSignal,
         }).then((child) => {
-          const out = { content: child.stdout.trim() }
+          const out: unknown = jsonOutput
+            ? JSON.parse(child.stdout)
+            : { content: child.stdout.trim() }
           artifact = {
             out,
             outRef: contentAddress(out),
@@ -107,6 +110,15 @@ function processStages(cwd: string, script: string): MakeWorkerAgent {
       executorSpec,
     } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
   }
+}
+
+async function retainAndRemove(directory: string, label: string): Promise<void> {
+  const retained = process.env.RUNTIME_FLOW_ADMISSION_PROOF_DIR
+  if (retained) {
+    await mkdir(retained, { recursive: true })
+    await cp(directory, join(retained, label), { recursive: true })
+  }
+  await rm(directory, { recursive: true, force: true })
 }
 
 // This proves loader, registry and routing plumbing with real processes. The CLI consumer owns
@@ -227,6 +239,7 @@ it('loads one canonical file, persists its data check, and runs and resumes real
       makeLeafAgent: processStages(directory, processScript),
       runDir: join(directory, 'run'),
       runId: 'canonical-file-run',
+      allowedModels: ['offline/local-process'],
       perWorker: { maxIterations: 1, maxTokens: 1000 },
       driverRetry: { enabled: false },
     }
@@ -298,7 +311,7 @@ it('loads one canonical file, persists its data check, and runs and resumes real
     expect(() => graphFromStored(stored)).toThrow('missing trigger.event')
     expect(() => graphFromStored(stored, () => true)).toThrow('missing trigger.event')
   } finally {
-    await rm(directory, { recursive: true, force: true })
+    await retainAndRemove(directory, 'canonical')
   }
 })
 
@@ -461,3 +474,127 @@ it('persists authored trigger provenance while keeping inserted parameter and tr
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+// Public execution with real child processes. These fixtures spend no model or account work.
+it.each([
+  { model: { default: 'forbidden/default' } },
+  { model: { default: 'offline/local-process', small: 'forbidden/small' } },
+  { subagents: { critic: { model: 'forbidden/subagent' } } },
+  { modes: { review: { model: 'forbidden/mode' } } },
+  { model: { provider: 'runtime', default: 'runtime/flow' } },
+] satisfies Partial<AgentProfile>[])(
+  'refuses real graph model fields before durable or process effects: %j',
+  async (override) => {
+    const directory = await mkdtemp(join(tmpdir(), 'graph-model-refusal-'))
+    try {
+      const loaded = await loadGraphFile(
+        fileURLToPath(new URL('./fixtures/canonical.graph.yaml', import.meta.url)),
+      )
+      const graph = graphFromStored(loaded.graph, { trigger: { event: 'opened' } })
+      const nodes = graph.nodes.map((node, index) =>
+        index === 0 ? { ...node, profile: { ...node.profile, ...override } } : node,
+      )
+      expect(() =>
+        runGraph(
+          { ...graph, nodes },
+          {
+            allowedModels: ['offline/local-process'],
+            runDir: join(directory, 'run'),
+            makeLeafAgent: processStages(directory, 'throw new Error("must never execute")'),
+          },
+        ),
+      ).toThrow(/model .* is not in the allowed set/)
+      expect(existsSync(join(directory, 'run'))).toBe(false)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
+
+it.each(['allowed', 'default', 'small', 'subagent', 'mode', 'synthetic'])(
+  'enforces the allowlist through real process maps of nested flows: %s',
+  async (variant) => {
+    const directory = await mkdtemp(join(tmpdir(), 'graph-nested-flow-models-'))
+    const profile = (name: string): AgentProfile => ({
+      name,
+      harness: 'cli-base',
+      model: { provider: 'offline', default: 'offline/local-process' },
+    })
+    const inner = profile('flow') // A genuine node may share the synthetic root's name.
+    if (variant === 'default') inner.model = { default: 'forbidden/default' }
+    if (variant === 'small') inner.model = { ...inner.model, small: 'forbidden/small' }
+    if (variant === 'subagent') inner.subagents = { critic: { model: 'forbidden/subagent' } }
+    if (variant === 'mode') inner.modes = { review: { model: 'forbidden/mode' } }
+    if (variant === 'synthetic') inner.model = { provider: 'runtime', default: 'runtime/flow' }
+    const graph: AgentGraph = {
+      nodes: ['plan', 'collect'].map((id) => ({ id, profile: profile(id) })),
+      entry: [{ node: 'plan', task: 'two items' }],
+      edges: [
+        {
+          kind: 'maps',
+          from: 'plan',
+          pointer: '/items',
+          join: 'collect',
+          graph: {
+            nodes: [{ id: 'flow', profile: inner }],
+            entry: [{ node: 'flow', task: { item: true } }],
+            edges: [],
+          },
+          directive: promptHandle('delegates/worker-brief/v1'),
+          maxItems: 2,
+          concurrency: 2,
+          onItemFailure: 'all-or-refuse',
+        },
+      ],
+      budget: { maxIterations: 100, maxTokens: 10000 },
+      deliverable: { describe: 'both nested items joined', check: () => true },
+    }
+    const script = `const fs=require('node:fs');const name=process.argv[1];
+      const task=JSON.parse(process.argv[2]);fs.appendFileSync('stages.jsonl',JSON.stringify({name,task})+'\\n');
+      process.stdout.write(JSON.stringify(name==='plan'?{items:['a','b']}:name==='flow'?{checked:task}:{joined:task}));`
+    try {
+      const options = {
+        allowedModels: ['offline/local-process'],
+        runDir: join(directory, 'run'),
+        runId: 'nested-flow-models',
+        driverRetry: { enabled: false },
+        makeLeafAgent: processStages(directory, script, true),
+      }
+      let result: Awaited<ReturnType<typeof runGraph>> | undefined
+      let failure: unknown
+      try {
+        result = await runGraph(graph, options)
+      } catch (error) {
+        failure = error
+      }
+      const stages = (await readFile(join(directory, 'stages.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { name: string; task: unknown })
+      if (variant === 'allowed') {
+        expect(failure).toBeUndefined()
+        expect(result?.result.kind, JSON.stringify(result)).toBe('winner')
+        expect(
+          stages
+            .filter((stage) => stage.name === 'flow')
+            .map((stage) => stage.task)
+            .sort(),
+        ).toEqual(['a', 'b'])
+        expect(stages.filter((stage) => stage.name === 'collect')).toHaveLength(1)
+        const resumed = await runGraph(graph, options)
+        expect(resumed.result.kind).toBe('winner')
+        expect(
+          (await readFile(join(directory, 'stages.jsonl'), 'utf8')).trim().split('\n'),
+        ).toHaveLength(4)
+      } else {
+        expect(result?.result.kind).not.toBe('winner')
+        expect(stages.map((stage) => stage.name)).toEqual(['plan'])
+        const journal = await readFile(join(options.runDir, 'spawn-journal.jsonl'), 'utf8')
+        const rejected = variant === 'synthetic' ? 'runtime/flow' : `forbidden/${variant}`
+        expect(journal + String(failure)).toContain(`model "${rejected}" is not in the allowed set`)
+      }
+    } finally {
+      await retainAndRemove(directory, `nested-${variant}`)
+    }
+  },
+)

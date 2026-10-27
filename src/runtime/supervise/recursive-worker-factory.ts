@@ -6,10 +6,7 @@ import {
 import { ValidationError } from '../../errors'
 import type { MakeWorkerAgent, WorkerSpawnContext } from '../../mcp/tools/coordination-contracts'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
-import { runtimeFlowBrain } from './flow-brain'
-import { createFlowRun, flowOfSubtask, routeFlowOf } from './graph-flow'
-import { graphSubtaskOf } from './graph-topology'
-import { buildNestedManagerDeps, type ManagedChild, type OwnFlow } from './nested-manager-deps'
+import { buildNestedManagerDeps, type ManagedChild } from './nested-manager-deps'
 import { registerRetainedExecutorPreparation } from './retained-executor'
 import { createExecutor, type ExecutorConfig } from './runtime'
 import {
@@ -105,11 +102,8 @@ function managedWorker(
     spawnContext,
     seat.depth,
   )
-  const { ownGraph, subtreeGraph, ownFlow } = subtreeOf(env, seat, authorized, spawnContext)
-  // A managed child, a graph node included, settles on its own accepted submission and its result
-  // goes to the assigning manager; the run's check judges the run's result, never a child's narrower
-  // assignment. A deliverable `resolveDeliverable` chose still applies; a run with no check gives
-  // its non-graph children none.
+  const { ownGraph, subtreeGraph, ownFlow } = admitted.subtree
+  // Judge the child’s submission locally; the run’s check judges the composed result.
   const ownSubmission =
     admitted.selectedDeliverable === undefined &&
     (subtreeGraph !== undefined || env.setup.deliverable !== undefined)
@@ -152,7 +146,7 @@ function managedWorker(
       ? supervisorAgent(authorized, deps)
       : supervisorAgentWithTestBrain(authorized, {
           ...deps,
-          brain: runtimeFlowBrain(),
+          brain: ownFlow.brain,
           routeFlow: ownFlow.route,
           finalizer: ownFlow.run.finalizer,
           // A flow root's wake batches nothing for a decision.
@@ -172,42 +166,6 @@ function managedWorker(
     ),
     admitted.modelSubstitution,
   )
-}
-
-/**
- * The root of a `run_graph` subtask carries its graph's topology, and its subtree runs under that
- * graph's layer. A node inside a graph cannot start another (pinning refuses it, recovery cannot
- * add one); the one exception is a `maps` edge whose item is a graph, which pinning admitted with
- * exactly that topology.
- */
-function subtreeOf(
-  env: WorkerTreeEnv,
-  seat: ParentSeat,
-  authorized: AgentProfile,
-  spawnContext: WorkerSpawnContext,
-) {
-  const subtask = graphSubtaskOf(authorized)
-  if (subtask !== undefined && seat.graph !== undefined && spawnContext.map === undefined) {
-    throw new ValidationError(
-      'supervise: a node of a graph cannot start another graph; add the work as nodes',
-    )
-  }
-  const own = subtask === undefined ? undefined : env.graphOverlayFor(subtask)
-  const ownGraph = own?.overlay
-  // A flow subtask runs under Runtime's flow root, as `runGraph` runs a flow: its brain makes
-  // no model call, and its routes decide every spawn. Inside a maps item the item value is
-  // the task of every `{ item: true }` entry.
-  const ownFlow: OwnFlow | undefined =
-    own?.validated.flow === undefined
-      ? undefined
-      : {
-          run: createFlowRun(),
-          route: flowOfSubtask(
-            routeFlowOf(own.validated),
-            spawnContext.map === undefined ? undefined : { item: spawnContext.task },
-          ),
-        }
-  return { ownGraph, subtreeGraph: ownGraph ?? seat.graph, ownFlow }
 }
 
 /** Resolve the driver harness an external manager needs and check the profile contract it runs under. */
