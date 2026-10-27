@@ -29,9 +29,9 @@ import {
   ATTR,
   agentIdentityAttributes,
 } from '@tangle-network/agent-trace-contract'
+import { msToUnixNano, toOtlpAttributes } from '@tangle-network/agent-trace-contract/otlp'
 import { contentAddress } from '../../durable/content-address'
 import type { OtelExportConfig, OtelExporter, OtelExportStats, OtelSpan } from '../../otel-export'
-import { msToUnixNano, toOtlpAttributes } from '@tangle-network/agent-trace-contract/otlp'
 import { createOtelExporter, generateSpanId } from '../../otel-export'
 import type { RuntimeHookEvent, RuntimeHooks } from '../../runtime-hooks'
 import type { Budget, Spend, SupervisedResult } from './types'

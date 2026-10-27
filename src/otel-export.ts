@@ -88,7 +88,6 @@ export type OtelAttribute = OtlpKeyValue
 
 const SCOPE = { name: '@tangle-network/agent-runtime', version: '0.83.0' }
 
-
 /**
  * Create an exporter that APPENDS spans to a local OpenInference-JSONL file, one complete span per
  * line, instead of posting them to a collector.
@@ -235,7 +234,10 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
       const partial = readOtlpPartialSuccess(text)
       const rejected = Math.min(partial.rejectedSpans, batch.length)
       if (rejected > 0) {
-        drop(rejected, `collector rejected ${rejected} spans: ${partial.errorMessage ?? 'no message'}`)
+        drop(
+          rejected,
+          `collector rejected ${rejected} spans: ${partial.errorMessage ?? 'no message'}`,
+        )
       }
       written += batch.length - rejected
     } catch (error) {
