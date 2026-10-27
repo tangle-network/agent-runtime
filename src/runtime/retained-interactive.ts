@@ -40,7 +40,7 @@ import {
   retainedCreateMaterial,
   retainedEnvironmentMetadata,
 } from './retained-run-intent'
-import { admitDurably, mintRetainedIdentity } from './retained-run-start'
+import { admitDurably, journaledAdmissions, mintRetainedIdentity } from './retained-run-start'
 import type {
   RetainedInteractiveEnvironmentAdmission,
   RetainedInteractiveIntentAdmission,
@@ -63,6 +63,11 @@ export async function startRetainedInteractiveRun(
   if (typeof startOptions.onAdmission !== 'function') {
     throw new Error('startRetainedInteractiveRun requires an awaited onAdmission durability hook')
   }
+  const onAdmission = journaledAdmissions(
+    startOptions.journalRoot,
+    startOptions.intent?.runId,
+    startOptions.onAdmission,
+  )
   if (!startOptions.provider.get) {
     throw new Error(
       `provider "${startOptions.provider.name}" cannot reconstruct an environment by id`,
@@ -89,7 +94,7 @@ export async function startRetainedInteractiveRun(
   if (startOptions.intent === undefined) {
     // This is the only admission that can be written before provider.create.
     // A replay supplies the same record and therefore skips a duplicate write.
-    await admitDurably(startOptions.onAdmission, intent)
+    await admitDurably(onAdmission, intent)
   } else {
     assertExactInteractiveIntent(startOptions.intent, intent, () =>
       // A record persisted by the previous version digested the pre-interface5
@@ -141,7 +146,7 @@ export async function startRetainedInteractiveRun(
     requestedProfileDigest,
     identity,
   )
-  await admitDurably(startOptions.onAdmission, {
+  await admitDurably(onAdmission, {
     phase: 'interactive_environment',
     provider: startOptions.provider.name,
     environmentId: environment.id,
@@ -161,7 +166,7 @@ export async function startRetainedInteractiveRun(
       startOptions.signal,
     ),
   )
-  await admitDurably(startOptions.onAdmission, {
+  await admitDurably(onAdmission, {
     phase: 'interactive_started',
     idempotencyKey: startOptions.environment.idempotencyKey,
     interactiveIdempotencyKey: startOptions.interactiveIdempotencyKey,

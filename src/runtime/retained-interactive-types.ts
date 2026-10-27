@@ -42,6 +42,8 @@ export interface StartRetainedInteractiveRunOptions extends RetainedInteractiveS
   readonly intent?: RetainedInteractiveIntentAdmission
   readonly onAdmission: RetainedInteractiveAdmissionHook
   readonly signal?: AbortSignal
+  /** Directory whose `<runId>/observer.jsonl` receives this run's admissions for agent-runtime-top. */
+  readonly journalRoot?: string
 }
 
 /** Persist each exact interactive record before the runtime proceeds. @stable */
