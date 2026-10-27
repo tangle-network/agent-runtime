@@ -1,3 +1,13 @@
+## 0.353.0
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+The local harness launcher reads every reasoning-effort flag from agent-interface `nativeReasoningControl`, so it sends the same flag as the sandbox and cli-bridge. Changes: codex `ultracode` sends `ultra` instead of `xhigh` (reproducible Codex admits `ultra`); claude-code `none`/`minimal` run at `--effort low` instead of being refused; pi `none` sends `--thinking off` instead of being refused; opencode `none` omits `--variant` instead of being refused, and opencode `ultracode` sends the model's ceiling (`max` for GLM, `xhigh` otherwise) instead of `max`. kimi-code 2.x still refuses any effort.
+
+Terminal driver refusals now settle immediately even when root-stop pausing is enabled.
+
+OTLP ids, attribute encoding and partial-success parsing now come from `@tangle-network/agent-trace-contract` 2.2.0 (`toW3CTraceId`, `toW3CSpanId` and its `./otlp` subpath), so Runtime's spans carry the same wire ids and value types as the Sandbox SDK, agent-app and agent-eval. `padTraceId` and `padSpanId` keep their names and are now the contract's `toW3CTraceId` / `toW3CSpanId`, the same rule. `OtelSpan` and `OtelAttribute` are now the contract's `OtlpSpan` and `OtlpKeyValue`, so `kind` and `attributes` are required. Span timestamps keep microseconds.
+
 ## 0.352.2
 
 Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
