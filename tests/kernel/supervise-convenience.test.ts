@@ -576,6 +576,73 @@ describe('supervise — the deadline warning wakes a waiting manager', () => {
     expect(result.kind).toBe('no-winner')
   })
 
+  it('does not let the wake debounce carry a late settlement past the deadline warning', async () => {
+    // One worker settles shortly before the warning while another still runs, so the wake waits
+    // its debounce for more events. That wait must end by the warning, not 2 s later, past the
+    // deadline that aborts the run before the manager's second turn.
+    const started = Date.now()
+    const turns: number[] = []
+    const lateLeaf = (): Agent<unknown, unknown> => {
+      const executor: Executor<unknown> = {
+        runtime: 'router',
+        execute(_task, signal) {
+          return (async function* () {
+            await new Promise<void>((resolve, reject) => {
+              const timer = setTimeout(resolve, 4_100)
+              signal.addEventListener('abort', () => {
+                clearTimeout(timer)
+                reject(new Error('aborted'))
+              })
+            })
+            yield { kind: 'iteration' } as UsageEvent
+          })()
+        },
+        teardown: () => Promise.resolve({ destroyed: true }),
+        resultArtifact: (): ExecutorResult<unknown> => ({
+          outRef: 'w:late',
+          out: { answer: 'late' },
+          verdict: { valid: true, score: 1 },
+          spent: { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 },
+        }),
+      }
+      const spec: AgentSpec = { profile: workerProfile('late'), harness: null, executor }
+      return { name: 'late', act: async () => undefined, executorSpec: spec } as Agent<
+        unknown,
+        unknown
+      > & { executorSpec: AgentSpec }
+    }
+    await superviseForTest(
+      testAgentProfile('root', {
+        harness: 'opencode',
+        tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
+      }),
+      'solve it',
+      {
+        budget: { maxIterations: 10, maxTokens: 10_000, deadlineMs: timing.deadlineMs },
+        makeWorkerAgent: (profile) => (profile.name === 'late' ? lateLeaf() : neverSettlingLeaf()),
+        wake: {
+          deadlineWarningMs: timing.deadlineWarningMs,
+          heartbeatMs: 60_000,
+          debounceMs: 2_000,
+        },
+        deliverable: { check: () => true },
+        continuation: testContinuation({ deadline: 1 }),
+        driveHarness: async ({ coordinationMcpUrl }) => {
+          turns.push(Date.now() - started)
+          if (turns.length > 1) return
+          for (const name of ['stuck', 'late']) {
+            await coordinationCall(coordinationMcpUrl, 'spawn_worker', {
+              profile: workerProfile(name),
+              task: name,
+            })
+          }
+        },
+      },
+    )
+    expect(turns).toHaveLength(2)
+    expect(turns[1]).toBeLessThan(timing.deadlineMs - 100)
+  })
+
   it('accepts a submission with the worker still running once the deadline notice was delivered', async () => {
     const { result, turns } = await runStuckManager(async (url) => {
       const accepted = await coordinationCall(url, 'submit_result', {
