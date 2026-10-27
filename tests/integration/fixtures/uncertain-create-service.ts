@@ -170,7 +170,11 @@ function terminal(run: NativeRun) {
     },
   ]
 }
-async function replay(run: NativeRun, response: ServerResponse, exactResult = false): Promise<void> {
+async function replay(
+  run: NativeRun,
+  response: ServerResponse,
+  exactResult = false,
+): Promise<void> {
   if (scenario === 'accepted' && run.status === 'running') {
     subscribeAccepted(run, response)
     return

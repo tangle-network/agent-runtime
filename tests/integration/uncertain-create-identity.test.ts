@@ -181,7 +181,9 @@ describe('actual Tangle SDK uncertain root create identities', () => {
             )
           )
         })
-        await fixture.control({ nativeReplayObserved: (await fixture.state()).runs[0]!.executionId })
+        await fixture.control({
+          nativeReplayObserved: (await fixture.state()).runs[0]!.executionId,
+        })
         await fixture.wait('original provision resolves to its exact native result', async () => {
           const state = await fixture.state()
           return (
@@ -213,7 +215,9 @@ describe('actual Tangle SDK uncertain root create identities', () => {
             event.kind === 'execution-result' && event.id === rootId,
         )!
         await assertAcceptedNativeResult(fixture, accepted)
-        expect(state.requests.filter((row) => row.kind === 'native-replay-consumed')).toHaveLength(1)
+        expect(state.requests.filter((row) => row.kind === 'native-replay-consumed')).toHaveLength(
+          1,
+        )
       })
     },
     45000,
