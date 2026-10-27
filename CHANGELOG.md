@@ -1,3 +1,11 @@
+## 1.0.0
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+In-place CLI teardown joins its harness and profile-input cleanup before acknowledging destruction, reporting a settled failure as permanently unconfirmed without repeated cleanup retries.
+
+Runtime 1.0.0 moves onto the 1.0 leaves. The peers are `@tangle-network/agent-eval` `^1.0.0`, `@tangle-network/sandbox` `^1.0.1` and `@tangle-network/agent-interface` `^5.9.0`; the dependencies are `@tangle-network/agent-core` `^1.0.0`, `@tangle-network/agent-profile-materialize` `^1.0.0` and `@tangle-network/agent-knowledge` `^23.0.0`. Each caret admits every later compatible release, so an app adopts a new leaf minor without a Runtime release. Agent-eval 0.222 and Sandbox 0.69 are no longer admitted: stay on Runtime 0.352 with them. From 1.0.0 a breaking change to a `@stable` symbol is a major release; `@experimental` symbols keep the rules in docs/STABILITY.md. The packed cohort qualifies each peer's floor and the newest published patch of every admitted minor, and a stack adoption leaves the caret peers as written.
+
 ## 0.353.2
 
 Qualify SQL ownership recovery against native SQLite write contention and clarify that terminal driver refusals end root runs immediately.
