@@ -25,6 +25,7 @@ import {
   supervisorWorkersDir,
 } from '../runtime/supervise/run-layout'
 import type { Budget, Spend, SpendChannel } from '../runtime/supervise/types'
+import { workflowJournal } from './workflow-journal'
 
 export interface TopSnapshot {
   readonly root: string
@@ -229,12 +230,24 @@ const emptySpend: SpendStats = { iterations: 0, tokensInput: 0, tokensOutput: 0,
 export function loadTopSnapshot(rootDir: string, now?: number): TopSnapshot
 export function loadTopSnapshot(
   rootDir: string,
-  options: { runDir: string; now?: number },
+  options: { runDir: string; now?: number; format?: 'workflow' },
 ): Promise<TopSnapshot>
 export function loadTopSnapshot(
   rootDir: string,
-  input: number | { runDir: string; now?: number } = Date.now(),
+  input: number | { runDir: string; now?: number; format?: 'workflow' } = Date.now(),
 ): TopSnapshot | Promise<TopSnapshot> {
+  if (typeof input !== 'number' && input.format === 'workflow') {
+    const root = resolve(rootDir), dir = resolve(input.runDir), now = input.now ?? Date.now()
+    const read = readSourceFile(join(dir, 'journal.jsonl'), 'journal', 'journal.jsonl')
+    if (read.value === undefined) return Promise.resolve(topSnapshot(root, now, [], read.diagnostics.length ? [...read.diagnostics] : [{ source: 'journal', path: 'journal.jsonl', reason: 'missing' }]))
+    try {
+      const journal = workflowJournal(dir, read.value)
+      const supervisor = buildSupervisorView({ id: journal.id, task: journal.id, status: 'unobserved', workspaceDir: root, budget: 0, budgetKnown: false, ...(journal.first ? { startedAt: journal.first } : {}) }, dir, journal.events, [], now, journal.tails)
+      return Promise.resolve(topSnapshot(root, now, [{ ...supervisor, driverSpend: { ...supervisor.driverSpend, usdKnown: false, tokensKnown: false }, totals: { ...supervisor.totals, usdKnown: false, tokensKnown: false } }]))
+    } catch {
+      return Promise.resolve(topSnapshot(root, now, [], [{ source: 'journal', path: 'journal.jsonl', reason: 'invalid-state' }]))
+    }
+  }
   if (typeof input !== 'number')
     return loadDurableTopSnapshot(rootDir, input.runDir, input.now ?? Date.now())
   const now = input
