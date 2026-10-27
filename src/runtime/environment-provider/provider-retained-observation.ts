@@ -69,8 +69,10 @@ export class RetainedObservation {
   private lastReplayPosition: string | undefined
   private sawTerminal = false
   private lastObservedAt = 0
-  // When the stream last delivered a new frame; undefined until it delivers one.
+  // When the stream last delivered a new frame, or when the current subscription opened if it
+  // has delivered none yet: a just-opened stream gets the same tail window as a flowing one.
   private lastFrameAt: number | undefined
+  private subscriptionOpenedAt = 0
   // The node publishes its wait once per invocation; the row's `since` is when it began.
   private awaitingPublished = false
   private exactResult: Promise<AgentTurnResult> | undefined
@@ -225,15 +227,16 @@ export class RetainedObservation {
     let clearQuiet: (() => void) | undefined
     try {
       // Give this read one scheduler turn before an exact result closes a quiet subscription; a
-      // stream owing its terminal frame whose last frame came within RETAINED_TAIL_FLOW_MS keeps
-      // reading for the rest of that window.
+      // stream owing its terminal frame whose last frame, or whose opening, came within
+      // RETAINED_TAIL_FLOW_MS keeps reading for the rest of that window. Closing a just-opened
+      // stream after one turn lost its usage frames under load (UC7) and recorded spend unknown.
       const exactWake = new Promise<FrameRead>((resolve) => {
         wake = setImmediate(() => {
           const close = () => {
-            const flowing =
-              this.sawTerminal || this.lastFrameAt === undefined
-                ? 0
-                : RETAINED_TAIL_FLOW_MS - (Date.now() - this.lastFrameAt)
+            const flowing = this.sawTerminal
+              ? 0
+              : RETAINED_TAIL_FLOW_MS -
+                (Date.now() - Math.max(this.lastFrameAt ?? 0, this.subscriptionOpenedAt))
             if (flowing <= 0) {
               resolve({ kind: 'exact-result' })
               return
@@ -329,6 +332,7 @@ export class RetainedObservation {
       return false
     }
     this.pendingRead = undefined
+    this.subscriptionOpenedAt = Date.now()
     try {
       while (true) {
         if (this.framesAfterResult >= RETAINED_OBSERVATION_BATCH_EVENTS) {
