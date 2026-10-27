@@ -19,9 +19,10 @@ Run it from a clean source commit. It qualifies that commit's packed cohort befo
 release files; the tagged publisher then qualifies the exact prepared release archives.
 
 The existing stack-adoption workflow runs `scripts/release-notes.mjs --adoption` through
-its post-pin step. Runtime first aligns its Eval and Interface peer floors with their matching
-development and cohort pins, preserving the updater's upper bounds. Unsupported windows or
-inconsistent selections fail before writing the manifest. It then writes one valid patch note
+its post-pin step. Runtime first checks that its Eval and Interface development pins match
+their cohort entries and sit inside their caret peers, which stay as written because a caret
+already admits every later compatible release. A non-caret peer or an inconsistent selection
+fails before any note is written. It then writes one valid patch note
 for the selected dependency, peer, catalog and override values. Release versions, scripts,
 unrelated workspace policy, formatting and key order do not change that fingerprint. Thus re-gating the same selection is idempotent and a later adoption gets its own note even when
 an earlier one has not been released. The updater stages that note with the adopted pins.

@@ -42,37 +42,33 @@ function baseRef() {
   return null
 }
 
-/** Runtime's selected cohort owns its supported floors; the updater owns the upper bounds. */
-function adoptionPeerFloors() {
-  const path = resolve(root, 'package.json')
-  const text = readFileSync(path, 'utf8')
-  const pkg = JSON.parse(text)
+/**
+ * Each adopted Eval and Interface pin must match its cohort entry and sit inside its caret
+ * peer. The caret already admits every later compatible release, so adoption leaves it as written.
+ */
+function assertAdoptedPeers() {
+  const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
   const cohort = JSON.parse(readFileSync(resolve(root, 'release/cohort.json'), 'utf8'))
-  const peers = { ...pkg.peerDependencies }
-  const order = new Intl.Collator('en', { numeric: true }).compare
   for (const key of ['agentEval', 'agentInterface']) {
     const selected = cohort.packages?.[key]
     const name = key === 'agentEval' ? '@tangle-network/agent-eval' : '@tangle-network/agent-interface'
     const version = pkg.devDependencies?.[name]
-    const window = /^>=(\d+\.\d+\.\d+)\s+<(\d+\.\d+\.\d+)$/.exec(peers[name] ?? '')
-    if (selected?.name !== name || selected.version !== version || !/^\d+\.\d+\.\d+$/.test(version ?? '') || !window) {
-      throw new Error(`adoption requires matching exact development/cohort pins and a stable peer window for ${name}`)
+    const peer = pkg.peerDependencies?.[name]
+    const caret = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(peer ?? '')
+    const pin = /^(\d+)\.(\d+)\.(\d+)$/.exec(version ?? '')
+    if (selected?.name !== name || selected.version !== version || !pin || !caret || Number(caret[1]) < 1) {
+      throw new Error(`adoption requires matching exact development/cohort pins and a caret peer from 1.0.0 for ${name}`)
     }
-    if (order(version, window[1]) < 0 || order(version, window[2]) >= 0) {
-      throw new Error(`adoption pin ${name}@${version} is outside its declared peer window ${peers[name]}`)
+    const order = (match) => match.slice(1).map(Number).reduce((total, part) => total * 1_000_000 + part, 0)
+    if (pin[1] !== caret[1] || order(pin) < order(caret)) {
+      throw new Error(`adoption pin ${name}@${version} is outside its declared peer ${peer}`)
     }
-    peers[name] = `>=${version} <${window[2]}`
-  }
-  if (JSON.stringify(peers) !== JSON.stringify(pkg.peerDependencies)) {
-    pkg.peerDependencies = peers
-    const indent = /^([ \t]+)"/m.exec(text)?.[1] ?? '  '
-    writeFileSync(path, `${JSON.stringify(pkg, null, indent)}\n`)
   }
 }
 
 if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? '')) {
   if (process.argv.includes('--adoption')) {
-    adoptionPeerFloors()
+    assertAdoptedPeers()
     const { parse } = await import('yaml')
     const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
     const workspace = parse(readFileSync(resolve(root, 'pnpm-workspace.yaml'), 'utf8'))
