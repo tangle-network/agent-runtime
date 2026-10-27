@@ -77,6 +77,8 @@ function retainedProvider(directory: string) {
     resultLost: true,
     /** What the lost read throws: a plain Error is exhibit 4's shape, unobservable by design. */
     resultError: () => new Error('provider result read lost'),
+    /** What a refused dispatch throws, or undefined to dispatch normally. */
+    dispatchError: undefined as (() => Error) | undefined,
     foreignEvent: false,
     observe: undefined as ((signal: AbortSignal | undefined) => Promise<void>) | undefined,
     destroyFailure: undefined as Error | undefined,
@@ -89,6 +91,10 @@ function retainedProvider(directory: string) {
     const base = durableRetainedProvider(stateFile)
     const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
       ...environment,
+      dispatch: async (...args: Parameters<NonNullable<AgentEnvironment['dispatch']>>) => {
+        if (state.dispatchError) throw state.dispatchError()
+        return environment.dispatch!(...args)
+      },
       session: (id, options) => {
         const session = environment.session!(id, options)
         return {
@@ -426,6 +432,64 @@ describe('retained environments at root settlement', () => {
     // The released bucket counts it the same either way: the cause says what to do, not whether
     // the fleet lost the child.
     expect(result.fleetYield.releasedUnrecovered).toBe(1)
+  })
+
+  it.each([
+    {
+      name: 'a named platform refusal settles refused before it ran, owned by the platform',
+      code: 'HUB_CREDENTIAL_REFRESH_FAILED',
+      cause: 'request-rejected',
+      failure: { code: 'request-rejected', owner: 'platform' },
+    },
+    {
+      name: 'any other 503 stays a lost transport, in doubt',
+      code: 'SERVER_ERROR',
+      cause: 'transport',
+      failure: { code: 'transport', owner: 'platform' },
+    },
+  ] as const)('$name, keeping the provider code, status and retry-after', async (scenario) => {
+    // Run 002f69d5: the orchestrator refused the dispatch before forwarding it (HTTP 503,
+    // HUB_CREDENTIAL_REFRESH_FAILED). The Sandbox SDK and the provider keep code, status and
+    // retry-after as typed fields; the settled child and the result tree must keep them too.
+    const fleet = retainedProvider(directory)
+    fleet.state.dispatchError = () =>
+      Object.assign(new Error('HTTP 503: Sandbox Hub credential is temporarily unavailable.'), {
+        name: 'ServerError',
+        code: scenario.code,
+        status: 503,
+        retryAfterMs: 5_000,
+      })
+    const context = createInMemoryRunContext()
+    let live: Settled<unknown> | undefined
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          live = await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+          return 'finished'
+        },
+      },
+      'task',
+      {
+        ...context,
+        runId: 'refused',
+        budget: { maxIterations: 4, maxTokens: 4000 },
+        retainedAtSettlement: 'release',
+      },
+    )
+    expect(live?.kind).toBe('down')
+    if (live?.kind !== 'down') return
+    expect(live.retainedPendingCause).toBe(scenario.cause)
+    const expected = {
+      ...scenario.failure,
+      providerCode: scenario.code,
+      providerStatus: 503,
+      retryAfterMs: 5_000,
+    }
+    expect(live.failure).toMatchObject(expected)
+    expect(result.tree.nodes.find((node) => node.id === 'refused:s0')?.failure).toMatchObject(
+      expected,
+    )
   })
 
   it('does not trip an armed intensity breaker with the released record', async () => {

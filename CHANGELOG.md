@@ -1,3 +1,33 @@
+## 2.2.0
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+`@tangle-network/agent-runtime/durable` exports `durableRunToolSpans(runDir)`: every tool span a finished `supervise({ runDir })` run recorded, read from the directory alone. The root's `root-stream.jsonl` becomes one trace named by the root node id, and each settled node's persisted trace is read from `<runDir>/blobs` and re-keyed to its node id. A node whose trace blob is missing throws `ValidationError`. The continuation panel's trace store reads through the same builder.
+
+A retained admission error whose machine code is not a named platform refusal, and that carries no HTTP status, is no longer settled as a platform `request-rejected` refusal. 2.1.0 matched any such error (for example a dispatch that could not bind to an environment the provider lost), so the run stopped instead of starting a new environment.
+
+## 2.1.0
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+A retained child that settles pending (for example a dispatch the platform refused with HTTP 503) now keeps the provider's machine code on its settled failure and in the result tree, instead of only the synthetic transport cause.
+
+A dispatch the platform refuses before forwarding it (`HUB_CREDENTIAL_REFRESH_FAILED` at HTTP 503) now settles as `request-rejected` owned by `platform`, nothing to reconcile, instead of a lost transport. `RuntimeFailureCause` gains optional `providerStatus` and `retryAfterMs`, read from the provider's typed error beside `providerCode`. Any other 5xx stays `transport`; nothing is retried automatically.
+
+## 2.0.3
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+A wake whose debounce was capped at the deadline warning is now always the deadline wake, even when the timer fires before the wall clock reaches the warning on a loaded host, so the manager is no longer woken a second time at once for the warning.
+
+A manager's wake debounce now ends by its deadline warning, and a wake that falls due at the warning carries both its events and the deadline notice in one turn. Before, a worker that settled within the debounce of the warning pushed the manager's next turn past the deadline, so the run ended without that turn.
+
+`serveTopWeb().close()` now finishes any read in flight and reads once more before ending the event stream, so a run that settles just before the caller closes the viewer still delivers its settled snapshot.
+
 ## 2.0.2
 
 Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.

@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@2.0.2` and `@tangle-network/agent-eval@1.0.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@2.2.0` and `@tangle-network/agent-eval@1.0.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -170,7 +170,7 @@ Import from `@tangle-network/agent-runtime/agent` — 30 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 95 exports.
+Import from `@tangle-network/agent-runtime/durable` — 96 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -178,6 +178,7 @@ Import from `@tangle-network/agent-runtime/durable` — 95 exports.
 | `assertPursuitVersions` | function | Validate a `versions` option before any compute. The same check runs inside `supervisePursuit`; |
 | `deriveExecutionId` | function | Derive a stable execution id from the run identity. |
 | `discoverDurableSupervisionRun` | function | Discover the stable identities recorded by Runtime's durable supervision |
+| `durableRunToolSpans` | function | Every tool span a finished `supervise({ runDir })` run recorded, read from its directory alone: |
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
 | `observerRecordDigest` | function | Compute the canonical SHA-256 digest for an unsigned observer record. |
 | `projectPursuit` | function | Fold one append-only execution journal into a deterministic operator projection. |

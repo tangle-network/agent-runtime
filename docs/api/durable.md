@@ -880,7 +880,7 @@ How many times a process resumed this attempt after a predecessor died mid-run.
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Runtime-classified root failure; absent in legacy observer history.
 
@@ -1111,7 +1111,7 @@ Content-addressed pointer to this node's persisted tool trace, or why there is n
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 ##### segments?
 
@@ -5862,6 +5862,30 @@ guard and refuses atomically.
 #### Returns
 
 `Promise`\<[`RunDirectoryHolderLiveness`](#rundirectoryholderliveness)\>
+
+***
+
+### durableRunToolSpans()
+
+> **durableRunToolSpans**(`runDir`): `Promise`\<readonly `ToolSpan`[]\>
+
+Every tool span a finished `supervise({ runDir })` run recorded, read from its directory alone:
+the root's `root-stream.jsonl` as one trace named by the root node id, and each settled node's
+persisted trace (the observer projection's `trace`) from `<runDir>/blobs`, re-keyed to the node
+id. The same builder feeds the continuation panel's trace store.
+
+A node whose trace blob is missing throws `ValidationError`; a node with no captured trace adds
+nothing.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+#### Returns
+
+`Promise`\<readonly `ToolSpan`[]\>
 
 ***
 
