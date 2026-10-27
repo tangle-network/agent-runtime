@@ -100,12 +100,13 @@ describe('createInPlaceCliExecutor', () => {
         `#!${process.execPath}
 const fs = require('node:fs');
 const args = process.argv.slice(2);
+const prompt = args[0] === 'exec' && args[1] === '-' ? fs.readFileSync(0, 'utf8') : args[1];
 const file = flag => { const at = args.indexOf(flag); return at < 0 ? undefined : fs.readFileSync(args[at + 1], 'utf8'); };
 const configs = Object.fromEntries(args.flatMap((arg, i) => arg === '-c' ? [args[i + 1].split(/=(.*)/s).slice(0, 2)] : []));
 const decode = value => value === undefined ? undefined : JSON.parse(value);
 const replacement = file('--system-prompt-file') ?? (configs.model_instructions_file === undefined ? undefined : fs.readFileSync(decode(configs.model_instructions_file), 'utf8'));
 const addition = file('--append-system-prompt-file') ?? decode(configs.developer_instructions);
-fs.writeFileSync('session.json', JSON.stringify({ args, replacement, addition }));
+fs.writeFileSync('session.json', JSON.stringify({ args, prompt, replacement, addition }));
 console.log('done');
 `,
         { mode: 0o755 },
@@ -135,14 +136,14 @@ console.log('done');
         expect(result.out.harness.exitCode).toBe(0)
         expect(session.addition).toBe(addition)
         expect(session.replacement).toBe(systemPrompt)
-        expect(session.args[1]).toBe('PROJECT_GUIDANCE\n\nTASK_ONLY')
+        expect(session.prompt).toBe('PROJECT_GUIDANCE\n\nTASK_ONLY')
         if (systemPrompt === undefined) {
           expect(session.args).not.toContain('--system-prompt-file')
           expect(
             session.args.some((arg: string) => arg.startsWith('model_instructions_file=')),
           ).toBe(false)
         }
-        expect(session.args[1]).not.toContain(addition)
+        expect(session.prompt).not.toContain(addition)
         for (const path of result.out.profileMaterialization?.writtenPaths ?? []) {
           expect(existsSync(join(workspacePath, path))).toBe(false)
         }
