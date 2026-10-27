@@ -378,8 +378,8 @@ async function loadDurableTopSnapshot(
       [...latest.values()].map(async (run) => {
         // SupervisorOpts.runId is the journal root key; require its recorded discovery binding.
         const binding = discovery.roots.find((id) => id === run.runId)
-        // A retained run journals admissions only; it has no spawn tree to bind.
-        if (!binding && discovery.roots.length)
+        // A retained run journals admissions only and writes no spawn journal to bind.
+        if (!binding && existsSync(discovery.spawnJournalPath))
           throw new Error('observer run has no discovered spawn root')
         const events = binding ? ((await spawnJournal.loadTree(binding)) ?? []) : []
         const rootSpawn = events.find((event) => event.kind === 'spawned' && event.id === binding)
