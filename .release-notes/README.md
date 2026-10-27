@@ -35,3 +35,8 @@ fails before any note is written. It then writes one valid patch note
 for the selected dependency, peer, catalog and override values. Release versions, scripts,
 unrelated workspace policy, formatting and key order do not change that fingerprint. Thus re-gating the same selection is idempotent and a later adoption gets its own note even when
 an earlier one has not been released. The updater stages that note with the adopted pins.
+
+A release on a superseded line (a major, or a `0.minor` below 1.0, under npm's highest) is refused
+at publication unless its note names who needs it on a line of its own, `Needed by: <owner/repo>`.
+A major over a 1.x+ release is refused unless `check-version-bump.mjs --archive` finds an
+incompatibility in the packed archive against its npm predecessor.

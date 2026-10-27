@@ -14,6 +14,8 @@ if (typeof name !== 'string' || typeof version !== 'string') throw new Error('Ar
 const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`, { signal: AbortSignal.timeout(15000) })
 let pending
 if (response.status === 404) {
+  // verify-release-line.mjs, run from main, already required a superseded line's named consumer.
+  execFileSync(process.execPath, ['scripts/check-version-bump.mjs', '--archive', archive, '--consumer', 'its CHANGELOG'], { stdio: 'inherit' })
   pending = true
 } else {
   if (!response.ok) throw new Error(`npm registry returned HTTP ${response.status}`)
