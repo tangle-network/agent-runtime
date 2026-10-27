@@ -4,6 +4,7 @@ import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-f
 import {
   attachments,
   digest,
+  HANG_GUARD_MS,
   localUrl,
   type NativeRun,
   object,
@@ -44,6 +45,8 @@ let origin = ''
 const holds = new Set<ServerResponse>()
 const nativeActions = new Map<string, Promise<void>>()
 const acceptedSubscribers = new Map<string, Set<ServerResponse>>()
+const exactReaders = new WeakSet<ServerResponse>()
+const flushes = new Map<string, Promise<void>>()
 const observedReplays = new Map<string, { received: Promise<void>; observed: () => void }>()
 function startAction(run: NativeRun): void {
   const action = act(run)
@@ -107,7 +110,8 @@ function sse(response: ServerResponse, frames: Array<{ type: string; data: objec
   writeFrames(response, frames)
   response.end()
 }
-function subscribeAccepted(run: NativeRun, response: ServerResponse): void {
+function subscribeAccepted(run: NativeRun, response: ServerResponse, exactResult: boolean): void {
+  if (exactResult) exactReaders.add(response)
   const subscribers = acceptedSubscribers.get(run.executionId) ?? new Set<ServerResponse>()
   acceptedSubscribers.set(run.executionId, subscribers)
   subscribers.add(response)
@@ -120,18 +124,30 @@ function subscribeAccepted(run: NativeRun, response: ServerResponse): void {
   writeFrames(response, terminal(run).slice(0, 1))
   note('healthy-stream-open', { executionId: run.executionId, environmentId: run.environmentId })
 }
-function flushAccepted(run: NativeRun): void {
+async function flushAccepted(run: NativeRun): Promise<void> {
   if (scenario !== 'accepted' || run.status !== 'completed') return
   const subscribers = acceptedSubscribers.get(run.executionId)
   if (!subscribers) return
-  for (const response of subscribers) {
-    if (response.destroyed || response.writableEnded) continue
-    // IDs 2 and 3 are the same canonical result/done positions as a completed replay.
-    writeFrames(response, terminal(run).slice(1), 1)
-    response.end()
-    run.terminalReads += 1
-  }
   acceptedSubscribers.delete(run.executionId)
+  const finish = (response: ServerResponse) =>
+    new Promise<void>((resolve) => {
+      if (response.destroyed || response.writableEnded) return resolve()
+      // IDs 2 and 3 are the same canonical result/done positions as a completed replay.
+      writeFrames(response, terminal(run).slice(1), 1)
+      run.terminalReads += 1
+      response.once('close', () => resolve())
+      response.end()
+    })
+  // A provider sends a turn's last frames before its result is readable. Hand the observation
+  // stream's terminal frames to the kernel before the exact-result read can see any, so Runtime
+  // never has its result settle ahead of frames already on the wire.
+  const flushing = (async () => {
+    const readers = [...subscribers]
+    for (const response of readers.filter((row) => !exactReaders.has(row))) await finish(response)
+    for (const response of readers.filter((row) => exactReaders.has(row))) await finish(response)
+  })()
+  flushes.set(run.executionId, flushing)
+  await flushing
   note('healthy-stream-completed', {
     executionId: run.executionId,
     environmentId: run.environmentId,
@@ -191,8 +207,14 @@ async function replay(
   exactResult = false,
 ): Promise<void> {
   if ((scenario === 'accepted' || scenario.startsWith('dispatch-')) && run.status === 'running') {
-    subscribeAccepted(run, response)
+    subscribeAccepted(run, response, exactResult)
     return
+  }
+  if (exactResult) {
+    // A turn's stream tail goes out before its result: wait for a flush in progress, then let any
+    // observation read already queued behind the same completion go first.
+    await flushes.get(run.executionId)
+    await new Promise<void>((resolve) => setImmediate(resolve))
   }
   if (run.status === 'running' && nativeActions.has(run.executionId))
     await nativeActions.get(run.executionId)
@@ -235,7 +257,7 @@ async function proxy(request: IncomingMessage, response: ServerResponse, url: UR
     method: request.method,
     headers,
     body: data,
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(HANG_GUARD_MS),
   })
   response.writeHead(forwarded.status, {
     'content-type': forwarded.headers.get('content-type') ?? 'application/json',
@@ -263,7 +285,7 @@ async function tool(run: NativeRun, name: string, args: object): Promise<unknown
       method: 'tools/call',
       params: { name, arguments: args },
     }),
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(HANG_GUARD_MS),
   })
   const result = object(await response.json())
   note('mcp-call', {

@@ -17,6 +17,7 @@ import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-f
 import {
   type Configuration,
   durableBytes,
+  HANG_GUARD_MS,
   object,
   readRecords,
   record,
@@ -170,7 +171,9 @@ export class ProcessFixture {
     )
   }
   async state(): Promise<ServiceState> {
-    const response = await fetch(`${this.url}/fixture/state`, { signal: AbortSignal.timeout(2000) })
+    const response = await fetch(`${this.url}/fixture/state`, {
+      signal: AbortSignal.timeout(HANG_GUARD_MS),
+    })
     if (!response.ok) throw new Error(`fixture state returned ${response.status}`)
     return (await response.json()) as ServiceState
   }
@@ -179,7 +182,7 @@ export class ProcessFixture {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(value),
-      signal: AbortSignal.timeout(2000),
+      signal: AbortSignal.timeout(HANG_GUARD_MS),
     })
     if (!response.ok) throw new Error(`fixture control returned ${response.status}`)
   }
@@ -199,7 +202,11 @@ export class ProcessFixture {
   outcomes() {
     return readRecords(join(this.directory, 'outcome.jsonl'))
   }
-  async wait(label: string, predicate: () => Promise<boolean>, limitMs = 20000): Promise<void> {
+  async wait(
+    label: string,
+    predicate: () => Promise<boolean>,
+    limitMs = HANG_GUARD_MS,
+  ): Promise<void> {
     const deadline = Date.now() + limitMs
     while (Date.now() < deadline) {
       if (await predicate()) return

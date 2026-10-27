@@ -57,6 +57,28 @@ export interface ServiceState {
   requests: WireRecord[]
   failures: string[]
 }
+/**
+ * Bound for an event one of the fixture's processes will cause. It only detects a hang: these
+ * processes share a loaded host with a full suite, so a bound that measures speed fails
+ * whichever case the load happens to slow.
+ */
+export const HANG_GUARD_MS = 120_000
+/** One case runs several such waits in sequence. */
+export const CASE_TIMEOUT_MS = 300_000
+/** Run-level deadlines (budget, continuation) must outlive the case that drives them. */
+export const RUN_DEADLINE_MS = 600_000
+/**
+ * The Tangle provider's per-create budget. A create the service refuses on purpose needs the SDK
+ * to give up quickly so the Runtime sees its unresolved-create cadence; a create the service is
+ * expected to accept must not race a loaded host's scheduler, or a spurious timeout becomes a
+ * failed attempt the case never asked for.
+ */
+export function createReadyTimeoutMs(scenario: Scenario): number {
+  const refusesCreates =
+    scenario.startsWith('create-') ||
+    ['historical', 'older-lost', 'current-lost', 'unsupported-descendant'].includes(scenario)
+  return refusesCreates ? 250 : HANG_GUARD_MS
+}
 export function record(path: string, value: object): void {
   const descriptor = openSync(path, 'a', 0o600)
   try {
@@ -77,8 +99,11 @@ export function durableBytes(path: string, bytes: string | Buffer): void {
 }
 export function readRecords(path: string): WireRecord[] {
   try {
-    return readFileSync(path, 'utf8')
-      .trim()
+    // `record` appends one line per write while a reader may be mid-read. A write larger than a
+    // page is visible in page-sized pieces, so only newline-terminated lines are whole records.
+    const text = readFileSync(path, 'utf8')
+    return text
+      .slice(0, text.lastIndexOf('\n') + 1)
       .split('\n')
       .filter(Boolean)
       .map((line) => JSON.parse(line))

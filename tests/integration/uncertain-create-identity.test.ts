@@ -15,7 +15,14 @@ import {
   rootId,
   withFixture,
 } from './fixtures/uncertain-create-harness'
-import { digest, object, readRecords, record } from './fixtures/uncertain-create-protocol'
+import {
+  CASE_TIMEOUT_MS,
+  digest,
+  HANG_GUARD_MS,
+  object,
+  readRecords,
+  record,
+} from './fixtures/uncertain-create-protocol'
 
 let bundle: string
 let executables: Executables
@@ -43,7 +50,7 @@ beforeAll(async () => {
     coordinator: join(bundle, 'coordinator.mjs'),
     credential: join(bundle, 'credential.mjs'),
   }
-})
+}, HANG_GUARD_MS)
 afterAll(async () => {
   if (bundle) await rm(bundle, { recursive: true, force: true })
 })
@@ -70,18 +77,15 @@ async function assertAcceptedNativeResult(
   const artifact = await new FileResultBlobStore(join(fixture.directory, 'run', 'blobs')).get(
     event.outRef,
   )
-  expect(artifact).toMatchObject({ content: '{"answer":"delivered"}' })
-  // The fixture marks the run completed before it flushes the stream's result and done frames, so
-  // an exact-result read can win and close the stream on its result (eventStreamComplete false).
-  // Either terminal shape is an accepted success.
-  expect(
-    (artifact as { events: Array<{ type: string; data?: Record<string, unknown> }> }).events,
-  ).toContainEqual(
-    expect.objectContaining({
-      type: expect.stringMatching(/^(done|result)$/),
-      data: expect.objectContaining({ success: true }),
-    }),
-  )
+  expect(artifact).toMatchObject({
+    content: '{"answer":"delivered"}',
+    events: expect.arrayContaining([
+      expect.objectContaining({
+        type: 'done',
+        data: expect.objectContaining({ success: true, outcome: { type: 'completed' } }),
+      }),
+    ]),
+  })
 }
 async function assertOneIdentity(fixture: ProcessFixture, expected?: unknown): Promise<unknown> {
   const events = await fixture.events()
@@ -231,7 +235,7 @@ it.each(['dispatch-refused', 'dispatch-lost-reply'] as const)(
       ).toBe(true)
     })
   },
-  45000,
+  CASE_TIMEOUT_MS,
 )
 
 describe('actual Tangle SDK uncertain root create identities', () => {
@@ -338,7 +342,7 @@ describe('actual Tangle SDK uncertain root create identities', () => {
         )
       })
     },
-    45000,
+    CASE_TIMEOUT_MS,
   )
 
   it('UC2 accepted older A then authoritative loss cannot reset pending B after a real 408', async () => {
@@ -390,7 +394,7 @@ describe('actual Tangle SDK uncertain root create identities', () => {
       )
       expect(new Set(failures.map((row) => row.key))).toEqual(new Set([b.idempotencyKey]))
     })
-  }, 45000)
+  }, CASE_TIMEOUT_MS)
 
   it('UC3 authoritative loss of the current admitted target permits a genuinely new invocation', async () => {
     await withFixture('current-lost', executables, async (fixture) => {
@@ -416,7 +420,7 @@ describe('actual Tangle SDK uncertain root create identities', () => {
         ),
       ).toBe(true)
     })
-  }, 45000)
+  }, CASE_TIMEOUT_MS)
 
   it.each(['cancel-unknown', 'cancel-requested'] as const)(
     'UC4 %s retains the current identity until exact cancelled/not_live evidence',
@@ -447,18 +451,12 @@ describe('actual Tangle SDK uncertain root create identities', () => {
           cancelEffect: scenario === 'cancel-unknown' ? 'not_live' : 'cancelled',
           ...(scenario === 'cancel-requested' ? { nativeStatus: 'cancelled' } : {}),
         })
-        await fixture.wait(
-          'confirmed terminal stop authorizes next invocation',
-          async () => {
-            const events = await fixture.events()
-            return (
-              abandoned(events).length > 0 &&
-              inputs(events).length > 1 &&
-              intents(events).length > 1
-            )
-          },
-          35000,
-        )
+        await fixture.wait('confirmed terminal stop authorizes next invocation', async () => {
+          const events = await fixture.events()
+          return (
+            abandoned(events).length > 0 && inputs(events).length > 1 && intents(events).length > 1
+          )
+        })
         const events = await fixture.events()
         expect(abandoned(events)).toContainEqual(
           expect.objectContaining({
@@ -472,7 +470,7 @@ describe('actual Tangle SDK uncertain root create identities', () => {
         expect(intents(events).at(-1)?.idempotencyKey).not.toBe(first.idempotencyKey)
       })
     },
-    60000,
+    CASE_TIMEOUT_MS,
   )
 })
 
@@ -539,7 +537,7 @@ describe('typed real command credential refusal and accepted evidence', () => {
         ),
       ).toHaveLength(0)
     })
-  }, 45000)
+  }, CASE_TIMEOUT_MS)
 
   it('UC5 unsupported route before SDK create settles the nested manager once without abandon', async () => {
     await withFixture('unsupported-intent', executables, async (fixture) => {
@@ -618,7 +616,7 @@ describe('typed real command credential refusal and accepted evidence', () => {
         }),
       ])
     })
-  }, 45000)
+  }, CASE_TIMEOUT_MS)
 
   it.each(['unsupported-environment', 'unsupported-descendant'] as const)(
     'UC6 %s cannot turn existing admission or descendant work into terminal refusal',
@@ -750,7 +748,7 @@ describe('typed real command credential refusal and accepted evidence', () => {
         }
       })
     },
-    45000,
+    CASE_TIMEOUT_MS,
   )
 })
 
@@ -955,7 +953,7 @@ describe('accepted native recovery and historical identities', () => {
       expect(pursuit.result.tree.inFlight).toBe(0)
       expect(abandoned(events)).toHaveLength(0)
     })
-  }, 45000)
+  }, CASE_TIMEOUT_MS)
 
   it('UC8 historical uncertain abandonment remains closed without rewriting or claiming cleanup', async () => {
     await withFixture('historical', executables, async (fixture) => {
@@ -1007,5 +1005,5 @@ describe('accepted native recovery and historical identities', () => {
         ),
       ).toHaveLength(0)
     })
-  }, 45000)
+  }, CASE_TIMEOUT_MS)
 })

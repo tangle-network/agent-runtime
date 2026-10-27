@@ -5,7 +5,14 @@ import { createCommandModelCredentialResolver } from '@tangle-network/agent-prov
 import { Sandbox } from '@tangle-network/sandbox'
 import { supervisePursuit } from '../../../src/durable'
 import { FileSpawnJournal } from '../../../src/runtime'
-import { type Configuration, localUrl, record } from './uncertain-create-protocol'
+import {
+  type Configuration,
+  createReadyTimeoutMs,
+  HANG_GUARD_MS,
+  localUrl,
+  record,
+  RUN_DEADLINE_MS,
+} from './uncertain-create-protocol'
 
 const config = JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as Configuration
 const directory = config.directory
@@ -20,10 +27,10 @@ const provider = createTangleProvider({
   }),
   name: 'local-http-tangle',
   requireNativeSessionCapture: config.scenario.startsWith('dispatch-'),
-  readyTimeoutMs: 250,
+  readyTimeoutMs: createReadyTimeoutMs(config.scenario),
   modelCredentials: createCommandModelCredentialResolver({
     command: [process.execPath, config.resolver, directory],
-    timeoutMs: 5000,
+    timeoutMs: HANG_GUARD_MS,
   }),
 })
 const controller = new AbortController()
@@ -65,7 +72,7 @@ try {
         provider,
         ...(config.scenario === 'terminal-ceiling' ? { defaults: { resources: { cpu: 16 } } } : {}),
       },
-      budget: { maxIterations: 200, maxTokens: 10000, deadlineMs: 120000 },
+      budget: { maxIterations: 200, maxTokens: 10000, deadlineMs: RUN_DEADLINE_MS },
       perWorker: { maxIterations: 20, maxTokens: 1000 },
       workerSlots: 4,
       driverRetry: {
@@ -78,7 +85,7 @@ try {
         maxConsecutiveFailures: 100,
       },
       continuation: {
-        deadline: Date.now() + 120000,
+        deadline: Date.now() + RUN_DEADLINE_MS,
         maxBarren: 100,
         failures: 'verbatim',
         panel: 'off',
@@ -165,7 +172,7 @@ try {
               routeKey,
               target: `http://127.0.0.1:${address.port}/coordination/${routeKey}`,
             }),
-            signal: AbortSignal.timeout(5000),
+            signal: AbortSignal.timeout(HANG_GUARD_MS),
           })
           if (!response.ok) throw new Error('local coordination route registration failed')
           record(join(directory, 'coordinator.jsonl'), {
