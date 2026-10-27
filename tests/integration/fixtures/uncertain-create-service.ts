@@ -177,14 +177,20 @@ async function replay(run: NativeRun, response: ServerResponse, exactResult = fa
   if (replay && exactResult) await replay.received
   run.terminalReads += 1
   if (replay && !exactResult) {
-    // UC1 measures identity recovery with complete native evidence. Hold the independent exact
-    // result until the real SDK consumes this replay's done frame and closes its HTTP stream.
-    response.once('close', () => {
-      note('native-replay-consumed', { executionId: run.executionId })
-      replay.observed()
-    })
-    response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
-    writeFrames(response, terminal(run))
+    // The root stream records this suffix only after Runtime observed the native done frame.
+    // UC1 acknowledges that durable observation before releasing the independent exact result.
+    sse(response, [
+      ...terminal(run),
+      {
+        type: 'message.part.updated',
+        data: {
+          sessionId: run.sessionId,
+          executionId: run.executionId,
+          part: { type: 'reasoning', text: run.executionId },
+          delta: run.executionId,
+        },
+      },
+    ])
     return
   }
   sse(response, terminal(run))
@@ -604,6 +610,12 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
   }
   if (url.pathname === '/fixture/control') {
     const control = await body(request)
+    if (typeof control.nativeReplayObserved === 'string') {
+      const replay = observedReplays.get(control.nativeReplayObserved)
+      if (!replay) throw new Error('native replay acknowledgement requires an admitted execution')
+      note('native-replay-consumed', { executionId: control.nativeReplayObserved })
+      replay.observed()
+    }
     if (typeof control.routeKey === 'string' && typeof control.target === 'string')
       state.routes[control.routeKey] = localUrl(control.target).href
     if (control.steerManager === true) {

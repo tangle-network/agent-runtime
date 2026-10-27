@@ -162,6 +162,18 @@ describe('actual Tangle SDK uncertain root create identities', () => {
         await assertOneIdentity(fixture, identity)
         expect((await fixture.events()).some((event) => event.kind === 'root-reentered')).toBe(true)
         await fixture.control({ finish: true })
+        await fixture.wait('native terminal replay reached the root stream', async () => {
+          const run = (await fixture.state()).runs[0]
+          return (
+            run !== undefined &&
+            readRecords(join(fixture.directory, 'run', 'root-stream.jsonl')).some(
+              (row) =>
+                object(row.event).kind === 'reasoning_delta' &&
+                object(row.event).text === run.executionId,
+            )
+          )
+        })
+        await fixture.control({ nativeReplayObserved: (await fixture.state()).runs[0]!.executionId })
         await fixture.wait('original provision resolves to its exact native result', async () => {
           const state = await fixture.state()
           return (
