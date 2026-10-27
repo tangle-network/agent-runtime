@@ -1202,14 +1202,12 @@ deadline, an abort, or a run of attempts that changed nothing at all.
 Omit = retry under the defaults. `{ enabled: false }` = the historical behavior where the first
 driver failure ends the run. Applies to the root manager and every recursive manager under it.
 
-`driverRetry.pauseRootStops: true` makes the external ROOT pause where this policy would stop
-it: a terminal failure, no progress, the attempt ceilings, a repeated failure, an unresolved
-pending invocation and a spent budget each journal one `paused` row (`replacesStop`, `streak`,
-`resumeAt`) and wait 5 minutes, doubling to 60, before the next drive. Only a solve, a cancel
-(`cancelRun`) or a declared deadline then ends the run; a root steer ends any pause at once,
-and a pool still spent then pauses again. Nested managers ignore the field, keep their stops
-and settle `down` for their parent. Refused with `driverRetry.enabled: false`. Default off:
-leave it off when the run must return on its own.
+`driverRetry.pauseRootStops: true` pauses recoverable ROOT stops: no progress, attempt ceilings,
+repeated failure, unresolved pending work and spent budget. Each journals one `paused` row
+(`replacesStop`, `streak`, `resumeAt`) and waits 5 minutes, doubling to 60. Terminal refusals,
+completion, cancellation and declared deadlines still end the run. A root steer ends any pause;
+a pool still spent pauses again. Nested managers keep their stops and settle `down` for their
+parent. Refused with `driverRetry.enabled: false`. Default off.
 
 ###### Inherited from
 
@@ -2316,14 +2314,12 @@ deadline, an abort, or a run of attempts that changed nothing at all.
 Omit = retry under the defaults. `{ enabled: false }` = the historical behavior where the first
 driver failure ends the run. Applies to the root manager and every recursive manager under it.
 
-`driverRetry.pauseRootStops: true` makes the external ROOT pause where this policy would stop
-it: a terminal failure, no progress, the attempt ceilings, a repeated failure, an unresolved
-pending invocation and a spent budget each journal one `paused` row (`replacesStop`, `streak`,
-`resumeAt`) and wait 5 minutes, doubling to 60, before the next drive. Only a solve, a cancel
-(`cancelRun`) or a declared deadline then ends the run; a root steer ends any pause at once,
-and a pool still spent then pauses again. Nested managers ignore the field, keep their stops
-and settle `down` for their parent. Refused with `driverRetry.enabled: false`. Default off:
-leave it off when the run must return on its own.
+`driverRetry.pauseRootStops: true` pauses recoverable ROOT stops: no progress, attempt ceilings,
+repeated failure, unresolved pending work and spent budget. Each journals one `paused` row
+(`replacesStop`, `streak`, `resumeAt`) and waits 5 minutes, doubling to 60. Terminal refusals,
+completion, cancellation and declared deadlines still end the run. A root steer ends any pause;
+a pool still spent pauses again. Nested managers keep their stops and settle `down` for their
+parent. Refused with `driverRetry.enabled: false`. Default off.
 
 ###### Inherited from
 
