@@ -1,3 +1,7 @@
+## 2.3.3
+
+Publishes the 2.3.2 changes: tag `v2.3.2` failed release qualification on an unformatted test before publication, so 2.3.2 never reached npm.
+
 ## 2.3.2
 
 `reconnectRetainedInteractiveRun` and `recoverRetainedInteractiveRun` accept `journalRoot`, and an interactive run's journal is keyed by its session id, so turns sent from a reconnected handle in another process land in the same `observer.jsonl`. A turn record carries its operation id only.
