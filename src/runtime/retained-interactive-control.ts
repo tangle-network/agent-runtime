@@ -3,6 +3,11 @@ import {
   agentInteractiveSessionControlClaimRequestDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
+import {
+  acceptedInteractiveControl,
+  offerInteractiveControl,
+  scopeDirectory,
+} from './retained-interactive-delegation'
 import type { RetainedInteractiveRunHandle } from './retained-interactive-types'
 import { abortError } from './util'
 
@@ -15,6 +20,9 @@ export interface ClaimRetainedInteractiveControlOptions {
   /** Last known provider generation. Zero discovers the current generation safely. */
   readonly expectedGeneration?: number
   readonly signal?: AbortSignal
+  /** Explicit full-control delegation within private local Runtime state. The accepted claim
+   * retains the real holder identity and grants attach/input/resize, prompt and stop authority. */
+  readonly delegation?: 'offer' | 'accept'
 }
 
 /**
@@ -29,11 +37,17 @@ export interface ClaimRetainedInteractiveControlOptions {
 export async function claimRetainedInteractiveControl(
   options: ClaimRetainedInteractiveControlOptions,
 ): Promise<AgentInteractiveSessionControlClaim> {
+  if (options.signal?.aborted) throw abortError(options.signal.reason)
   const expected = options.expectedGeneration ?? 0
   if (!Number.isSafeInteger(expected) || expected < 0) {
     throw new Error('interactive control expectedGeneration must be a non-negative integer')
   }
-
+  if (options.delegation === 'offer') scopeDirectory(options.handle)
+  if (options.delegation === 'accept') {
+    const delegated = await acceptedInteractiveControl(options.handle)
+    if (options.signal?.aborted) throw abortError(options.signal.reason)
+    if (delegated) return delegated
+  }
   let generation = expected
   for (let conflict = 0; conflict <= MAX_GENERATION_CONFLICTS; conflict += 1) {
     if (options.signal?.aborted) throw abortError(options.signal.reason)
@@ -58,6 +72,7 @@ export async function claimRetainedInteractiveControl(
       if (Date.parse(control.expiresAt) <= Date.now()) {
         throw new Error('provider returned an expired interactive control claim')
       }
+      if (options.delegation === 'offer') await offerInteractiveControl(options.handle, control)
       return control
     }
     if (
