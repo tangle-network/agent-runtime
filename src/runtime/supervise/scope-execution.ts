@@ -2,7 +2,7 @@ import { ValidationError } from '../../errors'
 import { reportedFailureCause, runtimeFailureCause } from '../failure-cause'
 import { type HarnessTranscriptEvidence, settleHarnessTranscript } from '../harness-transcript'
 import { cloneTokenUsage, isAsyncIterable } from '../util'
-import { signalAbortError } from './abortable'
+import { runAbortable, signalAbortError } from './abortable'
 import type { BudgetPool, ReservationTicket } from './budget'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS } from './deadline'
 import { errMessage } from './error-message'
@@ -559,43 +559,12 @@ async function awaitUnlessAccepted<T>(
 }
 
 async function awaitAbortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) {
-    // `execute()` may have returned a promise that rejects from the same abort. Observe it before
-    // returning the already-winning cancellation so a fast abort cannot become an unhandled
-    // provider rejection.
-    void work.catch(() => undefined)
-    throw signalAbortError(signal, 'execution aborted')
-  }
-  return await new Promise<T>((resolve, reject) => {
-    let settled = false
-    const onAbort = () => {
-      // A cooperative executor often resolves its terminal usage receipt from an abort listener.
-      // Give that already-triggered resolution one microtask to win; an ignoring executor still
-      // loses immediately afterward.
-      queueMicrotask(() => {
-        if (settled) return
-        settled = true
-        cleanup()
-        reject(signalAbortError(signal, 'execution aborted'))
-      })
-    }
-    const cleanup = () => signal.removeEventListener('abort', onAbort)
-    signal.addEventListener('abort', onAbort, { once: true })
-    work.then(
-      (value) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        resolve(value)
-      },
-      (error) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        reject(error)
-      },
-    )
-  })
+  // `execute()` may have returned a promise that rejects from the same abort. Observe it before
+  // the already-winning cancellation so a fast abort cannot become an unhandled provider rejection.
+  if (signal.aborted) void work.catch(() => undefined)
+  // runAbortable defers the abort one microtask: a cooperative executor often resolves its
+  // terminal usage receipt from an abort listener, and that already-triggered result still wins.
+  return await runAbortable(() => work, signal, 'execution aborted')
 }
 
 /** Observed partial counts as a lower bound on every channel: the work happened, its remainder went
