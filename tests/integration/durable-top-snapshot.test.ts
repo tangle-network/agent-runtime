@@ -39,7 +39,7 @@ const graph: AgentGraph = {
 }
 
 // Real OS execution through the public leaf port: no provider protocol or model is emulated.
-function processLeaf(cwd: string, known: boolean, fail: boolean) {
+function processLeaf(cwd: string, known: boolean, fail: boolean, iterations = 1) {
   return (selected: AgentProfile = profile) => {
     const stop = new AbortController()
     let pending: Promise<ExecutorResult<string>> | undefined
@@ -55,17 +55,24 @@ function processLeaf(cwd: string, known: boolean, fail: boolean) {
             : "process.stdout.write('delivered')") +
           ' }},10)'
         const started = performance.now()
-        pending = runProcess(process.execPath, ['-e', script], {
-          cwd,
-          signal: AbortSignal.any([signal, stop.signal]),
-          timeout: 5000,
-        }).then(({ stdout }) => {
+        pending = (async () => {
+          let stdout = ''
+          for (let step = 0; step < iterations; step++) {
+            const completed = await runProcess(process.execPath, ['-e', script], {
+              cwd,
+              signal: AbortSignal.any([signal, stop.signal]),
+              timeout: 5000,
+            })
+            stdout = completed.stdout
+          }
+          return { stdout }
+        })().then(({ stdout }) => {
           result = {
             out: stdout,
             outRef: `sha256:${createHash('sha256').update(JSON.stringify(stdout)).digest('hex')}`,
             verdict: { valid: true, score: 1 },
             spent: {
-              iterations: 1,
+              iterations,
               tokens: { input: 0, output: 0 },
               usd: 0,
               tokensKnown: known,
@@ -156,7 +163,7 @@ it.each([
               directive: { surface: 'delegates/worker-brief', version: 1 },
             },
           ],
-          budget: { ...budget, maxIterations: 2 },
+          budget: { ...budget, maxIterations: 3 },
         }
       : graph
     const pending = superviseGraphPursuit(executionGraph, {
@@ -164,7 +171,7 @@ it.each([
       runId,
       pursuitId,
       signal: stop.signal,
-      makeLeafAgent: processLeaf(root, known, fail),
+      makeLeafAgent: processLeaf(root, known, fail, refuse ? 2 : 1),
       perWorker: { maxIterations: refuse ? 2 : 1, maxTokens: 1000 },
       driverRetry: { enabled: false },
     })
