@@ -8,9 +8,9 @@ type: patch
 One short changelog entry written for Runtime consumers.
 ```
 
-Use `patch`, `minor`, or `major`, by what a consumer's code must change. `minor` adds:
-an export, an optional member on an exported object type or interface, an optional
-parameter or overload, or a wider parameter type. `major` breaks: it removes or renames an
+Use `patch` or `major`, by what a consumer's code must change ([release versioning](../docs/release-versioning.md)).
+`patch` covers fixes and additions: an export, an optional member on an exported object type or
+interface, an optional parameter or overload, or a wider parameter type. `major` breaks: it removes or renames an
 export or member, makes an optional member required, adds a required member to an exported
 type (a consumer may build one), narrows a parameter type or a value to a type, or changes a
 function's arity or return type incompatibly. `check:version-bump` applies this rule to the
