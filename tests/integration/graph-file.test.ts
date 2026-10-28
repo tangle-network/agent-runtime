@@ -461,3 +461,50 @@ it('persists authored trigger provenance while keeping inserted parameter and tr
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+it('judges a check that names a non-terminal node by its settled output, and keeps the terminal output', async () => {
+  // Graph run 6f167e9e: the check read fetch-pr's merge_sha and review-pr's approval, but only the
+  // terminal review-pr was in view, so the run ended no-winner whatever fetch-pr delivered.
+  const directory = await mkdtemp(join(tmpdir(), 'graph-file-nonterminal-check-'))
+  const fixture = fileURLToPath(new URL('./fixtures/canonical.graph.yaml', import.meta.url))
+  const json = parse(await readFile(fixture, 'utf8')) as Record<string, unknown>
+  delete json.on
+  const processScript = [
+    'const input=JSON.parse(process.argv[2]);',
+    "process.stdout.write('delivered:'+process.argv[1]);",
+  ].join('')
+  const run = async (buildExpected: string, runId: string) => {
+    const loaded = await loadGraphFile(join(directory, `${runId}.graph.json`), {
+      source: JSON.stringify({
+        ...json,
+        check: {
+          describe: 'build and review both delivered',
+          all: [
+            { node: 'build', pointer: '/content', equals: buildExpected },
+            { node: 'review', pointer: '/content', equals: 'delivered:review' },
+          ],
+        },
+      }),
+      params: { message: 'accepted', iterations: '12', input: { count: 3 } },
+    })
+    return runGraph(graphFromStored(loaded.graph, { trigger: { event: 'opened' } }), {
+      makeLeafAgent: processStages(directory, processScript),
+      runDir: join(directory, runId),
+      runId,
+      perWorker: { maxIterations: 1, maxTokens: 1000 },
+      driverRetry: { enabled: false },
+    })
+  }
+  try {
+    const passed = await run('delivered:build', 'nonterminal-pass')
+    expect(passed.result.kind, JSON.stringify(passed.result)).toBe('winner')
+    // The deliverable stays the terminal node's output; the check alone reads build.
+    if (passed.result.kind === 'winner')
+      expect(passed.result.out).toEqual({ review: { content: 'delivered:review' } })
+    // Still an exact, independent check: a wrong value for the non-terminal node fails it.
+    const failed = await run('delivered:something-else', 'nonterminal-fail')
+    expect(failed.result.kind).toBe('no-winner')
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+}, 60_000)

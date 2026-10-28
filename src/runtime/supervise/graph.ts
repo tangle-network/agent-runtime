@@ -78,6 +78,7 @@ import { graphExecutionOptions } from './graph-backend'
 import {
   createFlowRun,
   flowRootProfile,
+  flowRouteDeliverable,
   GraphRouteError,
   journaledGateDecider,
   routeFlowOf,
@@ -886,7 +887,10 @@ export function superviseAgentGraph(
       rootDriverFromBackend: flow !== undefined,
       // Graph-owned values come after the spread: the graph, not the caller, decides these.
       budget: graph.budget,
-      deliverable: graph.deliverable,
+      deliverable:
+        flow !== undefined && graph.deliverable.checkRef === 'route'
+          ? flowRouteDeliverable(graph.deliverable, flow)
+          : graph.deliverable,
       authorizeSpawn: overlay.authorizeSpawn,
       resolveSpawnProfile: overlay.resolveSpawnProfile,
       inheritSpawnRights: false,
