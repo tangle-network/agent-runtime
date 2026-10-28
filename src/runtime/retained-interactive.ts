@@ -68,11 +68,6 @@ export async function startRetainedInteractiveRun(
   if (typeof startOptions.onAdmission !== 'function') {
     throw new Error('startRetainedInteractiveRun requires an awaited onAdmission durability hook')
   }
-  const onAdmission = journaledAdmissions(
-    startOptions.journalRoot,
-    startOptions.intent?.runId,
-    startOptions.onAdmission,
-  )
   if (!startOptions.provider.get) {
     throw new Error(
       `provider "${startOptions.provider.name}" cannot reconstruct an environment by id`,
@@ -95,6 +90,13 @@ export async function startRetainedInteractiveRun(
         }
   assertStableText(identity.sessionId, 'retained session id')
   assertStableText(identity.executionId, 'retained execution id')
+  // The journal is keyed by the session id, which every admission phase and the started ref carry,
+  // so a recovery or a reconnect in another process appends to the same observer.jsonl.
+  const onAdmission = journaledAdmissions(
+    startOptions.journalRoot,
+    identity.sessionId,
+    startOptions.onAdmission,
+  )
   const intent = interactiveIntent(startOptions, profile, identity)
   if (startOptions.intent === undefined) {
     // This is the only admission that can be written before provider.create.
@@ -180,7 +182,7 @@ export async function startRetainedInteractiveRun(
   return journaledInteractiveHandle(
     createRetainedInteractiveRunHandle(environment, ref, capabilities, request),
     startOptions.journalRoot,
-    intent.runId,
+    identity.sessionId,
   )
 }
 
@@ -214,6 +216,7 @@ export async function recoverRetainedInteractiveRun(
       intent: admission,
       onAdmission: options.onAdmission,
       signal: options.signal,
+      ...(options.journalRoot === undefined ? {} : { journalRoot: options.journalRoot }),
     })
   }
   const request = exactRecoveryRequest(admission)
@@ -234,13 +237,18 @@ export async function recoverRetainedInteractiveRun(
       options.signal,
     ),
   )
-  await admitDurably(options.onAdmission, {
+  const sessionId = request.run.sessionId
+  await admitDurably(journaledAdmissions(options.journalRoot, sessionId, options.onAdmission), {
     phase: 'interactive_started',
     idempotencyKey: admission.idempotencyKey,
     interactiveIdempotencyKey: admission.interactiveIdempotencyKey,
     ref,
   })
-  return createRetainedInteractiveRunHandle(environment, ref, capabilities, request)
+  return journaledInteractiveHandle(
+    createRetainedInteractiveRunHandle(environment, ref, capabilities, request),
+    options.journalRoot,
+    sessionId,
+  )
 }
 
 function exactRecoveryRequest(
@@ -301,7 +309,11 @@ export async function reconnectRetainedInteractiveRun(
     options.signal,
   )
   if (!environment || !capabilities) return null
-  const handle = createRetainedInteractiveRunHandle(environment, ref, capabilities)
+  const handle = journaledInteractiveHandle(
+    createRetainedInteractiveRunHandle(environment, ref, capabilities),
+    options.journalRoot,
+    ref.run.sessionId,
+  )
   await handle.status({ signal: options.signal })
   return handle
 }

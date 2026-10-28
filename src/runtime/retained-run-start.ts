@@ -552,8 +552,9 @@ export function journaledAdmissions<
 
 /**
  * The interactive handle with its accepted turns and its end journaled beside its admissions, so a
- * viewer sees the run take turns and settle rather than run forever. A turn records its number and
- * operation id, never the prompt. The end is the first exited status read or accepted stop.
+ * viewer sees the run take turns and settle rather than run forever. A turn records its operation id,
+ * never the prompt, so handles in different processes agree. The end is the first exited status
+ * read or accepted stop.
  */
 export function journaledInteractiveHandle(
   handle: RetainedInteractiveRunHandle,
@@ -561,7 +562,6 @@ export function journaledInteractiveHandle(
   runId: string,
 ): RetainedInteractiveRunHandle {
   if (journalRoot === undefined) return handle
-  let turns = 0
   let settled = false
   const settle = async (failed: boolean, detail: Record<string, unknown>) => {
     if (settled) return
@@ -580,14 +580,13 @@ export function journaledInteractiveHandle(
     sendPrompt: async (command, options) => {
       const ack = await handle.sendPrompt(command, options)
       if (ack.status === 'accepted') {
-        turns += 1
         await appendRetainedObserverEvent(
           journalRoot,
           runId,
           `turn:${command.operationId}`,
           'agent.turn',
           'event',
-          { turn: turns, operationId: command.operationId },
+          { operationId: command.operationId },
         )
       }
       return ack
