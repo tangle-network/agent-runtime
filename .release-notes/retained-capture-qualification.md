@@ -1,3 +1,3 @@
 type: patch
 ---
-Release qualification retires the obsolete fake-provider pending-turn suite, whose source-replacement and metadata-free environment expectations contradict retained-source preservation and ownership requirements.
+Release qualification reads retained ownership from the integration provider's stored environment record and retires obsolete expectations requiring replacement while failed-turn evidence is still pending.

@@ -13,7 +13,8 @@
   Pending capture keeps the pursuit re-enterable and cannot seal a winner. Partial or foreign
   captures never authorize reuse or deletion. Explicit cancellation retains its settlement rules.
 
-Process and filesystem capture coverage lives in `tests/runtime/retained-capture-resume.test.ts`.
+Scenario coverage lives in `tests/kernel/supervise-retained-owner-pending.test.ts` and
+`tests/runtime/retained-capture-resume.test.ts`.
 
 # Graph subtasks
 
