@@ -153,8 +153,8 @@ test('HTTP snapshots retain full recorded activity across every journal adapter 
     for (const worker of selected(updated!))
       expect(worker).toMatchObject({ lastActivityAt: 2200, medianEventGapMs: 550 })
     // Replacement/truncation starts a new recorded stream, including a real epoch-zero instant.
-    for (const file of files) await writeFile(file, progress(0) + progress(0))
-    await writeFile(nativeFile, nativeRow(0) + nativeRow(0))
+    for (const file of files) await writeFile(file, progress(0) + progress(0).trimEnd())
+    await writeFile(nativeFile, nativeRow(0) + nativeRow(0).trimEnd())
     const resetDeadline = Date.now() + 3000
     do {
       updated = await snapshot()
@@ -163,7 +163,18 @@ test('HTTP snapshots retain full recorded activity across every journal adapter 
     } while (Date.now() < resetDeadline)
     for (const worker of selected(updated!))
       expect(worker).toMatchObject({ lastActivityAt: 0, medianEventGapMs: 0 })
-    expect(await readFile(files[1]!, 'utf8')).toBe(progress(0) + progress(0))
+    expect(await readFile(files[1]!, 'utf8')).toBe(progress(0) + progress(0).trimEnd())
+    // Completing the EOF row and then appending must not count that same event twice.
+    for (const file of files) await appendFile(file, '\n' + progress(100))
+    await appendFile(nativeFile, '\n' + nativeRow(100))
+    const appendDeadline = Date.now() + 3000
+    do {
+      updated = await snapshot()
+      if (selected(updated).every((worker) => worker.lastActivityAt === 100)) break
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    } while (Date.now() < appendDeadline)
+    for (const worker of selected(updated!))
+      expect(worker).toMatchObject({ lastActivityAt: 100, medianEventGapMs: 50 })
   } finally {
     await web.close()
     await rm(root, { recursive: true, force: true })
