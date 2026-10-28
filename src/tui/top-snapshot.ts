@@ -1,12 +1,9 @@
-/**
- * Read-only operator snapshots over the writer-owned supervisor layout and explicit durable runs.
- * Workspace reads preserve legacy files; durable reads use discovery, journals and the canonical
- * pursuit projection for model identity, failure and accounting evidence. Run totals count once.
+/** Read-only topology, activity and accounting over writer-owned workspace and durable journals.
  * ANSI presentation lives in `./top-frame`.
- *
  * @experimental
  */
 
+import { isRecord } from '@tangle-network/agent-core'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { FileObserverJournal } from '../durable/observer-journal'
@@ -215,10 +212,7 @@ interface SourceDiagnostic {
   readonly reason: TopSnapshotDiagnosticReason
 }
 
-/**
- * What one snapshot source read produced: the value it could recover, and the bounded diagnostics
- * the read raised. Every reader returns this one shape, so the loader folds them identically.
- */
+/** A recovered value and bounded, run-relative read diagnostics. */
 interface SourceRead<T> {
   readonly value: T
   readonly diagnostics: readonly SourceDiagnostic[]
@@ -372,7 +366,8 @@ async function loadDurableTopSnapshot(
   let source: TopSnapshotDiagnosticSource = observed ? 'observer-journal' : 'journal'
   let path = observed ? 'observer.jsonl' : 'spawn-journal.jsonl'
   try {
-    if (typeof runDir !== 'string' || !runDir.trim()) throw new TypeError('runDir must be non-empty')
+    if (typeof runDir !== 'string' || !runDir.trim())
+      throw new TypeError('runDir must be non-empty')
     if (observed) {
       const journal = await FileObserverJournal.open(join(resolve(runDir), path))
       if (!journal) return topSnapshot(root, now, [], [{ source, path, reason: 'missing' }])
@@ -386,35 +381,85 @@ async function loadDurableTopSnapshot(
     const latest = new Map(pursuit?.runs.map((run) => [run.runId, run]))
     // A child's metered turns already belong to its spawn tree, not another supervisor row.
     const ids = pursuit
-      ? [...latest.keys()].filter((id) => !discovery.roots.some((parent) => id.startsWith(`${parent}/`)))
+      ? [...latest.keys()].filter(
+          (id) => !discovery.roots.some((parent) => id.startsWith(`${parent}/`)),
+        )
       : discovery.roots
     const tails = readWorkerEventTails(discovery.runDir)
-    const supervisors = await Promise.all(ids.map(async (id) => {
-      const accounting = latest.get(id)
-      const binding = discovery.roots.indexOf(id)
-      // Retained admissions can predate the spawn journal. An existing journal must bind the root.
-      if (binding < 0 && existsSync(discovery.spawnJournalPath)) throw new Error('observer run has no discovered spawn root')
-      const events = binding < 0 ? [] : (await journal.loadTree(id)) ?? []
-      const spawn = events.find((event) => event.kind === 'spawned' && event.id === id)
-      const budget = spawn?.kind === 'spawned' ? spawn.budget?.maxTokens : undefined
-      const terminal = events.filter((event) => event.id === id && (event.kind === 'settled' || event.kind === 'cancelled')).at(-1)
-      const startedAt = accounting ? new Date(accounting.firstObservedAt).toISOString() : discovery.rootsBegunAt[binding]
-      const completedAt = accounting?.settledAt === undefined ? terminal?.at : new Date(accounting.settledAt).toISOString()
-      const view = buildSupervisorView({
-        id, task: id, workspaceDir: root,
-        status: accounting && accounting.status !== 'running' ? accounting.status : terminal?.kind === 'settled' ? terminal.status : terminal ? 'cancelled' : 'running',
-        budget: budget ?? 0, budgetKnown: budget !== undefined,
-        ...(startedAt === undefined ? {} : { startedAt }),
-        ...(completedAt === undefined ? {} : { completedAt }),
-      }, discovery.runDir, events.filter(isSpawnEvent), accounting?.error ? [accounting.error] : [], now, tails.value, accounting)
-      return accounting ? view : { ...view, totals: { ...view.totals, usdKnown: false, tokensKnown: false } }
-    }))
-    return topSnapshot(root, now, supervisors, [
-      ...(!observed ? [{ source: 'observer-journal' as const, path: 'observer.jsonl', reason: 'missing' as const }] : []),
-      ...tails.diagnostics,
-    ], observed ? 1 : ids.length, pursuit)
+    const supervisors = await Promise.all(
+      ids.map(async (id) => {
+        const accounting = latest.get(id)
+        const binding = discovery.roots.indexOf(id)
+        // Retained admissions can predate the spawn journal. An existing journal must bind the root.
+        if (binding < 0 && existsSync(discovery.spawnJournalPath))
+          throw new Error('observer run has no discovered spawn root')
+        const events = binding < 0 ? [] : ((await journal.loadTree(id)) ?? [])
+        const spawn = events.find((event) => event.kind === 'spawned' && event.id === id)
+        const budget = spawn?.kind === 'spawned' ? spawn.budget?.maxTokens : undefined
+        const terminal = events
+          .filter(
+            (event) => event.id === id && (event.kind === 'settled' || event.kind === 'cancelled'),
+          )
+          .at(-1)
+        const startedAt = accounting
+          ? new Date(accounting.firstObservedAt).toISOString()
+          : discovery.rootsBegunAt[binding]
+        const completedAt =
+          accounting?.settledAt === undefined
+            ? terminal?.at
+            : new Date(accounting.settledAt).toISOString()
+        const view = buildSupervisorView(
+          {
+            id,
+            task: id,
+            workspaceDir: root,
+            status:
+              accounting && accounting.status !== 'running'
+                ? accounting.status
+                : terminal?.kind === 'settled'
+                  ? terminal.status
+                  : terminal
+                    ? 'cancelled'
+                    : 'running',
+            budget: budget ?? 0,
+            budgetKnown: budget !== undefined,
+            ...(startedAt == null ? {} : { startedAt }),
+            ...(completedAt === undefined ? {} : { completedAt }),
+          },
+          discovery.runDir,
+          events.filter(isSpawnEvent),
+          accounting?.error ? [accounting.error] : [],
+          now,
+          tails.value,
+          accounting,
+        )
+        return accounting
+          ? view
+          : { ...view, totals: { ...view.totals, usdKnown: false, tokensKnown: false } }
+      }),
+    )
+    return topSnapshot(
+      root,
+      now,
+      supervisors,
+      [
+        ...(!observed
+          ? [
+              {
+                source: 'observer-journal' as const,
+                path: 'observer.jsonl',
+                reason: 'missing' as const,
+              },
+            ]
+          : []),
+        ...tails.diagnostics,
+      ],
+      observed ? 1 : ids.length,
+      pursuit,
+    )
   } catch (error) {
-    const reason = isRecord(error) && typeof error.code === 'string' ? 'unreadable' : 'invalid-state'
+    const reason =
+      isRecord(error) && typeof error.code === 'string' ? 'unreadable' : 'invalid-state'
     return topSnapshot(root, now, [], [{ source, path, reason }], 1, pursuit)
   }
 }
@@ -428,12 +473,7 @@ function observerSpend(spend: Spend | undefined, gaps: readonly SpendChannel[] =
   }
 }
 
-/**
- * The journal file a run dir actually carries. `createFileRunContext` — this repo's own durable
- * writer — names it `spawn-journal.jsonl`; `journal.jsonl` is the retired bare-event file older
- * runs left behind. First existing name wins; a reader that knew only the retired name would show
- * zero workers for every current run.
- */
+/** Current writer-owned journal first; retain the retired name for recorded runs. */
 const journalFileNames = ['spawn-journal.jsonl', 'journal.jsonl'] as const
 
 function readJournal(eventDir: string): SourceRead<TopJournalEvent[]> {
@@ -492,8 +532,9 @@ function buildSupervisorView(
     (event) => event.kind === 'spawned' && !event.parent && event.label === 'root',
   )?.id
   const isRoot = (id: string): boolean => id === state.id || id === journalRootId
-  const terminal = events.filter((event) => isRoot(event.id))
-    .findLast((event) => event.kind === 'settled' || event.kind === 'cancelled')
+  const terminal = events
+    .filter((event) => isRoot(event.id) && (event.kind === 'settled' || event.kind === 'cancelled'))
+    .at(-1)
 
   for (const event of events) {
     if (isRoot(event.id) || (event.kind === 'spawned' && !event.parent && event.label === 'root')) {
@@ -731,11 +772,9 @@ export function parseSpend(value: unknown): SpendStats {
 
 function parseBudget(value: unknown): BudgetStats | undefined {
   if (!isRecord(value)) return undefined
-  const budget: BudgetStats = {
-    ...(typeof value.maxIterations === 'number' ? { maxIterations: value.maxIterations } : {}),
-    ...(typeof value.maxTokens === 'number' ? { maxTokens: value.maxTokens } : {}),
-    ...(typeof value.maxUsd === 'number' ? { maxUsd: value.maxUsd } : {}),
-  }
+  const budget = selectFields(value,
+    ['maxIterations', 'maxTokens', 'maxUsd'],
+    (entry) => typeof entry === 'number') as BudgetStats
   return Object.keys(budget).length ? budget : undefined
 }
 
@@ -763,11 +802,7 @@ function percentile(sorted: readonly number[], p: number): number {
   return sorted[idx] ?? 0
 }
 
-/**
- * Read one source file under a run directory. An absent file is not a defect on its own — the
- * writer may not have reached it yet — so it reads as `undefined` with no diagnostic; only a
- * failed read raises one. `path` stays run-relative and never carries file contents.
- */
+/** Missing files can predate their writer; failed reads report a path-only diagnostic. */
 function readSourceFile(
   file: string,
   source: TopSnapshotDiagnosticSource,
@@ -831,16 +866,9 @@ function readSupervisorState(dir: string): SourceRead<SupervisorState | undefine
 }
 
 function isSupervisorState(value: unknown): value is SupervisorState {
-  return (
-    isRecord(value) &&
-    Object.entries({
-      id: 'string',
-      status: 'string',
-      task: 'string',
-      workspaceDir: 'string',
-      budget: 'number',
-    }).every(([key, type]) => typeof value[key] === type)
-  )
+  return isRecord(value) &&
+    ['id', 'status', 'task', 'workspaceDir'].every((key) => typeof value[key] === 'string') &&
+    typeof value.budget === 'number'
 }
 
 function isSpawnEvent<T>(value: T): value is T & TopJournalEvent {
@@ -852,9 +880,6 @@ function isSpawnEvent<T>(value: T): value is T & TopJournalEvent {
   )
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
 
 function isDirectory(path: string): boolean {
   try {

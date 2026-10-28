@@ -56,7 +56,13 @@ test('HTTP snapshots retain full recorded activity across every journal adapter 
         at: iso(2000),
         verdict: 'Not a failure cause',
       },
-      { kind: 'settled', id: 'legacy', status: 'down', at: iso(2000), reason: 'Exact root failure' },
+      {
+        kind: 'settled',
+        id: 'legacy',
+        status: 'down',
+        at: iso(2000),
+        reason: 'Exact root failure',
+      },
     ]
       .map((row) => JSON.stringify(row))
       .join('\n') + '\n',
@@ -141,12 +147,7 @@ test('HTTP snapshots retain full recorded activity across every journal adapter 
     const deadline = Date.now() + 3000
     do {
       updated = await snapshot()
-      if (
-        selected(updated).every(
-          (worker) => worker.lastActivityAt === 2200,
-        )
-      )
-        break
+      if (selected(updated).every((worker) => worker.lastActivityAt === 2200)) break
       await new Promise((resolve) => setTimeout(resolve, 20))
     } while (Date.now() < deadline)
     for (const worker of selected(updated!))
@@ -157,12 +158,7 @@ test('HTTP snapshots retain full recorded activity across every journal adapter 
     const resetDeadline = Date.now() + 3000
     do {
       updated = await snapshot()
-      if (
-        selected(updated).every(
-          (worker) => worker.lastActivityAt === 0,
-        )
-      )
-        break
+      if (selected(updated).every((worker) => worker.lastActivityAt === 0)) break
       await new Promise((resolve) => setTimeout(resolve, 20))
     } while (Date.now() < resetDeadline)
     for (const worker of selected(updated!))
