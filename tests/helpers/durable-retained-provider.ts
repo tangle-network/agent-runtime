@@ -101,9 +101,13 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
 }
 
 function environmentFor(stateFile: string, provider: string, id: string): AgentEnvironment {
+  // A real provider's record carries the metadata the environment was created with; Runtime
+  // proves retained ownership from it and never lists an inventory.
+  const metadata = readState(stateFile).environments[id]?.metadata
   return {
     id,
     provider,
+    ...(metadata === undefined ? {} : { metadata }),
     status: async () => 'running',
     async *stream(): AsyncIterable<AgentEnvironmentEvent> {
       yield* []
