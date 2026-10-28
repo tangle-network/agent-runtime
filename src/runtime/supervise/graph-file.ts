@@ -1,6 +1,10 @@
 import { readFile } from 'node:fs/promises'
 import { dirname, extname } from 'node:path'
-import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  agentProfileSchema,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 import { parseDocument } from 'yaml'
 import { ValidationError } from '../../errors'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
@@ -177,8 +181,9 @@ async function expandProfile(
     if (!selected)
       refuse(`node ${node.id} needs a canonical profile or resolveSeat from Bridge login inventory`)
   }
+  // A repeated need is one need: resolve it once, before any host I/O such as an OAuth grant.
   const connections = await Promise.all(
-    (node.needs ?? []).map(async (provider) => {
+    [...new Set(node.needs ?? [])].map(async (provider) => {
       if (options.needs && Object.hasOwn(options.needs, provider)) return options.needs[provider]!
       const connection = await options.resolveNeed?.(provider, context)
       if (connection === undefined) throw new GraphFileResolutionError(provider, node.id)
@@ -198,11 +203,26 @@ async function expandProfile(
         : { reasoningEffort: selected.reasoningEffort }),
     }
   }
-  if (node.needs)
+  if (node.needs) {
+    // An exact duplicate reference, authored or resolved, collapses; distinct aliases, capabilities
+    // and conflicting explicit aliases stay for the profile schema and the Hub resolver to judge.
+    const seen = new Set<string>()
     profile.connections = [
       ...((node.profile?.connections as unknown[] | undefined) ?? []),
       ...connections,
-    ]
+    ].filter((connection) => {
+      // Anything that is not a canonical document stays, for the profile schema to refuse.
+      let key: string
+      try {
+        key = canonicalCandidateDigest(connection)
+      } catch {
+        return true
+      }
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
   const parsed = agentProfileSchema.safeParse(profile)
   if (!parsed.success) refuse(`node ${node.id} has an invalid profile: ${parsed.error.message}`)
   assertExecutableAgentProfile(parsed.data, `loadGraphFile node ${node.id}`)
