@@ -1,3 +1,9 @@
+## 2.3.10
+
+Classify packed declaration compatibility through the same emitter on both archive sides, preserving optional nested additions and equivalent private type representations while refusing incompatible patch releases.
+
+Stop graph flows when a target cannot be admitted, preserve the refusal code, and show a durable root's recorded outcome and owner-scoped terminal route. Reuse shared Codex app/plugin isolation for reproducible native execution.
+
 ## 2.3.9
 
 A flow graph's stored route check may name a `maps` join or a map item node, as it already could a routes node: the check reads that node's latest delivered output. Before, the join's workers were missing from the settled outputs the check reads, so a check naming the join was always false and the run ended `no-winner` / `no-result-selected` though every node delivered. The run's output stays the terminal nodes' results.
