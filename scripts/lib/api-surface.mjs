@@ -46,7 +46,7 @@
  *   - A change is reported where it HAPPENED, not everywhere it is reachable
  *     from. `A { b: B }` references `B` by public name, so editing `B` moves
  *     `B`'s digest and not `A`'s. Every affected symbol is still named, once.
- *   - A change the parts cannot explain — a class, an enum, an unexported type
+ *   - A change the parts cannot explain — a class, an enum, an unsupported type
  *     a member names, a shape either record states no parts for — is breaking.
  *     Guessing additive on a change that is actually a break is the failure
  *     this exists to stop.
@@ -79,16 +79,9 @@ const isDeclarationFile = (target) => DECLARATION_SUFFIXES.some((suffix) => targ
 const declarationTargetOf = (value) => {
   if (typeof value === 'string') return isDeclarationFile(value) ? value : null
   if (value === null || typeof value !== 'object') return null
-  if (Array.isArray(value)) {
-    for (const element of value) {
-      const target = declarationTargetOf(element)
-      if (target !== null) return target
-    }
-    return null
-  }
-  for (const condition of TYPE_CONDITIONS) {
-    if (!(condition in value)) continue
-    const target = declarationTargetOf(value[condition])
+  const candidates = Array.isArray(value) ? value : TYPE_CONDITIONS.filter((key) => key in value).map((key) => value[key])
+  for (const candidate of candidates) {
+    const target = declarationTargetOf(candidate)
     if (target !== null) return target
   }
   return null
@@ -225,52 +218,39 @@ export const parseSurfaceEntry = (entry) => {
  * rather than instead of one, because the two are independent.
  */
 export const compareSurfaces = (before, after) => {
-  const added = []
-  const removed = []
-  const narrowed = []
-  const widened = []
-  const changed = []
-  const extended = []
+  const changes = { added: [], removed: [], narrowed: [], widened: [], changed: [], extended: [] }
   const subpaths = [
     ...new Set([...Object.keys(before.entries ?? {}), ...Object.keys(after.entries ?? {})]),
   ].sort()
   for (const subpath of subpaths) {
-    const left = before.entries?.[subpath]
-    const right = after.entries?.[subpath]
-    if (left === undefined) {
-      for (const name of Object.keys(right ?? {}).sort()) added.push(`${subpath} ${name}`)
-      continue
-    }
-    if (right === undefined) {
-      for (const name of Object.keys(left).sort()) removed.push(`${subpath} ${name}`)
-      continue
-    }
+    const { [subpath]: left = {} } = before.entries ?? {}
+    const { [subpath]: right = {} } = after.entries ?? {}
     for (const name of [...new Set([...Object.keys(left), ...Object.keys(right)])].sort()) {
       const from = left[name]
       const to = right[name]
       if (from === to) continue
       if (from === undefined) {
-        added.push(`${subpath} ${name}`)
+        changes.added.push(`${subpath} ${name}`)
         continue
       }
       if (to === undefined) {
-        removed.push(`${subpath} ${name}`)
+        changes.removed.push(`${subpath} ${name}`)
         continue
       }
       const was = parseSurfaceEntry(from)
       const is = parseSurfaceEntry(to)
       if (was.kind !== is.kind) {
-        if (was.kind === 'value' && is.kind === 'type') narrowed.push(`${subpath} ${name}: value -> type`)
-        else widened.push(`${subpath} ${name}: ${was.kind} -> ${is.kind}`)
+        if (was.kind === 'value' && is.kind === 'type') changes.narrowed.push(`${subpath} ${name}: value -> type`)
+        else changes.widened.push(`${subpath} ${name}: ${was.kind} -> ${is.kind}`)
       }
       if (was.shape !== undefined && is.shape !== undefined && was.shape !== is.shape) {
         const from = before.structure?.[was.shape]
         const to = after.structure?.[is.shape]
         const parts = from && to ? classifyShapeChange(from, to) : null
         const line = `${subpath} ${name}: shape ${was.shape} -> ${is.shape}`
-        if (parts === null) changed.push(line)
-        else if (parts.breaking.length > 0) changed.push(`${line} (${parts.breaking.join(', ')})`)
-        else extended.push(`${line} (${parts.additive.join(', ')})`)
+        if (parts === null) changes.changed.push(line)
+        else if (parts.breaking.length > 0) changes.changed.push(`${line} (${parts.breaking.join(', ')})`)
+        else changes.extended.push(`${line} (${parts.additive.join(', ')})`)
       }
     }
   }
@@ -280,15 +260,15 @@ export const compareSurfaces = (before, after) => {
   const afterAssets = new Set(after.assets ?? [])
   for (const subpath of [...afterAssets].sort()) {
     if (!beforeAssets.has(subpath) && before.entries?.[subpath] === undefined) {
-      added.push(`${subpath} (entry point, no declarations)`)
+      changes.added.push(`${subpath} (entry point, no declarations)`)
     }
   }
   for (const subpath of [...beforeAssets].sort()) {
     if (!afterAssets.has(subpath) && after.entries?.[subpath] === undefined) {
-      removed.push(`${subpath} (entry point, no declarations)`)
+      changes.removed.push(`${subpath} (entry point, no declarations)`)
     }
   }
-  return { added, removed, narrowed, widened, changed, extended }
+  return changes
 }
 
 /**
@@ -308,6 +288,7 @@ export const compareSurfaces = (before, after) => {
 export const classifyShapeChange = (before, after) => {
   const breaking = []
   const additive = []
+  const complete = before['~form'] !== undefined && before['~form'] === after['~form']
   const digest = (part) => (Array.isArray(part) ? part[0] : part)
   const partsOf = (part) => (Array.isArray(part) ? part[1] : null)
   // A plain type reads as a one-member union, so `string` -> `string | number` is one added member.
@@ -351,22 +332,18 @@ export const classifyShapeChange = (before, after) => {
       }
       const found = breaking.length + additive.length
       walk(from, to, at, key.startsWith('@') ? 'out' : key.startsWith('(') ? flip[direction] : direction)
-      if (breaking.length + additive.length === found) breaking.push(`changed ${at}`)
+      if (!complete && breaking.length + additive.length === found) breaking.push(`changed ${at}`)
     }
   }
   walk(before, after, '', 'both')
-  if (breaking.length + additive.length === 0) breaking.push('changed outside its stated parts')
+  if (!complete && breaking.length + additive.length === 0) breaking.push('changed outside its stated parts')
   return { breaking, additive }
 }
 
 /** A removal, a narrowing or a breaking shape change is breaking; an addition is additive. */
 export const surfaceSeverity = (changes) => {
-  if (changes.removed.length > 0 || changes.narrowed.length > 0 || changes.changed.length > 0) {
-    return 'breaking'
-  }
-  if (changes.added.length > 0 || changes.widened.length > 0 || changes.extended?.length > 0) {
-    return 'additive'
-  }
+  if (['removed', 'narrowed', 'changed'].some((kind) => changes[kind].length > 0)) return 'breaking'
+  if (['added', 'widened', 'extended'].some((kind) => changes[kind]?.length > 0)) return 'additive'
   return 'none'
 }
 
@@ -426,10 +403,7 @@ export const requiredBumpLevel = (severity, baseVersion) => {
 }
 
 /** Path of a package's surface record, relative to the repository root. */
-export const surfaceRecordPath = (packageDirectory) => {
-  const directory = packageDirectory === '' || packageDirectory === '.' ? '' : packageDirectory
-  return directory === '' ? 'api-surface.json' : posix.join(directory, 'api-surface.json')
-}
+export const surfaceRecordPath = (packageDirectory) => posix.join(packageDirectory, 'api-surface.json')
 
 export const relativeToRoot = (repoRoot, absolutePath) =>
   relative(repoRoot, absolutePath).split('\\').join('/')
