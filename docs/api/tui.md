@@ -484,6 +484,22 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 **`Experimental`**
 
+##### transcript?
+
+> `readonly` `optional` **transcript?**: `object`
+
+**`Experimental`**
+
+The conversation the executor retained at settlement, when it retained one.
+
+###### ref
+
+> `readonly` **ref**: `string`
+
+###### harness
+
+> `readonly` **harness**: `string`
+
 ##### reason?
 
 > `readonly` `optional` **reason?**: `string`
@@ -846,7 +862,7 @@ Defaults to the installed agent-record browser asset export.
 
 ### TopJournalEvent
 
-> **TopJournalEvent** = `object` & (\{ `kind`: `"spawned"`; `parent?`: `string`; `label?`: `string`; `budget?`: `unknown`; `runtime?`: `string`; \} \| \{ `kind`: `"settled"`; `status?`: `string`; `outRef?`: `string`; `verdict?`: `unknown`; `spent?`: `unknown`; `infra?`: `boolean`; \} \| \{ `kind`: `"cancelled"`; `spent?`: `unknown`; `reason?`: `string`; \} \| \{ `kind`: `"metered"`; `spend?`: `unknown`; `accountingOnly?`: `boolean`; \} \| \{ `kind`: `"progress"`; `spend?`: `unknown`; \})
+> **TopJournalEvent** = `object` & (\{ `kind`: `"spawned"`; `parent?`: `string`; `label?`: `string`; `budget?`: `unknown`; `runtime?`: `string`; \} \| \{ `kind`: `"settled"`; `status?`: `string`; `outRef?`: `string`; `harnessTranscript?`: \{ `status?`: `string`; `transcriptRef?`: `string`; `harness?`: `string`; \}; `verdict?`: `unknown`; `spent?`: `unknown`; `infra?`: `boolean`; \} \| \{ `kind`: `"cancelled"`; `spent?`: `unknown`; `reason?`: `string`; \} \| \{ `kind`: `"metered"`; `spend?`: `unknown`; `accountingOnly?`: `boolean`; \} \| \{ `kind`: `"progress"`; `spend?`: `unknown`; \})
 
 **`Experimental`**
 

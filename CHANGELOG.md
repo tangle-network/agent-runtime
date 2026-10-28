@@ -1,3 +1,7 @@
+## 2.3.1
+
+`agent-runtime-top --web` shows a `router` or `router-tools` worker's conversation: assistant text, tool calls and tool results. These executors run their tool loop in process and stream no progress, so 2.3.0's node streams never covered them ("every worker" overstated it). They retain the conversation as a harness transcript at settlement, and the viewer now renders that transcript when a worker has no stream file, in place of "Native conversation was not captured".
+
 ## 2.3.0
 
 `startRetainedInteractiveRun({ journalRoot })` now journals the run's lifecycle beside its admissions in `<journalRoot>/<runId>/observer.jsonl`. Each accepted `sendPrompt` becomes an `agent.turn` record carrying its number and operation id, never the prompt. The first `exited` status read, or an accepted `stop`, writes one terminal `agent.run` record: done for a clean exit or a stop, failed for a lost session or a nonzero exit code. `agent-runtime-top --web` then shows the run settle instead of running forever.
