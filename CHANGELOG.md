@@ -1,3 +1,9 @@
+## 2.4.0
+
+A Router call whose completed response could not be observed is never run again, even after the request deadline and even when the caller's transport throws the `SDKError` of a different `@tangle-network/agent-core` copy. Runtime now recognizes the failure by its `context.phase: 'response_observation'`, not by `instanceof`. With discovery-lab pinned to agent-core 1.0.0 beside Runtime's `^1.0.1`, two copies were installed and a completed seat process re-ran up to `retry.maxAttempts` times, one paid model call each.
+
+`agent-runtime-top --web` shows a `router` or `router-tools` worker's conversation: assistant text, tool calls and tool results. These executors run their tool loop in process and stream no progress, so 2.3.0's node streams never covered them ("every worker" overstated it). They retain the conversation as a harness transcript at settlement, and the viewer now renders that transcript when a worker has no stream file, in place of "Native conversation was not captured". `WorkerView` (from `@tangle-network/agent-runtime/tui`) gains optional `transcript: { ref, harness }`, the settled worker's retained-conversation receipt.
+
 ## 2.3.0
 
 `startRetainedInteractiveRun({ journalRoot })` now journals the run's lifecycle beside its admissions in `<journalRoot>/<runId>/observer.jsonl`. Each accepted `sendPrompt` becomes an `agent.turn` record carrying its number and operation id, never the prompt. The first `exited` status read, or an accepted `stop`, writes one terminal `agent.run` record: done for a clean exit or a stop, failed for a lost session or a nonzero exit code. `agent-runtime-top --web` then shows the run settle instead of running forever.

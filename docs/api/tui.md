@@ -484,6 +484,22 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 **`Experimental`**
 
+##### transcript?
+
+> `readonly` `optional` **transcript?**: `object`
+
+**`Experimental`**
+
+The conversation the executor retained at settlement, when it retained one.
+
+###### ref
+
+> `readonly` **ref**: `string`
+
+###### harness
+
+> `readonly` **harness**: `string`
+
 ##### reason?
 
 > `readonly` `optional` **reason?**: `string`
