@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { runtimeFailureCause } from '../runtime/failure-cause'
+import { FileCoordinationLog } from '../runtime/supervise/coordination-log'
 import {
   type AgentGraph,
   type GraphResult,
@@ -11,8 +12,9 @@ import { readRootStreamReceipt } from '../runtime/supervise/root-stream'
 import { supervisorRunDir } from '../runtime/supervise/run-layout'
 import { RunParkedError } from '../runtime/supervise/run-parking'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
+import { rootCoordinationOwner } from '../runtime/supervise/supervise-identity'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
-import type { SupervisedResult } from '../runtime/supervise/types'
+import type { Budget, SupervisedResult } from '../runtime/supervise/types'
 import { errorMessage } from '../runtime/util'
 import {
   composeRuntimeHooks,
@@ -20,7 +22,7 @@ import {
   type RuntimeHooks,
   withPursuitContext,
 } from '../runtime-hooks'
-import { createFileObserverHooks, type FileObserverJournal } from './observer-journal'
+import { createFileObserverHooks } from './observer-journal'
 import { type PursuitProjection, projectPursuit } from './observer-projection'
 import {
   type PursuitObserverDeliverer,
@@ -43,6 +45,7 @@ import {
   writeFailureRecord,
   writeSettleRecord,
 } from './settle-record'
+import { FileSpawnJournal } from './spawn-journal/journal-store'
 
 export interface SupervisePursuitOptions extends SuperviseOptions {
   /** Stable objective identity spanning concrete Runtime runs. */
@@ -53,12 +56,8 @@ export interface SupervisePursuitOptions extends SuperviseOptions {
    * Intelligence joins those isolated projections without a shared write head.
    */
   readonly runDir: string
-  /**
-   * Always `'release'`. A settle record is written once per segment and refuses re-entry, so no
-   * later call resumes a settled pursuit unless an explicit `reopen` archives it; nothing else
-   * would release the provider environments its retained children hold. `'keep'` is refused
-   * rather than ignored.
-   */
+  /** Always `'release'`: settlement seals the segment, so retained environments are released.
+   * `'keep'` is refused. A reopen replays the journal rather than retaining environments. */
   readonly retainedAtSettlement?: 'release'
   /**
    * Run this pursuit as a version of a settled run: `profile`, `task` and `budget` must equal the
@@ -134,24 +133,14 @@ export class SupervisePursuitError extends Error {
 }
 
 /**
- * One-call durable pursuit execution over the canonical `supervise()` kernel.
+ * Execute `supervise()` with a durable observer and return its verified pursuit projection.
+ * Each `runDir` owns its lock and journals; Intelligence joins directories by `pursuitId`.
+ * Agents never receive the observer path or projection.
  *
- * This is an adapter, not a second executor: it composes a durable third-person
- * observer into Runtime's existing recursive hook stream and then rebuilds the
- * operator projection after the same `supervise()` call settles. Agents never
- * receive the observer path or projection and their behavior does not depend on it.
- *
- * Every concrete execution writes only inside its own `runDir`. Cross-run pursuit
- * aggregation is therefore lock-free at the observer layer: reuse `pursuitId` across
- * run directories and let Intelligence join the independently verified projections.
- *
- * The directory's terminal state is recorded beside `observer.jsonl`: `result.json` holds the
- * returned result once the run settles and `failure.json` the most recent throw. A directory
- * whose `result.json` exists refuses re-entry before any compute; a failure record alone does
- * not, because a caller can correct its input and drive the same run again. For the life of the
- * call the directory is held by `supervise.lock`, so a second process on the same directory
- * refuses and names the holder instead of sharing one journal.
- * An abandoned `supervise.lock.guard` requires removal after confirming no lock mutation is active.
+ * `result.json` seals a segment and refuses re-entry before compute; `failure.json` records
+ * the latest throw and permits a corrected retry. Both pursuit entrypoints use the same
+ * directory lifecycle below. A competing process is refused with the lock holder's identity;
+ * an abandoned `supervise.lock.guard` requires confirmation of inactivity before removal.
  */
 export async function supervisePursuit(
   profile: SupervisorProfile,
@@ -196,32 +185,12 @@ export async function supervisePursuit(
           ? {}
           : { resume: true, ...(reopen.budget === undefined ? {} : { budget: reopen.budget }) }),
         steerDir,
-        // The settle record written at settlement makes this settlement final, so the
-        // environments a retained child holds are released at the barrier instead of kept for a
-        // resume that the record will refuse (18 of a 60-slot fleet held 19
-        // to 37 hours).
+        // Settlement seals this segment; a later reopen replays its journal.
         retainedAtSettlement: 'release',
         hooks,
       }),
     (result) => result,
-    reopen === undefined
-      ? undefined
-      : (observer) =>
-          reopenSettledRun({
-            runDir: opts.runDir.trim(),
-            runId: opts.runId ?? 'supervise',
-            reopen,
-            journal: opts.journal,
-            limits: {
-              budget: opts.budget,
-              ...(opts.reservationPolicy === undefined
-                ? {}
-                : { reservationPolicy: opts.reservationPolicy }),
-            },
-            observer,
-            pursuitId: opts.pursuitId.trim(),
-            now: opts.now ?? Date.now,
-          }),
+    opts.budget,
   )
 }
 
@@ -243,17 +212,10 @@ export interface SuperviseGraphPursuitOptions extends RunGraphOptions {
 }
 
 /**
- * One-call durable execution of an `AgentGraph`: the graph twin of {@link supervisePursuit}.
- *
- * It owns the run directory exactly as `supervisePursuit` does — `supervise.lock` for the life of
- * the call, `observer.jsonl`, `result.json` once the graph settles, `failure.json` for the most
- * recent throw, and refusal of a settled directory before any compute — and runs the graph through
- * `runGraph`'s own path, so the root node is a `supervise()` root and a restarted process resumes
- * the graph from its spawn journal. `result.json` holds the graph's supervised result, the same
- * record every supervised run leaves; the edge ledger is the journal's `edge` events and the
- * returned `result.ledger`. Version chains and forks are `supervisePursuit` features and are not
- * offered here. An explicit `reopen` uses the same archived-settle and resume contract as
- * `supervisePursuit`; ordinary re-entry of a settled graph stays refused.
+ * Graph twin of `supervisePursuit`, using its directory lifecycle and `runGraph` execution.
+ * The directory run id binds the supervised root; spawn-journal edge events own the ledger.
+ * Explicit `reopen` archives the result and resumes this id; ordinary settled re-entry refuses.
+ * Forks and version chains are offered by `supervisePursuit` only.
  */
 export async function superviseGraphPursuit(
   graph: AgentGraph,
@@ -287,24 +249,7 @@ export async function superviseGraphPursuit(
         brain,
       ),
     (result) => result.result,
-    reopen === undefined
-      ? undefined
-      : (observer) =>
-          reopenSettledRun({
-            runDir: opts.runDir.trim(),
-            runId: opts.runId ?? 'supervise',
-            reopen,
-            journal: opts.journal,
-            limits: {
-              budget: graph.budget,
-              ...(opts.reservationPolicy === undefined
-                ? {}
-                : { reservationPolicy: opts.reservationPolicy }),
-            },
-            observer,
-            pursuitId: opts.pursuitId.trim(),
-            now: opts.now ?? Date.now,
-          }),
+    graph.budget,
   )
 }
 
@@ -327,19 +272,12 @@ function assertPursuitDirectory(
   }
 }
 
-/**
- * The run directory's lifecycle around one execution: lock, settled-directory refusal, observer
- * journal, failure record and settle record. `execute` receives the observer-composed hooks and
- * the steer directory the run's control plane uses; `settled` names the value `result.json` holds.
- */
+/** Own the directory lock, terminal records and observer lifecycle for both pursuit entries. */
 async function runDurablePursuit<Result>(
-  opts: Pick<
-    SupervisePursuitOptions,
-    'pursuitId' | 'runDir' | 'runId' | 'now' | 'hooks' | 'steerDir' | 'observerDelivery'
-  >,
+  opts: SupervisePursuitOptions | SuperviseGraphPursuitOptions,
   execute: (seams: { readonly hooks: RuntimeHooks; readonly steerDir: string }) => Promise<Result>,
   settled: (result: Result) => SupervisedResult<unknown>,
-  reopen?: (observer: FileObserverJournal) => Promise<void>,
+  budget: Budget,
 ): Promise<SupervisedPursuitResult<Result>> {
   const pursuitId = opts.pursuitId.trim()
   const runDir = opts.runDir.trim()
@@ -357,7 +295,22 @@ async function runDurablePursuit<Result>(
     let terminalState: 'done' | 'failed' | 'running' = 'failed'
     try {
       const observer = createFileObserverHooks(observerPath, pursuitId)
-      if (reopen !== undefined) await reopen(observer.journal)
+      if (opts.reopen !== undefined)
+        await reopenSettledRun({
+          runDir,
+          runId,
+          reopen: opts.reopen,
+          journal: opts.journal,
+          limits: {
+            budget,
+            ...(opts.reservationPolicy === undefined
+              ? {}
+              : { reservationPolicy: opts.reservationPolicy }),
+          },
+          observer: observer.journal,
+          pursuitId,
+          now,
+        })
       else {
         const prior = await readSettleRecord(runDir)
         if (prior !== undefined) {
@@ -365,9 +318,24 @@ async function runDurablePursuit<Result>(
         }
       }
 
-      // Root lifecycle is an observer-plane fact, not something the manager has to
-      // narrate about itself. This also makes a zero-spawn/single-agent run observable.
-      await observer.journal.appendEvent(rootEvent(pursuitId, runId, 'before', now()))
+      // Bind this attempt to existing journal boundaries while its directory lock is held.
+      const events =
+        (await (
+          opts.journal ?? new FileSpawnJournal(resolve(runDir, 'spawn-journal.jsonl'))
+        ).loadTree(runId)) ?? []
+      const root = events.find((event) => event.kind === 'spawned' && event.id === runId)
+      const prior =
+        root?.kind === 'spawned' && root.identity
+          ? await new FileCoordinationLog(resolve(runDir, 'coordination-log.jsonl')).load(
+              runId,
+              rootCoordinationOwner(root.identity),
+            )
+          : undefined
+      await observer.journal.appendEvent(
+        rootEvent(pursuitId, runId, 'before', now(), {
+          coordinationOffset: prior?.records.length ?? 0,
+        }),
+      )
       delivery =
         opts.observerDelivery === undefined
           ? undefined
@@ -418,7 +386,10 @@ async function runDurablePursuit<Result>(
             runId,
             pursuitId,
             at: new Date(now()).toISOString(),
-            error: { name: errorName(error), message: errorMessage(error) },
+            error: {
+              name: error instanceof Error ? error.name : 'NonError',
+              message: errorMessage(error),
+            },
             ...(rootStream === undefined ? {} : { rootStream }),
           })
         } catch (recordError) {
@@ -484,8 +455,4 @@ function rootEvent(
     timestamp,
     ...(payload ? { payload: Object.freeze({ ...payload }) } : {}),
   })
-}
-
-function errorName(error: unknown): string {
-  return error instanceof Error ? error.name : 'NonError'
 }

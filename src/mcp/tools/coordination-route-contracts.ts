@@ -166,6 +166,7 @@ export type RouteFlowEvent =
     }
   | {
       readonly kind: 'stopped'
+      readonly code?: string
       readonly at: string
       readonly workerId: string
       readonly reason: string

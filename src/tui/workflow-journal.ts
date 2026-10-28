@@ -9,26 +9,21 @@ export function workflowJournal(runDir: string, text: string) {
   const events: TopJournalEvent[] = []
   const tails = new Map<string, RecordedEvents>()
   let first: string | undefined
-  let last: string | undefined
   for (const row of rows) {
     if (typeof row.agentId !== 'string' || !/^[\w-]+$/.test(row.agentId)) continue
     const id = row.agentId
     if (row.type === 'started') {
       const file = join(runDir, `agent-${id}.jsonl`)
       let start: string | undefined
-      let end: string | undefined
       try {
         const recorded = readRecordedEvents(file)
         tails.set(id, recorded)
         if (recorded.firstActivityAt !== undefined)
           start = new Date(recorded.firstActivityAt).toISOString()
-        if (recorded.activity.lastActivityAt !== undefined)
-          end = new Date(recorded.activity.lastActivityAt).toISOString()
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
       if (start && (!first || start < first)) first = start
-      if (end && (!last || end > last)) last = end
       events.push({
         kind: 'spawned',
         id,
@@ -55,5 +50,5 @@ export function workflowJournal(runDir: string, text: string) {
       )
     }
   }
-  return { id: basename(runDir), events, tails, first, last }
+  return { id: basename(runDir), events, tails, first }
 }

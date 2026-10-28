@@ -788,12 +788,8 @@ export function createFlowRun(nodeOfWorker: (workerId: string) => NodeId | undef
     const step = event.route
     if (step.kind === 'output') outputs.set(step.node, step.result)
     else if (step.kind === 'stopped') {
-      stopped ??= {
-        ...(step.edge === undefined ? {} : { edge: step.edge }),
-        at: step.at,
-        workerId: step.workerId,
-        reason: step.reason,
-      }
+      const { kind: _kind, ...detail } = step
+      stopped ??= detail
     } else if (step.kind === 'unrouted') unrouted ??= step
   }
   const finalizer: SupervisorFinalizer = ({ delivered }) => {
@@ -813,18 +809,26 @@ export function createFlowRun(nodeOfWorker: (workerId: string) => NodeId | undef
     if (stopped === undefined) return { kind: 'result', result }
     // A stop edge names its own reason; a down settle is `all-children-down`. A caller's abort, an
     // exhausted pool, a deadline or a cancellation stays the reason it already is.
-    const replaceable =
-      result.kind === 'no-winner' &&
-      (result.reason === 'no-result-selected' ||
-        result.reason === 'all-children-down' ||
-        result.reason === 'no-children-spawned')
-    if (!replaceable) return { kind: 'result', result, stopped }
+    if (
+      result.kind !== 'no-winner' ||
+      (result.reason !== 'no-result-selected' &&
+        result.reason !== 'all-children-down' &&
+        result.reason !== 'no-children-spawned')
+    )
+      return { kind: 'result', result, stopped }
     return {
       kind: 'result',
       result: {
         ...result,
-        reason: stopped.edge === undefined ? 'all-children-down' : 'stopped',
-      } as SupervisedResult<unknown>,
+        reason:
+          stopped.code === 'budget-exhausted'
+            ? 'budget-exhausted'
+            : result.reason === 'no-children-spawned'
+              ? result.reason
+              : stopped.edge === undefined
+                ? 'all-children-down'
+                : 'stopped',
+      },
       stopped,
     }
   }
