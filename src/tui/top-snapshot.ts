@@ -167,11 +167,6 @@ export type TopJournalEvent = {
       readonly kind: 'settled'
       readonly status?: string
       readonly outRef?: string
-      readonly harnessTranscript?: {
-        readonly status?: string
-        readonly transcriptRef?: string
-        readonly harness?: string
-      }
       readonly verdict?: unknown
       readonly spent?: unknown
       readonly infra?: boolean
@@ -544,6 +539,17 @@ function readJournal(eventDir: string): SourceRead<TopJournalEvent[]> {
   }
 }
 
+/** The settled spawn event's retained-conversation receipt, read without widening the public
+ *  `TopJournalEvent` type; the spawn journal already validated the record. */
+function retainedTranscript(event: object): { ref: string; harness: string } | undefined {
+  const retained = (event as { harnessTranscript?: unknown }).harnessTranscript
+  if (typeof retained !== 'object' || retained === null) return undefined
+  const { status, transcriptRef, harness } = retained as Record<string, unknown>
+  return status === 'available' && typeof transcriptRef === 'string' && typeof harness === 'string'
+    ? { ref: transcriptRef, harness }
+    : undefined
+}
+
 function buildSupervisorView(
   state: SupervisorState,
   stateDir: string,
@@ -583,9 +589,8 @@ function buildSupervisorView(
       if (event.kind === 'settled') {
         worker.status = event.status === 'down' ? 'down' : 'done'
         if (event.outRef) worker.outRef = event.outRef
-        const retained = event.harnessTranscript
-        if (retained?.status === 'available' && retained.transcriptRef && retained.harness)
-          worker.transcript = { ref: retained.transcriptRef, harness: retained.harness }
+        const transcript = retainedTranscript(event)
+        if (transcript) worker.transcript = transcript
         if (event.infra !== undefined) worker.infra = event.infra
         const verdict = describeVerdict(event.verdict)
         if (verdict) worker.verdict = verdict
