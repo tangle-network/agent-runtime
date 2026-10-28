@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@2.3.9` and `@tangle-network/agent-eval@1.0.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@2.3.10` and `@tangle-network/agent-eval@1.0.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -189,8 +189,8 @@ Import from `@tangle-network/agent-runtime/durable` — 96 exports.
 | `readRunParking` | function | Read the journal's bounded parking projection. Undefined means no current parking handoff. |
 | `readSettleRecord` | function | Read the settle record a run directory holds, or `undefined` when it holds none. A file that |
 | `runDirectoryHolderIsLive` | function | Whether a run directory is still held by the live process that took its lock. |
-| `superviseGraphPursuit` | function | One-call durable execution of an `AgentGraph`: the graph twin of {@link supervisePursuit}. |
-| `supervisePursuit` | function | One-call durable pursuit execution over the canonical `supervise()` kernel. |
+| `superviseGraphPursuit` | function | Graph twin of `supervisePursuit`, using its directory lifecycle and `runGraph` execution. |
+| `supervisePursuit` | function | Execute `supervise()` with a durable observer and return its verified pursuit projection. |
 | `RUN_FORK_CORRELATION_KEYS` | const | The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that |
 | `FileObserverJournal` | class | Durable, append-only third-person history for one concrete Runtime execution. |
 | `RunDirectoryLockedError` | class | The directory is held by a live process. `holder` is what that process recorded. |
@@ -790,7 +790,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1025 exports.
 | `CliWorktreeSeam` | interface | cli-worktree seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI |
 | `CodeModeToolsOptions` | interface | Session data is explicit so the existing run owner can retain and restore it. |
 | `CodexExecutionEvidence` | interface | Zero-model-call evidence for the exact Codex process about to run. |
-| `CodexExecutionPolicy` | interface | Isolation settings asserted before a reproducible Codex run is allowed to start. |
+| `CodexExecutionPolicy` | interface | Mutable public contract derived from the single enforced policy value. |
 | `CodexRolloutIdentity` | interface | Who wrote one rollout, exactly as its own `session_meta` states it. Nothing here is inferred. |
 | `CodexRolloutSession` | interface | One rollout file, read. |
 | `CodexRolloutStoreReader` | interface | A store reader that credits each turn once: it tails only the bytes appended since the last read. |
