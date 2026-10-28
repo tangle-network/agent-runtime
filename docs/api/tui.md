@@ -22,6 +22,9 @@ const durable = await loadTopSnapshot(process.cwd(), { runDir: './runs/current' 
 ```
 
 The runnable form is the `agent-runtime-top` bin: `agent-runtime-top <root> [--once] [--no-color]`.
+Its `--web --root <run-dir> --assets <renderer-dist>` mode serves the same facts over HTTP/SSE.
+Workers and supervisors expose optional epoch `lastActivityAt` and full-stream
+`medianEventGapMs` from actual recorded events. Metadata, heartbeats and file times do not count.
 
 ## Interfaces
 
@@ -338,6 +341,28 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 **`Experimental`**
 
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+**`Experimental`**
+
+##### lastActivityAt?
+
+> `readonly` `optional` **lastActivityAt?**: `number`
+
+**`Experimental`**
+
+Epoch milliseconds of actual recorded executor activity, independent of tail truncation.
+
+##### medianEventGapMs?
+
+> `readonly` `optional` **medianEventGapMs?**: `number`
+
+**`Experimental`**
+
+Median gap between all recorded activity instants, including real zero gaps.
+
 ##### resultSpentUsd?
 
 > `readonly` `optional` **resultSpentUsd?**: `number`
@@ -477,6 +502,22 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 > `readonly` **liveTail**: `string`[]
 
 **`Experimental`**
+
+##### lastActivityAt?
+
+> `readonly` `optional` **lastActivityAt?**: `number`
+
+**`Experimental`**
+
+Epoch milliseconds of actual recorded executor activity, independent of tail truncation.
+
+##### medianEventGapMs?
+
+> `readonly` `optional` **medianEventGapMs?**: `number`
+
+**`Experimental`**
+
+Median gap between all recorded activity instants, including real zero gaps.
 
 ##### outRef?
 
@@ -862,7 +903,7 @@ Defaults to the installed agent-record browser asset export.
 
 ### TopJournalEvent
 
-> **TopJournalEvent** = `object` & (\{ `kind`: `"spawned"`; `parent?`: `string`; `label?`: `string`; `budget?`: `unknown`; `runtime?`: `string`; \} \| \{ `kind`: `"settled"`; `status?`: `string`; `outRef?`: `string`; `verdict?`: `unknown`; `spent?`: `unknown`; `infra?`: `boolean`; \} \| \{ `kind`: `"cancelled"`; `spent?`: `unknown`; `reason?`: `string`; \} \| \{ `kind`: `"metered"`; `spend?`: `unknown`; `accountingOnly?`: `boolean`; \} \| \{ `kind`: `"progress"`; `spend?`: `unknown`; \})
+> **TopJournalEvent** = `object` & (\{ `kind`: `"spawned"`; `parent?`: `string`; `label?`: `string`; `budget?`: `unknown`; `runtime?`: `string`; \} \| \{ `kind`: `"settled"`; `status?`: `string`; `outRef?`: `string`; `verdict?`: `unknown`; `spent?`: `unknown`; `infra?`: `boolean`; `reason?`: `string`; \} \| \{ `kind`: `"cancelled"`; `spent?`: `unknown`; `reason?`: `string`; \} \| \{ `kind`: `"metered"`; `spend?`: `unknown`; `accountingOnly?`: `boolean`; \} \| \{ `kind`: `"progress"`; `spend?`: `unknown`; \})
 
 **`Experimental`**
 
@@ -890,13 +931,8 @@ Defaults to the installed agent-record browser asset export.
 
 **`Experimental`**
 
-Read every supervisor run under one workspace into a single point-in-time snapshot.
-
-Pure with respect to the process: it only reads, and it never throws for a writer mid-append.
-An unreadable or half-written source is still skipped — an operator view must survive a live
-writer — but every skip is reported as one bounded `TopSnapshotDiagnostic`, so a client can
-tell a removed run from a partial read. `now` is injectable so elapsed time is deterministic
-under test.
+Read a point-in-time view without writing to the run. Missing or partial sources report
+bounded diagnostics, and live event readers cache append offsets. `now` controls elapsed time.
 
 ##### Parameters
 
@@ -918,13 +954,8 @@ under test.
 
 **`Experimental`**
 
-Read every supervisor run under one workspace into a single point-in-time snapshot.
-
-Pure with respect to the process: it only reads, and it never throws for a writer mid-append.
-An unreadable or half-written source is still skipped — an operator view must survive a live
-writer — but every skip is reported as one bounded `TopSnapshotDiagnostic`, so a client can
-tell a removed run from a partial read. `now` is injectable so elapsed time is deterministic
-under test.
+Read a point-in-time view without writing to the run. Missing or partial sources report
+bounded diagnostics, and live event readers cache append offsets. `now` controls elapsed time.
 
 ##### Parameters
 
