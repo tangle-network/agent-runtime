@@ -381,8 +381,7 @@ async function fireNodes(
       fork ? `route:${edge.edge}#${traversal}:${target.node}` : `route:${edge.edge}#${traversal}`,
       continuity,
       {
-        from: row.from,
-        sourceWorker: row.sourceWorker,
+        ...row,
         continuity: 'continuity' in continuity ? continuity.continuity : edge.continuity,
       },
       source,

@@ -811,10 +811,11 @@ export function createFlowRun(nodeOfWorker: (workerId: string) => NodeId | undef
     // exhausted pool, a deadline or a cancellation stays the reason it already is.
     if (
       result.kind !== 'no-winner' ||
-      !['no-result-selected', 'all-children-down', 'no-children-spawned'].includes(result.reason)
+      (result.reason !== 'no-result-selected' &&
+        result.reason !== 'all-children-down' &&
+        result.reason !== 'no-children-spawned')
     )
       return { kind: 'result', result, stopped }
-
     return {
       kind: 'result',
       result: {
