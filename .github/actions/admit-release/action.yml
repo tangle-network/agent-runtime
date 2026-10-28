@@ -1,0 +1,26 @@
+name: Admit release
+description: Refuse a library release whose version breaks the release-versioning rules (docs/release-versioning.md)
+inputs:
+  directories:
+    description: Space-separated package directories to pack and admit; versions npm already holds pass through
+    default: .
+runs:
+  using: composite
+  steps:
+    - name: Admit each packed release against its npm predecessor
+      shell: bash
+      env:
+        DIRECTORIES: ${{ inputs.directories }}
+        ACTION_ROOT: ${{ github.action_path }}/../../..
+      run: |
+        set -euo pipefail
+        work="$RUNNER_TEMP/release-admission"
+        rm -rf "$work"; mkdir -p "$work/packs"
+        # The checker resolves oxc-parser from its own directory, so it runs from a copy with only that installed.
+        cp -R "$ACTION_ROOT/scripts" "$work/scripts"
+        oxc=$(node -p "const p = require('$ACTION_ROOT/package.json'); (p.devDependencies ?? {})['oxc-parser'] ?? p.dependencies['oxc-parser']")
+        (cd "$work" && npm install -s --no-save --no-package-lock --no-audit --no-fund "oxc-parser@$oxc")
+        # pnpm replaces workspace: specifiers when it packs; npm would publish them verbatim.
+        packer=npm; [ -f pnpm-lock.yaml ] && packer=pnpm
+        for dir in $DIRECTORIES; do (cd "$dir" && "$packer" pack --pack-destination "$work/packs" >/dev/null); done
+        for tarball in "$work"/packs/*.tgz; do node "$work/scripts/check-version-bump.mjs" --archive "$tarball"; done

@@ -18,13 +18,13 @@ Other repositories run those checks from a sparse checkout, so the rules here ho
 | Rule | Check | Runs in |
 |---|---|---|
 | A change pays for itself; a minor or a break-free major is refused | `check-version-bump.mjs` | each library's merge gate |
-| Major only with a named break; no minor on 1.x and later | `check-version-bump.mjs --archive <tgz>` | publication, before `npm publish` |
+| Major only with a named break; no minor on 1.x and later | `check-version-bump.mjs --archive <tgz>`, through the `admit-release` action | publication, before `npm publish` |
 | Installed versions meet every declared peer floor | `agent-app-peer-check` | each app's adopt gate and release preflight |
 | One copy of each first-party package in an app | `pnpm dedupe` in `adopt-stack` | the daily refresh |
 
 ## Releasing a library
 
 1. Merge the change with a patch bump. `check:version-bump` in the merge gate names the level it needs.
-2. Publication admits the packed archive and publishes it to npm.
+2. Publication admits the packed archive and publishes it to npm. A library's publish job runs admission with one step before it publishes: `uses: tangle-network/agent-runtime/.github/actions/admit-release@<reviewed sha>` with `directories:` naming its package directories.
 3. Apps pick it up at the next daily refresh. For a fix that cannot wait a day, open the adoption by hand: `pnpm add --save-exact <pkg>@<version>`, then `pnpm dedupe`, gated with the app's adopt gate from `.github/workflows/adopt-stack.yml`.
 4. For a break, publish the major with its named break, then open one adoption PR per consumer the same day. The bot leaves majors for a person.
