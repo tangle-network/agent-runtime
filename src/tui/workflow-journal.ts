@@ -1,14 +1,13 @@
-import { closeSync, openSync, readSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { parseCommittedJsonLines } from '../durable/jsonl-file'
+import { readRecordedEvents, type RecordedEvents } from './top-transcript'
 import type { TopJournalEvent } from './top-snapshot'
-import { readTranscriptTail } from './top-transcript'
 
 /** Native workflows have no Runtime accounting. Translate recorded lifecycle only. */
 export function workflowJournal(runDir: string, text: string) {
   const rows = parseCommittedJsonLines<Record<string, unknown>>(text, 'journal.jsonl')
   const events: TopJournalEvent[] = []
-  const tails = new Map<string, { file: string; lines: string[] }>()
+  const tails = new Map<string, RecordedEvents>()
   let first: string | undefined
   let last: string | undefined
   for (const row of rows) {
@@ -19,19 +18,10 @@ export function workflowJournal(runDir: string, text: string) {
       let start: string | undefined
       let end: string | undefined
       try {
-        const fd = openSync(file, 'r')
-        try {
-          const size = statSync(file).size
-          const prefix = Buffer.alloc(Math.min(size, 16_384))
-          readSync(fd, prefix, 0, prefix.length, 0)
-          start = /"timestamp":"([^"]+)"/.exec(prefix.toString())?.[1]
-          const lines = readTranscriptTail(file).slice(-8)
-          const times = [...lines.join('\n').matchAll(/"timestamp":"([^"]+)"/g)]
-          end = times.at(-1)?.[1]
-          tails.set(id, { file, lines })
-        } finally {
-          closeSync(fd)
-        }
+        const recorded = readRecordedEvents(file)
+        tails.set(id, recorded)
+        if (recorded.firstActivityAt !== undefined) start = new Date(recorded.firstActivityAt).toISOString()
+        if (recorded.activity.lastActivityAt !== undefined) end = new Date(recorded.activity.lastActivityAt).toISOString()
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
@@ -46,17 +36,19 @@ export function workflowJournal(runDir: string, text: string) {
       })
       events.push({ kind: 'metered', id, spend: { usdKnown: false, tokensKnown: false } })
     } else if (row.type === 'result' || row.type === 'error' || row.type === 'cancelled') {
-      const line = tails.get(id)?.lines.at(-1)
-      const at = line ? /"timestamp":"([^"]+)"/.exec(line)?.[1] : undefined
+      const activity = tails.get(id)?.activity.lastActivityAt
+      const at = activity === undefined ? undefined : new Date(activity).toISOString()
+      const reason = typeof row.reason === 'string' ? { reason: row.reason } : {}
       events.push(
         row.type === 'cancelled'
-          ? { kind: 'cancelled', id, ...(at ? { at } : {}) }
+          ? { kind: 'cancelled', id, ...(at ? { at } : {}), ...reason }
           : {
               kind: 'settled',
               id,
               status: row.type === 'error' ? 'down' : 'done',
               ...(at ? { at } : {}),
               spent: { usdKnown: false, tokensKnown: false },
+              ...reason,
             },
       )
     }

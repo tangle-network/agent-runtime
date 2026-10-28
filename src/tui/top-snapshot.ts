@@ -8,7 +8,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { basename, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { FileObserverJournal } from '../durable/observer-journal'
 import {
   type PursuitProjection,
@@ -18,14 +18,14 @@ import {
 import { FileSpawnJournal } from '../durable/spawn-journal/journal-store'
 import { spawnJournalRecordEvents } from '../durable/spawn-journal/record-events'
 import { discoverDurableSupervisionRun } from '../durable/supervision-discovery'
-import { nodeStreamFile } from '../runtime/supervise/root-stream'
+import { nodeStreamFile, ROOT_STREAM_FILE } from '../runtime/supervise/root-stream'
 import {
   legacySupervisorRunsRoot,
   safeWorkerFile,
   supervisorRunsRoot,
-  supervisorWorkersDir,
 } from '../runtime/supervise/run-layout'
 import type { Budget, Spend, SpendChannel } from '../runtime/supervise/types'
+import { readRecordedEvents, type RecordedEvents } from './top-transcript'
 import { workflowJournal } from './workflow-journal'
 
 export interface TopSnapshot {
@@ -90,6 +90,10 @@ interface SupervisorBase {
 
 export interface SupervisorView extends SupervisorBase {
   readonly stateDir: string
+  /** Epoch milliseconds of actual recorded executor activity, independent of tail truncation. */
+  readonly lastActivityAt?: number
+  /** Median gap between all recorded activity instants, including real zero gaps. */
+  readonly medianEventGapMs?: number
   readonly resultSpentUsd?: number
   readonly resultSpentTokens?: number
   readonly workers: WorkerView[]
@@ -115,6 +119,10 @@ export interface WorkerView {
   readonly spend: SpendStats
   readonly metered: SpendStats
   readonly liveTail: string[]
+  /** Epoch milliseconds of actual recorded executor activity, independent of tail truncation. */
+  readonly lastActivityAt?: number
+  /** Median gap between all recorded activity instants, including real zero gaps. */
+  readonly medianEventGapMs?: number
   readonly outRef?: string
   /** The conversation the executor retained at settlement, when it retained one. */
   readonly transcript?: { readonly ref: string; readonly harness: string }
@@ -170,6 +178,7 @@ export type TopJournalEvent = {
       readonly verdict?: unknown
       readonly spent?: unknown
       readonly infra?: boolean
+      readonly reason?: string
     }
   | {
       readonly kind: 'cancelled'
@@ -196,11 +205,6 @@ interface SupervisorState extends SupervisorBase {
 
 type MutableWorker = {
   -readonly [Key in keyof Omit<WorkerView, 'latencyMs'>]: WorkerView[Key]
-}
-
-interface WorkerEventTail {
-  readonly file: string
-  readonly lines: string[]
 }
 
 /** A diagnostic before its run id is attached; `loadTopSnapshot` adds `runId`. */
@@ -317,7 +321,7 @@ export function loadTopSnapshot(
       if (!state.value) continue
       const journal = readJournal(dir)
       const progress = readSourceFile(join(dir, 'progress.ndjson'), 'progress', 'progress.ndjson')
-      const workerEvents = readWorkerEventTails(supervisorWorkersDir(dir), 8)
+      const workerEvents = readWorkerEventTails(dir)
       report(entry, [...journal.diagnostics, ...progress.diagnostics, ...workerEvents.diagnostics])
       supervisors.push(
         buildSupervisorView(
@@ -381,6 +385,7 @@ async function loadDurableTopSnapshot(
     const rows = [...latest.values()].filter(
       (run) => !discovery.roots.some((id) => run.runId.startsWith(`${id}/`)),
     )
+    const tails = readWorkerEventTails(discovery.runDir)
     const supervisors = await Promise.all(
       rows.map(async (run) => {
         // SupervisorOpts.runId is the journal root key; require its recorded discovery binding.
@@ -417,12 +422,12 @@ async function loadDurableTopSnapshot(
           events.filter(isSpawnEvent),
           run.error ? [run.error] : [],
           now,
-          undefined,
+          tails.value,
           run,
         )
       }),
     )
-    return topSnapshot(root, now, supervisors, [], 1, pursuit)
+    return topSnapshot(root, now, supervisors, [...tails.diagnostics], 1, pursuit)
   } catch (error) {
     const reason =
       isRecord(error) && typeof error.code === 'string' ? 'unreadable' : 'invalid-state'
@@ -441,6 +446,7 @@ async function loadJournalTopSnapshot(
   try {
     const discovery = await discoverDurableSupervisionRun(dir)
     const journal = new FileSpawnJournal(discovery.spawnJournalPath)
+    const tails = readWorkerEventTails(dir)
     const supervisors = await Promise.all(
       discovery.roots.map(async (id, i) => {
         const events = (await journal.loadTree(id)) ?? []
@@ -451,7 +457,6 @@ async function loadJournalTopSnapshot(
           .at(-1)
         const first = events.find((event) => event.kind === 'spawned' && event.id === id)
         const budget = first?.kind === 'spawned' ? first.budget?.maxTokens : undefined
-        const tails = readWorkerEventTails(supervisorWorkersDir(dir), 8)
         const view = buildSupervisorView(
           {
             id,
@@ -481,7 +486,7 @@ async function loadJournalTopSnapshot(
       root,
       now,
       supervisors,
-      [{ source: 'observer-journal', path: 'observer.jsonl', reason: 'missing' }],
+      [{ source: 'observer-journal', path: 'observer.jsonl', reason: 'missing' }, ...tails.diagnostics],
       discovery.roots.length,
     )
   } catch {
@@ -556,7 +561,7 @@ function buildSupervisorView(
   events: readonly TopJournalEvent[],
   progressTail: readonly string[],
   now: number,
-  workerEventTails = new Map<string, WorkerEventTail>(),
+  workerEventTails = new Map<string, RecordedEvents>(),
   accounting?: PursuitRunProjection,
 ): SupervisorView {
   const workers = new Map<string, MutableWorker>()
@@ -586,6 +591,7 @@ function buildSupervisorView(
       if (budget) worker.budget = budget
     } else if (event.kind === 'settled' || event.kind === 'cancelled') {
       if (event.at) worker.endedAt = event.at
+      if (event.reason !== undefined) worker.reason = event.reason
       if (event.kind === 'settled') {
         worker.status = event.status === 'down' ? 'down' : 'done'
         if (event.outRef) worker.outRef = event.outRef
@@ -596,7 +602,6 @@ function buildSupervisorView(
         if (verdict) worker.verdict = verdict
       } else {
         worker.status = 'cancelled'
-        if (event.reason) worker.reason = event.reason
       }
       if (event.kind === 'settled' || event.spent !== undefined) {
         worker.spend = addSpend(worker.spend, parseSpend(event.spent))
@@ -625,16 +630,15 @@ function buildSupervisorView(
       // Tails are keyed by file stem, which the writer put through `safeWorkerFile`; a label
       // carrying characters that stem strips would otherwise never find its own events.
       const tail =
+        workerEventTails.get(join(stateDir, nodeStreamFile(worker.id))) ??
         workerEventTails.get(worker.label) ??
         workerEventTails.get(safeWorkerFile(worker.label)) ??
         workerEventTails.get(safeWorkerFile(worker.id)) ??
         workerEventTails.get(worker.id)
       worker.liveTail = tail?.lines ?? []
-      if (tail?.file) worker.eventFile = tail.file
-      else {
-        // A supervise({ runDir }) node keeps its own progress stream in the run directory.
-        const stream = join(stateDir, nodeStreamFile(worker.id))
-        if (existsSync(stream)) worker.eventFile = stream
+      if (tail) {
+        worker.eventFile = tail.file
+        Object.assign(worker, tail.activity)
       }
       return finalizeWorker(worker, now)
     })
@@ -651,6 +655,7 @@ function buildSupervisorView(
   return {
     id: state.id,
     stateDir,
+    ...workerEventTails.get(join(stateDir, ROOT_STREAM_FILE))?.activity,
     status: state.status,
     task: state.task,
     workspaceDir: state.workspaceDir,
@@ -858,31 +863,29 @@ function tailLines(raw: string | undefined, maxLines: number): string[] {
   return raw.trim().split('\n').filter(Boolean).slice(-maxLines)
 }
 
-function readWorkerEventTails(
-  dir: string,
-  maxLines: number,
-): SourceRead<Map<string, WorkerEventTail>> {
-  const out = new Map<string, WorkerEventTail>()
-  if (!existsSync(dir)) return { value: out, diagnostics: [] }
-  const workersDir = basename(dir)
-  let entries: string[]
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    return {
-      value: out,
-      diagnostics: [{ source: 'worker-tail', path: workersDir, reason: 'unreadable' }],
+function readWorkerEventTails(dir: string): SourceRead<Map<string, RecordedEvents>> {
+  const out = new Map<string, RecordedEvents>()
+  const diagnostics: SourceDiagnostic[] = []
+  const read = (path: string, key = join(dir, path)) => {
+    try {
+      if (existsSync(join(dir, path))) out.set(key, readRecordedEvents(join(dir, path)))
+    } catch {
+      diagnostics.push({ source: 'worker-tail', path, reason: 'unreadable' })
     }
   }
-  const diagnostics: SourceDiagnostic[] = []
-  for (const entry of entries) {
-    // `<label>.inbox.ndjson` is the down-leg steer queue, not this worker's control-event log.
-    if (!entry.endsWith('.ndjson') || entry.endsWith('.inbox.ndjson')) continue
-    const file = join(dir, entry)
-    const read = readSourceFile(file, 'worker-tail', join(workersDir, entry))
-    diagnostics.push(...read.diagnostics)
-    const lines = tailLines(read.value, maxLines)
-    out.set(entry.slice(0, -'.ndjson'.length), { file, lines })
+  read(ROOT_STREAM_FILE)
+  for (const folder of ['workers', 'streams']) {
+    if (!existsSync(join(dir, folder))) continue
+    try {
+      for (const entry of readdirSync(join(dir, folder))) {
+        // Inbox steer requests are not evidence that the executor emitted progress.
+        if (folder === 'workers' && entry.endsWith('.ndjson') && !entry.endsWith('.inbox.ndjson'))
+          read(join(folder, entry), entry.slice(0, -'.ndjson'.length))
+        else if (folder === 'streams' && entry.endsWith('.jsonl')) read(join(folder, entry))
+      }
+    } catch {
+      diagnostics.push({ source: 'worker-tail', path: folder, reason: 'unreadable' })
+    }
   }
   return { value: out, diagnostics }
 }
