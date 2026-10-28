@@ -9,6 +9,7 @@
  * into the run's result. `runGraph` stays the one team executor; `supervise()` stays its substrate.
  */
 
+import { isRecord } from '@tangle-network/agent-core'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
@@ -22,6 +23,7 @@ import type {
   RouteMatch,
   RouteWhen,
 } from '../../mcp/tools/coordination-route-contracts'
+import type { DeliverableSpec } from './completion-gate'
 import type { SupervisorFinalizer } from './finalizer'
 import type {
   AgentGraph,
@@ -784,13 +786,19 @@ type FlowConclusion =
  */
 export function createFlowRun() {
   const outputs = new Map<NodeId, unknown>()
+  // The flow node each worker ran, from the route events, so a check can read any settled node.
+  const nodeOf = new Map<string, NodeId>()
+  let settled: Readonly<Record<string, unknown>> = {}
   let stopped: NonNullable<GraphResult['stopped']> | undefined
   let unrouted: Extract<FlowConclusion, { kind: 'unrouted' }>['unrouted'] | undefined
   const observe = (event: CoordinationEvent): void => {
     if (event.type !== 'route') return
     const step = event.route
-    if (step.kind === 'output') outputs.set(step.node, step.result)
-    else if (step.kind === 'stopped') {
+    if (step.kind === 'traversal' && step.workerId !== undefined) nodeOf.set(step.workerId, step.to)
+    if (step.kind === 'output') {
+      nodeOf.set(step.workerId, step.node)
+      outputs.set(step.node, step.result)
+    } else if (step.kind === 'stopped') {
       stopped ??= {
         ...(step.edge === undefined ? {} : { edge: step.edge }),
         at: step.at,
@@ -799,10 +807,17 @@ export function createFlowRun() {
       }
     } else if (step.kind === 'unrouted') unrouted ??= step
   }
-  const finalizer: SupervisorFinalizer = () =>
-    stopped !== undefined || unrouted !== undefined || outputs.size === 0
+  const finalizer: SupervisorFinalizer = ({ delivered }) => {
+    settled = Object.fromEntries(
+      delivered.flatMap((worker) => {
+        const node = nodeOf.get(worker.id)
+        return node === undefined || !('out' in worker) ? [] : [[node, worker.out]]
+      }),
+    )
+    return stopped !== undefined || unrouted !== undefined || outputs.size === 0
       ? undefined
       : Object.fromEntries(outputs)
+  }
   const conclude = (result: SupervisedResult<unknown>): FlowConclusion => {
     if (unrouted !== undefined) return { kind: 'unrouted', unrouted }
     if (stopped === undefined) return { kind: 'result', result }
@@ -829,5 +844,26 @@ export function createFlowRun() {
       : stopped !== undefined
         ? `stopped at '${stopped.at}': ${stopped.reason}`
         : undefined
-  return { observe, finalizer, conclude, failure }
+  /** Every delivered node's latest usable output, terminal or not, as of the last finalize. */
+  const settledOutputs = (): Readonly<Record<string, unknown>> => settled
+  return { observe, finalizer, conclude, failure, settledOutputs }
+}
+
+/**
+ * A stored route check may name any flow node, not only a terminal one: its conditions read each
+ * delivered node's latest usable output, under the terminal outputs. The deliverable the run
+ * returns stays `{ [terminal node]: result }`. Run 6f167e9e checked fetch-pr's merge_sha and
+ * review-pr's approval; with only terminal outputs in view it was false whatever fetch-pr found.
+ */
+export function flowRouteDeliverable<
+  D extends { readonly check: DeliverableSpec<unknown>['check'] },
+>(deliverable: D, flow: Pick<ReturnType<typeof createFlowRun>, 'settledOutputs'>): D {
+  return {
+    ...deliverable,
+    check: ((out, context) =>
+      deliverable.check(
+        context === undefined && isRecord(out) ? { ...flow.settledOutputs(), ...out } : out,
+        context,
+      )) as D['check'],
+  }
 }
