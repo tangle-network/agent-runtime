@@ -6,13 +6,12 @@ import { defineConfig } from 'vitest/config'
 // source and reports their failures as ours.
 const exclude = ['**/node_modules/**', 'dist/**', 'bench/**', '**/.claude/worktrees/**', '**/_wt/**']
 
-// Real-process suites whose work slows 23-30x on shared publish runners when the rest of the suite
-// contends with them (1.3 s per phase vs a 30 s kill; 7.9 s vs 180 s; about 1 s vs 30 s). They run
-// one file at a time after everything else, so the suite keeps its default workers.
+// Keep process and deadline suites out of the parallel test pool.
 const serial = [
   'tests/runtime/retained-capture-resume.test.ts',
   'tests/kernel/retained-checkpoint-capture.test.ts',
   'tests/kernel/run-registry-persistence.test.ts',
+  'tests/integration/deadline-wake-process.test.ts',
 ]
 
 export default defineConfig({
