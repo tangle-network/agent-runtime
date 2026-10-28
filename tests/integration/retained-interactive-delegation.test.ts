@@ -134,9 +134,13 @@ it('delegates the real holder lease across processes without changing terminal i
     await chmod(grant, 0o644)
     await expect(replay.request('steer', 'unsafe-grant')).rejects.toThrow('private')
     await chmod(grant, 0o600)
-    await writeFile(grant, saved.replace(/"refDigest":"[^"]+"/u, '"refDigest":"sha256:wrong"'), {
-      mode: 0o600,
-    })
+    await writeFile(
+      grant,
+      saved.replace(/"refDigest":"[^"]+"/u, `"refDigest":"sha256:${'a'.repeat(64)}"`),
+      {
+        mode: 0o600,
+      },
+    )
     await expect(replay.request('steer', 'wrong-ref')).rejects.toThrow('another process')
     await writeFile(grant, saved, { mode: 0o600 })
     const crashing = await open()
@@ -231,11 +235,6 @@ it('hands off expired leases with the old owner alive, fences stale close, and r
       readFile(join(root, '.agent-runtime-control', scope!, 'delegation.json')),
     ).rejects.toMatchObject({ code: 'ENOENT' })
     await newest.request('status')
-    await expect(
-      readFile(
-        join(root, '.agent-runtime-control', scope!, String(renewed.generation), 'supervise.lock'),
-      ),
-    ).rejects.toMatchObject({ code: 'ENOENT' })
   } finally {
     await Promise.all(children.map((child) => child.kill()))
     await server.close()

@@ -167,7 +167,7 @@ export function assertNoSymlinkDescendant(root: string, target: string, label = 
  * file keeps normal creation semantics. Callers still own path validation and write exclusion. */
 export function writeAtomicDurableFile(
   filePath: string,
-  content: string,
+  content: DurableFileContent,
   options: DurableFileOptions & { readonly preserveMode?: boolean } = {},
 ): void {
   fenceRunWrite(() => writeAtomicDurableFileUnchecked(filePath, content, options))
@@ -175,7 +175,7 @@ export function writeAtomicDurableFile(
 
 function writeAtomicDurableFileUnchecked(
   filePath: string,
-  content: string,
+  content: DurableFileContent,
   options: DurableFileOptions & { readonly preserveMode?: boolean } = {},
 ): void {
   const temporaryPath = `${filePath}.${randomUUID()}.tmp`
