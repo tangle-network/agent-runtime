@@ -21,6 +21,7 @@ import {
   RetainedRunAdmissionError,
   RetainedRunDispatchBindingError,
 } from '../errors'
+import type { RuntimeHookPhase, RuntimeHookTarget } from '../runtime-hooks'
 import { assertRequestedInteractionCapabilities } from './interaction-capabilities'
 import {
   assertRetainedContextTransferCapability,
@@ -28,6 +29,7 @@ import {
   assertRetainedContextTransferIdentity,
   retainedContextTransferReceipt,
 } from './retained-context-transfer'
+import type { RetainedInteractiveRunHandle } from './retained-interactive-types'
 import {
   assertStableText,
   exactControlRef,
@@ -541,18 +543,97 @@ export function journaledAdmissions<
     await onAdmission(admission)
     if ('runId' in admission) runId ??= admission.runId
     if (runId === undefined) return
-    await new FileObserverJournal(join(journalRoot, runId, 'observer.jsonl'), runId)
-      .appendEvent({
-        id: `${runId}:${admission.phase}`,
-        pursuitId: runId,
-        runId,
-        target: 'agent.run',
-        phase: 'before',
-        timestamp: Date.now(),
-        payload: { status: 'running', admission: admission.phase },
-      })
-      .catch(() => undefined)
+    await appendRetainedObserverEvent(journalRoot, runId, admission.phase, 'agent.run', 'before', {
+      status: 'running',
+      admission: admission.phase,
+    })
   }
+}
+
+/**
+ * The interactive handle with its accepted turns and its end journaled beside its admissions, so a
+ * viewer sees the run take turns and settle rather than run forever. A turn records its number and
+ * operation id, never the prompt. The end is the first exited status read or accepted stop.
+ */
+export function journaledInteractiveHandle(
+  handle: RetainedInteractiveRunHandle,
+  journalRoot: string | undefined,
+  runId: string,
+): RetainedInteractiveRunHandle {
+  if (journalRoot === undefined) return handle
+  let turns = 0
+  let settled = false
+  const settle = async (failed: boolean, detail: Record<string, unknown>) => {
+    if (settled) return
+    settled = true
+    await appendRetainedObserverEvent(
+      journalRoot,
+      runId,
+      'settled',
+      'agent.run',
+      failed ? 'error' : 'after',
+      { status: failed ? 'failed' : 'done', ...detail },
+    )
+  }
+  const journaled: RetainedInteractiveRunHandle = {
+    ...handle,
+    sendPrompt: async (command, options) => {
+      const ack = await handle.sendPrompt(command, options)
+      if (ack.status === 'accepted') {
+        turns += 1
+        await appendRetainedObserverEvent(
+          journalRoot,
+          runId,
+          `turn:${command.operationId}`,
+          'agent.turn',
+          'event',
+          { turn: turns, operationId: command.operationId },
+        )
+      }
+      return ack
+    },
+    status: async (options) => {
+      const status = await handle.status(options)
+      if (status.state === 'exited') {
+        await settle(status.reason === 'lost' || (status.exitCode ?? 0) !== 0, {
+          reason: status.reason,
+          ...(status.exitCode === undefined ? {} : { exitCode: status.exitCode }),
+        })
+      }
+      return status
+    },
+    stop: async (command, options) => {
+      const ack = await handle.stop(command, options)
+      if (ack.status === 'accepted' || ack.status === 'replayed') {
+        await settle(false, { reason: 'stopped' })
+      }
+      return ack
+    },
+  }
+  return Object.freeze(journaled)
+}
+
+/** One observer record of a retained run, at `<journalRoot>/<runId>/observer.jsonl`. A viewer's
+ *  record never fails the run it describes, so a write failure is dropped. */
+async function appendRetainedObserverEvent(
+  journalRoot: string,
+  runId: string,
+  name: string,
+  target: RuntimeHookTarget,
+  phase: RuntimeHookPhase,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  await new FileObserverJournal(join(journalRoot, runId, 'observer.jsonl'), runId)
+    .appendEvent({
+      id: `${runId}:${name}`,
+      pursuitId: runId,
+      runId,
+      target,
+      phase,
+      timestamp: Date.now(),
+      payload,
+    })
+    .catch(() => undefined)
 }
 
 function isInteractiveAdmission(
