@@ -22136,7 +22136,9 @@ One conserved pool across the whole graph — cycles without conservation never 
 Setting it makes this a FLOW graph: Runtime spawns every entry at once, each with its task,
  and traverses `routes` edges itself. No node is a root and no caller brain runs; the run's
  output is `{ [node]: latest usable result }` over its terminal nodes and `finish` sources,
- judged by `deliverable`.
+ judged by `deliverable`. A stored route check (`checkRef: 'route'`) may also name a
+ non-terminal node: its condition reads that node's latest delivered output, while the output
+ stays terminal-only.
 
 ##### gates?
 
