@@ -204,6 +204,7 @@ interface Cursor {
   pending: string
   decoder: StringDecoder
   times: number[]
+  lines: string[]
   result: RecordedEvents
 }
 
@@ -218,7 +219,7 @@ const activityKinds = new Set([
   'child_task',
 ])
 
-/** Scan once, then read appended bytes. Commit only complete lines, including split UTF-8 rows. */
+/** Read appended UTF-8 bytes once; complete EOF JSON follows the durable reader contract. */
 export function readRecordedEvents(file: string, maxLines = 8): RecordedEvents {
   const fd = openSync(file, 'r')
   try {
@@ -237,13 +238,14 @@ export function readRecordedEvents(file: string, maxLines = 8): RecordedEvents {
         pending: '',
         decoder: new StringDecoder('utf8'),
         times: [],
+        lines: [],
         result: { file, lines: [], activity: {} },
       }
       cursors.set(file, cursor)
     }
     if (stat.size === cursor.offset)
       return { ...cursor.result, lines: cursor.result.lines.slice(-maxLines) }
-    const lines = [...cursor.result.lines]
+    const lines = [...cursor.lines]
     const buffer = Buffer.alloc(Math.min(65_536, stat.size - cursor.offset))
     while (cursor.offset < stat.size) {
       const bytes = readSync(
@@ -268,24 +270,32 @@ export function readRecordedEvents(file: string, maxLines = 8): RecordedEvents {
         if (activity) cursor.times.push(Date.parse(activity.at))
       }
     }
-    cursor.times.sort((a, b) => a - b)
-    const gaps = cursor.times
+    cursor.lines = lines
+    // A complete EOF row is valid durable JSONL. Keep it separate until its newline arrives.
+    let pending: string[] = []
+    try {
+      JSON.parse(cursor.pending)
+      pending = [cursor.pending]
+    } catch { /* A torn row is still private to its writer. */ }
+    const final = transcriptRows({ liveTail: pending }).find((row) => activityKinds.has(row.event.kind))
+    const times = (final ? [...cursor.times, Date.parse(final.at)] : cursor.times).sort((a, b) => a - b)
+    const gaps = times
       .slice(1)
-      .map((at, i) => at - cursor.times[i]!)
+      .map((at, i) => at - times[i]!)
       .sort((a, b) => a - b)
     const mid = Math.floor(gaps.length / 2)
     cursor.result = {
       file,
-      lines,
-      ...(cursor.times.length ? { firstActivityAt: cursor.times[0]! } : {}),
+      lines: [...lines, ...pending].slice(-200),
+      ...(times.length ? { firstActivityAt: times[0]! } : {}),
       activity: {
-        ...(cursor.times.length ? { lastActivityAt: cursor.times.at(-1)! } : {}),
+        ...(times.length ? { lastActivityAt: times.at(-1)! } : {}),
         ...(gaps.length
           ? { medianEventGapMs: (gaps[Math.floor((gaps.length - 1) / 2)]! + gaps[mid]!) / 2 }
           : {}),
       },
     }
-    return { ...cursor.result, lines: lines.slice(-maxLines) }
+    return { ...cursor.result, lines: cursor.result.lines.slice(-maxLines) }
   } catch (error) {
     cursors.delete(file)
     throw error
