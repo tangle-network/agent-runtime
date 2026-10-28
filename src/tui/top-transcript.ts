@@ -76,7 +76,8 @@ async function retainedTranscriptLines(worker: WorkerView, runDir: string): Prom
       try {
         const message = recordValue(JSON.parse(text))
         return message?.role === 'assistant' || message?.role === 'tool'
-          ? [JSON.stringify({ at, message })] : []
+          ? [JSON.stringify({ at, message })]
+          : []
       } catch {
         return []
       }
@@ -128,17 +129,30 @@ export function transcriptRows(worker: Pick<WorkerView, 'liveTail'>) {
     const message = recordValue(value?.message)
     if (!message) continue
     if (message.role === 'tool') {
-      push({ kind: 'tool-result', toolCallId: String(message.tool_call_id), result: message.content })
+      push({
+        kind: 'tool-result',
+        toolCallId: String(message.tool_call_id),
+        result: message.content,
+      })
       continue
     }
     for (const item of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
-      const call = recordValue(item), fn = recordValue(call?.function)
-      if (call && fn) push({ kind: 'tool-call', toolCallId: String(call.id), toolName: String(fn.name), args: fn.arguments })
+      const call = recordValue(item),
+        fn = recordValue(call?.function)
+      if (call && fn)
+        push({
+          kind: 'tool-call',
+          toolCallId: String(call.id),
+          toolName: String(fn.name),
+          args: fn.arguments,
+        })
     }
     const parts =
       typeof message.content === 'string'
         ? [{ type: 'text', text: message.content }]
-        : Array.isArray(message.content) ? message.content : []
+        : Array.isArray(message.content)
+          ? message.content
+          : []
     for (const part of parts) {
       if (!recordValue(part)) continue
       if (part.type === 'text' && typeof part.text === 'string')
@@ -146,7 +160,12 @@ export function transcriptRows(worker: Pick<WorkerView, 'liveTail'>) {
       else if (part.type === 'thinking' && typeof part.thinking === 'string')
         push({ kind: 'reasoning', text: part.thinking })
       else if (part.type === 'tool_use')
-        push({ kind: 'tool-call', toolCallId: String(part.id), toolName: String(part.name), args: part.input })
+        push({
+          kind: 'tool-call',
+          toolCallId: String(part.id),
+          toolName: String(part.name),
+          args: part.input,
+        })
       else if (part.type === 'tool_result')
         push({ kind: 'tool-result', toolCallId: String(part.tool_use_id), result: part.content })
     }
@@ -189,7 +208,15 @@ interface Cursor {
 }
 
 const cursors = new Map<string, Cursor>()
-const activityKinds = new Set(['text', 'reasoning', 'user', 'tool-call', 'tool-result', 'interaction', 'child_task'])
+const activityKinds = new Set([
+  'text',
+  'reasoning',
+  'user',
+  'tool-call',
+  'tool-result',
+  'interaction',
+  'child_task',
+])
 
 /** Scan once, then read appended bytes. Commit only complete lines, including split UTF-8 rows. */
 export function readRecordedEvents(file: string, maxLines = 8): RecordedEvents {
@@ -197,15 +224,35 @@ export function readRecordedEvents(file: string, maxLines = 8): RecordedEvents {
   try {
     const stat = fstatSync(fd)
     let cursor = cursors.get(file)
-    if (!cursor || cursor.dev !== stat.dev || cursor.ino !== stat.ino || stat.size < cursor.offset) {
-      cursor = { dev: stat.dev, ino: stat.ino, offset: 0, pending: '', decoder: new StringDecoder('utf8'), times: [], result: { file, lines: [], activity: {} } }
+    if (
+      !cursor ||
+      cursor.dev !== stat.dev ||
+      cursor.ino !== stat.ino ||
+      stat.size < cursor.offset
+    ) {
+      cursor = {
+        dev: stat.dev,
+        ino: stat.ino,
+        offset: 0,
+        pending: '',
+        decoder: new StringDecoder('utf8'),
+        times: [],
+        result: { file, lines: [], activity: {} },
+      }
       cursors.set(file, cursor)
     }
-    if (stat.size === cursor.offset) return { ...cursor.result, lines: cursor.result.lines.slice(-maxLines) }
+    if (stat.size === cursor.offset)
+      return { ...cursor.result, lines: cursor.result.lines.slice(-maxLines) }
     const lines = [...cursor.result.lines]
     const buffer = Buffer.alloc(Math.min(65_536, stat.size - cursor.offset))
     while (cursor.offset < stat.size) {
-      const bytes = readSync(fd, buffer, 0, Math.min(buffer.length, stat.size - cursor.offset), cursor.offset)
+      const bytes = readSync(
+        fd,
+        buffer,
+        0,
+        Math.min(buffer.length, stat.size - cursor.offset),
+        cursor.offset,
+      )
       if (!bytes) break
       cursor.offset += bytes
       const rows = (cursor.pending + cursor.decoder.write(buffer.subarray(0, bytes))).split('\n')
@@ -215,19 +262,27 @@ export function readRecordedEvents(file: string, maxLines = 8): RecordedEvents {
         lines.push(line)
         if (lines.length > 200) lines.shift()
         // One source row is one instant even when a native message contains several parts.
-        const activity = transcriptRows({ liveTail: [line] }).find((row) => activityKinds.has(row.event.kind))
+        const activity = transcriptRows({ liveTail: [line] }).find((row) =>
+          activityKinds.has(row.event.kind),
+        )
         if (activity) cursor.times.push(Date.parse(activity.at))
       }
     }
     cursor.times.sort((a, b) => a - b)
-    const gaps = cursor.times.slice(1).map((at, i) => at - cursor.times[i]!).sort((a, b) => a - b)
+    const gaps = cursor.times
+      .slice(1)
+      .map((at, i) => at - cursor.times[i]!)
+      .sort((a, b) => a - b)
     const mid = Math.floor(gaps.length / 2)
     cursor.result = {
-      file, lines,
+      file,
+      lines,
       ...(cursor.times.length ? { firstActivityAt: cursor.times[0]! } : {}),
       activity: {
         ...(cursor.times.length ? { lastActivityAt: cursor.times.at(-1)! } : {}),
-        ...(gaps.length ? { medianEventGapMs: (gaps[Math.floor((gaps.length - 1) / 2)]! + gaps[mid]!) / 2 } : {}),
+        ...(gaps.length
+          ? { medianEventGapMs: (gaps[Math.floor((gaps.length - 1) / 2)]! + gaps[mid]!) / 2 }
+          : {}),
       },
     }
     return { ...cursor.result, lines: lines.slice(-maxLines) }

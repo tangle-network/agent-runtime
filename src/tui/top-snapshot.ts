@@ -244,7 +244,7 @@ export function loadTopSnapshot(
   input: number | { runDir: string; now?: number; format?: 'workflow' | 'journal' } = Date.now(),
 ): TopSnapshot | Promise<TopSnapshot> {
   if (typeof input !== 'number' && input.format === 'journal')
-    return loadJournalTopSnapshot(rootDir, input.runDir, input.now ?? Date.now())
+    return loadDurableTopSnapshot(rootDir, input.runDir, input.now ?? Date.now(), false)
   if (typeof input !== 'number' && input.format === 'workflow') {
     const root = resolve(rootDir),
       dir = resolve(input.runDir),
@@ -359,143 +359,62 @@ function topSnapshot(
   }
 }
 
+/** Observer-backed and older spawn-only runs share topology; missing accounting stays unknown. */
 async function loadDurableTopSnapshot(
   rootDir: string,
   runDir: string,
   now: number,
+  observed = true,
 ): Promise<TopSnapshot> {
   const root = resolve(rootDir)
   let pursuit: PursuitProjection | undefined
-  let source: TopSnapshotDiagnosticSource = 'observer-journal'
-  let path = 'observer.jsonl'
+  let source: TopSnapshotDiagnosticSource = observed ? 'observer-journal' : 'journal'
+  let path = observed ? 'observer.jsonl' : 'spawn-journal.jsonl'
   try {
-    if (typeof runDir !== 'string' || !runDir.trim())
-      throw new TypeError('runDir must be non-empty')
-    const journal = await FileObserverJournal.open(join(resolve(runDir), path))
-    if (!journal) return topSnapshot(root, now, [], [{ source, path, reason: 'missing' }])
-    pursuit = projectPursuit(await journal.read())
+    if (typeof runDir !== 'string' || !runDir.trim()) throw new TypeError('runDir must be non-empty')
+    if (observed) {
+      const journal = await FileObserverJournal.open(join(resolve(runDir), path))
+      if (!journal) return topSnapshot(root, now, [], [{ source, path, reason: 'missing' }])
+      pursuit = projectPursuit(await journal.read())
+    }
     source = 'journal'
     path = '.'
     const discovery = await discoverDurableSupervisionRun(runDir)
-    // An actual run id stays the row identity; the canonical projection retains every attempt.
-    const latest = new Map(pursuit.runs.map((run) => [run.runId, run]))
     path = 'spawn-journal.jsonl'
-    const spawnJournal = new FileSpawnJournal(discovery.spawnJournalPath)
-    // A child's metered turns journal under `<root>/<child>`; the spawn tree already shows them.
-    const rows = [...latest.values()].filter(
-      (run) => !discovery.roots.some((id) => run.runId.startsWith(`${id}/`)),
-    )
-    const tails = readWorkerEventTails(discovery.runDir)
-    const supervisors = await Promise.all(
-      rows.map(async (run) => {
-        // SupervisorOpts.runId is the journal root key; require its recorded discovery binding.
-        const binding = discovery.roots.find((id) => id === run.runId)
-        // A retained run journals admissions only and writes no spawn journal to bind.
-        if (!binding && existsSync(discovery.spawnJournalPath))
-          throw new Error('observer run has no discovered spawn root')
-        const events = binding ? ((await spawnJournal.loadTree(binding)) ?? []) : []
-        const rootSpawn = events.find((event) => event.kind === 'spawned' && event.id === binding)
-        const budget = rootSpawn?.kind === 'spawned' ? rootSpawn.budget?.maxTokens : undefined
-        // supervise() records no agent.run for its root; the spawn journal's settlement is the end.
-        const terminal = events
-          .filter((e) => e.id === binding && (e.kind === 'settled' || e.kind === 'cancelled'))
-          .at(-1)
-        const settledAt =
-          run.settledAt === undefined ? terminal?.at : new Date(run.settledAt).toISOString()
-        return buildSupervisorView(
-          {
-            id: run.runId,
-            status:
-              run.status !== 'running' || terminal === undefined
-                ? run.status
-                : terminal.kind === 'settled'
-                  ? terminal.status
-                  : 'cancelled',
-            task: run.runId,
-            workspaceDir: root,
-            budget: budget ?? 0,
-            budgetKnown: budget !== undefined,
-            startedAt: new Date(run.firstObservedAt).toISOString(),
-            ...(settledAt === undefined ? {} : { completedAt: settledAt }),
-          },
-          discovery.runDir,
-          events.filter(isSpawnEvent),
-          run.error ? [run.error] : [],
-          now,
-          tails.value,
-          run,
-        )
-      }),
-    )
-    return topSnapshot(root, now, supervisors, [...tails.diagnostics], 1, pursuit)
-  } catch (error) {
-    const reason =
-      isRecord(error) && typeof error.code === 'string' ? 'unreadable' : 'invalid-state'
-    return topSnapshot(root, now, [], [{ source, path, reason }], 1, pursuit)
-  }
-}
-
-/** Old Discovery and factory roots may predate observer.jsonl; absence never establishes known totals. */
-async function loadJournalTopSnapshot(
-  rootDir: string,
-  runDir: string,
-  now: number,
-): Promise<TopSnapshot> {
-  const root = resolve(rootDir),
-    dir = resolve(runDir)
-  try {
-    const discovery = await discoverDurableSupervisionRun(dir)
     const journal = new FileSpawnJournal(discovery.spawnJournalPath)
-    const tails = readWorkerEventTails(dir)
-    const supervisors = await Promise.all(
-      discovery.roots.map(async (id, i) => {
-        const events = (await journal.loadTree(id)) ?? []
-        const terminal = events
-          .filter(
-            (event) => event.id === id && (event.kind === 'settled' || event.kind === 'cancelled'),
-          )
-          .at(-1)
-        const first = events.find((event) => event.kind === 'spawned' && event.id === id)
-        const budget = first?.kind === 'spawned' ? first.budget?.maxTokens : undefined
-        const view = buildSupervisorView(
-          {
-            id,
-            task: id,
-            workspaceDir: root,
-            status:
-              terminal?.kind === 'settled'
-                ? terminal.status
-                : terminal?.kind === 'cancelled'
-                  ? 'cancelled'
-                  : 'running',
-            budget: budget ?? 0,
-            budgetKnown: budget !== undefined,
-            ...(discovery.rootsBegunAt[i] ? { startedAt: discovery.rootsBegunAt[i]! } : {}),
-            ...(terminal?.at ? { completedAt: terminal.at } : {}),
-          },
-          dir,
-          events.filter(isSpawnEvent),
-          [],
-          now,
-          tails.value,
-        )
-        return { ...view, totals: { ...view.totals, usdKnown: false, tokensKnown: false } }
-      }),
-    )
-    return topSnapshot(
-      root,
-      now,
-      supervisors,
-      [{ source: 'observer-journal', path: 'observer.jsonl', reason: 'missing' }, ...tails.diagnostics],
-      discovery.roots.length,
-    )
-  } catch {
-    return topSnapshot(
-      root,
-      now,
-      [],
-      [{ source: 'journal', path: 'spawn-journal.jsonl', reason: 'invalid-state' }],
-    )
+    const latest = new Map(pursuit?.runs.map((run) => [run.runId, run]))
+    // A child's metered turns already belong to its spawn tree, not another supervisor row.
+    const ids = pursuit
+      ? [...latest.keys()].filter((id) => !discovery.roots.some((parent) => id.startsWith(`${parent}/`)))
+      : discovery.roots
+    const tails = readWorkerEventTails(discovery.runDir)
+    const supervisors = await Promise.all(ids.map(async (id) => {
+      const accounting = latest.get(id)
+      const binding = discovery.roots.indexOf(id)
+      // Retained admissions can predate the spawn journal. An existing journal must bind the root.
+      if (binding < 0 && existsSync(discovery.spawnJournalPath)) throw new Error('observer run has no discovered spawn root')
+      const events = binding < 0 ? [] : (await journal.loadTree(id)) ?? []
+      const spawn = events.find((event) => event.kind === 'spawned' && event.id === id)
+      const budget = spawn?.kind === 'spawned' ? spawn.budget?.maxTokens : undefined
+      const terminal = events.filter((event) => event.id === id && (event.kind === 'settled' || event.kind === 'cancelled')).at(-1)
+      const startedAt = accounting ? new Date(accounting.firstObservedAt).toISOString() : discovery.rootsBegunAt[binding]
+      const completedAt = accounting?.settledAt === undefined ? terminal?.at : new Date(accounting.settledAt).toISOString()
+      const view = buildSupervisorView({
+        id, task: id, workspaceDir: root,
+        status: accounting && accounting.status !== 'running' ? accounting.status : terminal?.kind === 'settled' ? terminal.status : terminal ? 'cancelled' : 'running',
+        budget: budget ?? 0, budgetKnown: budget !== undefined,
+        ...(startedAt === undefined ? {} : { startedAt }),
+        ...(completedAt === undefined ? {} : { completedAt }),
+      }, discovery.runDir, events.filter(isSpawnEvent), accounting?.error ? [accounting.error] : [], now, tails.value, accounting)
+      return accounting ? view : { ...view, totals: { ...view.totals, usdKnown: false, tokensKnown: false } }
+    }))
+    return topSnapshot(root, now, supervisors, [
+      ...(!observed ? [{ source: 'observer-journal' as const, path: 'observer.jsonl', reason: 'missing' as const }] : []),
+      ...tails.diagnostics,
+    ], observed ? 1 : ids.length, pursuit)
+  } catch (error) {
+    const reason = isRecord(error) && typeof error.code === 'string' ? 'unreadable' : 'invalid-state'
+    return topSnapshot(root, now, [], [{ source, path, reason }], 1, pursuit)
   }
 }
 

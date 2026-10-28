@@ -20,8 +20,10 @@ export function workflowJournal(runDir: string, text: string) {
       try {
         const recorded = readRecordedEvents(file)
         tails.set(id, recorded)
-        if (recorded.firstActivityAt !== undefined) start = new Date(recorded.firstActivityAt).toISOString()
-        if (recorded.activity.lastActivityAt !== undefined) end = new Date(recorded.activity.lastActivityAt).toISOString()
+        if (recorded.firstActivityAt !== undefined)
+          start = new Date(recorded.firstActivityAt).toISOString()
+        if (recorded.activity.lastActivityAt !== undefined)
+          end = new Date(recorded.activity.lastActivityAt).toISOString()
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
