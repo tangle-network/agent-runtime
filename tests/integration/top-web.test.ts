@@ -289,3 +289,47 @@ test("a run under a runs root opens an agent's input and result when its convers
     await rm(root, { recursive: true, force: true })
   }
 }, 15000)
+
+test('a router-tools worker shows its retained conversation, which it never streamed', async () => {
+  // agent-record liverun-proof-7 on Runtime 2.3.0: three router-tools haiku workers. Their
+  // executor runs its tool loop in process and streams nothing, but retains the conversation as
+  // a harness transcript at settlement; the drawer reported it uncaptured.
+  const recorded = join(__dirname, '..', 'fixtures', 'durable', 'router-tools-haiku-run')
+  const runId = 'liverun-proof-7'
+  const root = await mkdtemp(join(tmpdir(), 'runtime-top-web-router-'))
+  const runs = join(root, 'runs')
+  const assets = join(root, 'assets')
+  await mkdir(assets)
+  await writeFile(join(assets, 'workspace-viewer.js'), 'export {};')
+  await writeFile(join(assets, 'styles.css'), 'body { color: black; }')
+  await cp(recorded, join(runs, runId), { recursive: true })
+  const web = await serveTopWeb({ roots: [runs], assets })
+  try {
+    // haiku-c answered through submit_result; haiku-a answered in plain text, with no tool call.
+    const worker = encodeURIComponent(`${runId}:s2`)
+    const body = await (await fetch(`${web.url}api/top/agents/0/${runId}/${worker}/stream`)).text()
+    const events = body
+      .split('\n\n')
+      .filter((packet) => packet.startsWith('event: rows'))
+      .flatMap(
+        (packet) =>
+          (
+            JSON.parse(packet.split('data: ')[1]!) as {
+              events: { event: Record<string, unknown> }[]
+            }
+          ).events,
+      )
+      .map(({ event }) => event)
+    expect(events.map((event) => event.provenance)).not.toContain('capture-unavailable')
+    expect(events.map((event) => event.kind)).toEqual(
+      expect.arrayContaining(['text', 'tool-call', 'tool-result']),
+    )
+    expect(events.find((event) => event.kind === 'tool-call')).toMatchObject({
+      toolName: 'submit_result',
+    })
+    expect(String(events.find((event) => event.kind === 'text')?.text)).toContain('READY')
+  } finally {
+    await web.close()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 15000)

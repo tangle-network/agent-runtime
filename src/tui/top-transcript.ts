@@ -27,7 +27,8 @@ export async function transcriptHistory(
       })
   }
   if (!worker.eventFile) {
-    const native = transcriptRows(worker)
+    const retained = runDir ? await retainedTranscriptLines(worker, runDir) : []
+    const native = transcriptRows(retained.length ? { ...worker, liveTail: retained } : worker)
     if (!native.length && worker.startedAt)
       rows.push({
         at: worker.startedAt,
@@ -61,6 +62,53 @@ export async function transcriptHistory(
     if (lines.length > 200) lines.shift()
   }
   return [...rows, ...transcriptRows({ ...worker, liveTail: lines })]
+}
+
+/**
+ * A settled worker's retained Router conversation as progress lines, for an executor that ran its
+ * tool loop in process and so streamed nothing. The messages carry no times; each takes the
+ * worker's settlement time. Other harnesses' session files have their own formats and stay unread.
+ */
+async function retainedTranscriptLines(worker: WorkerView, runDir: string): Promise<string[]> {
+  const at = worker.endedAt
+  if (worker.transcript?.harness !== 'router' || at === undefined) return []
+  const artifact = (await new FileResultBlobStore(join(runDir, 'blobs')).get(
+    worker.transcript.ref,
+  )) as { files?: { content?: unknown }[] } | undefined
+  const line = (event: Record<string, unknown>) => JSON.stringify({ at, event })
+  return (artifact?.files ?? []).flatMap((file) =>
+    (typeof file.content === 'string' ? file.content.split('\n') : []).flatMap((text) => {
+      let message: {
+        role?: string
+        content?: unknown
+        tool_call_id?: string
+        tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[]
+      }
+      try {
+        message = JSON.parse(text)
+      } catch {
+        return []
+      }
+      if (message.role === 'tool')
+        return [
+          line({ kind: 'tool_result', toolCallId: message.tool_call_id, result: message.content }),
+        ]
+      if (message.role !== 'assistant') return []
+      return [
+        ...(typeof message.content === 'string' && message.content.length > 0
+          ? [line({ kind: 'text_delta', text: message.content })]
+          : []),
+        ...(message.tool_calls ?? []).map((call) =>
+          line({
+            kind: 'tool_call',
+            toolCallId: call.id,
+            toolName: call.function?.name,
+            args: call.function?.arguments,
+          }),
+        ),
+      ]
+    }),
+  )
 }
 
 /** Present the recorded tail through sandbox-ui's existing agent-stream contract. */

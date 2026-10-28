@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "harness": "router",
+  "files": [
+    {
+      "path": "conversation-000.jsonl",
+      "bytes": 593,
+      "content": "{\"role\":\"system\",\"content\":\"\"}\n{\"role\":\"user\",\"content\":\"Write a three-line haiku about a distributed system, then the line READY\"}\n{\"role\":\"assistant\",\"content\":\"Nodes whisper in sync\\npackets cross the silent net\\nconsensus at dawn\\nREADY\",\"tool_calls\":[{\"id\":\"call_-7127515751178565025\",\"type\":\"function\",\"function\":{\"name\":\"submit_result\",\"arguments\":\"{\\\"result\\\":\\\"Nodes whisper in sync\\\\npackets cross the silent net\\\\nconsensus at dawn\\\\nREADY\\\"}\"}}]}\n{\"role\":\"tool\",\"tool_call_id\":\"call_-7127515751178565025\",\"content\":\"{\\\"accepted\\\":true,\\\"retained\\\":\\\"this-result\\\",\\\"stop\\\":true}\"}\n"
+    }
+  ],
+  "skipped": []
+}
