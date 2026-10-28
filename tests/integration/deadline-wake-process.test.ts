@@ -26,6 +26,7 @@ function workerProcess(name: string) {
       if (line === 'ready') resolve()
     })
     child.once('error', reject)
+    child.once('close', () => reject(new Error('child closed before readiness')))
   })
   const working = new Promise<void>((resolve) => {
     lines.on('line', (line) => {
@@ -41,13 +42,18 @@ function workerProcess(name: string) {
   const executor: Executor<unknown> = {
     runtime: 'local-process',
     async execute(_task, signal) {
+      signal.throwIfAborted()
       const abort = () => child.kill('SIGTERM')
       signal.addEventListener('abort', abort, { once: true })
-      if (signal.aborted) abort()
-      child.stdin.write('run\n')
-      await working
-      enter()
       try {
+        child.stdin.write('run\n')
+        await Promise.race([
+          working,
+          closed.then(() => {
+            throw new Error('child closed before admitted work')
+          }),
+        ])
+        enter()
         await closed
         if (signal.aborted) throw signal.reason
         return {
@@ -176,7 +182,15 @@ it.each(['wait', 'submit', 'debounce'] as const)(
                 )
                 expect(admitted.workerId).toBeTypeOf('string')
                 workerIds.push(admitted.workerId)
-                await worker.entered
+                scope.signal.throwIfAborted()
+                await Promise.race([
+                  worker.entered,
+                  new Promise<never>((_resolve, reject) => {
+                    scope.signal.addEventListener('abort', () => reject(scope.signal.reason), {
+                      once: true,
+                    })
+                  }),
+                ])
                 expect(worker.child.exitCode).toBeNull()
                 expect(worker.child.signalCode).toBeNull()
               }
@@ -195,7 +209,8 @@ it.each(['wait', 'submit', 'debounce'] as const)(
               return
             }
             expect(String(task)).toContain("The run's deadline is in")
-            expect(String(task)).toContain(workerIds[0])
+            expect(String(task)).toContain('Submit your best result now with submit_result')
+            expect(String(task)).toContain(`Workers running: ${workerIds[0]}`)
             expect(workers[0]?.child.exitCode).toBeNull()
             expect(workers[0]?.child.signalCode).toBeNull()
             if (mode === 'debounce') {
@@ -219,6 +234,7 @@ it.each(['wait', 'submit', 'debounce'] as const)(
       expect(tasks.filter((task) => task.includes("The run's deadline is in"))).toHaveLength(1)
       expect(result.kind).toBe(mode === 'wait' ? 'no-winner' : 'winner')
       if (mode === 'wait') expect(result).toMatchObject({ reason: 'deadline' })
+      else expect(result).toMatchObject({ out: { answer: 'best-so-far' } })
       const events = await new FileSpawnJournal(join(directory, 'spawn-journal.jsonl')).loadTree(
         'deadline-proof',
       )
