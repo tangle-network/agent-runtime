@@ -167,8 +167,9 @@ if (mode === 'normal') {
 export async function withInPlaceProcess(
   mode: ProcessMode,
   body: (fixture: ReturnType<typeof makeFixture>) => Promise<void>,
+  name = 'real-process-cleanup',
 ): Promise<void> {
-  const fixture = makeFixture(mode)
+  const fixture = makeFixture(mode, name)
   const errors: unknown[] = []
   try {
     await body(fixture)
@@ -233,7 +234,7 @@ export async function withInPlaceProcess(
   }
 }
 
-function makeFixture(mode: ProcessMode) {
+function makeFixture(mode: ProcessMode, name: string) {
   const directory = mkdtempSync(join(tmpdir(), 'in-place-process-join-'))
   const bin = join(directory, 'bin')
   mkdirSync(bin)
@@ -241,7 +242,7 @@ function makeFixture(mode: ProcessMode) {
   writeFileSync(join(bin, 'claude'), `#!${process.execPath}\n${executable}`, { mode: 0o755 })
   writeFileSync(join(directory, 'caller-owned.txt'), 'preserve caller bytes')
   const profile: AgentProfile = {
-    name: 'real-process-cleanup',
+    name,
     harness: 'claude-code',
     model: { provider: 'anthropic', default: 'offline-fixture-no-model' },
     prompt: { appendSystemPrompt: 'MATERIALIZED_PROCESS_INPUT' },
