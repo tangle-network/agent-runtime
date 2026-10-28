@@ -1,3 +1,9 @@
+## 2.3.9
+
+A flow graph's stored route check may name a `maps` join or a map item node, as it already could a routes node: the check reads that node's latest delivered output. Before, the join's workers were missing from the settled outputs the check reads, so a check naming the join was always false and the run ended `no-winner` / `no-result-selected` though every node delivered. The run's output stays the terminal nodes' results.
+
+A supervised child's abortable waits (budget, slot, execution) now run through the one `runAbortable` race. Behavior is unchanged: an abort still loses to a result the executor produces in the same tick, and a pre-aborted wait still observes the pending work.
+
 ## 2.3.8
 
 A flow graph's stored route check may name any node, not only a terminal one: each condition reads that node's latest delivered output. Before, the check saw only `{ [terminal node]: result }`, so a check that also named an upstream node (for example `fetch-pr /merge_sha` with `review-pr /approved`) was always false, and the run ended `no-winner` / `no-result-selected` though every node delivered. The run's output stays the terminal nodes' results, and the check stays exact.
