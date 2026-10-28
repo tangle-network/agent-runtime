@@ -15,6 +15,7 @@ import type {
   AgentSession,
   AgentSessionRef,
 } from '@tangle-network/agent-interface/environment-provider'
+import { withJsonlFileLock } from '../durable/jsonl-file'
 import { FileObserverJournal } from '../durable/observer-journal'
 import {
   RetainedInteractiveAdmissionError,
@@ -29,6 +30,12 @@ import {
   assertRetainedContextTransferIdentity,
   retainedContextTransferReceipt,
 } from './retained-context-transfer'
+import {
+  bindInteractiveDelegation,
+  delegatedTerminal,
+  refreshInteractiveDelegation,
+  revokeInteractiveControl,
+} from './retained-interactive-delegation'
 import type { RetainedInteractiveRunHandle } from './retained-interactive-types'
 import {
   assertStableText,
@@ -549,10 +556,7 @@ export function journaledInteractiveHandle(
   runId: string,
 ): RetainedInteractiveRunHandle {
   if (journalRoot === undefined) return handle
-  let settled = false
   const settle = async (failed: boolean, detail: Record<string, unknown>) => {
-    if (settled) return
-    settled = true
     await appendRetainedObserverEvent(
       journalRoot,
       runId,
@@ -564,9 +568,17 @@ export function journaledInteractiveHandle(
   }
   const journaled: RetainedInteractiveRunHandle = {
     ...handle,
+    claimControl: async (request, options) => {
+      const ack = await handle.claimControl(request, options)
+      if ((ack.status === 'accepted' || ack.status === 'replayed') && ack.control)
+        await refreshInteractiveDelegation(journaled, ack.control)
+      return ack
+    },
+    attach: async (request, options) =>
+      delegatedTerminal(journaled, await handle.attach(request, options)),
     sendPrompt: async (command, options) => {
       const ack = await handle.sendPrompt(command, options)
-      if (ack.status === 'accepted') {
+      if (ack.status === 'accepted' || ack.status === 'replayed') {
         await appendRetainedObserverEvent(
           journalRoot,
           runId,
@@ -581,6 +593,7 @@ export function journaledInteractiveHandle(
     status: async (options) => {
       const status = await handle.status(options)
       if (status.state === 'exited') {
+        await revokeInteractiveControl(journaled)
         await settle(status.reason === 'lost' || (status.exitCode ?? 0) !== 0, {
           reason: status.reason,
           ...(status.exitCode === undefined ? {} : { exitCode: status.exitCode }),
@@ -591,11 +604,13 @@ export function journaledInteractiveHandle(
     stop: async (command, options) => {
       const ack = await handle.stop(command, options)
       if (ack.status === 'accepted' || ack.status === 'replayed') {
+        await revokeInteractiveControl(journaled, command.control)
         await settle(false, { reason: 'stopped' })
       }
       return ack
     },
   }
+  bindInteractiveDelegation(journaled, journalRoot)
   return Object.freeze(journaled)
 }
 
@@ -609,9 +624,12 @@ async function appendRetainedObserverEvent(
   phase: RuntimeHookPhase,
   payload: Record<string, unknown>,
 ): Promise<void> {
-  await new FileObserverJournal(join(journalRoot, runId, 'observer.jsonl'), runId)
-    .appendEvent({
-      id: `${runId}:${name}`,
+  await withJsonlFileLock(join(journalRoot, runId, 'observer.jsonl'), async (path) => {
+    const journal = new FileObserverJournal(path, runId)
+    const id = `${runId}:${name}`
+    if ((await journal.read()).some((record) => record.event?.id === id)) return
+    await journal.appendEvent({
+      id,
       pursuitId: runId,
       runId,
       target,
@@ -619,7 +637,7 @@ async function appendRetainedObserverEvent(
       timestamp: Date.now(),
       payload,
     })
-    .catch(() => undefined)
+  }).catch(() => undefined)
 }
 
 function isInteractiveAdmission(

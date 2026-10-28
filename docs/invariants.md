@@ -87,3 +87,29 @@ Scenario coverage lives in `tests/kernel/graph.test.ts` (`run_graph`),
 
 Scenario coverage lives in `tests/kernel/graph-routes.test.ts` and the five flow examples in
 `tests/examples/graph-corpus.test.ts`.
+
+# Retained interactive delegation
+
+`claimRetainedInteractiveControl` normally acquires its own provider lease. With a Runtime
+`journalRoot`, an attached terminal may explicitly `offer` its verified provider claim and a
+second local process may explicitly `accept` that delegation. Acceptance reuses the exact
+claim and holder identity; it performs no provider generation change, so the attached terminal
+keeps input and resize authority. Providers still validate every command and remain authoritative.
+
+Delegation grants full session control, including attach, input, resize, prompts and stop. It is
+only for mutually trusted processes running as the same OS principal. Runtime keeps the bounded
+claim in private state beside the journal root, outside observer exports. Reading an observer
+journal grants no authority. Acceptance requires the exact reference, an unexpired claim, and a
+positively live offering process. Detach, close and confirmed stop revoke the matching grant;
+newer provider generations fence stale cleanup. Storage is preflighted before acquisition. If
+publication later fails, the error identifies successful acquisition: correct storage and
+reacquire with the same holder ID before sending any command. Reacquisition may advance the
+generation; it cannot replay an ambiguous prompt or stop whose digest used the earlier claim. Process death makes a leftover grant unusable.
+
+Accepted and replayed prompt acknowledgements append one observer turn per operation ID under
+a cross-process file lock. A fresh process retry repairs delivery interrupted before journaling.
+The observer stores operation IDs, never prompts or control claims.
+
+`tests/integration/retained-interactive-delegation.test.ts` proves these boundaries with separate
+processes, HTTP and durable journals. Its authority server is synthetic; provider compatibility
+requires the attached-terminal live proof in the consuming application.

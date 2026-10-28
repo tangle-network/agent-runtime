@@ -10263,6 +10263,13 @@ Last known provider generation. Zero discovers the current generation safely.
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
+##### delegation?
+
+> `readonly` `optional` **delegation?**: `"offer"` \| `"accept"`
+
+Explicit full-control delegation within private local Runtime state. The accepted claim
+retains the real holder identity and grants attach/input/resize, prompt and stop authority.
+
 ***
 
 ### RetainedInteractiveStartMaterial
