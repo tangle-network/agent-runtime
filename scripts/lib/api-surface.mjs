@@ -408,16 +408,12 @@ export const versionBumpLevel = (baseVersion, headVersion) => {
 
 /**
  * The level a surface change must move, read off the consumer's compatibility
- * boundary rather than off semver's headline rule.
+ * boundary rather than off semver's headline rule (docs/release-versioning.md).
  *
- * `^1.2.3` admits every 1.x, so the boundary sits at MAJOR: a break has to move
- * major, and an addition has to move minor to be reachable through a `~1.2`
- * style pin. `^0.2.3` — and the fleet's explicit `>=0.2.3 <0.3.0` window —
- * admits only 0.2.x, so the boundary moves one position right. A break has to
- * move MINOR, because that is what lands outside every existing consumer
- * window, and an addition needs only PATCH, because that is already reachable
- * inside one. Demanding a minor for every added export on a 0.x package would
- * push every consumer range forward for a change that breaks nobody.
+ * Every consumer pins with a caret range, never `~`, so `^1.2.3` admits every
+ * 1.x: a break has to move MAJOR and an addition is reachable at PATCH. Below
+ * 1.0 the boundary moves one position right: a break has to move MINOR and an
+ * addition needs only PATCH.
  */
 export const requiredBumpLevel = (severity, baseVersion) => {
   if (severity === 'none') return 'none'
@@ -426,7 +422,7 @@ export const requiredBumpLevel = (severity, baseVersion) => {
   // level rather than guess downwards.
   const stable = base === null || base.major >= 1
   if (severity === 'breaking') return stable ? 'major' : 'minor'
-  return stable ? 'minor' : 'patch'
+  return 'patch'
 }
 
 /** Path of a package's surface record, relative to the repository root. */
