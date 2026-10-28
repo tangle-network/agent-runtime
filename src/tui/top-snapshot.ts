@@ -3,9 +3,9 @@
  * @experimental
  */
 
-import { isRecord } from '@tangle-network/agent-core'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { isRecord } from '@tangle-network/agent-core'
 import { FileObserverJournal } from '../durable/observer-journal'
 import {
   type PursuitProjection,
@@ -22,7 +22,7 @@ import {
   supervisorRunsRoot,
 } from '../runtime/supervise/run-layout'
 import type { Budget, Spend, SpendChannel } from '../runtime/supervise/types'
-import { readRecordedEvents, type RecordedEvents } from './top-transcript'
+import { type RecordedEvents, readRecordedEvents } from './top-transcript'
 import { workflowJournal } from './workflow-journal'
 
 export interface TopSnapshot {
@@ -618,7 +618,7 @@ function buildSupervisorView(
   return {
     id: state.id,
     stateDir,
-    ...(terminal?.reason === undefined ? {} : { reason: terminal.reason }),
+    ...(terminal && 'reason' in terminal && terminal.reason !== undefined ? { reason: terminal.reason } : {}),
     ...workerEventTails.get(join(stateDir, ROOT_STREAM_FILE))?.activity,
     status: state.status,
     task: state.task,
@@ -772,9 +772,11 @@ export function parseSpend(value: unknown): SpendStats {
 
 function parseBudget(value: unknown): BudgetStats | undefined {
   if (!isRecord(value)) return undefined
-  const budget = selectFields(value,
+  const budget = selectFields(
+    value,
     ['maxIterations', 'maxTokens', 'maxUsd'],
-    (entry) => typeof entry === 'number') as BudgetStats
+    (entry) => typeof entry === 'number',
+  ) as BudgetStats
   return Object.keys(budget).length ? budget : undefined
 }
 
@@ -866,9 +868,11 @@ function readSupervisorState(dir: string): SourceRead<SupervisorState | undefine
 }
 
 function isSupervisorState(value: unknown): value is SupervisorState {
-  return isRecord(value) &&
+  return (
+    isRecord(value) &&
     ['id', 'status', 'task', 'workspaceDir'].every((key) => typeof value[key] === 'string') &&
     typeof value.budget === 'number'
+  )
 }
 
 function isSpawnEvent<T>(value: T): value is T & TopJournalEvent {
@@ -879,7 +883,6 @@ function isSpawnEvent<T>(value: T): value is T & TopJournalEvent {
     ['spawned', 'settled', 'cancelled', 'metered', 'progress'].includes(value.kind)
   )
 }
-
 
 function isDirectory(path: string): boolean {
   try {

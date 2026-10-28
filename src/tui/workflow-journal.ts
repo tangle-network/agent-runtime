@@ -1,7 +1,7 @@
 import { basename, join } from 'node:path'
 import { parseCommittedJsonLines } from '../durable/jsonl-file'
-import { readRecordedEvents, type RecordedEvents } from './top-transcript'
 import type { TopJournalEvent } from './top-snapshot'
+import { type RecordedEvents, readRecordedEvents } from './top-transcript'
 
 /** Native workflows have no Runtime accounting. Translate recorded lifecycle only. */
 export function workflowJournal(runDir: string, text: string) {

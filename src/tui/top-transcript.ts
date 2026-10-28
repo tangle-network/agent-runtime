@@ -1,6 +1,6 @@
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs'
-import { StringDecoder } from 'node:string_decoder'
 import { join } from 'node:path'
+import { StringDecoder } from 'node:string_decoder'
 import type { PursuitNodeProjection } from '../durable/observer-projection'
 import { FileResultBlobStore } from '../durable/spawn-journal/result-blob-store'
 import { recordValue } from '../record-value'
