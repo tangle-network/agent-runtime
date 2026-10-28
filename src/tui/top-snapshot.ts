@@ -176,7 +176,6 @@ export type TopJournalEvent = {
       readonly verdict?: unknown
       readonly spent?: unknown
       readonly infra?: boolean
-      readonly reason?: string
     }
   | {
       readonly kind: 'cancelled'
@@ -509,6 +508,12 @@ function retainedTranscript(event: object): { ref: string; harness: string } | u
     : undefined
 }
 
+/** The canonical spawn receipt owns the cause; the public journal view stays compatible. */
+function recordedReason(event?: object): string | undefined {
+  const reason = (event as { reason?: unknown } | undefined)?.reason
+  return typeof reason === 'string' ? reason : undefined
+}
+
 function buildSupervisorView(
   state: SupervisorState,
   stateDir: string,
@@ -529,6 +534,7 @@ function buildSupervisorView(
   const terminal = events
     .filter((event) => isRoot(event.id) && (event.kind === 'settled' || event.kind === 'cancelled'))
     .at(-1)
+  const rootReason = recordedReason(terminal)
 
   for (const event of events) {
     if (isRoot(event.id) || (event.kind === 'spawned' && !event.parent && event.label === 'root')) {
@@ -548,7 +554,8 @@ function buildSupervisorView(
       if (budget) worker.budget = budget
     } else if (event.kind === 'settled' || event.kind === 'cancelled') {
       if (event.at) worker.endedAt = event.at
-      if (event.reason !== undefined) worker.reason = event.reason
+      const reason = recordedReason(event)
+      if (reason !== undefined) worker.reason = reason
       if (event.kind === 'settled') {
         worker.status = event.status === 'down' ? 'down' : 'done'
         if (event.outRef) worker.outRef = event.outRef
@@ -612,9 +619,7 @@ function buildSupervisorView(
   return {
     id: state.id,
     stateDir,
-    ...(terminal && 'reason' in terminal && terminal.reason !== undefined
-      ? { reason: terminal.reason }
-      : {}),
+    ...(rootReason === undefined ? {} : { reason: rootReason }),
     ...workerEventTails.get(join(stateDir, ROOT_STREAM_FILE))?.activity,
     status: state.status,
     task: state.task,
