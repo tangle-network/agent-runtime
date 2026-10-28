@@ -1,3 +1,7 @@
+## 2.3.4
+
+`loadGraphFile` resolves a repeated `needs` entry once, before any host I/O such as an OAuth grant, and collapses a resolved connection that exactly duplicates one already on the profile (authored or resolved). Distinct aliases and capabilities, and conflicting explicit aliases, are kept for the profile schema and the Hub resolver to judge. Before, `needs: [github, github]` or a need equal to an authored connection compiled duplicate references that the shared Hub MCP resolver refused.
+
 ## 2.3.3
 
 Publishes the 2.3.2 changes: tag `v2.3.2` failed release qualification on an unformatted test before publication, so 2.3.2 never reached npm.
