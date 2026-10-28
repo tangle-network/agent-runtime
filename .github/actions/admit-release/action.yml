@@ -1,15 +1,19 @@
 name: Admit release
 description: Refuse a library release whose version breaks the release-versioning rules (docs/release-versioning.md)
 inputs:
+  tarballs:
+    description: Space-separated packed .tgz files to admit as they are; set this when the job publishes an exact archive
+    default: ''
   directories:
-    description: Space-separated package directories to pack and admit; versions npm already holds pass through
+    description: Space-separated package directories to pack and admit when no tarballs are given
     default: .
 runs:
   using: composite
   steps:
-    - name: Admit each packed release against its npm predecessor
+    - name: Admit each release archive against its npm predecessor
       shell: bash
       env:
+        TARBALLS: ${{ inputs.tarballs }}
         DIRECTORIES: ${{ inputs.directories }}
         ACTION_ROOT: ${{ github.action_path }}/../../..
       run: |
@@ -20,7 +24,11 @@ runs:
         cp -R "$ACTION_ROOT/scripts" "$work/scripts"
         oxc=$(node -p "const p = require('$ACTION_ROOT/package.json'); (p.devDependencies ?? {})['oxc-parser'] ?? p.dependencies['oxc-parser']")
         (cd "$work" && npm install -s --no-save --no-package-lock --no-audit --no-fund "oxc-parser@$oxc")
-        # pnpm replaces workspace: specifiers when it packs; npm would publish them verbatim.
-        packer=npm; [ -f pnpm-lock.yaml ] && packer=pnpm
-        for dir in $DIRECTORIES; do (cd "$dir" && "$packer" pack --pack-destination "$work/packs" >/dev/null); done
+        if [ -n "$TARBALLS" ]; then
+          for tarball in $TARBALLS; do cp "$tarball" "$work/packs/"; done
+        else
+          # pnpm replaces workspace: specifiers when it packs; npm would publish them verbatim.
+          packer=npm; [ -f pnpm-lock.yaml ] && packer=pnpm
+          for dir in $DIRECTORIES; do (cd "$dir" && "$packer" pack --pack-destination "$work/packs" >/dev/null); done
+        fi
         for tarball in "$work"/packs/*.tgz; do node "$work/scripts/check-version-bump.mjs" --archive "$tarball"; done
