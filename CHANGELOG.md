@@ -1,3 +1,7 @@
+## 2.3.11
+
+Allow explicitly delegated retained interactive control within private local Runtime state without replacing an attached terminal's provider lease, and serialize retry-safe observer turns across control processes.
+
 ## 2.3.10
 
 Classify packed declaration compatibility through the same emitter on both archive sides, preserving optional nested additions and equivalent private type representations while refusing incompatible patch releases.
