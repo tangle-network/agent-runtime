@@ -137,26 +137,30 @@ async function foldExecutorStream<C>(
   priorSpent: Spend | undefined,
 ): Promise<Spend> {
   live.events.start()
-  return await foldStream(
-    stream,
-    async (running, event) => {
-      live.spent = running
-      live.lastActivityAt = now()
-      await journal.appendEvent(journalRoot, {
-        kind: 'progress',
-        id: live.id,
-        spend: running,
-        ...(event.kind === 'progress' && event.progress.kind === 'awaiting-result'
-          ? { awaitingResult: { since: event.progress.since } }
-          : {}),
-        seq: nextProgressSeq(),
-        at: new Date(now()).toISOString(),
-      })
-    },
-    childAbort.signal,
-    priorSpent,
-    (event) => live.events.append(event, now()),
-  )
+  try {
+    return await foldStream(
+      stream,
+      async (running, event) => {
+        live.spent = running
+        live.lastActivityAt = now()
+        await journal.appendEvent(journalRoot, {
+          kind: 'progress',
+          id: live.id,
+          spend: running,
+          ...(event.kind === 'progress' && event.progress.kind === 'awaiting-result'
+            ? { awaitingResult: { since: event.progress.since } }
+            : {}),
+          seq: nextProgressSeq(),
+          at: new Date(now()).toISOString(),
+        })
+      },
+      childAbort.signal,
+      priorSpent,
+      (event) => live.events.append(event, now()),
+    )
+  } finally {
+    await live.events.settle()
+  }
 }
 
 /** Settle an execution that returned its terminal artifact and reconciled its reservation. */

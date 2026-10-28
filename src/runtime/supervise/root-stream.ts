@@ -35,17 +35,29 @@
 import { createHash } from 'node:crypto'
 import { closeSync, constants as fsConstants, fsyncSync, openSync, writeSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { isNoEntError, prepareJsonlAppend, readCommittedJsonLines } from '../../durable/jsonl-file'
 import { captureRunWriteContext, fenceRunWrite } from '../../durable/run-fence'
 import { errorMessage } from '../util'
 import { assertNoSymlinkDescendant } from './durable-file'
+import { safeWorkerFile } from './run-layout'
 import type { ExecutorProgressEvent, RootStreamReceipt } from './types'
 
 export type { RootStreamReceipt } from './types'
 
 /** The root stream: one JSONL line per progress event the root's executor observed. */
 export const ROOT_STREAM_FILE = 'root-stream.jsonl'
+
+/** Each other node's stream, in the same record shape, keyed by its node id. A name the filename
+ *  rules changed carries a digest of the id, so `a:b` and `a_b` never share a file. */
+export function nodeStreamFile(nodeId: string): string {
+  const safe = safeWorkerFile(nodeId)
+  const name =
+    safe === nodeId
+      ? safe
+      : `${safe}.${createHash('sha256').update(nodeId).digest('hex').slice(0, 12)}`
+  return `streams/${name}.jsonl`
+}
 
 /** One line of `root-stream.jsonl`. */
 export type RootStreamRecord = {
@@ -75,12 +87,19 @@ export interface RootStreamSink {
   close(): Promise<RootStreamReceipt | undefined>
 }
 
-/** Create the writer for `<runDir>/root-stream.jsonl`. Nothing touches disk until the first
- *  `beginAttempt`, so a run whose root never drives leaves no file and no receipt. */
-export function createRootStreamSink(runDir: string, now: () => number): RootStreamSink {
+/** Create the writer for `<runDir>/root-stream.jsonl`, or for another `file` in the run directory.
+ *  Nothing touches disk until the first `beginAttempt`, so a run whose root never drives leaves no
+ *  file and no receipt. The root numbers attempts per process; a node stream, whose writer closes
+ *  after every execution attempt, sets `continueAttempts` so a later attempt never reuses a number. */
+export function createRootStreamSink(
+  runDir: string,
+  now: () => number,
+  file = ROOT_STREAM_FILE,
+  options: { readonly continueAttempts?: boolean } = {},
+): RootStreamSink {
   const withClaim = captureRunWriteContext()
   const dir = resolve(runDir)
-  const path = resolve(dir, ROOT_STREAM_FILE)
+  const path = resolve(dir, file)
   let fd: number | undefined
   let attempt = 0
   let seq = 0
@@ -88,17 +107,21 @@ export function createRootStreamSink(runDir: string, now: () => number): RootStr
 
   const openOnce = async (): Promise<void> => {
     if (fd !== undefined) return
-    await mkdir(dir, { recursive: true })
+    await mkdir(dirname(path), { recursive: true })
     assertNoSymlinkDescendant(dir, path, 'root stream')
     // A resumed run continues the same file. Recovery scans the tail once, so a torn line from a
     // process that died mid-write is truncated rather than followed by a record it would corrupt.
     const needsSeparator = await prepareJsonlAppend(path)
     seq = 0
-    for await (const _record of readCommittedJsonLines<RootStreamRecord>(path, {
+    let priorAttempts = 0
+    for await (const record of readCommittedJsonLines<RootStreamRecord>(path, {
       allowMissing: true,
     })) {
       seq += 1
+      priorAttempts = Math.max(priorAttempts, record.attempt)
     }
+    // Text from different attempts never merges when their numbers stay distinct.
+    if (options.continueAttempts === true) attempt += priorAttempts
     fd = fenceRunWrite(() => {
       const writer = openSync(
         path,
@@ -176,7 +199,7 @@ export function createRootStreamSink(runDir: string, now: () => number): RootStr
           closeSync(writer)
           fd = undefined
         }
-        return readRootStreamReceipt(dir)
+        return readRootStreamReceipt(dir, file)
       })
     },
   }
@@ -201,8 +224,9 @@ function writeLine(fd: number, line: string): void {
  */
 export async function readRootStreamReceipt(
   runDir: string,
+  file = ROOT_STREAM_FILE,
 ): Promise<RootStreamReceipt | undefined> {
-  const path = resolve(runDir, ROOT_STREAM_FILE)
+  const path = resolve(runDir, file)
   const hash = createHash('sha256')
   let events = 0
   try {

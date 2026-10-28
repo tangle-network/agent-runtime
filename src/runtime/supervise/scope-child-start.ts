@@ -196,7 +196,11 @@ export function liveChildRecord<C>(
     live.teardownAttempts += 1
   })
   const live: LiveChild = {
-    events: new WorkerEvents(),
+    events: new WorkerEvents(
+      args.interactiveBindingDir === undefined
+        ? undefined
+        : { runDir: args.interactiveBindingDir, nodeId: id, now },
+    ),
     id,
     status: start.granted ? 'acquiring' : 'queued',
     runtime: executor.runtime,
