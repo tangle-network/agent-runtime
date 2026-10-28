@@ -10277,7 +10277,7 @@ A previously persisted intent used to replay the exact create operation.
 
 > `readonly` `optional` **journalRoot?**: `string`
 
-Directory whose `<runId>/observer.jsonl` (intent run id) receives admissions for agent-runtime-top.
+Directory whose `<sessionId>/observer.jsonl` receives admissions, turns and the end for agent-runtime-top.
 
 ***
 
@@ -10300,6 +10300,12 @@ Reconstruct one exact provider-owned native coding-agent process.
 ##### signal?
 
 > `readonly` `optional` **signal?**: `AbortSignal`
+
+##### journalRoot?
+
+> `readonly` `optional` **journalRoot?**: `string`
+
+The start's journal root; turns and the end sent through this handle append to the same journal.
 
 ***
 
@@ -10332,6 +10338,12 @@ Required when recovering from an intent before an environment existed.
 ##### signal?
 
 > `readonly` `optional` **signal?**: `AbortSignal`
+
+##### journalRoot?
+
+> `readonly` `optional` **journalRoot?**: `string`
+
+The start's journal root; the recovered process journals beside its original admissions.
 
 ***
 
@@ -11084,7 +11096,7 @@ A previously persisted intent used to replay the exact create operation.
 
 > `readonly` `optional` **journalRoot?**: `string`
 
-Directory whose `<runId>/observer.jsonl` (intent run id) receives admissions for agent-runtime-top.
+Directory whose `<sessionId>/observer.jsonl` receives admissions, turns and the end for agent-runtime-top.
 
 ***
 

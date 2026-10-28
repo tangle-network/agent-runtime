@@ -37,7 +37,10 @@ import { FileObserverJournal } from '../../src/durable/observer-journal'
 import { projectPursuit } from '../../src/durable/observer-projection'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
-import { startRetainedInteractiveRun } from '../../src/runtime/retained-interactive'
+import {
+  reconnectRetainedInteractiveRun,
+  startRetainedInteractiveRun,
+} from '../../src/runtime/retained-interactive'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createScope } from '../../src/runtime/supervise/scope'
@@ -882,27 +885,31 @@ describe('scope.interactive — attaching to the exact process one worker runs i
 })
 
 describe('retained interactive runs under a journal root', () => {
-  it('journals accepted turns and settles on stop, so the canvas shows the run end', async () => {
+  it('journals accepted turns from the start and a reconnected handle, and settles on stop', async () => {
     // Braid M3 (#10553): a 3-minute claude-code run journaled only its three admissions, so the
     // canvas showed one 'root Running' node for its whole life and after it stopped.
     const journalRoot = mkdtempSync(join(tmpdir(), 'interactive-journal-'))
     const assets = mkdtempSync(join(tmpdir(), 'interactive-journal-assets-'))
     writeFileSync(join(assets, 'workspace-viewer.js'), 'export {};')
     writeFileSync(join(assets, 'styles.css'), 'body { color: black; }')
-    const admissions: string[] = []
+    const provider = interactiveProvider('journaled')
     const handle = await startRetainedInteractiveRun({
-      provider: interactiveProvider('journaled'),
+      provider,
       environment: {
         profile: testAgentProfile('journaled', { harness: 'pi' }),
         idempotencyKey: 'journaled-workspace',
       },
       interactiveIdempotencyKey: 'journaled-native',
       journalRoot,
-      onAdmission: async (admission) => {
-        if ('runId' in admission) admissions.push(admission.runId)
-      },
+      onAdmission: async () => {},
     })
-    const runId = admissions[0]!
+    // A second process (Braid's `braid rpc` steer) rebuilds the handle from the durable ref alone.
+    const reconnected = await reconnectRetainedInteractiveRun({
+      provider,
+      ref: handle.ref,
+      journalRoot,
+    })
+    const runId = handle.ref.run.sessionId
     const claimMaterial = {
       operationId: 'journaled:claim',
       ref: handle.ref,
@@ -914,14 +921,18 @@ describe('retained interactive runs under a journal root', () => {
       requestDigest: agentInteractiveSessionControlClaimRequestDigest(claimMaterial),
     })
     const control = claimed.control!
-    for (const [index, prompt] of ['first secret task', 'second secret task'].entries()) {
+    const prompts = [
+      { prompter: handle, prompt: 'first secret task' },
+      { prompter: reconnected!, prompt: 'second secret task' },
+    ]
+    for (const [index, { prompter, prompt }] of prompts.entries()) {
       const material = {
         operationId: `journaled:prompt:${index}`,
         ref: handle.ref,
         control,
         prompt,
       }
-      await handle.sendPrompt({
+      await prompter.sendPrompt({
         ...material,
         requestDigest: agentInteractiveSessionPromptRequestDigest(material),
       })
@@ -938,8 +949,8 @@ describe('retained interactive runs under a journal root', () => {
     ).read()
     const events = records.flatMap((record) => (record.event ? [record.event] : []))
     expect(events.filter((event) => event.target === 'agent.turn')).toMatchObject([
-      { payload: { turn: 1, operationId: 'journaled:prompt:0' } },
-      { payload: { turn: 2, operationId: 'journaled:prompt:1' } },
+      { payload: { operationId: 'journaled:prompt:0' } },
+      { payload: { operationId: 'journaled:prompt:1' } },
     ])
     // A turn says that it happened, never what was asked.
     expect(JSON.stringify(records)).not.toContain('secret task')

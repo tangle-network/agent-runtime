@@ -42,7 +42,7 @@ export interface StartRetainedInteractiveRunOptions extends RetainedInteractiveS
   readonly intent?: RetainedInteractiveIntentAdmission
   readonly onAdmission: RetainedInteractiveAdmissionHook
   readonly signal?: AbortSignal
-  /** Directory whose `<runId>/observer.jsonl` (intent run id) receives admissions for agent-runtime-top. */
+  /** Directory whose `<sessionId>/observer.jsonl` receives admissions, turns and the end for agent-runtime-top. */
   readonly journalRoot?: string
 }
 
@@ -56,6 +56,8 @@ export interface ReconnectRetainedInteractiveRunOptions {
   readonly provider: AgentEnvironmentProvider
   readonly ref: AgentInteractiveSessionRef
   readonly signal?: AbortSignal
+  /** The start's journal root; turns and the end sent through this handle append to the same journal. */
+  readonly journalRoot?: string
 }
 
 /** Recover a start after a pre-create crash or a lost provider response. @stable */
@@ -66,6 +68,8 @@ export interface RecoverRetainedInteractiveRunOptions {
   readonly replay?: RetainedInteractiveStartMaterial
   readonly onAdmission: RetainedInteractiveAdmissionHook
   readonly signal?: AbortSignal
+  /** The start's journal root; the recovered process journals beside its original admissions. */
+  readonly journalRoot?: string
 }
 
 /** Exact interactive process controls plus measured environment capabilities. @stable */
