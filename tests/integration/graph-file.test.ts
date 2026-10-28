@@ -47,7 +47,9 @@ function processStages(cwd: string, script: string): MakeWorkerAgent {
           timeoutMs: 10000,
           signal: executionSignal,
         }).then((child) => {
-          const out = { content: child.stdout.trim() }
+          // A stage that prints a JSON object hands it on as its output (a maps source's items).
+          const text = child.stdout.trim()
+          const out = text.startsWith('{') ? JSON.parse(text) : { content: text }
           artifact = {
             out,
             outRef: contentAddress(out),
@@ -503,6 +505,68 @@ it('judges a check that names a non-terminal node by its settled output, and kee
       expect(passed.result.out).toEqual({ review: { content: 'delivered:review' } })
     // Still an exact, independent check: a wrong value for the non-terminal node fails it.
     const failed = await run('delivered:something-else', 'nonterminal-fail')
+    expect(failed.result.kind).toBe('no-winner')
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+}, 60_000)
+
+it('judges a check that names a maps join by its settled output', async () => {
+  // Review of #2222: the join's workers are bound by the overlay ledger, not by route events, so
+  // a check naming the join read nothing and failed whatever the join delivered.
+  const directory = await mkdtemp(join(tmpdir(), 'graph-file-maps-join-check-'))
+  const profile = {
+    harness: 'cli-base',
+    model: { provider: 'offline', default: 'offline/local-process' },
+  }
+  const directive = { surface: 'delegates/worker-brief', version: 1 }
+  const processScript =
+    "process.stdout.write(process.argv[1]==='source'?JSON.stringify({items:['a','b']}):'delivered:'+process.argv[1]);"
+  const run = async (joinExpected: string, runId: string) => {
+    const loaded = await loadGraphFile(join(directory, `${runId}.graph.json`), {
+      source: JSON.stringify({
+        graph: 'maps-join-check',
+        describe: 'Map items, join them, review the join.',
+        nodes: ['source', 'item', 'merge', 'review'].map((id) => ({ id, profile })),
+        entry: [{ node: 'source', task: { event: '${trigger.event}' } }],
+        edges: [
+          {
+            kind: 'maps',
+            from: 'source',
+            pointer: '/items',
+            to: 'item',
+            join: 'merge',
+            directive,
+            maxItems: 2,
+            concurrency: 2,
+            onItemFailure: 'settled-subset',
+          },
+          { kind: 'routes', from: 'merge', to: 'review', directive },
+        ],
+        budget: { maxIterations: 12, maxTokens: 10000 },
+        check: {
+          describe: 'the join and the review both delivered',
+          all: [
+            { node: 'merge', pointer: '/content', equals: joinExpected },
+            { node: 'review', pointer: '/content', equals: 'delivered:review' },
+          ],
+        },
+      }),
+    })
+    return runGraph(graphFromStored(loaded.graph, { trigger: { event: 'opened' } }), {
+      makeLeafAgent: processStages(directory, processScript),
+      runDir: join(directory, runId),
+      runId,
+      perWorker: { maxIterations: 1, maxTokens: 1000 },
+      driverRetry: { enabled: false },
+    })
+  }
+  try {
+    const passed = await run('delivered:merge', 'maps-join-pass')
+    expect(passed.result.kind, JSON.stringify(passed.result)).toBe('winner')
+    if (passed.result.kind === 'winner')
+      expect(passed.result.out).toEqual({ review: { content: 'delivered:review' } })
+    const failed = await run('delivered:something-else', 'maps-join-fail')
     expect(failed.result.kind).toBe('no-winner')
   } finally {
     await rm(directory, { recursive: true, force: true })

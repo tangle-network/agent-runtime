@@ -78,7 +78,6 @@ import { graphExecutionOptions } from './graph-backend'
 import {
   createFlowRun,
   flowRootProfile,
-  flowRouteDeliverable,
   GraphRouteError,
   journaledGateDecider,
   routeFlowOf,
@@ -819,8 +818,6 @@ export function superviseAgentGraph(
     )
   }
   const validated = assertRunGraphAuthoring(graph, opts, brain)
-  // A flow graph: Runtime schedules its nodes, and its root manager is Runtime's own.
-  const flow = validated.flow === undefined ? undefined : createFlowRun()
   const context =
     opts.runContext ??
     (opts.runDir === undefined
@@ -848,6 +845,8 @@ export function superviseAgentGraph(
     ...(guidance ? { guidance } : {}),
     ...(opts.authorizeSpawn ? { authorizeSpawn: opts.authorizeSpawn } : {}),
   })
+  // A flow graph: Runtime schedules its nodes, and its root manager is Runtime's own.
+  const flow = validated.flow === undefined ? undefined : createFlowRun(overlay.nodeOfWorker)
   // Always present: the kernel refuses steer/answer whenever spawn authorization is on (the
   // graph's pinning IS spawn authorization), so a graph with no caller filter passes instructions
   // through unchanged rather than losing its steer channel. Only a caller filter can strip.
@@ -889,10 +888,7 @@ export function superviseAgentGraph(
       rootDriverFromBackend: flow !== undefined,
       // Graph-owned values come after the spread: the graph, not the caller, decides these.
       budget: graph.budget,
-      deliverable:
-        flow !== undefined && graph.deliverable.checkRef === 'route'
-          ? flowRouteDeliverable(graph.deliverable, flow)
-          : graph.deliverable,
+      deliverable: flow?.routeCheck(graph.deliverable) ?? graph.deliverable,
       authorizeSpawn: overlay.authorizeSpawn,
       resolveSpawnProfile: overlay.resolveSpawnProfile,
       inheritSpawnRights: false,
