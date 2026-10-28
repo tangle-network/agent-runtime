@@ -1,3 +1,9 @@
+## 2.3.0
+
+`startRetainedInteractiveRun({ journalRoot })` now journals the run's lifecycle beside its admissions in `<journalRoot>/<runId>/observer.jsonl`. Each accepted `sendPrompt` becomes an `agent.turn` record carrying its number and operation id, never the prompt. The first `exited` status read, or an accepted `stop`, writes one terminal `agent.run` record: done for a clean exit or a stop, failed for a lost session or a nonzero exit code. `agent-runtime-top --web` then shows the run settle instead of running forever.
+
+A `supervise({ runDir })` run now keeps every worker's progress stream (text, reasoning, tool calls and results, redacted), not only the root's: `<runDir>/streams/<node>.jsonl`, in the `root-stream.jsonl` record shape. A worker that streams nothing writes no file. `agent-runtime-top --web` reads it as that agent's transcript, so a bridge or provider worker's conversation is shown in place of "Native conversation was not captured".
+
 ## 2.2.1
 
 `agent-runtime-top --web`: closing the viewer now ends the snapshot stream with `event: end`, so a client can stop instead of reconnecting to a closed server. For a run under a runs root (`<root>/<runId>/observer.jsonl`), an agent's transcript now reads that run's own blobs and projection, so it shows the input the agent was given. When an agent's native conversation was not captured, the transcript also shows the result it delivered (`provenance: 'recorded-result'`).

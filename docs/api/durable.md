@@ -6028,7 +6028,7 @@ append is ignored because it was never acknowledged as committed.
 
 ### readRootStreamReceipt()
 
-> **readRootStreamReceipt**(`runDir`): `Promise`\<[`RootStreamReceipt`](runtime.md#rootstreamreceipt) \| `undefined`\>
+> **readRootStreamReceipt**(`runDir`, `file?`): `Promise`\<[`RootStreamReceipt`](runtime.md#rootstreamreceipt) \| `undefined`\>
 
 The receipt for the root stream a run directory holds, recomputed from the file's bytes, or
 `undefined` when the directory holds none. This is what a run that never settled — a root that
@@ -6040,6 +6040,10 @@ that did.
 ##### runDir
 
 `string`
+
+##### file?
+
+`string` = `ROOT_STREAM_FILE`
 
 #### Returns
 

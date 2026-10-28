@@ -19636,8 +19636,9 @@ a direct `createSupervisor()` caller may set it for a caller-owned executor regi
 
 > `readonly` `optional` **interactiveBindingDir?**: `string`
 
-Durable supervisor-run directory that receives exact worker interactive bindings.
-`supervise({ runDir })` wires this automatically. Direct kernel callers omit it.
+Durable supervisor-run directory that receives exact worker interactive bindings and each
+worker's redacted progress stream (`streams/<node>.jsonl`, the `root-stream.jsonl` record
+shape). `supervise({ runDir })` wires this automatically. Direct kernel callers omit it.
 
 ***
 
