@@ -3,7 +3,6 @@ name: Adopt stack
 # Adopts each new @tangle-network release through agent-eval's reusable
 # workflow, which owns the pinning, peer-range widening and PR rules.
 on:
-  schedule: [{ cron: '17 6 * * *' }]
   workflow_dispatch:
 
 permissions:
