@@ -30,6 +30,7 @@ import {
   runtimeOwnedExecutorMaterialization,
 } from '../../src/runtime/supervise/materialization'
 import { createExecutor } from '../../src/runtime/supervise/runtime'
+import { pinCommonJs } from '../helpers/in-place-process-fixture'
 
 const authorProfile: AgentProfile = {
   name: 'in-place-author',
@@ -93,6 +94,7 @@ describe('createInPlaceCliExecutor', () => {
       const workspacePath = scaffoldWorkspace()
       const bin = join(workspacePath, 'bin')
       mkdirSync(bin)
+      pinCommonJs(bin)
       // Only the external process is substituted: the public executor owns planning, file
       // application, launch, capture and cleanup. The child records the bytes it actually read.
       const executable = join(bin, harness === 'codex' ? 'codex' : 'claude')
@@ -156,6 +158,7 @@ console.log('done');
     const workspacePath = scaffoldWorkspace()
     const bin = join(workspacePath, 'bin')
     mkdirSync(bin)
+    pinCommonJs(bin)
     // The refusal acct gives when no Codex seat has room: the harness ends before any model runs.
     writeFileSync(
       join(bin, 'codex'),
@@ -185,6 +188,7 @@ process.exit(1);
     const workspacePath = scaffoldWorkspace()
     const bin = join(workspacePath, 'bin')
     mkdirSync(bin)
+    pinCommonJs(bin)
     writeFileSync(
       join(bin, 'opencode'),
       `#!${process.execPath}

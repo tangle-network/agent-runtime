@@ -237,9 +237,7 @@ function makeFixture(mode: ProcessMode) {
   const directory = mkdtempSync(join(tmpdir(), 'in-place-process-join-'))
   const bin = join(directory, 'bin')
   mkdirSync(bin)
-  // The extensionless CommonJS stub takes its module type from the nearest package.json. An
-  // ancestor declaring "type": "module" made it fail at require() on gate hosts, so declare it here.
-  writeFileSync(join(bin, 'package.json'), '{"type":"commonjs"}\n')
+  pinCommonJs(bin)
   writeFileSync(join(bin, 'claude'), `#!${process.execPath}\n${executable}`, { mode: 0o755 })
   writeFileSync(join(directory, 'caller-owned.txt'), 'preserve caller bytes')
   const profile: AgentProfile = {
@@ -332,4 +330,13 @@ function makeFixture(mode: ProcessMode) {
     },
   }
   return fixture
+}
+
+/**
+ * An extensionless Node stub takes its module type from the nearest package.json. A stray
+ * ancestor declaring "type": "module" (beelink2 had one at /tmp/package.json, 2026-10-27) makes
+ * every require() stub fail, so a directory holding stubs declares CommonJS itself.
+ */
+export function pinCommonJs(directory: string): void {
+  writeFileSync(join(directory, 'package.json'), '{"type":"commonjs"}\n')
 }

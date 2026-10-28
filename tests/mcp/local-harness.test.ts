@@ -24,6 +24,7 @@ import {
   harnessSupportsReasoningEffort,
 } from '../../src/mcp/local-harness-invocation'
 import { runLocalHarness } from '../../src/mcp/local-harness-process'
+import { pinCommonJs } from '../helpers/in-place-process-fixture'
 
 function makeFakeChild(opts: {
   stdoutChunks?: string[]
@@ -259,6 +260,7 @@ describe('runLocalHarness', () => {
     async ({ bom, blank }) => {
       const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-stdin-'))
       const command = join(cwd, 'codex')
+      pinCommonJs(cwd)
       writeFileSync(
         command,
         [
@@ -312,6 +314,7 @@ describe('runLocalHarness', () => {
     async (exitCode) => {
       const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-stdin-close-'))
       const command = join(cwd, 'codex')
+      pinCommonJs(cwd)
       const pidFile = join(cwd, 'pid')
       writeFileSync(
         command,
@@ -355,6 +358,7 @@ describe('runLocalHarness', () => {
   it('preserves cancellation and stderr while real Codex input remains pending', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-stdin-abort-'))
     const command = join(cwd, 'codex')
+    pinCommonJs(cwd)
     const pidFile = join(cwd, 'pid')
     writeFileSync(
       command,
@@ -396,6 +400,7 @@ describe('runLocalHarness', () => {
     async (argument) => {
       const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-custom-'))
       const command = join(cwd, 'codex')
+      pinCommonJs(cwd)
       writeFileSync(
         command,
         '#!/usr/bin/env node\nlet bytes=0;process.stdin.on("data",chunk=>bytes+=chunk.length);process.stdin.on("end",()=>process.stdout.write(JSON.stringify({args:process.argv.slice(2),bytes})))',

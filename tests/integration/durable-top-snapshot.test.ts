@@ -182,7 +182,13 @@ it.each([
       expect(observed?.runId).toBe(runId)
       expect(observed?.identity).toBeDefined()
       const recorded = await transcriptHistory(worker!, runDir, observed)
-      expect(recorded).toHaveLength(2)
+      // A delivered worker without a native conversation still shows what it delivered.
+      expect(recorded.map((row) => row.event.provenance)).toEqual(
+        fail
+          ? ['delegated-input', 'capture-unavailable']
+          : ['delegated-input', 'capture-unavailable', 'recorded-result'],
+      )
+      if (!fail) expect(recorded[2]?.event.text).toContain('delivered')
       expect(recorded[0]?.event).toMatchObject({ kind: 'notice', provenance: 'delegated-input' })
       expect(recorded[0]?.event.source).toContain('parent actual-runtime-run')
       expect(recorded[0]?.event.source).toContain('profile sha256:')

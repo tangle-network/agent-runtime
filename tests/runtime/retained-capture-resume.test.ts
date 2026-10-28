@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { contentAddress } from '../../src/durable/content-address'
 import {
   captureProviderWorkspaceSnapshot,
@@ -11,10 +11,17 @@ import {
 } from '../../src/runtime/provider-workspace-retention'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import type { ExecutorNodeContext, SpawnEvent } from '../../src/runtime/supervise/types'
+import { compileFixture } from '../helpers/compile-fixture'
 import { completeCapture, fileWorkspaceArtifacts } from '../helpers/complete-workspace-capture'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 
-const script = new URL('../helpers/retained-capture-resume-child.ts', import.meta.url).pathname
+let phaseScript: Awaited<ReturnType<typeof compileFixture>>
+beforeAll(async () => {
+  phaseScript = await compileFixture('tests/helpers/retained-capture-resume-child.ts')
+})
+afterAll(async () => {
+  await phaseScript?.dispose()
+})
 const runId = 'retained-capture-restart'
 const directories: string[] = []
 afterEach(async () => {
@@ -31,7 +38,7 @@ async function runPhase(directory: string, phase: string) {
     stdout: string
     stderr: string
   }>((resolve, reject) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', script, directory, phase], {
+    const child = spawn(process.execPath, [phaseScript.path, directory, phase], {
       cwd: process.cwd(),
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 30_000,
