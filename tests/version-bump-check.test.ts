@@ -193,7 +193,9 @@ describe('consumer-visible change requires a version bump', () => {
     await commit(root, 'move the peer range and bump a minor')
 
     await expect(check(root, base)).rejects.toMatchObject({
-      stderr: expect.stringContaining('a minor bump, but its change needs only a patch: publish 1.0.1'),
+      stderr: expect.stringContaining(
+        'a minor bump, but its change needs only a patch: publish 1.0.1',
+      ),
     })
   })
 
