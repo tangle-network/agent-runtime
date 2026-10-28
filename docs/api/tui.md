@@ -903,7 +903,7 @@ Defaults to the installed agent-record browser asset export.
 
 ### TopJournalEvent
 
-> **TopJournalEvent** = `object` & (\{ `kind`: `"spawned"`; `parent?`: `string`; `label?`: `string`; `budget?`: `unknown`; `runtime?`: `string`; \} \| \{ `kind`: `"settled"`; `status?`: `string`; `outRef?`: `string`; `verdict?`: `unknown`; `spent?`: `unknown`; `infra?`: `boolean`; `reason?`: `string`; \} \| \{ `kind`: `"cancelled"`; `spent?`: `unknown`; `reason?`: `string`; \} \| \{ `kind`: `"metered"`; `spend?`: `unknown`; `accountingOnly?`: `boolean`; \} \| \{ `kind`: `"progress"`; `spend?`: `unknown`; \})
+> **TopJournalEvent** = `object` & (\{ `kind`: `"spawned"`; `parent?`: `string`; `label?`: `string`; `budget?`: `unknown`; `runtime?`: `string`; \} \| \{ `kind`: `"settled"`; `status?`: `string`; `outRef?`: `string`; `verdict?`: `unknown`; `spent?`: `unknown`; `infra?`: `boolean`; \} \| \{ `kind`: `"cancelled"`; `spent?`: `unknown`; `reason?`: `string`; \} \| \{ `kind`: `"metered"`; `spend?`: `unknown`; `accountingOnly?`: `boolean`; \} \| \{ `kind`: `"progress"`; `spend?`: `unknown`; \})
 
 **`Experimental`**
 

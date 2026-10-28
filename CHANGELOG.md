@@ -1,6 +1,10 @@
 ## 2.3.5
 
+Keep a failed retained invocation's original admissions while its workspace evidence is unverified. Capture retries no longer allocate successor environments; successful accepted turns retain their existing evidence-debt continuation.
+
 Keep complete EOF JSON records visible in live snapshots and activity cadence, without double-counting them when a writer later appends the newline.
+
+Use worker and supervisor reason fields for exact recorded failures while preserving the existing public journal event contract.
 
 Live topology snapshots expose actual event activity time and full-stream median cadence for workers and supervisors, preserve exact recorded child failure reasons, and keep transport heartbeats out of quiet detection.
 
