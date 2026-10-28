@@ -122,7 +122,10 @@ jobs:
       - name: Lint (biome)
         run: pnpm run lint
       - name: Test
-        run: pnpm run test
+        # Half the workers: real-process suites slow 10-30x on the shared Beelink runners and time
+        # out when the suite contends with itself. Measured at v2.2.0 on beelink2: 5 of these
+        # failures at the default worker count, 0 at 50%, for 929 s -> 1948 s of verify time.
+        run: pnpm exec vitest run --maxWorkers=50%
       - name: Build
         run: pnpm run build
       - name: Typecheck (src + examples; examples resolve against built dist)
