@@ -1,3 +1,3 @@
 type: patch
 ---
-Release qualification retains complete recapture proof and retires obsolete expectations that required a replacement allocation while a failed turn still owed source evidence.
+Release qualification retires the obsolete fake-provider pending-turn suite, whose source-replacement and metadata-free environment expectations contradict retained-source preservation and ownership requirements.

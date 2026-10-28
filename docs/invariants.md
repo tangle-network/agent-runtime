@@ -6,14 +6,14 @@
 - Before reusing a retained environment, the owner tries the existing evidence recovery path.
   If a failed attempt still lacks a complete capture, the owner records pending capture through
   the existing `execution-evidence` journal with the original execution, environment, control,
-  node, and profile identifiers. The next invocation uses another environment. The source stays
-  preserved until its exact capture receipt authorizes cleanup.
+  node, and profile identifiers. The original invocation and admissions remain pending; no
+  successor environment is allocated until that capture is recovered. The source stays preserved
+  until its exact capture receipt authorizes cleanup.
 - An accepted attempt still requires complete capture before its workspace may change.
   Pending capture keeps the pursuit re-enterable and cannot seal a winner. Partial or foreign
   captures never authorize reuse or deletion. Explicit cancellation retains its settlement rules.
 
-Scenario coverage lives in `tests/kernel/supervise-retained-owner-pending.test.ts` and
-`tests/runtime/retained-capture-resume.test.ts`.
+Process and filesystem capture coverage lives in `tests/runtime/retained-capture-resume.test.ts`.
 
 # Graph subtasks
 
