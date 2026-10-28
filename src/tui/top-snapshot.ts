@@ -18,6 +18,7 @@ import {
 import { FileSpawnJournal } from '../durable/spawn-journal/journal-store'
 import { spawnJournalRecordEvents } from '../durable/spawn-journal/record-events'
 import { discoverDurableSupervisionRun } from '../durable/supervision-discovery'
+import { nodeStreamFile } from '../runtime/supervise/root-stream'
 import {
   legacySupervisorRunsRoot,
   safeWorkerFile,
@@ -615,6 +616,11 @@ function buildSupervisorView(
         workerEventTails.get(worker.id)
       worker.liveTail = tail?.lines ?? []
       if (tail?.file) worker.eventFile = tail.file
+      else {
+        // A supervise({ runDir }) node keeps its own progress stream in the run directory.
+        const stream = join(stateDir, nodeStreamFile(worker.id))
+        if (existsSync(stream)) worker.eventFile = stream
+      }
       return finalizeWorker(worker, now)
     })
     .sort((a, b) => compareWorker(a, b))

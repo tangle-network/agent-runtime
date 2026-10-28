@@ -197,8 +197,9 @@ export interface SupervisorOpts {
     readonly backend: string
     readonly reason: 'no-env-channel' | 'no-worker-process' | 'caller-omitted'
   }
-  /** Durable supervisor-run directory that receives exact worker interactive bindings.
-   * `supervise({ runDir })` wires this automatically. Direct kernel callers omit it. */
+  /** Durable supervisor-run directory that receives exact worker interactive bindings and each
+   * worker's redacted progress stream (`streams/<node>.jsonl`, the `root-stream.jsonl` record
+   * shape). `supervise({ runDir })` wires this automatically. Direct kernel callers omit it. */
   readonly interactiveBindingDir?: string
 }
 

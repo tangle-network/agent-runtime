@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { defaultRedactor } from '../../redact'
+import { createRootStreamSink, nodeStreamFile, type RootStreamSink } from './root-stream'
 import type { ExecutorProgressEvent } from './types'
 
 /** Live observation is bounded and process-local. A reconnect explicitly reports expired history. */
@@ -29,20 +30,41 @@ export type WorkerEventPage =
 const MAX_EVENTS = 256
 const MAX_BYTES = 262_144
 
+/** Where a worker's redacted output is also kept: its node stream in the durable run directory. */
+export interface WorkerEventStream {
+  readonly runDir: string
+  readonly nodeId: string
+  readonly now: () => number
+}
+
 /** One worker's already-redacted live output. Accounting stays on Scope's existing usage channel. */
 export class WorkerEvents {
   readonly #epoch = randomUUID()
   readonly #entries: { entry: WorkerEventEntry; bytes: number }[] = []
   #next = 0
   #capturing = false
+  // The bounded live view above is process-local; the node stream is the durable record, opened
+  // by an attempt's first event so a worker that streams nothing leaves no file.
+  readonly #stream: WorkerEventStream | undefined
+  #sink: RootStreamSink | undefined
+  #writes: Promise<void> = Promise.resolve()
+  #attemptOpen = false
+  #failure: unknown
+
+  constructor(stream?: WorkerEventStream) {
+    this.#stream = stream
+  }
 
   start(): void {
     this.#capturing = true
+    this.#attemptOpen = false
   }
   #bytes = 0
 
   append(event: ExecutorProgressEvent, at: number): void {
-    let entry: WorkerEventEntry = { sequence: this.#next++, at, event: defaultRedactor(event) }
+    const redacted = defaultRedactor(event)
+    this.#record(redacted as ExecutorProgressEvent)
+    let entry: WorkerEventEntry = { sequence: this.#next++, at, event: redacted }
     let bytes: number
     try {
       bytes = Buffer.byteLength(JSON.stringify(entry))
@@ -59,6 +81,39 @@ export class WorkerEvents {
     while (this.#entries.length > MAX_EVENTS || this.#bytes > MAX_BYTES) {
       this.#bytes -= this.#entries.shift()!.bytes
     }
+  }
+
+  #record(event: ExecutorProgressEvent): void {
+    const stream = this.#stream
+    if (stream === undefined) return
+    if (!this.#attemptOpen || this.#sink === undefined) {
+      this.#attemptOpen = true
+      this.#sink ??= createRootStreamSink(
+        stream.runDir,
+        stream.now,
+        nodeStreamFile(stream.nodeId),
+        { continueAttempts: true },
+      )
+      const sink = this.#sink
+      this.#chain(() => sink.beginAttempt())
+    }
+    const sink = this.#sink!
+    this.#chain(() => sink.append(event))
+  }
+
+  #chain(write: () => void | Promise<void>): void {
+    this.#writes = this.#writes.then(write).catch((error: unknown) => {
+      this.#failure ??= error
+    })
+  }
+
+  /** Make this attempt's node stream durable and close it; throws the first write failure. */
+  async settle(): Promise<void> {
+    await this.#writes
+    const sink = this.#sink
+    this.#sink = undefined
+    if (sink !== undefined) await sink.close()
+    if (this.#failure !== undefined) throw this.#failure
   }
 
   read(cursor?: WorkerEventCursor): WorkerEventPage {
