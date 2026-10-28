@@ -402,9 +402,11 @@ async function loadDurableTopSnapshot(
           throw new Error('observer run has no discovered spawn root')
         const events = binding < 0 ? [] : ((await journal.loadTree(id)) ?? [])
         const spawn = events.find((event) => event.kind === 'spawned' && event.id === id)
-        const reopen = events.findLast(
-          (event) => event.kind === 'reopened' && event.id === id && event.budget !== undefined,
-        )
+        const reopen = events
+          .filter(
+            (event) => event.kind === 'reopened' && event.id === id && event.budget !== undefined,
+          )
+          .at(-1)
         const budget =
           reopen?.kind === 'reopened' && reopen.budget
             ? reopen.budget.maxTokens
@@ -525,10 +527,10 @@ function observerSpend(spend: Spend | undefined, gaps: readonly SpendChannel[] =
 }
 
 /** Current writer-owned journal first; retain the retired name for recorded runs. */
-const journalFileNames = ['spawn-journal.jsonl', 'journal.jsonl'] as const
-
 function readJournal(eventDir: string): SourceRead<TopJournalEvent[]> {
-  const path = journalFileNames.find((candidate) => existsSync(join(eventDir, candidate)))
+  const path = ['spawn-journal.jsonl', 'journal.jsonl'].find((candidate) =>
+    existsSync(join(eventDir, candidate)),
+  )
   if (!path) return { value: [], diagnostics: [] }
   const read = readSourceFile(join(eventDir, path), 'journal', path)
   if (read.value === undefined) return { value: [], diagnostics: read.diagnostics }
@@ -568,8 +570,7 @@ function retainedTranscript(event: object): { ref: string; harness: string } | u
 
 /** The canonical spawn receipt owns the cause; the public journal view stays compatible. */
 function recordedReason(event?: object): string | undefined {
-  const reason = (event as { reason?: unknown } | undefined)?.reason
-  return typeof reason === 'string' ? reason : undefined
+  return isRecord(event) && typeof event.reason === 'string' ? event.reason : undefined
 }
 
 function buildSupervisorView(
@@ -591,9 +592,11 @@ function buildSupervisorView(
   const isRoot = (id: string): boolean => id === state.id || id === journalRootId
   const terminal = accounting
     ? undefined
-    : events.findLast(
-        (event) => isRoot(event.id) && (event.kind === 'settled' || event.kind === 'cancelled'),
-      )
+    : events
+        .filter(
+          (event) => isRoot(event.id) && (event.kind === 'settled' || event.kind === 'cancelled'),
+        )
+        .at(-1)
   const rootReason = recordedReason(terminal)
 
   for (const event of events) {
@@ -887,8 +890,7 @@ function readSourceFile(
 }
 
 function tailLines(raw: string | undefined, maxLines: number): string[] {
-  if (raw === undefined) return []
-  return raw.trim().split('\n').filter(Boolean).slice(-maxLines)
+  return raw?.trim().split('\n').filter(Boolean).slice(-maxLines) ?? []
 }
 
 function readSupervisorState(dir: string): SourceRead<SupervisorState | undefined> {

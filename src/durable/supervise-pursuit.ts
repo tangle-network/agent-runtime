@@ -272,11 +272,7 @@ function assertPursuitDirectory(
   }
 }
 
-/**
- * The run directory's lifecycle around one execution: lock, settled-directory refusal, observer
- * journal, failure record and settle record. `execute` receives the observer-composed hooks and
- * the steer directory the run's control plane uses; `settled` names the value `result.json` holds.
- */
+/** Own the directory lock, terminal records and observer lifecycle for both pursuit entries. */
 async function runDurablePursuit<Result>(
   opts: SupervisePursuitOptions | SuperviseGraphPursuitOptions,
   execute: (seams: { readonly hooks: RuntimeHooks; readonly steerDir: string }) => Promise<Result>,
