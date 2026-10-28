@@ -501,37 +501,37 @@ function count(events: readonly SpawnEvent[], kind: SpawnEvent['kind']): number 
 
 describe('supervised root with a pending retained turn', () => {
   it('recaptures an unavailable turn before delivering the next output', async () => {
-      const run = await superviseRoot({
-        firstTurnFailure: { error: 'HTTP 429 rate_limit_error' },
-        captureFailure: 'recover',
-        submitOn: 2,
-      })
-      expect(
-        run.result,
-        JSON.stringify({ attempts: run.attempts, dispatched: run.dispatched.length }),
-      ).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
-      expect(run.dispatched).toHaveLength(2)
-      expect(run.attempts[0]).toMatchObject({ classification: 'unavailable' })
-      expect(run.attempts[0]?.retryInMs).toBeGreaterThan(0)
-      expect(run.attempts.some((attempt) => attempt.error?.includes('capture pending'))).toBe(false)
-      const first = run.events.find(
-        (event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
-      )
-      if (first?.kind !== 'execution-admitted' || first.admission.phase !== 'dispatched')
-        throw new Error('missing first dispatch')
-      expect(run.environments).toHaveLength(1)
-      expect(run.evidence).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            workspaceCapture: expect.objectContaining({
-              executionId: run.firstCaptureExecution,
-              controlRef: first.admission.controlRef,
-              coverageComplete: true,
-            }),
-          }),
-        ]),
-      )
+    const run = await superviseRoot({
+      firstTurnFailure: { error: 'HTTP 429 rate_limit_error' },
+      captureFailure: 'recover',
+      submitOn: 2,
     })
+    expect(
+      run.result,
+      JSON.stringify({ attempts: run.attempts, dispatched: run.dispatched.length }),
+    ).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
+    expect(run.dispatched).toHaveLength(2)
+    expect(run.attempts[0]).toMatchObject({ classification: 'unavailable' })
+    expect(run.attempts[0]?.retryInMs).toBeGreaterThan(0)
+    expect(run.attempts.some((attempt) => attempt.error?.includes('capture pending'))).toBe(false)
+    const first = run.events.find(
+      (event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
+    )
+    if (first?.kind !== 'execution-admitted' || first.admission.phase !== 'dispatched')
+      throw new Error('missing first dispatch')
+    expect(run.environments).toHaveLength(1)
+    expect(run.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workspaceCapture: expect.objectContaining({
+            executionId: run.firstCaptureExecution,
+            controlRef: first.admission.controlRef,
+            coverageComplete: true,
+          }),
+        }),
+      ]),
+    )
+  })
 
   it('recovers an accepted workspace whose source lookup takes longer than 30 s but within the retention bound', async () => {
     // test-acceptance-canary-20261018h (2026-10-18): a box idle about 21 minutes took over 30 s to
