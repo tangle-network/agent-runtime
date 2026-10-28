@@ -242,3 +242,28 @@ it('hands off expired leases with the old owner alive, fences stale close, and r
     await rm(root, { recursive: true, force: true })
   }
 }, 60_000)
+
+it('accepts before the first offer without poisoning the private publication writer', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'runtime-delegation-order-'))
+  const server = await interactiveControlServer()
+  let reader: Awaited<ReturnType<typeof client>> | undefined
+  let owner: Awaited<ReturnType<typeof client>> | undefined
+  try {
+    reader = await client(server.endpoint, join(root, 'journal'))
+    expect(await reader.request('steer', 'before-offer')).toMatchObject({ status: 'accepted' })
+    server.expire()
+    owner = await client(server.endpoint, join(root, 'journal'))
+    const offered = await owner.request('offer')
+    expect(await reader.request('steer', 'after-first-offer')).toMatchObject({
+      status: 'accepted',
+      generation: offered.generation,
+      holderId: offered.holderId,
+    })
+    await owner.request('terminal')
+  } finally {
+    await owner?.kill()
+    await reader?.kill()
+    await server.close()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 30_000)

@@ -101,6 +101,15 @@ function protectedJson(path: string): unknown {
 export async function prepareInteractiveDelegation(
   handle: RetainedInteractiveRunHandle,
 ): Promise<void> {
+  await withPublicationLock(handle, async (dir) => {
+    readDelegation(handle, dir)
+  })
+}
+
+async function withPublicationLock<T>(
+  handle: RetainedInteractiveRunHandle,
+  operation: (dir: string) => Promise<T>,
+): Promise<T> {
   const dir = scopeDirectory(handle)
   const path = join(dir, 'publication.jsonl')
   const fd = openSync(
@@ -124,9 +133,7 @@ export async function prepareInteractiveDelegation(
   } finally {
     closeSync(fd)
   }
-  await withJsonlFileLock(path, async () => {
-    readDelegation(handle, dir)
-  })
+  return withJsonlFileLock(path, async () => operation(dir))
 }
 
 function readDelegation(handle: RetainedInteractiveRunHandle, dir: string) {
@@ -159,9 +166,8 @@ export async function offerInteractiveControl(
   control: AgentInteractiveSessionControlClaim,
 ): Promise<void> {
   try {
-    const dir = scopeDirectory(handle)
-    const file = join(dir, 'delegation.json')
-    await withJsonlFileLock(join(dir, 'publication.jsonl'), async () => {
+    await withPublicationLock(handle, async (dir) => {
+      const file = join(dir, 'delegation.json')
       const prior = readDelegation(handle, dir)
       if (prior && prior.control.generation > control.generation) return
       const ownerDir = join(dir, String(control.generation))
@@ -212,8 +218,7 @@ export async function offerInteractiveControl(
 export async function acceptedInteractiveControl(
   handle: RetainedInteractiveRunHandle,
 ): Promise<AgentInteractiveSessionControlClaim | undefined> {
-  const dir = scopeDirectory(handle)
-  return withJsonlFileLock(join(dir, 'publication.jsonl'), async () => {
+  return withPublicationLock(handle, async (dir) => {
     const value = readDelegation(handle, dir)
     if (!value) return undefined
     const { control } = value
@@ -247,8 +252,7 @@ export async function revokeInteractiveControl(
 ): Promise<void> {
   const participant = participants.get(handle)
   if (!participant) return
-  const dir = scopeDirectory(handle)
-  await withJsonlFileLock(join(dir, 'publication.jsonl'), async () => {
+  await withPublicationLock(handle, async (dir) => {
     const current = readDelegation(handle, dir)?.control
     const expected = control ?? participant
     const digest = canonicalCandidateDigest(expected)
