@@ -101,17 +101,7 @@ Run directories projected into a valid supervisor view.
 One skipped or partially read snapshot source. `path` is relative to the run directory and
 never carries file contents, so a diagnostic is safe to show or log without leaking run data.
 
-#### Extends
-
-- `SourceDiagnostic`
-
 #### Properties
-
-##### runId?
-
-> `readonly` `optional` **runId?**: `string`
-
-**`Experimental`**
 
 ##### source
 
@@ -119,19 +109,11 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 **`Experimental`**
 
-###### Inherited from
-
-`SourceDiagnostic.source`
-
 ##### path
 
 > `readonly` **path**: `string`
 
 **`Experimental`**
-
-###### Inherited from
-
-`SourceDiagnostic.path`
 
 ##### reason
 
@@ -139,9 +121,11 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 **`Experimental`**
 
-###### Inherited from
+##### runId?
 
-`SourceDiagnostic.reason`
+> `readonly` `optional` **runId?**: `string`
+
+**`Experimental`**
 
 ***
 
@@ -340,6 +324,57 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 > `readonly` **stateDir**: `string`
 
 **`Experimental`**
+
+##### outcome?
+
+> `readonly` `optional` **outcome?**: \{ `kind`: `"winner"`; \} \| \{ `kind`: `"failed"` \| `"no-winner"`; `reason`: `string`; \}
+
+**`Experimental`**
+
+##### lastRoute?
+
+> `readonly` `optional` **lastRoute?**: \{ `kind`: `"stopped"`; `code?`: `string`; `at`: `string`; `workerId`: `string`; `reason`: `string`; `edge?`: `string`; \} \| \{ `kind`: `"unrouted"`; `reason`: `"unrouted"` \| `"target-live"`; `node`: `string`; `workerId`: `string`; `detail`: `string`; `result?`: `unknown`; \}
+
+**`Experimental`**
+
+###### Union Members
+
+###### Type Literal
+
+\{ `kind`: `"stopped"`; `code?`: `string`; `at`: `string`; `workerId`: `string`; `reason`: `string`; `edge?`: `string`; \}
+
+###### kind
+
+> `readonly` **kind**: `"stopped"`
+
+###### code?
+
+> `readonly` `optional` **code?**: `string`
+
+###### at
+
+> `readonly` **at**: `string`
+
+###### workerId
+
+> `readonly` **workerId**: `string`
+
+###### reason
+
+> `readonly` **reason**: `string`
+
+###### edge?
+
+> `readonly` `optional` **edge?**: `string`
+
+The stop edge or `gate:<id>`, or absent when a down or unusable settle or the deadline
+ ended the flow.
+
+***
+
+###### Type Literal
+
+\{ `kind`: `"unrouted"`; `reason`: `"unrouted"` \| `"target-live"`; `node`: `string`; `workerId`: `string`; `detail`: `string`; `result?`: `unknown`; \}
 
 ##### reason?
 
