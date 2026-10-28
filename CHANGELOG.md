@@ -1,5 +1,7 @@
 ## 2.3.5
 
+Keep complete EOF JSON records visible in live snapshots and activity cadence, without double-counting them when a writer later appends the newline.
+
 Live topology snapshots expose actual event activity time and full-stream median cadence for workers and supervisors, preserve exact recorded child failure reasons, and keep transport heartbeats out of quiet detection.
 
 ## 2.3.4
