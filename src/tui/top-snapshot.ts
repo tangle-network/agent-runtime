@@ -116,6 +116,8 @@ export interface WorkerView {
   readonly metered: SpendStats
   readonly liveTail: string[]
   readonly outRef?: string
+  /** The conversation the executor retained at settlement, when it retained one. */
+  readonly transcript?: { readonly ref: string; readonly harness: string }
   readonly reason?: string
 }
 
@@ -165,6 +167,11 @@ export type TopJournalEvent = {
       readonly kind: 'settled'
       readonly status?: string
       readonly outRef?: string
+      readonly harnessTranscript?: {
+        readonly status?: string
+        readonly transcriptRef?: string
+        readonly harness?: string
+      }
       readonly verdict?: unknown
       readonly spent?: unknown
       readonly infra?: boolean
@@ -576,6 +583,9 @@ function buildSupervisorView(
       if (event.kind === 'settled') {
         worker.status = event.status === 'down' ? 'down' : 'done'
         if (event.outRef) worker.outRef = event.outRef
+        const retained = event.harnessTranscript
+        if (retained?.status === 'available' && retained.transcriptRef && retained.harness)
+          worker.transcript = { ref: retained.transcriptRef, harness: retained.harness }
         if (event.infra !== undefined) worker.infra = event.infra
         const verdict = describeVerdict(event.verdict)
         if (verdict) worker.verdict = verdict

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "harness": "router",
+  "files": [
+    {
+      "path": "conversation-000.jsonl",
+      "bytes": 258,
+      "content": "{\"role\":\"system\",\"content\":\"\"}\n{\"role\":\"user\",\"content\":\"Write a three-line haiku about a distributed system, then the line READY\"}\n{\"role\":\"assistant\",\"content\":\"Nodes drift in silence,\\ngossip spreads through the network—\\nthe cluster agrees.\\n\\nREADY\"}\n"
+    }
+  ],
+  "skipped": []
+}
