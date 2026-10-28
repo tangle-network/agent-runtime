@@ -40,7 +40,12 @@ import {
   retainedCreateMaterial,
   retainedEnvironmentMetadata,
 } from './retained-run-intent'
-import { admitDurably, journaledAdmissions, mintRetainedIdentity } from './retained-run-start'
+import {
+  admitDurably,
+  journaledAdmissions,
+  journaledInteractiveHandle,
+  mintRetainedIdentity,
+} from './retained-run-start'
 import type {
   RetainedInteractiveEnvironmentAdmission,
   RetainedInteractiveIntentAdmission,
@@ -172,7 +177,11 @@ export async function startRetainedInteractiveRun(
     interactiveIdempotencyKey: startOptions.interactiveIdempotencyKey,
     ref,
   })
-  return createRetainedInteractiveRunHandle(environment, ref, capabilities, request)
+  return journaledInteractiveHandle(
+    createRetainedInteractiveRunHandle(environment, ref, capabilities, request),
+    startOptions.journalRoot,
+    intent.runId,
+  )
 }
 
 /**
