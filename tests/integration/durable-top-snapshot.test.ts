@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { expect, it } from 'vitest'
 import {
   discoverDurableSupervisionRun,
@@ -39,7 +40,7 @@ const graph: AgentGraph = {
 
 // Real OS execution through the public leaf port: no provider protocol or model is emulated.
 function processLeaf(cwd: string, known: boolean, fail: boolean) {
-  return () => {
+  return (selected: AgentProfile = profile) => {
     const stop = new AbortController()
     let pending: Promise<ExecutorResult<string>> | undefined
     let result: ExecutorResult<string> | undefined
@@ -86,9 +87,9 @@ function processLeaf(cwd: string, known: boolean, fail: boolean) {
         return { destroyed: true }
       },
     }
-    const executorSpec: AgentSpec = { profile, harness: null, executor }
+    const executorSpec: AgentSpec = { profile: selected, harness: null, executor }
     return {
-      name: profile.name,
+      name: selected.name,
       act: async () => {
         throw new Error('executor owns execution')
       },
@@ -131,24 +132,40 @@ function expectUnknownWorkerLog(
 }
 
 it.each([
-  { known: true, fail: false },
-  { known: false, fail: false },
-  { known: false, fail: true },
+  { known: true, fail: false, refuse: false },
+  { known: false, fail: false, refuse: false },
+  { known: false, fail: true, refuse: false },
+  { known: true, fail: false, refuse: true },
 ])(
   'reads live and settled actual durable process history: %j',
-  async ({ known, fail }) => {
+  async ({ known, fail, refuse }) => {
     const root = await mkdtemp(join(tmpdir(), 'durable-top-reader-'))
     const runDir = join(root, 'durable')
     const runId = 'actual-runtime-run'
     const pursuitId = 'different-pursuit-identity'
     const stop = new AbortController()
-    const pending = superviseGraphPursuit(graph, {
+    const executionGraph: AgentGraph = refuse
+      ? {
+          ...graph,
+          nodes: [...graph.nodes, { id: 'review', profile: { ...profile, name: 'review' } }],
+          edges: [
+            {
+              kind: 'routes',
+              from: 'stage',
+              to: 'review',
+              directive: { surface: 'delegates/worker-brief', version: 1 },
+            },
+          ],
+          budget: { ...budget, maxIterations: 2 },
+        }
+      : graph
+    const pending = superviseGraphPursuit(executionGraph, {
       runDir,
       runId,
       pursuitId,
       signal: stop.signal,
       makeLeafAgent: processLeaf(root, known, fail),
-      perWorker: { maxIterations: 1, maxTokens: 1000 },
+      perWorker: { maxIterations: refuse ? 2 : 1, maxTokens: 1000 },
       driverRetry: { enabled: false },
     })
     try {
@@ -174,6 +191,22 @@ it.each([
       const finished = await pending
       const snapshot = await loadTopSnapshot(root, { runDir })
       expect(snapshot.pursuit).toEqual(finished.pursuit)
+      const rootView = snapshot.supervisors.find((row) => row.id === runId)
+      expect(rootView?.outcome?.kind).toBe(finished.result.result.kind)
+      if (refuse) {
+        expect(finished.result.result).toMatchObject({
+          kind: 'no-winner',
+          reason: 'budget-exhausted',
+        })
+        expect(finished.result.stopped).toMatchObject({ at: 'review', code: 'budget-exhausted' })
+        expect(rootView).toMatchObject({
+          status: 'no-winner',
+          outcome: { kind: 'no-winner', reason: 'budget-exhausted' },
+          lastRoute: { kind: 'stopped', at: 'review', code: 'budget-exhausted' },
+        })
+        expect(rootView?.reason).toContain('iterations')
+        expect(rootView?.workers).toHaveLength(1)
+      }
       const worker = snapshot.supervisors
         .flatMap((row) => row.workers)
         .find((row) => row.id === liveWorker?.id)

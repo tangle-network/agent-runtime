@@ -12,15 +12,19 @@ import {
   type PursuitRunProjection,
   projectPursuit,
 } from '../durable/observer-projection'
+import { readFailureRecord, readSettleRecord } from '../durable/settle-record'
 import { FileSpawnJournal } from '../durable/spawn-journal/journal-store'
 import { spawnJournalRecordEvents } from '../durable/spawn-journal/record-events'
 import { discoverDurableSupervisionRun } from '../durable/supervision-discovery'
+import type { RouteFlowEvent } from '../mcp/tools/coordination-route-contracts'
+import { FileCoordinationLog } from '../runtime/supervise/coordination-log'
 import { nodeStreamFile, ROOT_STREAM_FILE } from '../runtime/supervise/root-stream'
 import {
   legacySupervisorRunsRoot,
   safeWorkerFile,
   supervisorRunsRoot,
 } from '../runtime/supervise/run-layout'
+import { rootCoordinationOwner } from '../runtime/supervise/supervise-identity'
 import type { Budget, Spend, SpendChannel } from '../runtime/supervise/types'
 import { type RecordedEvents, readRecordedEvents } from './top-transcript'
 import { workflowJournal } from './workflow-journal'
@@ -87,6 +91,10 @@ interface SupervisorBase {
 
 export interface SupervisorView extends SupervisorBase {
   readonly stateDir: string
+  readonly outcome?:
+    | { readonly kind: 'winner' }
+    | { readonly kind: 'no-winner' | 'failed'; readonly reason: string }
+  readonly lastRoute?: Extract<RouteFlowEvent, { kind: 'stopped' | 'unrouted' }>
   readonly reason?: string
   /** Epoch milliseconds of actual recorded executor activity, independent of tail truncation. */
   readonly lastActivityAt?: number
@@ -378,7 +386,15 @@ async function loadDurableTopSnapshot(
           (id) => !discovery.roots.some((parent) => id.startsWith(`${parent}/`)),
         )
       : discovery.roots
+    path = 'result.json'
+    const settled = await readSettleRecord(discovery.runDir)
+    if (settled && !ids.includes(settled.tree.root))
+      throw new Error('settle root is not discovered')
+    path = 'failure.json'
+    const failure = await readFailureRecord(discovery.runDir)
     const tails = readWorkerEventTails(discovery.runDir)
+    const log = new FileCoordinationLog(discovery.coordinationLogPath)
+    path = 'coordination-log.jsonl'
     const supervisors = await Promise.all(
       ids.map(async (id) => {
         const accounting = latest.get(id)
@@ -389,35 +405,41 @@ async function loadDurableTopSnapshot(
         const events = binding < 0 ? [] : ((await journal.loadTree(id)) ?? [])
         const spawn = events.find((event) => event.kind === 'spawned' && event.id === id)
         const budget = spawn?.kind === 'spawned' ? spawn.budget?.maxTokens : undefined
-        const terminal = events
-          .filter(
-            (event) => event.id === id && (event.kind === 'settled' || event.kind === 'cancelled'),
+        const outcome: SupervisorView['outcome'] =
+          settled?.tree.root === id
+            ? settled.kind === 'winner'
+              ? { kind: 'winner' }
+              : { kind: 'no-winner', reason: settled.reason }
+            : failure?.runId === id && accounting?.status === 'down'
+              ? { kind: 'failed', reason: failure.error.message }
+              : undefined
+        const prior =
+          spawn?.kind === 'spawned' && spawn.identity
+            ? await log.load(id, rootCoordinationOwner(spawn.identity))
+            : undefined
+        let lastRoute: SupervisorView['lastRoute']
+        for (const { event } of prior?.records ?? []) {
+          if (
+            event.type === 'route' &&
+            (event.route.kind === 'stopped' || event.route.kind === 'unrouted')
           )
-          .at(-1)
+            lastRoute = event.route
+        }
         const startedAt = accounting
           ? new Date(accounting.firstObservedAt).toISOString()
           : discovery.rootsBegunAt[binding]
-        const completedAt =
-          accounting?.settledAt === undefined
-            ? terminal?.at
-            : new Date(accounting.settledAt).toISOString()
         const view = buildSupervisorView(
           {
             id,
             task: id,
             workspaceDir: root,
-            status:
-              accounting && accounting.status !== 'running'
-                ? accounting.status
-                : terminal?.kind === 'settled'
-                  ? terminal.status
-                  : terminal
-                    ? 'cancelled'
-                    : 'running',
+            status: accounting?.status ?? 'running',
             budget: budget ?? 0,
             budgetKnown: budget !== undefined,
             ...(startedAt == null ? {} : { startedAt }),
-            ...(completedAt === undefined ? {} : { completedAt }),
+            ...(accounting?.settledAt === undefined
+              ? {}
+              : { completedAt: new Date(accounting.settledAt).toISOString() }),
           },
           discovery.runDir,
           events.filter(isSpawnEvent),
@@ -426,9 +448,19 @@ async function loadDurableTopSnapshot(
           tails.value,
           accounting,
         )
-        return accounting
-          ? view
-          : { ...view, totals: { ...view.totals, usdKnown: false, tokensKnown: false } }
+        if (!accounting) Object.assign(view.totals, { usdKnown: false, tokensKnown: false })
+        if (outcome)
+          Object.assign(view, {
+            outcome,
+            status: outcome.kind === 'winner' ? 'done' : outcome.kind,
+          })
+        if (lastRoute)
+          Object.assign(view, {
+            lastRoute,
+            reason: lastRoute.kind === 'stopped' ? lastRoute.reason : lastRoute.detail,
+          })
+        else if (outcome && 'reason' in outcome) Object.assign(view, { reason: outcome.reason })
+        return view
       }),
     )
     return topSnapshot(
@@ -621,7 +653,14 @@ function buildSupervisorView(
     stateDir,
     ...(rootReason === undefined ? {} : { reason: rootReason }),
     ...workerEventTails.get(join(stateDir, ROOT_STREAM_FILE))?.activity,
-    status: state.status,
+    status:
+      accounting && accounting.status !== 'running'
+        ? accounting.status
+        : terminal?.kind === 'settled'
+          ? (terminal.status ?? state.status)
+          : terminal
+            ? 'cancelled'
+            : state.status,
     task: state.task,
     workspaceDir: state.workspaceDir,
     budget: state.budget,
@@ -648,6 +687,7 @@ function buildSupervisorView(
     ...(state.result?.spentTokens !== undefined
       ? { resultSpentTokens: state.result.spentTokens }
       : {}),
+    ...(!state.completedAt && terminal?.at ? { completedAt: terminal.at } : {}),
     workers: workerViews,
     progressTail: [...progressTail],
     journalTail: events.slice(-12),

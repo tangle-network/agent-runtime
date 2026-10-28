@@ -8,27 +8,9 @@ import {
 import type { RootStreamReceipt, SupervisedResult } from '../runtime/supervise/types'
 import { isNoEntError } from './jsonl-file'
 
-/*
- * The terminal records `supervisePursuit` leaves in a run directory.
- *
- * Measured motive (discovery-lab recursive smoke r1): Runtime settled `no-winner`
- * at 06:27:51Z with a terminal `agent.run` event and returned the result to the caller, and the
- * directory held no terminal record. agent-eval's supervisor-run reader names `result.json` as
- * Runtime's own terminal record and reported `supStatus: unavailable` for that run and for every
- * run on that path. The Lab's re-entry guard checked `result.json`, so it never fired, and a
- * second `run` or `resume` on the settled directory re-entered `supervise` and spent again.
- *
- * `result.json` is the JSON value of the `SupervisedResult` the call returned, as canonical JSON
- * (RFC 8785, stable key order), so its bytes hash to `settleRecordDigest(result)`. A result that
- * carries a value JSON cannot represent faithfully (a Map, a Set, a Date, a typed array, a class
- * instance) is refused rather than silently rewritten, because the file is raw terminal evidence.
- * It is written once per segment with
- * `O_EXCL`, fsynced, and never replaced: a second settle in the same directory is refused before
- * any compute. An explicit reopen (`supervisePursuit`'s `reopen`, `./run-reopen.ts`) archives it
- * byte for byte to `settles/<n>.json` and removes it, and the reopened segment writes its own. `failure.json` records the most recent throw and is replaced by a later throw; the
- * history of every attempt stays in `observer.jsonl`. A failure record alone never blocks
- * re-entry, because r1's first attempt threw on a caller input error before any spawn and the
- * corrected attempt on the same directory produced all of the run's evidence.
+/** Terminal evidence has one result per segment. Reopen archives that result byte for byte;
+ * a failed attempt may resume because failure.json records only the latest throw.
+ * Serialization, exclusive publication and validation stay with the record operations below.
  */
 
 /** The settle record: the returned `SupervisedResult` as canonical JSON, written once. */
@@ -153,25 +135,34 @@ export async function writeFailureRecord(
 export async function readSettleRecord(
   runDir: string,
 ): Promise<SupervisedResult<unknown> | undefined> {
-  const path = resolve(runDir, SETTLE_RECORD_FILE)
-  let text: string
+  return readTerminalFile(runDir, SETTLE_RECORD_FILE, parseSettleRecord)
+}
+
+async function readTerminalFile<T>(
+  runDir: string,
+  file: string,
+  parse: (text: string, path: string) => T,
+): Promise<T | undefined> {
+  const path = resolve(runDir, file)
   try {
-    text = await readFile(path, 'utf8')
+    return parse(await readFile(path, 'utf8'), path)
   } catch (error) {
     if (isNoEntError(error)) return undefined
     throw error
   }
-  return parseSettleRecord(text, path)
+}
+
+function parseTerminalJson(text: string, path: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch (cause) {
+    throw new Error(`supervisePursuit: ${path} is not valid JSON`, { cause })
+  }
 }
 
 /** Parse settle-record bytes already read, so a caller hashes and parses the same bytes. */
 export function parseSettleRecord(text: string, path: string): SupervisedResult<unknown> {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch (cause) {
-    throw new Error(`supervisePursuit: ${path} is not valid JSON`, { cause })
-  }
+  const parsed = parseTerminalJson(text, path)
   const record = parsed as { kind?: unknown; tree?: { root?: unknown } }
   if (
     typeof record !== 'object' ||
@@ -188,33 +179,22 @@ export function parseSettleRecord(text: string, path: string): SupervisedResult<
 
 /** Read the most recent failure record, or `undefined` when the directory holds none. */
 export async function readFailureRecord(runDir: string): Promise<DurableFailureRecord | undefined> {
-  const path = resolve(runDir, FAILURE_RECORD_FILE)
-  let text: string
-  try {
-    text = await readFile(path, 'utf8')
-  } catch (error) {
-    if (isNoEntError(error)) return undefined
-    throw error
-  }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch (cause) {
-    throw new Error(`supervisePursuit: ${path} is not valid JSON`, { cause })
-  }
-  const record = parsed as Partial<DurableFailureRecord>
-  if (
-    typeof record !== 'object' ||
-    record === null ||
-    typeof record.runId !== 'string' ||
-    typeof record.pursuitId !== 'string' ||
-    typeof record.at !== 'string' ||
-    typeof record.error?.name !== 'string' ||
-    typeof record.error.message !== 'string' ||
-    (record.rootStream !== undefined &&
-      (typeof record.rootStream.ref !== 'string' || typeof record.rootStream.events !== 'number'))
-  ) {
-    throw new Error(`supervisePursuit: ${path} is not a failure record`)
-  }
-  return parsed as DurableFailureRecord
+  return readTerminalFile(runDir, FAILURE_RECORD_FILE, (text, path) => {
+    const parsed = parseTerminalJson(text, path)
+    const record = parsed as Partial<DurableFailureRecord>
+    if (
+      typeof record !== 'object' ||
+      record === null ||
+      typeof record.runId !== 'string' ||
+      typeof record.pursuitId !== 'string' ||
+      typeof record.at !== 'string' ||
+      typeof record.error?.name !== 'string' ||
+      typeof record.error.message !== 'string' ||
+      (record.rootStream !== undefined &&
+        (typeof record.rootStream.ref !== 'string' || typeof record.rootStream.events !== 'number'))
+    ) {
+      throw new Error(`supervisePursuit: ${path} is not a failure record`)
+    }
+    return parsed as DurableFailureRecord
+  })
 }

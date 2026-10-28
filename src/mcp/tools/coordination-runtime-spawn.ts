@@ -8,7 +8,7 @@ export type RuntimeSpawnOutcome =
   | { readonly workerId: string; readonly committed: boolean }
   /** The key and its one replacement both have a prior worker started without a terminal receipt. */
   | { readonly inDoubt: true }
-  | { readonly refused: string }
+  | { readonly refused: string; readonly code?: string }
 
 /**
  * Admit one keyed runtime spawn. A key whose prior worker is in doubt (started in a dead process
@@ -33,7 +33,10 @@ export async function admitRuntimeSpawn(
       return { workerId: started.workerId, committed: started.resumed === 'completed' }
     }
     if (started.error !== 'in-doubt') {
-      return { refused: typeof started.reason === 'string' ? started.reason : 'spawn refused' }
+      return {
+        refused: typeof started.reason === 'string' ? started.reason : 'spawn refused',
+        ...(typeof started.error === 'string' ? { code: started.error } : {}),
+      }
     }
   }
   return { inDoubt: true }

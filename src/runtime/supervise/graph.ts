@@ -662,6 +662,7 @@ export interface GraphResult<Out = unknown> {
    *  down (no `edge`; `reason` is `down: <worker reason>`) or, where a route was needed, without a
    *  usable result (no `edge`; `reason` is `unusable: <why>`). Live flow workers are aborted. */
   readonly stopped?: {
+    readonly code?: string
     readonly edge?: string
     readonly at: NodeId
     readonly workerId: string
@@ -874,7 +875,8 @@ export function superviseAgentGraph(
   const rootBrain = flow === undefined ? brain : runtimeFlowBrain()
   const task =
     flow === undefined
-      ? graphTask(graph, (validated as RootValidatedGraph).root)
+      ? (graph.deliverable.describe ??
+        `Deliver the graph's deliverable by driving your worker nodes (root: '${(validated as RootValidatedGraph).root.id}').`)
       : (graph.deliverable.describe ?? 'Runtime runs this flow graph from its entries.')
 
   // Every configuration fault above throws SYNCHRONOUSLY (matching `supervise()`'s own
@@ -965,13 +967,4 @@ export function superviseAgentGraph(
   }
 
   return start()
-}
-
-/** The root task: the graph's own framing. The deliverable (mandatory) is the termination; the
- *  task names what the topology exists to produce. */
-function graphTask(graph: AgentGraph, root: GraphNode): string {
-  const describe = graph.deliverable.describe
-  return (
-    describe ?? `Deliver the graph's deliverable by driving your worker nodes (root: '${root.id}').`
-  )
 }
