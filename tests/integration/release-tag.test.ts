@@ -5,12 +5,23 @@ import { join, resolve } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 
 // The fixture commits and the annotated release tag need an identity; a release runner has none configured.
-const FIXTURE_GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'release-tag fixture', GIT_AUTHOR_EMAIL: 'release-tag@fixture.invalid', GIT_COMMITTER_NAME: 'release-tag fixture', GIT_COMMITTER_EMAIL: 'release-tag@fixture.invalid' }
+const FIXTURE_GIT_ENV = {
+  ...process.env,
+  GIT_AUTHOR_NAME: 'release-tag fixture',
+  GIT_AUTHOR_EMAIL: 'release-tag@fixture.invalid',
+  GIT_COMMITTER_NAME: 'release-tag fixture',
+  GIT_COMMITTER_EMAIL: 'release-tag@fixture.invalid',
+}
 
 const script = resolve('scripts/tag-release.mjs')
 const roots: string[] = []
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync('git', args, { cwd, env: FIXTURE_GIT_ENV, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+  execFileSync('git', args, {
+    cwd,
+    env: FIXTURE_GIT_ENV,
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  }).trim()
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'runtime-release-tag-'))
