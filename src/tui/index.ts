@@ -13,6 +13,9 @@
  * ```
  *
  * The runnable form is the `agent-runtime-top` bin: `agent-runtime-top <root> [--once] [--no-color]`.
+ * Its `--web --root <run-dir> --assets <renderer-dist>` mode serves the same facts over HTTP/SSE.
+ * Workers and supervisors expose optional epoch `lastActivityAt` and full-stream
+ * `medianEventGapMs` from actual recorded events. Metadata, heartbeats and file times do not count.
  *
  * @module
  * @experimental

@@ -16,7 +16,7 @@ test('HTTP snapshots retain full recorded activity across every journal adapter 
   const recorded = join(__dirname, '..', 'fixtures', 'durable', 'supervised-nested-turns')
   const iso = (at: number) => new Date(at).toISOString()
   const progress = (at: number, kind = 'text_delta') =>
-    JSON.stringify({ at: iso(at), event: { kind, text: 'Recorded output' } }) + '\n'
+    JSON.stringify({ at: iso(at), event: { kind, text: 'Recorded output €' } }) + '\n'
   const noise = Array.from({ length: 12 }, () => progress(9_000_000, 'heartbeat')).join('')
   const history = [0, 0, 100, 1100].map((at) => progress(at)).join('') + noise
   await mkdir(assets)
@@ -56,6 +56,7 @@ test('HTTP snapshots retain full recorded activity across every journal adapter 
         at: iso(2000),
         verdict: 'Not a failure cause',
       },
+      { kind: 'settled', id: 'legacy', status: 'down', at: iso(2000), reason: 'Exact root failure' },
     ]
       .map((row) => JSON.stringify(row))
       .join('\n') + '\n',
@@ -80,7 +81,7 @@ test('HTTP snapshots retain full recorded activity across every journal adapter 
   const nativeRow = (at: number) =>
     JSON.stringify({
       timestamp: iso(at),
-      message: { role: 'assistant', content: 'Native output' },
+      message: { role: 'assistant', content: 'Native output €' },
     }) + '\n'
   await writeFile(
     nativeFile,
@@ -113,6 +114,7 @@ test('HTTP snapshots retain full recorded activity across every journal adapter 
     for (const snap of initial.snapshots.slice(0, 3))
       expect(snap.supervisors[0]).toMatchObject({ lastActivityAt: 600, medianEventGapMs: 300 })
     expect(initial.snapshots[3]!.supervisors[0]).not.toHaveProperty('lastActivityAt')
+    expect(initial.snapshots[0]!.supervisors[0]!.reason).toBe('Exact root failure')
     const legacyWorkers = initial.snapshots[0]!.supervisors[0]!.workers
     expect(legacyWorkers.find((worker) => worker.id === 'worker')!.reason).toBe(
       'Exact child failure',
@@ -125,18 +127,23 @@ test('HTTP snapshots retain full recorded activity across every journal adapter 
     for (const file of [...files, nativeFile]) await utimes(file, new Date(), new Date())
     for (const file of files) await appendFile(file, progress(10_000_000, 'awaiting-result'))
     // A torn append stays invisible until its newline commits; UTF-8 can split between writes.
-    for (const file of files) await appendFile(file, progress(2200).trimEnd())
-    await appendFile(nativeFile, nativeRow(2200).trimEnd())
+    const pending = new Map<string, Buffer>()
+    for (const file of [...files, nativeFile]) {
+      const row = Buffer.from(file === nativeFile ? nativeRow(2200) : progress(2200))
+      const cut = row.indexOf('€') + 1
+      await appendFile(file, row.subarray(0, cut))
+      pending.set(file, row.subarray(cut))
+    }
     for (const worker of selected(await snapshot()))
       expect(worker).toMatchObject({ lastActivityAt: 1100, medianEventGapMs: 100 })
-    for (const file of [...files, nativeFile]) await appendFile(file, '\n')
+    for (const [file, rest] of pending) await appendFile(file, rest)
     let updated: TopSnapshotFrame | undefined
     const deadline = Date.now() + 3000
     do {
       updated = await snapshot()
       if (
         selected(updated).every(
-          (worker) => (worker as unknown as { lastActivityAt?: number }).lastActivityAt === 2200,
+          (worker) => worker.lastActivityAt === 2200,
         )
       )
         break
@@ -152,7 +159,7 @@ test('HTTP snapshots retain full recorded activity across every journal adapter 
       updated = await snapshot()
       if (
         selected(updated).every(
-          (worker) => (worker as unknown as { lastActivityAt?: number }).lastActivityAt === 0,
+          (worker) => worker.lastActivityAt === 0,
         )
       )
         break

@@ -90,6 +90,7 @@ interface SupervisorBase {
 
 export interface SupervisorView extends SupervisorBase {
   readonly stateDir: string
+  readonly reason?: string
   /** Epoch milliseconds of actual recorded executor activity, independent of tail truncation. */
   readonly lastActivityAt?: number
   /** Median gap between all recorded activity instants, including real zero gaps. */
@@ -491,6 +492,8 @@ function buildSupervisorView(
     (event) => event.kind === 'spawned' && !event.parent && event.label === 'root',
   )?.id
   const isRoot = (id: string): boolean => id === state.id || id === journalRootId
+  const terminal = events.filter((event) => isRoot(event.id))
+    .findLast((event) => event.kind === 'settled' || event.kind === 'cancelled')
 
   for (const event of events) {
     if (isRoot(event.id) || (event.kind === 'spawned' && !event.parent && event.label === 'root')) {
@@ -574,6 +577,7 @@ function buildSupervisorView(
   return {
     id: state.id,
     stateDir,
+    ...(terminal?.reason === undefined ? {} : { reason: terminal.reason }),
     ...workerEventTails.get(join(stateDir, ROOT_STREAM_FILE))?.activity,
     status: state.status,
     task: state.task,
