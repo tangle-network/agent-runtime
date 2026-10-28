@@ -220,14 +220,8 @@ interface SourceRead<T> {
 
 const emptySpend: SpendStats = { iterations: 0, tokensInput: 0, tokensOutput: 0, usd: 0, ms: 0 }
 
-/**
- * Read every supervisor run under one workspace into a single point-in-time snapshot.
- *
- * Pure with respect to the process: it only reads, and it never throws for a writer mid-append.
- * An unreadable or half-written source is still skipped — an operator view must survive a live
- * writer — but every skip is reported as one bounded `TopSnapshotDiagnostic`, so a client can
- * tell a removed run from a partial read. `now` is injectable so elapsed time is deterministic
- * under test.
+/** Read a point-in-time view without writing to the run. Missing or partial sources report
+ * bounded diagnostics, and live event readers cache append offsets. `now` controls elapsed time.
  */
 export function loadTopSnapshot(rootDir: string, now?: number): TopSnapshot
 export function loadTopSnapshot(
@@ -618,7 +612,9 @@ function buildSupervisorView(
   return {
     id: state.id,
     stateDir,
-    ...(terminal && 'reason' in terminal && terminal.reason !== undefined ? { reason: terminal.reason } : {}),
+    ...(terminal && 'reason' in terminal && terminal.reason !== undefined
+      ? { reason: terminal.reason }
+      : {}),
     ...workerEventTails.get(join(stateDir, ROOT_STREAM_FILE))?.activity,
     status: state.status,
     task: state.task,
