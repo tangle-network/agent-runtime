@@ -6,7 +6,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { isRecord } from '@tangle-network/agent-core'
-import { FileObserverJournal } from '../durable/observer-journal'
+import { FileObserverJournal, type ObserverRecord } from '../durable/observer-journal'
 import {
   type PursuitProjection,
   type PursuitRunProjection,
@@ -26,7 +26,7 @@ import {
 } from '../runtime/supervise/run-layout'
 import { rootCoordinationOwner } from '../runtime/supervise/supervise-identity'
 import type { Budget, Spend, SpendChannel } from '../runtime/supervise/types'
-import { type RecordedEvents, readRecordedEvents } from './top-transcript'
+import { type RecordedEvents, readWorkerEventTails } from './top-transcript'
 import { workflowJournal } from './workflow-journal'
 
 export interface TopSnapshot {
@@ -64,7 +64,10 @@ export type TopSnapshotDiagnosticReason =
  * One skipped or partially read snapshot source. `path` is relative to the run directory and
  * never carries file contents, so a diagnostic is safe to show or log without leaking run data.
  */
-export interface TopSnapshotDiagnostic extends SourceDiagnostic {
+export interface TopSnapshotDiagnostic {
+  readonly source: TopSnapshotDiagnosticSource
+  readonly path: string
+  readonly reason: TopSnapshotDiagnosticReason
   readonly runId?: string
 }
 
@@ -212,17 +215,10 @@ type MutableWorker = {
   -readonly [Key in keyof Omit<WorkerView, 'latencyMs'>]: WorkerView[Key]
 }
 
-/** A diagnostic before its run id is attached; `loadTopSnapshot` adds `runId`. */
-interface SourceDiagnostic {
-  readonly source: TopSnapshotDiagnosticSource
-  readonly path: string
-  readonly reason: TopSnapshotDiagnosticReason
-}
-
 /** A recovered value and bounded, run-relative read diagnostics. */
 interface SourceRead<T> {
   readonly value: T
-  readonly diagnostics: readonly SourceDiagnostic[]
+  readonly diagnostics: readonly TopSnapshotDiagnostic[]
 }
 
 const emptySpend: SpendStats = { iterations: 0, tokensInput: 0, tokensOutput: 0, usd: 0, ms: 0 }
@@ -302,7 +298,7 @@ export function loadTopSnapshot(
   const supervisors: SupervisorView[] = []
   const diagnostics: TopSnapshotDiagnostic[] = []
   let discovered = 0
-  const report = (runId: string, sources: readonly SourceDiagnostic[]): void => {
+  const report = (runId: string, sources: readonly TopSnapshotDiagnostic[]): void => {
     for (const source of sources) diagnostics.push({ ...source, runId })
   }
   // `.loops` is the pre-rename state dir; runs already on disk there stay visible.
@@ -364,6 +360,7 @@ async function loadDurableTopSnapshot(
 ): Promise<TopSnapshot> {
   const root = resolve(rootDir)
   let pursuit: PursuitProjection | undefined
+  let observations: readonly ObserverRecord[] = []
   let source: TopSnapshotDiagnosticSource = observed ? 'observer-journal' : 'journal'
   let path = observed ? 'observer.jsonl' : 'spawn-journal.jsonl'
   try {
@@ -372,7 +369,8 @@ async function loadDurableTopSnapshot(
     if (observed) {
       const journal = await FileObserverJournal.open(join(resolve(runDir), path))
       if (!journal) return topSnapshot(root, now, [], [{ source, path, reason: 'missing' }])
-      pursuit = projectPursuit(await journal.read())
+      observations = await journal.read()
+      pursuit = projectPursuit(observations)
     }
     source = 'journal'
     path = '.'
@@ -404,7 +402,20 @@ async function loadDurableTopSnapshot(
           throw new Error('observer run has no discovered spawn root')
         const events = binding < 0 ? [] : ((await journal.loadTree(id)) ?? [])
         const spawn = events.find((event) => event.kind === 'spawned' && event.id === id)
-        const budget = spawn?.kind === 'spawned' ? spawn.budget?.maxTokens : undefined
+        const reopen = events.findLast(
+          (event) => event.kind === 'reopened' && event.id === id && event.budget !== undefined,
+        )
+        const budget =
+          reopen?.kind === 'reopened' && reopen.budget
+            ? reopen.budget.maxTokens
+            : spawn?.kind === 'spawned'
+              ? spawn.budget?.maxTokens
+              : undefined
+        const boundary = observations.find(
+          (record) => record.sequence === accounting?.firstSequence,
+        )?.event?.payload
+        const coordinationOffset = isRecord(boundary) ? boundary.coordinationOffset : undefined
+
         const outcome: SupervisorView['outcome'] =
           settled?.tree.root === id
             ? settled.kind === 'winner'
@@ -418,7 +429,22 @@ async function loadDurableTopSnapshot(
             ? await log.load(id, rootCoordinationOwner(spawn.identity))
             : undefined
         let lastRoute: SupervisorView['lastRoute']
-        for (const { event } of prior?.records ?? []) {
+        const records = prior?.records ?? []
+        if (
+          coordinationOffset !== undefined &&
+          (typeof coordinationOffset !== 'number' ||
+            !Number.isSafeInteger(coordinationOffset) ||
+            coordinationOffset < 0 ||
+            coordinationOffset > records.length)
+        )
+          throw new Error('invalid attempt coordination offset')
+        const offset =
+          typeof coordinationOffset === 'number'
+            ? coordinationOffset
+            : accounting?.attemptIndex === 0
+              ? 0
+              : records.length
+        for (const { event } of records.slice(offset)) {
           if (
             event.type === 'route' &&
             (event.route.kind === 'stopped' || event.route.kind === 'unrouted')
@@ -563,9 +589,11 @@ function buildSupervisorView(
     (event) => event.kind === 'spawned' && !event.parent && event.label === 'root',
   )?.id
   const isRoot = (id: string): boolean => id === state.id || id === journalRootId
-  const terminal = events
-    .filter((event) => isRoot(event.id) && (event.kind === 'settled' || event.kind === 'cancelled'))
-    .at(-1)
+  const terminal = accounting
+    ? undefined
+    : events.findLast(
+        (event) => isRoot(event.id) && (event.kind === 'settled' || event.kind === 'cancelled'),
+      )
   const rootReason = recordedReason(terminal)
 
   for (const event of events) {
@@ -654,13 +682,12 @@ function buildSupervisorView(
     ...(rootReason === undefined ? {} : { reason: rootReason }),
     ...workerEventTails.get(join(stateDir, ROOT_STREAM_FILE))?.activity,
     status:
-      accounting && accounting.status !== 'running'
-        ? accounting.status
-        : terminal?.kind === 'settled'
-          ? (terminal.status ?? state.status)
-          : terminal
-            ? 'cancelled'
-            : state.status,
+      accounting?.status ??
+      (terminal?.kind === 'settled'
+        ? (terminal.status ?? state.status)
+        : terminal
+          ? 'cancelled'
+          : state.status),
     task: state.task,
     workspaceDir: state.workspaceDir,
     budget: state.budget,
@@ -862,33 +889,6 @@ function readSourceFile(
 function tailLines(raw: string | undefined, maxLines: number): string[] {
   if (raw === undefined) return []
   return raw.trim().split('\n').filter(Boolean).slice(-maxLines)
-}
-
-function readWorkerEventTails(dir: string): SourceRead<Map<string, RecordedEvents>> {
-  const out = new Map<string, RecordedEvents>()
-  const diagnostics: SourceDiagnostic[] = []
-  const read = (path: string, key = join(dir, path)) => {
-    try {
-      if (existsSync(join(dir, path))) out.set(key, readRecordedEvents(join(dir, path)))
-    } catch {
-      diagnostics.push({ source: 'worker-tail', path, reason: 'unreadable' })
-    }
-  }
-  read(ROOT_STREAM_FILE)
-  for (const folder of ['workers', 'streams']) {
-    if (!existsSync(join(dir, folder))) continue
-    try {
-      for (const entry of readdirSync(join(dir, folder))) {
-        // Inbox steer requests are not evidence that the executor emitted progress.
-        if (folder === 'workers' && entry.endsWith('.ndjson') && !entry.endsWith('.inbox.ndjson'))
-          read(join(folder, entry), entry.slice(0, -'.ndjson'.length))
-        else if (folder === 'streams' && entry.endsWith('.jsonl')) read(join(folder, entry))
-      }
-    } catch {
-      diagnostics.push({ source: 'worker-tail', path: folder, reason: 'unreadable' })
-    }
-  }
-  return { value: out, diagnostics }
 }
 
 function readSupervisorState(dir: string): SourceRead<SupervisorState | undefined> {

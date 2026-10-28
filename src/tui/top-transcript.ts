@@ -1,10 +1,11 @@
-import { closeSync, fstatSync, openSync, readSync } from 'node:fs'
+import { closeSync, existsSync, fstatSync, openSync, readdirSync, readSync } from 'node:fs'
 import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import type { PursuitNodeProjection } from '../durable/observer-projection'
 import { FileResultBlobStore } from '../durable/spawn-journal/result-blob-store'
 import { recordValue } from '../record-value'
-import type { WorkerView } from './top-snapshot'
+import { ROOT_STREAM_FILE } from '../runtime/supervise/root-stream'
+import type { TopSnapshotDiagnostic, WorkerView } from './top-snapshot'
 
 /** Read selected history on demand, leaving the live topology snapshot bounded and fast. */
 export async function transcriptHistory(
@@ -310,4 +311,32 @@ export function readRecordedEvents(file: string, maxLines = 8): RecordedEvents {
   } finally {
     closeSync(fd)
   }
+}
+
+/** Read native progress files with bounded, path-only diagnostics. */
+export function readWorkerEventTails(dir: string) {
+  const out = new Map<string, RecordedEvents>()
+  const diagnostics: TopSnapshotDiagnostic[] = []
+  const read = (path: string, key = join(dir, path)) => {
+    try {
+      if (existsSync(join(dir, path))) out.set(key, readRecordedEvents(join(dir, path)))
+    } catch {
+      diagnostics.push({ source: 'worker-tail', path, reason: 'unreadable' })
+    }
+  }
+  read(ROOT_STREAM_FILE)
+  for (const folder of ['workers', 'streams']) {
+    if (!existsSync(join(dir, folder))) continue
+    try {
+      for (const entry of readdirSync(join(dir, folder))) {
+        // Inbox steer requests are not evidence that the executor emitted progress.
+        if (folder === 'workers' && entry.endsWith('.ndjson') && !entry.endsWith('.inbox.ndjson'))
+          read(join(folder, entry), entry.slice(0, -'.ndjson'.length))
+        else if (folder === 'streams' && entry.endsWith('.jsonl')) read(join(folder, entry))
+      }
+    } catch {
+      diagnostics.push({ source: 'worker-tail', path: folder, reason: 'unreadable' })
+    }
+  }
+  return { value: out, diagnostics }
 }

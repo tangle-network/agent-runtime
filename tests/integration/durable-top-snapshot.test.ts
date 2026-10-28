@@ -175,6 +175,7 @@ it.each([
       perWorker: { maxIterations: refuse ? 2 : 1, maxTokens: 1000 },
       driverRetry: { enabled: false },
     })
+    let continuation: typeof pending | undefined
     try {
       await Promise.race([
         pending,
@@ -332,10 +333,61 @@ it.each([
       expect(legacyRecorded.supervisors[0]?.totals.usdKnown !== false).toBe(known && !fail)
       expect(legacyRecorded.supervisors[0]?.totals.tokensKnown !== false).toBe(known && !fail)
       if (!known || fail) expectUnknownWorkerLog(legacyRecorded, worker?.id, fail ? 'down' : 'done')
+      if (refuse) {
+        // Same run and graph, explicitly reopened with room for the refused stage.
+        await writeFile(join(runDir, 'observer.jsonl'), bytes)
+        await rm(join(root, 'started'))
+        await rm(join(root, 'release'))
+        continuation = superviseGraphPursuit(executionGraph, {
+          runDir,
+          runId,
+          pursuitId,
+          signal: stop.signal,
+          makeLeafAgent: processLeaf(root, known, false, 2),
+          perWorker: { maxIterations: 2, maxTokens: 1000 },
+          driverRetry: { enabled: false },
+          reopen: {
+            operator: 'process-proof',
+            reason: 'admit refused review',
+            operationId: 'review-room',
+            budget: { ...budget, maxIterations: 6, maxTokens: 20000 },
+          },
+        })
+        await Promise.race([
+          continuation,
+          expect
+            .poll(async () => Number(await readFile(join(root, 'started'), 'utf8')), {
+              timeout: 5000,
+            })
+            .toBeGreaterThan(0),
+        ])
+        const resumed = await loadTopSnapshot(root, { runDir })
+        expect(resumed.completeness).toBe('complete')
+        const resumedRoot = resumed.supervisors.find((row) => row.id === runId)
+        expect(resumedRoot).toMatchObject({ status: 'running', budget: 20000 })
+        expect(resumedRoot?.outcome).toBeUndefined()
+        expect(resumedRoot?.lastRoute).toBeUndefined()
+        expect(resumedRoot?.reason).toBeUndefined()
+        expect(resumedRoot?.completedAt).toBeUndefined()
+        expect(resumedRoot?.workers.filter((row) => row.status === 'running')).toHaveLength(1)
+        await writeFile(join(root, 'release'), '')
+        const winner = await continuation
+        expect(winner.result.result.kind).toBe('winner')
+        const completed = await loadTopSnapshot(root, { runDir })
+        expect(completed.completeness).toBe('complete')
+        const completedRoot = completed.supervisors.find((row) => row.id === runId)
+        expect(completedRoot).toMatchObject({ status: 'done', outcome: { kind: 'winner' } })
+        expect(completedRoot?.lastRoute).toBeUndefined()
+        expect(completedRoot?.reason).toBeUndefined()
+        expect(completed.pursuit?.runs.map((row) => [row.attemptIndex, row.status])).toEqual([
+          [0, 'done'],
+          [1, 'done'],
+        ])
+      }
     } finally {
       stop.abort()
       await writeFile(join(root, 'release'), '')
-      await pending.catch(() => undefined)
+      await Promise.allSettled([pending, ...(continuation ? [continuation] : [])])
       await rm(root, { recursive: true, force: true })
     }
   },
