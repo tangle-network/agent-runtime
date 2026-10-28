@@ -284,7 +284,9 @@ export function readRecordedEvents(file: string, maxLines = 8): RecordedEvents {
     const final = transcriptRows({ liveTail: pending }).find((row) =>
       activityKinds.has(row.event.kind),
     )
-    const times = (final ? [...cursor.times, Date.parse(final.at)] : cursor.times).sort((a, b) => a - b)
+    const times = (final ? [...cursor.times, Date.parse(final.at)] : cursor.times).sort(
+      (a, b) => a - b,
+    )
     const gaps = times
       .slice(1)
       .map((at, i) => at - times[i]!)
