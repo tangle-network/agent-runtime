@@ -1,14 +1,11 @@
-/**
- * Read-only operator snapshots over the writer-owned supervisor layout and explicit durable runs.
- * Workspace reads preserve legacy files; durable reads use discovery, journals and the canonical
- * pursuit projection for model identity, failure and accounting evidence. Run totals count once.
+/** Read-only topology, activity and accounting over writer-owned workspace and durable journals.
  * ANSI presentation lives in `./top-frame`.
- *
  * @experimental
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { basename, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
+import { isRecord } from '@tangle-network/agent-core'
 import { FileObserverJournal } from '../durable/observer-journal'
 import {
   type PursuitProjection,
@@ -18,14 +15,14 @@ import {
 import { FileSpawnJournal } from '../durable/spawn-journal/journal-store'
 import { spawnJournalRecordEvents } from '../durable/spawn-journal/record-events'
 import { discoverDurableSupervisionRun } from '../durable/supervision-discovery'
-import { nodeStreamFile } from '../runtime/supervise/root-stream'
+import { nodeStreamFile, ROOT_STREAM_FILE } from '../runtime/supervise/root-stream'
 import {
   legacySupervisorRunsRoot,
   safeWorkerFile,
   supervisorRunsRoot,
-  supervisorWorkersDir,
 } from '../runtime/supervise/run-layout'
 import type { Budget, Spend, SpendChannel } from '../runtime/supervise/types'
+import { type RecordedEvents, readRecordedEvents } from './top-transcript'
 import { workflowJournal } from './workflow-journal'
 
 export interface TopSnapshot {
@@ -90,6 +87,11 @@ interface SupervisorBase {
 
 export interface SupervisorView extends SupervisorBase {
   readonly stateDir: string
+  readonly reason?: string
+  /** Epoch milliseconds of actual recorded executor activity, independent of tail truncation. */
+  readonly lastActivityAt?: number
+  /** Median gap between all recorded activity instants, including real zero gaps. */
+  readonly medianEventGapMs?: number
   readonly resultSpentUsd?: number
   readonly resultSpentTokens?: number
   readonly workers: WorkerView[]
@@ -115,6 +117,10 @@ export interface WorkerView {
   readonly spend: SpendStats
   readonly metered: SpendStats
   readonly liveTail: string[]
+  /** Epoch milliseconds of actual recorded executor activity, independent of tail truncation. */
+  readonly lastActivityAt?: number
+  /** Median gap between all recorded activity instants, including real zero gaps. */
+  readonly medianEventGapMs?: number
   readonly outRef?: string
   /** The conversation the executor retained at settlement, when it retained one. */
   readonly transcript?: { readonly ref: string; readonly harness: string }
@@ -170,6 +176,7 @@ export type TopJournalEvent = {
       readonly verdict?: unknown
       readonly spent?: unknown
       readonly infra?: boolean
+      readonly reason?: string
     }
   | {
       readonly kind: 'cancelled'
@@ -198,11 +205,6 @@ type MutableWorker = {
   -readonly [Key in keyof Omit<WorkerView, 'latencyMs'>]: WorkerView[Key]
 }
 
-interface WorkerEventTail {
-  readonly file: string
-  readonly lines: string[]
-}
-
 /** A diagnostic before its run id is attached; `loadTopSnapshot` adds `runId`. */
 interface SourceDiagnostic {
   readonly source: TopSnapshotDiagnosticSource
@@ -210,10 +212,7 @@ interface SourceDiagnostic {
   readonly reason: TopSnapshotDiagnosticReason
 }
 
-/**
- * What one snapshot source read produced: the value it could recover, and the bounded diagnostics
- * the read raised. Every reader returns this one shape, so the loader folds them identically.
- */
+/** A recovered value and bounded, run-relative read diagnostics. */
 interface SourceRead<T> {
   readonly value: T
   readonly diagnostics: readonly SourceDiagnostic[]
@@ -221,14 +220,8 @@ interface SourceRead<T> {
 
 const emptySpend: SpendStats = { iterations: 0, tokensInput: 0, tokensOutput: 0, usd: 0, ms: 0 }
 
-/**
- * Read every supervisor run under one workspace into a single point-in-time snapshot.
- *
- * Pure with respect to the process: it only reads, and it never throws for a writer mid-append.
- * An unreadable or half-written source is still skipped — an operator view must survive a live
- * writer — but every skip is reported as one bounded `TopSnapshotDiagnostic`, so a client can
- * tell a removed run from a partial read. `now` is injectable so elapsed time is deterministic
- * under test.
+/** Read a point-in-time view without writing to the run. Missing or partial sources report
+ * bounded diagnostics, and live event readers cache append offsets. `now` controls elapsed time.
  */
 export function loadTopSnapshot(rootDir: string, now?: number): TopSnapshot
 export function loadTopSnapshot(
@@ -240,7 +233,7 @@ export function loadTopSnapshot(
   input: number | { runDir: string; now?: number; format?: 'workflow' | 'journal' } = Date.now(),
 ): TopSnapshot | Promise<TopSnapshot> {
   if (typeof input !== 'number' && input.format === 'journal')
-    return loadJournalTopSnapshot(rootDir, input.runDir, input.now ?? Date.now())
+    return loadDurableTopSnapshot(rootDir, input.runDir, input.now ?? Date.now(), false)
   if (typeof input !== 'number' && input.format === 'workflow') {
     const root = resolve(rootDir),
       dir = resolve(input.runDir),
@@ -317,7 +310,7 @@ export function loadTopSnapshot(
       if (!state.value) continue
       const journal = readJournal(dir)
       const progress = readSourceFile(join(dir, 'progress.ndjson'), 'progress', 'progress.ndjson')
-      const workerEvents = readWorkerEventTails(supervisorWorkersDir(dir), 8)
+      const workerEvents = readWorkerEventTails(dir)
       report(entry, [...journal.diagnostics, ...progress.diagnostics, ...workerEvents.diagnostics])
       supervisors.push(
         buildSupervisorView(
@@ -355,142 +348,113 @@ function topSnapshot(
   }
 }
 
+/** Observer-backed and older spawn-only runs share topology; missing accounting stays unknown. */
 async function loadDurableTopSnapshot(
   rootDir: string,
   runDir: string,
   now: number,
+  observed = true,
 ): Promise<TopSnapshot> {
   const root = resolve(rootDir)
   let pursuit: PursuitProjection | undefined
-  let source: TopSnapshotDiagnosticSource = 'observer-journal'
-  let path = 'observer.jsonl'
+  let source: TopSnapshotDiagnosticSource = observed ? 'observer-journal' : 'journal'
+  let path = observed ? 'observer.jsonl' : 'spawn-journal.jsonl'
   try {
     if (typeof runDir !== 'string' || !runDir.trim())
       throw new TypeError('runDir must be non-empty')
-    const journal = await FileObserverJournal.open(join(resolve(runDir), path))
-    if (!journal) return topSnapshot(root, now, [], [{ source, path, reason: 'missing' }])
-    pursuit = projectPursuit(await journal.read())
+    if (observed) {
+      const journal = await FileObserverJournal.open(join(resolve(runDir), path))
+      if (!journal) return topSnapshot(root, now, [], [{ source, path, reason: 'missing' }])
+      pursuit = projectPursuit(await journal.read())
+    }
     source = 'journal'
     path = '.'
     const discovery = await discoverDurableSupervisionRun(runDir)
-    // An actual run id stays the row identity; the canonical projection retains every attempt.
-    const latest = new Map(pursuit.runs.map((run) => [run.runId, run]))
     path = 'spawn-journal.jsonl'
-    const spawnJournal = new FileSpawnJournal(discovery.spawnJournalPath)
-    // A child's metered turns journal under `<root>/<child>`; the spawn tree already shows them.
-    const rows = [...latest.values()].filter(
-      (run) => !discovery.roots.some((id) => run.runId.startsWith(`${id}/`)),
-    )
-    const supervisors = await Promise.all(
-      rows.map(async (run) => {
-        // SupervisorOpts.runId is the journal root key; require its recorded discovery binding.
-        const binding = discovery.roots.find((id) => id === run.runId)
-        // A retained run journals admissions only and writes no spawn journal to bind.
-        if (!binding && existsSync(discovery.spawnJournalPath))
-          throw new Error('observer run has no discovered spawn root')
-        const events = binding ? ((await spawnJournal.loadTree(binding)) ?? []) : []
-        const rootSpawn = events.find((event) => event.kind === 'spawned' && event.id === binding)
-        const budget = rootSpawn?.kind === 'spawned' ? rootSpawn.budget?.maxTokens : undefined
-        // supervise() records no agent.run for its root; the spawn journal's settlement is the end.
-        const terminal = events
-          .filter((e) => e.id === binding && (e.kind === 'settled' || e.kind === 'cancelled'))
-          .at(-1)
-        const settledAt =
-          run.settledAt === undefined ? terminal?.at : new Date(run.settledAt).toISOString()
-        return buildSupervisorView(
-          {
-            id: run.runId,
-            status:
-              run.status !== 'running' || terminal === undefined
-                ? run.status
-                : terminal.kind === 'settled'
-                  ? terminal.status
-                  : 'cancelled',
-            task: run.runId,
-            workspaceDir: root,
-            budget: budget ?? 0,
-            budgetKnown: budget !== undefined,
-            startedAt: new Date(run.firstObservedAt).toISOString(),
-            ...(settledAt === undefined ? {} : { completedAt: settledAt }),
-          },
-          discovery.runDir,
-          events.filter(isSpawnEvent),
-          run.error ? [run.error] : [],
-          now,
-          undefined,
-          run,
-        )
-      }),
-    )
-    return topSnapshot(root, now, supervisors, [], 1, pursuit)
-  } catch (error) {
-    const reason =
-      isRecord(error) && typeof error.code === 'string' ? 'unreadable' : 'invalid-state'
-    return topSnapshot(root, now, [], [{ source, path, reason }], 1, pursuit)
-  }
-}
-
-/** Old Discovery and factory roots may predate observer.jsonl; absence never establishes known totals. */
-async function loadJournalTopSnapshot(
-  rootDir: string,
-  runDir: string,
-  now: number,
-): Promise<TopSnapshot> {
-  const root = resolve(rootDir),
-    dir = resolve(runDir)
-  try {
-    const discovery = await discoverDurableSupervisionRun(dir)
     const journal = new FileSpawnJournal(discovery.spawnJournalPath)
+    const latest = new Map(pursuit?.runs.map((run) => [run.runId, run]))
+    // A child's metered turns already belong to its spawn tree, not another supervisor row.
+    const ids = pursuit
+      ? [...latest.keys()].filter(
+          (id) => !discovery.roots.some((parent) => id.startsWith(`${parent}/`)),
+        )
+      : discovery.roots
+    const tails = readWorkerEventTails(discovery.runDir)
     const supervisors = await Promise.all(
-      discovery.roots.map(async (id, i) => {
-        const events = (await journal.loadTree(id)) ?? []
+      ids.map(async (id) => {
+        const accounting = latest.get(id)
+        const binding = discovery.roots.indexOf(id)
+        // Retained admissions can predate the spawn journal. An existing journal must bind the root.
+        if (binding < 0 && existsSync(discovery.spawnJournalPath))
+          throw new Error('observer run has no discovered spawn root')
+        const events = binding < 0 ? [] : ((await journal.loadTree(id)) ?? [])
+        const spawn = events.find((event) => event.kind === 'spawned' && event.id === id)
+        const budget = spawn?.kind === 'spawned' ? spawn.budget?.maxTokens : undefined
         const terminal = events
           .filter(
             (event) => event.id === id && (event.kind === 'settled' || event.kind === 'cancelled'),
           )
           .at(-1)
-        const first = events.find((event) => event.kind === 'spawned' && event.id === id)
-        const budget = first?.kind === 'spawned' ? first.budget?.maxTokens : undefined
-        const tails = readWorkerEventTails(supervisorWorkersDir(dir), 8)
+        const startedAt = accounting
+          ? new Date(accounting.firstObservedAt).toISOString()
+          : discovery.rootsBegunAt[binding]
+        const completedAt =
+          accounting?.settledAt === undefined
+            ? terminal?.at
+            : new Date(accounting.settledAt).toISOString()
         const view = buildSupervisorView(
           {
             id,
             task: id,
             workspaceDir: root,
             status:
-              terminal?.kind === 'settled'
-                ? terminal.status
-                : terminal?.kind === 'cancelled'
-                  ? 'cancelled'
-                  : 'running',
+              accounting && accounting.status !== 'running'
+                ? accounting.status
+                : terminal?.kind === 'settled'
+                  ? terminal.status
+                  : terminal
+                    ? 'cancelled'
+                    : 'running',
             budget: budget ?? 0,
             budgetKnown: budget !== undefined,
-            ...(discovery.rootsBegunAt[i] ? { startedAt: discovery.rootsBegunAt[i]! } : {}),
-            ...(terminal?.at ? { completedAt: terminal.at } : {}),
+            ...(startedAt == null ? {} : { startedAt }),
+            ...(completedAt === undefined ? {} : { completedAt }),
           },
-          dir,
+          discovery.runDir,
           events.filter(isSpawnEvent),
-          [],
+          accounting?.error ? [accounting.error] : [],
           now,
           tails.value,
+          accounting,
         )
-        return { ...view, totals: { ...view.totals, usdKnown: false, tokensKnown: false } }
+        return accounting
+          ? view
+          : { ...view, totals: { ...view.totals, usdKnown: false, tokensKnown: false } }
       }),
     )
     return topSnapshot(
       root,
       now,
       supervisors,
-      [{ source: 'observer-journal', path: 'observer.jsonl', reason: 'missing' }],
-      discovery.roots.length,
+      [
+        ...(!observed
+          ? [
+              {
+                source: 'observer-journal' as const,
+                path: 'observer.jsonl',
+                reason: 'missing' as const,
+              },
+            ]
+          : []),
+        ...tails.diagnostics,
+      ],
+      observed ? 1 : ids.length,
+      pursuit,
     )
-  } catch {
-    return topSnapshot(
-      root,
-      now,
-      [],
-      [{ source: 'journal', path: 'spawn-journal.jsonl', reason: 'invalid-state' }],
-    )
+  } catch (error) {
+    const reason =
+      isRecord(error) && typeof error.code === 'string' ? 'unreadable' : 'invalid-state'
+    return topSnapshot(root, now, [], [{ source, path, reason }], 1, pursuit)
   }
 }
 
@@ -503,12 +467,7 @@ function observerSpend(spend: Spend | undefined, gaps: readonly SpendChannel[] =
   }
 }
 
-/**
- * The journal file a run dir actually carries. `createFileRunContext` — this repo's own durable
- * writer — names it `spawn-journal.jsonl`; `journal.jsonl` is the retired bare-event file older
- * runs left behind. First existing name wins; a reader that knew only the retired name would show
- * zero workers for every current run.
- */
+/** Current writer-owned journal first; retain the retired name for recorded runs. */
 const journalFileNames = ['spawn-journal.jsonl', 'journal.jsonl'] as const
 
 function readJournal(eventDir: string): SourceRead<TopJournalEvent[]> {
@@ -556,7 +515,7 @@ function buildSupervisorView(
   events: readonly TopJournalEvent[],
   progressTail: readonly string[],
   now: number,
-  workerEventTails = new Map<string, WorkerEventTail>(),
+  workerEventTails = new Map<string, RecordedEvents>(),
   accounting?: PursuitRunProjection,
 ): SupervisorView {
   const workers = new Map<string, MutableWorker>()
@@ -567,6 +526,9 @@ function buildSupervisorView(
     (event) => event.kind === 'spawned' && !event.parent && event.label === 'root',
   )?.id
   const isRoot = (id: string): boolean => id === state.id || id === journalRootId
+  const terminal = events
+    .filter((event) => isRoot(event.id) && (event.kind === 'settled' || event.kind === 'cancelled'))
+    .at(-1)
 
   for (const event of events) {
     if (isRoot(event.id) || (event.kind === 'spawned' && !event.parent && event.label === 'root')) {
@@ -586,6 +548,7 @@ function buildSupervisorView(
       if (budget) worker.budget = budget
     } else if (event.kind === 'settled' || event.kind === 'cancelled') {
       if (event.at) worker.endedAt = event.at
+      if (event.reason !== undefined) worker.reason = event.reason
       if (event.kind === 'settled') {
         worker.status = event.status === 'down' ? 'down' : 'done'
         if (event.outRef) worker.outRef = event.outRef
@@ -596,7 +559,6 @@ function buildSupervisorView(
         if (verdict) worker.verdict = verdict
       } else {
         worker.status = 'cancelled'
-        if (event.reason) worker.reason = event.reason
       }
       if (event.kind === 'settled' || event.spent !== undefined) {
         worker.spend = addSpend(worker.spend, parseSpend(event.spent))
@@ -625,16 +587,15 @@ function buildSupervisorView(
       // Tails are keyed by file stem, which the writer put through `safeWorkerFile`; a label
       // carrying characters that stem strips would otherwise never find its own events.
       const tail =
+        workerEventTails.get(join(stateDir, nodeStreamFile(worker.id))) ??
         workerEventTails.get(worker.label) ??
         workerEventTails.get(safeWorkerFile(worker.label)) ??
         workerEventTails.get(safeWorkerFile(worker.id)) ??
         workerEventTails.get(worker.id)
       worker.liveTail = tail?.lines ?? []
-      if (tail?.file) worker.eventFile = tail.file
-      else {
-        // A supervise({ runDir }) node keeps its own progress stream in the run directory.
-        const stream = join(stateDir, nodeStreamFile(worker.id))
-        if (existsSync(stream)) worker.eventFile = stream
+      if (tail) {
+        worker.eventFile = tail.file
+        Object.assign(worker, tail.activity)
       }
       return finalizeWorker(worker, now)
     })
@@ -651,6 +612,10 @@ function buildSupervisorView(
   return {
     id: state.id,
     stateDir,
+    ...(terminal && 'reason' in terminal && terminal.reason !== undefined
+      ? { reason: terminal.reason }
+      : {}),
+    ...workerEventTails.get(join(stateDir, ROOT_STREAM_FILE))?.activity,
     status: state.status,
     task: state.task,
     workspaceDir: state.workspaceDir,
@@ -803,11 +768,11 @@ export function parseSpend(value: unknown): SpendStats {
 
 function parseBudget(value: unknown): BudgetStats | undefined {
   if (!isRecord(value)) return undefined
-  const budget: BudgetStats = {
-    ...(typeof value.maxIterations === 'number' ? { maxIterations: value.maxIterations } : {}),
-    ...(typeof value.maxTokens === 'number' ? { maxTokens: value.maxTokens } : {}),
-    ...(typeof value.maxUsd === 'number' ? { maxUsd: value.maxUsd } : {}),
-  }
+  const budget = selectFields(
+    value,
+    ['maxIterations', 'maxTokens', 'maxUsd'],
+    (entry) => typeof entry === 'number',
+  ) as BudgetStats
   return Object.keys(budget).length ? budget : undefined
 }
 
@@ -835,11 +800,7 @@ function percentile(sorted: readonly number[], p: number): number {
   return sorted[idx] ?? 0
 }
 
-/**
- * Read one source file under a run directory. An absent file is not a defect on its own — the
- * writer may not have reached it yet — so it reads as `undefined` with no diagnostic; only a
- * failed read raises one. `path` stays run-relative and never carries file contents.
- */
+/** Missing files can predate their writer; failed reads report a path-only diagnostic. */
 function readSourceFile(
   file: string,
   source: TopSnapshotDiagnosticSource,
@@ -858,31 +819,29 @@ function tailLines(raw: string | undefined, maxLines: number): string[] {
   return raw.trim().split('\n').filter(Boolean).slice(-maxLines)
 }
 
-function readWorkerEventTails(
-  dir: string,
-  maxLines: number,
-): SourceRead<Map<string, WorkerEventTail>> {
-  const out = new Map<string, WorkerEventTail>()
-  if (!existsSync(dir)) return { value: out, diagnostics: [] }
-  const workersDir = basename(dir)
-  let entries: string[]
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    return {
-      value: out,
-      diagnostics: [{ source: 'worker-tail', path: workersDir, reason: 'unreadable' }],
+function readWorkerEventTails(dir: string): SourceRead<Map<string, RecordedEvents>> {
+  const out = new Map<string, RecordedEvents>()
+  const diagnostics: SourceDiagnostic[] = []
+  const read = (path: string, key = join(dir, path)) => {
+    try {
+      if (existsSync(join(dir, path))) out.set(key, readRecordedEvents(join(dir, path)))
+    } catch {
+      diagnostics.push({ source: 'worker-tail', path, reason: 'unreadable' })
     }
   }
-  const diagnostics: SourceDiagnostic[] = []
-  for (const entry of entries) {
-    // `<label>.inbox.ndjson` is the down-leg steer queue, not this worker's control-event log.
-    if (!entry.endsWith('.ndjson') || entry.endsWith('.inbox.ndjson')) continue
-    const file = join(dir, entry)
-    const read = readSourceFile(file, 'worker-tail', join(workersDir, entry))
-    diagnostics.push(...read.diagnostics)
-    const lines = tailLines(read.value, maxLines)
-    out.set(entry.slice(0, -'.ndjson'.length), { file, lines })
+  read(ROOT_STREAM_FILE)
+  for (const folder of ['workers', 'streams']) {
+    if (!existsSync(join(dir, folder))) continue
+    try {
+      for (const entry of readdirSync(join(dir, folder))) {
+        // Inbox steer requests are not evidence that the executor emitted progress.
+        if (folder === 'workers' && entry.endsWith('.ndjson') && !entry.endsWith('.inbox.ndjson'))
+          read(join(folder, entry), entry.slice(0, -'.ndjson'.length))
+        else if (folder === 'streams' && entry.endsWith('.jsonl')) read(join(folder, entry))
+      }
+    } catch {
+      diagnostics.push({ source: 'worker-tail', path: folder, reason: 'unreadable' })
+    }
   }
   return { value: out, diagnostics }
 }
@@ -907,13 +866,8 @@ function readSupervisorState(dir: string): SourceRead<SupervisorState | undefine
 function isSupervisorState(value: unknown): value is SupervisorState {
   return (
     isRecord(value) &&
-    Object.entries({
-      id: 'string',
-      status: 'string',
-      task: 'string',
-      workspaceDir: 'string',
-      budget: 'number',
-    }).every(([key, type]) => typeof value[key] === type)
+    ['id', 'status', 'task', 'workspaceDir'].every((key) => typeof value[key] === 'string') &&
+    typeof value.budget === 'number'
   )
 }
 
@@ -924,10 +878,6 @@ function isSpawnEvent<T>(value: T): value is T & TopJournalEvent {
     typeof value.kind === 'string' &&
     ['spawned', 'settled', 'cancelled', 'metered', 'progress'].includes(value.kind)
   )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }
 
 function isDirectory(path: string): boolean {

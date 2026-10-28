@@ -1,8 +1,9 @@
-import { closeSync, openSync, readSync, statSync } from 'node:fs'
+import { closeSync, fstatSync, openSync, readSync } from 'node:fs'
 import { join } from 'node:path'
-import { readCommittedJsonLines } from '../durable/jsonl-file'
+import { StringDecoder } from 'node:string_decoder'
 import type { PursuitNodeProjection } from '../durable/observer-projection'
 import { FileResultBlobStore } from '../durable/spawn-journal/result-blob-store'
+import { recordValue } from '../record-value'
 import type { WorkerView } from './top-snapshot'
 
 /** Read selected history on demand, leaving the live topology snapshot bounded and fast. */
@@ -56,12 +57,7 @@ export async function transcriptHistory(
       })
     return [...rows, ...native]
   }
-  const lines: string[] = []
-  for await (const row of readCommittedJsonLines<unknown>(worker.eventFile)) {
-    lines.push(JSON.stringify(row))
-    if (lines.length > 200) lines.shift()
-  }
-  return [...rows, ...transcriptRows({ ...worker, liveTail: lines })]
+  return [...rows, ...transcriptRows({ liveTail: readTranscriptTail(worker.eventFile) })]
 }
 
 /**
@@ -75,44 +71,22 @@ async function retainedTranscriptLines(worker: WorkerView, runDir: string): Prom
   const artifact = (await new FileResultBlobStore(join(runDir, 'blobs')).get(
     worker.transcript.ref,
   )) as { files?: { content?: unknown }[] } | undefined
-  const line = (event: Record<string, unknown>) => JSON.stringify({ at, event })
   return (artifact?.files ?? []).flatMap((file) =>
     (typeof file.content === 'string' ? file.content.split('\n') : []).flatMap((text) => {
-      let message: {
-        role?: string
-        content?: unknown
-        tool_call_id?: string
-        tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[]
-      }
       try {
-        message = JSON.parse(text)
+        const message = recordValue(JSON.parse(text))
+        return message?.role === 'assistant' || message?.role === 'tool'
+          ? [JSON.stringify({ at, message })]
+          : []
       } catch {
         return []
       }
-      if (message.role === 'tool')
-        return [
-          line({ kind: 'tool_result', toolCallId: message.tool_call_id, result: message.content }),
-        ]
-      if (message.role !== 'assistant') return []
-      return [
-        ...(typeof message.content === 'string' && message.content.length > 0
-          ? [line({ kind: 'text_delta', text: message.content })]
-          : []),
-        ...(message.tool_calls ?? []).map((call) =>
-          line({
-            kind: 'tool_call',
-            toolCallId: call.id,
-            toolName: call.function?.name,
-            args: call.function?.arguments,
-          }),
-        ),
-      ]
     }),
   )
 }
 
 /** Present the recorded tail through sandbox-ui's existing agent-stream contract. */
-export function transcriptRows(worker: WorkerView) {
+export function transcriptRows(worker: Pick<WorkerView, 'liveTail'>) {
   const rows: {
     at: string
     event: {
@@ -127,30 +101,19 @@ export function transcriptRows(worker: WorkerView) {
     }
   }[] = []
   for (const line of worker.liveTail) {
-    let value: Record<string, unknown>
+    let value: Record<string, unknown> | undefined
     try {
-      value = JSON.parse(line) as Record<string, unknown>
+      value = recordValue(JSON.parse(line))
     } catch {
       continue
     }
-    const at =
-      typeof value.timestamp === 'string'
-        ? value.timestamp
-        : typeof value.at === 'string'
-          ? value.at
-          : undefined
-    if (!at || !Number.isFinite(Date.parse(at))) continue
-    const event = value.event as
-      | {
-          kind?: string
-          text?: string
-          toolName?: string
-          toolCallId?: string
-          args?: unknown
-          result?: unknown
-        }
-      | undefined
-    if (event?.kind) {
+    const timestamp = value?.timestamp ?? value?.at
+    const time = typeof timestamp === 'string' ? Date.parse(timestamp) : timestamp
+    if (typeof time !== 'number' || !Number.isFinite(new Date(time).getTime())) continue
+    const at = new Date(time).toISOString()
+    const push = (event: (typeof rows)[number]['event']) => rows.push({ at, event })
+    const event = recordValue(value?.event)
+    if (typeof event?.kind === 'string') {
       const kind =
         (
           {
@@ -160,44 +123,51 @@ export function transcriptRows(worker: WorkerView) {
             tool_result: 'tool-result',
           } as Record<string, string>
         )[event.kind] ?? event.kind
-      rows.push({ at, event: { ...event, kind } })
+      push({ ...event, kind })
       continue
     }
-    const message = value.message as
-      | { role?: string; content?: string | Record<string, unknown>[] }
-      | undefined
+    const message = recordValue(value?.message)
     if (!message) continue
+    if (message.role === 'tool') {
+      push({
+        kind: 'tool-result',
+        toolCallId: String(message.tool_call_id),
+        result: message.content,
+      })
+      continue
+    }
+    for (const item of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
+      const call = recordValue(item),
+        fn = recordValue(call?.function)
+      if (call && fn)
+        push({
+          kind: 'tool-call',
+          toolCallId: String(call.id),
+          toolName: String(fn.name),
+          args: fn.arguments,
+        })
+    }
     const parts =
       typeof message.content === 'string'
         ? [{ type: 'text', text: message.content }]
-        : (message.content ?? [])
+        : Array.isArray(message.content)
+          ? message.content
+          : []
     for (const part of parts) {
+      if (!recordValue(part)) continue
       if (part.type === 'text' && typeof part.text === 'string')
-        rows.push({
-          at,
-          event: { kind: message.role === 'user' ? 'user' : 'text', text: part.text },
-        })
+        push({ kind: message.role === 'user' ? 'user' : 'text', text: part.text })
       else if (part.type === 'thinking' && typeof part.thinking === 'string')
-        rows.push({ at, event: { kind: 'reasoning', text: part.thinking } })
+        push({ kind: 'reasoning', text: part.thinking })
       else if (part.type === 'tool_use')
-        rows.push({
-          at,
-          event: {
-            kind: 'tool-call',
-            toolCallId: String(part.id),
-            toolName: String(part.name),
-            args: part.input,
-          },
+        push({
+          kind: 'tool-call',
+          toolCallId: String(part.id),
+          toolName: String(part.name),
+          args: part.input,
         })
       else if (part.type === 'tool_result')
-        rows.push({
-          at,
-          event: {
-            kind: 'tool-result',
-            toolCallId: String(part.tool_use_id),
-            result: part.content,
-          },
-        })
+        push({ kind: 'tool-result', toolCallId: String(part.tool_use_id), result: part.content })
     }
   }
   return rows
@@ -205,22 +175,121 @@ export function transcriptRows(worker: WorkerView) {
 
 /** The bounded native/normalized tail shared by snapshot adapters and selected streams. */
 export function readTranscriptTail(file: string) {
-  const fd = openSync(file, 'r')
-  try {
-    const size = statSync(file).size
-    const buffer = Buffer.alloc(Math.min(size, 65_536))
-    readSync(fd, buffer, 0, buffer.length, Math.max(0, size - buffer.length))
-    const lines = buffer.toString().split('\n')
-    lines.pop() // An uncommitted final row is not an event.
-    if (size > buffer.length) lines.shift()
-    return lines.filter(Boolean).slice(-200)
-  } finally {
-    closeSync(fd)
-  }
+  return readRecordedEvents(file, 200).lines
 }
 
 export function transcriptTail(worker: WorkerView) {
   return transcriptRows(
     worker.eventFile ? { ...worker, liveTail: readTranscriptTail(worker.eventFile) } : worker,
   )
+}
+
+/** Actual recorded event time and cadence; absence means no event evidence, never file mtime. */
+export interface RecordedActivity {
+  readonly lastActivityAt?: number
+  readonly medianEventGapMs?: number
+}
+
+export interface RecordedEvents {
+  readonly file: string
+  readonly lines: string[]
+  readonly activity: RecordedActivity
+  readonly firstActivityAt?: number
+}
+
+interface Cursor {
+  dev: number
+  ino: number
+  offset: number
+  pending: string
+  decoder: StringDecoder
+  times: number[]
+  result: RecordedEvents
+}
+
+const cursors = new Map<string, Cursor>()
+const activityKinds = new Set([
+  'text',
+  'reasoning',
+  'user',
+  'tool-call',
+  'tool-result',
+  'interaction',
+  'child_task',
+])
+
+/** Scan once, then read appended bytes. Commit only complete lines, including split UTF-8 rows. */
+export function readRecordedEvents(file: string, maxLines = 8): RecordedEvents {
+  const fd = openSync(file, 'r')
+  try {
+    const stat = fstatSync(fd)
+    let cursor = cursors.get(file)
+    if (
+      !cursor ||
+      cursor.dev !== stat.dev ||
+      cursor.ino !== stat.ino ||
+      stat.size < cursor.offset
+    ) {
+      cursor = {
+        dev: stat.dev,
+        ino: stat.ino,
+        offset: 0,
+        pending: '',
+        decoder: new StringDecoder('utf8'),
+        times: [],
+        result: { file, lines: [], activity: {} },
+      }
+      cursors.set(file, cursor)
+    }
+    if (stat.size === cursor.offset)
+      return { ...cursor.result, lines: cursor.result.lines.slice(-maxLines) }
+    const lines = [...cursor.result.lines]
+    const buffer = Buffer.alloc(Math.min(65_536, stat.size - cursor.offset))
+    while (cursor.offset < stat.size) {
+      const bytes = readSync(
+        fd,
+        buffer,
+        0,
+        Math.min(buffer.length, stat.size - cursor.offset),
+        cursor.offset,
+      )
+      if (!bytes) break
+      cursor.offset += bytes
+      const rows = (cursor.pending + cursor.decoder.write(buffer.subarray(0, bytes))).split('\n')
+      cursor.pending = rows.pop()!
+      for (const line of rows) {
+        if (!line.trim()) continue
+        lines.push(line)
+        if (lines.length > 200) lines.shift()
+        // One source row is one instant even when a native message contains several parts.
+        const activity = transcriptRows({ liveTail: [line] }).find((row) =>
+          activityKinds.has(row.event.kind),
+        )
+        if (activity) cursor.times.push(Date.parse(activity.at))
+      }
+    }
+    cursor.times.sort((a, b) => a - b)
+    const gaps = cursor.times
+      .slice(1)
+      .map((at, i) => at - cursor.times[i]!)
+      .sort((a, b) => a - b)
+    const mid = Math.floor(gaps.length / 2)
+    cursor.result = {
+      file,
+      lines,
+      ...(cursor.times.length ? { firstActivityAt: cursor.times[0]! } : {}),
+      activity: {
+        ...(cursor.times.length ? { lastActivityAt: cursor.times.at(-1)! } : {}),
+        ...(gaps.length
+          ? { medianEventGapMs: (gaps[Math.floor((gaps.length - 1) / 2)]! + gaps[mid]!) / 2 }
+          : {}),
+      },
+    }
+    return { ...cursor.result, lines: lines.slice(-maxLines) }
+  } catch (error) {
+    cursors.delete(file)
+    throw error
+  } finally {
+    closeSync(fd)
+  }
 }
