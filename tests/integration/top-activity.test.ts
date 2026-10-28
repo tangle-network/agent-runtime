@@ -173,7 +173,8 @@ test('HTTP snapshots retain full recorded activity across every journal adapter 
       if (selected(updated).every((worker) => worker.lastActivityAt === 100)) break
       await new Promise((resolve) => setTimeout(resolve, 20))
     } while (Date.now() < appendDeadline)
-    for (const worker of selected(updated!)) expect(worker).toMatchObject({ lastActivityAt: 100, medianEventGapMs: 50 })
+    for (const worker of selected(updated!))
+      expect(worker).toMatchObject({ lastActivityAt: 100, medianEventGapMs: 50 })
   } finally {
     await web.close()
     await rm(root, { recursive: true, force: true })

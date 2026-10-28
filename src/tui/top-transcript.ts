@@ -273,11 +273,17 @@ export function readRecordedEvents(file: string, maxLines = 8): RecordedEvents {
     cursor.lines = lines
     // A complete EOF row is valid durable JSONL. Keep it separate until its newline arrives.
     let pending: string[] = []
-    try {
-      JSON.parse(cursor.pending)
-      pending = [cursor.pending]
-    } catch { /* A torn row is still private to its writer. */ }
-    const final = transcriptRows({ liveTail: pending }).find((row) => activityKinds.has(row.event.kind))
+    if (cursor.pending.trim()) {
+      try {
+        JSON.parse(cursor.pending)
+        pending = [cursor.pending]
+      } catch {
+        // A torn row is still private to its writer.
+      }
+    }
+    const final = transcriptRows({ liveTail: pending }).find((row) =>
+      activityKinds.has(row.event.kind),
+    )
     const times = (final ? [...cursor.times, Date.parse(final.at)] : cursor.times).sort((a, b) => a - b)
     const gaps = times
       .slice(1)
