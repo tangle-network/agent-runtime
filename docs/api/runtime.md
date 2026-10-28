@@ -11096,7 +11096,7 @@ A previously persisted intent used to replay the exact create operation.
 
 > `readonly` `optional` **journalRoot?**: `string`
 
-Directory whose `<sessionId>/observer.jsonl` receives admissions, turns and the end for agent-runtime-top.
+Directory whose `<runId>/observer.jsonl` (intent run id) receives admissions for agent-runtime-top.
 
 ***
 
