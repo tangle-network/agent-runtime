@@ -104,6 +104,9 @@ function environmentFor(stateFile: string, provider: string, id: string): AgentE
   return {
     id,
     provider,
+    get metadata() {
+      return readState(stateFile).environments[id]?.metadata
+    },
     status: async () => 'running',
     async *stream(): AsyncIterable<AgentEnvironmentEvent> {
       yield* []
