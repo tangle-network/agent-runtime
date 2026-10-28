@@ -51,7 +51,7 @@ export function bindInteractiveDelegation(
   scopes.set(handle, resolve(journalRoot))
 }
 
-export function scopeDirectory(handle: RetainedInteractiveRunHandle): string {
+function scopeDirectory(handle: RetainedInteractiveRunHandle): string {
   const journal = scopes.get(handle)
   if (!journal) throw new Error('interactive delegation requires a Runtime journal scope')
   const root = realpathSync(journal)
@@ -66,7 +66,7 @@ export function scopeDirectory(handle: RetainedInteractiveRunHandle): string {
     const stat = lstatSync(path)
     if (
       !stat.isDirectory() ||
-      (stat.mode & 0o077) !== 0 ||
+      (stat.mode & 0o777) !== 0o700 ||
       (process.getuid && stat.uid !== process.getuid())
     )
       throw new Error('interactive control directory must be private to the current OS principal')
@@ -86,10 +86,71 @@ function protectedJson(path: string): unknown {
       (process.getuid && stat.uid !== process.getuid())
     )
       throw new Error('interactive control grant must be a bounded private regular file')
-    return JSON.parse(readFileSync(fd, 'utf8'))
+    const text = readFileSync(fd, 'utf8')
+    try {
+      return JSON.parse(text)
+    } catch {
+      throw new Error('invalid interactive delegation encoding')
+    }
   } finally {
     closeSync(fd)
   }
+}
+
+/** Validate the actual writer before provider CAS; later I/O failures remain explicitly recoverable. */
+export async function prepareInteractiveDelegation(
+  handle: RetainedInteractiveRunHandle,
+): Promise<void> {
+  const dir = scopeDirectory(handle)
+  const path = join(dir, 'publication.jsonl')
+  const fd = openSync(
+    path,
+    constants.O_RDWR |
+      constants.O_APPEND |
+      constants.O_CREAT |
+      constants.O_NOFOLLOW |
+      constants.O_NONBLOCK,
+    0o600,
+  )
+  try {
+    const stat = fstatSync(fd)
+    if (
+      !stat.isFile() ||
+      stat.nlink !== 1 ||
+      (stat.mode & 0o777) !== 0o600 ||
+      (process.getuid && stat.uid !== process.getuid())
+    )
+      throw new Error('interactive publication writer must be a writable private regular file')
+  } finally {
+    closeSync(fd)
+  }
+  await withJsonlFileLock(path, async () => {
+    readDelegation(handle, dir)
+  })
+}
+
+function readDelegation(handle: RetainedInteractiveRunHandle, dir: string) {
+  let grant: unknown
+  try {
+    grant = protectedJson(join(dir, 'delegation.json'))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+  if (!grant || typeof grant !== 'object') throw new Error('invalid interactive delegation')
+  const value = grant as {
+    version?: number
+    refDigest?: string
+    control?: unknown
+    generation?: number
+    owner?: { pid?: number; startedAt?: string }
+  }
+  if (value.version !== 1 || value.refDigest !== canonicalCandidateDigest(handle.ref))
+    throw new Error('interactive delegation names another process')
+  const control = AgentInteractiveSessionControlClaimSchema.parse(value.control)
+  if (!agentInteractiveSessionControlClaimMatchesRef(handle.ref, control))
+    throw new Error('interactive delegation authority names another process')
+  return { ...value, control }
 }
 
 /** Publish only authority already verified by the provider handle; never mint or advance it. */
@@ -97,56 +158,54 @@ export async function offerInteractiveControl(
   handle: RetainedInteractiveRunHandle,
   control: AgentInteractiveSessionControlClaim,
 ): Promise<void> {
-  const dir = scopeDirectory(handle)
-  const file = join(dir, 'delegation.json')
-  await withJsonlFileLock(join(dir, 'publication.jsonl'), async () => {
-    try {
-      const prior = protectedJson(file) as { control?: AgentInteractiveSessionControlClaim }
+  try {
+    const dir = scopeDirectory(handle)
+    const file = join(dir, 'delegation.json')
+    await withJsonlFileLock(join(dir, 'publication.jsonl'), async () => {
+      const prior = readDelegation(handle, dir)
+      if (prior && prior.control.generation > control.generation) return
+      const ownerDir = join(dir, String(control.generation))
+      mkdirSync(ownerDir, { mode: 0o700, recursive: true })
+      assertNoSymlinkDescendant(dir, ownerDir, 'interactive control owner directory')
+      const ownerStat = lstatSync(ownerDir)
       if (
-        AgentInteractiveSessionControlClaimSchema.parse(prior.control).generation >
-        control.generation
+        !ownerStat.isDirectory() ||
+        (ownerStat.mode & 0o777) !== 0o700 ||
+        (process.getuid && ownerStat.uid !== process.getuid())
       )
-        return
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-    const ownerDir = join(dir, String(control.generation))
-    mkdirSync(ownerDir, { mode: 0o700, recursive: true })
-    assertNoSymlinkDescendant(dir, ownerDir, 'interactive control owner directory')
-    const ownerStat = lstatSync(ownerDir)
-    if (
-      !ownerStat.isDirectory() ||
-      (ownerStat.mode & 0o077) !== 0 ||
-      (process.getuid && ownerStat.uid !== process.getuid())
-    )
-      throw new Error('interactive control owner directory must be private')
-    let owner = owners.get(ownerDir)
-    if (!owner) {
-      owner = {
-        lock: await acquireRunDirectoryLock(ownerDir, handle.ref.run.sessionId),
-        digest: '',
+        throw new Error('interactive control owner directory must be private')
+      let owner = owners.get(ownerDir)
+      if (!owner) {
+        owner = {
+          lock: await acquireRunDirectoryLock(ownerDir, handle.ref.run.sessionId),
+          digest: '',
+        }
+        owners.set(ownerDir, owner)
       }
-      owners.set(ownerDir, owner)
-    }
-    const digest = canonicalCandidateDigest(control)
-    offered.add(handle)
-    participants.set(handle, control)
-    if (owner.digest === digest) return
-    owner.lock.run(() =>
-      writeAtomicDurableFile(
-        file,
-        JSON.stringify({
-          version: 1,
-          refDigest: canonicalCandidateDigest(handle.ref),
-          control,
-          generation: owner.lock.generation,
-          owner: { pid: owner.lock.pid, startedAt: owner.lock.startedAt },
-        }),
-        { mode: 0o600 },
-      ),
+      const digest = canonicalCandidateDigest(control)
+      offered.add(handle)
+      participants.set(handle, control)
+      if (owner.digest === digest) return
+      owner.lock.run(() =>
+        writeAtomicDurableFile(
+          file,
+          JSON.stringify({
+            version: 1,
+            refDigest: canonicalCandidateDigest(handle.ref),
+            control,
+            generation: owner.lock.generation,
+            owner: { pid: owner.lock.pid, startedAt: owner.lock.startedAt },
+          }),
+          { mode: 0o600 },
+        ),
+      )
+      owner.digest = digest
+    })
+  } catch {
+    throw new Error(
+      'provider control was acquired but local delegation publication failed; correct storage and reacquire with the same holderId before dispatching commands',
     )
-    owner.digest = digest
-  })
+  }
 }
 
 /** No live, positively identified owner means no delegation, even if its old lease has time left. */
@@ -155,26 +214,9 @@ export async function acceptedInteractiveControl(
 ): Promise<AgentInteractiveSessionControlClaim | undefined> {
   const dir = scopeDirectory(handle)
   return withJsonlFileLock(join(dir, 'publication.jsonl'), async () => {
-    let grant: unknown
-    try {
-      grant = protectedJson(join(dir, 'delegation.json'))
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-      throw error
-    }
-    if (!grant || typeof grant !== 'object') throw new Error('invalid interactive delegation')
-    const value = grant as {
-      version?: number
-      refDigest?: string
-      control?: unknown
-      generation?: number
-      owner?: { pid?: number; startedAt?: string }
-    }
-    if (value.version !== 1 || value.refDigest !== canonicalCandidateDigest(handle.ref))
-      throw new Error('interactive delegation names another process')
-    const control = AgentInteractiveSessionControlClaimSchema.parse(value.control)
-    if (!agentInteractiveSessionControlClaimMatchesRef(handle.ref, control))
-      throw new Error('interactive delegation authority names another process')
+    const value = readDelegation(handle, dir)
+    if (!value) return undefined
+    const { control } = value
     if (Date.parse(control.expiresAt) <= Date.now()) return undefined
     const ownerDir = join(dir, String(control.generation))
     const holder = await readRunDirectoryLock(ownerDir)
@@ -207,17 +249,11 @@ export async function revokeInteractiveControl(
   if (!participant) return
   const dir = scopeDirectory(handle)
   await withJsonlFileLock(join(dir, 'publication.jsonl'), async () => {
-    let grant: { control?: AgentInteractiveSessionControlClaim }
-    try {
-      grant = protectedJson(join(dir, 'delegation.json')) as typeof grant
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-      throw error
-    }
-    const current = AgentInteractiveSessionControlClaimSchema.parse(grant.control)
+    const current = readDelegation(handle, dir)?.control
     const expected = control ?? participant
     const digest = canonicalCandidateDigest(expected)
-    if (canonicalCandidateDigest(current) === digest) unlinkSync(join(dir, 'delegation.json'))
+    if (current && canonicalCandidateDigest(current) === digest)
+      unlinkSync(join(dir, 'delegation.json'))
     const ownerDir = join(dir, String(expected.generation))
     const owner = owners.get(ownerDir)
     if (owner?.digest === digest) {

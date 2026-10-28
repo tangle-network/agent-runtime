@@ -81,6 +81,8 @@ it('delegates the real holder lease across processes without changing terminal i
     const owner = await open()
     const offered = await owner.request('offer')
     const originalGeneration = server.generation()
+    await expect(owner.request('offer-unscoped')).rejects.toThrow('journal scope')
+    expect(server.generation()).toBe(originalGeneration)
     const control = await open()
     await expect(control.request('invalid-generation')).rejects.toThrow('non-negative integer')
     const accepted = await control.request('steer', 'steer-once', 'inspect once')
@@ -109,9 +111,25 @@ it('delegates the real holder lease across processes without changing terminal i
     const wrongScope = await open(join(root, 'other-journal'))
     await expect(wrongScope.request('steer', 'wrong-scope')).rejects.toThrow('non-advancing')
     const privateRoot = join(root, '.agent-runtime-control')
-    const [scope] = (await readdir(privateRoot)).filter((entry) => entry.length === 64)
+    const scope = (
+      await Promise.all(
+        (
+          await readdir(privateRoot)
+        ).map(async (entry) =>
+          readFile(join(privateRoot, entry, 'delegation.json')).then(
+            () => entry,
+            () => undefined,
+          ),
+        ),
+      )
+    ).find(Boolean)
     expect(scope).toBeTruthy()
     const grant = join(privateRoot, scope!, 'delegation.json')
+    const publication = join(privateRoot, scope!, 'publication.jsonl')
+    await chmod(publication, 0o400)
+    await expect(owner.request('offer')).rejects.toThrow()
+    expect(server.generation()).toBe(originalGeneration)
+    await chmod(publication, 0o600)
     const saved = await readFile(grant, 'utf8')
     await chmod(grant, 0o644)
     await expect(replay.request('steer', 'unsafe-grant')).rejects.toThrow('private')
@@ -211,6 +229,12 @@ it('hands off expired leases with the old owner alive, fences stale close, and r
     )
     await expect(
       readFile(join(root, '.agent-runtime-control', scope!, 'delegation.json')),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
+    await newest.request('status')
+    await expect(
+      readFile(
+        join(root, '.agent-runtime-control', scope!, String(renewed.generation), 'supervise.lock'),
+      ),
     ).rejects.toMatchObject({ code: 'ENOENT' })
   } finally {
     await Promise.all(children.map((child) => child.kill()))

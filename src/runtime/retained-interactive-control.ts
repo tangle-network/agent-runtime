@@ -6,7 +6,7 @@ import {
 import {
   acceptedInteractiveControl,
   offerInteractiveControl,
-  scopeDirectory,
+  prepareInteractiveDelegation,
 } from './retained-interactive-delegation'
 import type { RetainedInteractiveRunHandle } from './retained-interactive-types'
 import { abortError } from './util'
@@ -42,7 +42,7 @@ export async function claimRetainedInteractiveControl(
   if (!Number.isSafeInteger(expected) || expected < 0) {
     throw new Error('interactive control expectedGeneration must be a non-negative integer')
   }
-  if (options.delegation === 'offer') scopeDirectory(options.handle)
+  if (options.delegation === 'offer') await prepareInteractiveDelegation(options.handle)
   if (options.delegation === 'accept') {
     const delegated = await acceptedInteractiveControl(options.handle)
     if (options.signal?.aborted) throw abortError(options.signal.reason)

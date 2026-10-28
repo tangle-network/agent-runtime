@@ -1585,113 +1585,221 @@ Sorted normalized paths compiled into the permission profile.
 
 ### CodexExecutionPolicy
 
-Isolation settings asserted before a reproducible Codex run is allowed to start.
+Mutable public contract derived from the single enforced policy value.
+
+#### Extends
+
+- `CodexPolicyValues`
 
 #### Properties
 
 ##### sessionPersistence
 
-> **sessionPersistence**: `"ephemeral"`
+> **sessionPersistence**: `"ephemeral"` = `'ephemeral'`
+
+###### Inherited from
+
+`CodexPolicyValues.sessionPersistence`
 
 ##### userConfig
 
-> **userConfig**: `false`
+> **userConfig**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.userConfig`
 
 ##### rules
 
-> **rules**: `false`
+> **rules**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.rules`
 
 ##### projectInstructions
 
-> **projectInstructions**: `false`
+> **projectInstructions**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.projectInstructions`
 
 ##### skillInstructions
 
-> **skillInstructions**: `false`
+> **skillInstructions**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.skillInstructions`
 
 ##### appInstructions
 
-> **appInstructions**: `false`
+> **appInstructions**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.appInstructions`
 
 ##### toolSuggestions
 
-> **toolSuggestions**: `false`
+> **toolSuggestions**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.toolSuggestions`
 
 ##### multiAgentInstructions
 
-> **multiAgentInstructions**: `false`
+> **multiAgentInstructions**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.multiAgentInstructions`
 
 ##### sandbox
 
-> **sandbox**: `"workspace-write"`
+> **sandbox**: `"workspace-write"` = `'workspace-write'`
+
+###### Inherited from
+
+`CodexPolicyValues.sandbox`
 
 ##### permissionProfile
 
-> **permissionProfile**: `"agent_runtime_reproducible"`
+> **permissionProfile**: `"agent_runtime_reproducible"` = `'agent_runtime_reproducible'`
+
+###### Inherited from
+
+`CodexPolicyValues.permissionProfile`
 
 ##### approvalPolicy
 
-> **approvalPolicy**: `"never"`
+> **approvalPolicy**: `"never"` = `'never'`
+
+###### Inherited from
+
+`CodexPolicyValues.approvalPolicy`
 
 ##### shellNetwork
 
-> **shellNetwork**: `false`
+> **shellNetwork**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.shellNetwork`
 
 ##### webSearch
 
-> **webSearch**: `false`
+> **webSearch**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.webSearch`
 
 ##### serviceTier
 
-> **serviceTier**: `"default"`
+> **serviceTier**: `"default"` = `'default'`
+
+###### Inherited from
+
+`CodexPolicyValues.serviceTier`
 
 ##### shellEnvironment
 
-> **shellEnvironment**: `"core-filtered"`
+> **shellEnvironment**: `"core-filtered"` = `'core-filtered'`
+
+###### Inherited from
+
+`CodexPolicyValues.shellEnvironment`
 
 ##### loginShell
 
-> **loginShell**: `false`
+> **loginShell**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.loginShell`
 
 ##### credentialsReadable
 
-> **credentialsReadable**: `false`
+> **credentialsReadable**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.credentialsReadable`
 
 ##### hostHomeReadable
 
-> **hostHomeReadable**: `false`
+> **hostHomeReadable**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.hostHomeReadable`
 
 ##### procEnvironment
 
-> **procEnvironment**: `"private-sanitized"`
+> **procEnvironment**: `"private-sanitized"` = `'private-sanitized'`
+
+###### Inherited from
+
+`CodexPolicyValues.procEnvironment`
 
 ##### sensitiveEnvironmentNamesVisible
 
-> **sensitiveEnvironmentNamesVisible**: `false`
+> **sensitiveEnvironmentNamesVisible**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.sensitiveEnvironmentNamesVisible`
 
 ##### parentRepoRead
 
-> **parentRepoRead**: `false`
+> **parentRepoRead**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.parentRepoRead`
 
 ##### gitMetadata
 
-> **gitMetadata**: `false`
+> **gitMetadata**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.gitMetadata`
 
 ##### temporaryDirectory
 
-> **temporaryDirectory**: `"workspace-private"`
+> **temporaryDirectory**: `"workspace-private"` = `'workspace-private'`
+
+###### Inherited from
+
+`CodexPolicyValues.temporaryDirectory`
 
 ##### stagedExecutable
 
-> **stagedExecutable**: `"static-elf-read-only"`
+> **stagedExecutable**: `"static-elf-read-only"` = `'static-elf-read-only'`
+
+###### Inherited from
+
+`CodexPolicyValues.stagedExecutable`
 
 ##### callerReadDeniedPaths
 
-> **callerReadDeniedPaths**: `"enforced"`
+> **callerReadDeniedPaths**: `"enforced"` = `'enforced'`
+
+###### Inherited from
+
+`CodexPolicyValues.callerReadDeniedPaths`
 
 ##### containerSockets
 
-> **containerSockets**: `false`
+> **containerSockets**: `false` = `false`
+
+###### Inherited from
+
+`CodexPolicyValues.containerSockets`
 
 ***
 
@@ -10154,6 +10262,13 @@ Last known provider generation. Zero discovers the current generation safely.
 ##### signal?
 
 > `readonly` `optional` **signal?**: `AbortSignal`
+
+##### delegation?
+
+> `readonly` `optional` **delegation?**: `"offer"` \| `"accept"`
+
+Explicit full-control delegation within private local Runtime state. The accepted claim
+retains the real holder identity and grants attach/input/resize, prompt and stop authority.
 
 ***
 
@@ -23359,6 +23474,10 @@ Edge ids whose traversal cap was hit — analyzes exhaustion included (observabl
 Why a flow graph ended early: a `stop` edge fired (`edge` names it), or a flow node settled
  down (no `edge`; `reason` is `down: <worker reason>`) or, where a route was needed, without a
  usable result (no `edge`; `reason` is `unusable: <why>`). Live flow workers are aborted.
+
+###### code?
+
+> `readonly` `optional` **code?**: `string`
 
 ###### edge?
 

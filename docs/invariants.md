@@ -101,7 +101,10 @@ only for mutually trusted processes running as the same OS principal. Runtime ke
 claim in private state beside the journal root, outside observer exports. Reading an observer
 journal grants no authority. Acceptance requires the exact reference, an unexpired claim, and a
 positively live offering process. Detach, close and confirmed stop revoke the matching grant;
-newer provider generations fence stale cleanup. Process death makes a leftover grant unusable.
+newer provider generations fence stale cleanup. Storage is preflighted before acquisition. If
+publication later fails, the error identifies successful acquisition: correct storage and
+reacquire with the same holder ID before sending any command. Reacquisition may advance the
+generation; it cannot replay an ambiguous prompt or stop whose digest used the earlier claim. Process death makes a leftover grant unusable.
 
 Accepted and replayed prompt acknowledgements append one observer turn per operation ID under
 a cross-process file lock. A fresh process retry repairs delivery interrupted before journaling.

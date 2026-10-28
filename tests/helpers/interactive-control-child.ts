@@ -23,7 +23,17 @@ process.on(
   (message: { id: number; action: string; operationId: string; prompt?: string }) => {
     void (async () => {
       let result: unknown
-      if (message.action === 'offer') {
+      if (message.action === 'offer-unscoped') {
+        const unscoped = await reconnectRetainedInteractiveRun({ provider, ref })
+        if (!unscoped) throw new Error('missing unscoped session')
+        await claimRetainedInteractiveControl({
+          handle: unscoped,
+          holderId: 'unscoped',
+          delegation: 'offer',
+        })
+      } else if (message.action === 'status') {
+        await handle.status()
+      } else if (message.action === 'offer') {
         const control = await claimRetainedInteractiveControl({
           handle,
           holderId: `terminal-owner-${process.pid}`,
