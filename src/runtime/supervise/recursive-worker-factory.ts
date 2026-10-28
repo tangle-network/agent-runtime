@@ -201,7 +201,7 @@ function subtreeOf(
     own?.validated.flow === undefined
       ? undefined
       : {
-          run: createFlowRun(),
+          run: createFlowRun(own.overlay.nodeOfWorker),
           route: flowOfSubtask(
             routeFlowOf(own.validated),
             spawnContext.map === undefined ? undefined : { item: spawnContext.task },

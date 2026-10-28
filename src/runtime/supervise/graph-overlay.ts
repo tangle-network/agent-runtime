@@ -100,6 +100,8 @@ export interface GraphLedgerSettlement {
 
 /** What a manager's construction composes to run one graph. */
 export interface GraphOverlay {
+  /** The graph node a worker ran: a route or delegates target, a map item, or a map join. */
+  nodeOfWorker(workerId: string): NodeId | undefined
   readonly routes: ReadonlyArray<string | AnalyzeOnSettleRoute>
   readonly maps: ReadonlyArray<MapOnSettleRoute>
   /** Delegates-edge continuity defaults by node id (= profile name). */
@@ -193,6 +195,7 @@ export function createGraphOverlay(
   productAuthorities.set(authorizeSpawn, opts.authorizeSpawn)
 
   return {
+    nodeOfWorker: (workerId) => ledger.nodeByWorkerId.get(workerId),
     routes: analystRoutes(validated, registry),
     maps: mapRoutes(validated),
     continuityByProfile: continuityDefaults(validated),
