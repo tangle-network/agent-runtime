@@ -282,7 +282,9 @@ export interface AgentGraph {
   /** Setting it makes this a FLOW graph: Runtime spawns every entry at once, each with its task,
    *  and traverses `routes` edges itself. No node is a root and no caller brain runs; the run's
    *  output is `{ [node]: latest usable result }` over its terminal nodes and `finish` sources,
-   *  judged by `deliverable`. */
+   *  judged by `deliverable`. A stored route check (`checkRef: 'route'`) may also name a
+   *  non-terminal node: its condition reads that node's latest delivered output, while the output
+   *  stays terminal-only. */
   readonly entry?: ReadonlyArray<{ readonly node: NodeId; readonly task: unknown }>
   /** Flow-graph vertices that are not agents: a routes edge into one awaits
    *  `RunGraphOptions.decideGate`, and one edge per choice leaves it, matching
