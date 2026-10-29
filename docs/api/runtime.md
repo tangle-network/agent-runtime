@@ -5840,7 +5840,7 @@ In-memory registry for named `AgentEnvironmentProvider` instances.
 
 **`Experimental`**
 
-Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port.
+Legacy Sandbox client adapter options.
 
 #### Properties
 
@@ -5916,8 +5916,7 @@ Called after verification and before deletion so the run result can retain the e
 
 **`Experimental`**
 
-Translate Sandbox-specific controls that have no neutral representation. Without this
-callback, unsupported fields are refused before any environment is created.
+Translate unsupported Sandbox controls while preserving requested custody.
 
 ###### Parameters
 
@@ -40535,7 +40534,7 @@ Resolve a provider instance or registry name, failing loudly when a name is unkn
 
 **`Experimental`**
 
-Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths.
+Expose a neutral provider through the existing Sandbox client port.
 
 #### Parameters
 
