@@ -26,6 +26,17 @@ export interface SqlRunContextOptions extends SqlRunStoreOptions, InMemoryRunCon
 export interface FencedSqlRunContext extends RunContext {
   readonly durability: 'sql'
   readonly runId: string
+  /** Capture one read-only inspection cut. Reuse it within one inspection; call again to refresh.
+   *  The returned capabilities cannot acquire a lease, execute work, or publish records. */
+  readonly readSnapshot?: () => Promise<{
+    readonly runId: string
+    readonly namespace: string
+    readonly head: string
+    readonly revision: number
+    readonly journal: Readonly<Pick<RunContext['journal'], 'loadTree'>>
+    readonly blobs: Readonly<Pick<RunContext['blobs'], 'get'>>
+    readonly coordinationLog: Readonly<Pick<NonNullable<RunContext['coordinationLog']>, 'load'>>
+  }>
   acquire(signal?: AbortSignal): Promise<RunContextLease>
 }
 
@@ -58,8 +69,28 @@ export async function createFencedSqlRunContext(
   options: SqlRunContextOptions = {},
 ): Promise<FencedSqlRunContext> {
   const store = await openSqlRunStore<Entry>(db, runId, options)
-  const { executors } = createInMemoryRunContext({ withDriver: options.withDriver ?? true })
-  const cold = async () => projection(await store.read())
+  const { executors } = createInMemoryRunContext({
+    withDriver: options.withDriver ?? true,
+  })
+  const cold = async () => {
+    const cut = await store.readSnapshot?.()
+    if (!cut) throw new Error('SQL run store does not support read snapshots')
+    const view = await projection(cut.records)
+    return Object.freeze({
+      runId,
+      namespace: cut.namespace,
+      head: cut.head,
+      revision: cut.revision,
+      journal: Object.freeze({
+        loadTree: (root: string) => view.journal.loadTree(root),
+      }),
+      blobs: Object.freeze({ get: (ref: string) => view.blobs.get(ref) }),
+      coordinationLog: Object.freeze({
+        load: async (id: string, owner?: CoordinationOwnerId) =>
+          structuredClone(await view.loadCoordination(id, owner)),
+      }),
+    })
+  }
   const unowned = async (): Promise<never> => {
     throw new SqlRunOwnershipError(`SQL run '${runId}' requires an acquired lease before writing`)
   }
@@ -69,6 +100,7 @@ export async function createFencedSqlRunContext(
     namespace: store.namespace,
     resume: true,
     executors,
+    readSnapshot: cold,
     journal: {
       loadTree: async (root) => (await cold()).journal.loadTree(root),
       beginTree: unowned,
@@ -80,7 +112,7 @@ export async function createFencedSqlRunContext(
       put: unowned,
     },
     coordinationLog: {
-      load: async (id, owner) => (await cold()).loadCoordination(id, owner),
+      load: async (id, owner) => (await cold()).coordinationLog.load(id, owner),
       append: unowned,
     },
     async acquire(signal) {

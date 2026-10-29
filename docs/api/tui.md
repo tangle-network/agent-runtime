@@ -28,6 +28,306 @@ Workers and supervisors expose optional epoch `lastActivityAt` and full-stream
 
 ## Interfaces
 
+### TopInspection
+
+**`Experimental`**
+
+#### Properties
+
+##### coverage
+
+> `readonly` **coverage**: `object`
+
+**`Experimental`**
+
+###### status
+
+> `readonly` **status**: `"complete"` \| `"partial"` \| `"missing"`
+
+###### source
+
+> `readonly` **source**: `string`
+
+###### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+###### code?
+
+> `readonly` `optional` **code?**: `"source-mismatch"` \| `"source-unbound"`
+
+###### ref?
+
+> `readonly` `optional` **ref?**: `string`
+
+##### rows?
+
+> `readonly` `optional` **rows?**: readonly ([`TopTranscriptRow`](#toptranscriptrow) & `object`)[]
+
+**`Experimental`**
+
+##### context?
+
+> `readonly` `optional` **context?**: readonly [`TopTranscriptRow`](#toptranscriptrow)[]
+
+**`Experimental`**
+
+##### files?
+
+> `readonly` `optional` **files?**: `object`
+
+**`Experimental`**
+
+###### scope
+
+> `readonly` **scope**: `"workspace"` \| `"none"`
+
+###### complete
+
+> `readonly` **complete**: `boolean`
+
+###### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+###### entries
+
+> `readonly` **entries**: readonly ([`FileIdentity`](#fileidentity) & `object`)[]
+
+##### file?
+
+> `readonly` `optional` **file?**: [`FileIdentity`](#fileidentity) & `object`
+
+**`Experimental`**
+
+###### Type Declaration
+
+###### path
+
+> `readonly` **path**: `string`
+
+###### content
+
+> `readonly` **content**: `string`
+
+###### before?
+
+> `readonly` `optional` **before?**: [`FileIdentity`](#fileidentity) & `object`
+
+###### Type Declaration
+
+###### content
+
+> `readonly` **content**: `string`
+
+###### source
+
+> `readonly` **source**: [`BaselineAuthority`](#baselineauthority)
+
+***
+
+### TopTranscriptRow
+
+**`Experimental`**
+
+#### Properties
+
+##### at
+
+> **at**: `string`
+
+**`Experimental`**
+
+##### event
+
+> **event**: `object`
+
+**`Experimental`**
+
+###### kind
+
+> **kind**: `string`
+
+###### text?
+
+> `optional` **text?**: `string`
+
+###### provenance?
+
+> `optional` **provenance?**: `string`
+
+###### source?
+
+> `optional` **source?**: `string`
+
+###### actor?
+
+> `optional` **actor?**: `string`
+
+###### toolCallId?
+
+> `optional` **toolCallId?**: `string`
+
+###### toolName?
+
+> `optional` **toolName?**: `string`
+
+###### args?
+
+> `optional` **args?**: `unknown`
+
+###### result?
+
+> `optional` **result?**: `unknown`
+
+***
+
+### TopAgentRowsFrame
+
+**`Experimental`**
+
+#### Properties
+
+##### generation
+
+> `readonly` **generation**: `number`
+
+**`Experimental`**
+
+##### events
+
+> `readonly` **events**: readonly ([`TopTranscriptRow`](#toptranscriptrow) & `object`)[]
+
+**`Experimental`**
+
+##### lastSeq
+
+> `readonly` **lastSeq**: `number`
+
+**`Experimental`**
+
+##### alive
+
+> `readonly` **alive**: `boolean`
+
+**`Experimental`**
+
+##### window
+
+> `readonly` **window**: `"verified-native"` \| `"recorded-tail"`
+
+**`Experimental`**
+
+##### coverage?
+
+> `readonly` `optional` **coverage?**: `object`
+
+**`Experimental`**
+
+###### status
+
+> `readonly` **status**: `"complete"` \| `"partial"` \| `"missing"`
+
+###### source
+
+> `readonly` **source**: `string`
+
+###### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+###### code?
+
+> `readonly` `optional` **code?**: `"source-mismatch"` \| `"source-unbound"`
+
+###### ref?
+
+> `readonly` `optional` **ref?**: `string`
+
+***
+
+### RecordedActivity
+
+**`Experimental`**
+
+Actual recorded event time and cadence; absence means no event evidence, never file mtime.
+
+#### Properties
+
+##### lastActivityAt?
+
+> `readonly` `optional` **lastActivityAt?**: `number`
+
+**`Experimental`**
+
+##### medianEventGapMs?
+
+> `readonly` `optional` **medianEventGapMs?**: `number`
+
+**`Experimental`**
+
+***
+
+### RecordedEvents
+
+**`Experimental`**
+
+#### Properties
+
+##### file
+
+> `readonly` **file**: `string`
+
+**`Experimental`**
+
+##### lines
+
+> `readonly` **lines**: `string`[]
+
+**`Experimental`**
+
+##### activity
+
+> `readonly` **activity**: [`RecordedActivity`](#recordedactivity)
+
+**`Experimental`**
+
+##### firstActivityAt?
+
+> `readonly` `optional` **firstActivityAt?**: `number`
+
+**`Experimental`**
+
+***
+
+### HarnessRowsSession
+
+**`Experimental`**
+
+The normalized subset consumed here; native decoding stays with harness-sessions.
+
+#### Properties
+
+##### nativeSessionId
+
+> `readonly` **nativeSessionId**: `string`
+
+**`Experimental`**
+
+##### messages
+
+> `readonly` **messages**: readonly `object`[]
+
+**`Experimental`**
+
+##### toolCalls
+
+> `readonly` **toolCalls**: readonly `object`[]
+
+**`Experimental`**
+
+***
+
 ### TopSnapshot
 
 **`Experimental`**
@@ -138,6 +438,16 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 - `SupervisorBase`
 
 #### Properties
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.reason`
 
 ##### id
 
@@ -376,12 +686,6 @@ The stop edge or `gate:<id>`, or absent when a down or unusable settle or the de
 
 \{ `kind`: `"unrouted"`; `reason`: `"unrouted"` \| `"target-live"`; `node`: `string`; `workerId`: `string`; `detail`: `string`; `result?`: `unknown`; \}
 
-##### reason?
-
-> `readonly` `optional` **reason?**: `string`
-
-**`Experimental`**
-
 ##### lastActivityAt?
 
 > `readonly` `optional` **lastActivityAt?**: `number`
@@ -447,6 +751,30 @@ Median gap between all recorded activity instants, including real zero gaps.
 **`Experimental`**
 
 #### Properties
+
+##### harnessTranscript?
+
+> `readonly` `optional` **harnessTranscript?**: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence)
+
+**`Experimental`**
+
+##### identity?
+
+> `readonly` `optional` **identity?**: [`NodeExecutionIdentity`](runtime.md#nodeexecutionidentity)
+
+**`Experimental`**
+
+##### materialization?
+
+> `readonly` `optional` **materialization?**: [`ProfileMaterializationReceipt`](runtime.md#profilematerializationreceipt)
+
+**`Experimental`**
+
+##### executionBindings?
+
+> `readonly` `optional` **executionBindings?**: readonly [`ExecutionBindingReceipt`](runtime.md#executionbindingreceipt)[]
+
+**`Experimental`**
 
 ##### id
 
@@ -836,6 +1164,222 @@ Dollar accounting is known unless explicitly false. A false value must not be tr
 
 ***
 
+### TopSupervisorState
+
+**`Experimental`**
+
+#### Extends
+
+- `SupervisorBase`
+
+#### Properties
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.reason`
+
+##### id
+
+> `readonly` **id**: `string`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.id`
+
+##### status
+
+> `readonly` **status**: `string`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.status`
+
+##### task
+
+> `readonly` **task**: `string`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.task`
+
+##### workspaceDir
+
+> `readonly` **workspaceDir**: `string`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.workspaceDir`
+
+##### budget
+
+> `readonly` **budget**: `number`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.budget`
+
+##### budgetKnown?
+
+> `readonly` `optional` **budgetKnown?**: `boolean`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.budgetKnown`
+
+##### verifyCmd?
+
+> `readonly` `optional` **verifyCmd?**: `string`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.verifyCmd`
+
+##### workerModel?
+
+> `readonly` `optional` **workerModel?**: `string`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.workerModel`
+
+##### driverModel?
+
+> `readonly` `optional` **driverModel?**: `string`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.driverModel`
+
+##### verdict?
+
+> `readonly` `optional` **verdict?**: `string`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.verdict`
+
+##### progress?
+
+> `readonly` `optional` **progress?**: `string`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.progress`
+
+##### startedAt?
+
+> `readonly` `optional` **startedAt?**: `string`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.startedAt`
+
+##### completedAt?
+
+> `readonly` `optional` **completedAt?**: `string`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.completedAt`
+
+##### maxSandboxes?
+
+> `readonly` `optional` **maxSandboxes?**: `number`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.maxSandboxes`
+
+##### maxLifetimeSeconds?
+
+> `readonly` `optional` **maxLifetimeSeconds?**: `number`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.maxLifetimeSeconds`
+
+##### idleTimeoutSeconds?
+
+> `readonly` `optional` **idleTimeoutSeconds?**: `number`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.idleTimeoutSeconds`
+
+##### maxUsd?
+
+> `readonly` `optional` **maxUsd?**: `number`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.maxUsd`
+
+##### maxDepth?
+
+> `readonly` `optional` **maxDepth?**: `number`
+
+**`Experimental`**
+
+###### Inherited from
+
+`SupervisorBase.maxDepth`
+
+##### result?
+
+> `readonly` `optional` **result?**: `object`
+
+**`Experimental`**
+
+###### spentUsd?
+
+> `readonly` `optional` **spentUsd?**: `number`
+
+###### spentTokens?
+
+> `readonly` `optional` **spentTokens?**: `number`
+
+***
+
 ### TopSnapshotFrame
 
 **`Experimental`**
@@ -902,7 +1446,149 @@ Defaults to the installed agent-record browser asset export.
 
 **`Experimental`**
 
+##### source?
+
+> `readonly` `optional` **source?**: [`TopInspectionSource`](#topinspectionsource)
+
+**`Experimental`**
+
+Product-owned verified conversation reads; no execution or credential access.
+
+##### readSessions?
+
+> `readonly` `optional` **readSessions?**: [`TopSessionReader`](#topsessionreader)
+
+**`Experimental`**
+
+Canonical native decoding for ordinary Runtime transcript receipts.
+
 ## Type Aliases
+
+### BaselineAuthority
+
+> **BaselineAuthority** = `object`
+
+**`Experimental`**
+
+#### Properties
+
+##### kind
+
+> `readonly` **kind**: `"retained-workspace"` \| `"git-object"` \| `"git-diff"`
+
+##### ref
+
+> `readonly` **ref**: `string`
+
+***
+
+### FileIdentity
+
+> **FileIdentity** = `object`
+
+**`Experimental`**
+
+#### Properties
+
+##### sha256
+
+> `readonly` **sha256**: `string`
+
+##### byteLength
+
+> `readonly` **byteLength**: `number`
+
+***
+
+### TopSessionReader
+
+> **TopSessionReader** = (`artifact`, `signal?`) => `Promise`\<readonly [`HarnessRowsSession`](#harnessrowssession)[]\>
+
+**`Experimental`**
+
+#### Parameters
+
+##### artifact
+
+[`HarnessTranscriptArtifact`](runtime.md#harnesstranscriptartifact)
+
+##### signal?
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<readonly [`HarnessRowsSession`](#harnessrowssession)[]\>
+
+***
+
+### TopAgentMetadata
+
+> **TopAgentMetadata** = `Omit`\<[`TopInspection`](#topinspection), `"rows"` \| `"context"`\> & `object`
+
+**`Experimental`**
+
+#### Type Declaration
+
+##### context
+
+> `readonly` **context**: readonly [`TopTranscriptRow`](#toptranscriptrow)[]
+
+***
+
+### TopAgentStreamFrame
+
+> **TopAgentStreamFrame** = \{ `event`: `"reset"`; `data`: \{ `generation`: `number`; \}; \} \| \{ `event`: `"rows"`; `data`: [`TopAgentRowsFrame`](#topagentrowsframe); \}
+
+**`Experimental`**
+
+Both HTTP transports share conversation selection, stable identity, sequence and batching.
+
+***
+
+### HarnessRowsGap
+
+> **HarnessRowsGap** = `object`
+
+**`Experimental`**
+
+#### Properties
+
+##### sessionId
+
+> `readonly` **sessionId**: `string`
+
+##### recordId
+
+> `readonly` **recordId**: `string`
+
+##### reason
+
+> `readonly` **reason**: `string`
+
+***
+
+### HarnessSessionRow
+
+> **HarnessSessionRow** = [`TopTranscriptRow`](#toptranscriptrow) & `object`
+
+**`Experimental`**
+
+#### Type Declaration
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### sessionId
+
+> `readonly` **sessionId**: `string`
+
+##### part
+
+> `readonly` **part**: `number`
+
+***
 
 ### TopSnapshotCompleteness
 
@@ -938,7 +1624,7 @@ Defaults to the installed agent-record browser asset export.
 
 ### TopJournalEvent
 
-> **TopJournalEvent** = `object` & (\{ `kind`: `"spawned"`; `parent?`: `string`; `label?`: `string`; `budget?`: `unknown`; `runtime?`: `string`; \} \| \{ `kind`: `"settled"`; `status?`: `string`; `outRef?`: `string`; `verdict?`: `unknown`; `spent?`: `unknown`; `infra?`: `boolean`; \} \| \{ `kind`: `"cancelled"`; `spent?`: `unknown`; `reason?`: `string`; \} \| \{ `kind`: `"metered"`; `spend?`: `unknown`; `accountingOnly?`: `boolean`; \} \| \{ `kind`: `"progress"`; `spend?`: `unknown`; \})
+> **TopJournalEvent** = `object` & (\{ `kind`: `"spawned"`; `identity?`: [`NodeExecutionIdentity`](runtime.md#nodeexecutionidentity); `parent?`: `string`; `label?`: `string`; `budget?`: `unknown`; `runtime?`: `string`; \} \| \{ `kind`: `"settled"`; `harnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `status?`: `string`; `outRef?`: `string`; `verdict?`: `unknown`; `spent?`: `unknown`; `infra?`: `boolean`; \} \| \{ `kind`: `"cancelled"`; `spent?`: `unknown`; `reason?`: `string`; \} \| \{ `kind`: `"metered"`; `spend?`: `unknown`; `accountingOnly?`: `boolean`; \} \| \{ `kind`: `"materialized"`; `receipt`: [`ProfileMaterializationReceipt`](runtime.md#profilematerializationreceipt); \} \| \{ `kind`: `"execution-bound"`; `binding`: [`ExecutionBindingReceipt`](runtime.md#executionbindingreceipt); \} \| \{ `kind`: `"progress"`; `spend?`: `unknown`; \})
 
 **`Experimental`**
 
@@ -955,6 +1641,48 @@ Defaults to the installed agent-record browser asset export.
 ##### at?
 
 > `readonly` `optional` **at?**: `string`
+
+***
+
+### TopInspectionSource
+
+> **TopInspectionSource** = (`request`) => `Promise`\<[`TopInspection`](#topinspection)\>
+
+**`Experimental`**
+
+#### Parameters
+
+##### request
+
+###### root
+
+`string`
+
+###### runId
+
+`string`
+
+###### workerId
+
+`string`
+
+###### signal?
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<[`TopInspection`](#topinspection)\>
+
+## Variables
+
+### TOP\_SNAPSHOT\_RECONCILE\_MS
+
+> `const` **TOP\_SNAPSHOT\_RECONCILE\_MS**: `500` = `500`
+
+**`Experimental`**
+
+Interval for reconciling missed filesystem notifications in the live viewer.
 
 ## Functions
 
@@ -1015,6 +1743,318 @@ bounded diagnostics, and live event readers cache append offsets. `now` controls
 ##### Returns
 
 `Promise`\<[`TopSnapshot`](#topsnapshot)\>
+
+***
+
+### projectTopSnapshot()
+
+> **projectTopSnapshot**(`root`, `now`, `supervisors`, `diagnostics?`, `discovered?`, `pursuit?`): [`TopSnapshot`](#topsnapshot)
+
+**`Experimental`**
+
+Combine supervisor projections and source diagnostics into one snapshot.
+
+#### Parameters
+
+##### root
+
+`string`
+
+##### now
+
+`number`
+
+##### supervisors
+
+[`SupervisorView`](#supervisorview)[]
+
+##### diagnostics?
+
+[`TopSnapshotDiagnostic`](#topsnapshotdiagnostic)[] = `[]`
+
+##### discovered?
+
+`number` = `1`
+
+##### pursuit?
+
+[`PursuitProjection`](durable.md#pursuitprojection)
+
+#### Returns
+
+[`TopSnapshot`](#topsnapshot)
+
+***
+
+### projectTopSupervisor()
+
+> **projectTopSupervisor**(`state`, `stateDir`, `events`, `progressTail`, `now`, `workerEventTails?`, `accounting?`): [`SupervisorView`](#supervisorview)
+
+**`Experimental`**
+
+Project committed lifecycle and spend evidence into one supervisor view.
+
+#### Parameters
+
+##### state
+
+[`TopSupervisorState`](#topsupervisorstate)
+
+##### stateDir
+
+`string`
+
+##### events
+
+readonly [`TopJournalEvent`](#topjournalevent)[]
+
+##### progressTail
+
+readonly `string`[]
+
+##### now
+
+`number`
+
+##### workerEventTails?
+
+`Map`\<`string`, [`RecordedEvents`](#recordedevents)\> = `...`
+
+##### accounting?
+
+[`PursuitRunProjection`](durable.md#pursuitrunprojection)
+
+#### Returns
+
+[`SupervisorView`](#supervisorview)
+
+***
+
+### isTopJournalEvent()
+
+> **isTopJournalEvent**\<`T`\>(`value`): `value is T & TopJournalEvent`
+
+**`Experimental`**
+
+Validate supported journal lifecycle and accounting event shapes.
+
+#### Type Parameters
+
+##### T
+
+`T`
+
+#### Parameters
+
+##### value
+
+`T`
+
+#### Returns
+
+`value is T & TopJournalEvent`
+
+***
+
+### readTopAgentHistory()
+
+> **readTopAgentHistory**(`worker`, `blobs?`, `node?`): `Promise`\<[`TopTranscriptRow`](#toptranscriptrow)[]\>
+
+**`Experimental`**
+
+Task, result and progress use the same projection for file-backed and SQL-backed runs.
+
+#### Parameters
+
+##### worker
+
+[`WorkerView`](#workerview)
+
+##### blobs?
+
+`Pick`\<[`ResultBlobStore`](runtime.md#resultblobstore), `"get"`\>
+
+##### node?
+
+[`PursuitNodeProjection`](durable.md#pursuitnodeprojection)
+
+#### Returns
+
+`Promise`\<[`TopTranscriptRow`](#toptranscriptrow)[]\>
+
+***
+
+### readTopAgentInspection()
+
+> **readTopAgentInspection**(`__namedParameters`): `Promise`\<[`TopInspection`](#topinspection)\>
+
+**`Experimental`**
+
+Resolve ordinary Runtime transcript evidence, never a product-specific capture registry.
+
+#### Parameters
+
+##### \_\_namedParameters
+
+###### worker
+
+[`WorkerView`](#workerview)
+
+###### runId
+
+`string`
+
+###### blobs
+
+`Pick`\<[`ResultBlobStore`](runtime.md#resultblobstore), `"get"`\>
+
+###### readSessions
+
+[`TopSessionReader`](#topsessionreader)
+
+###### artifacts?
+
+[`AgentCandidateArtifactPort`](candidate-execution.md#agentcandidateartifactport)
+
+###### signal?
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<[`TopInspection`](#topinspection)\>
+
+***
+
+### topAgentWorker()
+
+> **topAgentWorker**(`run`, `workerId`): [`WorkerView`](#workerview) \| `undefined`
+
+**`Experimental`**
+
+One selected-agent mapping for filesystem and API transports; no execution or I/O.
+
+#### Parameters
+
+##### run
+
+[`SupervisorView`](#supervisorview)
+
+##### workerId
+
+`string`
+
+#### Returns
+
+[`WorkerView`](#workerview) \| `undefined`
+
+***
+
+### topAgentMetadata()
+
+> **topAgentMetadata**(`inspection`, `recorded`): [`TopAgentMetadata`](#topagentmetadata)
+
+**`Experimental`**
+
+Metadata keeps full recorded context while the conversation can show compact attribution.
+
+#### Parameters
+
+##### inspection
+
+[`TopInspection`](#topinspection) \| `undefined`
+
+##### recorded
+
+readonly [`TopTranscriptRow`](#toptranscriptrow)[]
+
+#### Returns
+
+[`TopAgentMetadata`](#topagentmetadata)
+
+***
+
+### createTopAgentStream()
+
+> **createTopAgentStream**(`generation`): `object`
+
+**`Experimental`**
+
+Project selected conversation rows into ordered reset and row frames.
+
+#### Parameters
+
+##### generation
+
+`number`
+
+#### Returns
+
+`object`
+
+##### reset
+
+> **reset**: `object`
+
+###### reset.generation
+
+> **generation**: `number`
+
+##### frame()
+
+> **frame**(`__namedParameters`): readonly [`TopAgentStreamFrame`](#topagentstreamframe)[]
+
+###### Parameters
+
+###### \_\_namedParameters
+
+###### recorded
+
+readonly [`TopTranscriptRow`](#toptranscriptrow)[]
+
+###### inspection?
+
+[`TopInspection`](#topinspection)
+
+###### alive
+
+`boolean`
+
+###### includeContext?
+
+`boolean`
+
+###### Returns
+
+readonly [`TopAgentStreamFrame`](#topagentstreamframe)[]
+
+***
+
+### harnessSessionRows()
+
+> **harnessSessionRows**(`sessions`): `object`
+
+**`Experimental`**
+
+One ordered projection for every strict native reader, with explicit unrenderable evidence.
+
+#### Parameters
+
+##### sessions
+
+readonly [`HarnessRowsSession`](#harnessrowssession)[]
+
+#### Returns
+
+`object`
+
+##### rows
+
+> **rows**: [`HarnessSessionRow`](#harnesssessionrow)[]
+
+##### gaps
+
+> **gaps**: [`HarnessRowsGap`](#harnessrowsgap)[]
 
 ***
 

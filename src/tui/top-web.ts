@@ -10,6 +10,7 @@ import { serveTopAgent, type TopInspectionSource } from './top-web-agent'
 
 export type { TopInspection, TopInspectionSource } from './top-web-agent'
 
+/** Interval for reconciling missed filesystem notifications in the live viewer. */
 export const TOP_SNAPSHOT_RECONCILE_MS = 500
 
 /** A reconnect always receives current truth; deltas replace changed roots atomically. */

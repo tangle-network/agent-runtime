@@ -186,6 +186,7 @@ export type TopJournalEvent = {
       readonly accountingOnly?: boolean
     }
   | { readonly kind: 'materialized'; readonly receipt: ProfileMaterializationReceipt }
+  | { readonly kind: 'seat-materialized'; readonly receipt: ProfileMaterializationReceipt }
   | { readonly kind: 'execution-bound'; readonly binding: ExecutionBindingReceipt }
   | {
       readonly kind: 'progress'

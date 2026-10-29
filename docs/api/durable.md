@@ -3062,7 +3062,7 @@ Worker output store. Defaults to in-memory.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-7)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-8)
 
 ##### parking?
 

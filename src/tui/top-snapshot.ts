@@ -178,6 +178,7 @@ export function loadTopSnapshot(
   return topSnapshot(root, now, supervisors, diagnostics, discovered)
 }
 
+/** Combine supervisor projections and source diagnostics into one snapshot. */
 export function topSnapshot(
   root: string,
   now: number,
@@ -420,6 +421,7 @@ function recordedReason(event?: object): string | undefined {
   return isRecord(event) && typeof event.reason === 'string' ? event.reason : undefined
 }
 
+/** Project committed lifecycle and spend evidence into one supervisor view. */
 export function buildSupervisorView(
   state: SupervisorState,
   stateDir: string,
@@ -460,7 +462,6 @@ export function buildSupervisorView(
         'outRef',
         'harnessTranscript',
         'transcript',
-        'materialization',
         'reason',
         'infra',
         'verdict',
@@ -474,7 +475,7 @@ export function buildSupervisorView(
       if (event.at) worker.startedAt = event.at
       const budget = parseBudget(event.budget)
       if (budget) worker.budget = budget
-    } else if (event.kind === 'materialized') {
+    } else if (event.kind === 'materialized' || event.kind === 'seat-materialized') {
       worker.materialization = event.receipt
     } else if (event.kind === 'execution-bound') {
       worker.executionBindings = [...(worker.executionBindings ?? []), event.binding]
@@ -782,6 +783,7 @@ function isSupervisorState(value: unknown): value is SupervisorState {
   )
 }
 
+/** Validate supported journal lifecycle and accounting event shapes. */
 export function isSpawnEvent<T>(value: T): value is T & TopJournalEvent {
   return (
     isRecord(value) &&
@@ -794,6 +796,7 @@ export function isSpawnEvent<T>(value: T): value is T & TopJournalEvent {
       'metered',
       'progress',
       'materialized',
+      'seat-materialized',
       'execution-bound',
     ].includes(value.kind)
   )

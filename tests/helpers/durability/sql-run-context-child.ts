@@ -1,14 +1,15 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
+import { Sandbox } from '@tangle-network/sandbox'
 import { contentAddress } from '../../../src/durable/content-address'
 import { runGraph } from '../../../src/runtime/supervise/graph'
 import { createFencedSqlRunContext } from '../../../src/runtime/supervise/sql-run-context'
-import { durableRetainedProvider } from '../durable-retained-provider'
+import { readRecords } from '../../integration/fixtures/uncertain-create-protocol'
 import { ConductorPlanner, conformanceGraph, RUN_ID, WORKER_NODES } from './conformance-graph'
 import { openSideEffectSite, SIDE_EFFECT_TOOL_NAME, sideEffectToolSpec } from './side-effect'
 import { isSqlOwnershipDenial, openSql, type SqlBoundary, TEST_LEASE } from './sql-adapter'
@@ -68,80 +69,71 @@ const boundary: SqlBoundary = async (when, sql, params) => {
 }
 
 const store = openSql(join(shared, 'run-context.sqlite'), boundary)
-const physical = new DatabaseSync(join(shared, 'provider-effects.sqlite'))
-physical.exec(
-  'PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=10000; CREATE TABLE IF NOT EXISTS effects(kind TEXT NOT NULL, effect_key TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(kind,effect_key))',
-)
-function applied(kind: string, key: string) {
-  physical
-    .prepare(
-      'INSERT INTO effects VALUES (?, ?, 1) ON CONFLICT(kind,effect_key) DO UPDATE SET count=count+1',
-    )
-    .run(kind, key)
-}
-function total(kind: string) {
-  return Number(
-    (
-      physical
-        .prepare('SELECT COALESCE(SUM(count),0) AS n FROM effects WHERE kind=?')
-        .get(kind) as { n: number }
-    ).n,
-  )
-}
-
-// This file is the EXTERNAL provider's durable state, not an orchestrator runDir. Each host has
-// its own empty working directory; only SQL and this independently retained service survive.
-const providerFile = join(shared, 'provider.json')
-type ProviderState = {
-  environments: Record<string, { sessions: Record<string, { controls: Record<string, unknown> }> }>
-}
-function providerState(): ProviderState {
-  return existsSync(providerFile)
-    ? (JSON.parse(readFileSync(providerFile, 'utf8')) as ProviderState)
-    : { environments: {} }
-}
-const base = durableRetainedProvider(providerFile)
-function wrappedEnvironment(environment: AgentEnvironment): AgentEnvironment {
+function graphProvider(): AgentEnvironmentProvider {
+  // This independent HTTP service survives each killed orchestrator. Its real finite workers,
+  // provision ledger and dispatch ledger are external effects, never orchestration persistence.
+  const { url } = JSON.parse(readFileSync(join(shared, 'service-ready.json'), 'utf8')) as {
+    url: string
+  }
+  const base = createTangleProvider({
+    client: new Sandbox({
+      apiKey: 'local-fixture-not-a-secret',
+      baseUrl: url,
+      platformUrl: url,
+      trustLocalCliAuth: false,
+      directExec: false,
+    }),
+    name: 'sql-http-process',
+  })
+  function wrappedEnvironment(environment: AgentEnvironment): AgentEnvironment {
+    return {
+      ...environment,
+      async dispatch(input) {
+        await hit('provider:dispatch:before')
+        if (!environment.dispatch) throw new Error('fixture environment must support dispatch')
+        const session = await environment.dispatch(input)
+        await hit('provider:dispatch:after')
+        return session
+      },
+    }
+  }
   return {
-    ...environment,
-    async dispatch(input) {
-      await hit('provider:dispatch:before')
-      const previous = providerState().environments[environment.id]?.sessions
-      const known = new Set(
-        Object.values(previous ?? {}).flatMap((session) => Object.keys(session.controls)),
-      )
-      if (!environment.dispatch) throw new Error('fixture environment must support dispatch')
-      const session = await environment.dispatch(input)
-      const executionId = session.controlRef?.executionId
-      if (!executionId) throw new Error('fixture dispatch must retain its execution identity')
-      if (!known.has(executionId)) applied('dispatch', `${environment.id}:${executionId}`)
-      await hit('provider:dispatch:after')
-      return session
+    ...base,
+    async create(input) {
+      await hit('provider:create:before')
+      const environment = await base.create(input)
+      await hit('provider:create:after')
+      return wrappedEnvironment(environment)
+    },
+    async get(id) {
+      if (!base.get) throw new Error('fixture provider must support retained lookup')
+      const environment = await base.get(id)
+      return environment ? wrappedEnvironment(environment) : null
     },
   }
-}
-const provider: AgentEnvironmentProvider = {
-  ...base,
-  async create(input) {
-    await hit('provider:create:before')
-    const known = new Set(Object.keys(providerState().environments))
-    const environment = await base.create(input)
-    if (!known.has(environment.id)) applied('create', environment.id)
-    await hit('provider:create:after')
-    return wrappedEnvironment(environment)
-  },
-  async get(id) {
-    if (!base.get) throw new Error('fixture provider must support retained lookup')
-    const environment = await base.get(id)
-    return environment ? wrappedEnvironment(environment) : null
-  },
 }
 
 async function phase() {
   const context = await createFencedSqlRunContext(store.adapter, RUN_ID, TEST_LEASE)
   const planner = new ConductorPlanner({ forbidInDoubt: true })
   const site = openSideEffectSite(shared!)
-  const result = await runGraph(conformanceGraph(), {
+  const authored = conformanceGraph()
+  const graph = {
+    ...authored,
+    nodes: authored.nodes.map((node) =>
+      node.id === 'conductor'
+        ? node
+        : {
+            ...node,
+            profile: {
+              ...node.profile,
+              harness: 'opencode',
+              model: { provider: 'openai', default: 'fixture-model' },
+            },
+          },
+    ),
+  }
+  const result = await runGraph(graph, {
     runId: RUN_ID,
     runContext: context,
     workerSlots: 3,
@@ -151,7 +143,7 @@ async function phase() {
       const response = planner.nextTurn(messages as ReadonlyArray<Record<string, unknown>>)
       return { ...response, toolCalls: response.toolCalls ?? [] }
     },
-    backend: { backend: 'provider', provider },
+    backend: { backend: 'provider', provider: graphProvider() },
     extraTools: [sideEffectToolSpec()],
     executeExtraTool: async (name, args) => {
       if (name !== SIDE_EFFECT_TOOL_NAME) return null
@@ -212,8 +204,12 @@ async function phase() {
     planner: planner.report(),
     escalations: planner.report().escalations,
     effects: site.committedKeys(),
-    creations: total('create'),
-    dispatches: total('dispatch'),
+    creations: readRecords(join(shared, 'service-ledger.jsonl')).filter(
+      (row) => row.kind === 'provision-admitted',
+    ).length,
+    dispatches: readRecords(join(shared, 'service-ledger.jsonl')).filter(
+      (row) => row.kind === 'dispatch',
+    ).length,
     sqlCalls,
     sqlBytes,
   }
@@ -250,7 +246,6 @@ try {
     await phase()
   }
   store.database.close()
-  physical.close()
   process.disconnect?.()
 } catch (error) {
   console.error(error)

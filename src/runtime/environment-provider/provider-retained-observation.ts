@@ -30,7 +30,7 @@ const RETAINED_OBSERVATION_BATCH_EVENTS = 1_024
 
 /**
  * After its exact result, a stream that still owes its terminal frame keeps reading only while
- * each frame arrives within this long of the last; a quiet stream closes on the result at once.
+ * each frame arrives within this long of the result or the last frame.
  * A provider sends a turn's last frames and its result on two connections, and a burst that
  * straddles the result is read whole.
  */
@@ -69,8 +69,6 @@ export class RetainedObservation {
   private lastReplayPosition: string | undefined
   private sawTerminal = false
   private lastObservedAt = 0
-  // When the stream last delivered a new frame; undefined until it delivers one.
-  private lastFrameAt: number | undefined
   // The node publishes its wait once per invocation; the row's `since` is when it began.
   private awaitingPublished = false
   private exactResult: Promise<AgentTurnResult> | undefined
@@ -187,6 +185,7 @@ export class RetainedObservation {
         this.signal,
       )
       const settle = () => {
+        if (this.observedFrames === 0) this.lastObservedAt = Date.now()
         this.exactResultSettled = true
       }
       void this.exactResult.then(settle, settle)
@@ -230,15 +229,16 @@ export class RetainedObservation {
       const exactWake = new Promise<FrameRead>((resolve) => {
         wake = setImmediate(() => {
           const close = () => {
-            const flowing =
-              this.sawTerminal || this.lastFrameAt === undefined
-                ? 0
-                : RETAINED_TAIL_FLOW_MS - (Date.now() - this.lastFrameAt)
+            const flowing = this.sawTerminal
+              ? 0
+              : RETAINED_TAIL_FLOW_MS - (Date.now() - this.lastObservedAt)
             if (flowing <= 0) {
               resolve({ kind: 'exact-result' })
               return
             }
-            grace = setTimeout(() => resolve({ kind: 'exact-result' }), flowing)
+            grace = setTimeout(() => {
+              wake = setImmediate(() => resolve({ kind: 'exact-result' }))
+            }, flowing)
             if (typeof grace.unref === 'function') grace.unref()
           }
           unwatch = this.onExactResult(close)
@@ -307,7 +307,6 @@ export class RetainedObservation {
     }
     // A replayed frame is not progress: a provider repeating one cursor must not hold a finished turn open.
     this.lastObservedAt = Date.now()
-    this.lastFrameAt = this.lastObservedAt
     if (identity.cursor !== undefined) this.lastReplayPosition = identity.cursor
     else if (eventId !== undefined) this.lastReplayPosition = eventId
     if (isTerminalEnvironmentEvent(event)) this.sawTerminal = true

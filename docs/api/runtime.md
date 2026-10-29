@@ -771,6 +771,78 @@ A missing start binary / spawn fault: a SETUP bug, never a failed candidate.
 
 ***
 
+### RunCancellationReason
+
+Provenance of an explicit cancellation, preserved through every abort link.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new RunCancellationReason**(`source`, `reason`, `operationId?`, `operator?`): [`RunCancellationReason`](#runcancellationreason)
+
+###### Parameters
+
+###### source
+
+`string`
+
+###### reason
+
+`string`
+
+###### operationId?
+
+`string`
+
+###### operator?
+
+`string`
+
+Who stopped the run, from the durable cancel request; absent for an in-process abort.
+
+###### Returns
+
+[`RunCancellationReason`](#runcancellationreason)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### source
+
+> `readonly` **source**: `string`
+
+##### operationId?
+
+> `readonly` `optional` **operationId?**: `string`
+
+##### operator?
+
+> `readonly` `optional` **operator?**: `string`
+
+Who stopped the run, from the durable cancel request; absent for an in-process abort.
+
+#### Methods
+
+##### toString()
+
+> **toString**(): `string`
+
+Returns a string representation of an object.
+
+###### Returns
+
+`string`
+
+***
+
 ### CheckUnavailableError
 
 The check could not run: its box did not start, its judge's provider refused, its program
@@ -5432,7 +5504,7 @@ The same domain surface in the structural `BenchmarkAdapter` shape.
 
 **`Experimental`**
 
-What one provider-executed turn settles on: the visible answer plus the event archive the
+Provider execution evidence and default turn output: the visible answer plus the event archive the
 environment streamed. It is the value a `ProviderExecutorOptions.validator` scores.
 
 The archive is the streamed sequence, in order, without superseded part updates. A harness
@@ -5535,6 +5607,14 @@ Select exactly one caller-declared placement from each child's unchanged profile
 > `optional` **requireTerminalEvent?**: `boolean`
 
 **`Experimental`**
+
+##### outputFormat?
+
+> `optional` **outputFormat?**: `"json"`
+
+**`Experimental`**
+
+Exact final-message JSON for graph output; requires Runtime-owned durable evidence.
 
 ##### promptOptions?
 
@@ -5869,6 +5949,36 @@ callback, unsupported fields are refused before any environment is created.
 
 ***
 
+### HarnessTranscriptBinding
+
+#### Properties
+
+##### kind
+
+> `readonly` **kind**: `"bridge"`
+
+##### node?
+
+> `readonly` `optional` **node?**: [`ExecutorNodeContext`](#executornodecontext)
+
+##### sessionId
+
+> `readonly` **sessionId**: `string`
+
+##### nativeSessionId
+
+> `readonly` **nativeSessionId**: `string`
+
+##### profileDigest
+
+> `readonly` **profileDigest**: `string`
+
+##### runs
+
+> `readonly` **runs**: readonly `object`[]
+
+***
+
 ### HarnessTranscriptArtifact
 
 #### Properties
@@ -5880,6 +5990,50 @@ callback, unsupported fields are refused before any environment is created.
 ##### harness
 
 > `readonly` **harness**: `string`
+
+##### binding?
+
+> `readonly` `optional` **binding?**: [`HarnessTranscriptBinding`](#harnesstranscriptbinding)
+
+##### source?
+
+> `readonly` `optional` **source?**: `object`
+
+###### executionId
+
+> `readonly` **executionId**: `string`
+
+###### controlRef?
+
+> `readonly` `optional` **controlRef?**: `AgentExactRunControlRef`
+
+###### node?
+
+> `readonly` `optional` **node?**: [`ExecutorNodeContext`](#executornodecontext)
+
+###### environmentId
+
+> `readonly` **environmentId**: `string`
+
+###### profileDigest
+
+> `readonly` **profileDigest**: `` `sha256:${string}` ``
+
+###### providerSessionId
+
+> `readonly` **providerSessionId**: `string` \| `null`
+
+###### nativeSessionId
+
+> `readonly` **nativeSessionId**: `string` \| `null`
+
+###### coverageComplete
+
+> `readonly` **coverageComplete**: `boolean`
+
+###### incompleteReason?
+
+> `readonly` `optional` **incompleteReason?**: `string`
 
 ##### files
 
@@ -10125,6 +10279,10 @@ Inventory and source identity only; native bytes remain in the original workspac
 
 > `readonly` **harness**: `string`
 
+##### binding?
+
+> `readonly` `optional` **binding?**: [`HarnessTranscriptBinding`](#harnesstranscriptbinding)
+
 ##### files
 
 > `readonly` **files**: readonly `object`[]
@@ -10234,6 +10392,62 @@ Projection limits do not change what the original archive retained.
 ##### signal?
 
 > `readonly` `optional` **signal?**: `AbortSignal`
+
+***
+
+### BoundHarnessSession
+
+#### Properties
+
+##### nativeSessionId
+
+> `readonly` **nativeSessionId**: `string`
+
+##### parentNativeSessionId?
+
+> `readonly` `optional` **parentNativeSessionId?**: `string` \| `null`
+
+##### children
+
+> `readonly` **children**: readonly `object`[]
+
+##### integrity
+
+> `readonly` **integrity**: `object`
+
+###### truncated
+
+> `readonly` **truncated**: `boolean`
+
+###### unparsedRecords
+
+> `readonly` **unparsedRecords**: `number`
+
+###### gaps
+
+> `readonly` **gaps**: readonly `unknown`[]
+
+***
+
+### HarnessFileBinding
+
+#### Properties
+
+##### path
+
+> `readonly` **path**: `string`
+
+##### nativeSessionId
+
+> `readonly` **nativeSessionId**: `string`
+
+##### sha256?
+
+> `readonly` `optional` **sha256?**: `string`
+
+##### byteLength?
+
+> `readonly` `optional` **byteLength?**: `number`
 
 ***
 
@@ -15567,6 +15781,48 @@ credits the DELTA, so each turn is charged once, and it reports the counters wit
 The path must be the run's OWN isolated store. An ambient host store credits this run with
 another run's files, and `workspaceRoot` is the structural guard against it.
 
+##### harnessTranscript?
+
+> `optional` **harnessTranscript?**: (`request`) => `Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
+
+Local native capture, after the admitted jobs are proven terminal. Retained live, never serialized.
+
+###### Parameters
+
+###### request
+
+###### sessionId
+
+`string`
+
+###### harness
+
+`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
+
+###### profileDigest
+
+`` `sha256:${string}` ``
+
+###### cwd?
+
+`string`
+
+###### node?
+
+[`ExecutorNodeContext`](#executornodecontext)
+
+###### runs
+
+readonly `object`[]
+
+###### signal
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
+
 ##### timeoutMs?
 
 > `optional` **timeoutMs?**: `number`
@@ -18450,34 +18706,14 @@ executor never destroys it. The scope asks for it through `RetainedExecutorConte
 
 ##### resultArtifact()
 
-> **resultArtifact**(): `object`
+> **resultArtifact**(): [`ExecutorResult`](#executorresult)\<`Out`\>
 
 The replay source (B1): the content-addressed `outRef` + the materialized output the
 driver branched on, its verdict, and the conserved spend. Read once, after settle.
 
 ###### Returns
 
-`object`
-
-###### outRef
-
-> **outRef**: `string`
-
-###### out
-
-> **out**: `Out`
-
-###### verdict?
-
-> `optional` **verdict?**: `DefaultVerdict`
-
-###### spent
-
-> **spent**: [`Spend`](#spend-1)
-
-###### teardown?
-
-> `optional` **teardown?**: [`ExecutorTeardownWarning`](#executorteardownwarning)
+[`ExecutorResult`](#executorresult)\<`Out`\>
 
 ##### accounting()?
 
@@ -18642,6 +18878,12 @@ Terminal artifact of a one-shot `Executor.execute`.
 `Out`
 
 #### Properties
+
+##### outputFormat?
+
+> `optional` **outputFormat?**: `"json"`
+
+Host-projected application JSON; its keys are never native trace or capture authority.
 
 ##### outcome?
 
@@ -25951,6 +26193,38 @@ is proven.
 
 ***
 
+### RunTraceSources
+
+What a run's trace is read from: the director's root stream, when it has one, and its workers.
+
+#### Properties
+
+##### root?
+
+> `readonly` `optional` **root?**: `object`
+
+###### id
+
+> `readonly` **id**: `string`
+
+###### read
+
+> `readonly` **read**: () => `Promise`\<readonly [`RootStreamRecord`](durable.md#rootstreamrecord)[] \| `undefined`\>
+
+###### Returns
+
+`Promise`\<readonly [`RootStreamRecord`](durable.md#rootstreamrecord)[] \| `undefined`\>
+
+##### workers
+
+> `readonly` **workers**: readonly `object`[]
+
+##### blobs
+
+> `readonly` **blobs**: `Pick`\<[`ResultBlobStore`](#resultblobstore), `"get"`\>
+
+***
+
 ### RouterSeam
 
 Router/inline transport seam. The profile owns model, prompt, and generation behavior.
@@ -26402,6 +26676,16 @@ Select exactly one caller-declared placement from each child's unchanged profile
 ###### Inherited from
 
 [`ProviderExecutorOptions`](#providerexecutoroptions).[`requireTerminalEvent`](#requireterminalevent)
+
+##### outputFormat?
+
+> `optional` **outputFormat?**: `"json"`
+
+Exact final-message JSON for graph output; requires Runtime-owned durable evidence.
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](#providerexecutoroptions).[`outputFormat`](#outputformat)
 
 ##### promptOptions?
 
@@ -29436,7 +29720,7 @@ Optional capture of the manager's own harness session from its newest attempt.
 
 > `optional` **harnessTranscriptSettled**(): `Promise`\<`void`\>
 
-Resolves once [harnessTranscript](#harnesstranscript-2) is final (`Executor.harnessTranscriptSettled`).
+Resolves once [harnessTranscript](#harnesstranscript-3) is final (`Executor.harnessTranscriptSettled`).
 
 ###### Returns
 
@@ -33547,7 +33831,7 @@ mapper it already uses in the other direction, so a sandbox-shaped provider read
 
 ### HarnessTranscriptUnavailableReason
 
-> **HarnessTranscriptUnavailableReason** = `"unsupported-environment"` \| `"unknown-harness"` \| `"no-transcript"` \| `"enumeration-failed"` \| `"execution-never-started"` \| `"capture-did-not-run"` \| `"executor-exposes-no-transcript"` \| `"nothing-carried"` \| `"transcript-persistence-failed"` \| `"retained-projection-failed"`
+> **HarnessTranscriptUnavailableReason** = `"unsupported-environment"` \| `"unknown-harness"` \| `"no-transcript"` \| `"enumeration-failed"` \| `"execution-never-started"` \| `"capture-did-not-run"` \| `"capture-failed"` \| `"executor-exposes-no-transcript"` \| `"nothing-carried"` \| `"transcript-persistence-failed"` \| `"retained-projection-failed"`
 
 Why no transcript reached a record, from either the capture or the settle path.
 
@@ -33555,7 +33839,7 @@ Why no transcript reached a record, from either the capture or the settle path.
 
 ### HarnessTranscriptCapture
 
-> **HarnessTranscriptCapture** = [`RetainedHarnessTranscriptCapture`](#retainedharnesstranscriptcapture) \| \{ `status`: `"captured"`; `artifact`: [`HarnessTranscriptArtifact`](#harnesstranscriptartifact); `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \} \| [`HarnessTranscriptUnavailable`](#harnesstranscriptunavailable)
+> **HarnessTranscriptCapture** = [`RetainedHarnessTranscriptCapture`](#retainedharnesstranscriptcapture) \| \{ `status`: `"captured"`; `artifact`: [`HarnessTranscriptArtifact`](#harnesstranscriptartifact); `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; `coverageComplete?`: `boolean`; `missing?`: readonly `string`[]; \} \| [`HarnessTranscriptUnavailable`](#harnesstranscriptunavailable)
 
 What the executor holds before settlement: a retained descriptor, inline files, or absence.
 
@@ -33571,7 +33855,7 @@ small and a replay pays nothing for a transcript nobody opens.
 
 ##### Type Literal
 
-\{ `status`: `"captured"`; `artifact`: [`HarnessTranscriptArtifact`](#harnesstranscriptartifact); `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \}
+\{ `status`: `"captured"`; `artifact`: [`HarnessTranscriptArtifact`](#harnesstranscriptartifact); `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; `coverageComplete?`: `boolean`; `missing?`: readonly `string`[]; \}
 
 ###### status
 
@@ -33594,6 +33878,14 @@ small and a replay pays nothing for a transcript nobody opens.
 > `readonly` **skippedCount**: `number`
 
 Non-zero when some transcript was found but deliberately not carried.
+
+###### coverageComplete?
+
+> `readonly` `optional` **coverageComplete?**: `boolean`
+
+###### missing?
+
+> `readonly` `optional` **missing?**: readonly `string`[]
 
 ***
 
@@ -35381,7 +35673,7 @@ settles on the ordinary path and the recorded-result path writes no marker.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-5); `continues?`: \{ `ofWorker`: [`NodeId`](#nodeid-5); `environmentId`: `string`; \}; `budget`: [`Budget`](#budget-10); `runtime`: [`Runtime`](#runtime-6); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-5); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-5); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-5); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-5); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-5); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| [`EvidencePendingEvent`](#evidencependingevent) \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-5); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `awaitingResult?`: \{ `since`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-5); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-6); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-6); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-5); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `heldRelease?`: [`HeldRelease`](#heldrelease); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-ready"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture-started"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `stages?`: `Readonly`\<`Record`\<`string`, `number`\>\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `graph?`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"routes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `gate?`: `object` & (\{ `choice`: `string`; \} \| \{ `stop`: `string`; \}); `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-5); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-5); `resumeAt`: `string`; `seq`: `number`; `at`: `string`; \} \| `object` & [`RunParkingRecord`](durable.md#runparkingrecord) \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-5); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-reentered"`; `id`: [`NodeId`](#nodeid-5); `live`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `replaced`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reopened"`; `id`: [`NodeId`](#nodeid-5); `operator`: `string`; `reason`: `string`; `operationId`: `string`; `prior`: \{ `kind`: `string`; `reason?`: `string`; `digest`: `string`; `archivedAs`: `string`; \}; `budget?`: [`Budget`](#budget-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `replacesStop?`: [`DriverAttemptStop`](#driverattemptstop); `streak?`: `number`; `resumeAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"barren-pause"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `streak`: `number`; `pauseMs`: `number`; `resumeAt`: `string`; `lastProgressAt`: `string`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-5); `continues?`: \{ `ofWorker`: [`NodeId`](#nodeid-5); `environmentId`: `string`; \}; `budget`: [`Budget`](#budget-10); `runtime`: [`Runtime`](#runtime-6); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-5); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-5); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| `object` & `Omit`\<[`ExecutorResult`](#executorresult)\<`unknown`\>, `"out"` \| `"teardown"`\> \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-5); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-5); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| [`EvidencePendingEvent`](#evidencependingevent) \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-5); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `awaitingResult?`: \{ `since`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-5); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-6); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-6); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-5); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `heldRelease?`: [`HeldRelease`](#heldrelease); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-ready"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture-started"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `stages?`: `Readonly`\<`Record`\<`string`, `number`\>\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `graph?`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"routes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `gate?`: `object` & (\{ `choice`: `string`; \} \| \{ `stop`: `string`; \}); `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-5); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-5); `resumeAt`: `string`; `seq`: `number`; `at`: `string`; \} \| `object` & [`RunParkingRecord`](durable.md#runparkingrecord) \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-5); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-reentered"`; `id`: [`NodeId`](#nodeid-5); `live`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `replaced`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reopened"`; `id`: [`NodeId`](#nodeid-5); `operator`: `string`; `reason`: `string`; `operationId`: `string`; `prior`: \{ `kind`: `string`; `reason?`: `string`; `digest`: `string`; `archivedAs`: `string`; \}; `budget?`: [`Budget`](#budget-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `replacesStop?`: [`DriverAttemptStop`](#driverattemptstop); `streak?`: `number`; `resumeAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"barren-pause"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `streak`: `number`; `pauseMs`: `number`; `resumeAt`: `string`; `lastProgressAt`: `string`; `seq`: `number`; `at`: `string`; \}
 
 #### Union Members
 
@@ -35552,59 +35844,7 @@ Credential-free retained-provider admission, committed before the next external 
 
 ***
 
-##### Type Literal
-
-\{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-5); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \}
-
-###### kind
-
-> **kind**: `"execution-result"`
-
-Recoverable output committed before releasing its provider environment.
-
-###### outcome?
-
-> `optional` **outcome?**: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`
-
-###### Type Declaration
-
-###### errorCode?
-
-> `optional` **errorCode?**: `string`
-
-###### statusCode?
-
-> `optional` **statusCode?**: `number`
-
-Native HTTP failure status, when reported, in the range 400–599.
-
-###### id
-
-> **id**: [`NodeId`](#nodeid-5)
-
-###### outRef
-
-> **outRef**: `string`
-
-###### traceRoot?
-
-> `optional` **traceRoot?**: [`TraceRootReceipt`](#tracerootreceipt)
-
-###### spent
-
-> **spent**: [`Spend`](#spend-1)
-
-###### verdict?
-
-> `optional` **verdict?**: `DefaultVerdict`
-
-###### seq
-
-> **seq**: `number`
-
-###### at
-
-> **at**: `string`
+`object` & `Omit`\<[`ExecutorResult`](#executorresult)\<`unknown`\>, `"out"` \| `"teardown"`\>
 
 ***
 
@@ -38989,6 +39229,16 @@ Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.
 
 ## Variables
 
+### HARNESS\_TRANSCRIPT\_SETTLE\_TIMEOUT\_MS
+
+> `const` **HARNESS\_TRANSCRIPT\_SETTLE\_TIMEOUT\_MS**: `number`
+
+The longest a settle waits for an executor's final transcript. The provider executor's own
+steps are bounded (the harness stop at 30 s, each native copy by its port's `nativeTimeoutMs`,
+120 s by default), so this guards only an executor that never answers.
+
+***
+
 ### TERMINAL\_DECISIONS
 
 > `const` **TERMINAL\_DECISIONS**: readonly \[`"stop"`, `"pick-winner"`, `"fail"`, `"done"`\]
@@ -39031,6 +39281,14 @@ The default observer instruction — exported so an optimizer can seed its popul
 > `const` **assertTraceDerivedFindings**: [`AssertTraceDerivedFindings`](#asserttracederivedfindings-1)
 
 Reject analyst findings derived from evaluation scores instead of execution traces.
+
+***
+
+### HARNESS\_TRANSCRIPT\_READ\_LIMITS
+
+> `const` **HARNESS\_TRANSCRIPT\_READ\_LIMITS**: [`HarnessTranscriptReadLimits`](#harnesstranscriptreadlimits)
+
+One native capture/read bound per child; replay resolves references rather than copying bytes.
 
 ***
 
@@ -40397,6 +40655,30 @@ is corruption, not absence, and must not read as "no transcript".
 
 ***
 
+### captureBoundHarnessTranscript()
+
+> **captureBoundHarnessTranscript**\<`S`\>(`input`): `Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
+
+Local native bytes enter the same artifact/settlement path as every other transcript.
+
+#### Type Parameters
+
+##### S
+
+`S` *extends* [`BoundHarnessSession`](#boundharnesssession)
+
+#### Parameters
+
+##### input
+
+`object` & `object`
+
+#### Returns
+
+`Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
+
+***
+
 ### decodeHarnessUsage()
 
 > **decodeHarnessUsage**(`event`, `harness?`): [`HarnessUsage`](#harnessusage) \| `undefined`
@@ -41667,6 +41949,48 @@ Read native metadata without archive I/O, or verify retained bytes before projec
 ##### Returns
 
 `Promise`\<[`HarnessTranscriptArtifact`](#harnesstranscriptartifact) \| `undefined`\>
+
+***
+
+### readBoundHarnessSessions()
+
+> **readBoundHarnessSessions**\<`S`\>(`input`): `Promise`\<\{ `files`: `object`[]; `sessions`: `S`[]; \}\>
+
+Verify a bound native family without owning a store, filesystem layout or native parser.
+
+#### Type Parameters
+
+##### S
+
+`S` *extends* [`BoundHarnessSession`](#boundharnesssession)
+
+#### Parameters
+
+##### input
+
+###### nativeSessionId
+
+`string`
+
+###### files
+
+readonly [`HarnessFileBinding`](#harnessfilebinding)[]
+
+###### read
+
+(`file`, `signal?`) => `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+###### parse
+
+(`text`, `file`) => `S`
+
+###### signal?
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<\{ `files`: `object`[]; `sessions`: `S`[]; \}\>
 
 ***
 
@@ -44921,6 +45245,25 @@ reconnect.
 #### Returns
 
 [`WorkerCancellation`](#workercancellation)
+
+***
+
+### runToolSpans()
+
+> **runToolSpans**(`input`): `Promise`\<`ToolSpan`[]\>
+
+Every span of a manager's run: its own root stream, then each settled worker's tool trace. A
+worker trace the blob store lost throws, because missing evidence is not an empty trace.
+
+#### Parameters
+
+##### input
+
+[`RunTraceSources`](#runtracesources)
+
+#### Returns
+
+`Promise`\<`ToolSpan`[]\>
 
 ***
 

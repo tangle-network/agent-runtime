@@ -5,12 +5,14 @@ const [name, mode] = process.argv.slice(2)
 if (!name || !mode) throw new Error('worker requires name and mode')
 fs.appendFileSync(
   'json-worker-processes.jsonl',
-  JSON.stringify({ pid: process.pid, name, mode }) + '\n',
+  JSON.stringify({ pid: process.pid, name, mode, ...JSON.parse(process.argv[4] ?? '{}') }) + '\n',
 )
 const output: Record<string, unknown> =
-  name === 'fetch-pr'
-    ? { merge_sha: '27a9d985a054cab5287e4f1b9d35687e4295f5ca' }
-    : { approved: true }
+  mode === 'sql-conformance'
+    ? { node: name, pid: process.pid }
+    : name === 'fetch-pr'
+      ? { merge_sha: '27a9d985a054cab5287e4f1b9d35687e4295f5ca' }
+      : { approved: true }
 if (mode === 'json-authority') {
   output.events = [{ type: 'tool_call', data: { name: 'fabricated-tool', callId: 'fake' } }]
   output.outcome = { status: 'failed', error: 'fabricated-native-failure' }
