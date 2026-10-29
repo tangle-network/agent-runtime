@@ -48,6 +48,7 @@ const server = createServer(async (request, response) => {
             type: 'opencode',
             name: 'opencode',
             description: 'Actual HTTP protocol fixture; no model',
+            callerCredentialOnly: false,
             capabilities: {
               streaming: true,
               toolUse: true,
@@ -84,7 +85,7 @@ const server = createServer(async (request, response) => {
         dispatch: { runControlRef: false, executionIdOnAdmission: false },
         cancel: { canonicalRunCancellation: false, digestBound: false, idempotent: false },
         runs: { executionScopedStatus: false, eventReplay: false },
-        interactions: {},
+        interactions: { responseDedupe: false },
       }),
     )
   response.writeHead(404)
@@ -140,6 +141,7 @@ try {
       [],
       [{ ...binding, host: 'other.example.com' }],
       [{ ...binding, header: 'X-Api-Key' }],
+      [{ name: binding.name, exposeInBox: true }],
     ]) {
       const client = providerAsSandboxClient(provider, { mapCreateOptions: () => ({ secrets }) })
       await assert.rejects(
@@ -219,7 +221,7 @@ try {
     assert.deepEqual(creates.at(-1).secrets, ['LEGACY_TARGET'])
     console.log(
       JSON.stringify({
-        deniedBeforeCreate: 6,
+        deniedBeforeCreate: 7,
         authoredCustodyPreserved: 2,
         legacyTranslationPreserved: true,
         equivalentHeadersPreserved: 2,

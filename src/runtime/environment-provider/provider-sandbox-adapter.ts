@@ -106,18 +106,18 @@ export function providerAsSandboxClient(
       }
       if (mapped.secrets !== undefined) mapped.secrets = structuredClone(mapped.secrets)
       const bindingId = (binding: SecretBinding) =>
-        canonicalCandidateDigest({
-          ...binding,
-          header: (binding.header ?? 'Authorization').toLowerCase(),
-        })
-      const entries = Array.isArray(mapped.secrets) ? mapped.secrets : []
-      for (const binding of Array.isArray(selected) ? selected : []) {
-        if (
-          typeof binding !== 'string' &&
-          !entries.some(
-            (entry) => typeof entry !== 'string' && bindingId(entry) === bindingId(binding),
-          )
+        canonicalCandidateDigest(
+          'host' in binding
+            ? { ...binding, header: (binding.header ?? 'Authorization').toLowerCase() }
+            : binding,
         )
+      const entries = new Set(
+        (Array.isArray(mapped.secrets) ? mapped.secrets : [])
+          .filter((entry) => typeof entry !== 'string')
+          .map(bindingId),
+      )
+      for (const binding of Array.isArray(selected) ? selected : []) {
+        if (typeof binding !== 'string' && !entries.has(bindingId(binding)))
           throw new ValidationError('mapped create changed a stored host binding')
       }
       if (bindings.length)
