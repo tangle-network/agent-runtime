@@ -33,6 +33,7 @@ import type {
   PromptResult,
   SandboxEvent,
   SandboxInstance,
+  SecretBinding,
 } from '@tangle-network/sandbox'
 import {
   assertProviderWorkspaceRetentionPort,
@@ -103,12 +104,18 @@ export function providerAsSandboxClient(
           ...(customInput.providerOptions ?? {}),
         },
       }
+      if (mapped.secrets !== undefined) mapped.secrets = structuredClone(mapped.secrets)
+      const bindingId = (binding: SecretBinding) =>
+        canonicalCandidateDigest({
+          ...binding,
+          header: (binding.header ?? 'Authorization').toLowerCase(),
+        })
       const entries = Array.isArray(mapped.secrets) ? mapped.secrets : []
       for (const binding of Array.isArray(selected) ? selected : []) {
         if (
           typeof binding !== 'string' &&
           !entries.some(
-            (entry) => canonicalCandidateDigest(entry) === canonicalCandidateDigest(binding),
+            (entry) => typeof entry !== 'string' && bindingId(entry) === bindingId(binding),
           )
         )
           throw new ValidationError('mapped create changed a stored host binding')
@@ -204,11 +211,10 @@ function createInputFromSandboxOptions(
       }
     }
     if (options?.secrets === 'all') unsupported.push('secrets=all')
-    if (unsupported.length > 0) {
+    if (unsupported.length > 0)
       throw new ValidationError(
         `providerAsSandboxClient: Sandbox create controls require mapCreateOptions: ${unsupported.join(', ')}`,
       )
-    }
   }
   const profile = options?.backend?.profile
   const backend = options?.backend?.type
@@ -339,11 +345,10 @@ export function environmentAsSandboxInstance(
       }
       if (streamFailed) throw streamError
       if (cancellationFailed) throw cancellationError
-      if (options.requireTerminalEvent && !terminal) {
+      if (options.requireTerminalEvent && !terminal)
         throw new ValidationError(
           `providerAsSandboxClient(${environment.provider}): stream ended without a terminal result/done/status event`,
         )
-      }
     },
     async prompt(
       message: string | PromptInputPart[],
@@ -367,11 +372,10 @@ export function environmentAsSandboxInstance(
         usageLedger.observe(sandboxEvent, environment.id)
         text += textFromEnvironmentEvent(event)
       }
-      if (options.requireTerminalEvent && !terminal) {
+      if (options.requireTerminalEvent && !terminal)
         throw new ValidationError(
           `providerAsSandboxClient(${environment.provider}): prompt ended without a terminal result/done/status event`,
         )
-      }
       usageLedger.settleTurn(environment.id)
       const usage = usageLedger.settledUsage()
       const outcome = failures.finish()
@@ -411,11 +415,7 @@ export function environmentAsSandboxInstance(
       : {}),
     ...(environment.read ? { read: environment.read.bind(environment) } : {}),
     ...(environment.write ? { write: environment.write.bind(environment) } : {}),
-    ...(environment.exec
-      ? {
-          exec: environment.exec.bind(environment),
-        }
-      : {}),
+    ...(environment.exec ? { exec: environment.exec.bind(environment) } : {}),
     ...(environment.checkpoint
       ? {
           async checkpoint(checkpointOptions?: CheckpointRequest) {

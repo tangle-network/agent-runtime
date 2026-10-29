@@ -111,7 +111,12 @@ try {
     )
   } else if (mode === 'mappers') {
     const binding = { name: 'TOKEN', host: 'reports.example.com', header: 'Authorization' }
-    for (const secrets of [['TOKEN'], [], [{ ...binding, host: 'other.example.com' }]]) {
+    for (const secrets of [
+      ['TOKEN'],
+      [],
+      [{ ...binding, host: 'other.example.com' }],
+      [{ ...binding, header: 'X-Api-Key' }],
+    ]) {
       const client = providerAsSandboxClient(provider, { mapCreateOptions: () => ({ secrets }) })
       await assert.rejects(
         client.create({ backend: { type: 'opencode', profile }, secrets: [binding] }),
@@ -137,6 +142,34 @@ try {
       /stored host binding/,
     )
     assert.equal(creates.length, 0)
+    for (const header of [undefined, 'authorization']) {
+      const client = providerAsSandboxClient(provider, {
+        mapCreateOptions: () => ({ secrets: [binding] }),
+      })
+      await client.create({
+        backend: { type: 'opencode', profile },
+        secrets: [
+          { name: binding.name, host: binding.host, ...(header === undefined ? {} : { header }) },
+        ],
+      })
+      assert.deepEqual(creates.at(-1).secrets, [binding])
+    }
+    let queuedMutationRan = false
+    const queued = providerAsSandboxClient(provider, {
+      defaults: {
+        runtimeAttachments: { mcp: { boundary: { transport: 'http', url: `${baseUrl}/mcp` } } },
+      },
+      mapCreateOptions: (options) => {
+        queueMicrotask(() => {
+          options.secrets[0].host = 'other.example.com'
+          queuedMutationRan = true
+        })
+        return {}
+      },
+    })
+    await queued.create({ backend: { type: 'opencode', profile }, secrets: [{ ...binding }] })
+    assert.equal(queuedMutationRan, true)
+    assert.deepEqual(creates.at(-1).secrets, [binding])
     for (const mutate of [false, true]) {
       const declaration = {
         envName: 'TOKEN',
@@ -162,9 +195,11 @@ try {
     assert.deepEqual(creates.at(-1).secrets, ['LEGACY_TARGET'])
     console.log(
       JSON.stringify({
-        deniedBeforeCreate: 5,
+        deniedBeforeCreate: 6,
         authoredCustodyPreserved: 2,
         legacyTranslationPreserved: true,
+        equivalentHeadersPreserved: 2,
+        asyncAliasDetached: true,
       }),
     )
   } else if (mode === 'identity') {

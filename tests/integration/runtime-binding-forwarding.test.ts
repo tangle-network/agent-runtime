@@ -39,9 +39,11 @@ it('preserves legacy string identity while binding retained intent to secret des
 
 it('holds custom mappers to requested custody before HTTP allocation while allowing legacy translations', async () => {
   expect(await run('mappers')).toEqual({
-    deniedBeforeCreate: 5,
+    deniedBeforeCreate: 6,
     authoredCustodyPreserved: 2,
     legacyTranslationPreserved: true,
+    equivalentHeadersPreserved: 2,
+    asyncAliasDetached: true,
   })
 })
 
