@@ -85,6 +85,23 @@ it('preserves canonical tar bytes, Unicode paths, exact modes, manifests and res
         paths,
       }),
     ).rejects.toThrow('unique manifest files')
+  const ambiguous = {
+    ...snapshot,
+    material: {
+      ...snapshot.material,
+      files: snapshot.material.files.map((file) => ({ ...file, bytes: { byteLength: 0 } })),
+    },
+  }
+  await expect(
+    materializeAgentCandidateWorkspaceFromArtifacts({
+      role: 'candidate',
+      snapshot: ambiguous,
+      artifacts: streamOnly,
+      destination: join(f.root, 'ambiguous'),
+      paths: [path],
+      limits: { maxFileBytes: 1 },
+    }),
+  ).rejects.toThrow('ambiguous length')
 })
 
 it('fails before reading a source when the store cannot stream', async () => {
