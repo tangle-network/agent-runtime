@@ -252,6 +252,7 @@ try {
         launch: { kind: 'container-command', executable: 'opencode' },
         instructionDelivery: { kind: 'stdin-utf8' },
         cwd: { workspace: 'task', path: '.' },
+        env: { PATH: { kind: 'public', value: '/usr/local/bin:/usr/bin:/bin' } },
         environment: { kind: 'evaluator-task-container' },
         isolation: {
           network: 'disabled',
