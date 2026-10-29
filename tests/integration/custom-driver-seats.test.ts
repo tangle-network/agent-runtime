@@ -9,11 +9,7 @@ import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/
 import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import { Sandbox } from '@tangle-network/sandbox'
 import { expect, it, onTestFinished } from 'vitest'
-import {
-  type DriveHarness,
-  type ExecutorConfig,
-  supervise,
-} from '../../src/runtime/index'
+import { type DriveHarness, type ExecutorConfig, supervise } from '../../src/runtime/index'
 import { testContinuation } from '../helpers/continuation'
 
 // A real external process consumes the custom driver's canonical profile and authenticated MCP.
@@ -70,69 +66,123 @@ it.each(['driveHarness', 'resolveDriveHarness'] as const)(
     })
     await new Promise<void>((resolve) => boundary.listen(0, '127.0.0.1', resolve))
     onTestFinished(
-      () => new Promise<void>((resolve) => { boundary.close(() => resolve()); boundary.closeAllConnections() }),
+      () =>
+        new Promise<void>((resolve) => {
+          boundary.close(() => resolve())
+          boundary.closeAllConnections()
+        }),
     )
     const address = boundary.address()
     if (!address || typeof address === 'string') throw new Error('missing local Sandbox boundary')
     const backend: ExecutorConfig = {
       backend: 'provider',
       provider: createTangleProvider({
-        client: new Sandbox({ apiKey: 'no-live-credentials', baseUrl: `http://127.0.0.1:${address.port}` }),
+        client: new Sandbox({
+          apiKey: 'no-live-credentials',
+          baseUrl: `http://127.0.0.1:${address.port}`,
+        }),
       }),
     }
     const profile: AgentProfile = {
-      name: 'caller-owned-subscription', harness: 'codex',
-      model: { provider: 'openai', default: 'gpt-6.1-sol', reasoningEffort: 'xhigh', metadata: { credentialSource: 'subscription' } },
-      seats: [{ harness: 'codex', provider: 'openai', model: 'gpt-6.1-sol', selector: { kind: 'all-eligible' } }],
-      prompt: { instructions: ['Preserve the exact subscription model and finish one external turn.'] },
-      tools: Object.fromEntries(['observe_agent', 'read_journal', 'run_graph', 'spawn_worker', 'submit_result'].map(name => [`agent_runtime_coordination_${name}`, true])),
+      name: 'caller-owned-subscription',
+      harness: 'codex',
+      model: {
+        provider: 'openai',
+        default: 'gpt-6.1-sol',
+        reasoningEffort: 'xhigh',
+        metadata: { credentialSource: 'subscription' },
+      },
+      seats: [
+        {
+          harness: 'codex',
+          provider: 'openai',
+          model: 'gpt-6.1-sol',
+          selector: { kind: 'all-eligible' },
+        },
+      ],
+      prompt: {
+        instructions: ['Preserve the exact subscription model and finish one external turn.'],
+      },
+      tools: Object.fromEntries(
+        ['observe_agent', 'read_journal', 'run_graph', 'spawn_worker', 'submit_result'].map(
+          (name) => [`agent_runtime_coordination_${name}`, true],
+        ),
+      ),
     }
     const original = structuredClone(profile)
     const budget = { maxIterations: 8, maxTokens: 10000, deadlineMs: 15000 }
     const coordination = { host: '127.0.0.1', port: 0, authentication: true } as const
-    expect(() => supervise(profile, 'automatic execution', { backend, budget, coordination })).toThrow(
-      'AgentProfile.seats requires selectSeat before execution',
-    )
+    expect(() =>
+      supervise(profile, 'automatic execution', { backend, budget, coordination }),
+    ).toThrow('AgentProfile.seats requires selectSeat before execution')
     let observed: { pid: number; sha256: string } | undefined
     let nativeTurns = 0
     const driveHarness: DriveHarness = async (driver) => {
       expect(++nativeTurns).toBe(1)
       expect(driver.reentry).toBeUndefined()
-      expect(canonicalAgentProfileDigest(driver.authoredProfile)).toBe(canonicalAgentProfileDigest(profile))
+      expect(canonicalAgentProfileDigest(driver.authoredProfile)).toBe(
+        canonicalAgentProfileDigest(profile),
+      )
       expect(driver.profile.model).toEqual(profile.model)
-      const child = await execute(process.execPath, ['--input-type=commonjs', '-e', harnessProgram], {
-        cwd: directory, timeout: 10000, signal: driver.scope.signal,
-        env: {
-          ...process.env,
-          SEAT_TEST_AUTHORED_PROFILE: JSON.stringify(driver.authoredProfile),
-          SEAT_TEST_PROVIDER_PROFILE: JSON.stringify(driver.profile),
-          SEAT_TEST_SYSTEM_PROMPT: driver.systemPrompt,
-          SEAT_TEST_MCP_URL: driver.coordinationMcpUrl,
-          SEAT_TEST_MCP_HEADERS: JSON.stringify(driver.coordinationMcpHeaders),
+      const child = await execute(
+        process.execPath,
+        ['--input-type=commonjs', '-e', harnessProgram],
+        {
+          cwd: directory,
+          timeout: 10000,
+          signal: driver.scope.signal,
+          env: {
+            ...process.env,
+            SEAT_TEST_AUTHORED_PROFILE: JSON.stringify(driver.authoredProfile),
+            SEAT_TEST_PROVIDER_PROFILE: JSON.stringify(driver.profile),
+            SEAT_TEST_SYSTEM_PROMPT: driver.systemPrompt,
+            SEAT_TEST_MCP_URL: driver.coordinationMcpUrl,
+            SEAT_TEST_MCP_HEADERS: JSON.stringify(driver.coordinationMcpHeaders),
+          },
         },
-      })
+      )
       observed = JSON.parse(child.stdout.trim())
     }
-    const driverOption = customDriver === 'driveHarness'
-      ? { driveHarness }
-      : { resolveDriveHarness: () => driveHarness }
+    const driverOption =
+      customDriver === 'driveHarness'
+        ? { driveHarness }
+        : { resolveDriveHarness: () => driveHarness }
     const result = await supervise(profile, 'Write one checked native observation.', {
-      backend, budget, coordination, ...driverOption,
-      continuation: testContinuation(), driverRetry: { enabled: false }, maxDepth: 0,
+      backend,
+      budget,
+      coordination,
+      ...driverOption,
+      continuation: testContinuation(),
+      driverRetry: { enabled: false },
+      maxDepth: 0,
       finalizer: () => observed,
       deliverable: {
         async check(candidate) {
-          return observed !== undefined && typeof candidate === 'object' && candidate !== null &&
-            'pid' in candidate && candidate.pid === observed.pid &&
+          return (
+            observed !== undefined &&
+            typeof candidate === 'object' &&
+            candidate !== null &&
+            'pid' in candidate &&
+            candidate.pid === observed.pid &&
             observed.sha256 === digest(await readFile(join(directory, 'observation.json')))
+          )
         },
       },
     })
     expect(result.kind).toBe('winner')
     expect(nativeTurns).toBe(1)
     expect(profile).toEqual(original)
-    expect(JSON.parse(await readFile(join(directory, 'observation.json'), 'utf8')).seats).toEqual(original.seats)
+    expect(JSON.parse(await readFile(join(directory, 'observation.json'), 'utf8')).seats).toEqual(
+      original.seats,
+    )
     expect(requests).toEqual([])
-    expect(() => supervise({ ...profile, seats: [] }, 'invalid seats', { backend, budget, coordination, ...driverOption })).toThrow()
+    expect(() =>
+      supervise({ ...profile, seats: [] }, 'invalid seats', {
+        backend,
+        budget,
+        coordination,
+        ...driverOption,
+      }),
+    ).toThrow()
   },
 )
