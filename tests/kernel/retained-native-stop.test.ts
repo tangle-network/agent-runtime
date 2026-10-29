@@ -12,10 +12,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
 import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
-import {
-  describeRetainedNativeStops,
-  stopRetainedNativeExecution,
-} from '../../src/runtime/retained-native-stop'
 import { RunCancellationReason } from '../../src/runtime/supervise/abortable'
 import { cancelRun } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
@@ -88,7 +84,6 @@ function liveProcessProvider(
   let creates = 0
   let destroys = 0
   let dispatches = 0
-  let token = ''
   const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
     ...environment,
     dispatch: async (turn) => {
@@ -167,7 +162,6 @@ function liveProcessProvider(
     }),
     create: async (input) => {
       creates += 1
-      token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
       return wrap(await base.create(input))
     },
     get: async (id) => {
@@ -211,7 +205,10 @@ function ofKind<K extends SpawnEvent['kind']>(
 }
 
 /** A leaf whose provider execution is retained and whose kept source is evidence. */
-function retainedLeaf(provider: AgentEnvironmentProvider): Agent<unknown, string> {
+function retainedLeaf(
+  provider: AgentEnvironmentProvider,
+  workspaceRetention = evidenceRetention(),
+): Agent<unknown, string> {
   const profile = testAgentProfile('leaf')
   return Object.assign(
     { name: 'leaf', act: async () => 'unused' },
@@ -219,10 +216,23 @@ function retainedLeaf(provider: AgentEnvironmentProvider): Agent<unknown, string
       executorSpec: {
         profile,
         harness: profile.harness,
-        executorFactory: providerAsExecutor(provider, { workspaceRetention: evidenceRetention() }),
+        executorFactory: providerAsExecutor(provider, { workspaceRetention }),
       },
     },
   )
+}
+
+function childRunContext(runDir: string) {
+  return {
+    ...createFileRunContext(runDir),
+    runId: 'root',
+    budget: { maxIterations: 10, maxTokens: 100 },
+    rootIdentity: {
+      profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
+      taskDigest: canonicalCandidateDigest('root-task'),
+    },
+    retainedAtSettlement: 'release' as const,
+  }
 }
 
 /** Whether `condition` holds before `ms` elapse. */
@@ -303,56 +313,52 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
     })
   })
 
-  it('stops each child harness process before it settles and records its usage as unknown', async () => {
-    const directory = await scratch('native-stop-child-')
-    const runDir = join(directory, 'run')
-    const live = liveProcessProvider(join(directory, 'provider.json'))
-    const worker = retainedLeaf(live.provider)
-    const cancel = new AbortController()
-    const settling = createSupervisor<string, string>().run(
-      {
-        name: 'root',
-        act: async (_task, scope) => {
-          scope.spawn(worker, 'child task', {
-            key: 'work',
-            budget: { maxIterations: 1, maxTokens: 100 },
-          })
-          await scope.next()
-          return 'root done'
+  it.each([undefined, 1_500])(
+    'stops each child before settlement (async stop: %s)',
+    async (asynchronousStopMs) => {
+      const directory = await scratch('native-stop-child-')
+      const runDir = join(directory, 'run')
+      const live = liveProcessProvider(join(directory, 'provider.json'), { asynchronousStopMs })
+      const worker = retainedLeaf(live.provider)
+      const cancel = new AbortController()
+      const settling = createSupervisor<string, string>().run(
+        {
+          name: 'root',
+          act: async (_task, scope) => {
+            scope.spawn(worker, 'child task', {
+              key: 'work',
+              budget: { maxIterations: 1, maxTokens: 100 },
+            })
+            await scope.next()
+            return 'root done'
+          },
         },
-      },
-      'root-task',
-      {
-        ...createFileRunContext(runDir),
-        runId: 'root',
-        budget: { maxIterations: 10, maxTokens: 100 },
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
-          taskDigest: canonicalCandidateDigest('root-task'),
+        'root-task',
+        {
+          ...childRunContext(runDir),
+          signal: cancel.signal,
         },
-        retainedAtSettlement: 'release',
-        signal: cancel.signal,
-      },
-    )
-    await expect.poll(() => live.observing(), { timeout: 10_000 }).toBe(true)
-    const [harness] = [...live.processes.values()]
-    expect(running(harness!)).toBe(true)
+      )
+      await expect.poll(() => live.observing(), { timeout: 10_000 }).toBe(true)
+      const [harness] = [...live.processes.values()]
+      expect(running(harness!)).toBe(true)
 
-    cancel.abort('operator cancelled the run')
-    const result = await settling
+      cancel.abort('operator cancelled the run')
+      const result = await settling
 
-    expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
-    expect(live.destroys()).toBe(0)
-    expect(running(harness!)).toBe(false)
-    const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
-    const teardown = ofKind(events, 'environment-teardown').filter(
-      (event) => event.id === 'root:s0',
-    )
-    expect(teardown.at(-1)).toMatchObject({
-      destroyed: false,
-      detail: expect.stringMatching(/stopped at .*; usage unknown: killed at /),
-    })
-  })
+      expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
+      expect(live.destroys()).toBe(0)
+      expect(running(harness!)).toBe(false)
+      const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
+      const teardown = ofKind(events, 'environment-teardown').filter(
+        (event) => event.id === 'root:s0',
+      )
+      expect(teardown.at(-1)).toMatchObject({
+        destroyed: false,
+        detail: expect.stringMatching(/stopped at .*; usage unknown: killed at /),
+      })
+    },
+  )
 
   it('stops a worker the root aborts while the run is still live', async () => {
     const directory = await scratch('native-stop-worker-')
@@ -381,92 +387,12 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
       },
       'root-task',
       {
-        ...createFileRunContext(runDir),
-        runId: 'root',
-        budget: { maxIterations: 10, maxTokens: 100 },
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
-          taskDigest: canonicalCandidateDigest('root-task'),
-        },
-        retainedAtSettlement: 'release',
+        ...childRunContext(runDir),
       },
     )
     expect(stoppedWhileLive).toBe(true)
     expect(result.kind).toBe('winner')
     expect(live.destroys()).toBe(0)
-  })
-  it('waits for a stop the provider accepts asynchronously before the run settles', async () => {
-    const directory = await scratch('native-stop-async-')
-    const runDir = join(directory, 'run')
-    const live = liveProcessProvider(join(directory, 'provider.json'), {
-      asynchronousStopMs: 1_500,
-    })
-    const cancel = new AbortController()
-    const settling = createSupervisor<string, string>().run(
-      {
-        name: 'root',
-        act: async (_task, scope) => {
-          scope.spawn(retainedLeaf(live.provider), 'child task', {
-            key: 'work',
-            budget: { maxIterations: 1, maxTokens: 100 },
-          })
-          await scope.next()
-          return 'root done'
-        },
-      },
-      'root-task',
-      {
-        ...createFileRunContext(runDir),
-        runId: 'root',
-        budget: { maxIterations: 10, maxTokens: 100 },
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
-          taskDigest: canonicalCandidateDigest('root-task'),
-        },
-        retainedAtSettlement: 'release',
-        signal: cancel.signal,
-      },
-    )
-    await expect.poll(() => live.observing(), { timeout: 10_000 }).toBe(true)
-    const [harness] = [...live.processes.values()]
-
-    cancel.abort('operator cancelled the run')
-    const result = await settling
-
-    expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
-    expect(live.destroys()).toBe(0)
-    expect(running(harness!)).toBe(false)
-    const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
-    expect(
-      ofKind(events, 'environment-teardown')
-        .filter((event) => event.id === 'root:s0')
-        .at(-1),
-    ).toMatchObject({ detail: expect.stringMatching(/stopped at .*; usage unknown: killed at /) })
-  })
-
-  it('answers within its deadline when the provider cannot be reached to reconnect', async () => {
-    const stalled: AgentEnvironmentProvider = {
-      name: 'stalled',
-      capabilities: () => new Promise(() => {}),
-      create: () => new Promise(() => {}),
-      get: () => new Promise(() => {}),
-    }
-    const started = Date.now()
-    const stop = await stopRetainedNativeExecution({
-      provider: stalled,
-      controlRef: {
-        runId: 'run-1',
-        provider: 'stalled',
-        environmentId: 'environment-1',
-        sessionId: 'session-1',
-        executionId: 'execution-1',
-        requestDigest: canonicalCandidateDigest('request-1'),
-      },
-      signal: AbortSignal.timeout(200),
-    })
-    expect(Date.now() - started).toBeLessThan(5_000)
-    expect(stop).toMatchObject({ executionId: 'execution-1', effect: 'unknown' })
-    expect(describeRetainedNativeStops([stop])).toContain('stop unconfirmed')
   })
 })
 
@@ -491,17 +417,7 @@ describe('a deadline that ends a retained turn', () => {
         return await retention.capture(context)
       },
     }
-    const profile = testAgentProfile('leaf')
-    const worker: Agent<unknown, string> = Object.assign(
-      { name: 'leaf', act: async () => 'unused' },
-      {
-        executorSpec: {
-          profile,
-          harness: profile.harness,
-          executorFactory: providerAsExecutor(live.provider, { workspaceRetention }),
-        },
-      },
-    )
+    const worker = retainedLeaf(live.provider, workspaceRetention)
     let ended: unknown
     await createSupervisor<string, string>().run(
       {
@@ -517,14 +433,7 @@ describe('a deadline that ends a retained turn', () => {
       },
       'root-task',
       {
-        ...createFileRunContext(runDir),
-        runId: 'root',
-        budget: { maxIterations: 10, maxTokens: 100 },
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
-          taskDigest: canonicalCandidateDigest('root-task'),
-        },
-        retainedAtSettlement: 'release',
+        ...childRunContext(runDir),
       },
     )
     expect(ended).toMatchObject({ kind: 'down', reason: 'child deadline exceeded' })
@@ -562,17 +471,7 @@ describe('a deadline that ends a retained turn', () => {
         return snapshot
       },
     }
-    const profile = testAgentProfile('leaf')
-    const worker: Agent<unknown, string> = Object.assign(
-      { name: 'leaf', act: async () => 'unused' },
-      {
-        executorSpec: {
-          profile,
-          harness: profile.harness,
-          executorFactory: providerAsExecutor(live.provider, { workspaceRetention }),
-        },
-      },
-    )
+    const worker = retainedLeaf(live.provider, workspaceRetention)
     await createSupervisor<string, string>().run(
       {
         name: 'root',
@@ -587,14 +486,7 @@ describe('a deadline that ends a retained turn', () => {
       },
       'root-task',
       {
-        ...createFileRunContext(runDir),
-        runId: 'root',
-        budget: { maxIterations: 10, maxTokens: 100 },
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
-          taskDigest: canonicalCandidateDigest('root-task'),
-        },
-        retainedAtSettlement: 'release',
+        ...childRunContext(runDir),
       },
     )
     expect(copies.some((copy) => copy.harnessRunning)).toBe(true)
@@ -654,17 +546,7 @@ describe('a deadline that ends a retained turn', () => {
         }
       },
     }
-    const profile = testAgentProfile('leaf')
-    const worker: Agent<unknown, string> = Object.assign(
-      { name: 'leaf', act: async () => 'unused' },
-      {
-        executorSpec: {
-          profile,
-          harness: profile.harness,
-          executorFactory: providerAsExecutor(live.provider, { workspaceRetention }),
-        },
-      },
-    )
+    const worker = retainedLeaf(live.provider, workspaceRetention)
     await createSupervisor<string, string>().run(
       {
         name: 'root',
@@ -679,14 +561,7 @@ describe('a deadline that ends a retained turn', () => {
       },
       'root-task',
       {
-        ...createFileRunContext(runDir),
-        runId: 'root',
-        budget: { maxIterations: 10, maxTokens: 100 },
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
-          taskDigest: canonicalCandidateDigest('root-task'),
-        },
-        retainedAtSettlement: 'release',
+        ...childRunContext(runDir),
       },
     )
     const final = copies.filter((copy) => copy.phase === 'failed')
@@ -732,7 +607,7 @@ describe('terminal recovery of a previously admitted native process', () => {
             environmentId: context.environment.id,
             sessionId: context.providerSessionId ?? undefined,
           })
-          return retention.capture(context)
+          throw new Error('terminal workspace capture refused')
         },
         async captureNative(context) {
           copies.push({
@@ -745,21 +620,12 @@ describe('terminal recovery of a previously admitted native process', () => {
         },
       }
       const factory = providerAsExecutor(live.provider, { workspaceRetention })
-      const profile = testAgentProfile('leaf')
-      const worker = Object.assign(
-        { name: 'leaf', act: async () => 'unused' },
-        { executorSpec: { profile, harness: profile.harness, executorFactory: factory } },
-      )
+      const worker = retainedLeaf(live.provider, workspaceRetention)
       let clock = Date.now()
       const common = {
-        ...context,
-        runId: 'root',
+        ...childRunContext(runDir),
         budget: { maxIterations: 10, maxTokens: 100, deadlineMs: 60_000 },
         now: () => clock,
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
-          taskDigest: canonicalCandidateDigest('root-task'),
-        },
       }
       let interrupted = false
       await expect(

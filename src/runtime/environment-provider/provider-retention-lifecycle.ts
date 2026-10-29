@@ -338,6 +338,7 @@ const NATIVE_SETTLE_POLL_MS = 1_000
 interface ProviderNativeControlState {
   readonly retained: RetainedRunHandle | undefined
   harnessStopped: boolean
+  workspacePreservationRequired: boolean
   cancelledExplicitly(): boolean
 }
 
@@ -406,6 +407,7 @@ export function createProviderNativeControl(
       const stopped = stop === undefined ? undefined : describeRetainedNativeStops([stop])
       const controlRef = state.retained?.controlRef ?? admittedControlRef(retention)
       if (stop !== undefined && !state.harnessStopped && controlRef !== undefined) {
+        state.workspacePreservationRequired = true
         return [
           {
             provider: provider.name,
