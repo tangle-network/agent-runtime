@@ -13,24 +13,14 @@ import type {
 export function legacyRetainedCreateMaterial(
   environment: CreateAgentEnvironmentInput,
 ): Record<string, unknown> {
-  const {
-    requestedId: _requestedId,
-    egress: _egress,
-    billingOwner: _billingOwner,
-    workspace,
-    ...preInterface5
-  } = environment
-  const legacyEnvironment =
-    workspace === undefined
-      ? preInterface5
-      : {
-          ...preInterface5,
-          workspace: (() => {
-            const { snapshot: _snapshot, ...legacyWorkspace } = workspace
-            return legacyWorkspace
-          })(),
-        }
-  return retainedCreateMaterial(legacyEnvironment as CreateAgentEnvironmentInput)
+  const { snapshot: _snapshot, ...workspace } = environment.workspace ?? {}
+  return retainedCreateMaterial({
+    ...environment,
+    requestedId: undefined,
+    egress: undefined,
+    billingOwner: undefined,
+    workspace: environment.workspace === undefined ? undefined : workspace,
+  })
 }
 
 export function retainedCreateMaterial(
@@ -62,17 +52,17 @@ export function retainedCreateMaterial(
     ...(environment.name === undefined ? {} : { name: environment.name }),
     ...(environment.env === undefined
       ? {}
-      : { environmentVariableNames: retainedObjectNames(environment.env) }),
+      : { environmentVariableNames: Object.keys(environment.env).sort() }),
     ...(environment.secrets === undefined
       ? {}
       : { secretNames: retainedSecretNames(environment.secrets) }),
     ...(environment.proxySecrets === undefined ? {} : { proxySecrets: environment.proxySecrets }),
     ...(environment.metadata === undefined
       ? {}
-      : { metadataKeys: retainedObjectNames(environment.metadata) }),
+      : { metadataKeys: Object.keys(environment.metadata).sort() }),
     ...(environment.providerOptions === undefined
       ? {}
-      : { providerOptionNames: retainedObjectNames(environment.providerOptions) }),
+      : { providerOptionNames: Object.keys(environment.providerOptions).sort() }),
   }
 }
 
@@ -102,7 +92,7 @@ function publicWorkspaceMaterial(
       : { snapshotDigest: agentWorkspaceSnapshotRefDigest(workspace.snapshot) }),
     ...(workspace.providerOptions === undefined
       ? {}
-      : { providerOptionNames: retainedObjectNames(workspace.providerOptions) }),
+      : { providerOptionNames: Object.keys(workspace.providerOptions).sort() }),
   }
 }
 
@@ -116,12 +106,8 @@ function publicResourceMaterial(
     ...(resources.gpu === undefined ? {} : { gpu: resources.gpu }),
     ...(resources.providerOptions === undefined
       ? {}
-      : { providerOptionNames: retainedObjectNames(resources.providerOptions) }),
+      : { providerOptionNames: Object.keys(resources.providerOptions).sort() }),
   }
-}
-
-function retainedObjectNames(value: Record<string, unknown>): string[] {
-  return Object.keys(value).sort()
 }
 
 function retainedSecretNames(
