@@ -226,7 +226,10 @@ const api = createServer(async (request, response) => {
         stored.set(name, 'fixture-newer-owner-value')
         revisions.set(name, nextRevision())
       }
-      if (stored.has(name) && new URL(request.url, 'http://fixture').searchParams.get('expectedUpdatedAt') !== revisions.get(name))
+      if (
+        stored.has(name) &&
+        new URL(request.url, 'http://fixture').searchParams.get('expectedUpdatedAt') !== revisions.get(name)
+      )
         return answer(response, 409, { code: 'CONFLICT', message: 'revision changed' })
       const existed = stored.delete(name)
       if (existed) revisions.delete(name)
