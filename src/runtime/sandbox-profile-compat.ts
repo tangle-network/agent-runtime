@@ -1,17 +1,12 @@
 import { isRecord } from '@tangle-network/agent-core'
 import { ValidationError } from '../errors'
 
-/**
- * Interface 5.3 admits proxy secrets and private config values, but the current Sandbox SDK
- * carries Interface 4.0. Refuse these fields before either candidate conversion or a direct
- * Sandbox create can silently lose them. Remove this guard when Sandbox carries the fields.
- */
+/** Refuse private config values that the Sandbox profile transport cannot carry. */
 export function assertSandboxProfileCompatibility(
   profile: unknown,
   context = 'candidate profile',
 ): void {
   if (!isRecord(profile)) return
-  if (profile.proxySecrets !== undefined) refuseSandboxProfileField('proxySecrets', context)
   if (isRecord(profile.mcp)) {
     for (const [name, server] of Object.entries(profile.mcp)) {
       if (!isRecord(server)) continue

@@ -9,43 +9,18 @@ import type {
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
 
-/**
- * Project environment creation input into public digest material.
- *
- * Opaque values never enter the material or its digest. Public scalar fields
- * remain bound directly, while opaque records retain only their key names.
- * Secret names remain public binding data, so changing requested credentials
- * still conflicts before provider effects begin.
- */
-/**
- * The pre-interface5 create-material projection: `requestedId`, `egress`,
- * `billingOwner`, and the workspace `snapshot` digest omitted — the shape
- * records persisted by the previous version digested. Accepted only when
- * validating replayed records (an upgrade must not strand an in-flight run
- * whose provider creation already completed); every new admission digests the
- * current projection.
- */
+/** Replay-only projection of the create identity persisted before Interface 5. */
 export function legacyRetainedCreateMaterial(
   environment: CreateAgentEnvironmentInput,
 ): Record<string, unknown> {
-  const {
-    requestedId: _requestedId,
-    egress: _egress,
-    billingOwner: _billingOwner,
-    workspace,
-    ...preInterface5
-  } = environment
-  const legacyEnvironment =
-    workspace === undefined
-      ? preInterface5
-      : {
-          ...preInterface5,
-          workspace: (() => {
-            const { snapshot: _snapshot, ...legacyWorkspace } = workspace
-            return legacyWorkspace
-          })(),
-        }
-  return retainedCreateMaterial(legacyEnvironment as CreateAgentEnvironmentInput)
+  const { snapshot: _snapshot, ...workspace } = environment.workspace ?? {}
+  return retainedCreateMaterial({
+    ...environment,
+    requestedId: undefined,
+    egress: undefined,
+    billingOwner: undefined,
+    workspace: environment.workspace === undefined ? undefined : workspace,
+  })
 }
 
 export function retainedCreateMaterial(
@@ -77,16 +52,17 @@ export function retainedCreateMaterial(
     ...(environment.name === undefined ? {} : { name: environment.name }),
     ...(environment.env === undefined
       ? {}
-      : { environmentVariableNames: retainedObjectNames(environment.env) }),
+      : { environmentVariableNames: Object.keys(environment.env).sort() }),
     ...(environment.secrets === undefined
       ? {}
       : { secretNames: retainedSecretNames(environment.secrets) }),
+    ...(environment.proxySecrets === undefined ? {} : { proxySecrets: environment.proxySecrets }),
     ...(environment.metadata === undefined
       ? {}
-      : { metadataKeys: retainedObjectNames(environment.metadata) }),
+      : { metadataKeys: Object.keys(environment.metadata).sort() }),
     ...(environment.providerOptions === undefined
       ? {}
-      : { providerOptionNames: retainedObjectNames(environment.providerOptions) }),
+      : { providerOptionNames: Object.keys(environment.providerOptions).sort() }),
   }
 }
 
@@ -116,7 +92,7 @@ function publicWorkspaceMaterial(
       : { snapshotDigest: agentWorkspaceSnapshotRefDigest(workspace.snapshot) }),
     ...(workspace.providerOptions === undefined
       ? {}
-      : { providerOptionNames: retainedObjectNames(workspace.providerOptions) }),
+      : { providerOptionNames: Object.keys(workspace.providerOptions).sort() }),
   }
 }
 
@@ -130,18 +106,18 @@ function publicResourceMaterial(
     ...(resources.gpu === undefined ? {} : { gpu: resources.gpu }),
     ...(resources.providerOptions === undefined
       ? {}
-      : { providerOptionNames: retainedObjectNames(resources.providerOptions) }),
+      : { providerOptionNames: Object.keys(resources.providerOptions).sort() }),
   }
-}
-
-function retainedObjectNames(value: Record<string, unknown>): string[] {
-  return Object.keys(value).sort()
 }
 
 function retainedSecretNames(
   secrets: NonNullable<CreateAgentEnvironmentInput['secrets']>,
-): string[] {
-  return Array.isArray(secrets) ? [...secrets].sort() : Object.keys(secrets).sort()
+): NonNullable<CreateAgentEnvironmentInput['secrets']> {
+  if (!Array.isArray(secrets)) return Object.keys(secrets).sort()
+  if (secrets.every((entry) => typeof entry === 'string')) return [...secrets].sort()
+  return [...secrets].sort((a, b) =>
+    canonicalCandidateDigest(a).localeCompare(canonicalCandidateDigest(b)),
+  )
 }
 
 /** Project one headless turn into the material that `freshTurnInput` forwards. */

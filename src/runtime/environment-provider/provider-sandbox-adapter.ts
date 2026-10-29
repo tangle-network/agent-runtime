@@ -6,9 +6,11 @@ import {
   type AgentRunCancellationRequest,
   AgentRunCancellationRequestSchema,
   type AgentRunControlRef,
+  canonicalCandidateDigest,
   canonicalWorkspaceCwd,
   type InteractionAcknowledgement,
   type InteractionResponseCommand,
+  mergeProxySecretBindings,
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
@@ -31,6 +33,7 @@ import type {
   PromptResult,
   SandboxEvent,
   SandboxInstance,
+  SecretBinding,
 } from '@tangle-network/sandbox'
 import {
   assertProviderWorkspaceRetentionPort,
@@ -59,8 +62,7 @@ import {
 } from './provider-turn-input'
 import { ValidationError } from './provider-validation-error'
 
-/** Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths.
- * @experimental */
+/** Expose a neutral provider through the existing Sandbox client port. @experimental */
 export function providerAsSandboxClient(
   provider: AgentEnvironmentProvider,
   options: ProviderAsSandboxClientOptions = {},
@@ -70,11 +72,10 @@ export function providerAsSandboxClient(
       options.workspaceRetention,
       `providerAsSandboxClient(${provider.name})`,
     )
-    if (options.retentionIdentity === undefined) {
+    if (options.retentionIdentity === undefined)
       throw new ValidationError(
         'providerAsSandboxClient: retentionIdentity is required with workspaceRetention',
       )
-    }
   }
   return {
     async create(createOptions?: CreateSandboxOptions): Promise<SandboxInstance> {
@@ -83,30 +84,53 @@ export function providerAsSandboxClient(
         createOptions,
         options.mapCreateOptions !== undefined,
       )
+      const selected = structuredClone(sandboxInput.secrets ?? defaults.secrets)
+      const authored = sandboxInput.profile ?? defaults.profile
+      const bindings = mergeProxySecretBindings(
+        defaults.proxySecrets,
+        typeof authored === 'object' ? authored.proxySecrets : undefined,
+      )
       const customInput = options.mapCreateOptions?.(createOptions) ?? {}
       const mapped = {
         ...defaults,
         ...sandboxInput,
         ...customInput,
-        ...(defaults.env === undefined &&
-        sandboxInput.env === undefined &&
-        customInput.env === undefined
-          ? {}
-          : {
-              env: { ...defaults.env, ...sandboxInput.env, ...customInput.env },
-            }),
+        ...(defaults.env || sandboxInput.env || customInput.env
+          ? { env: { ...defaults.env, ...sandboxInput.env, ...customInput.env } }
+          : {}),
         providerOptions: {
           ...(defaults.providerOptions ?? {}),
           ...(sandboxInput.providerOptions ?? {}),
           ...(customInput.providerOptions ?? {}),
         },
       }
+      if (mapped.secrets !== undefined) mapped.secrets = structuredClone(mapped.secrets)
+      const bindingId = (binding: SecretBinding) =>
+        canonicalCandidateDigest({
+          ...binding,
+          header: (binding.header ?? 'Authorization').toLowerCase(),
+        })
+      const entries = Array.isArray(mapped.secrets) ? mapped.secrets : []
+      for (const binding of Array.isArray(selected) ? selected : []) {
+        if (
+          typeof binding !== 'string' &&
+          !entries.some(
+            (entry) => typeof entry !== 'string' && bindingId(entry) === bindingId(binding),
+          )
+        )
+          throw new ValidationError('mapped create changed a stored host binding')
+      }
+      if (bindings.length)
+        mapped.proxySecrets = mergeProxySecretBindings(
+          bindings,
+          mapped.proxySecrets,
+          typeof mapped.profile === 'object' ? mapped.profile.proxySecrets : undefined,
+        )
       if (mapped.backend === undefined) delete mapped.backend
-      if (mapped.profile === undefined) {
+      if (mapped.profile === undefined)
         throw new ValidationError(
           `providerAsSandboxClient(${provider.name}): profile required in defaults or CreateSandboxOptions.backend.profile`,
         )
-      }
       const needsMcp = hasRuntimeMcpAttachments(mapped)
       const capabilities =
         options.requireSession || needsMcp ? await provider.capabilities() : undefined
@@ -114,11 +138,10 @@ export function providerAsSandboxClient(
       if (
         options.requireSession &&
         (!capabilities?.streaming.live || !capabilities.sessions.continue)
-      ) {
+      )
         throw new ValidationError(
           `providerAsSandboxClient(${provider.name}): live session continuation is required`,
         )
-      }
       const environment = await provider.create(mapped as CreateAgentEnvironmentInput)
       if (options.requireSession && !environment.session) {
         if (options.workspaceRetention === undefined) await environment.destroy?.()
@@ -188,18 +211,10 @@ function createInputFromSandboxOptions(
       }
     }
     if (options?.secrets === 'all') unsupported.push('secrets=all')
-    // Sandbox 0.63 accepts structured secret bindings beside names; a neutral input names secrets
-    // only, so a binding needs the caller's mapper.
-    if (
-      Array.isArray(options?.secrets) &&
-      options.secrets.some((secret) => typeof secret !== 'string')
-    )
-      unsupported.push('secrets bindings')
-    if (unsupported.length > 0) {
+    if (unsupported.length > 0)
       throw new ValidationError(
         `providerAsSandboxClient: Sandbox create controls require mapCreateOptions: ${unsupported.join(', ')}`,
       )
-    }
   }
   const profile = options?.backend?.profile
   const backend = options?.backend?.type
@@ -219,12 +234,7 @@ function createInputFromSandboxOptions(
     ...(Object.keys(workspace).length > 0 ? { workspace } : {}),
     ...(options?.resources ? { resources: options.resources as ResourceRequest } : {}),
     ...(options?.env ? { env: options.env } : {}),
-    // Neutral inputs name secrets; a custom mapper owns any provider-specific selector or binding.
-    ...(Array.isArray(options?.secrets)
-      ? {
-          secrets: options.secrets.filter((secret): secret is string => typeof secret === 'string'),
-        }
-      : {}),
+    ...(Array.isArray(options?.secrets) ? { secrets: options.secrets } : {}),
     ...(options?.metadata ? { metadata: options.metadata } : {}),
     ...(options?.name ? { name: options.name } : {}),
     ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
@@ -335,11 +345,10 @@ export function environmentAsSandboxInstance(
       }
       if (streamFailed) throw streamError
       if (cancellationFailed) throw cancellationError
-      if (options.requireTerminalEvent && !terminal) {
+      if (options.requireTerminalEvent && !terminal)
         throw new ValidationError(
           `providerAsSandboxClient(${environment.provider}): stream ended without a terminal result/done/status event`,
         )
-      }
     },
     async prompt(
       message: string | PromptInputPart[],
@@ -363,11 +372,10 @@ export function environmentAsSandboxInstance(
         usageLedger.observe(sandboxEvent, environment.id)
         text += textFromEnvironmentEvent(event)
       }
-      if (options.requireTerminalEvent && !terminal) {
+      if (options.requireTerminalEvent && !terminal)
         throw new ValidationError(
           `providerAsSandboxClient(${environment.provider}): prompt ended without a terminal result/done/status event`,
         )
-      }
       usageLedger.settleTurn(environment.id)
       const usage = usageLedger.settledUsage()
       const outcome = failures.finish()
@@ -407,11 +415,7 @@ export function environmentAsSandboxInstance(
       : {}),
     ...(environment.read ? { read: environment.read.bind(environment) } : {}),
     ...(environment.write ? { write: environment.write.bind(environment) } : {}),
-    ...(environment.exec
-      ? {
-          exec: environment.exec.bind(environment),
-        }
-      : {}),
+    ...(environment.exec ? { exec: environment.exec.bind(environment) } : {}),
     ...(environment.checkpoint
       ? {
           async checkpoint(checkpointOptions?: CheckpointRequest) {
@@ -727,17 +731,15 @@ function sandboxDispatchResultFromSessionRef(session: AgentSessionRef): Record<s
 
 function optionalDispatchIdentity(value: unknown, label: string): string | undefined {
   if (value === undefined) return undefined
-  if (typeof value !== 'string' || value.length === 0) {
+  if (typeof value !== 'string' || value.length === 0)
     throw new ValidationError(`sandbox dispatch returned an invalid ${label}`)
-  }
   return value
 }
 
 function statusFromUnknown(status: unknown): AgentEnvironmentStatus {
   if (status === 'pending' || status === 'provisioning' || status === 'running') return status
   if (status === 'stopped' || status === 'failed' || status === 'expired') return status
-  if (status === 'completed') return 'stopped'
-  if (status === 'cancelled') return 'stopped'
+  if (status === 'completed' || status === 'cancelled') return 'stopped'
   return 'unknown'
 }
 
@@ -768,8 +770,7 @@ interface SandboxSessionLike {
   interrupt(options?: { executionId?: string }): Promise<unknown>
 }
 
-/** Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port.
- * @experimental */
+/** Legacy Sandbox client adapter options. @experimental */
 export interface ProviderAsSandboxClientOptions {
   defaults?: Partial<CreateAgentEnvironmentInput>
   requireTerminalEvent?: boolean
@@ -781,8 +782,7 @@ export interface ProviderAsSandboxClientOptions {
   retentionIdentity?: { executionId: string; profile: AgentProfile; node?: ExecutorNodeContext }
   /** Called after verification and before deletion so the run result can retain the exact join. */
   onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void | Promise<void>
-  /** Translate Sandbox-specific controls that have no neutral representation. Without this
-   * callback, unsupported fields are refused before any environment is created. */
+  /** Translate unsupported Sandbox controls while preserving requested custody. */
   mapCreateOptions?: (
     options: CreateSandboxOptions | undefined,
   ) => Partial<CreateAgentEnvironmentInput>
