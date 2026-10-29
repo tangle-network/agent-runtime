@@ -44,7 +44,8 @@ jobs:
       LINE_SCOPED_BACKPORTS: 'true'
       NPM_CONFIG_PROVENANCE: 'true'
     steps:
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - &node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.18.0
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -94,7 +95,6 @@ jobs:
             echo "::error::Archive identity mismatch: $name@$version."
             exit 1
           fi
-          expected_integrity=$(node -e 'const fs=require("node:fs"),crypto=require("node:crypto");process.stdout.write("sha512-"+crypto.createHash("sha512").update(fs.readFileSync(process.argv[1])).digest("base64"))' "$package")
           if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
             echo "$name@$version exists; verifying its archive, not republishing"
           else
@@ -109,25 +109,7 @@ jobs:
             fi
             npm publish "$package" --ignore-scripts --provenance --access public "${tag_args[@]}" --registry=https://registry.npmjs.org
           fi
-          # A version string alone is not evidence that the qualified bytes were served.
-          # Check npm's archive integrity for both new publication and existing-version retries.
-          # npm can take more than 10 minutes to serve a newly published version.
-          for _ in $(seq 1 60); do
-            if integrity_json=$(npm view "$name@$version" dist.integrity --json --registry=https://registry.npmjs.org 2>/dev/null); then
-              REGISTRY_INTEGRITY_JSON="$integrity_json" EXPECTED_INTEGRITY="$expected_integrity" node <<'NODE'
-          const raw = JSON.parse(process.env.REGISTRY_INTEGRITY_JSON)
-          if (typeof raw !== 'string' || !raw.split(/\s+/).includes(process.env.EXPECTED_INTEGRITY)) {
-            console.error('::error::Registry archive differs from the qualified archive or has no SHA-512 integrity.')
-            process.exit(1)
-          }
-          NODE
-              echo "$name@$version is served by the registry with matching archive integrity"
-              exit 0
-            fi
-            sleep 30
-          done
-          echo "::error::$name@$version is not served by the registry after 30 minutes; inspect staging and publication before retrying."
-          exit 1
+          echo "$name@$version registered with npm; read-only verification checks advertised bytes."
 
   publish-agent-bench:
     needs: qualify
@@ -143,9 +125,7 @@ jobs:
       LINE_SCOPED_BACKPORTS: 'false'
       NPM_CONFIG_PROVENANCE: 'true'
     steps:
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24.18.0
+      - *node
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: agent-bench-package
@@ -155,3 +135,31 @@ jobs:
         env:
           PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-bench-package
         run: *publish-exact
+  # A frozen tag can skip publishing from metadata alone; qualified bytes still need verification.
+  verify-publication:
+    needs: [qualify, publish-npm, publish-agent-bench]
+    if: "!cancelled() && needs.qualify.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')"
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    env:
+      PACKAGE: ${{ startsWith(github.ref, 'refs/tags/agent-bench-v') && 'agent-bench' || 'agent-runtime' }}
+      EXPECTED_SHA256: ${{ startsWith(github.ref, 'refs/tags/agent-bench-v') && needs.qualify.outputs.bench-package-sha256 || needs.qualify.outputs.runtime-package-sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ github.workflow_sha }}', sparse-checkout: scripts, persist-credentials: false }
+      - *node
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ env.PACKAGE }}-package
+          path: ${{ runner.temp }}/publication-package
+      - name: Verify advertised bytes against the qualified archive
+        run: |
+          for _ in $(seq 1 60); do
+            status=0
+            node scripts/check-npm-publication.mjs "$RUNNER_TEMP/publication-package" --require-published || status=$?
+            [ "$status" -ne 0 ] || exit 0
+            [ "$status" -eq 3 ] || exit "$status"
+            sleep 30
+          done
+          echo '::error::Qualified archive is not served by the registry after the propagation wait.'
+          exit 1

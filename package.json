@@ -154,6 +154,7 @@
     "docs:check": "pnpm run docs:api && git diff --exit-code -- docs/api && node scripts/check-docs-freshness.mjs"
   },
   "devDependencies": {
+    "@actions/expressions": "^0.3.61",
     "@arethetypeswrong/cli": "catalog:",
     "@biomejs/biome": "^2.6.3",
     "@modelcontextprotocol/sdk": "catalog:",
