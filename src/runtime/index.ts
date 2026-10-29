@@ -435,6 +435,7 @@ export {
 // (official above authored, crash lowest) → guarded repair steered by the checks' failure output.
 // Measured +8..+21pp hidden-test lift (docs/design/structural-rollout-integration.md).
 export * from './structural-rollout'
+export { RunCancellationReason } from './supervise/abortable'
 // The supervisor's intelligence: it AUTHORS each worker's profile (instructions + model) from a
 // SKILL (its own system prompt) — the optimizable self-improvement surface, not the plumbing.
 export * from './supervise/authoring'
@@ -632,7 +633,6 @@ export * from './supervise/provision-supervisor'
 export * from './supervise/reentry'
 export * from './supervise/remote-supervisor'
 export type { EvidencePendingEvent } from './supervise/retained-executor'
-export { RunCancellationReason } from './supervise/abortable'
 export {
   cancelRun,
   type RunCancellation,
