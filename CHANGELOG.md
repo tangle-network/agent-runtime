@@ -1,3 +1,7 @@
+## 3.0.4
+
+Keep the benchmark workspace on Runtime's selected Sandbox SDK and check its public client types in the normal typecheck gate.
+
 ## 3.0.3
 
 Forward stored host bindings and authored proxy declarations through provider adapters, preserve their full retained execution identity and keep unsupported raw candidate custody explicit.
