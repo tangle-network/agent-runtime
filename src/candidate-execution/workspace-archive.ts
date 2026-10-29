@@ -624,7 +624,9 @@ function assertArchiveMatchesSnapshot(
 }
 
 export function assertWorkspaceFilesWithinLimits(
-  files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
+  files: ReadonlyArray<
+    { path: string; mode: number } & ({ bytes: Uint8Array } | { byteLength: number })
+  >,
   limits: AgentCandidateWorkspaceArchiveLimits,
 ): void {
   if (files.length > limits.maxFiles) {
@@ -645,10 +647,13 @@ export function assertWorkspaceFilesWithinLimits(
     if (!isWorkspaceFileMode(file.mode)) {
       throw new Error(`candidate workspace file has unsupported mode: ${path}`)
     }
-    if (file.bytes.byteLength > limits.maxFileBytes) {
+    if ('bytes' in file && 'byteLength' in file)
+      throw new Error(`candidate workspace file has ambiguous length: ${path}`)
+    const byteLength = 'bytes' in file ? file.bytes.byteLength : file.byteLength
+    if (!Number.isSafeInteger(byteLength) || byteLength < 0 || byteLength > limits.maxFileBytes) {
       throw new Error(`candidate workspace file exceeds maxFileBytes: ${path}`)
     }
-    totalBytes += file.bytes.byteLength
+    totalBytes += byteLength
     if (totalBytes > limits.maxTotalFileBytes) {
       throw new Error('candidate workspace exceeds maxTotalFileBytes')
     }
