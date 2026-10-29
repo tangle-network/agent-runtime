@@ -153,4 +153,13 @@ jobs:
           name: ${{ env.PACKAGE }}-package
           path: ${{ runner.temp }}/publication-package
       - name: Verify advertised bytes against the qualified archive
-        run: node scripts/check-npm-publication.mjs "$RUNNER_TEMP/publication-package" --require-published
+        run: |
+          for _ in $(seq 1 60); do
+            status=0
+            node scripts/check-npm-publication.mjs "$RUNNER_TEMP/publication-package" --require-published || status=$?
+            [ "$status" -ne 0 ] || exit 0
+            [ "$status" -eq 3 ] || exit "$status"
+            sleep 30
+          done
+          echo '::error::Qualified archive is not served by the registry after the propagation wait.'
+          exit 1

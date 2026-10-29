@@ -41,8 +41,9 @@ assertEqual(consumer.permissions?.contents, 'read', 'publication verifier permis
 assertEqual(consumer.needs?.join(','), 'qualify,publish-npm,publish-agent-bench', 'publication verifier dependencies')
 assertEqual(consumer.env?.EXPECTED_SHA256,
   "${{ needs.publish-agent-bench.result == 'success' && needs.qualify.outputs.bench-package-sha256 || needs.qualify.outputs.runtime-package-sha256 }}", 'publication verifier qualified hash')
-assertEqual(requireSteps('verify-publication', consumer).find((step) => step.run)?.run,
-  'node scripts/check-npm-publication.mjs "$RUNNER_TEMP/publication-package" --require-published', 'actual byte verification command')
+const consumerCommand = requireSteps('verify-publication', consumer).find((step) => step.run)?.run ?? ''
+if (!consumerCommand.includes('node scripts/check-npm-publication.mjs "$RUNNER_TEMP/publication-package" --require-published') || !consumerCommand.includes('[ "$status" -eq 3 ] || exit "$status"'))
+  throw new Error('publication verifier must require actual bytes and fail closed on mismatches')
 const releaseCohort = readReleaseCohort()
 
 const publishJobs = {
@@ -73,22 +74,13 @@ for (const [jobName, requiredJob] of Object.entries(publishJobs)) {
     `node scripts/check-npm-publication.mjs "$RUNNER_TEMP/${prefix === 'runtime' ? 'agent-runtime' : 'agent-bench'}-package"`,
     `${requiredJob} exact archive admission`,
   )
-  assertEqual(admission[0].if, undefined, `${requiredJob} admission cannot be conditional`)
-  assertEqual(
-    admission[0]['continue-on-error'],
-    undefined,
-    `${requiredJob} admission cannot ignore failure`,
-  )
+  for (const flag of ['if', 'continue-on-error'])
+    assertEqual(admission[0][flag], undefined, `${requiredJob} admission ${flag}`)
 
   const steps = requireSteps(jobName, job)
   const actionNames = steps.flatMap((step) => (typeof step.uses === 'string' ? [step.uses] : []))
-  assertCount(actionNames, /^actions\/setup-node@[a-f0-9]{40}$/, 1, `${jobName} setup-node`)
-  assertCount(
-    actionNames,
-    /^actions\/download-artifact@[a-f0-9]{40}$/,
-    1,
-    `${jobName} artifact download`,
-  )
+  for (const action of ['setup-node', 'download-artifact'])
+    assertCount(actionNames, new RegExp(`^actions/${action}@[a-f0-9]{40}$`), 1, `${jobName} ${action}`)
 
   for (const step of steps) {
     if (typeof step.uses === 'string') {
@@ -126,13 +118,9 @@ for (const [jobName, requiredJob] of Object.entries(publishJobs)) {
 }
 
 for (const [jobName, job] of Object.entries({ ...jobs, ...qualifierJobs })) {
-  const idToken = job?.permissions?.['id-token']
-  if (idToken === 'write' && !(jobName in publishJobs)) {
+  if (job?.permissions?.['id-token'] === 'write' && !(jobName in publishJobs))
     throw new Error(`unexpected job can mint a package identity token: ${jobName}`)
-  }
-  if (job?.permissions?.contents === 'write') {
-    throw new Error(`publish workflow must not write repository contents: ${jobName}`)
-  }
+  if (job?.permissions?.contents === 'write') throw new Error(`publish workflow must not write repository contents: ${jobName}`)
   for (const step of job.steps ?? []) {
     if (step.uses && !/@[a-f0-9]{40}$/.test(step.uses)) throw new Error(`${jobName} action is not pinned`)
     if (step.uses?.startsWith('actions/checkout@'))
@@ -143,8 +131,7 @@ for (const [jobName, job] of Object.entries({ ...jobs, ...qualifierJobs })) {
 }
 
 for (const jobName of ['verify', 'verify-agent-bench']) {
-  const job = requireJob(jobName, qualifierJobs)
-  const steps = requireSteps(jobName, job)
+  const steps = requireSteps(jobName, requireJob(jobName, qualifierJobs))
   assertCount(
     steps.flatMap((step) => (typeof step.uses === 'string' ? [step.uses] : [])),
     /^actions\/upload-artifact@[a-f0-9]{40}$/,
@@ -250,8 +237,7 @@ function readWorkflow(path, label) {
 }
 
 function assertCohortJob(targetWorkflow, jobName, cohort) {
-  const job = targetWorkflow.jobs?.[jobName]
-  if (!job || typeof job !== 'object') throw new Error(`workflow is missing job ${jobName}`)
+  const job = requireJob(jobName, targetWorkflow.jobs ?? {})
   const steps = requireSteps(jobName, job)
   const readers = steps.filter((step) => step.id === 'cohort')
   assertEqual(readers.length, 1, `${jobName} cohort reader count`)
