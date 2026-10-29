@@ -12,6 +12,7 @@ const serial = [
   'tests/kernel/retained-checkpoint-capture.test.ts',
   'tests/kernel/run-registry-persistence.test.ts',
   'tests/integration/deadline-wake-process.test.ts',
+  'tests/integration/uncertain-create-identity.test.ts',
 ]
 
 export default defineConfig({
