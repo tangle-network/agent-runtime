@@ -217,12 +217,12 @@ it('the workflow checker enforces effective read permissions and authority isola
     const path = join(directory, 'publish.yml')
     const qualificationPath = join(directory, 'qualify.yml')
     for (const mutation of [
+      'zero-read',
       'id-token',
       'npm-secret',
       'persist-credentials',
       'empty',
       'null',
-      'zero-read',
       'write',
       'caller-implicit',
       'inherited-write',
@@ -252,9 +252,17 @@ it('the workflow checker enforces effective read permissions and authority isola
         qualification.permissions = { contents: 'read', 'id-token': 'write' }
       await writeFile(path, stringify(workflow))
       await writeFile(qualificationPath, stringify(qualification))
+      const refusal =
+        mutation === 'persist-credentials'
+          ? /checkout credentials/
+          : mutation === 'npm-secret'
+            ? /must not receive publishing credentials/
+            : ['id-token', 'inherited-id-token', 'qualifier-id-token'].includes(mutation)
+              ? /unexpected job can mint a package identity token/
+              : /contents permission/
       await expect(
         exec(process.execPath, ['scripts/check-publish-workflow.mjs', path, qualificationPath]),
-      ).rejects.toThrow(/permission|package identity token|publishing credentials/)
+      ).rejects.toThrow(refusal)
     }
     const workflow = parse(original)
     delete workflow.jobs['verify-publication'].permissions
