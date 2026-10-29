@@ -1,3 +1,7 @@
+## 3.0.2
+
+Allow the existing verified streaming workspace materializer to select manifest paths without buffering selected files or restoring the rest of the tree. Every archived file and the complete canonical archive still pass verification before any destination is published. Discovery Lab can replace its historical capture extractor with this owner.
+
 ## 3.0.1
 
 Retire the mocked transcript test that treated normalized provider tool events as proof of native capture. The viewer correctly reports unavailable native evidence alongside those events; actual process, integrity and replay coverage remains unchanged.
